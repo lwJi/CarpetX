@@ -431,7 +431,7 @@ void poison_invalid(const GHExt::GlobalData::ArrayGroupData &arraygroupdata,
   if (!valid.valid_int) {
     int dimension = arraygroupdata.dimension;
     CCTK_REAL *restrict const ptr =
-        const_cast<CCTK_REAL *>(&arraygroupdata.data.at(tl).at(vi));
+        const_cast<CCTK_REAL *>(arraygroupdata.data.at(tl).dataPtr(vi));
     const int *gsh = arraygroupdata.gsh;
     int n_elems = 1;
     for (int i = 0; i < dimension; i++)
@@ -464,7 +464,8 @@ void check_valid(const GHExt::GlobalData::ArrayGroupData &arraygroupdata,
 
   size_t nan_count{0};
   if (valid.valid_int) {
-    const CCTK_REAL *restrict const ptr = &arraygroupdata.data.at(tl).at(vi);
+    const CCTK_REAL *restrict const ptr =
+        arraygroupdata.data.at(tl).dataPtr(vi);
     int dimension = arraygroupdata.dimension;
     const int *gsh = arraygroupdata.gsh;
     int n_elems = 1;
