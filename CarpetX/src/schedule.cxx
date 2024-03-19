@@ -1096,7 +1096,7 @@ int Initialise(tFleshConfig *config) {
     RecoverGridStructure(cctkGH);
 
     assert(!active_levels);
-    active_levels = make_optional<active_levels_t>();
+    active_levels = make_optional<active_levels_t>(0, ghext->num_levels());
 
     CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
 
