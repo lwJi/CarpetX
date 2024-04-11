@@ -83,6 +83,12 @@ BOOLEAN periodic_z "Periodic"
 
 
 
+BOOLEAN use_subcycling_wip "Use subcycling in time"
+{
+} no
+
+
+
 PRIVATE:
 
 BOOLEAN reflection_x "Reflection symmetry at the lower x boundary"
@@ -441,12 +447,6 @@ CCTK_INT interpolation_order "Interpolation order" STEERABLE=always
 {
   0:* :: ""
 } 1
-
-
-
-BOOLEAN use_subcycling_wip "Use subcycling in time"
-{
-} no  
 
 
 
