@@ -272,6 +272,20 @@ void CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
   }
 }
 
+void CalcYfFromKcs(
+    const Loop::GridDescBaseDevice &grid,
+    // output
+    const array<const Loop::GF3D2<CCTK_REAL>, 2> &Yfs,
+    // input
+    const array<const Loop::GF3D2<const CCTK_REAL>, 2> &u0s,
+    const array<const array<const Loop::GF3D2<CCTK_REAL>, 4>, 2> &kcss,
+    const Loop::GF3D2<const CCTK_REAL> &isrmbndry, CCTK_REAL dtc, CCTK_REAL xsi,
+    CCTK_INT stage) {
+  for (unsigned int v = 0; v < Yfs.size(); ++v) {
+    CalcYfFromKcs(grid, Yfs[v], u0s[v], kcss[v], isrmbndry, dtc, xsi, stage);
+  }
+};
+
 extern "C" void TestSubcyclingMC_SetP(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_SetP;
 
@@ -289,13 +303,12 @@ extern "C" void TestSubcyclingMC_CalcK1(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK1;
   DECLARE_CCTK_PARAMETERS;
   if (use_subcycling_wip) {
-    const array<const Loop::GF3D2<CCTK_REAL>, 4> u_kcs{u_k1, u_k2, u_k3, u_k4};
-    const array<const Loop::GF3D2<CCTK_REAL>, 4> rho_kcs{rho_k1, rho_k2, rho_k3,
-                                                         rho_k4};
+    const array<const array<const Loop::GF3D2<CCTK_REAL>, 4>, 2> kcss{
+        {{u_k1, u_k2, u_k3, u_k4}, {rho_k1, rho_k2, rho_k3, rho_k4}}};
+    const array<const Loop::GF3D2<CCTK_REAL>, 2> ws{u, rho};
+    const array<const Loop::GF3D2<const CCTK_REAL>, 2> ps{u_p, rho_p};
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    const CCTK_REAL dtc = CCTK_DELTA_TIME * 2;
-    CalcYfFromKcs(grid, u, u_p, u_kcs, isrmbndry, dtc, xsi, 1);
-    CalcYfFromKcs(grid, rho, rho_p, rho_kcs, isrmbndry, dtc, xsi, 1);
+    CalcYfFromKcs(grid, ws, ps, kcss, isrmbndry, CCTK_DELTA_TIME * 2, xsi, 1);
   }
   CalcRhsAndUpdateU(grid, u_k1, rho_k1, u, rho, u, rho,
                     CCTK_DELTA_TIME / CCTK_REAL(6.)); // k1
@@ -307,13 +320,12 @@ extern "C" void TestSubcyclingMC_CalcK2(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK2;
   DECLARE_CCTK_PARAMETERS;
   if (use_subcycling_wip) {
-    const array<const Loop::GF3D2<CCTK_REAL>, 4> u_kcs{u_k1, u_k2, u_k3, u_k4};
-    const array<const Loop::GF3D2<CCTK_REAL>, 4> rho_kcs{rho_k1, rho_k2, rho_k3,
-                                                         rho_k4};
+    const array<const array<const Loop::GF3D2<CCTK_REAL>, 4>, 2> kcss{
+        {{u_k1, u_k2, u_k3, u_k4}, {rho_k1, rho_k2, rho_k3, rho_k4}}};
+    const array<const Loop::GF3D2<CCTK_REAL>, 2> ws{u_w, rho_w};
+    const array<const Loop::GF3D2<const CCTK_REAL>, 2> ps{u_p, rho_p};
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    const CCTK_REAL dtc = CCTK_DELTA_TIME * 2;
-    CalcYfFromKcs(grid, u_w, u_p, u_kcs, isrmbndry, dtc, xsi, 2);
-    CalcYfFromKcs(grid, rho_w, rho_p, rho_kcs, isrmbndry, dtc, xsi, 2);
+    CalcYfFromKcs(grid, ws, ps, kcss, isrmbndry, CCTK_DELTA_TIME * 2, xsi, 2);
   }
   CalcRhsAndUpdateU(grid, u_k2, rho_k2, u_w, rho_w, u, rho,
                     CCTK_DELTA_TIME / CCTK_REAL(3.)); // k2
@@ -325,13 +337,12 @@ extern "C" void TestSubcyclingMC_CalcK3(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK3;
   DECLARE_CCTK_PARAMETERS;
   if (use_subcycling_wip) {
-    const array<const Loop::GF3D2<CCTK_REAL>, 4> u_kcs{u_k1, u_k2, u_k3, u_k4};
-    const array<const Loop::GF3D2<CCTK_REAL>, 4> rho_kcs{rho_k1, rho_k2, rho_k3,
-                                                         rho_k4};
+    const array<const array<const Loop::GF3D2<CCTK_REAL>, 4>, 2> kcss{
+        {{u_k1, u_k2, u_k3, u_k4}, {rho_k1, rho_k2, rho_k3, rho_k4}}};
+    const array<const Loop::GF3D2<CCTK_REAL>, 2> ws{u_w, rho_w};
+    const array<const Loop::GF3D2<const CCTK_REAL>, 2> ps{u_p, rho_p};
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    const CCTK_REAL dtc = CCTK_DELTA_TIME * 2;
-    CalcYfFromKcs(grid, u_w, u_p, u_kcs, isrmbndry, dtc, xsi, 3);
-    CalcYfFromKcs(grid, rho_w, rho_p, rho_kcs, isrmbndry, dtc, xsi, 3);
+    CalcYfFromKcs(grid, ws, ps, kcss, isrmbndry, CCTK_DELTA_TIME * 2, xsi, 3);
   }
   CalcRhsAndUpdateU(grid, u_k3, rho_k3, u_w, rho_w, u, rho,
                     CCTK_DELTA_TIME / CCTK_REAL(3.)); // k3
@@ -343,13 +354,12 @@ extern "C" void TestSubcyclingMC_CalcK4(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK4;
   DECLARE_CCTK_PARAMETERS;
   if (use_subcycling_wip) {
-    const array<const Loop::GF3D2<CCTK_REAL>, 4> u_kcs{u_k1, u_k2, u_k3, u_k4};
-    const array<const Loop::GF3D2<CCTK_REAL>, 4> rho_kcs{rho_k1, rho_k2, rho_k3,
-                                                         rho_k4};
+    const array<const array<const Loop::GF3D2<CCTK_REAL>, 4>, 2> kcss{
+        {{u_k1, u_k2, u_k3, u_k4}, {rho_k1, rho_k2, rho_k3, rho_k4}}};
+    const array<const Loop::GF3D2<CCTK_REAL>, 2> ws{u_w, rho_w};
+    const array<const Loop::GF3D2<const CCTK_REAL>, 2> ps{u_p, rho_p};
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    const CCTK_REAL dtc = CCTK_DELTA_TIME * 2;
-    CalcYfFromKcs(grid, u_w, u_p, u_kcs, isrmbndry, dtc, xsi, 4);
-    CalcYfFromKcs(grid, rho_w, rho_p, rho_kcs, isrmbndry, dtc, xsi, 4);
+    CalcYfFromKcs(grid, ws, ps, kcss, isrmbndry, CCTK_DELTA_TIME * 2, xsi, 4);
   }
   CalcRhsAndUpdateU(grid, u_k4, rho_k4, u_w, rho_w, u, rho,
                     CCTK_DELTA_TIME / CCTK_REAL(6.)); // k4
