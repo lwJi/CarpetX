@@ -92,14 +92,6 @@ extern "C" void TestSubcyclingMC_Initial(CCTK_ARGUMENTS) {
                                       rho_k2(p.I) = 0.0;
                                       rho_k3(p.I) = 0.0;
                                       rho_k4(p.I) = 0.0;
-                                      u_Y1(p.I) = u(p.I);
-                                      u_Y2(p.I) = u(p.I);
-                                      u_Y3(p.I) = u(p.I);
-                                      u_Y4(p.I) = u(p.I);
-                                      rho_Y1(p.I) = rho(p.I);
-                                      rho_Y2(p.I) = rho(p.I);
-                                      rho_Y3(p.I) = rho(p.I);
-                                      rho_Y4(p.I) = rho(p.I);
                                     });
 }
 
@@ -196,7 +188,7 @@ void CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
                    const Loop::GF3D2<CCTK_REAL> &Yf,
                    // input
                    const Loop::GF3D2<const CCTK_REAL> &u0,
-                   const array<const Loop::GF3D2<const CCTK_REAL>, 4> &kcs,
+                   const array<const Loop::GF3D2<CCTK_REAL>, 4> &kcs,
                    const Loop::GF3D2<const CCTK_REAL> &isrmbndry, CCTK_REAL dtc,
                    CCTK_REAL xsi, CCTK_INT stage) {
   assert(stage > 0 && stage <= 4);
@@ -224,11 +216,6 @@ void CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
   constexpr CCTK_REAL e2 = CCTK_REAL(-4.);
   constexpr CCTK_REAL e3 = CCTK_REAL(-4.);
   constexpr CCTK_REAL e4 = CCTK_REAL(4.);
-
-  // initialize all grid value to zero
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { Yf(p.I) = 0.0; });
 
   if (stage == 1) {
     grid.loop_ghosts_device<0, 0, 0>(
@@ -285,31 +272,6 @@ void CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
   }
 }
 
-/**
- * \brief Copy Ys to w at the mesh refinement boundary
- *
- * \param w         RK substage Ys (temporary variable)
- * \param Y         RK substage Ys (stored variables, should exist only at the
- *                                  refinement boundary)
- */
-void FillBndry(const Loop::GridDescBaseDevice &grid,
-               // output
-               const Loop::GF3D2<CCTK_REAL> &u_w,
-               const Loop::GF3D2<CCTK_REAL> &rho_w,
-               // input
-               const Loop::GF3D2<const CCTK_REAL> &u_Y,
-               const Loop::GF3D2<const CCTK_REAL> &rho_Y,
-               const Loop::GF3D2<const CCTK_REAL> &isrmbndry) {
-  grid.loop_ghosts_device<0, 0, 0>(grid.nghostzones,
-                                   [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                                       CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                                         if (isrmbndry(p.I)) {
-                                           u_w(p.I) = u_Y(p.I);
-                                           rho_w(p.I) = rho_Y(p.I);
-                                         }
-                                       });
-}
-
 extern "C" void TestSubcyclingMC_SetP(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_SetP;
 
@@ -323,29 +285,18 @@ extern "C" void TestSubcyclingMC_SetP(CCTK_ARGUMENTS) {
                                     });
 }
 
-extern "C" void TestSubcyclingMC_CalcYfs(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcYfs;
-  const array<const Loop::GF3D2<const CCTK_REAL>, 4> u_kcs{u_k1, u_k2, u_k3,
-                                                           u_k4};
-  const array<const Loop::GF3D2<const CCTK_REAL>, 4> rho_kcs{rho_k1, rho_k2,
-                                                             rho_k3, rho_k4};
-  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-  const CCTK_REAL dtc = CCTK_DELTA_TIME * 2;
-  CalcYfFromKcs(grid, u_Y1, u_p, u_kcs, isrmbndry, dtc, xsi, 1);
-  CalcYfFromKcs(grid, u_Y2, u_p, u_kcs, isrmbndry, dtc, xsi, 2);
-  CalcYfFromKcs(grid, u_Y3, u_p, u_kcs, isrmbndry, dtc, xsi, 3);
-  CalcYfFromKcs(grid, u_Y4, u_p, u_kcs, isrmbndry, dtc, xsi, 4);
-  CalcYfFromKcs(grid, rho_Y1, rho_p, rho_kcs, isrmbndry, dtc, xsi, 1);
-  CalcYfFromKcs(grid, rho_Y2, rho_p, rho_kcs, isrmbndry, dtc, xsi, 2);
-  CalcYfFromKcs(grid, rho_Y3, rho_p, rho_kcs, isrmbndry, dtc, xsi, 3);
-  CalcYfFromKcs(grid, rho_Y4, rho_p, rho_kcs, isrmbndry, dtc, xsi, 4);
-}
-
 extern "C" void TestSubcyclingMC_CalcK1(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK1;
   DECLARE_CCTK_PARAMETERS;
-  if (use_subcycling_wip)
-    FillBndry(grid, u, rho, u_Y1, rho_Y1, isrmbndry);
+  if (use_subcycling_wip) {
+    const array<const Loop::GF3D2<CCTK_REAL>, 4> u_kcs{u_k1, u_k2, u_k3, u_k4};
+    const array<const Loop::GF3D2<CCTK_REAL>, 4> rho_kcs{rho_k1, rho_k2, rho_k3,
+                                                         rho_k4};
+    const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
+    const CCTK_REAL dtc = CCTK_DELTA_TIME * 2;
+    CalcYfFromKcs(grid, u, u_p, u_kcs, isrmbndry, dtc, xsi, 1);
+    CalcYfFromKcs(grid, rho, rho_p, rho_kcs, isrmbndry, dtc, xsi, 1);
+  }
   CalcRhsAndUpdateU(grid, u_k1, rho_k1, u, rho, u, rho,
                     CCTK_DELTA_TIME / CCTK_REAL(6.)); // k1
   CalcYs(grid, u_w, rho_w, u_p, rho_p, u_k1, rho_k1,
@@ -355,8 +306,15 @@ extern "C" void TestSubcyclingMC_CalcK1(CCTK_ARGUMENTS) {
 extern "C" void TestSubcyclingMC_CalcK2(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK2;
   DECLARE_CCTK_PARAMETERS;
-  if (use_subcycling_wip)
-    FillBndry(grid, u_w, rho_w, u_Y2, rho_Y2, isrmbndry);
+  if (use_subcycling_wip) {
+    const array<const Loop::GF3D2<CCTK_REAL>, 4> u_kcs{u_k1, u_k2, u_k3, u_k4};
+    const array<const Loop::GF3D2<CCTK_REAL>, 4> rho_kcs{rho_k1, rho_k2, rho_k3,
+                                                         rho_k4};
+    const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
+    const CCTK_REAL dtc = CCTK_DELTA_TIME * 2;
+    CalcYfFromKcs(grid, u_w, u_p, u_kcs, isrmbndry, dtc, xsi, 2);
+    CalcYfFromKcs(grid, rho_w, rho_p, rho_kcs, isrmbndry, dtc, xsi, 2);
+  }
   CalcRhsAndUpdateU(grid, u_k2, rho_k2, u_w, rho_w, u, rho,
                     CCTK_DELTA_TIME / CCTK_REAL(3.)); // k2
   CalcYs(grid, u_w, rho_w, u_p, rho_p, u_k2, rho_k2,
@@ -366,8 +324,15 @@ extern "C" void TestSubcyclingMC_CalcK2(CCTK_ARGUMENTS) {
 extern "C" void TestSubcyclingMC_CalcK3(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK3;
   DECLARE_CCTK_PARAMETERS;
-  if (use_subcycling_wip)
-    FillBndry(grid, u_w, rho_w, u_Y3, rho_Y3, isrmbndry);
+  if (use_subcycling_wip) {
+    const array<const Loop::GF3D2<CCTK_REAL>, 4> u_kcs{u_k1, u_k2, u_k3, u_k4};
+    const array<const Loop::GF3D2<CCTK_REAL>, 4> rho_kcs{rho_k1, rho_k2, rho_k3,
+                                                         rho_k4};
+    const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
+    const CCTK_REAL dtc = CCTK_DELTA_TIME * 2;
+    CalcYfFromKcs(grid, u_w, u_p, u_kcs, isrmbndry, dtc, xsi, 3);
+    CalcYfFromKcs(grid, rho_w, rho_p, rho_kcs, isrmbndry, dtc, xsi, 3);
+  }
   CalcRhsAndUpdateU(grid, u_k3, rho_k3, u_w, rho_w, u, rho,
                     CCTK_DELTA_TIME / CCTK_REAL(3.)); // k3
   CalcYs(grid, u_w, rho_w, u_p, rho_p, u_k3, rho_k3,
@@ -377,8 +342,15 @@ extern "C" void TestSubcyclingMC_CalcK3(CCTK_ARGUMENTS) {
 extern "C" void TestSubcyclingMC_CalcK4(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK4;
   DECLARE_CCTK_PARAMETERS;
-  if (use_subcycling_wip)
-    FillBndry(grid, u_w, rho_w, u_Y4, rho_Y4, isrmbndry);
+  if (use_subcycling_wip) {
+    const array<const Loop::GF3D2<CCTK_REAL>, 4> u_kcs{u_k1, u_k2, u_k3, u_k4};
+    const array<const Loop::GF3D2<CCTK_REAL>, 4> rho_kcs{rho_k1, rho_k2, rho_k3,
+                                                         rho_k4};
+    const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
+    const CCTK_REAL dtc = CCTK_DELTA_TIME * 2;
+    CalcYfFromKcs(grid, u_w, u_p, u_kcs, isrmbndry, dtc, xsi, 4);
+    CalcYfFromKcs(grid, rho_w, rho_p, rho_kcs, isrmbndry, dtc, xsi, 4);
+  }
   CalcRhsAndUpdateU(grid, u_k4, rho_k4, u_w, rho_w, u, rho,
                     CCTK_DELTA_TIME / CCTK_REAL(6.)); // k4
 }
