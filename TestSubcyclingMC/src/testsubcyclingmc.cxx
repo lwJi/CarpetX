@@ -96,78 +96,98 @@ extern "C" void TestSubcyclingMC_Initial(CCTK_ARGUMENTS) {
 }
 
 /**
- * \brief Calculate Ks from Ys, Update state vector Us from Ks and old Us
- *          rhs = RHS(w),
- *          u   += rhs * dt.
+ * \brief Calculate RHSs from Us
+ *          rhs = RHS(u),
  *
- * \param rhs       RK Ks
- * \param w         RK substage Ys
- * \param u         state vector Us
- * \param dt        time factor of each RK substep
+ * \param vlr       RHSs of state vector Us
+ * \param vlu       state vector Us
  */
 template <int D, typename tVarOut>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-CalcRhsAndUpdateU(const Loop::GridDescBaseDevice &grid,
-                  const array<tVarOut, D> &vlr, const array<tVarOut, D> &vlw,
-                  const array<tVarOut, D> &vlu, CCTK_REAL dt) {
+CalcRhs(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlr,
+        const array<tVarOut, D> &vlu) {
   tVarOut &u_rhs = vlr[0];
   tVarOut &rho_rhs = vlr[1];
-  tVarOut &u_w = vlw[0];
-  tVarOut &rho_w = vlw[1];
   tVarOut &u = vlu[0];
   tVarOut &rho = vlu[1];
-  // calculate rhs
+
   grid.loop_int_device<0, 0, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         using std::pow;
         Arith::vect<CCTK_REAL, dim> ddu;
         for (int d = 0; d < dim; ++d) {
-          // ddu[d] = (u_w(p.I - p.DI[d]) - 2 * u_w(p.I) + u_w(p.I + p.DI[d])) /
+          // ddu[d] = (u(p.I - p.DI[d]) - 2 * u(p.I) + u(p.I + p.DI[d])) /
           //          pow(p.DX[d], 2);
-          ddu[d] =
-              (-(u_w(p.I - 2 * p.DI[d]) + u_w(p.I + 2 * p.DI[d])) +
-               16 * (u_w(p.I - p.DI[d]) + u_w(p.I + p.DI[d])) - 30 * u_w(p.I)) /
-              (12 * pow(p.DX[d], 2));
+          ddu[d] = (-(u(p.I - 2 * p.DI[d]) + u(p.I + 2 * p.DI[d])) +
+                    16 * (u(p.I - p.DI[d]) + u(p.I + p.DI[d])) - 30 * u(p.I)) /
+                   (12 * pow(p.DX[d], 2));
         }
-        u_rhs(p.I) = rho_w(p.I);
+        u_rhs(p.I) = rho(p.I);
         rho_rhs(p.I) = ddu[0] + ddu[1] + ddu[2];
       });
-  // update vlu
-  grid.loop_int_device<0, 0, 0>(grid.nghostzones,
-                                [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                                    CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                                      u(p.I) += u_rhs(p.I) * dt;
-                                      rho(p.I) += rho_rhs(p.I) * dt;
-                                    });
+}
+
+/**
+ * \brief Update state vector Us from RHSs and old Us
+ *          u   += rhs * dt.
+ *
+ * \param vlu       state vector Us
+ * \param vlr       RHS of Us
+ * \param dt        time factor of each RK substep
+ */
+template <int D, typename tVarOut>
+CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+UpdateU(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlu,
+        const array<tVarOut, D> &vlr, const CCTK_REAL dt) {
+  for (size_t v = 0; v < D; ++v) {
+    grid.loop_int_device<0, 0, 0>(
+        grid.nghostzones,
+        [=] CCTK_DEVICE(const Loop::PointDesc &p)
+            CCTK_ATTRIBUTE_ALWAYS_INLINE { vlu[v](p.I) += vlr[v](p.I) * dt; });
+  }
+}
+
+/**
+ * \brief Calculate Ks from Ys, Update state vector Us from Ks and old Us
+ *          rhs = RHS(w),
+ *          u   += rhs * dt.
+ *
+ * \param vlr       RK Ks
+ * \param vlw       RK substage Ys
+ * \param vlu       state vector Us
+ * \param dt        time factor of each RK substep
+ */
+template <int D, typename tVarOut>
+CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+CalcRhsAndUpdateU(const Loop::GridDescBaseDevice &grid,
+                  const array<tVarOut, D> &vlr, const array<tVarOut, D> &vlw,
+                  const array<tVarOut, D> &vlu, const CCTK_REAL dt) {
+  CalcRhs<D>(grid, vlr, vlw);
+  UpdateU<D>(grid, vlu, vlr, dt);
 }
 
 /**
  * \brief Calculate Ys from U0 and rhs
  *          w = u_p + rhs * dt
  *
- * \param w         RK substage Ys
- * \param p         state vector U0
- * \param rhs       RK Ks
+ * \param vlw       RK substage Ys
+ * \param vlp       state vector U0
+ * \param vlr       RK Ks
  * \param dt        time factor of each RK substage
  */
 template <int D, typename tVarOut, typename tVarIn>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcYs(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlw,
        const array<tVarIn, D> &vlp, const array<tVarOut, D> &vlr,
-       CCTK_REAL dt) {
-  tVarOut &u_w = vlw[0];
-  tVarOut &rho_w = vlw[1];
-  tVarIn &u_p = vlp[0];
-  tVarIn &rho_p = vlp[1];
-  tVarOut &u_rhs = vlr[0];
-  tVarOut &rho_rhs = vlr[1];
-  grid.loop_int_device<0, 0, 0>(
-      grid.nghostzones,
-      [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        u_w(p.I) = u_p(p.I) + u_rhs(p.I) * dt;
-        rho_w(p.I) = rho_p(p.I) + rho_rhs(p.I) * dt;
-      });
+       const CCTK_REAL dt) {
+  for (size_t v = 0; v < D; ++v) {
+    grid.loop_int_device<0, 0, 0>(
+        grid.nghostzones,
+        [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+          vlw[v](p.I) = vlp[v](p.I) + vlr[v](p.I) * dt;
+        });
+  }
 }
 
 /**
