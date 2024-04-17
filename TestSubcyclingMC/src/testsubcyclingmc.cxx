@@ -106,17 +106,12 @@ extern "C" void TestSubcyclingMC_Initial(CCTK_ARGUMENTS) {
  * \param dt        time factor of each RK substep
  */
 void CalcRhsAndUpdateU(const Loop::GridDescBaseDevice &grid,
-                       // output 1
                        const Loop::GF3D2<CCTK_REAL> &u_rhs,
                        const Loop::GF3D2<CCTK_REAL> &rho_rhs,
-                       // input 1
                        const Loop::GF3D2<CCTK_REAL> &u_w,
                        const Loop::GF3D2<CCTK_REAL> &rho_w,
-                       // output 2
                        const Loop::GF3D2<CCTK_REAL> &u,
-                       const Loop::GF3D2<CCTK_REAL> &rho,
-                       // input
-                       CCTK_REAL dt) {
+                       const Loop::GF3D2<CCTK_REAL> &rho, CCTK_REAL dt) {
   // calculate rhs
   grid.loop_int_device<0, 0, 0>(
       grid.nghostzones,
@@ -153,10 +148,8 @@ void CalcRhsAndUpdateU(const Loop::GridDescBaseDevice &grid,
  * \param dt        time factor of each RK substage
  */
 void CalcYs(const Loop::GridDescBaseDevice &grid,
-            // output
             const Loop::GF3D2<CCTK_REAL> &u_w,
             const Loop::GF3D2<CCTK_REAL> &rho_w,
-            // input
             const Loop::GF3D2<const CCTK_REAL> &u_p,
             const Loop::GF3D2<const CCTK_REAL> &rho_p,
             const Loop::GF3D2<CCTK_REAL> &u_rhs,
@@ -183,14 +176,11 @@ void CalcYs(const Loop::GridDescBaseDevice &grid,
  *                  denoting the first and second substep, respectively.
  * \param stage     RK stage number starting from 1
  */
-void CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
-                   // output
-                   const Loop::GF3D2<CCTK_REAL> &Yf,
-                   // input
-                   const Loop::GF3D2<const CCTK_REAL> &u0,
-                   const array<const Loop::GF3D2<CCTK_REAL>, 4> &kcs,
-                   const Loop::GF3D2<const CCTK_REAL> &isrmbndry, CCTK_REAL dtc,
-                   CCTK_REAL xsi, CCTK_INT stage) {
+template <typename tVarOut, typename tVarIn>
+CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+CalcYfFromKcs(const Loop::GridDescBaseDevice &grid, tVarOut &Yf, tVarIn &u0,
+              const array<tVarOut, 4> &kcs, tVarIn &isrmbndry,
+              const CCTK_REAL dtc, const CCTK_REAL xsi, const CCTK_INT stage) {
   assert(stage > 0 && stage <= 4);
 
   CCTK_REAL r = 0.5; // ratio between coarse and fine cell size (2 to 1 MR case)
@@ -272,17 +262,16 @@ void CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
   }
 }
 
-void CalcYfFromKcs(
-    const Loop::GridDescBaseDevice &grid,
-    // output
-    const array<const Loop::GF3D2<CCTK_REAL>, 2> &Yfs,
-    // input
-    const array<const Loop::GF3D2<const CCTK_REAL>, 2> &u0s,
-    const array<const array<const Loop::GF3D2<CCTK_REAL>, 4>, 2> &kcss,
-    const Loop::GF3D2<const CCTK_REAL> &isrmbndry, CCTK_REAL dtc, CCTK_REAL xsi,
-    CCTK_INT stage) {
-  for (unsigned int v = 0; v < Yfs.size(); ++v) {
-    CalcYfFromKcs(grid, Yfs[v], u0s[v], kcss[v], isrmbndry, dtc, xsi, stage);
+/* Varlist version */
+template <int D, typename tVarOut, typename tVarIn>
+CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
+              const array<tVarOut, D> &Yfs, const array<tVarIn, D> &u0s,
+              const array<const array<tVarOut, 4>, D> &kcss, tVarIn &isrmbndry,
+              const CCTK_REAL dtc, const CCTK_REAL xsi, const CCTK_INT stage) {
+  for (size_t v = 0; v < D; ++v) {
+    CalcYfFromKcs<tVarOut, tVarIn>(grid, Yfs[v], u0s[v], kcss[v], isrmbndry,
+                                   dtc, xsi, stage);
   }
 };
 
@@ -309,7 +298,8 @@ extern "C" void TestSubcyclingMC_CalcK1(CCTK_ARGUMENTS) {
     const array<const Loop::GF3D2<CCTK_REAL>, 2> ws{u, rho};
     const array<const Loop::GF3D2<const CCTK_REAL>, 2> ps{u_p, rho_p};
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    CalcYfFromKcs(grid, ws, ps, kcss, isrmbndry, dt * 2, xsi, 1);
+    constexpr size_t nvars = kcss.size();
+    CalcYfFromKcs<nvars>(grid, ws, ps, kcss, isrmbndry, dt * 2, xsi, 1);
   }
   CalcRhsAndUpdateU(grid, u_k1, rho_k1, u, rho, u, rho, dt / CCTK_REAL(6.));
   CalcYs(grid, u_w, rho_w, u_p, rho_p, u_k1, rho_k1, dt * CCTK_REAL(0.5));
@@ -325,7 +315,8 @@ extern "C" void TestSubcyclingMC_CalcK2(CCTK_ARGUMENTS) {
     const array<const Loop::GF3D2<CCTK_REAL>, 2> ws{u_w, rho_w};
     const array<const Loop::GF3D2<const CCTK_REAL>, 2> ps{u_p, rho_p};
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    CalcYfFromKcs(grid, ws, ps, kcss, isrmbndry, dt * 2, xsi, 2);
+    constexpr size_t nvars = kcss.size();
+    CalcYfFromKcs<nvars>(grid, ws, ps, kcss, isrmbndry, dt * 2, xsi, 2);
   }
   CalcRhsAndUpdateU(grid, u_k2, rho_k2, u_w, rho_w, u, rho, dt / CCTK_REAL(3.));
   CalcYs(grid, u_w, rho_w, u_p, rho_p, u_k2, rho_k2, dt * CCTK_REAL(0.5));
@@ -341,7 +332,8 @@ extern "C" void TestSubcyclingMC_CalcK3(CCTK_ARGUMENTS) {
     const array<const Loop::GF3D2<CCTK_REAL>, 2> ws{u_w, rho_w};
     const array<const Loop::GF3D2<const CCTK_REAL>, 2> ps{u_p, rho_p};
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    CalcYfFromKcs(grid, ws, ps, kcss, isrmbndry, dt * 2, xsi, 3);
+    constexpr size_t nvars = kcss.size();
+    CalcYfFromKcs<nvars>(grid, ws, ps, kcss, isrmbndry, dt * 2, xsi, 3);
   }
   CalcRhsAndUpdateU(grid, u_k3, rho_k3, u_w, rho_w, u, rho, dt / CCTK_REAL(3.));
   CalcYs(grid, u_w, rho_w, u_p, rho_p, u_k3, rho_k3, dt);
@@ -357,7 +349,8 @@ extern "C" void TestSubcyclingMC_CalcK4(CCTK_ARGUMENTS) {
     const array<const Loop::GF3D2<CCTK_REAL>, 2> ws{u_w, rho_w};
     const array<const Loop::GF3D2<const CCTK_REAL>, 2> ps{u_p, rho_p};
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    CalcYfFromKcs(grid, ws, ps, kcss, isrmbndry, dt * 2, xsi, 4);
+    constexpr size_t nvars = kcss.size();
+    CalcYfFromKcs<nvars>(grid, ws, ps, kcss, isrmbndry, dt * 2, xsi, 4);
   }
   CalcRhsAndUpdateU(grid, u_k4, rho_k4, u_w, rho_w, u, rho, dt / CCTK_REAL(6.));
 }
