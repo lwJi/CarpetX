@@ -179,6 +179,41 @@ inline int get_group_rhs(const int gi) {
   return rhs;
 }
 
+template <typename T, int D> inline array<T, D> get_group_ks(const int gi) {
+  assert(gi >= 0);
+  const int tags = CCTK_GroupTagsTableI(gi);
+  assert(tags >= 0);
+  std::vector<char> rhs_buf(1000);
+  const int iret =
+      Util_TableGetString(tags, rhs_buf.size(), rhs_buf.data(), "rhs");
+  if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
+    rhs_buf[0] = '\0'; // default: empty (no RHS)
+  } else if (iret >= 0) {
+    // do nothing
+  } else {
+    assert(0);
+  }
+
+  const std::string str(rhs_buf.data());
+  if (str.empty())
+    return -1; // No RHS specified
+
+  array<T, D> ks;
+  std::size_t pos = str.find("rhs");
+  for (int i = 0; i < D; i++) {
+    std::string str_ks = str;
+    str_ks.replace(pos, 3, "k" + std::to_string(i + 1));
+    const int ks_gi = groupindex(gi, str_ks);
+    if (ks_gi < 0)
+      CCTK_VERROR("Variable group \"%s\" declares a ks group \"%s\". "
+                  "That group does not exist.",
+                  CCTK_FullGroupName(gi), str.c_str());
+    ks[i] = ks_gi;
+  }
+
+  return ks;
+}
+
 inline std::vector<int> get_group_dependents(const int gi) {
   assert(gi >= 0);
   const int tags = CCTK_GroupTagsTableI(gi);
