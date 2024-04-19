@@ -4,6 +4,8 @@ IMPLEMENTS: Subcycling
 
 USES INCLUDE HEADER: loop_device.hxx
 
+INCLUDES HEADER: subcycling.hxx IN subcycling.hxx
+
 
 
 PUBLIC:
