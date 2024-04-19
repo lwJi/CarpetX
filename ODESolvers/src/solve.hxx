@@ -194,11 +194,8 @@ template <typename T, int D> inline array<T, D> get_group_ks(const int gi) {
     assert(0);
   }
 
-  const std::string str(rhs_buf.data());
-  if (str.empty())
-    return -1; // No RHS specified
-
   array<T, D> ks;
+  const std::string str(rhs_buf.data());
   std::size_t pos = str.find("rhs");
   for (int i = 0; i < D; i++) {
     std::string str_ks = str;
