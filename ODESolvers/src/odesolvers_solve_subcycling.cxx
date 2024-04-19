@@ -14,7 +14,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     CCTK_VINFO("Integrator is %s", method);
   did_output = true;
 
-  const CCTK_REAL dt = cctk_delta_time;
+  const CCTK_REAL dt = CCTK_DELTA_TIME;
   const int tl = 0;
 
   statecomp_t var, rhs;
@@ -131,11 +131,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
     // const auto k1 = rhs.copy(make_valid_int());
-    const auto kaccum = rhs.copy(make_valid_int());
+    ks[0] = rhs.copy(make_valid_int());
 
     // Step 2
 
-    // Add scaled RHS to state vector
+    // Add scaled RHS to state vector: y2 = y0 + h/2 k1
     statecomp_t::lincomb(var, 1, make_array(dt / 2), make_array(&rhs),
                          make_valid_int());
     var.check_valid(make_valid_int(),
@@ -150,12 +150,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
     // const auto k2 = rhs.copy(make_valid_int());
-    statecomp_t::lincomb(kaccum, 1, make_array(CCTK_REAL(2)), make_array(&rhs),
-                         make_valid_int());
+    ks[1] = rhs.copy(make_valid_int());
 
     // Step 3
 
-    // Add scaled RHS to state vector
+    // Add scaled RHS to state vector: y3 = y0 + h/2 k2
     statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt / 2),
                          make_array(&old, &rhs), make_valid_int());
     var.check_valid(make_valid_int(),
@@ -170,12 +169,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
     // const auto k3 = rhs.copy(make_valid_int());
-    statecomp_t::lincomb(kaccum, 1, make_array(CCTK_REAL(2)), make_array(&rhs),
-                         make_valid_int());
+    ks[2] = rhs.copy(make_valid_int());
 
     // Step 4
 
-    // Add scaled RHS to state vector
+    // Add scaled RHS to state vector: y4 = y0 + h k3
     statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt),
                          make_array(&old, &rhs), make_valid_int());
     var.check_valid(make_valid_int(),
@@ -189,11 +187,12 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
-    const auto &k4 = rhs;
+    ks[3] = rhs.copy(make_valid_int());
 
-    // Calculate new state vector
-    statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt / 6, dt / 6),
-                         make_array(&old, &kaccum, &k4), make_valid_int());
+    // Calculate new state vector: y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
+    statecomp_t::lincomb(
+        var, 0, make_array(CCTK_REAL(1), dt / 6, dt / 3, dt / 3, dt / 6),
+        make_array(&old, &ks[0], &ks[1], &ks[2], &ks[3]), make_valid_int());
     var.check_valid(make_valid_int(),
                     "ODESolvers after defining new state vector");
     mark_invalid(dep_groups);
