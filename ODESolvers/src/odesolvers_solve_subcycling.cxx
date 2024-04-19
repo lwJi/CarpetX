@@ -80,6 +80,12 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     assert(last == rhs_groups.end());
   }
 
+  for (int i = 0; i < rkstages; i++) {
+    std::sort(ks_groups[i].begin(), ks_groups[i].end());
+    const auto last = std::unique(ks_groups[i].begin(), ks_groups[i].end());
+    assert(last == ks_groups[i].end());
+  }
+
   // Add RHS variables to dependent variables
   dep_groups.insert(dep_groups.end(), rhs_groups.begin(), rhs_groups.end());
 
