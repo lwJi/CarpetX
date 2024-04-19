@@ -3,6 +3,8 @@
 namespace ODESolvers {
 using namespace std;
 
+constexpr int rkstages = 4;
+
 extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling;
   DECLARE_CCTK_PARAMETERS;
@@ -16,7 +18,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   const int tl = 0;
 
   statecomp_t var, rhs;
+  array<statecomp_t, rkstages> ks;
   std::vector<int> var_groups, rhs_groups, dep_groups;
+  array<std::vector<int>, rkstages> ks_groups;
   int nvars = 0;
   bool do_accumulate_nvars = true;
   assert(CarpetX::active_levels);
@@ -28,18 +32,29 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
       auto &groupdata = *groupdataptr;
       const int rhs_gi = get_group_rhs(groupdata.groupindex);
+      const auto &ks_gi = get_group_ks<int, rkstages>(groupdata.groupindex);
       if (rhs_gi >= 0) {
         assert(rhs_gi != groupdata.groupindex);
         auto &rhs_groupdata = *leveldata.groupdata.at(rhs_gi);
         assert(rhs_groupdata.numvars == groupdata.numvars);
+
         var.groupdatas.push_back(&groupdata);
         var.mfabs.push_back(groupdata.mfab.at(tl).get());
         rhs.groupdatas.push_back(&rhs_groupdata);
         rhs.mfabs.push_back(rhs_groupdata.mfab.at(tl).get());
+        for (int i = 0; i < rkstages; i++) {
+          auto &ki_groupdata = *leveldata.groupdata.at(ks_gi[i]);
+          ks[i].groupdatas.push_back(&ki_groupdata);
+          ks[i].mfabs.push_back(ki_groupdata.mfab.at(tl).get());
+        }
+
         if (do_accumulate_nvars) {
           nvars += groupdata.numvars;
           var_groups.push_back(groupdata.groupindex);
           rhs_groups.push_back(rhs_gi);
+          for (int i = 0; i < rkstages; i++) {
+            ks_groups[i].push_back(ks_gi[i]);
+          }
           const auto &dependents = get_group_dependents(groupdata.groupindex);
           dep_groups.insert(dep_groups.end(), dependents.begin(),
                             dependents.end());
