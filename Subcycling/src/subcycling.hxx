@@ -9,6 +9,7 @@
 #include <cctk.h>
 #include <cctk_Arguments.h>
 #include <cctk_Parameters.h>
+#include <util_Table.h>
 
 #include <array>
 #include <cassert>
@@ -17,6 +18,46 @@
 
 namespace Subcycling {
 using namespace Arith;
+
+/* copyed from CarpetX/src/driver.cxx */
+array<int, Loop::dim> get_group_indextype(const int gi) {
+  DECLARE_CCTK_PARAMETERS;
+
+  assert(gi >= 0);
+
+  const int tags = CCTK_GroupTagsTableI(gi);
+  assert(tags >= 0);
+  array<CCTK_INT, Loop::dim> index;
+
+  // The CST stage doesn't look for the `index` tag, and
+  // `CCTK_ARGUMENTSX_...` would thus ignore it
+  int iret = Util_TableGetIntArray(tags, Loop::dim, index.data(), "index");
+  if (iret != UTIL_ERROR_TABLE_NO_SUCH_KEY)
+    CCTK_VERROR(
+        "The grid function group %s has a tag `index=...`. This is not "
+        "supported any more; use a `CENTERING{...}` declaration instead.",
+        CCTK_FullGroupName(gi));
+
+  // Use the centering table
+  const int centering = CCTK_GroupCenteringTableI(gi);
+  assert(centering >= 0);
+  iret = Util_TableGetIntArray(centering, Loop::dim, index.data(), "centering");
+  if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
+    // Default: vertex-centred
+    index = {0, 0, 0};
+  } else if (iret >= 0) {
+    assert(iret == Loop::dim);
+  } else {
+    assert(0);
+  }
+
+  // Convert to index type
+  array<int, Loop::dim> indextype;
+  for (int d = 0; d < Loop::dim; ++d)
+    indextype[d] = index[d];
+
+  return indextype;
+}
 
 /**
  * \brief Calculate Ys ghost points for fine grid using Ks on coarse grid
@@ -32,11 +73,13 @@ using namespace Arith;
  *                  denoting the first and second substep, respectively.
  * \param stage     RK stage number starting from 1
  */
-template <typename tVarOut, typename tVarIn>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-CalcYfFromKcs(const Loop::GridDescBaseDevice &grid, tVarOut &Yf, tVarIn &u0,
-              const array<tVarOut, 4> &kcs, tVarIn &isrmbndry,
-              const CCTK_REAL dtc, const CCTK_REAL xsi, const CCTK_INT stage) {
+CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
+              const Loop::GF3D2<CCTK_REAL> &Yf,
+              const Loop::GF3D2<CCTK_REAL> &u0,
+              const array<const Loop::GF3D2<CCTK_REAL>, 4> &kcs,
+              const Loop::GF3D2<const CCTK_REAL> &isrmbndry, const CCTK_REAL dtc,
+              const CCTK_REAL xsi, const CCTK_INT stage) {
   assert(stage > 0 && stage <= 4);
 
   CCTK_REAL r = 0.5; // ratio between coarse and fine cell size (2 to 1 MR case)
@@ -119,15 +162,46 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid, tVarOut &Yf, tVarIn &u0,
 }
 
 /* Varlist version */
-template <int D, typename tVarOut, typename tVarIn>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
-              const array<tVarOut, D> &Yfs, const array<tVarIn, D> &u0s,
-              const array<const array<tVarOut, 4>, D> &kcss, tVarIn &isrmbndry,
+CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
+              const array<vector<int>, 4> &kcss,
+              const Loop::GF3D2<const CCTK_REAL> &isrmbndry,
               const CCTK_REAL dtc, const CCTK_REAL xsi, const CCTK_INT stage) {
-  for (size_t v = 0; v < D; ++v) {
-    CalcYfFromKcs<tVarOut, tVarIn>(grid, Yfs[v], u0s[v], kcss[v], isrmbndry,
-                                   dtc, xsi, stage);
+
+  const Loop::GridDescBaseDevice grid(cctkGH);
+  const int tl = 0;
+  for (size_t i = 0; i < Yfs.size(); ++i) {
+    const int nvars = CCTK_NumVarsInGroupI(Yfs[i]);
+    const Loop::GF3D2layout layout(cctkGH, get_group_indextype(Yfs[i]));
+
+    const int Yf_0 = CCTK_FirstVarIndexI(Yfs[i]);
+    const int u0_0 = CCTK_FirstVarIndexI(u0s[i]);
+    const int k1_0 = CCTK_FirstVarIndexI(kcss[0][i]);
+    const int k2_0 = CCTK_FirstVarIndexI(kcss[1][i]);
+    const int k3_0 = CCTK_FirstVarIndexI(kcss[2][i]);
+    const int k4_0 = CCTK_FirstVarIndexI(kcss[3][i]);
+    for (int vi = 0; vi < nvars; vi++) {
+      const Loop::GF3D2<CCTK_REAL> Yf(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, Yf_0 + vi)));
+      const Loop::GF3D2<CCTK_REAL> u0(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, u0_0 + vi)));
+      const Loop::GF3D2<CCTK_REAL> k1(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, k1_0 + vi)));
+      const Loop::GF3D2<CCTK_REAL> k2(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, k2_0 + vi)));
+      const Loop::GF3D2<CCTK_REAL> k3(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, k3_0 + vi)));
+      const Loop::GF3D2<CCTK_REAL> k4(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, k4_0 + vi)));
+      const array<const Loop::GF3D2<CCTK_REAL>, 4> kcs{k1, k2, k3, k4};
+      CalcYfFromKcs(grid, Yf, u0, kcs, isrmbndry, dtc, xsi, stage);
+    }
   }
 }
 
