@@ -215,12 +215,17 @@ extern "C" void TestSubcyclingMC_CalcK1(CCTK_ARGUMENTS) {
   constexpr size_t nvars = vlu.size();
 
   if (use_subcycling_wip) {
-    const array<const array<const Loop::GF3D2<CCTK_REAL>, 4>, 2> kcss{
-        {{u_k1, u_k2, u_k3, u_k4}, {rho_k1, rho_k2, rho_k3, rho_k4}}};
+    vector<int> u_groups, p_groups;
+    array<vector<int>, 4> ks_groups;
+    u_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::ustate"));
+    p_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::pstate"));
+    ks_groups[0].push_back(CCTK_GroupIndex("TestSubcyclingMC::k1"));
+    ks_groups[1].push_back(CCTK_GroupIndex("TestSubcyclingMC::k2"));
+    ks_groups[2].push_back(CCTK_GroupIndex("TestSubcyclingMC::k3"));
+    ks_groups[3].push_back(CCTK_GroupIndex("TestSubcyclingMC::k4"));
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-
-    Subcycling::CalcYfFromKcs<nvars>(grid, vlu, vlp, kcss, isrmbndry, dt * 2,
-                                     xsi, 1);
+    Subcycling::CalcYfFromKcs(CCTK_PASS_CTOC, u_groups, p_groups, ks_groups,
+                              isrmbndry, dt * 2, xsi, 1);
   }
   CalcRhsAndUpdateU<nvars>(grid, k1, vlu, vlu, dt / CCTK_REAL(6.));
   CalcYs<nvars>(grid, vlw, vlp, k1, dt * CCTK_REAL(0.5));
@@ -237,12 +242,17 @@ extern "C" void TestSubcyclingMC_CalcK2(CCTK_ARGUMENTS) {
   constexpr size_t nvars = vlu.size();
 
   if (use_subcycling_wip) {
-    const array<const array<const Loop::GF3D2<CCTK_REAL>, 4>, 2> kcss{
-        {{u_k1, u_k2, u_k3, u_k4}, {rho_k1, rho_k2, rho_k3, rho_k4}}};
+    vector<int> w_groups, p_groups;
+    array<vector<int>, 4> ks_groups;
+    w_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::wstate"));
+    p_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::pstate"));
+    ks_groups[0].push_back(CCTK_GroupIndex("TestSubcyclingMC::k1"));
+    ks_groups[1].push_back(CCTK_GroupIndex("TestSubcyclingMC::k2"));
+    ks_groups[2].push_back(CCTK_GroupIndex("TestSubcyclingMC::k3"));
+    ks_groups[3].push_back(CCTK_GroupIndex("TestSubcyclingMC::k4"));
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-
-    Subcycling::CalcYfFromKcs<nvars>(grid, vlw, vlp, kcss, isrmbndry, dt * 2,
-                                     xsi, 2);
+    Subcycling::CalcYfFromKcs(CCTK_PASS_CTOC, w_groups, p_groups, ks_groups,
+                              isrmbndry, dt * 2, xsi, 2);
   }
   CalcRhsAndUpdateU<nvars>(grid, k2, vlw, vlu, dt / CCTK_REAL(3.));
   CalcYs<nvars>(grid, vlw, vlp, k2, dt * CCTK_REAL(0.5));
@@ -259,12 +269,17 @@ extern "C" void TestSubcyclingMC_CalcK3(CCTK_ARGUMENTS) {
   constexpr size_t nvars = vlu.size();
 
   if (use_subcycling_wip) {
-    const array<const array<const Loop::GF3D2<CCTK_REAL>, 4>, 2> kcss{
-        {{u_k1, u_k2, u_k3, u_k4}, {rho_k1, rho_k2, rho_k3, rho_k4}}};
+    vector<int> w_groups, p_groups;
+    array<vector<int>, 4> ks_groups;
+    w_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::wstate"));
+    p_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::pstate"));
+    ks_groups[0].push_back(CCTK_GroupIndex("TestSubcyclingMC::k1"));
+    ks_groups[1].push_back(CCTK_GroupIndex("TestSubcyclingMC::k2"));
+    ks_groups[2].push_back(CCTK_GroupIndex("TestSubcyclingMC::k3"));
+    ks_groups[3].push_back(CCTK_GroupIndex("TestSubcyclingMC::k4"));
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-
-    Subcycling::CalcYfFromKcs<nvars>(grid, vlw, vlp, kcss, isrmbndry, dt * 2,
-                                     xsi, 3);
+    Subcycling::CalcYfFromKcs(CCTK_PASS_CTOC, w_groups, p_groups, ks_groups,
+                              isrmbndry, dt * 2, xsi, 3);
   }
   CalcRhsAndUpdateU<nvars>(grid, k3, vlw, vlu, dt / CCTK_REAL(3.));
   CalcYs<nvars>(grid, vlw, vlp, k3, dt);
@@ -280,13 +295,17 @@ extern "C" void TestSubcyclingMC_CalcK4(CCTK_ARGUMENTS) {
   constexpr size_t nvars = vlu.size();
 
   if (use_subcycling_wip) {
-    const array<const array<const Loop::GF3D2<CCTK_REAL>, 4>, 2> kcss{
-        {{u_k1, u_k2, u_k3, u_k4}, {rho_k1, rho_k2, rho_k3, rho_k4}}};
-    const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_p, rho_p};
+    vector<int> w_groups, p_groups;
+    array<vector<int>, 4> ks_groups;
+    w_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::wstate"));
+    p_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::pstate"));
+    ks_groups[0].push_back(CCTK_GroupIndex("TestSubcyclingMC::k1"));
+    ks_groups[1].push_back(CCTK_GroupIndex("TestSubcyclingMC::k2"));
+    ks_groups[2].push_back(CCTK_GroupIndex("TestSubcyclingMC::k3"));
+    ks_groups[3].push_back(CCTK_GroupIndex("TestSubcyclingMC::k4"));
     const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-
-    Subcycling::CalcYfFromKcs<nvars>(grid, vlw, vlp, kcss, isrmbndry, dt * 2,
-                                     xsi, 4);
+    Subcycling::CalcYfFromKcs(CCTK_PASS_CTOC, w_groups, p_groups, ks_groups,
+                              isrmbndry, dt * 2, xsi, 4);
   }
   CalcRhsAndUpdateU<nvars>(grid, k4, vlw, vlu, dt / CCTK_REAL(6.));
 }
