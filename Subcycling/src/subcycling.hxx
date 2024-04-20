@@ -112,10 +112,10 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
         grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           if (isrmbndry(p.I)) {
-            CCTK_REAL k1 = kcs.at(0)(p.I);
-            CCTK_REAL k2 = kcs.at(1)(p.I);
-            CCTK_REAL k3 = kcs.at(2)(p.I);
-            CCTK_REAL k4 = kcs.at(3)(p.I);
+            CCTK_REAL k1 = kcs[0](p.I);
+            CCTK_REAL k2 = kcs[1](p.I);
+            CCTK_REAL k3 = kcs[2](p.I);
+            CCTK_REAL k4 = kcs[3](p.I);
             CCTK_REAL uu = b1 * k1 + b2 * k2 + b3 * k3 + b4 * k4;
             Yf(p.I) = u0(p.I) + dtc * uu;
           }
@@ -125,10 +125,10 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
         grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           if (isrmbndry(p.I)) {
-            CCTK_REAL k1 = kcs.at(0)(p.I);
-            CCTK_REAL k2 = kcs.at(1)(p.I);
-            CCTK_REAL k3 = kcs.at(2)(p.I);
-            CCTK_REAL k4 = kcs.at(3)(p.I);
+            CCTK_REAL k1 = kcs[0](p.I);
+            CCTK_REAL k2 = kcs[1](p.I);
+            CCTK_REAL k3 = kcs[2](p.I);
+            CCTK_REAL k4 = kcs[3](p.I);
             CCTK_REAL uu = b1 * k1 + b2 * k2 + b3 * k3 + b4 * k4;
             CCTK_REAL ut = c1 * k1 + c2 * k2 + c3 * k3 + c4 * k4;
             Yf(p.I) = u0(p.I) + dtc * (uu + CCTK_REAL(0.5) * r * ut);
@@ -147,10 +147,10 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
         grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           if (isrmbndry(p.I)) {
-            CCTK_REAL k1 = kcs.at(0)(p.I);
-            CCTK_REAL k2 = kcs.at(1)(p.I);
-            CCTK_REAL k3 = kcs.at(2)(p.I);
-            CCTK_REAL k4 = kcs.at(3)(p.I);
+            CCTK_REAL k1 = kcs[0](p.I);
+            CCTK_REAL k2 = kcs[1](p.I);
+            CCTK_REAL k3 = kcs[2](p.I);
+            CCTK_REAL k4 = kcs[3](p.I);
             CCTK_REAL uu = b1 * k1 + b2 * k2 + b3 * k3 + b4 * k4;
             CCTK_REAL ut = c1 * k1 + c2 * k2 + c3 * k3 + c4 * k4;
             CCTK_REAL utt = d1 * k1 + d2 * k2 + d3 * k3 + d4 * k4;
