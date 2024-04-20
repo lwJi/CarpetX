@@ -20,7 +20,7 @@ namespace Subcycling {
 using namespace Arith;
 
 /* copyed from CarpetX/src/driver.cxx */
-array<int, Loop::dim> get_group_indextype(const int gi) {
+inline array<int, Loop::dim> get_group_indextype(const int gi) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(gi >= 0);
@@ -165,8 +165,8 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
 template <int RKSTAGES>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
-              const array<vector<int>, RKSTAGES> &kcss,
-              const CCTK_REAL dtc, const CCTK_REAL xsi, const CCTK_INT stage) {
+              const array<vector<int>, RKSTAGES> &kcss, const CCTK_REAL dtc,
+              const CCTK_REAL xsi, const CCTK_INT stage) {
 
   const Loop::GridDescBaseDevice grid(cctkGH);
   const int tl = 0;

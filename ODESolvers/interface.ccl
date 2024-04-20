@@ -3,6 +3,7 @@
 IMPLEMENTS: ODESolvers
 
 USES INCLUDE HEADER: div.hxx
+USES INCLUDE HEADER: subcycling.hxx
 
 
 
