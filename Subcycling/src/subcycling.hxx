@@ -73,11 +73,12 @@ inline array<int, Loop::dim> get_group_indextype(const int gi) {
  *                  denoting the first and second substep, respectively.
  * \param stage     RK stage number starting from 1
  */
+template <int RKSTAGES>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
               const Loop::GF3D2<CCTK_REAL> &Yf,
               const Loop::GF3D2<const CCTK_REAL> &u0,
-              vector<Loop::GF3D2<CCTK_REAL> > &kcs,
+              array<const Loop::GF3D2<const CCTK_REAL>, RKSTAGES> &kcs,
               const Loop::GF3D2<const CCTK_REAL> &isrmbndry,
               const CCTK_REAL dtc, const CCTK_REAL xsi, const CCTK_INT stage) {
   assert(stage > 0 && stage <= 4);
@@ -190,13 +191,30 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
       const Loop::GF3D2<const CCTK_REAL> u0(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, u0_0 + vi)));
-      vector<Loop::GF3D2<CCTK_REAL> > kcs;
-      for (size_t j = 0; j < RKSTAGES; j++) {
-        kcs.push_back(Loop::GF3D2<CCTK_REAL>(
-            layout, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
-                        cctkGH, tl, CCTK_FirstVarIndexI(kcss[j][i]) + vi))));
+      switch (RKSTAGES) {
+      case 4: {
+        array<const Loop::GF3D2<const CCTK_REAL>, 4> kcs{
+            Loop::GF3D2<const CCTK_REAL>(
+                layout, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
+                            cctkGH, tl, CCTK_FirstVarIndexI(kcss[0][i]) + vi))),
+            Loop::GF3D2<const CCTK_REAL>(
+                layout, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
+                            cctkGH, tl, CCTK_FirstVarIndexI(kcss[1][i]) + vi))),
+            Loop::GF3D2<const CCTK_REAL>(
+                layout, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
+                            cctkGH, tl, CCTK_FirstVarIndexI(kcss[2][i]) + vi))),
+            Loop::GF3D2<const CCTK_REAL>(
+                layout,
+                static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
+                    cctkGH, tl, CCTK_FirstVarIndexI(kcss[3][i]) + vi)))};
+        CalcYfFromKcs<4>(grid, Yf, u0, kcs, isrmbndry, dtc, xsi, stage);
+        break;
       }
-      CalcYfFromKcs(grid, Yf, u0, kcs, isrmbndry, dtc, xsi, stage);
+      default: {
+        CCTK_ERROR("Unsupported RK stages with subcycling");
+        break;
+      }
+      }
     }
   }
 }
