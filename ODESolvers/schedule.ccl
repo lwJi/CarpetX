@@ -1,11 +1,11 @@
 # Schedule definitions for thorn ODESolvers
 
 if(use_subcycling_wip) {
- SCHEDULE ODESolvers_Solve_Subcycling AT evol
- {
-   LANG: C
-   OPTIONS: level
- } "Solve ODEs using Subcycling"
+  SCHEDULE ODESolvers_Solve_Subcycling AT evol
+  {
+    LANG: C
+    OPTIONS: level
+  } "Solve ODEs using Subcycling"
 }
 else {
  SCHEDULE ODESolvers_Solve AT evol
