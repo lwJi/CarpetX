@@ -76,10 +76,10 @@ array<int, Loop::dim> get_group_indextype(const int gi) {
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
               const Loop::GF3D2<CCTK_REAL> &Yf,
-              const Loop::GF3D2<CCTK_REAL> &u0,
-              const array<const Loop::GF3D2<CCTK_REAL>, 4> &kcs,
-              const Loop::GF3D2<const CCTK_REAL> &isrmbndry, const CCTK_REAL dtc,
-              const CCTK_REAL xsi, const CCTK_INT stage) {
+              const Loop::GF3D2<const CCTK_REAL> &u0,
+              vector<Loop::GF3D2<CCTK_REAL> > &kcs,
+              const Loop::GF3D2<const CCTK_REAL> &isrmbndry,
+              const CCTK_REAL dtc, const CCTK_REAL xsi, const CCTK_INT stage) {
   assert(stage > 0 && stage <= 4);
 
   CCTK_REAL r = 0.5; // ratio between coarse and fine cell size (2 to 1 MR case)
@@ -162,9 +162,10 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
 }
 
 /* Varlist version */
+template <int RKSTAGES>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
-              const array<vector<int>, 4> &kcss,
+              const array<vector<int>, RKSTAGES> &kcss,
               const Loop::GF3D2<const CCTK_REAL> &isrmbndry,
               const CCTK_REAL dtc, const CCTK_REAL xsi, const CCTK_INT stage) {
 
@@ -176,30 +177,19 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
 
     const int Yf_0 = CCTK_FirstVarIndexI(Yfs[i]);
     const int u0_0 = CCTK_FirstVarIndexI(u0s[i]);
-    const int k1_0 = CCTK_FirstVarIndexI(kcss[0][i]);
-    const int k2_0 = CCTK_FirstVarIndexI(kcss[1][i]);
-    const int k3_0 = CCTK_FirstVarIndexI(kcss[2][i]);
-    const int k4_0 = CCTK_FirstVarIndexI(kcss[3][i]);
     for (int vi = 0; vi < nvars; vi++) {
       const Loop::GF3D2<CCTK_REAL> Yf(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, Yf_0 + vi)));
-      const Loop::GF3D2<CCTK_REAL> u0(
+      const Loop::GF3D2<const CCTK_REAL> u0(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, u0_0 + vi)));
-      const Loop::GF3D2<CCTK_REAL> k1(
-          layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, k1_0 + vi)));
-      const Loop::GF3D2<CCTK_REAL> k2(
-          layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, k2_0 + vi)));
-      const Loop::GF3D2<CCTK_REAL> k3(
-          layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, k3_0 + vi)));
-      const Loop::GF3D2<CCTK_REAL> k4(
-          layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, k4_0 + vi)));
-      const array<const Loop::GF3D2<CCTK_REAL>, 4> kcs{k1, k2, k3, k4};
+      vector<Loop::GF3D2<CCTK_REAL> > kcs;
+      for (size_t j = 0; j < RKSTAGES; j++) {
+        kcs.push_back(Loop::GF3D2<CCTK_REAL>(
+            layout, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
+                        cctkGH, tl, CCTK_FirstVarIndexI(kcss[j][i]) + vi))));
+      }
       CalcYfFromKcs(grid, Yf, u0, kcs, isrmbndry, dtc, xsi, stage);
     }
   }
