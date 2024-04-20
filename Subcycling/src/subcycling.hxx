@@ -166,11 +166,17 @@ template <int RKSTAGES>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
               const array<vector<int>, RKSTAGES> &kcss,
-              const Loop::GF3D2<const CCTK_REAL> &isrmbndry,
               const CCTK_REAL dtc, const CCTK_REAL xsi, const CCTK_INT stage) {
 
   const Loop::GridDescBaseDevice grid(cctkGH);
   const int tl = 0;
+  // TODO: we need different centering types of flag for refinement boundary,
+  // maybe make it a group
+  const int isrmbndry_0 =
+      CCTK_FirstVarIndexI(CCTK_GroupIndex("Subcycling::isrmbndry"));
+  const Loop::GF3D2<const CCTK_REAL> isrmbndry(
+      Loop::GF3D2layout(cctkGH, array<int, Loop::dim>{0, 0, 0}),
+      static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, isrmbndry_0 + 0)));
   for (size_t i = 0; i < Yfs.size(); ++i) {
     const int nvars = CCTK_NumVarsInGroupI(Yfs[i]);
     const Loop::GF3D2layout layout(cctkGH, get_group_indextype(Yfs[i]));
