@@ -1,0 +1,107 @@
+# Schedule definitions for thorn TestSubcyclingMC2
+
+STORAGE: ustate pstate wstate k1 k2 k3 k4
+
+
+SCHEDULE TestSubcyclingMC2_Initial AT initial
+{
+  LANG: C
+  WRITES: ustate(interior)
+  WRITES: k1(interior) k2(interior) k3(interior) k4(interior)
+  SYNC: ustate
+  SYNC: k1 k2 k3 k4
+} "Initialize scalar wave state"
+
+SCHEDULE TestSubcyclingMC2_Sync AT postregrid
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: ustate
+} "Synchronize"
+
+
+
+SCHEDULE GROUP TestSubcyclingMC2_RK4Group AT evol
+{
+} "RK4"
+
+SCHEDULE TestSubcyclingMC2_SetP IN TestSubcyclingMC2_RK4Group
+{
+  LANG: C
+  READS: ustate(interior)
+  WRITES: pstate(interior)
+  SYNC: pstate k1 k2 k3 k4
+} "Save previous ustate and Sync ks"
+
+SCHEDULE TestSubcyclingMC2_CalcK1 IN TestSubcyclingMC2_RK4Group AFTER TestSubcyclingMC2_SetP
+{
+  LANG: C
+  READS: pstate(everywhere)
+  READS: k1(everywhere) k2(everywhere) k3(everywhere) k4(everywhere)
+  # calculate k1 and update ustate
+  READS: ustate(everywhere)
+  WRITES: k1(interior) ustate(everywhere)
+  WRITES: k2(interior) k3(interior) k4(interior) #fake
+  # calculate Y2
+  WRITES: wstate(interior)
+  SYNC: wstate
+} "Calculate k1 and Y2"
+
+SCHEDULE TestSubcyclingMC2_CalcK2 IN TestSubcyclingMC2_RK4Group AFTER TestSubcyclingMC2_CalcK1
+{
+  LANG: C
+  READS: pstate(everywhere)
+  READS: k1(everywhere) k2(everywhere) k3(everywhere) k4(everywhere)
+  # calculate k2 and update ustate
+  READS: wstate(everywhere) ustate(interior)
+  WRITES: k2(interior) ustate(interior)
+  WRITES: k1(interior) k3(interior) k4(interior) #fake
+  # calculate Y3
+  WRITES: wstate(everywhere)
+  SYNC: wstate
+} "Calculate k2 and Y3"
+
+SCHEDULE TestSubcyclingMC2_CalcK3 IN TestSubcyclingMC2_RK4Group AFTER TestSubcyclingMC2_CalcK2
+{
+  LANG: C
+  READS: pstate(everywhere)
+  READS: k1(everywhere) k2(everywhere) k3(everywhere) k4(everywhere)
+  # calculate k3 and update ustate
+  READS: wstate(everywhere) ustate(interior)
+  WRITES: k3(interior) ustate(interior)
+  WRITES: k1(interior) k2(interior) k4(interior) #fake
+  # calculate Y4
+  WRITES: wstate(everywhere)
+  SYNC: wstate
+} "Calculate k3 and Y4"
+
+SCHEDULE TestSubcyclingMC2_CalcK4 IN TestSubcyclingMC2_RK4Group AFTER TestSubcyclingMC2_CalcK3
+{
+  LANG: C
+  READS: pstate(everywhere)
+  READS: k1(everywhere) k2(everywhere) k3(everywhere) k4(everywhere)
+  WRITES: wstate(everywhere) # write ghost points only here
+  # calculate k4 and update ustate
+  READS: wstate(everywhere) ustate(interior)
+  WRITES: k4(interior) ustate(interior)
+  WRITES: k1(interior) k2(interior) k3(interior) #fake
+  SYNC: ustate
+} "Calculate k4"
+
+
+
+SCHEDULE GROUP TestSubcyclingMC2_PostStepGroup AT postinitial
+{
+} "Apply boundary conditions to state vector, and project if necessary"
+
+SCHEDULE GROUP TestSubcyclingMC2_PostStepGroup AT poststep
+{
+} "Apply boundary conditions to state vector, and project if necessary"
+
+SCHEDULE TestSubcyclingMC2_Error IN TestSubcyclingMC2_PostStepGroup
+{
+  LANG: C
+  READS: ustate(interior)
+  WRITES: error(interior)
+  SYNC: error
+} "Calculate error in scalar wave state"
