@@ -1,0 +1,54 @@
+ActiveThorns = "
+    CarpetX
+    IOUtil
+    TestSubcyclingMC2
+    TimerReport
+"
+
+$out_every = 16
+
+Cactus::cctk_show_schedule = no
+Cactus::presync_mode = "mixed-error"
+
+CarpetX::poison_undefined_values = no
+
+CarpetX::periodic_x = yes
+CarpetX::periodic_y = yes
+CarpetX::periodic_z = yes
+
+Cactus::terminate = "time"
+Cactus::cctk_final_time = 1.0
+
+TestSubcyclingMC2::initial_condition = "standing wave"
+
+IO::out_dir = $parfile
+IO::out_every = $out_every
+
+CarpetX::out_norm_vars = "all"
+
+CarpetX::out_tsv_vars = "
+    TestSubcyclingMC2::ustate
+    TestSubcyclingMC2::ftstate
+    TestSubcyclingMC2::fxstate
+    TestSubcyclingMC2::fystate
+    TestSubcyclingMC2::fzstate
+    TestSubcyclingMC2::energy
+    TestSubcyclingMC2::uerror
+    TestSubcyclingMC2::fterror
+    TestSubcyclingMC2::fxerror
+    TestSubcyclingMC2::fyerror
+    TestSubcyclingMC2::fzerror
+"
+
+CarpetX::out_silo_vars = "
+    TestSubcyclingMC2::ustate
+    TestSubcyclingMC2::ftstate
+    TestSubcyclingMC2::energy
+    TestSubcyclingMC2::uerror
+    TestSubcyclingMC2::fterror
+"
+
+TimerReport::out_every = $out_every
+TimerReport::out_filename = "TimerReport"
+TimerReport::output_schedule_timers = no
+TimerReport::n_top_timers = 100
