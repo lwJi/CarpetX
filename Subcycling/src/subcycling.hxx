@@ -74,7 +74,7 @@ inline array<int, Loop::dim> get_group_indextype(const int gi) {
  * \param stage     RK stage number starting from 1
  */
 template <int RKSTAGES>
-CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
               const Loop::GF3D2<CCTK_REAL> &Yf,
               const Loop::GF3D2<const CCTK_REAL> &u0,
@@ -164,7 +164,7 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
 
 /* Varlist version */
 template <int RKSTAGES>
-CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
               const array<vector<int>, RKSTAGES> &kcss, const CCTK_REAL dtc,
               const CCTK_REAL xsi, const CCTK_INT stage) {

@@ -104,7 +104,7 @@ extern "C" void TestSubcyclingMC_Initial(CCTK_ARGUMENTS) {
  * \param vlu       state vector Us
  */
 template <int D, typename tVarOut>
-CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcRhs(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlr,
         const array<tVarOut, D> &vlu) {
   tVarOut &u_rhs = vlr[0];
@@ -138,7 +138,7 @@ CalcRhs(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlr,
  * \param dt        time factor of each RK substep
  */
 template <int D, typename tVarOut>
-CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 UpdateU(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlu,
         const array<tVarOut, D> &vlr, const CCTK_REAL dt) {
   for (size_t v = 0; v < D; ++v) {
@@ -160,7 +160,7 @@ UpdateU(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlu,
  * \param dt        time factor of each RK substep
  */
 template <int D, typename tVarOut>
-CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcRhsAndUpdateU(const Loop::GridDescBaseDevice &grid,
                   const array<tVarOut, D> &vlr, const array<tVarOut, D> &vlw,
                   const array<tVarOut, D> &vlu, const CCTK_REAL dt) {
@@ -178,7 +178,7 @@ CalcRhsAndUpdateU(const Loop::GridDescBaseDevice &grid,
  * \param dt        time factor of each RK substage
  */
 template <int D, typename tVarOut, typename tVarIn>
-CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcYs(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlw,
        const array<tVarIn, D> &vlp, const array<tVarOut, D> &vlr,
        const CCTK_REAL dt) {
