@@ -2,31 +2,30 @@
 
 IMPLEMENTS: TestSubcyclingMC2
 
-INHERITS: CarpetX Subcycling
+INHERITS: CarpetX
 
 USES INCLUDE HEADER: loop_device.hxx
-USES INCLUDE HEADER: subcycling.hxx
 USES INCLUDE HEADER: vect.hxx
 
 
 
-CCTK_REAL ustate TYPE=gf CENTERING={vvv} TAGS='dependents="uerror"'
+CCTK_REAL state TYPE=gf TAGS='rhs="rhs" dependents="error"'
 {
   u
   rho
 } "Scalar wave state vector"
 
-CCTK_REAL pstate TYPE=gf TAGS='checkpoint="no"'
+CCTK_REAL old TYPE=gf TAGS='checkpoint="no"'
 {
-  u_p
-  rho_p
+  u_old
+  rho_old
 } "Scalar wave old state vector"
 
-CCTK_REAL wstate TYPE=gf TAGS='checkpoint="no"'
+CCTK_REAL rhs TYPE=gf TAGS='checkpoint="no"'
 {
-  u_w
-  rho_w
-} "Ys of scalar wave state vector"
+  u_rhs
+  rho_rhs
+} "RHS of scalar wave state vector"
 
 CCTK_REAL k1 TYPE=gf TAGS='checkpoint="no"'
 {
@@ -51,13 +50,6 @@ CCTK_REAL k4 TYPE=gf TAGS='checkpoint="no"'
     u_k4
     rho_k4
 } "The Runge-Kutta k_4 variables"
-
-
-
-CCTK_REAL energy CENTERING={CCC} TYPE=gf TAGS='checkpoint="no"'
-{
-  eps
-} "Energy density"
 
 
 

@@ -195,6 +195,8 @@ inline int get_group_old(const int gi) {
   }
 
   std::string str(rhs_buf.data());
+  if (str.empty())
+    return -1; // No RHS specified
   std::size_t pos = str.find("rhs");
   str.replace(pos, 3, "old");
   const int old = groupindex(gi, str);
@@ -203,6 +205,7 @@ inline int get_group_old(const int gi) {
                 "That group does not exist.",
                 CCTK_FullGroupName(gi), str.c_str());
   assert(old != gi);
+
 
   return old;
 }
@@ -224,6 +227,8 @@ template <typename T, int D> inline array<T, D> get_group_ks(const int gi) {
 
   array<T, D> ks;
   const std::string str(rhs_buf.data());
+  if (str.empty())
+    return array<T, D>{-1}; // No RHS specified
   std::size_t pos = str.find("rhs");
   for (int i = 0; i < D; i++) {
     std::string str_ks = str;
