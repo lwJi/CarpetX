@@ -23,18 +23,9 @@ SCHEDULE TestSubcyclingMC2_Sync AT postregrid
 
 
 
-SCHEDULE GROUP TestSubcyclingMC2_SyncKsGroup AT postinitial BEFORE (ODESolvers_PostStep, ODESolvers_RHS)
-{
-} "Sync old and ks group"
-
-SCHEDULE GROUP TestSubcyclingMC2_SyncKsGroup AT poststep BEFORE (ODESolvers_PostStep, ODESolvers_RHS)
-{
-} "Sync old and ks group"
-
-SCHEDULE GROUP TestSubcyclingMC2_SyncKs IN TestSubcyclingMC2_SyncKsGroup
+SCHEDULE TestSubcyclingMC2_SyncKs AT prestep
 {
   LANG: C
-  OPTIONS: global
   SYNC: old k1 k2 k3 k4
 } "Sync old and ks"
 
