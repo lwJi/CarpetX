@@ -195,7 +195,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
-    old = var.copy(make_valid_int());
+    statecomp_t::lincomb(old, 0, make_array(CCTK_REAL(1)), make_array(&var),
+                         make_valid_int());
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
 
     // Step 1
@@ -206,7 +207,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
     // const auto k1 = rhs.copy(make_valid_int());
-    ks[0] = rhs.copy(make_valid_int());
+    statecomp_t::lincomb(ks[0], 0, make_array(CCTK_REAL(1)), make_array(&rhs),
+                         make_valid_int());
 
     // Step 2
 
@@ -226,7 +228,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
     // const auto k2 = rhs.copy(make_valid_int());
-    ks[1] = rhs.copy(make_valid_int());
+    statecomp_t::lincomb(ks[1], 0, make_array(CCTK_REAL(1)), make_array(&rhs),
+                         make_valid_int());
 
     // Step 3
 
@@ -246,7 +249,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
     // const auto k3 = rhs.copy(make_valid_int());
-    ks[2] = rhs.copy(make_valid_int());
+    statecomp_t::lincomb(ks[2], 0, make_array(CCTK_REAL(1)), make_array(&rhs),
+                         make_valid_int());
 
     // Step 4
 
@@ -265,7 +269,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
-    ks[3] = rhs.copy(make_valid_int());
+    statecomp_t::lincomb(ks[3], 0, make_array(CCTK_REAL(1)), make_array(&rhs),
+                         make_valid_int());
 
     // Calculate new state vector: y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
     statecomp_t::lincomb(
