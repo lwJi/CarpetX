@@ -6,6 +6,69 @@ using namespace std;
 
 constexpr int rkstages = 4;
 
+std::vector<int> OldGroups, VarGroups;
+array<std::vector<int>, rkstages> KsGroups;
+
+extern "C" void ODESolvers_Solve_Subcycling_Setup(CCTK_ARGUMENTS) {
+  const auto &patchdata0 = ghext->patchdata.at(0);
+  const auto &leveldata0 = patchdata0.leveldata.at(0);
+  int nvars = 0;
+  bool do_accumulate_nvars = true;
+  for (const auto &groupdataptr : leveldata0.groupdata) {
+    if (groupdataptr == nullptr)
+      continue;
+
+    auto &groupdata = *groupdataptr;
+    const int rhs_gi = get_group_rhs(groupdata.groupindex);
+    const int old_gi = get_group_old(groupdata.groupindex);
+    const auto &ks_gi = get_group_ks<int, rkstages>(groupdata.groupindex);
+    if (rhs_gi >= 0) {
+      assert(rhs_gi != groupdata.groupindex);
+      if (do_accumulate_nvars) {
+        nvars += groupdata.numvars;
+        VarGroups.push_back(groupdata.groupindex);
+        OldGroups.push_back(old_gi);
+        for (int i = 0; i < rkstages; i++) {
+          KsGroups[i].push_back(ks_gi[i]);
+        }
+      }
+    }
+  }
+  do_accumulate_nvars = false;
+}
+
+extern "C" void ODESolvers_Solve_Subcycling_RK1(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling_RK1;
+  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
+  const CCTK_REAL dt = CCTK_DELTA_TIME;
+  Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, VarGroups, OldGroups,
+                                      KsGroups, dt * 2, xsi, 1);
+}
+
+extern "C" void ODESolvers_Solve_Subcycling_RK2(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling_RK2;
+  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
+  const CCTK_REAL dt = CCTK_DELTA_TIME;
+  Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, VarGroups, OldGroups,
+                                      KsGroups, dt * 2, xsi, 2);
+}
+
+extern "C" void ODESolvers_Solve_Subcycling_RK3(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling_RK3;
+  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
+  const CCTK_REAL dt = CCTK_DELTA_TIME;
+  Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, VarGroups, OldGroups,
+                                      KsGroups, dt * 2, xsi, 3);
+}
+
+extern "C" void ODESolvers_Solve_Subcycling_RK4(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling_RK4;
+  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
+  const CCTK_REAL dt = CCTK_DELTA_TIME;
+  Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, VarGroups, OldGroups,
+                                      KsGroups, dt * 2, xsi, 4);
+}
+
 extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling;
   DECLARE_CCTK_PARAMETERS;
@@ -132,16 +195,13 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
-    const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-
     old = var.copy(make_valid_int());
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
 
     // Step 1
-    Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, var_groups, old_groups,
-                                        ks_groups, dt * 2, xsi, 1);
     if (verbose)
       CCTK_VINFO("Calculating RHS #1 at t=%g", double(cctkGH->cctk_time));
+    CallScheduleGroup(cctkGH, "ODESolvers_Subcycling_RK1");
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
@@ -159,10 +219,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt / 2;
     CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
 
-    Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, var_groups, old_groups,
-                                        ks_groups, dt * 2, xsi, 1);
     if (verbose)
       CCTK_VINFO("Calculating RHS #2 at t=%g", double(cctkGH->cctk_time));
+    CallScheduleGroup(cctkGH, "ODESolvers_Subcycling_RK2");
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
@@ -180,10 +239,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt / 2;
     CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
 
-    Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, var_groups, old_groups,
-                                        ks_groups, dt * 2, xsi, 1);
     if (verbose)
       CCTK_VINFO("Calculating RHS #3 at t=%g", double(cctkGH->cctk_time));
+    CallScheduleGroup(cctkGH, "ODESolvers_Subcycling_RK3");
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
@@ -201,10 +259,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt;
     CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
 
-    Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, var_groups, old_groups,
-                                        ks_groups, dt * 2, xsi, 1);
     if (verbose)
       CCTK_VINFO("Calculating RHS #4 at t=%g", double(cctkGH->cctk_time));
+    CallScheduleGroup(cctkGH, "ODESolvers_Subcycling_RK4");
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
