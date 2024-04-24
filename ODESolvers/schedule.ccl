@@ -6,41 +6,42 @@ if(use_subcycling_wip) {
     LANG: C
     OPTIONS: level
   } "Solve ODEs using Subcycling"
+
   SCHEDULE ODESolvers_Solve_Subcycling_Setup AT initial
   {
     LANG: C
     OPTIONS: global
   } "Setup Var Groups for Subcycling"
 
-  SCHEDULE GROUP ODESolvers_Subcycling_RK1
+  SCHEDULE GROUP ODESolvers_CalcYfFromKcs1
   {
-  } "RK1"
-  SCHEDULE GROUP ODESolvers_Subcycling_RK2
+  } "Group of Calc Yfs from Kcs at RM Boundary for RK1"
+  SCHEDULE GROUP ODESolvers_CalcYfFromKcs2
   {
-  } "RK2"
-  SCHEDULE GROUP ODESolvers_Subcycling_RK3
+  } "Group of Calc Yfs from Kcs at RM Boundary for RK2"
+  SCHEDULE GROUP ODESolvers_CalcYfFromKcs3
   {
-  } "RK3"
-  SCHEDULE GROUP ODESolvers_Subcycling_RK4
+  } "Group of Calc Yfs from Kcs at RM Boundary for RK3"
+  SCHEDULE GROUP ODESolvers_CalcYfFromKcs4
   {
-  } "RK4"
+  } "Group of Calc Yfs from Kcs at RM Boundary for RK4"
 
-  SCHEDULE ODESolvers_Solve_Subcycling_RK1 IN ODESolvers_Subcycling_RK1
+  SCHEDULE ODESolvers_Solve_CalcYfFromKcs1 IN ODESolvers_CalcYfFromKcs1
   {
     LANG: C
-  } "Set Yfs in RK1"
-  SCHEDULE ODESolvers_Solve_Subcycling_RK2 IN ODESolvers_Subcycling_RK2
+  } "Calc Yfs from Kcs at RM Boundary for RK1"
+  SCHEDULE ODESolvers_Solve_CalcYfFromKcs2 IN ODESolvers_CalcYfFromKcs2
   {
     LANG: C
-  } "Set Yfs in RK2"
-  SCHEDULE ODESolvers_Solve_Subcycling_RK3 IN ODESolvers_Subcycling_RK3
+  } "Calc Yfs from Kcs at RM Boundary for RK2"
+  SCHEDULE ODESolvers_Solve_CalcYfFromKcs3 IN ODESolvers_CalcYfFromKcs3
   {
     LANG: C
-  } "Set Yfs in RK3"
-  SCHEDULE ODESolvers_Solve_Subcycling_RK4 IN ODESolvers_Subcycling_RK4
+  } "Calc Yfs from Kcs at RM Boundary for RK3"
+  SCHEDULE ODESolvers_Solve_CalcYfFromKcs4 IN ODESolvers_CalcYfFromKcs4
   {
     LANG: C
-  } "Set Yfs in RK4"
+  } "Calc Yfs from Kcs at RM Boundary for RK4"
 }
 else {
  SCHEDULE ODESolvers_Solve AT evol

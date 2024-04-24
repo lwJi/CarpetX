@@ -23,7 +23,7 @@ SCHEDULE TestSubcyclingMC2_Sync AT postregrid
 
 
 
-SCHEDULE TestSubcyclingMC2_SyncKs IN ODESolvers_Subcycling_RK1 BEFORE ODESolvers_Solve_Subcycling_RK1
+SCHEDULE TestSubcyclingMC2_SyncKs IN ODESolvers_CalcYfFromKcs1 BEFORE ODESolvers_Solve_CalcYfFromKcs1
 {
   LANG: C
   SYNC: old k1 k2 k3 k4
