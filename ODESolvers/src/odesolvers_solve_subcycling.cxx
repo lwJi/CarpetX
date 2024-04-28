@@ -203,7 +203,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // Sync OldState:
 
     // Step 1:
-    // var = Y1 = old
     if (verbose)
       CCTK_VINFO("Calculating RHS #1 at t=%g", double(cctkGH->cctk_time));
     CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs1");
@@ -213,8 +212,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                     "ODESolvers after calling ODESolvers_RHS");
     statecomp_t::lincomb(ks[0], 0, make_array(CCTK_REAL(1)), make_array(&rhs),
                          make_valid_int());
-
-    // Step 2:
     // var = Y2 = y0 + h/2 k1
     statecomp_t::lincomb(var, 1, make_array(dt / 2), make_array(&rhs),
                          make_valid_int());
@@ -223,6 +220,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     mark_invalid(dep_groups);
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt / 2;
     CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+
+    // Step 2:
     if (verbose)
       CCTK_VINFO("Calculating RHS #2 at t=%g", double(cctkGH->cctk_time));
     CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs2");
@@ -232,8 +231,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                     "ODESolvers after calling ODESolvers_RHS");
     statecomp_t::lincomb(ks[1], 0, make_array(CCTK_REAL(1)), make_array(&rhs),
                          make_valid_int());
-
-    // Step 3:
     // var = Y3 = y0 + h/2 k2
     statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt / 2),
                          make_array(&old, &rhs), make_valid_int());
@@ -242,6 +239,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     mark_invalid(dep_groups);
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt / 2;
     CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+
+    // Step 3:
     if (verbose)
       CCTK_VINFO("Calculating RHS #3 at t=%g", double(cctkGH->cctk_time));
     CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs3");
@@ -251,8 +250,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                     "ODESolvers after calling ODESolvers_RHS");
     statecomp_t::lincomb(ks[2], 0, make_array(CCTK_REAL(1)), make_array(&rhs),
                          make_valid_int());
-
-    // Step 4:
     // var = Y4 = y0 + h k3
     statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt),
                          make_array(&old, &rhs), make_valid_int());
@@ -261,6 +258,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     mark_invalid(dep_groups);
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt;
     CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+
+    // Step 4:
     if (verbose)
       CCTK_VINFO("Calculating RHS #4 at t=%g", double(cctkGH->cctk_time));
     CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs4");
@@ -270,8 +269,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                     "ODESolvers after calling ODESolvers_RHS");
     statecomp_t::lincomb(ks[3], 0, make_array(CCTK_REAL(1)), make_array(&rhs),
                          make_valid_int());
-
-    // Calculate New State Vector:
     // var = y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
     statecomp_t::lincomb(
         var, 0, make_array(CCTK_REAL(1), dt / 6, dt / 3, dt / 3, dt / 6),

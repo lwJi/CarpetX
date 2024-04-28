@@ -21,7 +21,11 @@ SCHEDULE TestSubcyclingMC2_Sync AT postregrid
   SYNC: state
 } "Synchronize"
 
-
+SCHEDULE TestSubcyclingMC2_SyncState IN ODESolvers_PostStep
+{
+  LANG: C
+  SYNC: state
+} "Sync old and ks"
 
 SCHEDULE TestSubcyclingMC2_SyncKs IN ODESolvers_CalcYfFromKcs1 BEFORE ODESolvers_Solve_CalcYfFromKcs1
 {
