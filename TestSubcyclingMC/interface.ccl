@@ -22,11 +22,11 @@ CCTK_REAL pstate TYPE=gf TAGS='checkpoint="no"'
   rho_p
 } "Scalar wave old state vector"
 
-CCTK_REAL wstate TYPE=gf TAGS='checkpoint="no"'
+CCTK_REAL rhs TYPE=gf TAGS='checkpoint="no"'
 {
-  u_w
-  rho_w
-} "Ys of scalar wave state vector"
+  u_rhs
+  rho_rhs
+} "RHS of scalar wave state vector"
 
 CCTK_REAL k1 TYPE=gf TAGS='checkpoint="no"'
 {
