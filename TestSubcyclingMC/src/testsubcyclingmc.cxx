@@ -85,6 +85,8 @@ extern "C" void TestSubcyclingMC_Initial(CCTK_ARGUMENTS) {
   grid.loop_int_device<0, 0, 0>(grid.nghostzones,
                                 [=] CCTK_DEVICE(const Loop::PointDesc &p)
                                     CCTK_ATTRIBUTE_ALWAYS_INLINE {
+                                      u_rhs(p.I) = 0.0;
+                                      rho_rhs(p.I) = 0.0;
                                       u_k1(p.I) = 0.0;
                                       u_k2(p.I) = 0.0;
                                       u_k3(p.I) = 0.0;
@@ -129,26 +131,6 @@ CalcRhs(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlr,
       });
 }
 
-/**
- * \brief Update state vector Us from RHSs and old Us
- *          u   += rhs * dt.
- *
- * \param vlu       state vector Us
- * \param vlr       RHS of Us
- * \param dt        time factor of each RK substep
- */
-template <int D, typename tVarOut>
-CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-UpdateU(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlu,
-        const array<tVarOut, D> &vlr, const CCTK_REAL dt) {
-  for (size_t v = 0; v < D; ++v) {
-    grid.loop_int_device<0, 0, 0>(
-        grid.nghostzones,
-        [=] CCTK_DEVICE(const Loop::PointDesc &p)
-            CCTK_ATTRIBUTE_ALWAYS_INLINE { vlu[v](p.I) += vlr[v](p.I) * dt; });
-  }
-}
-
 template <int D, typename tVarOut, typename tVarIn>
 CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 CalcU(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlu,
@@ -167,23 +149,16 @@ CalcU(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlu,
   }
 }
 
-/**
- * \brief Calculate Ks from Ys, Update state vector Us from Ks and old Us
- *          rhs = RHS(w),
- *          u   += rhs * dt.
- *
- * \param vlr       RK Ks
- * \param vlw       RK substage Ys
- * \param vlu       state vector Us
- * \param dt        time factor of each RK substep
- */
 template <int D, typename tVarOut>
 CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-CalcRhsAndUpdateU(const Loop::GridDescBaseDevice &grid,
-                  const array<tVarOut, D> &vlr, const array<tVarOut, D> &vlw,
-                  const array<tVarOut, D> &vlu, const CCTK_REAL dt) {
-  CalcRhs<D>(grid, vlr, vlw);
-  UpdateU<D>(grid, vlu, vlr, dt);
+SetK(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlk,
+     const array<tVarOut, D> &vlr) {
+  for (size_t v = 0; v < D; ++v) {
+    grid.loop_int_device<0, 0, 0>(
+        grid.nghostzones,
+        [=] CCTK_DEVICE(const Loop::PointDesc &p)
+            CCTK_ATTRIBUTE_ALWAYS_INLINE { vlk[v](p.I) = vlr[v](p.I); });
+  }
 }
 
 /**
@@ -209,6 +184,22 @@ CalcYs(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlw,
   }
 }
 
+extern "C" void TestSubcyclingMC_CalcYfFromKcs(CCTK_ARGUMENTS,
+                                               const CCTK_REAL dt,
+                                               const CCTK_INT stage) {
+  vector<int> u_groups, p_groups;
+  array<vector<int>, 4> ks_groups;
+  u_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::ustate"));
+  p_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::pstate"));
+  ks_groups[0].push_back(CCTK_GroupIndex("TestSubcyclingMC::k1"));
+  ks_groups[1].push_back(CCTK_GroupIndex("TestSubcyclingMC::k2"));
+  ks_groups[2].push_back(CCTK_GroupIndex("TestSubcyclingMC::k3"));
+  ks_groups[3].push_back(CCTK_GroupIndex("TestSubcyclingMC::k4"));
+  const CCTK_REAL xsi = (cctkGH->cctk_iteration % 2) ? 0.0 : 0.5;
+  Subcycling::CalcYfFromKcs<4>(CCTK_PASS_CTOC, u_groups, p_groups, ks_groups,
+                               dt * 2, xsi, stage);
+}
+
 extern "C" void TestSubcyclingMC_SetP(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_SetP;
 
@@ -226,106 +217,78 @@ extern "C" void TestSubcyclingMC_CalcK1(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK1;
   DECLARE_CCTK_PARAMETERS;
   const CCTK_REAL dt = CCTK_DELTA_TIME;
+  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_p, rho_p};
+  const array<const Loop::GF3D2<CCTK_REAL>, 2> vlr{u_rhs, rho_rhs};
   const array<const Loop::GF3D2<CCTK_REAL>, 2> k1{u_k1, rho_k1};
   const array<const Loop::GF3D2<CCTK_REAL>, 2> vlu{u, rho};
-  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_p, rho_p};
   constexpr size_t nvars = vlu.size();
 
-  if (use_subcycling_wip) {
-    vector<int> u_groups, p_groups;
-    array<vector<int>, 4> ks_groups;
-    u_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::ustate"));
-    p_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::pstate"));
-    ks_groups[0].push_back(CCTK_GroupIndex("TestSubcyclingMC::k1"));
-    ks_groups[1].push_back(CCTK_GroupIndex("TestSubcyclingMC::k2"));
-    ks_groups[2].push_back(CCTK_GroupIndex("TestSubcyclingMC::k3"));
-    ks_groups[3].push_back(CCTK_GroupIndex("TestSubcyclingMC::k4"));
-    const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    Subcycling::CalcYfFromKcs<4>(CCTK_PASS_CTOC, u_groups, p_groups, ks_groups,
-                                 dt * 2, xsi, 1);
-  }
-  CalcRhs<nvars>(grid, k1, vlu);
-  CalcYs<nvars>(grid, vlu, vlp, k1, dt * CCTK_REAL(0.5));
+  if (use_subcycling_wip)
+    TestSubcyclingMC_CalcYfFromKcs(CCTK_PASS_CTOC, dt, 1);
+  // k1 = f(Y1)
+  CalcRhs<nvars>(grid, vlr, vlu);
+  SetK<nvars>(grid, k1, vlr);
+  // Y2 = y0 + h/2 k1
+  CalcYs<nvars>(grid, vlu, vlp, vlr, dt * CCTK_REAL(0.5));
 }
 
 extern "C" void TestSubcyclingMC_CalcK2(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK2;
   DECLARE_CCTK_PARAMETERS;
   const CCTK_REAL dt = CCTK_DELTA_TIME;
+  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_p, rho_p};
+  const array<const Loop::GF3D2<CCTK_REAL>, 2> vlr{u_rhs, rho_rhs};
   const array<const Loop::GF3D2<CCTK_REAL>, 2> k2{u_k2, rho_k2};
   const array<const Loop::GF3D2<CCTK_REAL>, 2> vlu{u, rho};
-  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_p, rho_p};
   constexpr size_t nvars = vlu.size();
 
-  if (use_subcycling_wip) {
-    vector<int> u_groups, p_groups;
-    array<vector<int>, 4> ks_groups;
-    u_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::ustate"));
-    p_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::pstate"));
-    ks_groups[0].push_back(CCTK_GroupIndex("TestSubcyclingMC::k1"));
-    ks_groups[1].push_back(CCTK_GroupIndex("TestSubcyclingMC::k2"));
-    ks_groups[2].push_back(CCTK_GroupIndex("TestSubcyclingMC::k3"));
-    ks_groups[3].push_back(CCTK_GroupIndex("TestSubcyclingMC::k4"));
-    const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    Subcycling::CalcYfFromKcs<4>(CCTK_PASS_CTOC, u_groups, p_groups, ks_groups,
-                                 dt * 2, xsi, 2);
-  }
-  CalcRhs<nvars>(grid, k2, vlu);
-  CalcYs<nvars>(grid, vlu, vlp, k2, dt * CCTK_REAL(0.5));
+  if (use_subcycling_wip)
+    TestSubcyclingMC_CalcYfFromKcs(CCTK_PASS_CTOC, dt, 2);
+  // k2 = f(Y2)
+  CalcRhs<nvars>(grid, vlr, vlu);
+  SetK<nvars>(grid, k2, vlr);
+  // Y3 = y0 + h/2 k2
+  CalcYs<nvars>(grid, vlu, vlp, vlr, dt * CCTK_REAL(0.5));
 }
 
 extern "C" void TestSubcyclingMC_CalcK3(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK3;
   DECLARE_CCTK_PARAMETERS;
   const CCTK_REAL dt = CCTK_DELTA_TIME;
+  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_p, rho_p};
+  const array<const Loop::GF3D2<CCTK_REAL>, 2> vlr{u_rhs, rho_rhs};
   const array<const Loop::GF3D2<CCTK_REAL>, 2> k3{u_k3, rho_k3};
   const array<const Loop::GF3D2<CCTK_REAL>, 2> vlu{u, rho};
-  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_p, rho_p};
   constexpr size_t nvars = vlu.size();
 
-  if (use_subcycling_wip) {
-    vector<int> u_groups, p_groups;
-    array<vector<int>, 4> ks_groups;
-    u_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::ustate"));
-    p_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::pstate"));
-    ks_groups[0].push_back(CCTK_GroupIndex("TestSubcyclingMC::k1"));
-    ks_groups[1].push_back(CCTK_GroupIndex("TestSubcyclingMC::k2"));
-    ks_groups[2].push_back(CCTK_GroupIndex("TestSubcyclingMC::k3"));
-    ks_groups[3].push_back(CCTK_GroupIndex("TestSubcyclingMC::k4"));
-    const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    Subcycling::CalcYfFromKcs<4>(CCTK_PASS_CTOC, u_groups, p_groups, ks_groups,
-                                 dt * 2, xsi, 3);
-  }
-  CalcRhs<nvars>(grid, k3, vlu);
-  CalcYs<nvars>(grid, vlu, vlp, k3, dt);
+  if (use_subcycling_wip)
+    TestSubcyclingMC_CalcYfFromKcs(CCTK_PASS_CTOC, dt, 3);
+  // k3 = f(Y3)
+  CalcRhs<nvars>(grid, vlr, vlu);
+  SetK<nvars>(grid, k3, vlr);
+  // Y4 = y0 + h k3
+  CalcYs<nvars>(grid, vlu, vlp, vlr, dt);
 }
 
 extern "C" void TestSubcyclingMC_CalcK4(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC_CalcK4;
   DECLARE_CCTK_PARAMETERS;
   const CCTK_REAL dt = CCTK_DELTA_TIME;
-  const array<const Loop::GF3D2<CCTK_REAL>, 2> k4{u_k4, rho_k4};
-  const array<const Loop::GF3D2<CCTK_REAL>, 2> vlu{u, rho};
   const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_p, rho_p};
   const array<const Loop::GF3D2<const CCTK_REAL>, 2> k1{u_k1, rho_k1};
   const array<const Loop::GF3D2<const CCTK_REAL>, 2> k2{u_k2, rho_k2};
   const array<const Loop::GF3D2<const CCTK_REAL>, 2> k3{u_k3, rho_k3};
+  const array<const Loop::GF3D2<CCTK_REAL>, 2> vlr{u_rhs, rho_rhs};
+  const array<const Loop::GF3D2<CCTK_REAL>, 2> k4{u_k4, rho_k4};
+  const array<const Loop::GF3D2<CCTK_REAL>, 2> vlu{u, rho};
   constexpr size_t nvars = vlu.size();
 
-  if (use_subcycling_wip) {
-    vector<int> u_groups, p_groups;
-    array<vector<int>, 4> ks_groups;
-    u_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::ustate"));
-    p_groups.push_back(CCTK_GroupIndex("TestSubcyclingMC::pstate"));
-    ks_groups[0].push_back(CCTK_GroupIndex("TestSubcyclingMC::k1"));
-    ks_groups[1].push_back(CCTK_GroupIndex("TestSubcyclingMC::k2"));
-    ks_groups[2].push_back(CCTK_GroupIndex("TestSubcyclingMC::k3"));
-    ks_groups[3].push_back(CCTK_GroupIndex("TestSubcyclingMC::k4"));
-    const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-    Subcycling::CalcYfFromKcs<4>(CCTK_PASS_CTOC, u_groups, p_groups, ks_groups,
-                                 dt * 2, xsi, 4);
-  }
-  CalcRhs<nvars>(grid, k4, vlu);
+  if (use_subcycling_wip)
+    TestSubcyclingMC_CalcYfFromKcs(CCTK_PASS_CTOC, dt, 4);
+  // k4 = f(Y4)
+  CalcRhs<nvars>(grid, vlr, vlu);
+  SetK<nvars>(grid, k4, vlr);
+  // Update U
   CalcU<nvars>(grid, vlu, vlp, k1, k2, k3, k4, dt);
 }
 
