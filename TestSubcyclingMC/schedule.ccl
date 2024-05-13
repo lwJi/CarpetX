@@ -38,7 +38,6 @@ SCHEDULE TestSubcyclingMC_CalcK1 IN TestSubcyclingMC_RK4Group AFTER TestSubcycli
   LANG: C
   READS: ustate(everywhere)
   WRITES: rhs(interior)
-  SYNC: rhs
 } "Calculate k1"
 
 SCHEDULE TestSubcyclingMC_CalcY2 IN TestSubcyclingMC_RK4Group AFTER TestSubcyclingMC_CalcK1 BEFORE TestSubcyclingMC_CalcK2
@@ -56,7 +55,6 @@ SCHEDULE TestSubcyclingMC_CalcK2 IN TestSubcyclingMC_RK4Group AFTER TestSubcycli
   LANG: C
   READS: ustate(everywhere)
   WRITES: rhs(interior)
-  SYNC: rhs
 } "Calculate k2"
 
 SCHEDULE TestSubcyclingMC_CalcY3 IN TestSubcyclingMC_RK4Group AFTER TestSubcyclingMC_CalcK2 BEFORE TestSubcyclingMC_CalcK3
@@ -74,7 +72,6 @@ SCHEDULE TestSubcyclingMC_CalcK3 IN TestSubcyclingMC_RK4Group AFTER TestSubcycli
   LANG: C
   READS: ustate(everywhere)
   WRITES: rhs(interior)
-  SYNC: rhs
 } "Calculate k3"
 
 SCHEDULE TestSubcyclingMC_CalcY4 IN TestSubcyclingMC_RK4Group AFTER TestSubcyclingMC_CalcK3 BEFORE TestSubcyclingMC_CalcK4
@@ -92,7 +89,6 @@ SCHEDULE TestSubcyclingMC_CalcK4 IN TestSubcyclingMC_RK4Group AFTER TestSubcycli
   LANG: C
   READS: ustate(everywhere)
   WRITES: rhs(interior)
-  SYNC: rhs
 } "Calculate k4"
 
 SCHEDULE TestSubcyclingMC_UpdateU IN TestSubcyclingMC_RK4Group AFTER TestSubcyclingMC_CalcK4
