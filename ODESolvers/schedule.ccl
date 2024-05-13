@@ -13,6 +13,9 @@ if(use_subcycling_wip) {
     OPTIONS: global
   } "Setup Var Groups for Subcycling"
 
+  SCHEDULE GROUP ODESolvers_SyncKs
+  {
+  } "Group of Sync Ks at RM Boundary"
   SCHEDULE GROUP ODESolvers_CalcYfFromKcs1
   {
   } "Group of Calc Yfs from Kcs at RM Boundary for RK1"

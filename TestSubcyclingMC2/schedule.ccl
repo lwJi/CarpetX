@@ -27,7 +27,7 @@ SCHEDULE TestSubcyclingMC2_SyncState IN ODESolvers_PostStep
   SYNC: state
 } "Sync old and ks"
 
-SCHEDULE TestSubcyclingMC2_SyncKs IN ODESolvers_CalcYfFromKcs1 BEFORE ODESolvers_Solve_CalcYfFromKcs1
+SCHEDULE TestSubcyclingMC2_SyncKs IN ODESolvers_SyncKs
 {
   LANG: C
   SYNC: old k1 k2 k3 k4
