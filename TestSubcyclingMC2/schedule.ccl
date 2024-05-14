@@ -25,7 +25,13 @@ SCHEDULE TestSubcyclingMC2_SyncState IN ODESolvers_PostStep
 {
   LANG: C
   SYNC: state
-} "Sync old and ks"
+} "Sync state"
+
+SCHEDULE TestSubcyclingMC2_SyncState IN ODESolvers_SyncState
+{
+  LANG: C
+  SYNC: state
+} "Sync state"
 
 SCHEDULE TestSubcyclingMC2_SyncKs IN ODESolvers_SyncKs
 {
@@ -43,18 +49,46 @@ SCHEDULE TestSubcyclingMC2_RHS IN ODESolvers_RHS
   SYNC: rhs
 } "Calculate scalar wave RHS"
 
-
-
-
-SCHEDULE GROUP TestSubcyclingMC2_PostStepGroup AT postinitial
+#SCHEDULE TestSubcyclingMC2_CalcY2 IN ODESolvers_CalcY2
+#{
+#  LANG: C
+#  READS: rhs(interior)
+#  WRITES: k1(interior)
+#  READS: old(interior)
+#  WRITES: state(interior)
+#  SYNC: state
+#} "Calculate Y2"
+#SCHEDULE TestSubcyclingMC2_CalcY3 IN ODESolvers_CalcY3
+#{
+#  LANG: C
+#  READS: rhs(interior)
+#  WRITES: k2(interior)
+#  READS: old(interior)
+#  WRITES: state(interior)
+#  SYNC: state
+#} "Calculate Y3"
+#SCHEDULE TestSubcyclingMC2_CalcY4 IN ODESolvers_CalcY4
+#{
+#  LANG: C
+#  READS: rhs(interior)
+#  WRITES: k3(interior)
+#  READS: old(interior)
+#  WRITES: state(interior)
+#  SYNC: state
+#} "Calculate Y4"
+SCHEDULE TestSubcyclingMC2_UpdateU IN ODESolvers_UpdateU
 {
-} "Apply boundary conditions to state vector, and project if necessary"
+  LANG: C
+  READS: rhs(interior)
+  WRITES: k4(interior)
+  READS: k1(interior) k2(interior) k3(interior) k4(interior) old(interior)
+  WRITES: state(interior)
+  SYNC: state
+} "Calculate state"
 
-SCHEDULE GROUP TestSubcyclingMC2_PostStepGroup AT poststep
-{
-} "Apply boundary conditions to state vector, and project if necessary"
 
-SCHEDULE TestSubcyclingMC2_Error IN TestSubcyclingMC2_PostStepGroup
+
+SCHEDULE TestSubcyclingMC2_Error IN ODESolvers_PostStep AFTER TestSubcyclingMC2_SyncState
 {
   LANG: C
   READS: state(interior)
