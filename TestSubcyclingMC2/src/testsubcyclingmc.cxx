@@ -98,14 +98,9 @@ extern "C" void TestSubcyclingMC2_Initial(CCTK_ARGUMENTS) {
                                     });
 }
 
-template <int D, typename tVarOut, typename tVarIn>
-CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-CalcRhs(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlr,
-        const array<tVarIn, D> &vlu) {
-  tVarOut &u_rhs = vlr[0];
-  tVarOut &rho_rhs = vlr[1];
-  tVarIn &u = vlu[0];
-  tVarIn &rho = vlu[1];
+extern "C" void TestSubcyclingMC2_RHS(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_RHS;
+  DECLARE_CCTK_PARAMETERS;
 
   grid.loop_int_device<0, 0, 0>(
       grid.nghostzones,
@@ -124,122 +119,7 @@ CalcRhs(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlr,
       });
 }
 
-extern "C" void TestSubcyclingMC2_RHS(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_RHS;
-  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlu{u, rho};
-  const array<const Loop::GF3D2<CCTK_REAL>, 2> vlr{u_rhs, rho_rhs};
-  constexpr size_t nvars = vlu.size();
-  CalcRhs<nvars>(grid, vlr, vlu);
-}
-
-template <int D, typename tVarOut, typename tVarIn>
-CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-SetK(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlk,
-     const array<tVarIn, D> &vlr) {
-  for (size_t v = 0; v < D; ++v) {
-    grid.loop_int_device<0, 0, 0>(
-        grid.nghostzones,
-        [=] CCTK_DEVICE(const Loop::PointDesc &p)
-            CCTK_ATTRIBUTE_ALWAYS_INLINE { vlk[v](p.I) = vlr[v](p.I); });
-  }
-}
-
-template <int D, typename tVarOut, typename tVarIn>
-CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-CalcYs(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlw,
-       const array<tVarIn, D> &vlp, const array<tVarIn, D> &vlr,
-       const CCTK_REAL dt) {
-  for (size_t v = 0; v < D; ++v) {
-    grid.loop_int_device<0, 0, 0>(
-        grid.nghostzones,
-        [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-          vlw[v](p.I) = vlp[v](p.I) + vlr[v](p.I) * dt;
-        });
-  }
-}
-
-// extern "C" void TestSubcyclingMC2_CalcY2(CCTK_ARGUMENTS) {
-//   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_CalcY2;
-//   DECLARE_CCTK_PARAMETERS;
-//   const CCTK_REAL dt = CCTK_DELTA_TIME;
-//   const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_old, rho_old};
-//   const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlr{u_rhs, rho_rhs};
-//   const array<const Loop::GF3D2<CCTK_REAL>, 2> k1{u_k1, rho_k1};
-//   const array<const Loop::GF3D2<CCTK_REAL>, 2> vlu{u, rho};
-//   constexpr size_t nvars = vlu.size();
-//   SetK<nvars>(grid, k1, vlr);
-//   // Y2 = y0 + h/2 k1
-//   CalcYs<nvars>(grid, vlu, vlp, vlr, dt * CCTK_REAL(0.5));
-// }
-//
-//extern "C" void TestSubcyclingMC2_CalcY3(CCTK_ARGUMENTS) {
-//  DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_CalcY3;
-//  DECLARE_CCTK_PARAMETERS;
-//  const CCTK_REAL dt = CCTK_DELTA_TIME;
-//  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_old, rho_old};
-//  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlr{u_rhs, rho_rhs};
-//  const array<const Loop::GF3D2<CCTK_REAL>, 2> k2{u_k2, rho_k2};
-//  const array<const Loop::GF3D2<CCTK_REAL>, 2> vlu{u, rho};
-//  constexpr size_t nvars = vlu.size();
-//  SetK<nvars>(grid, k2, vlr);
-//  // Y3 = y0 + h/2 k2
-//  CalcYs<nvars>(grid, vlu, vlp, vlr, dt * CCTK_REAL(0.5));
-//}
-//
-//extern "C" void TestSubcyclingMC2_CalcY4(CCTK_ARGUMENTS) {
-//  DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_CalcY4;
-//  DECLARE_CCTK_PARAMETERS;
-//  const CCTK_REAL dt = CCTK_DELTA_TIME;
-//  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_old, rho_old};
-//  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlr{u_rhs, rho_rhs};
-//  const array<const Loop::GF3D2<CCTK_REAL>, 2> k3{u_k3, rho_k3};
-//  const array<const Loop::GF3D2<CCTK_REAL>, 2> vlu{u, rho};
-//  constexpr size_t nvars = vlu.size();
-//  SetK<nvars>(grid, k3, vlr);
-//  // Y4 = y0 + h k3
-//  CalcYs<nvars>(grid, vlu, vlp, vlr, dt);
-//}
-
-template <int D, typename tVarOut, typename tVarIn>
-CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-CalcU(const Loop::GridDescBaseDevice &grid, const array<tVarOut, D> &vlu,
-      const array<tVarIn, D> &vlp, const array<tVarIn, D> &k1,
-      const array<tVarIn, D> &k2, const array<tVarIn, D> &k3,
-      const array<tVarOut, D> &k4, const CCTK_REAL dt) {
-  for (size_t v = 0; v < D; ++v) {
-    grid.loop_int_device<0, 0, 0>(
-        grid.nghostzones,
-        [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-          vlu[v](p.I) =
-              vlp[v](p.I) +
-              (k1[v](p.I) + (k2[v](p.I) + k3[v](p.I)) * 2 + k4[v](p.I)) * dt /
-                  6;
-        });
-  }
-}
-
-extern "C" void TestSubcyclingMC2_UpdateU(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_UpdateU;
-  DECLARE_CCTK_PARAMETERS;
-  const CCTK_REAL dt = CCTK_DELTA_TIME;
-  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlp{u_old, rho_old};
-  const array<const Loop::GF3D2<const CCTK_REAL>, 2> k1{u_k1, rho_k1};
-  const array<const Loop::GF3D2<const CCTK_REAL>, 2> k2{u_k2, rho_k2};
-  const array<const Loop::GF3D2<const CCTK_REAL>, 2> k3{u_k3, rho_k3};
-  const array<const Loop::GF3D2<const CCTK_REAL>, 2> vlr{u_rhs, rho_rhs};
-  const array<const Loop::GF3D2<CCTK_REAL>, 2> k4{u_k4, rho_k4};
-  const array<const Loop::GF3D2<CCTK_REAL>, 2> vlu{u, rho};
-  constexpr size_t nvars = vlu.size();
-  SetK<nvars>(grid, k4, vlr);
-  // Update U
-  CalcU<nvars>(grid, vlu, vlp, k1, k2, k3, k4, dt);
-}
-
 extern "C" void TestSubcyclingMC2_Sync(CCTK_ARGUMENTS) {
-  // do nothing
-}
-
-extern "C" void TestSubcyclingMC2_SyncState(CCTK_ARGUMENTS) {
   // do nothing
 }
 
