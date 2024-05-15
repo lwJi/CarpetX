@@ -15,60 +15,60 @@ if(use_subcycling_wip) {
 
   SCHEDULE GROUP ODESolvers_SyncKsOld
   {
-  } "Group of Sync Ks at RM Boundary"
+  } "Group Sync Ks and Old at RM Boundary"
 
   SCHEDULE GROUP ODESolvers_CalcYfFromKcs1
   {
-  } "Group of Calc Yfs from Kcs at RM Boundary for RK1"
+  } "Group Calculating Yfs from Kcs at RM Boundary for Stage 1"
   SCHEDULE GROUP ODESolvers_CalcYfFromKcs2
   {
-  } "Group of Calc Yfs from Kcs at RM Boundary for RK2"
+  } "Group Calculating Yfs from Kcs at RM Boundary for Stage 2"
   SCHEDULE GROUP ODESolvers_CalcYfFromKcs3
   {
-  } "Group of Calc Yfs from Kcs at RM Boundary for RK3"
+  } "Group Calculating Yfs from Kcs at RM Boundary for Stage 3"
   SCHEDULE GROUP ODESolvers_CalcYfFromKcs4
   {
-  } "Group of Calc Yfs from Kcs at RM Boundary for RK4"
+  } "Group Calculating Yfs from Kcs at RM Boundary for Stage 4"
 
   SCHEDULE ODESolvers_Solve_CalcYfFromKcs1 IN ODESolvers_CalcYfFromKcs1
   {
     LANG: C
-  } "Calc Yfs from Kcs at RM Boundary for RK1"
+  } "Calculating Yfs from Kcs at RM Boundary for Stage 1"
   SCHEDULE ODESolvers_Solve_CalcYfFromKcs2 IN ODESolvers_CalcYfFromKcs2
   {
     LANG: C
-  } "Calc Yfs from Kcs at RM Boundary for RK2"
+  } "Calculating Yfs from Kcs at RM Boundary for Stage 2"
   SCHEDULE ODESolvers_Solve_CalcYfFromKcs3 IN ODESolvers_CalcYfFromKcs3
   {
     LANG: C
-  } "Calc Yfs from Kcs at RM Boundary for RK3"
+  } "Calculating Yfs from Kcs at RM Boundary for Stage 3"
   SCHEDULE ODESolvers_Solve_CalcYfFromKcs4 IN ODESolvers_CalcYfFromKcs4
   {
     LANG: C
-  } "Calc Yfs from Kcs at RM Boundary for RK4"
+  } "Calculating Yfs from Kcs at RM Boundary for Stage 4"
 
   SCHEDULE GROUP ODESolvers_SetK1
   {
-  } "Group of Set K1"
+  } "Group Setting K1 from RHS"
   SCHEDULE GROUP ODESolvers_SetK2
   {
-  } "Group of Set K2"
+  } "Group Setting K2 from RHS"
   SCHEDULE GROUP ODESolvers_SetK3
   {
-  } "Group of Set K3"
+  } "Group Setting K3 from RHS"
 
   SCHEDULE ODESolvers_Solve_SetK1 IN ODESolvers_SetK1
   {
     LANG: C
-  } "Set K1 from RHS"
+  } "Setting K1 from RHS"
   SCHEDULE ODESolvers_Solve_SetK2 IN ODESolvers_SetK2
   {
     LANG: C
-  } "Set K2 from RHS"
+  } "Setting K2 from RHS"
   SCHEDULE ODESolvers_Solve_SetK3 IN ODESolvers_SetK3
   {
     LANG: C
-  } "Set K3 from RHS"
+  } "Setting K3 from RHS"
 }
 else {
  SCHEDULE ODESolvers_Solve AT evol
