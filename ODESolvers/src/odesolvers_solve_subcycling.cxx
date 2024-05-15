@@ -267,12 +267,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     //                      make_array(&rhs), make_valid_int());
     statecomp_t::lincomb(var, 1, make_array(dt / 2), make_array(&rhs),
                          make_valid_int());
-    CallScheduleGroup(cctkGH, "ODESolvers_SyncState");
     // var.check_valid(make_valid_int(),
     //                 "ODESolvers after defining new state vector");
     // mark_invalid(dep_groups);
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt / 2;
-    // CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+    CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
 
     // Step 2:
     if (verbose)
@@ -288,12 +287,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     //                      make_array(&rhs), make_valid_int());
     statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt / 2),
                          make_array(&old, &rhs), make_valid_int());
-    CallScheduleGroup(cctkGH, "ODESolvers_SyncState");
     // var.check_valid(make_valid_int(),
     //                 "ODESolvers after defining new state vector");
     // mark_invalid(dep_groups);
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt / 2;
-    // CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+    CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
 
     // Step 3:
     if (verbose)
@@ -309,12 +307,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     //                      make_array(&rhs), make_valid_int());
     statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt),
                          make_array(&old, &rhs), make_valid_int());
-    CallScheduleGroup(cctkGH, "ODESolvers_SyncState");
     // var.check_valid(make_valid_int(),
     //                 "ODESolvers after defining new state vector");
     // mark_invalid(dep_groups);
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt;
-    // CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+    CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
 
     // Step 4:
     if (verbose)
