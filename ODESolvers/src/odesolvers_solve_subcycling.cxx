@@ -291,19 +291,18 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // Step 1:
     if (verbose)
       CCTK_VINFO("Calculating RHS #1 at t=%g", double(cctkGH->cctk_time));
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs1");
     // k1 = rhs = f(Y1)
+    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs1");
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcY2");
-    CallScheduleGroup(cctkGH, "ODESolvers_SyncState");
     // rhs.check_valid(make_valid_int(),
     //                 "ODESolvers after calling ODESolvers_RHS");
+    // var = Y2 = y0 + h/2 k1
+    CallScheduleGroup(cctkGH, "ODESolvers_CalcY2");
     // statecomp_t::lincomb(ks[0], 0, make_array(CCTK_REAL(1)),
-    // make_array(&rhs),
-    //                      make_valid_int());
-    // // var = Y2 = y0 + h/2 k1
+    //                      make_array(&rhs), make_valid_int());
     // statecomp_t::lincomb(var, 1, make_array(dt / 2), make_array(&rhs),
     //                      make_valid_int());
+    CallScheduleGroup(cctkGH, "ODESolvers_SyncState");
     // var.check_valid(make_valid_int(),
     //                 "ODESolvers after defining new state vector");
     // mark_invalid(dep_groups);
@@ -313,19 +312,18 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // Step 2:
     if (verbose)
       CCTK_VINFO("Calculating RHS #2 at t=%g", double(cctkGH->cctk_time));
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs2");
     // k2 = rhs = f(Y2)
+    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs2");
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcY3");
-    CallScheduleGroup(cctkGH, "ODESolvers_SyncState");
     // rhs.check_valid(make_valid_int(),
     //                 "ODESolvers after calling ODESolvers_RHS");
+    // var = Y3 = y0 + h/2 k2
+    CallScheduleGroup(cctkGH, "ODESolvers_CalcY3");
     // statecomp_t::lincomb(ks[1], 0, make_array(CCTK_REAL(1)),
-    // make_array(&rhs),
-    //                      make_valid_int());
-    // // var = Y3 = y0 + h/2 k2
+    //                      make_array(&rhs), make_valid_int());
     // statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt / 2),
     //                      make_array(&old, &rhs), make_valid_int());
+    CallScheduleGroup(cctkGH, "ODESolvers_SyncState");
     // var.check_valid(make_valid_int(),
     //                 "ODESolvers after defining new state vector");
     // mark_invalid(dep_groups);
@@ -335,19 +333,18 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // Step 3:
     if (verbose)
       CCTK_VINFO("Calculating RHS #3 at t=%g", double(cctkGH->cctk_time));
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs3");
     // k3 = rhs = f(Y3)
+    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs3");
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcY4");
-    CallScheduleGroup(cctkGH, "ODESolvers_SyncState");
     // rhs.check_valid(make_valid_int(),
     //                 "ODESolvers after calling ODESolvers_RHS");
+    // var = Y4 = y0 + h k3
+    CallScheduleGroup(cctkGH, "ODESolvers_CalcY4");
     // statecomp_t::lincomb(ks[2], 0, make_array(CCTK_REAL(1)),
-    // make_array(&rhs),
-    //                      make_valid_int());
-    // // var = Y4 = y0 + h k3
+    //                      make_array(&rhs), make_valid_int());
     // statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt),
     //                      make_array(&old, &rhs), make_valid_int());
+    CallScheduleGroup(cctkGH, "ODESolvers_SyncState");
     // var.check_valid(make_valid_int(),
     //                 "ODESolvers after defining new state vector");
     // mark_invalid(dep_groups);
@@ -357,19 +354,17 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // Step 4:
     if (verbose)
       CCTK_VINFO("Calculating RHS #4 at t=%g", double(cctkGH->cctk_time));
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs4");
     // k4 = rhs = f(Y4)
+    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs4");
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
-    CallScheduleGroup(cctkGH, "ODESolvers_UpdateU");
     // rhs.check_valid(make_valid_int(),
     //                 "ODESolvers after calling ODESolvers_RHS");
-    // statecomp_t::lincomb(ks[3], 0, make_array(CCTK_REAL(1)),
-    // make_array(&rhs),
-    //                      make_valid_int());
     // var = y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
-    // statecomp_t::lincomb(
-    //     var, 0, make_array(CCTK_REAL(1), dt / 6, dt / 3, dt / 3, dt / 6),
-    //     make_array(&old, &ks[0], &ks[1], &ks[2], &ks[3]), make_valid_int());
+    statecomp_t::lincomb(ks[3], 0, make_array(CCTK_REAL(1)), make_array(&rhs),
+                         make_valid_int());
+    statecomp_t::lincomb(
+        var, 0, make_array(CCTK_REAL(1), dt / 6, dt / 3, dt / 3, dt / 6),
+        make_array(&old, &ks[0], &ks[1], &ks[2], &ks[3]), make_valid_int());
     // var.check_valid(make_valid_int(),
     //                 "ODESolvers after defining new state vector");
     // mark_invalid(dep_groups);
