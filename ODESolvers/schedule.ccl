@@ -16,6 +16,7 @@ if(use_subcycling_wip) {
   SCHEDULE GROUP ODESolvers_SyncKs
   {
   } "Group of Sync Ks at RM Boundary"
+
   SCHEDULE GROUP ODESolvers_CalcYfFromKcs1
   {
   } "Group of Calc Yfs from Kcs at RM Boundary for RK1"
@@ -49,28 +50,29 @@ if(use_subcycling_wip) {
   SCHEDULE GROUP ODESolvers_SyncState
   {
   } "Group of Sync State"
-  SCHEDULE GROUP ODESolvers_CalcY2
-  {
-  } "Group of Calc Y2"
-  SCHEDULE GROUP ODESolvers_CalcY3
-  {
-  } "Group of Calc Y3"
-  SCHEDULE GROUP ODESolvers_CalcY4
-  {
-  } "Group of Calc Y4"
 
-  SCHEDULE ODESolvers_Solve_CalcY2 IN ODESolvers_CalcY2
+  SCHEDULE GROUP ODESolvers_SetK1
+  {
+  } "Group of Set K1"
+  SCHEDULE GROUP ODESolvers_SetK2
+  {
+  } "Group of Set K2"
+  SCHEDULE GROUP ODESolvers_SetK3
+  {
+  } "Group of Set K3"
+
+  SCHEDULE ODESolvers_Solve_SetK1 IN ODESolvers_SetK1
   {
     LANG: C
-  } "Calculate Y2"
-  SCHEDULE ODESolvers_Solve_CalcY3 IN ODESolvers_CalcY3
+  } "Set K1 from RHS"
+  SCHEDULE ODESolvers_Solve_SetK2 IN ODESolvers_SetK2
   {
     LANG: C
-  } "Calculate Y3"
-  SCHEDULE ODESolvers_Solve_CalcY4 IN ODESolvers_CalcY4
+  } "Set K2 from RHS"
+  SCHEDULE ODESolvers_Solve_SetK3 IN ODESolvers_SetK3
   {
     LANG: C
-  } "Calculate Y4"
+  } "Set K3 from RHS"
 }
 else {
  SCHEDULE ODESolvers_Solve AT evol
