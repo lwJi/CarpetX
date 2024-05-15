@@ -123,7 +123,7 @@ extern "C" void TestSubcyclingMC2_Sync(CCTK_ARGUMENTS) {
   // do nothing
 }
 
-extern "C" void TestSubcyclingMC2_SyncKs(CCTK_ARGUMENTS) {
+extern "C" void TestSubcyclingMC2_SyncKsOld(CCTK_ARGUMENTS) {
   // do nothing
 }
 
