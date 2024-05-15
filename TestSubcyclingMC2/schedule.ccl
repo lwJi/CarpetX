@@ -28,14 +28,7 @@ SCHEDULE TestSubcyclingMC2_Sync IN ODESolvers_PostStep
   SYNC: state
 } "Synchronize"
 
-SCHEDULE TestSubcyclingMC2_Sync IN ODESolvers_SyncState
-{
-  LANG: C
-  OPTIONS: global
-  SYNC: state
-} "Synchronize"
-
-SCHEDULE TestSubcyclingMC2_SyncKs IN ODESolvers_SyncKs
+SCHEDULE TestSubcyclingMC2_SyncKsOld IN ODESolvers_SyncKsOld
 {
   LANG: C
   SYNC: old k1 k2 k3 k4

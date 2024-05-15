@@ -13,7 +13,7 @@ if(use_subcycling_wip) {
     OPTIONS: global
   } "Setup Var Groups for Subcycling"
 
-  SCHEDULE GROUP ODESolvers_SyncKs
+  SCHEDULE GROUP ODESolvers_SyncKsOld
   {
   } "Group of Sync Ks at RM Boundary"
 
