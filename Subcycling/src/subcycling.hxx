@@ -162,6 +162,23 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
   }
 }
 
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+SetK(const Loop::GridDescBaseDevice &grid, const Loop::GF3D2<CCTK_REAL> &K,
+     const Loop::GF3D2<const CCTK_REAL> &rhs) {
+  grid.loop_int_device<0, 0, 0>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p)
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { K(p.I) = rhs(p.I); });
+}
+
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+InitializeK(const Loop::GridDescBaseDevice &grid,
+            const Loop::GF3D2<CCTK_REAL> &K, CCTK_REAL K0) {
+  grid.loop_int_device<0, 0, 0>(
+      grid.nghostzones, [=] CCTK_DEVICE(const Loop::PointDesc &p)
+                            CCTK_ATTRIBUTE_ALWAYS_INLINE { K(p.I) = K0; });
+}
+
 /* Varlist version */
 template <int RKSTAGES>
 CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
@@ -214,6 +231,51 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
         CCTK_ERROR("Unsupported RK stages with subcycling");
         break;
       }
+      }
+    }
+  }
+}
+
+template <int RKSTAGES>
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+SetK(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss, vector<int> &rhss,
+     const CCTK_INT stage) {
+  assert(stage > 0 && stage <= 4);
+  const Loop::GridDescBaseDevice grid(cctkGH);
+  const int tl = 0;
+  for (size_t i = 0; i < rhss.size(); ++i) {
+    const int nvars = CCTK_NumVarsInGroupI(rhss[i]);
+    const Loop::GF3D2layout layout(cctkGH, get_group_indextype(rhss[i]));
+    const int rhs_0 = CCTK_FirstVarIndexI(rhss[i]);
+    const int K_0 = CCTK_FirstVarIndexI(kss[stage - 1][i]);
+    for (int vi = 0; vi < nvars; vi++) {
+      const Loop::GF3D2<CCTK_REAL> K(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, K_0 + vi)));
+      const Loop::GF3D2<const CCTK_REAL> rhs(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, rhs_0 + vi)));
+      SetK(grid, K, rhs);
+    }
+  }
+}
+
+template <int RKSTAGES>
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+InitializeKs(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss) {
+  const Loop::GridDescBaseDevice grid(cctkGH);
+  const int tl = 0;
+  for (size_t s = 0; s < kss.size(); ++s) {
+    auto ks = kss[s];
+    for (size_t i = 0; i < ks.size(); ++i) {
+      const int nvars = CCTK_NumVarsInGroupI(ks[i]);
+      const Loop::GF3D2layout layout(cctkGH, get_group_indextype(ks[i]));
+      const int K_0 = CCTK_FirstVarIndexI(ks[i]);
+      for (int vi = 0; vi < nvars; vi++) {
+        const Loop::GF3D2<CCTK_REAL> K(
+            layout,
+            static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, K_0 + vi)));
+        InitializeK(grid, K, 0.0);
       }
     }
   }
