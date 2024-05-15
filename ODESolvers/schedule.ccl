@@ -47,10 +47,6 @@ if(use_subcycling_wip) {
     LANG: C
   } "Calc Yfs from Kcs at RM Boundary for RK4"
 
-  SCHEDULE GROUP ODESolvers_SyncState
-  {
-  } "Group of Sync State"
-
   SCHEDULE GROUP ODESolvers_SetK1
   {
   } "Group of Set K1"
