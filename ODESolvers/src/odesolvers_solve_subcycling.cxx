@@ -70,53 +70,17 @@ extern "C" void ODESolvers_Solve_CalcYfFromKcs4(CCTK_ARGUMENTS) {
                                       KsGroups, dt * 2, xsi, 4);
 }
 
-CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-SetK(const Loop::GridDescBaseDevice &grid, const Loop::GF3D2<CCTK_REAL> &K,
-     const Loop::GF3D2<const CCTK_REAL> &rhs) {
-  grid.loop_int_device<0, 0, 0>(
-      grid.nghostzones,
-      [=] CCTK_DEVICE(const Loop::PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE { K(p.I) = rhs(p.I); });
-}
-
-template <int RKSTAGES>
-CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-SetK(CCTK_ARGUMENTS, vector<int> &rhss, const array<vector<int>, RKSTAGES> &kss,
-     const CCTK_INT stage) {
-  assert(stage > 0 && stage <= 4);
-  const Loop::GridDescBaseDevice grid(cctkGH);
-  const int tl = 0;
-  // TODO: we need different centering types of flag for refinement boundary,
-  // maybe make it a group
-  for (size_t i = 0; i < rhss.size(); ++i) {
-    const int nvars = CCTK_NumVarsInGroupI(rhss[i]);
-    const Loop::GF3D2layout layout(cctkGH,
-                                   Subcycling::get_group_indextype(rhss[i]));
-    const int rhs_0 = CCTK_FirstVarIndexI(rhss[i]);
-    const int K_0 = CCTK_FirstVarIndexI(kss[stage - 1][i]);
-    for (int vi = 0; vi < nvars; vi++) {
-      const Loop::GF3D2<CCTK_REAL> K(
-          layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, K_0 + vi)));
-      const Loop::GF3D2<const CCTK_REAL> rhs(
-          layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, rhs_0 + vi)));
-      SetK(grid, K, rhs);
-    }
-  }
-}
-
 extern "C" void ODESolvers_Solve_SetK1(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_SetK1;
-  SetK<rkstages>(CCTK_PASS_CTOC, RhsGroups, KsGroups, 1);
+  Subcycling::SetK<rkstages>(CCTK_PASS_CTOC, KsGroups, RhsGroups, 1);
 }
 extern "C" void ODESolvers_Solve_SetK2(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_SetK2;
-  SetK<rkstages>(CCTK_PASS_CTOC, RhsGroups, KsGroups, 2);
+  Subcycling::SetK<rkstages>(CCTK_PASS_CTOC, KsGroups, RhsGroups, 2);
 }
 extern "C" void ODESolvers_Solve_SetK3(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_SetK3;
-  SetK<rkstages>(CCTK_PASS_CTOC, RhsGroups, KsGroups, 3);
+  Subcycling::SetK<rkstages>(CCTK_PASS_CTOC, KsGroups, RhsGroups, 3);
 }
 
 extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
