@@ -16,16 +16,16 @@ if(use_subcycling_wip) {
   SCHEDULE GROUP ODESolvers_SyncKs
   {
   } "Group of Sync Ks at RM Boundary"
-  SCHEDULE GROUP ODESolvers_CalcYfFromKcs1 #AT postinitial AFTER ODESolvers_SyncKs
+  SCHEDULE GROUP ODESolvers_CalcYfFromKcs1
   {
   } "Group of Calc Yfs from Kcs at RM Boundary for RK1"
-  SCHEDULE GROUP ODESolvers_CalcYfFromKcs2 #AT postinitial AFTER ODESolvers_CalcYfFromKcs1
+  SCHEDULE GROUP ODESolvers_CalcYfFromKcs2
   {
   } "Group of Calc Yfs from Kcs at RM Boundary for RK2"
-  SCHEDULE GROUP ODESolvers_CalcYfFromKcs3 #AT postinitial AFTER ODESolvers_CalcYfFromKcs2
+  SCHEDULE GROUP ODESolvers_CalcYfFromKcs3
   {
   } "Group of Calc Yfs from Kcs at RM Boundary for RK3"
-  SCHEDULE GROUP ODESolvers_CalcYfFromKcs4 #AT postinitial AFTER ODESolvers_CalcYfFromKcs3
+  SCHEDULE GROUP ODESolvers_CalcYfFromKcs4
   {
   } "Group of Calc Yfs from Kcs at RM Boundary for RK4"
 
@@ -58,9 +58,6 @@ if(use_subcycling_wip) {
   SCHEDULE GROUP ODESolvers_CalcY4
   {
   } "Group of Calc Y4"
-  SCHEDULE GROUP ODESolvers_UpdateU
-  {
-  } "Group of Calc New U"
 
   SCHEDULE ODESolvers_Solve_CalcY2 IN ODESolvers_CalcY2
   {
@@ -184,7 +181,7 @@ else {
   {
   } "Evaluate RHS for of state vector everywhere on the grid"
   
-  SCHEDULE GROUP ODESolvers_EstimateError AT postinitial AFTER (ODESolvers_PostStep, ODESolvers_RHS, ODESolvers_CalcYfFromKcs4)
+  SCHEDULE GROUP ODESolvers_EstimateError AT postinitial AFTER (ODESolvers_PostStep, ODESolvers_RHS)
   {
   } "Estimate discretization error (for regridding)"
 
@@ -205,7 +202,7 @@ else {
   # {
   # } "Take an implicit step everywhere on the grid"
   
-  SCHEDULE GROUP ODESolvers_EstimateError AT poststep AFTER (ODESolvers_PostStep, ODESolvers_RHS, ODESolvers_CalcYfFromKcs4)
+  SCHEDULE GROUP ODESolvers_EstimateError AT poststep AFTER (ODESolvers_PostStep, ODESolvers_RHS)
   {
   } "Estimate discretization error (for regridding)"
 
