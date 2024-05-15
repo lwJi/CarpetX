@@ -251,7 +251,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                          make_valid_int());
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
 
-    // Sync OldState:
+    // Sync OldState and Ks:
 
     CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
 
