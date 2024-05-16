@@ -209,8 +209,15 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
-    // Set OldState:
+    // Initialize Ks
+    if (cctk_iteration == 1) {
+      for (int s = 0; s < rkstages; s++) {
+        statecomp_t::lincomb(ks[s], 0, make_array(CCTK_REAL(1)),
+                             make_array(&rhs), make_valid_int());
+      }
+    }
 
+    // Set OldState:
     statecomp_t::lincomb(old, 0, make_array(CCTK_REAL(1)), make_array(&var),
                          make_valid_int());
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
