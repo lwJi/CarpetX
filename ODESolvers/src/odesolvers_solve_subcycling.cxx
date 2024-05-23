@@ -12,7 +12,6 @@ array<std::vector<int>, rkstages> KsGroups;
 extern "C" void ODESolvers_Solve_Subcycling_Setup(CCTK_ARGUMENTS) {
   const auto &patchdata0 = ghext->patchdata.at(0);
   const auto &leveldata0 = patchdata0.leveldata.at(0);
-  int nvars = 0;
   bool do_accumulate_nvars = true;
   for (const auto &groupdataptr : leveldata0.groupdata) {
     if (groupdataptr == nullptr)
@@ -25,7 +24,6 @@ extern "C" void ODESolvers_Solve_Subcycling_Setup(CCTK_ARGUMENTS) {
     if (rhs_gi >= 0) {
       assert(rhs_gi != groupdata.groupindex);
       if (do_accumulate_nvars) {
-        nvars += groupdata.numvars;
         VarGroups.push_back(groupdata.groupindex);
         RhsGroups.push_back(rhs_gi);
         OldGroups.push_back(old_gi);
