@@ -82,6 +82,7 @@ BOOLEAN periodic_z "Periodic"
 } no
 
 
+RESTRICTED:
 
 BOOLEAN use_subcycling_wip "Use subcycling in time"
 {
