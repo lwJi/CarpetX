@@ -4,6 +4,7 @@
 // TODO: Don't include files from other thorns; create a proper interface
 #include "../../CarpetX/src/driver.hxx"
 #include "../../CarpetX/src/schedule.hxx"
+#include "../../CarpetX/src/timer.hxx"
 
 #include <cctk.h>
 #include <cctk_Parameters.h>
@@ -29,6 +30,7 @@ static inline int omp_get_max_threads() { return 1; }
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -122,6 +124,9 @@ struct statecomp_t {
                       const valid_t where);
 };
 
+template <std::size_t N> using reals = std::array<CCTK_REAL, N>;
+template <std::size_t N> using states = std::array<const statecomp_t *, N>;
+
 ////////////////////////////////////////////////////////////////////////////////
 
 inline int groupindex(const int other_gi, std::string gn) {
@@ -205,7 +210,6 @@ inline int get_group_old(const int gi) {
                 "That group does not exist.",
                 CCTK_FullGroupName(gi), str.c_str());
   assert(old != gi);
-
 
   return old;
 }
