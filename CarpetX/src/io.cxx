@@ -500,7 +500,8 @@ int OutputGH(const cGH *restrict cctkGH) {
   static Timer timer("OutputGH");
   Interval interval(timer);
 
-  if (verbose)
+  const bool is_root = CCTK_MyProc(nullptr) == 0;
+  if (is_root)
     CCTK_VINFO("OutputGH: iteration %d, time %f, run time %d s", cctk_iteration,
                double(cctk_time), CCTK_RunTime());
 
@@ -587,7 +588,7 @@ int OutputGH(const cGH *restrict cctkGH) {
   // Describe all output files
   OutputMeta(cctkGH);
 
-  if (verbose)
+  if (is_root)
     CCTK_VINFO("OutputGH done.");
 
   // TODO: This should be the number of variables output

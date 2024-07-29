@@ -83,7 +83,7 @@ std::optional<active_levels_t> active_levels;
 void Reflux(const cGH *cctkGH, int level);
 void Restrict(const cGH *cctkGH, int level, const std::vector<int> &groups);
 void Restrict(const cGH *cctkGH, int level);
-void SyncAfterRestrict(const cGH *cctkGH, int level);
+void SyncAfterRestrict(const cGH *cctkGH);
 
 namespace {
 // Convert a (direction, face) pair to an AMReX Orientation
@@ -776,7 +776,7 @@ active_levels_t::active_levels_t(const int min_level, const int max_level,
 }
 active_levels_t::active_levels_t(const int min_level, const int max_level)
     : active_levels_t(min_level, max_level, 0, ghext->num_patches()) {}
-active_levels_t::active_levels_t() : active_levels_t(0, 0) {}
+active_levels_t::active_levels_t() : active_levels_t(0, ghext->num_levels()) {}
 
 void active_levels_t::assert_consistent_iterations() const {
   rat64 good_iteration = -1;
@@ -1096,7 +1096,7 @@ int Initialise(tFleshConfig *config) {
     RecoverGridStructure(cctkGH);
 
     assert(!active_levels);
-    active_levels = make_optional<active_levels_t>(0, ghext->num_levels());
+    active_levels = make_optional<active_levels_t>();
 
     CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
 
@@ -1345,7 +1345,7 @@ int Initialise(tFleshConfig *config) {
   CCTK_VINFO("Initialized %d levels", ghext->num_levels());
 
   assert(!active_levels);
-  active_levels = make_optional<active_levels_t>(0, ghext->num_levels());
+  active_levels = make_optional<active_levels_t>();
 
   if (!restrict_during_sync) {
     // Restrict
@@ -1355,10 +1355,7 @@ int Initialise(tFleshConfig *config) {
         Restrict(cctkGH, leveldata.level);
     });
     // Prolongation
-    active_levels->loop_coarse_to_fine([&](const auto &leveldata) {
-      if (leveldata.level != 0)
-        SyncAfterRestrict(cctkGH, leveldata.level);
-    });
+    SyncAfterRestrict(cctkGH);
     CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
   }
 
@@ -1750,8 +1747,7 @@ int Evolve(tFleshConfig *config) {
       }
       assert(level_iteration != -1);
       assert(level_delta_iteration != -1);
-      // TODO: if a break is always ok (eg if subcycling factors are strange
-      // or if a for() loop with a continue is required.
+      // Skip those evolved coarse levels when evolving fine levels to catch up
       if (level_iteration > iteration)
         continue;
 
@@ -1774,11 +1770,10 @@ int Evolve(tFleshConfig *config) {
 
       CycleTimelevels(cctkGH);
 
-      cctkGH->cctk_timefac = (use_subcycling_wip) ? std::pow(2, min_level) : 1;
+      cctkGH->cctk_timefac = use_subcycling_wip ? std::pow(2, min_level) : 1;
       cctkGH->cctk_time =
-          (use_subcycling_wip)
-              ? cctkGH->cctk_delta_time * double(level_iteration)
-              : cctkGH->cctk_time + cctkGH->cctk_delta_time;
+          use_subcycling_wip ? cctkGH->cctk_delta_time * double(level_iteration)
+                             : cctkGH->cctk_time + cctkGH->cctk_delta_time;
 
       CCTK_Traverse(cctkGH, "CCTK_PRESTEP");
       CCTK_Traverse(cctkGH, "CCTK_EVOL");
@@ -1789,28 +1784,7 @@ int Evolve(tFleshConfig *config) {
       for (int level = ghext->num_levels() - 2; level >= 0; --level)
         Reflux(cctkGH, level);
 
-      if (!restrict_during_sync) {
-        // Restrict
-        for (int level = min_level - 1; level >= 0; --level) {
-          rat64 coarse_iteration =
-              ghext->patchdata.at(0).leveldata.at(level).iteration;
-          if (coarse_iteration == level_iteration)
-            Restrict(cctkGH, level);
-          else
-            break;
-        }
-        // Prolongation
-        for (int level = 1; level < max_level; ++level) {
-          rat64 coarse_iteration =
-              ghext->patchdata.at(0).leveldata.at(level - 1).iteration;
-          if (coarse_iteration == level_iteration)
-            SyncAfterRestrict(cctkGH, level);
-          else
-            continue;
-        }
-        CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
-      }
-
+      // reset active_levels to all that have caught to the same time
       for (int level = min_level - 1; level >= 0; --level) {
         rat64 coarse_iteration =
             ghext->patchdata.at(0).leveldata.at(level).iteration;
@@ -1820,6 +1794,18 @@ int Evolve(tFleshConfig *config) {
           break;
       }
       active_levels = make_optional<active_levels_t>(min_level, max_level);
+
+      if (!restrict_during_sync) {
+        // Restrict
+        active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
+          if (leveldata.level != ghext->num_levels() - 1)
+            Restrict(cctkGH, leveldata.level);
+        });
+        // Prolongation
+        SyncAfterRestrict(cctkGH);
+        CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+      }
+
       CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
       CCTK_Traverse(cctkGH, "CCTK_CHECKPOINT");
       CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
@@ -1829,7 +1815,7 @@ int Evolve(tFleshConfig *config) {
       total_evolution_output_time += output_finish_time - output_start_time;
 
       active_levels = optional<active_levels_t>();
-    } // while min_level
+    } // for min_level, max_level
 
     const double finish_time = gettime();
     double num_cells = 0;
@@ -1842,8 +1828,6 @@ int Evolve(tFleshConfig *config) {
     total_evolution_time += iteration_time;
     const double iterations_per_second = 1 / iteration_time;
     const double cell_updates_per_second = num_cells * iterations_per_second;
-    const double total_evolution_compute_time =
-        total_evolution_time - total_evolution_output_time;
     CCTK_VINFO("Simulation time: %g   "
                "Iterations per second: %g   "
                "Simulation time per second: %g",
@@ -1856,6 +1840,8 @@ int Evolve(tFleshConfig *config) {
                "Grid cell updates per second: %g",
                num_cells, cell_updates_per_second);
 
+    const double total_evolution_compute_time =
+        total_evolution_time - total_evolution_output_time;
     CCTK_VINFO("Performance:");
     CCTK_VINFO("  total evolution time:            %g sec",
                total_evolution_time);
@@ -2833,25 +2819,22 @@ void Restrict(const cGH *cctkGH, int level) {
   Restrict(cctkGH, level, groups);
 }
 
-void SyncAfterRestrict(const cGH *cctkGH, int level) {
+void SyncAfterRestrict(const cGH *cctkGH) {
   const int numgroups = CCTK_NumGroups();
   vector<int> groups;
   groups.reserve(numgroups);
   const auto &patchdata0 = ghext->patchdata.at(0);
   const auto &leveldata0 = patchdata0.leveldata.at(0);
   for (const auto &groupdataptr : leveldata0.groupdata) {
-    // Restrict only grid functions
+    // Sync only grid functions
     if (groupdataptr) {
       auto &restrict groupdata = *groupdataptr;
-      // Restrict only evolved grid functions
+      // Sync only evolved grid functions
       if (groupdata.do_checkpoint)
         groups.push_back(groupdata.groupindex);
     }
   }
-  auto active_levels_bk = active_levels;
-  active_levels = make_optional<active_levels_t>(level - 1, level + 1);
   SyncGroupsByDirI(cctkGH, groups.size(), groups.data(), nullptr);
-  active_levels = active_levels_bk;
 }
 
 // storage handling
