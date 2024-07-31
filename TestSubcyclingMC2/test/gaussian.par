@@ -46,7 +46,7 @@ CarpetX::regrid_error_threshold = 0.9
 CarpetX::prolongation_type = "ddf"
 #CarpetX::prolongation_order = 3
 CarpetX::ghost_size = 3
-CarpetX::dtfac = 0.25
+CarpetX::dtfac = 0.5
 
 CarpetX::blocking_factor_x = 2
 CarpetX::blocking_factor_y = 2
