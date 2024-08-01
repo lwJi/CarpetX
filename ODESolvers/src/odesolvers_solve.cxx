@@ -102,8 +102,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
   static Timer timer_rhs("ODESolvers::Solve::rhs");
   static Timer timer_poststep("ODESolvers::Solve::poststep");
 
-  const auto copy_state = [](const auto &var) {
-    return var.copy(make_valid_int());
+  const auto copy_state = [](const auto &var, const valid_t where) {
+    return var.copy(where);
   };
   const auto calcrhs = [&](const int n) {
     Interval interval_rhs(timer_rhs);
@@ -157,7 +157,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     // k2 = f(y0 + h/2 k1)
     // y1 = y0 + h k2
 
-    const auto old = copy_state(var);
+    const auto old = copy_state(var, make_valid_all());
 
     calcrhs(1);
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
@@ -172,14 +172,14 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     // k3 = f(y0 - h k1 + 2 h k2)
     // y1 = y0 + h/6 k1 + 2/3 h k2 + h/6 k3
 
-    const auto old = copy_state(var);
+    const auto old = copy_state(var, make_valid_all());
 
     calcrhs(1);
-    const auto k1 = copy_state(rhs);
+    const auto k1 = copy_state(rhs, make_valid_int());
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&k1});
 
     calcrhs(2);
-    const auto k2 = copy_state(rhs);
+    const auto k2 = copy_state(rhs, make_valid_int());
     calcupdate(2, dt, 0.0, reals<3>{1.0, -dt, 2 * dt},
                states<3>{&old, &k1, &k2});
 
@@ -194,14 +194,14 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     // k3 = f(y0 + h/4 k1 + h/4 k2)
     // y1 = y0 + h/6 k1 + h/6 k2 + 2/3 h k3
 
-    const auto old = copy_state(var);
+    const auto old = copy_state(var, make_valid_all());
 
     calcrhs(1);
-    const auto k1 = copy_state(rhs);
+    const auto k1 = copy_state(rhs, make_valid_int());
     calcupdate(1, dt, 1.0, reals<1>{dt}, states<1>{&k1});
 
     calcrhs(2);
-    const auto k2 = copy_state(rhs);
+    const auto k2 = copy_state(rhs, make_valid_int());
     calcupdate(2, dt / 2, 0.0, reals<3>{1.0, dt / 4, dt / 4},
                states<3>{&old, &k1, &k2});
 
@@ -217,10 +217,10 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
-    const auto old = copy_state(var);
+    const auto old = copy_state(var, make_valid_all());
 
     calcrhs(1);
-    const auto kaccum = copy_state(rhs);
+    const auto kaccum = copy_state(rhs, make_valid_int());
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&kaccum});
 
     calcrhs(2);
@@ -304,7 +304,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
       assert(fabs(x - 1) <= 10 * numeric_limits<T>::epsilon());
     }
 
-    const auto old = copy_state(var);
+    const auto old = copy_state(var, make_valid_all());
 
     vector<statecomp_t> ks;
     ks.reserve(nsteps);
@@ -332,7 +332,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
       }
 
       calcrhs(step + 1);
-      ks.push_back(copy_state(rhs));
+      ks.push_back(copy_state(rhs, make_valid_int()));
     }
 
     // Calculate new state vector
@@ -414,7 +414,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
       assert(fabs(x - 1) <= 10 * numeric_limits<T>::epsilon());
     }
 
-    const auto old = copy_state(var);
+    const auto old = copy_state(var, make_valid_all());
 
     vector<statecomp_t> ks;
     ks.reserve(nsteps);
@@ -444,7 +444,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
       }
 
       calcrhs(step + 1);
-      ks.push_back(copy_state(rhs));
+      ks.push_back(copy_state(rhs, make_valid_int()));
     }
 
     // Calculate new state vector
