@@ -94,7 +94,8 @@ struct statecomp_t {
   template <size_t N>
   static void combine_valids(const statecomp_t &dst, const CCTK_REAL scale,
                              const array<CCTK_REAL, N> &factors,
-                             const array<const statecomp_t *, N> &srcs);
+                             const array<const statecomp_t *, N> &srcs,
+                             const valid_t where);
   void check_valid(const valid_t required, const function<string()> &why) const;
   void check_valid(const valid_t required, const string &why) const {
     check_valid(required, [=]() { return why; });
