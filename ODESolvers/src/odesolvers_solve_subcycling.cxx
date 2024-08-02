@@ -296,7 +296,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcrhs(4);
     {
       Interval interval_lincomb(timer_lincomb);
-      statecomp_t::lincomb(ks[3], 0, make_array(CCTK_REAL(1)), make_array(&rhs),
+      statecomp_t::lincomb(ks[3], 0.0, reals<1>{1.0}, states<1>{&rhs},
                            make_valid_int());
     }
 
