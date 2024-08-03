@@ -269,14 +269,16 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
     // Set OldState: the reason we can't use temp vars for old here is because
     // we need to access it in the following CallScheduleGroup functions which
-    // are not able to access temp vars yet
+    // are not able to access temp vars yet.
     {
       Interval interval_lincomb(timer_lincomb);
       statecomp_t::lincomb(old, 0, make_array(CCTK_REAL(1)), make_array(&var),
                            make_valid_int());
     }
 
-    // Sync OldState and Ks:
+    // Sync OldState and Ks: prolongate old and ks from parent level which are
+    // set in previous steps. We update the refinement boundary ghost values
+    // which are set by lincomb above.
     CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
 
     // k1 = f(Y1)
