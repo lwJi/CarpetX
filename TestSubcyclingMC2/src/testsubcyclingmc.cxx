@@ -108,10 +108,6 @@ extern "C" void TestSubcyclingMC2_Sync(CCTK_ARGUMENTS) {
   // do nothing
 }
 
-extern "C" void TestSubcyclingMC2_SyncKsOld(CCTK_ARGUMENTS) {
-  // do nothing
-}
-
 extern "C" void TestSubcyclingMC2_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_Error;
   DECLARE_CCTK_PARAMETERS;
