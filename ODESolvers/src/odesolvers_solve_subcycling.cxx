@@ -279,7 +279,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // Sync OldState and Ks: prolongate old and ks from parent level which are
     // set in previous steps. We update the refinement boundary ghost values
     // which are set by lincomb above.
-    CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
+    // CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
+    SyncGroupsByDirI(cctkGH, OldGroups.size(), OldGroups.data(), nullptr);
+    for (int i = 0; i < rkstages; i++) {
+      SyncGroupsByDirI(cctkGH, KsGroups[i].size(), KsGroups[i].data(), nullptr);
+    }
 
     // k1 = f(Y1)
     CallScheduleGroup(cctkGH,
