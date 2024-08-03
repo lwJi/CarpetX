@@ -267,7 +267,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
       }
     }
 
-    // Set OldState:
+    // Set OldState: the reason we can't use temp vars for old here is because
+    // we need to access it in the following CallScheduleGroup functions which
+    // are not able to access temp vars yet
     {
       Interval interval_lincomb(timer_lincomb);
       statecomp_t::lincomb(old, 0, make_array(CCTK_REAL(1)), make_array(&var),
