@@ -80,6 +80,10 @@ extern "C" void ODESolvers_Solve_SetK3(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_SetK3;
   Subcycling::SetK<rkstages>(CCTK_PASS_CTOC, KsGroups, RhsGroups, 3);
 }
+extern "C" void ODESolvers_Solve_SetK4(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_SetK4;
+  Subcycling::SetK<rkstages>(CCTK_PASS_CTOC, KsGroups, RhsGroups, 4);
+}
 
 extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling;
@@ -276,29 +280,30 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k1 = f(Y1)
     CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs1");
     calcrhs(1);
-    CallScheduleGroup(cctkGH, "ODESolvers_SetK1");
+    CallScheduleGroup(cctkGH, "ODESolvers_SetK1"); // interior only
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
 
     // k2 = f(Y2)
     CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs2");
     calcrhs(2);
-    CallScheduleGroup(cctkGH, "ODESolvers_SetK2");
+    CallScheduleGroup(cctkGH, "ODESolvers_SetK2"); // interior only
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
 
     // k3 = f(Y3)
     CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs3");
     calcrhs(3);
-    CallScheduleGroup(cctkGH, "ODESolvers_SetK3");
+    CallScheduleGroup(cctkGH, "ODESolvers_SetK3"); // interior only
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
 
     // k4 = f(Y4)
     CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs4");
     calcrhs(4);
-    {
-      Interval interval_lincomb(timer_lincomb);
-      statecomp_t::lincomb(ks[3], 0.0, reals<1>{1.0}, states<1>{&rhs},
-                           make_valid_int());
-    }
+    CallScheduleGroup(cctkGH, "ODESolvers_SetK4"); // interior only
+    //{
+    //  Interval interval_lincomb(timer_lincomb);
+    //  statecomp_t::lincomb(ks[3], 0.0, reals<1>{1.0}, states<1>{&rhs},
+    //                       make_valid_int());
+    //}
 
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
     calcupdate(4, dt, 0.0, reals<5>{1.0, dt / 6, dt / 3, dt / 3, dt / 6},

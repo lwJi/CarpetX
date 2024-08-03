@@ -56,6 +56,9 @@ if(use_subcycling_wip) {
   SCHEDULE GROUP ODESolvers_SetK3
   {
   } "Group Setting K3 from RHS"
+  SCHEDULE GROUP ODESolvers_SetK4
+  {
+  } "Group Setting K4 from RHS"
 
   SCHEDULE ODESolvers_Solve_SetK1 IN ODESolvers_SetK1
   {
@@ -69,6 +72,10 @@ if(use_subcycling_wip) {
   {
     LANG: C
   } "Setting K3 from RHS"
+  SCHEDULE ODESolvers_Solve_SetK4 IN ODESolvers_SetK4
+  {
+    LANG: C
+  } "Setting K4 from RHS"
 }
 else {
  SCHEDULE ODESolvers_Solve AT evol
