@@ -278,25 +278,29 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
 
     // k1 = f(Y1)
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs1");
+    CallScheduleGroup(cctkGH,
+                      "ODESolvers_CalcYfFromKcs1"); // refinement boundary only
     calcrhs(1);
     CallScheduleGroup(cctkGH, "ODESolvers_SetK1"); // interior only
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
 
     // k2 = f(Y2)
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs2");
+    CallScheduleGroup(cctkGH,
+                      "ODESolvers_CalcYfFromKcs2"); // refinement boundary only
     calcrhs(2);
     CallScheduleGroup(cctkGH, "ODESolvers_SetK2"); // interior only
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
 
     // k3 = f(Y3)
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs3");
+    CallScheduleGroup(cctkGH,
+                      "ODESolvers_CalcYfFromKcs3"); // refinement boundary only
     calcrhs(3);
     CallScheduleGroup(cctkGH, "ODESolvers_SetK3"); // interior only
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
 
     // k4 = f(Y4)
-    CallScheduleGroup(cctkGH, "ODESolvers_CalcYfFromKcs4");
+    CallScheduleGroup(cctkGH,
+                      "ODESolvers_CalcYfFromKcs4"); // refinement boundary only
     calcrhs(4);
     CallScheduleGroup(cctkGH, "ODESolvers_SetK4"); // interior only
     //{
