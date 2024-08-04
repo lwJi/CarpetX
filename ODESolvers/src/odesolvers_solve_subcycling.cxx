@@ -259,12 +259,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
-    // Initialize Ks
-    if (cctk_iteration == 1) {
-      for (int s = 0; s < rkstages; s++) {
-        statecomp_t::lincomb(ks[s], 0, reals<1>{1.0}, states<1>{&rhs},
-                             make_valid_int());
-      }
+    // Initialize Ks: for sync's sake (make ks valid at the first iteration
+    // whenever restart). This is not needed after the first iteration.
+    for (int s = 0; s < rkstages; s++) {
+      statecomp_t::lincomb(ks[s], 0, reals<1>{1.0}, states<1>{&rhs},
+                           make_valid_int());
     }
 
     // Set OldState: the reason we can't use temp vars for old here is because
