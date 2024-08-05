@@ -1115,6 +1115,14 @@ int Initialise(tFleshConfig *config) {
     CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
     CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
 
+    // Here we assume that all levels have catched up to the coarsed one when
+    // checkpointing.
+    // TODO: checkpoint level.iteration instead.
+    active_levels->loop_serially([&](auto &restrict leveldata) {
+      leveldata.iteration =
+          rat64(cctkGH->cctk_iteration) / ghext->num_levels() - 1;
+    });
+
     active_levels = optional<active_levels_t>();
 
     // Enable regridding
