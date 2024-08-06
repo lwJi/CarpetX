@@ -1118,9 +1118,9 @@ int Initialise(tFleshConfig *config) {
     // Here we assume that all levels have catched up to the coarsed one when
     // checkpointing.
     // TODO: checkpoint level.iteration instead.
+    const int iteration_ratio = pow(2, ghext->num_levels() - 1);
     active_levels->loop_serially([&](auto &restrict leveldata) {
-      leveldata.iteration =
-          rat64(cctkGH->cctk_iteration) / ghext->num_levels() - 1;
+      leveldata.iteration = rat64(cctkGH->cctk_iteration) / iteration_ratio;
     });
 
     active_levels = optional<active_levels_t>();
