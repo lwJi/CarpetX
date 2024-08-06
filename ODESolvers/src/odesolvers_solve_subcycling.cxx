@@ -279,9 +279,12 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // set in previous steps. We update the refinement boundary ghost values
     // which are set by lincomb above.
     // CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
-    SyncGroupsByDirI(cctkGH, OldGroups.size(), OldGroups.data(), nullptr);
-    for (int i = 0; i < rkstages; i++) {
-      SyncGroupsByDirI(cctkGH, KsGroups[i].size(), KsGroups[i].data(), nullptr);
+    if (OldGroups.data() != nullptr) {
+      SyncGroupsByDirI(cctkGH, OldGroups.size(), OldGroups.data(), nullptr);
+      for (int i = 0; i < rkstages; i++) {
+        SyncGroupsByDirI(cctkGH, KsGroups[i].size(), KsGroups[i].data(),
+                         nullptr);
+      }
     }
 
     // k1 = f(Y1)
