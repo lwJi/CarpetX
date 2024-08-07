@@ -6,10 +6,6 @@ if(use_subcycling_wip) {
     LANG: C
     OPTIONS: level
   } "Solve ODEs using Subcycling"
-
-  SCHEDULE GROUP ODESolvers_SyncKsOld
-  {
-  } "Group Sync Ks and Old at RM Boundary"
 }
 else {
  SCHEDULE ODESolvers_Solve AT evol

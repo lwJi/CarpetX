@@ -2300,7 +2300,7 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
                      const int *groups0, const int *directions) {
   DECLARE_CCTK_PARAMETERS;
 
-  assert(in_global_mode(cctkGH));
+  assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 
   mark_sync_active marked;
 
