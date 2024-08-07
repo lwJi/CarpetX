@@ -35,23 +35,6 @@ extern "C" void ODESolvers_Solve_Subcycling_Setup(CCTK_ARGUMENTS) {
   do_accumulate_nvars = false;
 }
 
-extern "C" void ODESolvers_Solve_SetK1(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_SetK1;
-  Subcycling::SetK<rkstages>(CCTK_PASS_CTOC, KsGroups, RhsGroups, 1);
-}
-extern "C" void ODESolvers_Solve_SetK2(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_SetK2;
-  Subcycling::SetK<rkstages>(CCTK_PASS_CTOC, KsGroups, RhsGroups, 2);
-}
-extern "C" void ODESolvers_Solve_SetK3(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_SetK3;
-  Subcycling::SetK<rkstages>(CCTK_PASS_CTOC, KsGroups, RhsGroups, 3);
-}
-extern "C" void ODESolvers_Solve_SetK4(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_SetK4;
-  Subcycling::SetK<rkstages>(CCTK_PASS_CTOC, KsGroups, RhsGroups, 4);
-}
-
 extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling;
   DECLARE_CCTK_PARAMETERS;
@@ -221,6 +204,16 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     });
     synchronize();
   };
+  // set ks in the interior which will be used for prolongation later
+  const auto setks = [&](const int stage) {
+    active_levels->loop_parallel([&](int patch, int level, int index,
+                                     int component, const cGH *local_cctkGH) {
+      update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
+      Subcycling::SetK<rkstages>(const_cast<cGH *>(local_cctkGH), ks_groups,
+                                 rhs_groups, stage);
+    });
+    synchronize();
+  };
 
   *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
 
@@ -269,25 +262,25 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k1 = f(Y1)
     calcys_rmbnd(1); // refinement boundary only
     calcrhs(1);
-    CallScheduleGroup(cctkGH, "ODESolvers_SetK1"); // interior only
+    setks(1); // interior only
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
 
     // k2 = f(Y2)
     calcys_rmbnd(2); // refinement boundary only
     calcrhs(2);
-    CallScheduleGroup(cctkGH, "ODESolvers_SetK2"); // interior only
+    setks(2); // interior only
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
 
     // k3 = f(Y3)
     calcys_rmbnd(3); // refinement boundary only
     calcrhs(3);
-    CallScheduleGroup(cctkGH, "ODESolvers_SetK3"); // interior only
+    setks(3); // interior only
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
 
     // k4 = f(Y4)
     calcys_rmbnd(4); // refinement boundary only
     calcrhs(4);
-    CallScheduleGroup(cctkGH, "ODESolvers_SetK4"); // interior only
+    setks(4); // interior only
     //{
     //  Interval interval_lincomb(timer_lincomb);
     //  statecomp_t::lincomb(ks[3], 0.0, reals<1>{1.0}, states<1>{&rhs},

@@ -16,36 +16,6 @@ if(use_subcycling_wip) {
   SCHEDULE GROUP ODESolvers_SyncKsOld
   {
   } "Group Sync Ks and Old at RM Boundary"
-
-  SCHEDULE GROUP ODESolvers_SetK1
-  {
-  } "Group Setting K1 from RHS"
-  SCHEDULE GROUP ODESolvers_SetK2
-  {
-  } "Group Setting K2 from RHS"
-  SCHEDULE GROUP ODESolvers_SetK3
-  {
-  } "Group Setting K3 from RHS"
-  SCHEDULE GROUP ODESolvers_SetK4
-  {
-  } "Group Setting K4 from RHS"
-
-  SCHEDULE ODESolvers_Solve_SetK1 IN ODESolvers_SetK1
-  {
-    LANG: C
-  } "Setting K1 from RHS"
-  SCHEDULE ODESolvers_Solve_SetK2 IN ODESolvers_SetK2
-  {
-    LANG: C
-  } "Setting K2 from RHS"
-  SCHEDULE ODESolvers_Solve_SetK3 IN ODESolvers_SetK3
-  {
-    LANG: C
-  } "Setting K3 from RHS"
-  SCHEDULE ODESolvers_Solve_SetK4 IN ODESolvers_SetK4
-  {
-    LANG: C
-  } "Setting K4 from RHS"
 }
 else {
  SCHEDULE ODESolvers_Solve AT evol
