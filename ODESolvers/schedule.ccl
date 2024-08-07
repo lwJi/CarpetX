@@ -17,36 +17,6 @@ if(use_subcycling_wip) {
   {
   } "Group Sync Ks and Old at RM Boundary"
 
-  SCHEDULE GROUP ODESolvers_CalcYfFromKcs1
-  {
-  } "Group Calculating Yfs from Kcs at RM Boundary for Stage 1"
-  SCHEDULE GROUP ODESolvers_CalcYfFromKcs2
-  {
-  } "Group Calculating Yfs from Kcs at RM Boundary for Stage 2"
-  SCHEDULE GROUP ODESolvers_CalcYfFromKcs3
-  {
-  } "Group Calculating Yfs from Kcs at RM Boundary for Stage 3"
-  SCHEDULE GROUP ODESolvers_CalcYfFromKcs4
-  {
-  } "Group Calculating Yfs from Kcs at RM Boundary for Stage 4"
-
-  SCHEDULE ODESolvers_Solve_CalcYfFromKcs1 IN ODESolvers_CalcYfFromKcs1
-  {
-    LANG: C
-  } "Calculating Yfs from Kcs at RM Boundary for Stage 1"
-  SCHEDULE ODESolvers_Solve_CalcYfFromKcs2 IN ODESolvers_CalcYfFromKcs2
-  {
-    LANG: C
-  } "Calculating Yfs from Kcs at RM Boundary for Stage 2"
-  SCHEDULE ODESolvers_Solve_CalcYfFromKcs3 IN ODESolvers_CalcYfFromKcs3
-  {
-    LANG: C
-  } "Calculating Yfs from Kcs at RM Boundary for Stage 3"
-  SCHEDULE ODESolvers_Solve_CalcYfFromKcs4 IN ODESolvers_CalcYfFromKcs4
-  {
-    LANG: C
-  } "Calculating Yfs from Kcs at RM Boundary for Stage 4"
-
   SCHEDULE GROUP ODESolvers_SetK1
   {
   } "Group Setting K1 from RHS"

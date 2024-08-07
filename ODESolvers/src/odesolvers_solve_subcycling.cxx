@@ -35,38 +35,6 @@ extern "C" void ODESolvers_Solve_Subcycling_Setup(CCTK_ARGUMENTS) {
   do_accumulate_nvars = false;
 }
 
-extern "C" void ODESolvers_Solve_CalcYfFromKcs1(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_CalcYfFromKcs1;
-  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-  const CCTK_REAL dt = CCTK_DELTA_TIME;
-  Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, VarGroups, OldGroups,
-                                      KsGroups, dt * 2, xsi, 1);
-}
-
-extern "C" void ODESolvers_Solve_CalcYfFromKcs2(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_CalcYfFromKcs2;
-  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-  const CCTK_REAL dt = CCTK_DELTA_TIME;
-  Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, VarGroups, OldGroups,
-                                      KsGroups, dt * 2, xsi, 2);
-}
-
-extern "C" void ODESolvers_Solve_CalcYfFromKcs3(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_CalcYfFromKcs3;
-  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-  const CCTK_REAL dt = CCTK_DELTA_TIME;
-  Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, VarGroups, OldGroups,
-                                      KsGroups, dt * 2, xsi, 3);
-}
-
-extern "C" void ODESolvers_Solve_CalcYfFromKcs4(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_CalcYfFromKcs4;
-  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
-  const CCTK_REAL dt = CCTK_DELTA_TIME;
-  Subcycling::CalcYfFromKcs<rkstages>(CCTK_PASS_CTOC, VarGroups, OldGroups,
-                                      KsGroups, dt * 2, xsi, 4);
-}
-
 extern "C" void ODESolvers_Solve_SetK1(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_SetK1;
   Subcycling::SetK<rkstages>(CCTK_PASS_CTOC, KsGroups, RhsGroups, 1);
@@ -241,6 +209,18 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                    double(cctkGH->cctk_time));
     }
   };
+  // calculate Ys from Ks on the mesh refinement boundary
+  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
+  const auto calcys_rmbnd = [&](const int stage) {
+    active_levels->loop_parallel([&](int patch, int level, int index,
+                                     int component, const cGH *local_cctkGH) {
+      update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
+      Subcycling::CalcYfFromKcs<rkstages>(const_cast<cGH *>(local_cctkGH),
+                                          var_groups, old_groups, ks_groups,
+                                          dt * 2, xsi, stage);
+    });
+    synchronize();
+  };
 
   *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
 
@@ -287,29 +267,25 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
 
     // k1 = f(Y1)
-    CallScheduleGroup(cctkGH,
-                      "ODESolvers_CalcYfFromKcs1"); // refinement boundary only
+    calcys_rmbnd(1); // refinement boundary only
     calcrhs(1);
     CallScheduleGroup(cctkGH, "ODESolvers_SetK1"); // interior only
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
 
     // k2 = f(Y2)
-    CallScheduleGroup(cctkGH,
-                      "ODESolvers_CalcYfFromKcs2"); // refinement boundary only
+    calcys_rmbnd(2); // refinement boundary only
     calcrhs(2);
     CallScheduleGroup(cctkGH, "ODESolvers_SetK2"); // interior only
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
 
     // k3 = f(Y3)
-    CallScheduleGroup(cctkGH,
-                      "ODESolvers_CalcYfFromKcs3"); // refinement boundary only
+    calcys_rmbnd(3); // refinement boundary only
     calcrhs(3);
     CallScheduleGroup(cctkGH, "ODESolvers_SetK3"); // interior only
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
 
     // k4 = f(Y4)
-    CallScheduleGroup(cctkGH,
-                      "ODESolvers_CalcYfFromKcs4"); // refinement boundary only
+    calcys_rmbnd(4); // refinement boundary only
     calcrhs(4);
     CallScheduleGroup(cctkGH, "ODESolvers_SetK4"); // interior only
     //{
