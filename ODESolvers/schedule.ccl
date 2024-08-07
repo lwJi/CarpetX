@@ -7,12 +7,6 @@ if(use_subcycling_wip) {
     OPTIONS: level
   } "Solve ODEs using Subcycling"
 
-  SCHEDULE ODESolvers_Solve_Subcycling_Setup AT initial
-  {
-    LANG: C
-    OPTIONS: global
-  } "Setup Var Groups for Subcycling"
-
   SCHEDULE GROUP ODESolvers_SyncKsOld
   {
   } "Group Sync Ks and Old at RM Boundary"

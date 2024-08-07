@@ -5,36 +5,6 @@ namespace ODESolvers {
 
 constexpr int rkstages = 4;
 
-std::vector<int> OldGroups, VarGroups, RhsGroups;
-std::array<std::vector<int>, rkstages> KsGroups;
-
-extern "C" void ODESolvers_Solve_Subcycling_Setup(CCTK_ARGUMENTS) {
-  const auto &patchdata0 = ghext->patchdata.at(0);
-  const auto &leveldata0 = patchdata0.leveldata.at(0);
-  bool do_accumulate_nvars = true;
-  for (const auto &groupdataptr : leveldata0.groupdata) {
-    if (groupdataptr == nullptr)
-      continue;
-
-    auto &groupdata = *groupdataptr;
-    const int rhs_gi = get_group_rhs(groupdata.groupindex);
-    const int old_gi = get_group_old(groupdata.groupindex);
-    const auto &ks_gi = get_group_ks<int, rkstages>(groupdata.groupindex);
-    if (rhs_gi >= 0) {
-      assert(rhs_gi != groupdata.groupindex);
-      if (do_accumulate_nvars) {
-        VarGroups.push_back(groupdata.groupindex);
-        RhsGroups.push_back(rhs_gi);
-        OldGroups.push_back(old_gi);
-        for (int i = 0; i < rkstages; i++) {
-          KsGroups[i].push_back(ks_gi[i]);
-        }
-      }
-    }
-  }
-  do_accumulate_nvars = false;
-}
-
 extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling;
   DECLARE_CCTK_PARAMETERS;
