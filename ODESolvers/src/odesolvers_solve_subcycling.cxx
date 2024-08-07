@@ -2,12 +2,11 @@
 #include <subcycling.hxx>
 
 namespace ODESolvers {
-using namespace std;
 
 constexpr int rkstages = 4;
 
 std::vector<int> OldGroups, VarGroups, RhsGroups;
-array<std::vector<int>, rkstages> KsGroups;
+std::array<std::vector<int>, rkstages> KsGroups;
 
 extern "C" void ODESolvers_Solve_Subcycling_Setup(CCTK_ARGUMENTS) {
   const auto &patchdata0 = ghext->patchdata.at(0);
@@ -104,9 +103,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   std::optional<Interval> interval_setup(timer_setup);
 
   statecomp_t var, rhs, old;
-  array<statecomp_t, rkstages> ks;
+  std::array<statecomp_t, rkstages> ks;
   std::vector<int> var_groups, rhs_groups, dep_groups, old_groups;
-  array<std::vector<int>, rkstages> ks_groups;
+  std::array<std::vector<int>, rkstages> ks_groups;
   int nvars = 0;
   bool do_accumulate_nvars = true;
   assert(CarpetX::active_levels);
