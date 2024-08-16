@@ -5,6 +5,11 @@ if(use_subcycling_wip) {
   {
   } "Check if the ghost points are at refinement boundary"
 
+  # if recovery_mode is 'strict'
+  SCHEDULE GROUP Subcycling_RMBndryGroup AT post_recover_variables
+  {
+  } "Check if the ghost points are at refinement boundary"
+
   SCHEDULE GROUP Subcycling_RMBndryGroup AT postregrid
   {
   } "Check if the ghost points are at refinement boundary"
