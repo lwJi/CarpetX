@@ -204,7 +204,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // Initialize Ks: for sync's sake (make ks valid at the first iteration
     // whenever restart). This is not needed after the first iteration.
     for (int s = 0; s < rkstages; s++) {
-      statecomp_t::lincomb(ks[s], 0, reals<1>{1.0}, states<1>{&rhs},
+      statecomp_t::lincomb(ks[s], 0, reals<1>{1.0}, states<1>{&var},
                            make_valid_int());
     }
 
