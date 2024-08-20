@@ -1604,6 +1604,14 @@ int Evolve(tFleshConfig *config) {
 
     assert(!active_levels);
 
+    // Find smallest iteration number. Levels at this iteration will
+    // be evolved.
+    rat64 iteration = ghext->patchdata.at(0).leveldata.at(0).iteration;
+    using std::min;
+    for (const auto &patchdata : ghext->patchdata)
+      for (const auto &leveldata : patchdata.leveldata)
+        iteration = min(iteration, leveldata.iteration);
+
     // TODO: Move regridding into a function
     if (regrid_every > 0 && cctkGH->cctk_iteration % regrid_every == 0) {
 #pragma omp critical
@@ -1714,14 +1722,6 @@ int Evolve(tFleshConfig *config) {
         active_levels = optional<active_levels_t>();
       }
     } // Regrid
-
-    // Find smallest iteration number. Levels at this iteration will
-    // be evolved.
-    rat64 iteration = ghext->patchdata.at(0).leveldata.at(0).iteration;
-    using std::min;
-    for (const auto &patchdata : ghext->patchdata)
-      for (const auto &leveldata : patchdata.leveldata)
-        iteration = min(iteration, leveldata.iteration);
 
     cctkGH->cctk_iteration += 1;
 
