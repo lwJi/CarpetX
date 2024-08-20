@@ -1,8 +1,8 @@
+#include "schedule.hxx"
 #include "driver.hxx"
 #include "fillpatch.hxx"
 #include "io.hxx"
 #include "loop.hxx"
-#include "schedule.hxx"
 #include "task_manager.hxx"
 #include "timer.hxx"
 #include "valid.hxx"
@@ -2094,7 +2094,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   if (poison_undefined_values) {
     const vector<clause_t> &writes = decode_clauses(attribute, rdwr_t::write);
     const int numgroups = CCTK_NumGroups();
-    vector<vector<vector<valid_t> > > gfs(numgroups);
+    vector<vector<vector<valid_t>>> gfs(numgroups);
     for (int gi = 0; gi < numgroups; ++gi) {
       const int numvars = CCTK_NumVarsInGroupI(gi);
       gfs.at(gi).resize(numvars);
