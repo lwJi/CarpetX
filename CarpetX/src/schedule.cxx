@@ -1612,44 +1612,6 @@ int Evolve(tFleshConfig *config) {
       for (const auto &leveldata : patchdata.leveldata)
         iteration = min(iteration, leveldata.iteration);
 
-    int min_active_level = 0;
-
-    if (use_subcycling_wip) {
-      // Loop over all levels, in batches that combine levels that don't
-      // subcycle. The level range is [min_level, max_level).
-      for (int min_level = 0, max_level = min_level + 1;
-           min_level < ghext->num_levels();
-           min_level = max_level, max_level = min_level + 1) {
-        // Find end of batch
-        while (max_level < ghext->num_levels()) {
-          bool level_is_subcycling_level = false;
-          for (const auto &patchdata : ghext->patchdata)
-            if (max_level < int(patchdata.leveldata.size()))
-              level_is_subcycling_level |=
-                  patchdata.leveldata.at(max_level).is_subcycling_level;
-          if (level_is_subcycling_level)
-            break;
-          ++max_level;
-        }
-        // Skip this batch of levels if it is not active at the current
-        // iteration
-        rat64 level_iteration = -1;
-        for (const auto &patchdata : ghext->patchdata) {
-          if (min_level < int(patchdata.leveldata.size())) {
-            level_iteration = patchdata.leveldata.at(min_level).iteration;
-            break;
-          }
-        }
-        assert(level_iteration != -1);
-        // Skip those evolved coarse levels when evolving fine levels to catch
-        // up
-        if (level_iteration == iteration) {
-          min_active_level = min_level;
-          break;
-        }
-      };
-    }
-
     // TODO: Move regridding into a function
     if (regrid_every > 0 && cctkGH->cctk_iteration % regrid_every == 0) {
 #pragma omp critical
@@ -1658,6 +1620,14 @@ int Evolve(tFleshConfig *config) {
       Interval interval(timer);
 
       for (const auto &patchdata : ghext->patchdata) {
+
+        int min_active_level = 0;
+        for (int min_level = 0; min_level < ghext->num_levels(); ++min_level)
+          if (patchdata.leveldata.at(min_level).iteration == iteration) {
+            min_active_level = min_level;
+            break;
+          }
+
         const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
         patchdata.amrcore->level_modified.clear();
         patchdata.amrcore->level_modified.resize(old_numlevels, false);
