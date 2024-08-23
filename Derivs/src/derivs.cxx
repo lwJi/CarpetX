@@ -11,8 +11,7 @@ using namespace Loop;
 template <int CI, int CJ, int CK, typename T>
 CCTK_ATTRIBUTE_NOINLINE void
 calc_copy(const GF3D5<T> &gf, const GF3D5layout layout,
-          const GridDescBaseDevice &grid, const GF3D2<const T> &gf0,
-          const vect<T, dim> dx) {
+          const GridDescBaseDevice &grid, const GF3D2<const T> &gf0) {
   using vreal = simd<T>;
   using vbool = simdl<T>;
   constexpr std::size_t vsize = std::tuple_size_v<vreal>;
@@ -270,8 +269,7 @@ calc_deriv2<6>(const Loop::GF3D2<const T> &gf,
 
 template void calc_copy<0, 0, 0>(const GF3D5<T> &gf, const GF3D5layout layout,
                                  const GridDescBaseDevice &grid,
-                                 const GF3D2<const T> &gf0,
-                                 const vect<T, dim> dx);
+                                 const GF3D2<const T> &gf0);
 
 template void
 calc_derivs<0, 0, 0>(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,

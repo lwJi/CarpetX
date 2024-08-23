@@ -591,10 +591,10 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 // Tile-based multi-dimensional operators
 
 template <int CI, int CJ, int CK, typename T>
-CCTK_ATTRIBUTE_NOINLINE void
-calc_copy(const Loop::GF3D5<T> &gf, const Loop::GF3D5layout layout,
-          const Loop::GridDescBaseDevice &grid, const Loop::GF3D2<const T> &gf0,
-          const Arith::vect<T, Loop::dim> dx);
+CCTK_ATTRIBUTE_NOINLINE void calc_copy(const Loop::GF3D5<T> &gf,
+                                       const Loop::GF3D5layout layout,
+                                       const Loop::GridDescBaseDevice &grid,
+                                       const Loop::GF3D2<const T> &gf0);
 
 template <int CI, int CJ, int CK, typename T>
 CCTK_ATTRIBUTE_NOINLINE void calc_derivs(
