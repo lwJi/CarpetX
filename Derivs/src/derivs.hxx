@@ -112,7 +112,7 @@ interp1d(const simdl<T> &mask, const T *restrict const var) {
 }
 
 template <int deriv_order, typename T, typename TS,
-          typename R = std::result_of_t<TS(int)> >
+          typename R = std::result_of_t<TS(int)>>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, R>
     deriv1d(const TS var, const T dx) {
@@ -121,7 +121,7 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 }
 
 template <int deriv_order, typename T, typename TS,
-          typename R = std::result_of_t<TS(int)> >
+          typename R = std::result_of_t<TS(int)>>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, R>
     deriv1d(const TS var, const T dx) {
@@ -131,7 +131,7 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 }
 
 template <int deriv_order, typename T, typename TS,
-          typename R = std::result_of_t<TS(int)> >
+          typename R = std::result_of_t<TS(int)>>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 6, R>
     deriv1d(const TS var, const T dx) {
@@ -144,7 +144,7 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 
 template <int deriv_order, typename T>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
-    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, simd<T> >
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, simd<T>>
     deriv1d_upwind(const simdl<T> &mask, const T *restrict const var,
                    const std::ptrdiff_t di, const simd<T> &vel, const T dx) {
   // arXiv:1111.2177 [gr-qc], (71)
@@ -192,7 +192,7 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 
 template <int deriv_order, typename T>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
-    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, simd<T> >
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, simd<T>>
     deriv1d_upwind(const simdl<T> &mask, const T *restrict const var,
                    const std::ptrdiff_t di, const simd<T> &vel, const T dx) {
   // arXiv:1111.2177 [gr-qc], (71)
@@ -239,7 +239,7 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 }
 
 template <int deriv_order, typename T, typename TS,
-          typename R = std::result_of_t<TS(int)> >
+          typename R = std::result_of_t<TS(int)>>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, R>
     deriv2_1d(const TS var, const T dx) {
@@ -251,7 +251,7 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 }
 
 template <int deriv_order, typename T, typename TS,
-          typename R = std::result_of_t<TS(int)> >
+          typename R = std::result_of_t<TS(int)>>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, R>
     deriv2_1d(const TS var, const T dx) {
@@ -268,7 +268,7 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 }
 
 template <int deriv_order, typename T, typename TS,
-          typename R = std::result_of_t<TS(int)> >
+          typename R = std::result_of_t<TS(int)>>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 6, R>
     deriv2_1d(const TS var, const T dx) {
@@ -290,7 +290,7 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 }
 
 template <int deriv_order, bool vectorize_di, typename T, typename TS,
-          typename R = std::result_of_t<TS(int, int)> >
+          typename R = std::result_of_t<TS(int, int)>>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE CCTK_HOST R
 deriv2_2d(const TS var, const T dx, const T dy) {
   // We assume that the x-direction might be special since it might
@@ -385,7 +385,7 @@ deriv2_2d(const TS var, const T dx, const T dy) {
 
 template <int deriv_order, typename T>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
-    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, simd<T> >
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, simd<T>>
     diss1d(const simdl<T> &mask, const T *restrict const var,
            const std::ptrdiff_t di, const T dx) {
   constexpr T c0 = 6;
@@ -400,7 +400,7 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 
 template <int deriv_order, typename T>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
-    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, simd<T> >
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, simd<T>>
     diss1d(const simdl<T> &mask, const T *restrict const var,
            const std::ptrdiff_t di, const T dx) {
   constexpr T c0 = -20;
