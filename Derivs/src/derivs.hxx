@@ -367,37 +367,28 @@ deriv2_2d(const TS var, const T dx, const T dy) {
   }
 }
 
-template <int deriv_order, typename T>
+template <int deriv_order, typename T, typename TS,
+          typename R = std::result_of_t<TS(int)>>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
-    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, simd<T>>
-    diss1d(const simdl<T> &mask, const T *restrict const var,
-           const std::ptrdiff_t di, const T dx) {
-  constexpr T c0 = 6;
-  constexpr T c1 = -4;
-  constexpr T c2 = 1;
-  return (c2 * (maskz_loadu(mask, &var[2 * di]) +
-                maskz_loadu(mask, &var[-2 * di]))                             //
-          + c1 * (maskz_loadu(mask, &var[di]) + maskz_loadu(mask, &var[-di])) //
-          + c0 * maskz_loadu(mask, &var[0])) /
-         dx;
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, R>
+    diss1d(const TS var, const T dx) {
+  const T c0 = 6 / dx;
+  const T c1 = -4 / dx;
+  const T c2 = 1 / dx;
+  return c2 * (var(+2) + var(-2)) + c1 * (var(+1) + var(-1)) + c0 * var(0);
 }
 
-template <int deriv_order, typename T>
+template <int deriv_order, typename T, typename TS,
+          typename R = std::result_of_t<TS(int)>>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
-    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, simd<T>>
-    diss1d(const simdl<T> &mask, const T *restrict const var,
-           const std::ptrdiff_t di, const T dx) {
-  constexpr T c0 = -20;
-  constexpr T c1 = 15;
-  constexpr T c2 = -6;
-  constexpr T c3 = 1;
-  return (c3 * (maskz_loadu(mask, &var[3 * di]) +
-                maskz_loadu(mask, &var[-3 * di])) //
-          + c2 * (maskz_loadu(mask, &var[2 * di]) +
-                  maskz_loadu(mask, &var[-2 * di]))                           //
-          + c1 * (maskz_loadu(mask, &var[di]) + maskz_loadu(mask, &var[-di])) //
-          + c0 * maskz_loadu(mask, &var[0])) /
-         dx;
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, R>
+    diss1d(const TS var, const T dx) {
+  const T c0 = -20 / dx;
+  const T c1 = 15 / dx;
+  const T c2 = -6 / dx;
+  const T c3 = 1 / dx;
+  return c3 * (var(+3) + var(-3)) + c2 * (var(+2) + var(-2)) +
+         c1 * (var(+1) + var(-1)) + c0 * var(0);
 }
 
 } // namespace detail
@@ -405,6 +396,72 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 ////////////////////////////////////////////////////////////////////////////////
 
 // Pointwise multi-dimensional derivative operators
+
+template <int deriv_order, typename T>
+inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE CCTK_HOST Arith::simd<T>
+calc_diss(const Loop::GF3D2<const T> &gf, const Arith::simdl<T> &mask,
+          const Arith::vect<int, Loop::dim> &I,
+          const Arith::vect<T, Loop::dim> &dx) {
+  using namespace Arith;
+  using namespace Loop;
+  // We use explicit index calculations to avoid unnecessary integer
+  // multiplications
+  const T *restrict const ptr = &gf(I);
+  const std::array<std::ptrdiff_t, Loop::dim> offsets{
+      gf.delta(1, 0, 0),
+      gf.delta(0, 1, 0),
+      gf.delta(0, 0, 1),
+  };
+  constexpr int diss_order = deriv_order + 2;
+  constexpr int sign = diss_order % 4 == 0 ? -1 : +1;
+  return sign / T(pown(2, deriv_order + 2)) *
+         (detail::diss1d<deriv_order>(
+              [&](int di) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+                return maskz_loadu(mask, &ptr[di * offsets[0]]);
+              },
+              dx[0]) +
+          detail::diss1d<deriv_order>(
+              [&](int di) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+                return maskz_loadu(mask, &ptr[di * offsets[1]]);
+              },
+              dx[1]) +
+          detail::diss1d<deriv_order>(
+              [&](int di) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+                return maskz_loadu(mask, &ptr[di * offsets[2]]);
+              },
+              dx[2]));
+}
+
+template <int deriv_order, typename T>
+inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE CCTK_HOST T
+calc_diss(const Loop::GF3D2<const T> &gf, const Arith::vect<int, Loop::dim> &I,
+          const Arith::vect<T, Loop::dim> &dx) {
+  using namespace Arith;
+  using namespace Loop;
+  // We use explicit index calculations to avoid unnecessary integer
+  // multiplications
+  const T *restrict const ptr = &gf(I);
+  const std::array<std::ptrdiff_t, Loop::dim> offsets{
+      gf.delta(1, 0, 0),
+      gf.delta(0, 1, 0),
+      gf.delta(0, 0, 1),
+  };
+  constexpr int diss_order = deriv_order + 2;
+  constexpr int sign = diss_order % 4 == 0 ? -1 : +1;
+  return sign / T(pown(2, deriv_order + 2)) *
+         (detail::diss1d<deriv_order>(
+              [&](int di)
+                  CCTK_ATTRIBUTE_ALWAYS_INLINE { return ptr[di * offsets[0]]; },
+              dx[0]) +
+          detail::diss1d<deriv_order>(
+              [&](int di)
+                  CCTK_ATTRIBUTE_ALWAYS_INLINE { return ptr[di * offsets[1]]; },
+              dx[1]) +
+          detail::diss1d<deriv_order>(
+              [&](int di)
+                  CCTK_ATTRIBUTE_ALWAYS_INLINE { return ptr[di * offsets[2]]; },
+              dx[2]));
+}
 
 template <int deriv_order, typename T>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
