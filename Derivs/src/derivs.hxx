@@ -243,9 +243,6 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, R>
     deriv2_1d(const TS var, const T dx) {
-  // constexpr T c0 = -2 / pow2(dx);
-  // constexpr T c1 = 1 / pow2(dx);
-  // return c1 * (var(-1) + var(1)) + c0 * var(0);
   const T c1 = 1 / pow2(dx);
   return c1 * ((var(1) - var(0)) - (var(0) - var(-1)));
 }
@@ -255,11 +252,6 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, R>
     deriv2_1d(const TS var, const T dx) {
-  // constexpr T c0 = -5 / T(2);
-  // constexpr T c1 = 4 / T(3);
-  // constexpr T c2 = -1 / T(12);
-  // return (c2 * (var(-2) + var(2)) + c1 * (var(-1) + var(1)) + c0 * var(0)) /
-  //        pow2(dx);
   constexpr T c1 = 4 / T(3);
   constexpr T c2 = -1 / T(12);
   return (c2 * ((var(+2) - var(+0)) - (var(-0) - var(-2))) +
@@ -272,14 +264,6 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 6, R>
     deriv2_1d(const TS var, const T dx) {
-  // constexpr T c0 = -49 / T(18);
-  // constexpr T c1 = 3 / T(2);
-  // constexpr T c2 = -3 / T(20);
-  // constexpr T c3 = 1 / T(90);
-  // return (c3 * (var(-3) + var(3)) + c2 * (var(-2) + var(2)) +
-  //         c1 * (var(-1) + var(1)) + c0 * var(0)) /
-  //        pow2(dx);
-  // constexpr T c0 = -49 / T(18);
   constexpr T c1 = 3 / T(2);
   constexpr T c2 = -3 / T(20);
   constexpr T c3 = 1 / T(90);
