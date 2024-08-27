@@ -1621,15 +1621,15 @@ int Evolve(tFleshConfig *config) {
 
       for (const auto &patchdata : ghext->patchdata) {
 
-        int min_active_level =
-            ghext->num_levels(); // start with regrid no levels
-        for (int min_level = ghext->num_levels() - 1; min_level >= 0;
+        int min_active_level = -1;
+        for (int min_level = patchdata.leveldata.size(); min_level >= 0;
              --min_level)
           if (patchdata.leveldata.at(min_level).iteration == iteration) {
             min_active_level = min_level;
           } else {
             break;
           }
+        assert(min_active_level != -1);
 
         const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
         patchdata.amrcore->level_modified.clear();
