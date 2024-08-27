@@ -1622,7 +1622,7 @@ int Evolve(tFleshConfig *config) {
       for (const auto &patchdata : ghext->patchdata) {
 
         int min_active_level = -1;
-        for (int min_level = patchdata.leveldata.size(); min_level >= 0;
+        for (int min_level = patchdata.leveldata.size() - 1; min_level >= 0;
              --min_level)
           if (patchdata.leveldata.at(min_level).iteration == iteration) {
             min_active_level = min_level;
