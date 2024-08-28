@@ -148,34 +148,10 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, R>
     deriv1d_upwind(const TS var, const T dx, const R vel) {
   // arXiv:1111.2177 [gr-qc], (71)
-
-  // if (sign)
-  //   // +     [ 0   -1   +1    0    0]
-  //   // + 1/2 [+1   -2   +1    0    0]
-  //   //       [+1/2 -2   +3/2  0    0]
-  //   return (1 / T(2) * var[-2 * di] //
-  //           - 2 * var[-di]          //
-  //           + 3 / T(2) * var[0]) /
-  //          dx;
-  // else
-  //   // +     [ 0    0   -1   +1    0  ]
-  //   // - 1/2 [ 0    0   +1   -2   +1  ]
-  //   //       [ 0    0   -3/2 +2   -1/2]
-  //   return (-3 / T(2) * var[0] //
-  //           + 2 * var[+di]     //
-  //           - 1 / T(2) * var[+2 * di]) /
-  //          dx;
-
-  // + 1/2 [+1/2 -2   +3/2  0    0  ]
-  // + 1/2 [ 0    0   -3/2 +2   -1/2]
-  //       [+1/4 -1    0   +1   -1/4]
   const T c1s = 1;
   const T c2s = -1 / T(4);
   const R symm = c2s * (var(+2) - var(-2)) + c1s * (var(+1) - var(-1));
 
-  // + 1/2 [+1/2 -2   +3/2  0    0  ]
-  // - 1/2 [ 0    0   -3/2 +2   -1/2]
-  //       [+1/4 -1   +3/2 -1   +1/4]
   const T c0a = 3 / T(2);
   const T c1a = -1;
   const T c2a = 1 / T(4);
@@ -191,24 +167,6 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, R>
     deriv1d_upwind(const TS var, const T dx, const R vel) {
   // arXiv:1111.2177 [gr-qc], (71)
-
-  // A fourth order stencil for a first derivative, shifted by one grid point
-
-  // if (sign)
-  //   return (-1 / T(12) * var[-3 * di] //
-  //           + 1 / T(2) * var[-2 * di] //
-  //           - 3 / T(2) * var[-di]     //
-  //           + 5 / T(6) * var[0]       //
-  //           + 1 / T(4) * var[+di]) /
-  //          dx;
-  // else
-  //   return (-1 / T(4) * var[-di]      //
-  //           - 5 / T(6) * var[0]       //
-  //           + 3 / T(2) * var[+di]     //
-  //           - 1 / T(2) * var[+2 * di] //
-  //           + 1 / T(12) * var[+3 * di]) /
-  //          dx;
-
   const T c1s = 7 / T(8);
   const T c2s = -1 / T(4);
   const T c3s = 1 / T(24);
