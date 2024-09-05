@@ -7,8 +7,8 @@ ActiveThorns = "
     TestSubcyclingMC2
 "
 
-$out_every = 32 #16
-$nlevels = 2
+$out_every = 64
+$nlevels = 3
 $ncells = 32
 
 TestSubcyclingMC2::initial_condition = "Gaussian"
@@ -44,9 +44,9 @@ CarpetX::regrid_every = 128
 CarpetX::regrid_error_threshold = 0.9
 
 CarpetX::prolongation_type = "ddf"
-#CarpetX::prolongation_order = 3
+#CarpetX::prolongation_order = 5
 CarpetX::ghost_size = 3
-CarpetX::dtfac = 0.5
+CarpetX::dtfac = 1.0  # 0.25 * 2^2
 
 CarpetX::blocking_factor_x = 2
 CarpetX::blocking_factor_y = 2
