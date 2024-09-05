@@ -1,13 +1,14 @@
 ActiveThorns = "
-    CarpetX
     BoxInBox
+    CarpetX
     IOUtil
+    ODESolvers
+    Subcycling
     TestSubcyclingMC2
-    TimerReport
 "
 
-$out_every = 32 #16
-$nlevels = 2
+$out_every = 16
+$nlevels = 3
 $ncells = 64
 
 TestSubcyclingMC2::initial_condition = "Gaussian"
@@ -43,19 +44,19 @@ CarpetX::regrid_every = 128
 CarpetX::regrid_error_threshold = 0.9
 
 CarpetX::prolongation_type = "ddf"
-#CarpetX::prolongation_order = 3
+CarpetX::prolongation_order = 5
 CarpetX::ghost_size = 3
-CarpetX::dtfac = 0.25
+CarpetX::dtfac = 1.0  # 0.25 * 2^2
 
 CarpetX::blocking_factor_x = 2
 CarpetX::blocking_factor_y = 2
 CarpetX::blocking_factor_z = 2
-CarpetX::max_grid_size_x = 10000000
-CarpetX::max_grid_size_y = 10000000
-CarpetX::max_grid_size_z = 10000000
-CarpetX::max_tile_size_x = 10000000
-CarpetX::max_tile_size_y = 10000000
-CarpetX::max_tile_size_z = 10000000
+#CarpetX::max_grid_size_x = 10000000
+#CarpetX::max_grid_size_y = 10000000
+#CarpetX::max_grid_size_z = 10000000
+#CarpetX::max_tile_size_x = 10000000
+#CarpetX::max_tile_size_y = 10000000
+#CarpetX::max_tile_size_z = 10000000
 
 BoxInBox::num_regions = 1
 # Region 1
@@ -68,26 +69,20 @@ Cactus::terminate = "time"
 Cactus::cctk_final_time = 2.0
 #Cactus::cctk_itlast = $itlast
 
+ODESolvers::method = "RK4"
+#ODESolvers::verbose = yes
+
 IO::out_dir = $parfile
 IO::out_every = $out_every
 
 #CarpetX::out_norm_vars = "all"
 
 CarpetX::out_tsv_vars = "
-    TestSubcyclingMC2::ustate
-    #TestSubcyclingMC2::energy
+    TestSubcyclingMC2::state
     TestSubcyclingMC2::error
 "
-
-CarpetX::out_silo_vars = "
-    TestSubcyclingMC2::ustate
-    #TestSubcyclingMC2::energy
-    TestSubcyclingMC2::error
-"
-
-TimerReport::out_every = 128 # $out_every
-TimerReport::out_filename = "TimerReport"
-TimerReport::output_all_timers_together = yes
-TimerReport::output_all_timers_readable = yes
-#TimerReport::output_schedule_timers = no
-TimerReport::n_top_timers = 50
+#
+#CarpetX::out_silo_vars = "
+#    TestSubcyclingMC2::state
+#    TestSubcyclingMC2::error
+#"
