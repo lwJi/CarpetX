@@ -4,6 +4,7 @@
 #include <sum.hxx>
 #include <vect.hxx>
 
+#include "CarpetX/CarpetX/src/driver.hxx"
 #include <cctk.h>
 #include <cctk_Arguments.h>
 #include <cctk_Parameters.h>
@@ -193,7 +194,10 @@ extern "C" void TestSubcyclingMC_CalcYfFromKcs(CCTK_ARGUMENTS,
   ks_groups[1].push_back(CCTK_GroupIndex("TestSubcyclingMC::k2"));
   ks_groups[2].push_back(CCTK_GroupIndex("TestSubcyclingMC::k3"));
   ks_groups[3].push_back(CCTK_GroupIndex("TestSubcyclingMC::k4"));
-  const CCTK_REAL xsi = (cctkGH->cctk_iteration % 2) ? 0.0 : 0.5;
+  const int num_levels = CarpetX::ghext->num_levels();
+  const int shift_amount = num_levels - 1 - cctkGH->cctk_level;
+  const CCTK_REAL xsi =
+      0.5 * (((cctkGH->cctk_iteration - 1) >> shift_amount) & 1);
   Subcycling::CalcYfFromKcs<4>(CCTK_PASS_CTOC, u_groups, p_groups, ks_groups,
                                dt * 2, xsi, stage);
 }
