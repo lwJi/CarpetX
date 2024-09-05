@@ -163,10 +163,13 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     }
   };
   // calculate Ys from Ks on the mesh refinement boundary
-  const CCTK_REAL xsi = (cctk_iteration % 2) ? 0.0 : 0.5;
   const auto calcys_rmbnd = [&](const int stage) {
+    const int num_levels = ghext->num_levels();
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
+      // xsi = ((it-1) / (2^shift_amount)) % 2 ? 0.5 : 0.0;
+      const int shift_amount = num_levels - 1 - level;
+      const CCTK_REAL xsi = 0.5 * (((cctk_iteration - 1) >> shift_amount) & 1);
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
       Subcycling::CalcYfFromKcs<rkstages>(const_cast<cGH *>(local_cctkGH),
                                           var_groups, old_groups, ks_groups,
