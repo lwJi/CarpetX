@@ -145,6 +145,19 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
 template <int deriv_order, typename T, typename TS,
           typename R = std::result_of_t<TS(int)>>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 8, R>
+    deriv1d(const TS var, const T dx) {
+  const T c1 = 4 / (5 * dx);
+  const T c2 = -1 / (5 * dx);
+  const T c3 = 4 / (105 * dx);
+  const T c4 = -1 / (280 * dx);
+  return c4 * (var(4) - var(-4)) + c3 * (var(3) - var(-3)) +
+         c2 * (var(2) - var(-2)) + c1 * (var(1) - var(-1));
+}
+
+template <int deriv_order, typename T, typename TS,
+          typename R = std::result_of_t<TS(int)>>
+inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, R>
     deriv1d_upwind(const TS var, const T dx, const R vel) {
   // arXiv:1111.2177 [gr-qc], (71)
@@ -213,6 +226,22 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
   constexpr T c2 = -3 / T(20);
   constexpr T c3 = 1 / T(90);
   return (c3 * ((var(+3) - var(+0)) - (var(-0) - var(-3))) +
+          c2 * ((var(+2) - var(+0)) - (var(-0) - var(-2))) +
+          c1 * ((var(+1) - var(+0)) - (var(-0) - var(-1)))) /
+         pow2(dx);
+}
+
+template <int deriv_order, typename T, typename TS,
+          typename R = std::result_of_t<TS(int)>>
+inline CCTK_ATTRIBUTE_ALWAYS_INLINE
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 8, R>
+    deriv2_1d(const TS var, const T dx) {
+  constexpr T c1 = 8 / T(5);
+  constexpr T c2 = -1 / T(5);
+  constexpr T c3 = 8 / T(315);
+  constexpr T c4 = -1 / T(560);
+  return (c4 * ((var(+4) - var(+0)) - (var(-0) - var(-4))) +
+          c3 * ((var(+3) - var(+0)) - (var(-0) - var(-3))) +
           c2 * ((var(+2) - var(+0)) - (var(-0) - var(-2))) +
           c1 * ((var(+1) - var(+0)) - (var(-0) - var(-1)))) /
          pow2(dx);

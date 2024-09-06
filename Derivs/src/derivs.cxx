@@ -104,6 +104,22 @@ calc_derivs(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
         });
     break;
 
+  case 8:
+    grid.loop_int_device<CI, CJ, CK, vsize>(
+        grid.nghostzones,
+        [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+          const vbool mask = mask_for_loop_tail<vbool>(p.i, p.imax);
+          // Take account of ghost points
+          const vbool mask1 =
+              mask_for_loop_tail<vbool>(p.i, p.imax + deriv_order / 2);
+          const GF3D5index index(layout, p.I);
+          const auto val = gf0(mask, p.I);
+          const auto dval = calc_deriv<8>(gf0, mask1, p.I, dx);
+          gf.store(mask, index, val);
+          dgf.store(mask, index, dval);
+        });
+    break;
+
   default:
     CCTK_VERROR("Unsupported derivative order %d", deriv_order);
   }
@@ -193,6 +209,24 @@ calc_derivs2(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
           const auto val = gf0(mask, p.I);
           const auto dval = calc_deriv<6>(gf0, mask1, p.I, dx);
           const auto ddval = calc_deriv2<6>(gf0, mask1, p.I, dx);
+          gf.store(mask, index, val);
+          dgf.store(mask, index, dval);
+          ddgf.store(mask, index, ddval);
+        });
+    break;
+
+  case 8:
+    grid.loop_int_device<CI, CJ, CK, vsize>(
+        grid.nghostzones,
+        [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+          const vbool mask = mask_for_loop_tail<vbool>(p.i, p.imax);
+          // Take account of ghost points
+          const vbool mask1 =
+              mask_for_loop_tail<vbool>(p.i, p.imax + deriv_order / 2);
+          const GF3D5index index(layout, p.I);
+          const auto val = gf0(mask, p.I);
+          const auto dval = calc_deriv<8>(gf0, mask1, p.I, dx);
+          const auto ddval = calc_deriv2<8>(gf0, mask1, p.I, dx);
           gf.store(mask, index, val);
           dgf.store(mask, index, dval);
           ddgf.store(mask, index, ddval);
