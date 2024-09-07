@@ -62,4 +62,6 @@ CarpetX::out_tsv_vars = "
   TestDerivs::chi
   TestDerivs::dchi
   TestDerivs::ddchi
+  TestDerivs::dchi_error
+  TestDerivs::ddchi_error
 "
