@@ -348,10 +348,10 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, R>
     diss1d(const TS var, const T dx) {
-  const T c0 = 6 / dx;
-  const T c1 = -4 / dx;
-  const T c2 = 1 / dx;
-  return c2 * (var(+2) + var(-2)) + c1 * (var(+1) + var(-1)) + c0 * var(0);
+  const T c0 = 6;
+  const T c1 = -4;
+  const T c2 = 1;
+  return (c2 * (var(2) + var(-2)) + c1 * (var(1) + var(-1)) + c0 * var(0)) / dx;
 }
 
 template <int deriv_order, typename T, typename TS,
@@ -359,12 +359,13 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, R>
     diss1d(const TS var, const T dx) {
-  const T c0 = -20 / dx;
-  const T c1 = 15 / dx;
-  const T c2 = -6 / dx;
-  const T c3 = 1 / dx;
-  return c3 * (var(+3) + var(-3)) + c2 * (var(+2) + var(-2)) +
-         c1 * (var(+1) + var(-1)) + c0 * var(0);
+  const T c0 = -20;
+  const T c1 = 15;
+  const T c2 = -6;
+  const T c3 = 1;
+  return (c3 * (var(3) + var(-3)) + c2 * (var(2) + var(-2)) +
+          c1 * (var(1) + var(-1)) + c0 * var(0)) /
+         dx;
 }
 
 } // namespace detail
