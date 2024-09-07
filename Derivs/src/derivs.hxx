@@ -116,8 +116,8 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, R>
     deriv1d(const TS var, const T dx) {
-  const T c1 = 1 / (2 * dx);
-  return c1 * (var(1) - var(-1));
+  constexpr T c1 = 1 / T(2);
+  return (c1 * (var(1) - var(-1))) / dx;
 }
 
 template <int deriv_order, typename T, typename TS,
@@ -125,9 +125,9 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 4, R>
     deriv1d(const TS var, const T dx) {
-  const T c1 = 2 / (3 * dx);
-  const T c2 = -1 / (12 * dx);
-  return c2 * (var(2) - var(-2)) + c1 * (var(1) - var(-1));
+  constexpr T c1 = 2 / T(3);
+  constexpr T c2 = -1 / T(12);
+  return (c2 * (var(2) - var(-2)) + c1 * (var(1) - var(-1))) / dx;
 }
 
 template <int deriv_order, typename T, typename TS,
@@ -135,11 +135,12 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 6, R>
     deriv1d(const TS var, const T dx) {
-  const T c1 = 3 / (4 * dx);
-  const T c2 = -3 / (20 * dx);
-  const T c3 = 1 / (60 * dx);
-  return c3 * (var(3) - var(-3)) + c2 * (var(2) - var(-2)) +
-         c1 * (var(1) - var(-1));
+  constexpr T c1 = 3 / T(4);
+  constexpr T c2 = -3 / T(20);
+  constexpr T c3 = 1 / T(60);
+  return (c3 * (var(3) - var(-3)) + c2 * (var(2) - var(-2)) +
+          c1 * (var(1) - var(-1))) /
+         dx;
 }
 
 template <int deriv_order, typename T, typename TS,
@@ -147,12 +148,13 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 8, R>
     deriv1d(const TS var, const T dx) {
-  const T c1 = 4 / (5 * dx);
-  const T c2 = -1 / (5 * dx);
-  const T c3 = 4 / (105 * dx);
-  const T c4 = -1 / (280 * dx);
-  return c4 * (var(4) - var(-4)) + c3 * (var(3) - var(-3)) +
-         c2 * (var(2) - var(-2)) + c1 * (var(1) - var(-1));
+  constexpr T c1 = 4 / T(5);
+  constexpr T c2 = -1 / T(5);
+  constexpr T c3 = 4 / T(105);
+  constexpr T c4 = -1 / T(280);
+  return (c4 * (var(4) - var(-4)) + c3 * (var(3) - var(-3)) +
+          c2 * (var(2) - var(-2)) + c1 * (var(1) - var(-1))) /
+         dx;
 }
 
 template <int deriv_order, typename T, typename TS,
@@ -201,8 +203,8 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, R>
     deriv2_1d(const TS var, const T dx) {
-  const T c1 = 1 / pow2(dx);
-  return c1 * ((var(1) - var(0)) - (var(0) - var(-1)));
+  const T c1 = T(1);
+  return (c1 * ((var(1) - var(0)) - (var(0) - var(-1)))) / pow2(dx);
 }
 
 template <int deriv_order, typename T, typename TS,
@@ -212,8 +214,8 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     deriv2_1d(const TS var, const T dx) {
   constexpr T c1 = 4 / T(3);
   constexpr T c2 = -1 / T(12);
-  return (c2 * ((var(+2) - var(+0)) - (var(-0) - var(-2))) +
-          c1 * ((var(+1) - var(+0)) - (var(-0) - var(-1)))) /
+  return (c2 * ((var(2) - var(0)) - (var(0) - var(-2))) +
+          c1 * ((var(1) - var(0)) - (var(0) - var(-1)))) /
          pow2(dx);
 }
 
@@ -225,9 +227,9 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
   constexpr T c1 = 3 / T(2);
   constexpr T c2 = -3 / T(20);
   constexpr T c3 = 1 / T(90);
-  return (c3 * ((var(+3) - var(+0)) - (var(-0) - var(-3))) +
-          c2 * ((var(+2) - var(+0)) - (var(-0) - var(-2))) +
-          c1 * ((var(+1) - var(+0)) - (var(-0) - var(-1)))) /
+  return (c3 * ((var(3) - var(0)) - (var(0) - var(-3))) +
+          c2 * ((var(2) - var(0)) - (var(0) - var(-2))) +
+          c1 * ((var(1) - var(0)) - (var(0) - var(-1)))) /
          pow2(dx);
 }
 
@@ -240,10 +242,10 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
   constexpr T c2 = -1 / T(5);
   constexpr T c3 = 8 / T(315);
   constexpr T c4 = -1 / T(560);
-  return (c4 * ((var(+4) - var(+0)) - (var(-0) - var(-4))) +
-          c3 * ((var(+3) - var(+0)) - (var(-0) - var(-3))) +
-          c2 * ((var(+2) - var(+0)) - (var(-0) - var(-2))) +
-          c1 * ((var(+1) - var(+0)) - (var(-0) - var(-1)))) /
+  return (c4 * ((var(4) - var(0)) - (var(0) - var(-4))) +
+          c3 * ((var(3) - var(0)) - (var(0) - var(-3))) +
+          c2 * ((var(2) - var(0)) - (var(0) - var(-2))) +
+          c1 * ((var(1) - var(0)) - (var(0) - var(-1)))) /
          pow2(dx);
 }
 
