@@ -267,58 +267,6 @@ CCTK_ATTRIBUTE_NOINLINE void calc_derivs2(
 
 using T = CCTK_REAL;
 
-template CCTK_DEVICE CCTK_HOST Arith::vec<Arith::simd<T>, Loop::dim>
-calc_deriv<2>(const Loop::GF3D2<const T> &gf, const Arith::simdl<T> &mask,
-              const Arith::vect<int, Loop::dim> &I,
-              const Arith::vect<T, Loop::dim> &dx);
-template CCTK_DEVICE CCTK_HOST Arith::vec<Arith::simd<T>, Loop::dim>
-calc_deriv<4>(const Loop::GF3D2<const T> &gf, const Arith::simdl<T> &mask,
-              const Arith::vect<int, Loop::dim> &I,
-              const Arith::vect<T, Loop::dim> &dx);
-template CCTK_DEVICE CCTK_HOST Arith::vec<Arith::simd<T>, Loop::dim>
-calc_deriv<6>(const Loop::GF3D2<const T> &gf, const Arith::simdl<T> &mask,
-              const Arith::vect<int, Loop::dim> &I,
-              const Arith::vect<T, Loop::dim> &dx);
-
-template CCTK_DEVICE CCTK_HOST Arith::vec<T, Loop::dim>
-calc_deriv<2>(const Loop::GF3D2<const T> &gf,
-              const Arith::vect<int, Loop::dim> &I,
-              const Arith::vect<T, Loop::dim> &dx);
-template CCTK_DEVICE CCTK_HOST Arith::vec<T, Loop::dim>
-calc_deriv<4>(const Loop::GF3D2<const T> &gf,
-              const Arith::vect<int, Loop::dim> &I,
-              const Arith::vect<T, Loop::dim> &dx);
-template CCTK_DEVICE CCTK_HOST Arith::vec<T, Loop::dim>
-calc_deriv<6>(const Loop::GF3D2<const T> &gf,
-              const Arith::vect<int, Loop::dim> &I,
-              const Arith::vect<T, Loop::dim> &dx);
-
-template CCTK_DEVICE CCTK_HOST Arith::smat<Arith::simd<T>, Loop::dim>
-calc_deriv2<2>(const Loop::GF3D2<const T> &gf, const Arith::simdl<T> &mask,
-               const Arith::vect<int, Loop::dim> &I,
-               const Arith::vect<T, Loop::dim> &dx);
-template CCTK_DEVICE CCTK_HOST Arith::smat<Arith::simd<T>, Loop::dim>
-calc_deriv2<4>(const Loop::GF3D2<const T> &gf, const Arith::simdl<T> &mask,
-               const Arith::vect<int, Loop::dim> &I,
-               const Arith::vect<T, Loop::dim> &dx);
-template CCTK_DEVICE CCTK_HOST Arith::smat<Arith::simd<T>, Loop::dim>
-calc_deriv2<6>(const Loop::GF3D2<const T> &gf, const Arith::simdl<T> &mask,
-               const Arith::vect<int, Loop::dim> &I,
-               const Arith::vect<T, Loop::dim> &dx);
-
-template CCTK_DEVICE CCTK_HOST Arith::smat<T, Loop::dim>
-calc_deriv2<2>(const Loop::GF3D2<const T> &gf,
-               const Arith::vect<int, Loop::dim> &I,
-               const Arith::vect<T, Loop::dim> &dx);
-template CCTK_DEVICE CCTK_HOST Arith::smat<T, Loop::dim>
-calc_deriv2<4>(const Loop::GF3D2<const T> &gf,
-               const Arith::vect<int, Loop::dim> &I,
-               const Arith::vect<T, Loop::dim> &dx);
-template CCTK_DEVICE CCTK_HOST Arith::smat<T, Loop::dim>
-calc_deriv2<6>(const Loop::GF3D2<const T> &gf,
-               const Arith::vect<int, Loop::dim> &I,
-               const Arith::vect<T, Loop::dim> &dx);
-
 template void calc_copy<0, 0, 0>(const GF3D5<T> &gf, const GF3D5layout layout,
                                  const GridDescBaseDevice &grid,
                                  const GF3D2<const T> &gf0);
