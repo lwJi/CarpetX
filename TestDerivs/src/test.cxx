@@ -184,16 +184,18 @@ extern "C" void TestDerivs_CalcDerivs(CCTK_ARGUMENTS) {
     calc_diss = &Derivs::calc_diss<2>;
     break;
   }
-  case 4:
-  case 6:
-  case 8: {
+  case 4: {
     calc_diss = &Derivs::calc_diss<4>;
     break;
   }
-  // case 6: {
-  //   calc_diss = &Derivs::calc_diss<6>;
-  //   break;
-  // }
+  case 6: {
+    calc_diss = &Derivs::calc_diss<6>;
+    break;
+  }
+  case 8: {
+    calc_diss = &Derivs::calc_diss<8>;
+    break;
+  }
   default:
     assert(0);
   }

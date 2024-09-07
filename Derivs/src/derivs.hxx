@@ -368,6 +368,38 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
          dx;
 }
 
+template <int deriv_order, typename T, typename TS,
+          typename R = std::result_of_t<TS(int)>>
+inline CCTK_ATTRIBUTE_ALWAYS_INLINE
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 6, R>
+    diss1d(const TS var, const T dx) {
+  const T c0 = 70;
+  const T c1 = -56;
+  const T c2 = 28;
+  const T c3 = -8;
+  const T c4 = 1;
+  return (c4 * (var(4) + var(-4)) + c3 * (var(3) + var(-3)) +
+          c2 * (var(2) + var(-2)) + c1 * (var(1) + var(-1)) + c0 * var(0)) /
+         dx;
+}
+
+template <int deriv_order, typename T, typename TS,
+          typename R = std::result_of_t<TS(int)>>
+inline CCTK_ATTRIBUTE_ALWAYS_INLINE
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 8, R>
+    diss1d(const TS var, const T dx) {
+  const T c0 = -252;
+  const T c1 = 210;
+  const T c2 = -120;
+  const T c3 = 45;
+  const T c4 = -10;
+  const T c5 = 1;
+  return (c5 * (var(5) + var(-5)) + c4 * (var(4) + var(-4)) +
+          c3 * (var(3) + var(-3)) + c2 * (var(2) + var(-2)) +
+          c1 * (var(1) + var(-1)) + c0 * var(0)) /
+         dx;
+}
+
 } // namespace detail
 
 ////////////////////////////////////////////////////////////////////////////////
