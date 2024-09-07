@@ -23,12 +23,12 @@ template <typename T>
 constexpr void poly_derivs(const T kxx, const T kxy, const T kyz, const T x,
                            const T y, const T z, Arith::vec<T, dim> &du,
                            Arith::smat<T, dim> &ddu) {
-  const auto sinx = std::sin(x);
-  const auto siny = std::sin(y);
-  const auto sinz = std::sin(z);
-  const auto cosx = std::cos(x);
-  const auto cosy = std::cos(y);
-  const auto cosz = std::cos(z);
+  const T sinx = std::sin(x);
+  const T siny = std::sin(y);
+  const T sinz = std::sin(z);
+  const T cosx = std::cos(x);
+  const T cosy = std::cos(y);
+  const T cosz = std::cos(z);
   du(0) = -2 * kxx * cosx * sinx - kxy * sinx * siny;
   du(1) = kxy * cosx * cosy + kyz * cosy * sinz;
   du(2) = kyz * cosz * siny;
@@ -39,6 +39,42 @@ constexpr void poly_derivs(const T kxx, const T kxy, const T kyz, const T x,
   ddu(1, 1) = -kxy * cosx * siny - kyz * siny * sinz;
   ddu(1, 2) = kyz * cosy * cosz;
   ddu(2, 2) = -kyz * siny * sinz;
+}
+
+template <typename T>
+constexpr T poly_diss(const T kxx, const T kxy, const T kyz, const T x,
+                      const T y, const T z, const int diss_order,
+                      const Arith::vect<T, dim> &dx) {
+  const T sinx = std::sin(x);
+  const T siny = std::sin(y);
+  const T sinz = std::sin(z);
+  const T cosx = std::cos(x);
+  int coeff = 0;
+
+  switch (diss_order) {
+  case 4:
+    coeff = 8;
+    break;
+  case 6:
+    coeff = -32;
+    break;
+  case 8:
+    coeff = 128;
+    break;
+  case 10:
+    coeff = -512;
+    break;
+  default:
+    assert(0);
+  }
+
+  const int abc = std::abs(coeff);
+  const int sig = (abc == coeff) ? 1 : -1;
+  return sig * ((abc * kxx * cosx * cosx - abc * kxx * sinx * sinx +
+                 kxy * cosx * siny) /
+                    dx[0] +
+                (kxy * cosx * siny + kyz * siny * sinz) / dx[1] +
+                (kyz * siny * sinz) / dx[2]);
 }
 
 extern "C" void TestDerivs_SetError(CCTK_ARGUMENTS) {
@@ -134,10 +170,33 @@ extern "C" void TestDerivs_CalcDerivs(CCTK_ARGUMENTS) {
       GF3D2<CCTK_REAL>(layout2, dxxchi), GF3D2<CCTK_REAL>(layout2, dxychi),
       GF3D2<CCTK_REAL>(layout2, dxzchi), GF3D2<CCTK_REAL>(layout2, dyychi),
       GF3D2<CCTK_REAL>(layout2, dyzchi), GF3D2<CCTK_REAL>(layout2, dzzchi)};
+  const GF3D2<CCTK_REAL> gf_chi_diss(layout2, chi_diss);
 
   typedef Arith::simd<CCTK_REAL> vreal;
   typedef Arith::simdl<CCTK_REAL> vbool;
   constexpr size_t vsize = std::tuple_size_v<vreal>;
+
+  vreal (*calc_diss)(const GF3D2<const CCTK_REAL> &, const vbool &,
+                     const vect<int, dim> &, const vect<CCTK_REAL, dim> &);
+
+  switch (deriv_order) {
+  case 2: {
+    calc_diss = &Derivs::calc_diss<2>;
+    break;
+  }
+  case 4:
+  case 6:
+  case 8: {
+    calc_diss = &Derivs::calc_diss<4>;
+    break;
+  }
+  // case 6: {
+  //   calc_diss = &Derivs::calc_diss<6>;
+  //   break;
+  // }
+  default:
+    assert(0);
+  }
 
   grid.loop_int_device<0, 0, 0, vsize>(
       grid.nghostzones, [=] ARITH_DEVICE(const PointDesc &p) ARITH_INLINE {
@@ -146,6 +205,7 @@ extern "C" void TestDerivs_CalcDerivs(CCTK_ARGUMENTS) {
         const GF3D5index index5(layout5, p.I);
         gf_dchi.store(mask, index2, t5_dchi(mask, index5));
         gf_ddchi.store(mask, index2, t5_ddchi(mask, index5));
+        gf_chi_diss.store(mask, index2, calc_diss(gf2_chi, mask, p.I, dx));
       });
 
 #if CCTK_DEBUG
@@ -186,6 +246,12 @@ extern "C" void TestDerivs_CalcError(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestDerivs_CalcError;
   DECLARE_CCTK_PARAMETERS;
 
+  const Arith::vect<CCTK_REAL, dim> dx(std::array<CCTK_REAL, dim>{
+      CCTK_DELTA_SPACE(0),
+      CCTK_DELTA_SPACE(1),
+      CCTK_DELTA_SPACE(2),
+  });
+
   grid.loop_int_device<0, 0, 0>(
       grid.nghostzones, [=] ARITH_DEVICE(const PointDesc &p) ARITH_INLINE {
         Arith::vec<CCTK_REAL, dim> dchi;
@@ -201,6 +267,13 @@ extern "C" void TestDerivs_CalcError(CCTK_ARGUMENTS) {
         dyychi_error(p.I) = dyychi(p.I) - ddchi(1, 1);
         dyzchi_error(p.I) = dyzchi(p.I) - ddchi(1, 2);
         dzzchi_error(p.I) = dzzchi(p.I) - ddchi(2, 2);
+
+        const int diss_order = deriv_order + 2;
+        const CCTK_REAL diss =
+            Arith::pown(-1, diss_order / 2.0 - 1.0) /
+            Arith::pown(2, diss_order) *
+            poly_diss(kxx, kxy, kyz, p.x, p.y, p.z, diss_order, dx);
+        chi_diss_error(p.I) = diss - chi_diss(p.I);
       });
 }
 

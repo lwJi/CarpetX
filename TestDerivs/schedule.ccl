@@ -28,14 +28,14 @@ SCHEDULE TestDerivs_CalcDerivs AT poststep
 {
   LANG: C
   READS: chi(everywhere)
-  WRITES: dchi(interior) ddchi(interior)
-  SYNC: dchi ddchi
+  WRITES: dchi(interior) ddchi(interior) chi_diss(interior)
+  SYNC: dchi ddchi chi_diss
 } "Calculate derivs"
 
 SCHEDULE TestDerivs_CalcError AT poststep AFTER TestDerivs_CalcDerivs
 {
   LANG: C
-  READS: dchi(interior) ddchi(interior)
-  WRITES: dchi_error(interior) ddchi_error(interior)
-  SYNC: dchi_error ddchi_error
+  READS: dchi(interior) ddchi(interior) chi_diss(interior)
+  WRITES: dchi_error(interior) ddchi_error(interior) chi_diss_error(interior)
+  SYNC: dchi_error ddchi_error chi_diss_error
 } "Calculate derivs error"
