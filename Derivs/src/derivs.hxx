@@ -203,7 +203,7 @@ template <int deriv_order, typename T, typename TS,
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE
     CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 2, R>
     deriv2_1d(const TS var, const T dx) {
-  const T c1 = T(1);
+  const T c1 = 1;
   return (c1 * ((var(1) - var(0)) - (var(0) - var(-1)))) / pow2(dx);
 }
 
