@@ -165,13 +165,13 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
   // arXiv:1111.2177 [gr-qc], (71)
   const T c1s = 1;
   const T c2s = -1 / T(4);
-  const R symm = c2s * (var(+2) - var(-2)) + c1s * (var(+1) - var(-1));
+  const R symm = c2s * (var(2) - var(-2)) + c1s * (var(1) - var(-1));
 
   const T c0a = 3 / T(2);
   const T c1a = -1;
   const T c2a = 1 / T(4);
   const R anti =
-      c2a * (var(+2) + var(-2)) + c1a * (var(+1) + var(-1)) + c0a * var(0);
+      c2a * (var(2) + var(-2)) + c1a * (var(1) + var(-1)) + c0a * var(0);
   using std::fabs;
   return (vel * symm - fabs(vel) * anti) / dx;
 }
@@ -185,15 +185,68 @@ inline CCTK_ATTRIBUTE_ALWAYS_INLINE
   const T c1s = 7 / T(8);
   const T c2s = -1 / T(4);
   const T c3s = 1 / T(24);
-  const R symm = c3s * (var(+3) - var(-3)) + c2s * (var(+2) - var(-2)) +
-                 c1s * (var(+1) - var(-1));
+  const R symm = c3s * (var(3) - var(-3)) + c2s * (var(2) - var(-2)) +
+                 c1s * (var(1) - var(-1));
 
   const T c0a = 5 / T(6);
   const T c1a = -5 / T(8);
   const T c2a = 1 / T(4);
   const T c3a = -1 / T(24);
-  const R anti = c3a * (var(+3) + var(-3)) + c2a * (var(+2) + var(-2)) +
-                 c1a * (var(+1) + var(-1)) + c0a * var(0);
+  const R anti = c3a * (var(3) + var(-3)) + c2a * (var(2) + var(-2)) +
+                 c1a * (var(1) + var(-1)) + c0a * var(0);
+  using std::fabs;
+  return (vel * symm - fabs(vel) * anti) / dx;
+}
+
+template <int deriv_order, typename T, typename TS,
+          typename R = std::result_of_t<TS(int)>>
+inline CCTK_ATTRIBUTE_ALWAYS_INLINE
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 6, R>
+    deriv1d_upwind(const TS var, const T dx, const R vel) {
+  // arXiv:1111.2177 [gr-qc], (71)
+  const T c1s = 13 / T(15);
+  const T c2s = -4 / T(15);
+  const T c3s = 1 / T(15);
+  const T c4s = -1 / T(120);
+  const R symm = c4s * (var(4) - var(-4)) + c3s * (var(3) - var(-3)) +
+                 c2s * (var(2) - var(-2)) + c1s * (var(1) - var(-1));
+
+  const T c0a = 7 / T(12);
+  const T c1a = -7 / T(15);
+  const T c2a = 7 / T(30);
+  const T c3a = -1 / T(15);
+  const T c4a = 1 / T(120);
+  const R anti = c4a * (var(4) + var(-4)) + c3a * (var(3) + var(-3)) +
+                 c2a * (var(2) + var(-2)) + c1a * (var(1) + var(-1)) +
+                 c0a * var(0);
+  using std::fabs;
+  return (vel * symm - fabs(vel) * anti) / dx;
+}
+
+template <int deriv_order, typename T, typename TS,
+          typename R = std::result_of_t<TS(int)>>
+inline CCTK_ATTRIBUTE_ALWAYS_INLINE
+    CCTK_DEVICE CCTK_HOST std::enable_if_t<deriv_order == 8, R>
+    deriv1d_upwind(const TS var, const T dx, const R vel) {
+  // arXiv:1111.2177 [gr-qc], (71)
+  const T c1s = 7 / T(8);
+  const T c2s = -2 / T(7);
+  const T c3s = 29 / T(336);
+  const T c4s = -1 / T(56);
+  const T c5s = 1 / T(560);
+  const R symm = c5s * (var(5) - var(-5)) + c4s * (var(4) - var(-4)) +
+                 c3s * (var(3) - var(-3)) + c2s * (var(2) - var(-2)) +
+                 c1s * (var(1) - var(-1));
+
+  const T c0a = 9 / T(20);
+  const T c1a = -3 / T(8);
+  const T c2a = 3 / T(14);
+  const T c3a = -9 / T(112);
+  const T c4a = 1 / T(56);
+  const T c5a = -1 / T(560);
+  const R anti = c5a * (var(5) + var(-5)) + c4a * (var(4) + var(-4)) +
+                 c3a * (var(3) + var(-3)) + c2a * (var(2) + var(-2)) +
+                 c1a * (var(1) + var(-1)) + c0a * var(0);
   using std::fabs;
   return (vel * symm - fabs(vel) * anti) / dx;
 }
