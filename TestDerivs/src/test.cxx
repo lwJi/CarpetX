@@ -42,6 +42,15 @@ constexpr void poly_derivs(const T kxx, const T kxy, const T kyz, const T x,
 }
 
 template <typename T>
+constexpr Arith::vec<T, dim> beta_profile(const T x, const T y, const T z) {
+  const T vx = 1 * std::sin(x);
+  const T vy = 2 * std::sin(y);
+  const T vz = 3 * std::sin(z);
+  const T norm = std::sqrt(vx * vx + vy * vy + vz * vz);
+  return Arith::vec<T, dim>({vx / norm, vy / norm, vy / norm});
+}
+
+template <typename T>
 constexpr T poly_diss(const T kxx, const T kxy, const T kyz, const T x,
                       const T y, const T z, const int diss_order,
                       const Arith::vect<T, dim> &dx) {
@@ -110,6 +119,15 @@ extern "C" void TestDerivs_Set(CCTK_ARGUMENTS) {
             mask, p.I,
             poly(kxx, kxy, kyz, Arith::cos(x0), std::sin(y0), std::sin(z0)));
       });
+
+  grid.loop_int_device<0, 0, 0>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        const Arith::vec<CCTK_REAL, dim> betas = beta_profile(p.x, p.y, p.z);
+        betax(p.I) = betas(0);
+        betay(p.I) = betas(1);
+        betaz(p.I) = betas(2);
+      });
 }
 
 extern "C" void TestDerivs_Sync(CCTK_ARGUMENTS) {
@@ -172,27 +190,42 @@ extern "C" void TestDerivs_CalcDerivs(CCTK_ARGUMENTS) {
       GF3D2<CCTK_REAL>(layout2, dyzchi), GF3D2<CCTK_REAL>(layout2, dzzchi)};
   const GF3D2<CCTK_REAL> gf_chi_diss(layout2, chi_diss);
 
+  const Arith::vec<GF3D2<const CCTK_REAL>, 3> gf_beta{
+      GF3D2<const CCTK_REAL>(layout2, betax),
+      GF3D2<const CCTK_REAL>(layout2, betay),
+      GF3D2<const CCTK_REAL>(layout2, betaz)};
+  const GF3D2<CCTK_REAL> gf_chi_upwind(layout2, chi_upwind);
+
   typedef Arith::simd<CCTK_REAL> vreal;
   typedef Arith::simdl<CCTK_REAL> vbool;
   constexpr size_t vsize = std::tuple_size_v<vreal>;
 
+  vreal (*calc_deriv_upwind)(const GF3D2<const CCTK_REAL> &, const vbool &,
+                             const Arith::vect<int, dim> &,
+                             const Arith::vect<CCTK_REAL, dim> &,
+                             const Arith::vec<vreal, dim> &);
   vreal (*calc_diss)(const GF3D2<const CCTK_REAL> &, const vbool &,
-                     const vect<int, dim> &, const vect<CCTK_REAL, dim> &);
+                     const Arith::vect<int, dim> &,
+                     const Arith::vect<CCTK_REAL, dim> &);
 
   switch (deriv_order) {
   case 2: {
+    calc_deriv_upwind = &Derivs::calc_deriv_upwind<2>;
     calc_diss = &Derivs::calc_diss<2>;
     break;
   }
   case 4: {
+    calc_deriv_upwind = &Derivs::calc_deriv_upwind<4>;
     calc_diss = &Derivs::calc_diss<4>;
     break;
   }
   case 6: {
+    calc_deriv_upwind = &Derivs::calc_deriv_upwind<6>;
     calc_diss = &Derivs::calc_diss<6>;
     break;
   }
   case 8: {
+    calc_deriv_upwind = &Derivs::calc_deriv_upwind<8>;
     calc_diss = &Derivs::calc_diss<8>;
     break;
   }
@@ -208,6 +241,9 @@ extern "C" void TestDerivs_CalcDerivs(CCTK_ARGUMENTS) {
         gf_dchi.store(mask, index2, t5_dchi(mask, index5));
         gf_ddchi.store(mask, index2, t5_ddchi(mask, index5));
         gf_chi_diss.store(mask, index2, calc_diss(gf2_chi, mask, p.I, dx));
+        gf_chi_upwind.store(
+            mask, index2,
+            calc_deriv_upwind(gf2_chi, mask, p.I, dx, gf_beta(mask, index2)));
       });
 
 #if CCTK_DEBUG
@@ -276,6 +312,11 @@ extern "C" void TestDerivs_CalcError(CCTK_ARGUMENTS) {
             Arith::pown(2, diss_order) *
             poly_diss(kxx, kxy, kyz, p.x, p.y, p.z, diss_order, dx);
         chi_diss_error(p.I) = diss - chi_diss(p.I);
+
+        const Arith::vec<CCTK_REAL, dim> betas = beta_profile(p.x, p.y, p.z);
+        const CCTK_REAL upwind = Arith::sum<dim>(
+            [&](int i) ARITH_INLINE { return betas(i) * dchi(i); });
+        chi_upwind_error(p.I) = upwind - chi_upwind(p.I);
       });
 }
 
