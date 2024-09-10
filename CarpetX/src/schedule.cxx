@@ -1026,6 +1026,22 @@ std::vector<clause_t> decode_clauses(const cFunctionData *restrict attribute,
   return result;
 }
 
+CCTK_REAL get_mindx(const bool use_subcycling) {
+  CCTK_REAL mindx = 1.0 / 0.0;
+  for (const auto &patchdata : ghext->patchdata) {
+    const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
+    const CCTK_REAL *restrict const dx = geom.CellSize();
+    CCTK_REAL mindx1 = 1.0 / 0.0;
+    for (int d = 0; d < dim; ++d)
+      mindx1 = fmin(mindx1, dx[d]);
+    mindx = fmin(mindx,
+                 (use_subcycling)
+                     ? mindx1
+                     : ldexp(mindx1, -(int(patchdata.leveldata.size()) - 1)));
+  }
+  return mindx;
+}
+
 // Schedule initialisation
 int Initialise(tFleshConfig *config) {
   DECLARE_CCTK_PARAMETERS;
@@ -1131,17 +1147,7 @@ int Initialise(tFleshConfig *config) {
 
     // Determine time step size
     {
-      CCTK_REAL mindx = 1.0 / 0.0;
-      for (const auto &patchdata : ghext->patchdata) {
-        const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
-        const CCTK_REAL *restrict const dx = geom.CellSize();
-        CCTK_REAL mindx1 = 1.0 / 0.0;
-        for (int d = 0; d < dim; ++d)
-          mindx1 = fmin(mindx1, dx[d]);
-        mindx1 = ldexp(mindx1, -(int(patchdata.leveldata.size()) - 1));
-        mindx = fmin(mindx, mindx1);
-      }
-      cctkGH->cctk_delta_time = dtfac * mindx;
+      cctkGH->cctk_delta_time = dtfac * get_mindx(use_subcycling_wip);
 #pragma omp critical
       CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                  cctkGH->cctk_iteration, double(cctkGH->cctk_time),
@@ -1164,17 +1170,7 @@ int Initialise(tFleshConfig *config) {
 
       // Determine time step size
       {
-        CCTK_REAL mindx = 1.0 / 0.0;
-        for (const auto &patchdata : ghext->patchdata) {
-          const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
-          const CCTK_REAL *restrict const dx = geom.CellSize();
-          CCTK_REAL mindx1 = 1.0 / 0.0;
-          for (int d = 0; d < dim; ++d)
-            mindx1 = fmin(mindx1, dx[d]);
-          mindx1 = ldexp(mindx1, -(int(patchdata.leveldata.size()) - 1));
-          mindx = fmin(mindx, mindx1);
-        }
-        cctkGH->cctk_delta_time = dtfac * mindx;
+        cctkGH->cctk_delta_time = dtfac * get_mindx(use_subcycling_wip);
 #pragma omp critical
         CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                    cctkGH->cctk_iteration, double(cctkGH->cctk_time),
@@ -1320,17 +1316,7 @@ int Initialise(tFleshConfig *config) {
         if (did_modify_any_level) {
           // Determine time step size
           {
-            CCTK_REAL mindx = 1.0 / 0.0;
-            for (const auto &patchdata : ghext->patchdata) {
-              const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
-              const CCTK_REAL *restrict const dx = geom.CellSize();
-              CCTK_REAL mindx1 = 1.0 / 0.0;
-              for (int d = 0; d < dim; ++d)
-                mindx1 = fmin(mindx1, dx[d]);
-              mindx1 = ldexp(mindx1, -(int(patchdata.leveldata.size()) - 1));
-              mindx = fmin(mindx, mindx1);
-            }
-            cctkGH->cctk_delta_time = dtfac * mindx;
+            cctkGH->cctk_delta_time = dtfac * get_mindx(use_subcycling_wip);
 #pragma omp critical
             CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                        cctkGH->cctk_iteration, double(cctkGH->cctk_time),
@@ -1708,17 +1694,7 @@ int Evolve(tFleshConfig *config) {
       if (did_modify_any_level) {
         // Determine time step size
         {
-          CCTK_REAL mindx = 1.0 / 0.0;
-          for (const auto &patchdata : ghext->patchdata) {
-            const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
-            const CCTK_REAL *restrict const dx = geom.CellSize();
-            CCTK_REAL mindx1 = 1.0 / 0.0;
-            for (int d = 0; d < dim; ++d)
-              mindx1 = fmin(mindx1, dx[d]);
-            mindx1 = ldexp(mindx1, -(int(patchdata.leveldata.size()) - 1));
-            mindx = fmin(mindx, mindx1);
-          }
-          cctkGH->cctk_delta_time = dtfac * mindx;
+          cctkGH->cctk_delta_time = dtfac * get_mindx(use_subcycling_wip);
 #pragma omp critical
           CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                      cctkGH->cctk_iteration, double(cctkGH->cctk_time),
