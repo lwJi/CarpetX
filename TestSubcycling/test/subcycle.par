@@ -25,7 +25,7 @@ CarpetX::max_tile_size_x = 10000000
 CarpetX::max_tile_size_y = 10000000
 CarpetX::max_tile_size_z = 10000000
 
-CarpetX::dtfac = 16.0
+CarpetX::dtfac = 8.0
 
 Cactus::cctk_itlast = 8
 
