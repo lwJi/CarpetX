@@ -151,6 +151,20 @@ calc_derivs(const smat<GF3D5<T>, dim> &gf,
 
 template <int CI, int CJ, int CK, typename T>
 CCTK_ATTRIBUTE_NOINLINE void
+calc_derivs(const vec<smat<GF3D5<T>, dim>, dim> &gf,
+            const vec<smat<vec<GF3D5<T>, dim>, dim>, dim> &dgf,
+            const GF3D5layout layout, const GridDescBaseDevice &grid,
+            const vec<smat<GF3D2<const T>, dim>, dim> &gf0,
+            const vect<T, dim> dx, const int deriv_order) {
+  for (int c = 0; c < dim; ++c)
+    for (int a = 0; a < dim; ++a)
+      for (int b = a; b < dim; ++b)
+        calc_derivs<CI, CJ, CK>(gf(c)(a, b), dgf(c)(a, b), layout, grid,
+                                gf0(c)(a, b), dx, deriv_order);
+}
+
+template <int CI, int CJ, int CK, typename T>
+CCTK_ATTRIBUTE_NOINLINE void
 calc_derivs2(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
              const smat<GF3D5<T>, dim> &ddgf, const GF3D5layout layout,
              const GridDescBaseDevice &grid, const GF3D2<const T> &gf0,
@@ -301,6 +315,13 @@ template void calc_derivs<0, 0, 0>(const smat<GF3D5<T>, dim> &gf,
                                    const smat<GF3D2<const T>, dim> &gf0,
                                    const vect<T, dim> dx,
                                    const int deriv_order);
+
+template void
+calc_derivs<0, 0, 0>(const vec<smat<GF3D5<T>, dim>, dim> &gf,
+                     const vec<smat<vec<GF3D5<T>, dim>, dim>, dim> &dgf,
+                     const GF3D5layout layout, const GridDescBaseDevice &grid,
+                     const vec<smat<GF3D2<const T>, dim>, dim> &gf0,
+                     const vect<T, dim> dx, const int deriv_order);
 
 template void
 calc_derivs2<0, 0, 0>(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
