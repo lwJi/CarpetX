@@ -773,6 +773,20 @@ calc_copy(const Arith::smat<Loop::GF3D5<T>, Loop::dim> &gf,
           const Arith::smat<Loop::GF3D2<const T>, Loop::dim> &gf0);
 
 template <int CI, int CJ, int CK, typename T>
+CCTK_ATTRIBUTE_NOINLINE void calc_copy(
+    const Arith::vec<Arith::vec<Loop::GF3D5<T>, Loop::dim>, Loop::dim> &gf,
+    const Loop::GF3D5layout layout, const Loop::GridDescBaseDevice &grid,
+    const Arith::vec<Arith::vec<Loop::GF3D2<const T>, Loop::dim>, Loop::dim>
+        &gf0);
+
+template <int CI, int CJ, int CK, typename T>
+CCTK_ATTRIBUTE_NOINLINE void calc_copy(
+    const Arith::vec<Arith::smat<Loop::GF3D5<T>, Loop::dim>, Loop::dim> &gf,
+    const Loop::GF3D5layout layout, const Loop::GridDescBaseDevice &grid,
+    const Arith::vec<Arith::smat<Loop::GF3D2<const T>, Loop::dim>, Loop::dim>
+        &gf0);
+
+template <int CI, int CJ, int CK, typename T>
 CCTK_ATTRIBUTE_NOINLINE void calc_derivs(
     const Loop::GF3D5<T> &gf, const Arith::vec<Loop::GF3D5<T>, Loop::dim> &dgf,
     const Loop::GF3D5layout layout, const Loop::GridDescBaseDevice &grid,
