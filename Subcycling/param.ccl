@@ -1,5 +1,5 @@
 # Parameter definitions for thorn Subcycling
 
-SHARES: CarpetX
+SHARES: Driver
 
 USES BOOLEAN use_subcycling_wip
