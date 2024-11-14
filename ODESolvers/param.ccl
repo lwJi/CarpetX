@@ -20,6 +20,6 @@ BOOLEAN verbose "Verbose output" STEERABLE=always
 } "no"
 
 
-SHARES: CarpetX
+SHARES: Driver
 
 USES BOOLEAN use_subcycling_wip
