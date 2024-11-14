@@ -32,6 +32,6 @@ CCTK_REAL gaussian_width "width of Gaussian"
 } 1.0
 
 
-SHARES: CarpetX
+SHARES: Driver
 
 USES BOOLEAN use_subcycling_wip
