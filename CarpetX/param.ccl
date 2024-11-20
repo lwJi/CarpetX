@@ -517,6 +517,14 @@ KEYWORD recover_method "I/O method for recovery" STEERABLE=recover
   "silo" :: ""
 } "error"
 
+STRING recover_vars "List of variables to read in from the given initial data files" STEERABLE = RECOVER
+{
+  "allcheckpointed" :: "Recover those checkpointed variables"
+  "all" :: "Read all variables contained in the initial data files"
+  ".+"  :: "Space-separated list of fully qualified variable/group names"
+  "^$"  :: "An empty string for not recovering initial data"
+} "allcheckpointed"
+
 KEYWORD checkpoint_method "I/O method for checkpointing" STEERABLE=recover
 {
   "error" :: "Abort with error instead of checkpointing"

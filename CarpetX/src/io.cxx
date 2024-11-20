@@ -190,10 +190,17 @@ void RecoverGH(const cGH *restrict cctkGH) {
     return enabled;
   }();
 
+  const bool recover_allcheckpointed =
+      CCTK_EQUALS(recover_vars, "allcheckpointed");
+
+  const std::vector<bool> &input_group =
+      (recover_allcheckpointed) ? group_enabled
+                                : find_groups("Silo", recover_vars);
+
   if (CCTK_EQUALS(recover_method, "openpmd")) {
 
 #ifdef HAVE_CAPABILITY_openPMD_api
-    InputOpenPMD(cctkGH, group_enabled, recover_dir, recover_file);
+    InputOpenPMD(cctkGH, input_group, recover_dir, recover_file);
 #else
     CCTK_VERROR(
         "CarpetX::recover_method is set to \"openpmd\", but openPMD_api "
@@ -203,7 +210,7 @@ void RecoverGH(const cGH *restrict cctkGH) {
   } else if (CCTK_EQUALS(recover_method, "silo")) {
 
 #ifdef HAVE_CAPABILITY_Silo
-    InputSilo(cctkGH, group_enabled, recover_dir, recover_file);
+    InputSilo(cctkGH, input_group, recover_dir, recover_file);
 #else
     CCTK_VERROR("CarpetX::recover_method is set to \"silo\", but Silo "
                 "is not enabled");
