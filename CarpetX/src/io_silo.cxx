@@ -482,6 +482,7 @@ void InputSilo(const cGH *restrict const cctkGH,
   auto interval_data = std::make_unique<Interval>(timer_data);
 
   // Read data
+  for (int ifile = 0; ifile < n_input_silo_files; ++ifile)
   {
     DB::ptr<DBfile> file;
     if (read_file) {
@@ -489,7 +490,7 @@ void InputSilo(const cGH *restrict const cctkGH,
           make_subdirname(input_file, cctk_iteration);
       const std::string filename =
           input_dir + "/" + subdirname + "/" +
-          make_filename(input_file, cctk_iteration, myproc / ioproc_every);
+          make_filename(input_file, cctk_iteration, ifile);
       // We could use DB_UNKNOWN instead of DB_HDF5
       file = DB::make(DBOpen(filename.c_str(), DB_HDF5, DB_READ));
       assert(file);
@@ -616,7 +617,7 @@ void InputSilo(const cGH *restrict const cctkGH,
 
               const DB::ptr<DBquadvar> quadvar =
                   DB::make(DBGetQuadvar(file.get(), varname.c_str()));
-              assert(quadvar);
+              if (quadvar == 0) continue;
 
               assert(quadvar->ndims == ndims);
               assert(ndims <= 3);
