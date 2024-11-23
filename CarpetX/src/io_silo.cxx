@@ -615,9 +615,12 @@ void InputSilo(const cGH *restrict const cctkGH,
               if (io_verbose)
                 CCTK_VINFO("      Reading variable %s", varname.c_str());
 
+              if (!DBInqVarExists(file.get(), varname.c_str()))
+                continue;
+
               const DB::ptr<DBquadvar> quadvar =
                   DB::make(DBGetQuadvar(file.get(), varname.c_str()));
-              if (quadvar == 0) continue;
+              assert(quadvar);
 
               assert(quadvar->ndims == ndims);
               assert(ndims <= 3);
