@@ -47,7 +47,7 @@ namespace CarpetX {
 
 namespace {
 
-constexpr bool io_verbose = true;
+constexpr bool io_verbose = false;
 
 // // Compile-time if-then-else expression
 // template <bool cond, typename T, typename F>
