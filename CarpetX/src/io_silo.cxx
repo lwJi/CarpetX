@@ -1111,7 +1111,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         const std::string levelmaps_name = multimeshname + "_wmrgtree_lvlMaps";
         {
           std::vector<int> segment_types;
-          std::vector<vector<int> > segment_data;
+          std::vector<vector<int>> segment_data;
           segment_types.reserve(nlevels);
           segment_data.reserve(nlevels);
           for (int l = 0; l < nlevels; ++l) {
@@ -1146,7 +1146,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         std::vector<int> num_children;
         {
           std::vector<int> segment_types;
-          std::vector<vector<int> > segment_data;
+          std::vector<vector<int>> segment_data;
           segment_types.reserve(ncomps_total);
           segment_data.reserve(ncomps_total);
           for (const auto &leveldata : patchdata.leveldata) {
@@ -1167,7 +1167,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 const amrex::Box &box = mfab.box(component); // interior
                 amrex::Box refined_box(box);
                 refined_box.refine(2);
-                const std::vector<pair<int, amrex::Box> > child_boxes =
+                const std::vector<pair<int, amrex::Box>> child_boxes =
                     fine_boxarray.intersections(refined_box);
                 std::vector<int> children;
                 children.reserve(child_boxes.size());
