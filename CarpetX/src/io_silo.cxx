@@ -502,8 +502,13 @@ void InputSilo(const cGH *restrict const cctkGH,
   static Timer timer_data("InputSilo.data");
   auto interval_data = std::make_unique<Interval>(timer_data);
 
+  const int n_input_silos = count_silo_files(
+      input_dir + "/" + make_subdirname(input_file, cctk_iteration));
+
+  CCTK_VINFO("Reading %d silo files", n_input_silos);
+
   // Read data
-  for (int ifile = 0; ifile < n_input_silo_files; ++ifile) {
+  for (int ifile = 0; ifile < n_input_silos; ++ifile) {
     DB::ptr<DBfile> file;
     if (read_file) {
       const std::string subdirname =
