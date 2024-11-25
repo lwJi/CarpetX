@@ -86,6 +86,27 @@ struct mesh_props_t {
   }
 };
 
+int count_silo_files(const std::string &directory_path) {
+  int count = 0;
+  const std::string target_extension = ".silo";
+
+  try {
+    // Attempt to iterate through the directory
+    for (const auto &entry :
+         std::filesystem::directory_iterator(directory_path)) {
+      if (entry.is_regular_file() &&
+          entry.path().extension() == target_extension) {
+        ++count;
+      }
+    }
+  } catch (const std::filesystem::filesystem_error &dirError) {
+    // Handle errors related to directory iteration
+    std::cerr << "Error accessing directory: " << dirError.what() << std::endl;
+  }
+
+  return count;
+}
+
 std::string make_subdirname(const std::string &file_name, const int iteration) {
   std::ostringstream buf;
   buf << file_name                                     //
@@ -482,8 +503,7 @@ void InputSilo(const cGH *restrict const cctkGH,
   auto interval_data = std::make_unique<Interval>(timer_data);
 
   // Read data
-  for (int ifile = 0; ifile < n_input_silo_files; ++ifile)
-  {
+  for (int ifile = 0; ifile < n_input_silo_files; ++ifile) {
     DB::ptr<DBfile> file;
     if (read_file) {
       const std::string subdirname =
