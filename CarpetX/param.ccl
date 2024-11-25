@@ -525,11 +525,6 @@ STRING recover_vars "List of variables to read in from the given initial data fi
   "^$"  :: "An empty string for not recovering initial data"
 } "allcheckpointed"
 
-CCTK_INT n_input_silo_files "Number of input silo files"
-{
-  1:* :: ""
-} 1
-
 KEYWORD checkpoint_method "I/O method for checkpointing" STEERABLE=recover
 {
   "error" :: "Abort with error instead of checkpointing"
