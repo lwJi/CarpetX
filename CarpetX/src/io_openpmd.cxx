@@ -16,6 +16,10 @@
 
 #include <openPMD/openPMD.hpp>
 
+#ifdef HAVE_CAPABILITY_ADIOS2
+#include <adios2.h>
+#endif
+
 #if defined _OPENMP
 #include <omp.h>
 #elif defined __HIPCC__
@@ -65,8 +69,11 @@ openPMD::Format get_format() {
   DECLARE_CCTK_PARAMETERS;
   if (CCTK_EQUALS(openpmd_format, "HDF5"))
     return openPMD::Format::HDF5;
+#if OPENPMDAPI_VERSION_GE(0, 16, 0)
+#else
   if (CCTK_EQUALS(openpmd_format, "ADIOS1"))
     return openPMD::Format::ADIOS1;
+#endif
   if (CCTK_EQUALS(openpmd_format, "ADIOS2_auto"))
 #if OPENPMDAPI_VERSION_GE(0, 15, 0)
     return openPMD::Format::ADIOS2_BP5;
@@ -90,6 +97,14 @@ openPMD::Format get_format() {
     return openPMD::Format::ADIOS2_SSC;
   if (CCTK_EQUALS(openpmd_format, "JSON"))
     return openPMD::Format::JSON;
+#if OPENPMDAPI_VERSION_GE(0, 16, 0)
+  if (CCTK_EQUALS(openpmd_format, "TOML"))
+    return openPMD::Format::TOML;
+#endif
+#if OPENPMDAPI_VERSION_GE(0, 16, 0)
+  if (CCTK_EQUALS(openpmd_format, "GENERIC"))
+    return openPMD::Format::GENERIC;
+#endif
   CCTK_VERROR("The openPMD format \"%s\" is not supported in version %d.%d.%d "
               "of the openPMD_api library",
               openpmd_format, OPENPMDAPI_VERSION_MAJOR,
@@ -104,27 +119,37 @@ openPMD::Format get_format() {
 constexpr openPMD::IterationEncoding iterationEncoding =
     openPMD::IterationEncoding::fileBased;
 
-//  constexpr const char options[]
-// const std::string options = "{"
-//                             "  \"adios2\": {"
-//                             "    \"engine\": {"
-//                             "      \"type\": \"BP4\","
-//                             "      \"parameters\": {"
-//                             "        \"BufferGrowthFactor\": \"2.0\""
-//                             "      }"
-//                             "    },"
-//                             "    \"dataset\": {"
-//                             "      \"operators\": {"
-//                             "        \"type\": \"blosc\","
-//                             "        \"parameters\": {"
-//                             "          \"clevel\": \"9\","
-//                             "          \"doshuffle\": \"BLOSC_BITSHUFFLE\""
-//                             "        }"
-//                             "      }"
-//                             "    }"
-//                             "  }"
-//                             "}";
-const std::string options = "{}";
+// TODO: Set number of threads?
+#ifdef ADIOS2_HAVE_BLOSC2
+const std::string options = R"EOS(
+  {
+    "adios2": {
+      "dataset": {
+        "operators": [
+          {
+            "type": "blosc",
+            "parameters": {
+              "clevel": "9",
+              "doshuffle": "BLOSC_SHUFFLE"
+            }
+          }
+        ]
+      }
+    }
+  }
+)EOS";
+#else
+const std::string options = R"EOS(
+  {
+    "adios2": {
+      "dataset": {
+        "operators": [
+        ]
+      }
+    }
+  }
+)EOS";
+#endif
 
 constexpr bool input_ghosts = false;
 constexpr bool output_ghosts = false;
@@ -598,7 +623,6 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
   auto &patchdata = ghext->patchdata.at(patch);
   patchdata.amrcore->SetFinestLevel(nlevels - 1);
 
-  // Read FabArrayBase (component positions and shapes)
   for (int level = 0; level < nlevels; ++level) {
     const std::vector<std::int64_t> chunk_infos =
         read_iter->getAttribute("chunkInfo" + level_suffixes.at(level))
@@ -763,7 +787,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         }
 
       } // for record_component
-    }   // for mesh
+    } // for mesh
   }
 
   // First read grid functions in a loop over patches and levels
@@ -1009,7 +1033,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               }
 
             } // for vi
-          }   // for local_component
+          } // for local_component
 
           // Mark read variables as valid
           for (int vi = 0; vi < numvars; ++vi)
@@ -1021,7 +1045,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
       } // for gi
 
     } // for leveldata
-  }   // for patchdata
+  } // for patchdata
 
   // Next read grid scalars and grid arrays
 
@@ -1619,12 +1643,12 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                                                     count);
               }
             } // for vi
-          }   // for local_component
+          } // for local_component
         }
       } // for gi
 
     } // for leveldata
-  }   // for patchdata
+  } // for patchdata
 
   // Next write grid scalars and grid arrays
 

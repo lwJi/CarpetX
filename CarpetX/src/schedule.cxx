@@ -44,7 +44,6 @@ static inline int omp_in_parallel() { return 0; }
 #include <vector>
 
 namespace CarpetX {
-using namespace std;
 
 #ifndef CCTK_HAVE_CGH_LEVEL
 #error                                                                         \
@@ -79,10 +78,10 @@ double gettime() {
 } // namespace
 
 // Used to pass active levels from AMReX's regridding functions
-optional<active_levels_t> active_levels;
+std::optional<active_levels_t> active_levels;
 
 void Reflux(const cGH *cctkGH, int level);
-void Restrict(const cGH *cctkGH, int level, const vector<int> &groups);
+void Restrict(const cGH *cctkGH, int level, const std::vector<int> &groups);
 void Restrict(const cGH *cctkGH, int level);
 
 namespace {
@@ -955,7 +954,7 @@ mode_t decode_mode(const cFunctionData *restrict attribute) {
 }
 
 enum class rdwr_t { read, write, invalid };
-ostream &operator<<(ostream &os, const rdwr_t rdwr) {
+std::ostream &operator<<(std::ostream &os, const rdwr_t rdwr) {
   switch (rdwr) {
   case rdwr_t::read:
     return os << "read";
@@ -981,15 +980,15 @@ struct clause_t {
            make_tuple(y.gi, y.vi, y.tl, y.valid);
   }
 
-  friend ostream &operator<<(ostream &os, const clause_t &cl) {
+  friend std::ostream &operator<<(std::ostream &os, const clause_t &cl) {
     return os << "clause_t{gi:" << cl.gi << ",vi:" << cl.vi << ",tl:" << cl.tl
               << ",valid:" << cl.valid << "}";
   }
 };
 
-vector<clause_t> decode_clauses(const cFunctionData *restrict attribute,
-                                const rdwr_t rdwr) {
-  vector<clause_t> result;
+std::vector<clause_t> decode_clauses(const cFunctionData *restrict attribute,
+                                     const rdwr_t rdwr) {
+  std::vector<clause_t> result;
   result.reserve(attribute->n_RDWR);
   for (int n = 0; n < attribute->n_RDWR; ++n) {
     const RDWR_entry &restrict RDWR = attribute->RDWR[n];
@@ -1370,12 +1369,6 @@ int Initialise(tFleshConfig *config) {
 bool EvolutionIsDone(cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
-  if (terminate_next || CCTK_TerminationReached(cctkGH))
-    return true;
-
-  if (CCTK_Equals(terminate, "never"))
-    return false;
-
   const bool max_iteration_reached = cctkGH->cctk_iteration >= cctk_itlast;
 
   const bool max_simulation_time_reached =
@@ -1383,28 +1376,38 @@ bool EvolutionIsDone(cGH *restrict const cctkGH) {
           ? cctkGH->cctk_time >= cctk_final_time
           : cctkGH->cctk_time <= cctk_final_time;
 
-  int runtime = CCTK_RunTime();
-  MPI_Bcast(&runtime, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  const int runtime = CCTK_RunTime();
   const bool max_runtime_reached = runtime >= 60 * max_runtime;
 
-  if (CCTK_Equals(terminate, "iteration"))
-    return max_iteration_reached;
-  if (CCTK_Equals(terminate, "time"))
-    return max_simulation_time_reached;
-  if (CCTK_Equals(terminate, "runtime"))
-    return max_runtime_reached;
-  if (CCTK_Equals(terminate, "any"))
-    return max_iteration_reached || max_simulation_time_reached ||
-           max_runtime_reached;
-  if (CCTK_Equals(terminate, "all"))
-    return max_iteration_reached && max_simulation_time_reached &&
-           max_runtime_reached;
-  if (CCTK_Equals(terminate, "either"))
-    return max_iteration_reached || max_simulation_time_reached;
-  if (CCTK_Equals(terminate, "both"))
-    return max_iteration_reached && max_simulation_time_reached;
+  bool we_are_done;
+  if (terminate_next || CCTK_TerminationReached(cctkGH))
+    we_are_done = true;
+  else if (CCTK_Equals(terminate, "never"))
+    we_are_done = false;
+  else if (CCTK_Equals(terminate, "iteration"))
+    we_are_done = max_iteration_reached;
+  else if (CCTK_Equals(terminate, "time"))
+    we_are_done = max_simulation_time_reached;
+  else if (CCTK_Equals(terminate, "runtime"))
+    we_are_done = max_runtime_reached;
+  else if (CCTK_Equals(terminate, "any"))
+    we_are_done = max_iteration_reached || max_simulation_time_reached ||
+                  max_runtime_reached;
+  else if (CCTK_Equals(terminate, "all"))
+    we_are_done = max_iteration_reached && max_simulation_time_reached &&
+                  max_runtime_reached;
+  else if (CCTK_Equals(terminate, "either"))
+    we_are_done = max_iteration_reached || max_simulation_time_reached;
+  else if (CCTK_Equals(terminate, "both"))
+    we_are_done = max_iteration_reached && max_simulation_time_reached;
+  else
+    CCTK_ERROR("internal error");
 
-  assert(0);
+  // Ensure all processes make the same decision
+  MPI_Allreduce(MPI_IN_PLACE, &we_are_done, 1, MPI_CXX_BOOL, MPI_LOR,
+                MPI_COMM_WORLD);
+
+  return we_are_done;
 }
 
 void InvalidateTimelevels(cGH *restrict const cctkGH) {
@@ -2279,7 +2282,7 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
     CCTK_VINFO("SyncGroups %s", buf.str().c_str());
   }
 
-  const int gi_regrid_error = CCTK_GroupIndex("CarpetX::regrid_error");
+  const int gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
   assert(gi_regrid_error >= 0);
 
   vector<int> groups;
@@ -2656,7 +2659,7 @@ void Restrict(const cGH *cctkGH, int level, const vector<int> &groups) {
   static Timer timer("Restrict");
   Interval interval(timer);
 
-  const int gi_regrid_error = CCTK_GroupIndex("CarpetX::regrid_error");
+  const int gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
   assert(gi_regrid_error >= 0);
 
   for (const auto &patchdata : ghext->patchdata) {
