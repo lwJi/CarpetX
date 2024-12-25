@@ -23,12 +23,13 @@ template <typename T>
 constexpr void poly_derivs(const T kxx, const T kxy, const T kyz, const T x,
                            const T y, const T z, Arith::vec<T, dim> &du,
                            Arith::smat<T, dim> &ddu) {
-  const T sinx = std::sin(x);
-  const T siny = std::sin(y);
-  const T sinz = std::sin(z);
-  const T cosx = std::cos(x);
-  const T cosy = std::cos(y);
-  const T cosz = std::cos(z);
+  using std::sin, std::cos, std::sqrt;
+  const T sinx = sin(x);
+  const T siny = sin(y);
+  const T sinz = sin(z);
+  const T cosx = cos(x);
+  const T cosy = cos(y);
+  const T cosz = cos(z);
   du(0) = -2 * kxx * cosx * sinx - kxy * sinx * siny;
   du(1) = kxy * cosx * cosy + kyz * cosy * sinz;
   du(2) = kyz * cosz * siny;
@@ -43,10 +44,10 @@ constexpr void poly_derivs(const T kxx, const T kxy, const T kyz, const T x,
 
 template <typename T>
 constexpr Arith::vec<T, dim> beta_profile(const T x, const T y, const T z) {
-  const T vx = 1 * std::sin(x);
-  const T vy = 2 * std::sin(y);
-  const T vz = 3 * std::sin(z);
-  const T norm = std::sqrt(vx * vx + vy * vy + vz * vz);
+  const T vx = 1 * sin(x);
+  const T vy = 2 * sin(y);
+  const T vz = 3 * sin(z);
+  const T norm = sqrt(vx * vx + vy * vy + vz * vz);
   return Arith::vec<T, dim>({vx / norm, vy / norm, vy / norm});
 }
 
@@ -54,10 +55,11 @@ template <typename T>
 constexpr T poly_diss(const T kxx, const T kxy, const T kyz, const T x,
                       const T y, const T z, const int diss_order,
                       const Arith::vect<T, dim> &dx) {
-  const T sinx = std::sin(x);
-  const T siny = std::sin(y);
-  const T sinz = std::sin(z);
-  const T cosx = std::cos(x);
+  using std::sin, std::cos, std::fabs;
+  const T sinx = sin(x);
+  const T siny = sin(y);
+  const T sinz = sin(z);
+  const T cosx = cos(x);
   int coeff = 0;
 
   switch (diss_order) {
@@ -77,7 +79,7 @@ constexpr T poly_diss(const T kxx, const T kxy, const T kyz, const T x,
     assert(0);
   }
 
-  const int abc = std::abs(coeff);
+  const int abc = fabs(coeff);
   const int sig = (abc == coeff) ? 1 : -1;
   return sig * ((abc * kxx * cosx * cosx - abc * kxx * sinx * sinx +
                  kxy * cosx * siny) /
@@ -104,6 +106,7 @@ extern "C" void TestDerivs_Set(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestDerivs_Set;
   DECLARE_CCTK_PARAMETERS;
 
+  using std::sin;
   using vreal = Arith::simd<CCTK_REAL>;
   using vbool = Arith::simdl<CCTK_REAL>;
   constexpr std::size_t vsize = std::tuple_size_v<vreal>;
@@ -115,9 +118,7 @@ extern "C" void TestDerivs_Set(CCTK_ARGUMENTS) {
         const vreal x0 = p.x + Arith::iota<vreal>() * p.dx;
         const CCTK_REAL y0 = p.y;
         const CCTK_REAL z0 = p.z;
-        chi.store(
-            mask, p.I,
-            poly(kxx, kxy, kyz, cos(x0), std::sin(y0), std::sin(z0)));
+        chi.store(mask, p.I, poly(kxx, kxy, kyz, cos(x0), sin(y0), sin(z0)));
       });
 
   grid.loop_int_device<0, 0, 0>(
@@ -200,51 +201,78 @@ extern "C" void TestDerivs_CalcDerivs(CCTK_ARGUMENTS) {
   typedef Arith::simdl<CCTK_REAL> vbool;
   constexpr size_t vsize = std::tuple_size_v<vreal>;
 
-  vreal (*calc_deriv_upwind)(const GF3D2<const CCTK_REAL> &, const vbool &,
-                             const Arith::vect<int, dim> &,
-                             const Arith::vect<CCTK_REAL, dim> &,
-                             const Arith::vec<vreal, dim> &);
-  vreal (*calc_diss)(const GF3D2<const CCTK_REAL> &, const vbool &,
-                     const Arith::vect<int, dim> &,
-                     const Arith::vect<CCTK_REAL, dim> &);
-
   switch (deriv_order) {
   case 2: {
-    calc_deriv_upwind = &Derivs::calc_deriv_upwind<2>;
-    calc_diss = &Derivs::calc_diss<2>;
+    grid.loop_int_device<0, 0, 0, vsize>(
+        grid.nghostzones, [=] ARITH_DEVICE(const PointDesc &p) ARITH_INLINE {
+          const vbool mask = Arith::mask_for_loop_tail<vbool>(p.i, p.imax);
+          const GF3D2index index2(layout2, p.I);
+          const GF3D5index index5(layout5, p.I);
+          gf_dchi.store(mask, index2, t5_dchi(mask, index5));
+          gf_ddchi.store(mask, index2, t5_ddchi(mask, index5));
+          gf_chi_diss.store(mask, index2,
+                            Derivs::calc_diss<2>(gf2_chi, mask, p.I, dx));
+          gf_chi_upwind.store(
+              mask, index2,
+              Derivs::calc_deriv_upwind<2>(gf2_chi, mask, p.I, dx,
+                                           gf_beta(mask, index2)));
+        });
     break;
   }
   case 4: {
-    calc_deriv_upwind = &Derivs::calc_deriv_upwind<4>;
-    calc_diss = &Derivs::calc_diss<4>;
+    grid.loop_int_device<0, 0, 0, vsize>(
+        grid.nghostzones, [=] ARITH_DEVICE(const PointDesc &p) ARITH_INLINE {
+          const vbool mask = Arith::mask_for_loop_tail<vbool>(p.i, p.imax);
+          const GF3D2index index2(layout2, p.I);
+          const GF3D5index index5(layout5, p.I);
+          gf_dchi.store(mask, index2, t5_dchi(mask, index5));
+          gf_ddchi.store(mask, index2, t5_ddchi(mask, index5));
+          gf_chi_diss.store(mask, index2,
+                            Derivs::calc_diss<4>(gf2_chi, mask, p.I, dx));
+          gf_chi_upwind.store(
+              mask, index2,
+              Derivs::calc_deriv_upwind<4>(gf2_chi, mask, p.I, dx,
+                                           gf_beta(mask, index2)));
+        });
     break;
   }
   case 6: {
-    calc_deriv_upwind = &Derivs::calc_deriv_upwind<6>;
-    calc_diss = &Derivs::calc_diss<6>;
+    grid.loop_int_device<0, 0, 0, vsize>(
+        grid.nghostzones, [=] ARITH_DEVICE(const PointDesc &p) ARITH_INLINE {
+          const vbool mask = Arith::mask_for_loop_tail<vbool>(p.i, p.imax);
+          const GF3D2index index2(layout2, p.I);
+          const GF3D5index index5(layout5, p.I);
+          gf_dchi.store(mask, index2, t5_dchi(mask, index5));
+          gf_ddchi.store(mask, index2, t5_ddchi(mask, index5));
+          gf_chi_diss.store(mask, index2,
+                            Derivs::calc_diss<6>(gf2_chi, mask, p.I, dx));
+          gf_chi_upwind.store(
+              mask, index2,
+              Derivs::calc_deriv_upwind<6>(gf2_chi, mask, p.I, dx,
+                                           gf_beta(mask, index2)));
+        });
     break;
   }
   case 8: {
-    calc_deriv_upwind = &Derivs::calc_deriv_upwind<8>;
-    calc_diss = &Derivs::calc_diss<8>;
+    grid.loop_int_device<0, 0, 0, vsize>(
+        grid.nghostzones, [=] ARITH_DEVICE(const PointDesc &p) ARITH_INLINE {
+          const vbool mask = Arith::mask_for_loop_tail<vbool>(p.i, p.imax);
+          const GF3D2index index2(layout2, p.I);
+          const GF3D5index index5(layout5, p.I);
+          gf_dchi.store(mask, index2, t5_dchi(mask, index5));
+          gf_ddchi.store(mask, index2, t5_ddchi(mask, index5));
+          gf_chi_diss.store(mask, index2,
+                            Derivs::calc_diss<8>(gf2_chi, mask, p.I, dx));
+          gf_chi_upwind.store(
+              mask, index2,
+              Derivs::calc_deriv_upwind<8>(gf2_chi, mask, p.I, dx,
+                                           gf_beta(mask, index2)));
+        });
     break;
   }
   default:
     assert(0);
   }
-
-  grid.loop_int_device<0, 0, 0, vsize>(
-      grid.nghostzones, [=] ARITH_DEVICE(const PointDesc &p) ARITH_INLINE {
-        const vbool mask = Arith::mask_for_loop_tail<vbool>(p.i, p.imax);
-        const GF3D2index index2(layout2, p.I);
-        const GF3D5index index5(layout5, p.I);
-        gf_dchi.store(mask, index2, t5_dchi(mask, index5));
-        gf_ddchi.store(mask, index2, t5_ddchi(mask, index5));
-        gf_chi_diss.store(mask, index2, calc_diss(gf2_chi, mask, p.I, dx));
-        gf_chi_upwind.store(
-            mask, index2,
-            calc_deriv_upwind(gf2_chi, mask, p.I, dx, gf_beta(mask, index2)));
-      });
 
 #if CCTK_DEBUG
   grid.loop_int_device<0, 0, 0>(
@@ -308,8 +336,7 @@ extern "C" void TestDerivs_CalcError(CCTK_ARGUMENTS) {
 
         const int diss_order = deriv_order + 2;
         const CCTK_REAL diss =
-            Arith::pown(-1, diss_order / 2.0 - 1.0) /
-            Arith::pown(2, diss_order) *
+            Arith::pown(-1, diss_order / 2 - 1) / Arith::pown(2, diss_order) *
             poly_diss(kxx, kxy, kyz, p.x, p.y, p.z, diss_order, dx);
         chi_diss_error(p.I) = diss - chi_diss(p.I);
 
