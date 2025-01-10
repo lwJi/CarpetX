@@ -201,7 +201,14 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
       // TODO: check that multi-threading actually helps (and we are
       // not dominated by memory latency)
       // TODO: document required version of OpenMP to use custom reductions
+#ifdef __NVCOMPILER
+#pragma omp parallel
+      {
+      auto& outer(red);
+      reduction<CCTK_REAL, dim> red;
+#else
 #pragma omp parallel reduction(reduction : red)
+#endif
       for (amrex::MFIter mfi(mfab, mfitinfo); mfi.isValid(); ++mfi) {
         const amrex::Box &bx = mfi.tilebox(); // current tile (without ghosts)
         const vect<int, dim> tmin{bx.smallEnd(0), bx.smallEnd(1),
@@ -233,6 +240,11 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
         red += reduce_array(vars, vi, tmin, tmax, indextype, imin, imax,
                             finemask.get(), x0, dx);
       }
+#ifdef __NVCOMPILER
+#pragma omp critical
+      outer += red;
+      }
+#endif
     }
   }
 
