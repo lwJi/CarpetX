@@ -23,6 +23,15 @@ void FillPatch_ProlongateGhosts(
     const amrex::Geometry &fgeom, const amrex::Geometry &cgeom,
     amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs);
 
+// Prolongate only
+void FillPatch_ProlongateOnly(
+    task_manager &tasks2, task_manager &tasks3,
+    const GHExt::PatchData::LevelData::GroupData &groupdata,
+    const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
+    amrex::MultiFab &mfab, const amrex::MultiFab &cmfab,
+    const amrex::Geometry &fgeom, const amrex::Geometry &cgeom,
+    amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs);
+
 #warning "TODO: Restrict"
 
 // Prolongate and sync interior. Expects coarse mfab prolongated and
