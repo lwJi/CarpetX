@@ -1,0 +1,40 @@
+# Schedule definitions for thorn TestSubcyclingMC2
+
+STORAGE: state old rhs k1 k2 k3 k4
+
+
+SCHEDULE TestSubcyclingMC2_Initial AT initial
+{
+  LANG: C
+  WRITES: state(interior)
+  SYNC: state
+} "Initialize scalar wave state"
+
+SCHEDULE TestSubcyclingMC2_Sync AT postregrid
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: state
+} "Synchronize"
+
+SCHEDULE TestSubcyclingMC2_Sync IN ODESolvers_PostStep
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: state
+} "Synchronize"
+
+SCHEDULE TestSubcyclingMC2_RHS IN ODESolvers_RHS
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: rhs(interior)
+} "Calculate scalar wave RHS"
+
+SCHEDULE TestSubcyclingMC2_Error IN ODESolvers_PostStep AFTER TestSubcyclingMC2_Sync
+{
+  LANG: C
+  READS: state(interior)
+  WRITES: error(interior)
+  SYNC: error
+} "Calculate error in scalar wave state"
