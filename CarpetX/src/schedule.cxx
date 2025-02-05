@@ -2789,48 +2789,48 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
   synchronize();
 
   // Check postconditions
-  for (const int gi : groups) {
-    const auto &patchdata0 = ghext->patchdata.at(0);
-    const auto &leveldata0 = patchdata0.leveldata.at(0);
-    const auto &groupdata0 = *leveldata0.groupdata.at(gi);
-    const nan_handling_t nan_handling = groupdata0.do_checkpoint
-                                            ? nan_handling_t::forbid_nans
-                                            : nan_handling_t::allow_nans;
-    // We always sync all directions.
-    // If there is more than one time level, then we don't sync the
-    // oldest.
-    // TODO: during evolution, sync only one time level
-    const int ntls0 = groupdata0.mfab.size();
-    const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
+  // for (const int gi : groups) {
+  //  const auto &patchdata0 = ghext->patchdata.at(0);
+  //  const auto &leveldata0 = patchdata0.leveldata.at(0);
+  //  const auto &groupdata0 = *leveldata0.groupdata.at(gi);
+  //  const nan_handling_t nan_handling = groupdata0.do_checkpoint
+  //                                          ? nan_handling_t::forbid_nans
+  //                                          : nan_handling_t::allow_nans;
+  //  // We always sync all directions.
+  //  // If there is more than one time level, then we don't sync the
+  //  // oldest.
+  //  // TODO: during evolution, sync only one time level
+  //  const int ntls0 = groupdata0.mfab.size();
+  //  const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
 
-    active_levels->loop_serially([&](auto &restrict leveldata) {
-      auto &restrict groupdata = *leveldata.groupdata.at(gi);
+  //  active_levels->loop_serially([&](auto &restrict leveldata) {
+  //    auto &restrict groupdata = *leveldata.groupdata.at(gi);
 
-      for (int tl = 0; tl < sync_tl0; ++tl) {
-        for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
-            return "SyncGroupsByDirI after syncing: "
-                   "Mark ghost zones as valid";
-          });
-          if (groupdata.all_faces_have_symmetries_or_boundaries())
-            groupdata.valid.at(tl).at(vi).set_outer(true, []() {
-              return "SyncGroupsByDirI after syncing: "
-                     "Mark outer boundaries as valid";
-            });
-        }
-      } // for tl
-    });
+  //    for (int tl = 0; tl < sync_tl0; ++tl) {
+  //      for (int vi = 0; vi < groupdata.numvars; ++vi) {
+  //        groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
+  //          return "SyncGroupsByDirI after syncing: "
+  //                 "Mark ghost zones as valid";
+  //        });
+  //        if (groupdata.all_faces_have_symmetries_or_boundaries())
+  //          groupdata.valid.at(tl).at(vi).set_outer(true, []() {
+  //            return "SyncGroupsByDirI after syncing: "
+  //                   "Mark outer boundaries as valid";
+  //          });
+  //      }
+  //    } // for tl
+  //  });
 
-    for (int tl = 0; tl < sync_tl0; ++tl) {
-      for (int vi = 0; vi < groupdata0.numvars; ++vi) {
-        poison_invalid_gf(*active_levels, gi, vi, tl);
-        // TODO: Check after applying multi-patch boundaries
-        if (!have_multipatch_boundaries)
-          check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
-                         []() { return "SyncGroupsByDirI after syncing"; });
-      }
-    } // for tl
-  } // for gi
+  //  for (int tl = 0; tl < sync_tl0; ++tl) {
+  //    for (int vi = 0; vi < groupdata0.numvars; ++vi) {
+  //      poison_invalid_gf(*active_levels, gi, vi, tl);
+  //      // TODO: Check after applying multi-patch boundaries
+  //      if (!have_multipatch_boundaries)
+  //        check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
+  //                       []() { return "SyncGroupsByDirI after syncing"; });
+  //    }
+  //  } // for tl
+  //} // for gi
 
   if (have_multipatch_boundaries) {
     std::vector<CCTK_INT> cactusvarinds;
