@@ -2608,6 +2608,272 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
   return numgroups; // number of groups synchronized
 }
 
+int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
+                                   const int *groups0, const int *directions) {
+  DECLARE_CCTK_PARAMETERS;
+
+  assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
+
+  mark_sync_active marked;
+
+  static Timer timer("Sync");
+  Interval interval(timer);
+
+  assert(cctkGH);
+  assert(numgroups >= 0);
+  assert(groups0);
+
+  if (verbose) {
+    ostringstream buf;
+    for (int n = 0; n < numgroups; ++n) {
+      if (n != 0)
+        buf << ", ";
+      buf << CCTK_FullGroupName(groups0[n]);
+    }
+#pragma omp critical
+    CCTK_VINFO("SyncGroups %s", buf.str().c_str());
+  }
+
+  const int gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
+  assert(gi_regrid_error >= 0);
+
+  vector<int> groups;
+  for (int n = 0; n < numgroups; ++n) {
+    const int gi = groups0[n];
+    if (CCTK_GroupTypeI(gi) != CCTK_GF)
+      continue;
+    // Don't restrict the regridding error
+    if (gi == gi_regrid_error)
+      continue;
+    groups.push_back(gi);
+  }
+
+  if (restrict_during_sync) {
+    active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
+      if (leveldata.level < ghext->num_levels() - 1)
+        Restrict(cctkGH, leveldata.level, groups);
+    });
+    // FIXME: cannot call POSTRESTRICT since this could contain a SYNC leading
+    // to an infinite loop. This means that outer boundaries will be left
+    // invalid after an implicit restrict
+    // CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+  }
+
+  static const bool have_multipatch_boundaries =
+      CCTK_IsFunctionAliased("MultiPatch_Interpolate");
+
+  // Check preconditions
+  for (const int gi : groups) {
+    const auto &patchdata0 = ghext->patchdata.at(0);
+    const auto &leveldata0 = patchdata0.leveldata.at(0);
+    const auto &groupdata0 = *leveldata0.groupdata.at(gi);
+    const nan_handling_t nan_handling = groupdata0.do_checkpoint
+                                            ? nan_handling_t::forbid_nans
+                                            : nan_handling_t::allow_nans;
+    // We always sync all directions.
+    // If there is more than one time level, then we don't sync the
+    // oldest.
+    // TODO: during evolution, sync only one time level
+    const int ntls0 = groupdata0.mfab.size();
+    const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
+
+    active_levels->loop_serially([&](auto &restrict leveldata) {
+      auto &restrict groupdata = *leveldata.groupdata.at(gi);
+
+      if (leveldata.level > 0) {
+
+        const int level = leveldata.level;
+        const auto &restrict coarseleveldata =
+            ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
+        auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
+        assert(coarsegroupdata.numvars == groupdata.numvars);
+
+        for (int tl = 0; tl < sync_tl0; ++tl) {
+          for (int vi = 0; vi < groupdata.numvars; ++vi) {
+            error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), []() {
+              return "SyncGroupsByDirI on coarse level before prolongation";
+            });
+          }
+        } // for tl
+
+      } // if leveldata.level > 0
+
+      for (int tl = 0; tl < sync_tl0; ++tl) {
+        for (int vi = 0; vi < groupdata.numvars; ++vi) {
+          // Synchronization only uses the interior
+          error_if_invalid(groupdata, vi, tl, make_valid_int(),
+                           []() { return "SyncGroupsByDirI before syncing"; });
+          groupdata.valid.at(tl).at(vi).set_invalid(make_valid_ghosts(), []() {
+            return "SyncGroupsByDirI before syncing: "
+                   "Mark ghost zones as invalid";
+          });
+        }
+      } // for tl
+    });
+
+    active_levels_t active_fine_levels = *active_levels;
+    using std::max;
+    active_fine_levels.min_level = max(active_fine_levels.min_level, 1);
+    for (int tl = 0; tl < sync_tl0; ++tl) {
+      for (int vi = 0; vi < groupdata0.numvars; ++vi) {
+        check_valid_gf(active_fine_levels, gi, vi, tl, nan_handling, []() {
+          return "SyncGroupsByDirI on coarse level before prolongation";
+        });
+        poison_invalid_gf(*active_levels, gi, vi, tl);
+        check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
+                       []() { return "SyncGroupsByDirI before syncing"; });
+      }
+    } // for tl
+  } // for gi
+
+  // We need to loop over groups, patches, and levels in a definite
+  // order so that AMReX's communication pattern does not get
+  // confused. Therefore all the loops here are serial. The only
+  // parallelization happens within AMReX and within our boundary
+  // conditions. This is not efficient.
+
+  task_manager tasks1;
+  task_manager tasks2;
+  task_manager tasks3;
+
+  for (const int gi : groups) {
+    active_levels->loop_serially([&](auto &restrict leveldata) {
+      auto &restrict groupdata = *leveldata.groupdata.at(gi);
+
+      // We always sync all directions.
+      // If there is more than one time level, then we don't sync the
+      // oldest.
+      // TODO: during evolution, sync only one time level
+      const int ntls = groupdata.mfab.size();
+      const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
+
+      if (leveldata.level == 0) {
+        // Level 0 requires no interpolation, so return early
+        return;
+      }
+
+      // For levels greater than 0, interpolate from the next coarser level
+
+      const int level = leveldata.level;
+      const auto &restrict coarseleveldata =
+          ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
+      auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
+      assert(coarsegroupdata.numvars == groupdata.numvars);
+
+      amrex::Interpolater *const interpolator =
+          get_interpolator(groupdata.indextype);
+
+      for (int tl = 0; tl < sync_tl; ++tl) {
+
+        tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
+                                &coarsegroupdata, interpolator, tl]() {
+          FillPatch_ProlongateOnly(tasks2, tasks3, groupdata, coarsegroupdata,
+                                   *groupdata.mfab.at(tl),
+                                   *coarsegroupdata.mfab.at(tl),
+                                   ghext->patchdata.at(leveldata.patch)
+                                       .amrcore->Geom(leveldata.level),
+                                   ghext->patchdata.at(leveldata.patch)
+                                       .amrcore->Geom(leveldata.level - 1),
+                                   interpolator, groupdata.bcrecs);
+        });
+
+      } // for tl
+    });
+  } // for gi
+
+  tasks1.run_tasks_serially();
+  synchronize();
+  tasks2.run_tasks_serially();
+  synchronize();
+  tasks3.run_tasks_serially();
+  synchronize();
+
+  // Check postconditions
+  for (const int gi : groups) {
+    const auto &patchdata0 = ghext->patchdata.at(0);
+    const auto &leveldata0 = patchdata0.leveldata.at(0);
+    const auto &groupdata0 = *leveldata0.groupdata.at(gi);
+    const nan_handling_t nan_handling = groupdata0.do_checkpoint
+                                            ? nan_handling_t::forbid_nans
+                                            : nan_handling_t::allow_nans;
+    // We always sync all directions.
+    // If there is more than one time level, then we don't sync the
+    // oldest.
+    // TODO: during evolution, sync only one time level
+    const int ntls0 = groupdata0.mfab.size();
+    const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
+
+    active_levels->loop_serially([&](auto &restrict leveldata) {
+      auto &restrict groupdata = *leveldata.groupdata.at(gi);
+
+      for (int tl = 0; tl < sync_tl0; ++tl) {
+        for (int vi = 0; vi < groupdata.numvars; ++vi) {
+          groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
+            return "SyncGroupsByDirI after syncing: "
+                   "Mark ghost zones as valid";
+          });
+          if (groupdata.all_faces_have_symmetries_or_boundaries())
+            groupdata.valid.at(tl).at(vi).set_outer(true, []() {
+              return "SyncGroupsByDirI after syncing: "
+                     "Mark outer boundaries as valid";
+            });
+        }
+      } // for tl
+    });
+
+    for (int tl = 0; tl < sync_tl0; ++tl) {
+      for (int vi = 0; vi < groupdata0.numvars; ++vi) {
+        poison_invalid_gf(*active_levels, gi, vi, tl);
+        // TODO: Check after applying multi-patch boundaries
+        if (!have_multipatch_boundaries)
+          check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
+                         []() { return "SyncGroupsByDirI after syncing"; });
+      }
+    } // for tl
+  } // for gi
+
+  if (have_multipatch_boundaries) {
+    std::vector<CCTK_INT> cactusvarinds;
+    for (int group : groups) {
+      const auto &groupdata =
+          *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(group);
+      for (int var = 0; var < groupdata.numvars; ++var)
+        cactusvarinds.push_back(groupdata.firstvarindex + var);
+    }
+    MultiPatch_Interpolate(cctkGH, cactusvarinds.size(), cactusvarinds.data());
+
+    for (const int gi : groups) {
+      const auto &patchdata0 = ghext->patchdata.at(0);
+      const auto &leveldata0 = patchdata0.leveldata.at(0);
+      const auto &groupdata0 = *leveldata0.groupdata.at(gi);
+      const nan_handling_t nan_handling = groupdata0.do_checkpoint
+                                              ? nan_handling_t::forbid_nans
+                                              : nan_handling_t::allow_nans;
+      // We always sync all directions.
+      // If there is more than one time level, then we don't sync the
+      // oldest.
+      // TODO: during evolution, sync only one time level
+      const int ntls0 = groupdata0.mfab.size();
+      const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
+
+      assert(active_levels->max_level == 1);
+
+      for (int tl = 0; tl < sync_tl0; ++tl)
+        for (int vi = 0; vi < groupdata0.numvars; ++vi)
+          check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
+                         []() { return "SyncGroupsByDirI after syncing"; });
+
+    } // for gi
+
+  } else {
+    assert(ghext->num_patches() == 1);
+  }
+
+  assert(sync_active);
+
+  return numgroups; // number of groups synchronized
+}
+
 void Reflux(const cGH *cctkGH, int level) {
   DECLARE_CCTK_PARAMETERS;
 
