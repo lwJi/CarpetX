@@ -2691,7 +2691,8 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
         for (int tl = 0; tl < sync_tl0; ++tl) {
           for (int vi = 0; vi < groupdata.numvars; ++vi) {
             error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), []() {
-              return "SyncGroupsByDirI on coarse level before prolongation";
+              return "SyncGroupsByDirIProlongateOnly on coarse level before "
+                     "prolongation";
             });
           }
         } // for tl
@@ -2701,10 +2702,11 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
       for (int tl = 0; tl < sync_tl0; ++tl) {
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
           // Synchronization only uses the interior
-          error_if_invalid(groupdata, vi, tl, make_valid_int(),
-                           []() { return "SyncGroupsByDirI before syncing"; });
+          error_if_invalid(groupdata, vi, tl, make_valid_int(), []() {
+            return "SyncGroupsByDirIProlongateOnly before syncing";
+          });
           groupdata.valid.at(tl).at(vi).set_invalid(make_valid_ghosts(), []() {
-            return "SyncGroupsByDirI before syncing: "
+            return "SyncGroupsByDirIProlongateOnly before syncing: "
                    "Mark ghost zones as invalid";
           });
         }
@@ -2717,11 +2719,13 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
     for (int tl = 0; tl < sync_tl0; ++tl) {
       for (int vi = 0; vi < groupdata0.numvars; ++vi) {
         check_valid_gf(active_fine_levels, gi, vi, tl, nan_handling, []() {
-          return "SyncGroupsByDirI on coarse level before prolongation";
+          return "SyncGroupsByDirIProlongateOnly on coarse level before "
+                 "prolongation";
         });
         poison_invalid_gf(*active_levels, gi, vi, tl);
-        check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
-                       []() { return "SyncGroupsByDirI before syncing"; });
+        check_valid_gf(*active_levels, gi, vi, tl, nan_handling, []() {
+          return "SyncGroupsByDirIProlongateOnly before syncing";
+        });
       }
     } // for tl
   } // for gi
@@ -2809,12 +2813,12 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
   //    for (int tl = 0; tl < sync_tl0; ++tl) {
   //      for (int vi = 0; vi < groupdata.numvars; ++vi) {
   //        groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
-  //          return "SyncGroupsByDirI after syncing: "
+  //          return "SyncGroupsByDirIProlongateOnly after syncing: "
   //                 "Mark ghost zones as valid";
   //        });
   //        if (groupdata.all_faces_have_symmetries_or_boundaries())
   //          groupdata.valid.at(tl).at(vi).set_outer(true, []() {
-  //            return "SyncGroupsByDirI after syncing: "
+  //            return "SyncGroupsByDirIProlongateOnly after syncing: "
   //                   "Mark outer boundaries as valid";
   //          });
   //      }
@@ -2827,7 +2831,8 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
   //      // TODO: Check after applying multi-patch boundaries
   //      if (!have_multipatch_boundaries)
   //        check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
-  //                       []() { return "SyncGroupsByDirI after syncing"; });
+  //                       []() { return "SyncGroupsByDirIProlongateOnly after
+  //                       syncing"; });
   //    }
   //  } // for tl
   //} // for gi
@@ -2860,8 +2865,9 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
 
       for (int tl = 0; tl < sync_tl0; ++tl)
         for (int vi = 0; vi < groupdata0.numvars; ++vi)
-          check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
-                         []() { return "SyncGroupsByDirI after syncing"; });
+          check_valid_gf(*active_levels, gi, vi, tl, nan_handling, []() {
+            return "SyncGroupsByDirIProlongateOnly after syncing";
+          });
 
     } // for gi
 
