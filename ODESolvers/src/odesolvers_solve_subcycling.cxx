@@ -228,10 +228,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // which are set by lincomb above.
     // CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
     if (old_groups.size() > 0) {
-      SyncGroupsByDirI(cctkGH, old_groups.size(), old_groups.data(), nullptr);
+      SyncGroupsByDirIProlongateOnly(cctkGH, old_groups.size(),
+                                     old_groups.data(), nullptr);
       for (int i = 0; i < rkstages; i++) {
-        SyncGroupsByDirI(cctkGH, ks_groups[i].size(), ks_groups[i].data(),
-                         nullptr);
+        SyncGroupsByDirIProlongateOnly(cctkGH, ks_groups[i].size(),
+                                       ks_groups[i].data(), nullptr);
       }
     }
 
