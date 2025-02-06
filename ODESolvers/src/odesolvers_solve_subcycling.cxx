@@ -193,6 +193,16 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     });
     synchronize();
   };
+  // initilize ks and old
+  const auto initksold = [&]() {
+    active_levels->loop_parallel([&](int patch, int level, int index,
+                                     int component, const cGH *local_cctkGH) {
+      update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
+      Subcycling::InitKsOld<rkstages>(const_cast<cGH *>(local_cctkGH),
+                                      ks_groups, old_groups, var_groups);
+    });
+    synchronize();
+  };
 
   *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
 
@@ -218,12 +228,13 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // need to access it in the following CallScheduleGroup functions which are
     // not able to access temp vars yet.
     {
-      Interval interval_lincomb(timer_lincomb);
-      statecomp_t::lincomb(old, 0, reals<1>{1.0}, states<1>{&var},
-                           make_valid_int());
+      // Interval interval_lincomb(timer_lincomb);
+      // statecomp_t::lincomb(old, 0, reals<1>{1.0}, states<1>{&var},
+      //                      make_valid_int());
+      initksold();
+      // Mark valid interior for ks
       for (int s = 0; s < rkstages; s++) {
-        statecomp_t::lincomb(ks[s], 0, reals<1>{1.0}, states<1>{&var},
-                             make_valid_int());
+        ks[s].set_valid(make_valid_int());
       }
     }
 
