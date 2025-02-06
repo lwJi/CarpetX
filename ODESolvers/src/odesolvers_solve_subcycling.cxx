@@ -198,8 +198,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
-      Subcycling::SetOld<rkstages>(const_cast<cGH *>(local_cctkGH), old_groups,
-                                   var_groups);
+      Subcycling::SetOld(const_cast<cGH *>(local_cctkGH), old_groups,
+                         var_groups);
     });
     synchronize();
   };

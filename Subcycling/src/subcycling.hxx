@@ -260,7 +260,6 @@ SetK(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss, vector<int> &rhss,
 }
 
 /* Varlist version */
-template <int RKSTAGES>
 CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 SetOld(CCTK_ARGUMENTS, vector<int> &olds, vector<int> &vars) {
   const Loop::GridDescBaseDevice grid(cctkGH);
