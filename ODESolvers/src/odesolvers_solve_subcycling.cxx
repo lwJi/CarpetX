@@ -220,22 +220,19 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
+    // Temporary local state used for updating the interior region of the
+    // current level.
     const auto old_tmp = copy_state(var, make_valid_all());
 
-    // Initialize Old and Ks: for sync's sake (make them valid at the first
-    // iteration whenever restart). This is not needed after the first
-    // iteration. The reason we can't use temp vars for old here is because we
-    // need to access it in the following CallScheduleGroup functions which are
-    // not able to access temp vars yet.
-    {
-      // Interval interval_lincomb(timer_lincomb);
-      // statecomp_t::lincomb(old, 0, reals<1>{1.0}, states<1>{&var},
-      //                      make_valid_int());
-      setold();
-      // Mark valid interior for ks
-      for (int s = 0; s < rkstages; s++) {
-        ks[s].set_valid(make_valid_int());
-      }
+    // Grid functions used to fill the refinement boundary substate.
+    // Temporary variables cannot be used for old values here because
+    // they need to be accessed in subsequent CallScheduleGroup functions,
+    // which do not yet support access to temporary variables.
+    setold();
+
+    // Mark the valid interior for ks to work around the poison mechanism.
+    for (int s = 0; s < rkstages; s++) {
+      ks[s].set_valid(make_valid_int());
     }
 
     // Sync OldState and Ks: prolongate old and ks from parent level which are
