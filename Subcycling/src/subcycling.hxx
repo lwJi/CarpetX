@@ -289,8 +289,8 @@ InitKsOld(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss,
       SetStateInterior(grid, indextype, Old, var);
 
       // Initialize Ks
-      for (int stage = 1; stage <= RKSTAGES; ++stage) {
-        const int K_0 = Ks_0[stage - 1];
+      for (int s = 0; s < RKSTAGES; ++s) {
+        const int K_0 = Ks_0[s];
         const Loop::GF3D2<CCTK_REAL> K(
             layout,
             static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, K_0 + vi)));
