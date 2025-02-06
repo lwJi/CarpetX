@@ -262,8 +262,7 @@ SetK(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss, vector<int> &rhss,
 /* Varlist version */
 template <int RKSTAGES>
 CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-InitKsOld(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss,
-          vector<int> &olds, vector<int> &vars) {
+SetOld(CCTK_ARGUMENTS, vector<int> &olds, vector<int> &vars) {
   const Loop::GridDescBaseDevice grid(cctkGH);
   const int tl = 0;
   // Loop over groups
@@ -272,30 +271,15 @@ InitKsOld(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss,
     const array<int, Loop::dim> indextype = get_group_indextype(vars[i]);
     const Loop::GF3D2layout layout(cctkGH, indextype);
     const int var_0 = CCTK_FirstVarIndexI(vars[i]);
-    const int Old_0 = CCTK_FirstVarIndexI(olds[i]);
-    const array<int, RKSTAGES> Ks_0 = {
-        CCTK_FirstVarIndexI(kss[0][i]), CCTK_FirstVarIndexI(kss[1][i]),
-        CCTK_FirstVarIndexI(kss[2][i]), CCTK_FirstVarIndexI(kss[3][i])};
-
+    const int old_0 = CCTK_FirstVarIndexI(olds[i]);
     for (int vi = 0; vi < nvars; ++vi) {
       const Loop::GF3D2<const CCTK_REAL> var(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, var_0 + vi)));
-
-      // Initialize Old
       const Loop::GF3D2<CCTK_REAL> Old(
           layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, Old_0 + vi)));
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, old_0 + vi)));
       SetStateInterior(grid, indextype, Old, var);
-
-      // Initialize Ks
-      for (int s = 0; s < RKSTAGES; ++s) {
-        const int K_0 = Ks_0[s];
-        const Loop::GF3D2<CCTK_REAL> K(
-            layout,
-            static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, K_0 + vi)));
-        SetStateInterior(grid, indextype, K, var);
-      }
     }
   }
 }
