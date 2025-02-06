@@ -133,6 +133,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   static Timer timer_rhs("ODESolvers::Solve::rhs");
   static Timer timer_poststep("ODESolvers::Solve::poststep");
 
+  const auto copy_state = [](const auto &var, const valid_t where) {
+    return var.copy(where);
+  };
   const auto calcrhs = [&](const int n) {
     Interval interval_rhs(timer_rhs);
     if (verbose)
@@ -207,20 +210,21 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
-    // Initialize Ks: for sync's sake (make ks valid at the first iteration
-    // whenever restart). This is not needed after the first iteration.
-    for (int s = 0; s < rkstages; s++) {
-      statecomp_t::lincomb(ks[s], 0, reals<1>{1.0}, states<1>{&var},
-                           make_valid_int());
-    }
+    const auto old_tmp = copy_state(var, make_valid_all());
 
-    // Set OldState: the reason we can't use temp vars for old here is because
-    // we need to access it in the following CallScheduleGroup functions which
-    // are not able to access temp vars yet.
+    // Initialize Old and Ks: for sync's sake (make them valid at the first
+    // iteration whenever restart). This is not needed after the first
+    // iteration. The reason we can't use temp vars for old here is because we
+    // need to access it in the following CallScheduleGroup functions which are
+    // not able to access temp vars yet.
     {
       Interval interval_lincomb(timer_lincomb);
       statecomp_t::lincomb(old, 0, reals<1>{1.0}, states<1>{&var},
                            make_valid_int());
+      for (int s = 0; s < rkstages; s++) {
+        statecomp_t::lincomb(ks[s], 0, reals<1>{1.0}, states<1>{&var},
+                             make_valid_int());
+      }
     }
 
     // Sync OldState and Ks: prolongate old and ks from parent level which are
@@ -246,13 +250,14 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcys_rmbnd(2); // refinement boundary only
     calcrhs(2);
     setks(2); // interior only
-    calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
+    calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2},
+               states<2>{&old_tmp, &rhs});
 
     // k3 = f(Y3)
     calcys_rmbnd(3); // refinement boundary only
     calcrhs(3);
     setks(3); // interior only
-    calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
+    calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old_tmp, &rhs});
 
     // k4 = f(Y4)
     calcys_rmbnd(4); // refinement boundary only
@@ -266,7 +271,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
     calcupdate(4, dt, 0.0, reals<5>{1.0, dt / 6, dt / 3, dt / 3, dt / 6},
-               states<5>{&old, &ks[0], &ks[1], &ks[2], &ks[3]});
+               states<5>{&old_tmp, &ks[0], &ks[1], &ks[2], &ks[3]});
 
   } else {
     assert(0);
