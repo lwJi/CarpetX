@@ -217,31 +217,27 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
+    // Sync OldState and Ks: prolongate old and ks from parent level which are
+    // set in previous steps.
+    // CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
+    if (old_groups.size() > 0) {
+      old.set_valid(make_valid_int()); // mark interior valid to work around
+                                       // poison mechanism
+      SyncGroupsByDirIProlongateOnly(cctkGH, old_groups.size(),
+                                     old_groups.data(), nullptr);
+      for (int s = 0; s < rkstages; ++s) {
+        ks[s].set_valid(make_valid_int()); // mark interior valid to work around
+                                           // poison mechanism
+        SyncGroupsByDirIProlongateOnly(cctkGH, ks_groups[s].size(),
+                                       ks_groups[s].data(), nullptr);
+      }
+    }
+
     // Grid functions used to fill the refinement boundary substate.
     // Temporary variables cannot be used for old values here because
     // they need to be accessed in subsequent CallScheduleGroup functions,
     // which do not yet support access to temporary variables.
     setold();
-
-    // Mark the valid interior for old and ks to work around the poison
-    // mechanism.
-    old.set_valid(make_valid_int());
-    for (int s = 0; s < rkstages; s++) {
-      ks[s].set_valid(make_valid_int());
-    }
-
-    // Sync OldState and Ks: prolongate old and ks from parent level which are
-    // set in previous steps. We update the refinement boundary ghost values
-    // which are set by lincomb above.
-    // CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
-    if (old_groups.size() > 0) {
-      SyncGroupsByDirIProlongateOnly(cctkGH, old_groups.size(),
-                                     old_groups.data(), nullptr);
-      for (int i = 0; i < rkstages; i++) {
-        SyncGroupsByDirIProlongateOnly(cctkGH, ks_groups[i].size(),
-                                       ks_groups[i].data(), nullptr);
-      }
-    }
 
     // k1 = f(Y1)
     calcys_rmbnd(1); // refinement boundary only
