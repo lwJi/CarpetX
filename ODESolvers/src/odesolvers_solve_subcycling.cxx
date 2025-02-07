@@ -159,8 +159,10 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
       if (sync_interprocess_ghost_only_on_update) {
         SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
                                   nullptr);
+        CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
+      } else {
+        CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
       }
-      CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
       if (verbose)
         CCTK_VINFO("Calculated new state #%d at t=%g", n,
                    double(cctkGH->cctk_time));
