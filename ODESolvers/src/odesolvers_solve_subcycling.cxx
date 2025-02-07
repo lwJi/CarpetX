@@ -156,6 +156,10 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     {
       Interval interval_poststep(timer_poststep);
       *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
+      if (sync_interprocess_ghost_only_on_update) {
+        SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
+                                  nullptr);
+      }
       CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
       if (verbose)
         CCTK_VINFO("Calculated new state #%d at t=%g", n,
@@ -179,6 +183,26 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                                           dt * 2, xsi, stage);
     });
     synchronize();
+    var.set_valid(make_valid_all());
+  };
+  // calculate yn from ks and old on the mesh refinement boundary
+  const auto calcyn_rmbnd = [&]() {
+    active_levels->loop_parallel([&](int patch, int level, int index,
+                                     int component, const cGH *local_cctkGH) {
+      if (level == 0)
+        return;
+      const auto &patchdata = ghext->patchdata.at(patch);
+      const CCTK_REAL xsi = (patchdata.leveldata.at(level).iteration ==
+                             patchdata.leveldata.at(level - 1).iteration)
+                                ? 1.0
+                                : 0.5;
+      update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
+      Subcycling::CalcYfFromKcs<rkstages>(const_cast<cGH *>(local_cctkGH),
+                                          var_groups, old_groups, ks_groups,
+                                          dt * 2, xsi, 1);
+    });
+    synchronize();
+    var.set_valid(make_valid_all());
   };
   // set ks in the interior which will be used for prolongation later
   const auto setks = [&](const int stage) {
@@ -263,6 +287,10 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     setks(4); // interior only
     calcupdate(4, dt, 0.0, reals<5>{1.0, dt / 6, dt / 3, dt / 3, dt / 6},
                states<5>{&old, &ks[0], &ks[1], &ks[2], &ks[3]});
+
+    if (sync_interprocess_ghost_only_on_update) {
+      calcyn_rmbnd();
+    }
 
   } else {
     assert(0);
