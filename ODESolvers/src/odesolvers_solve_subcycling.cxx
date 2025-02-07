@@ -162,7 +162,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                    double(cctkGH->cctk_time));
     }
   };
-  // calculate Ys from Ks on the mesh refinement boundary
+  // calculate Ys from ks and old on the mesh refinement boundary
   const auto calcys_rmbnd = [&](const int stage) {
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
