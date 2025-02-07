@@ -265,13 +265,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcys_rmbnd(4); // refinement boundary only
     calcrhs(4);
     setks(4); // interior only
-    //{
-    //  Interval interval_lincomb(timer_lincomb);
-    //  statecomp_t::lincomb(ks[3], 0.0, reals<1>{1.0}, states<1>{&rhs},
-    //                       make_valid_int());
-    //}
-
-    // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
     calcupdate(4, dt, 0.0, reals<5>{1.0, dt / 6, dt / 3, dt / 3, dt / 6},
                states<5>{&old, &ks[0], &ks[1], &ks[2], &ks[3]});
 
