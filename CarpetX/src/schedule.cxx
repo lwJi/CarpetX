@@ -2693,6 +2693,11 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
       const int level = leveldata.level;
       const auto &restrict coarseleveldata =
           ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
+
+      if (leveldata.iteration == coarseleveldata.iteration) {
+        return;
+      }
+
       auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
       assert(coarsegroupdata.numvars == groupdata.numvars);
 
