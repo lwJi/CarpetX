@@ -25,6 +25,12 @@ int Shutdown(tFleshConfig *config);
 int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
                      const int *groups, const int *directions);
 
+int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
+                                   const int *groups, const int *directions);
+
+int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
+                              const int *groups, const int *directions);
+
 int CallFunction(void *function, cFunctionData *attribute, void *data);
 
 int GroupStorageIncrease(const cGH *cctkGH, int n_groups, const int *groups,

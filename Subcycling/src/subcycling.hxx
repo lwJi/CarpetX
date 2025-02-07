@@ -223,13 +223,14 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
 }
 
 CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
-SetK(const Loop::GridDescBaseDevice &grid,
-     const array<int, Loop::dim> &indextype, const Loop::GF3D2<CCTK_REAL> &K,
-     const Loop::GF3D2<const CCTK_REAL> &rhs) {
+SetStateInterior(const Loop::GridDescBaseDevice &grid,
+                 const array<int, Loop::dim> &indextype,
+                 const Loop::GF3D2<CCTK_REAL> &u,
+                 const Loop::GF3D2<const CCTK_REAL> &var) {
   grid.loop_device_idx<Loop::where_t::interior>(
       indextype, grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE { K(p.I) = rhs(p.I); });
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { u(p.I) = var(p.I); });
 }
 
 /* Varlist version */
@@ -253,7 +254,31 @@ SetK(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss, vector<int> &rhss,
       const Loop::GF3D2<const CCTK_REAL> rhs(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, rhs_0 + vi)));
-      SetK(grid, indextype, K, rhs);
+      SetStateInterior(grid, indextype, K, rhs);
+    }
+  }
+}
+
+/* Varlist version */
+CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
+SetOld(CCTK_ARGUMENTS, vector<int> &olds, vector<int> &vars) {
+  const Loop::GridDescBaseDevice grid(cctkGH);
+  const int tl = 0;
+  // Loop over groups
+  for (size_t i = 0; i < vars.size(); ++i) {
+    const int nvars = CCTK_NumVarsInGroupI(vars[i]);
+    const array<int, Loop::dim> indextype = get_group_indextype(vars[i]);
+    const Loop::GF3D2layout layout(cctkGH, indextype);
+    const int var_0 = CCTK_FirstVarIndexI(vars[i]);
+    const int old_0 = CCTK_FirstVarIndexI(olds[i]);
+    for (int vi = 0; vi < nvars; ++vi) {
+      const Loop::GF3D2<const CCTK_REAL> var(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, var_0 + vi)));
+      const Loop::GF3D2<CCTK_REAL> Old(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, old_0 + vi)));
+      SetStateInterior(grid, indextype, Old, var);
     }
   }
 }

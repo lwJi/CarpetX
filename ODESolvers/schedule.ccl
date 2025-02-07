@@ -6,6 +6,10 @@ if(use_subcycling_wip) {
     LANG: C
     OPTIONS: level
   } "Solve ODEs using Subcycling"
+
+  SCHEDULE GROUP ODESolvers_PostSubStep
+  {
+  } "Apply boundary conditions to state vector, and project if necessary"
 }
 else {
  SCHEDULE ODESolvers_Solve AT evol

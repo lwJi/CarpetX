@@ -156,13 +156,19 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     {
       Interval interval_poststep(timer_poststep);
       *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
-      CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+      if (sync_interprocess_ghost_only_on_update) {
+        SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
+                                  nullptr);
+        CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
+      } else {
+        CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+      }
       if (verbose)
         CCTK_VINFO("Calculated new state #%d at t=%g", n,
                    double(cctkGH->cctk_time));
     }
   };
-  // calculate Ys from Ks on the mesh refinement boundary
+  // calculate Ys from ks and old on the mesh refinement boundary
   const auto calcys_rmbnd = [&](const int stage) {
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
@@ -179,6 +185,26 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                                           dt * 2, xsi, stage);
     });
     synchronize();
+    var.set_valid(make_valid_all());
+  };
+  // calculate yn from ks and old on the mesh refinement boundary
+  const auto calcyn_rmbnd = [&]() {
+    active_levels->loop_parallel([&](int patch, int level, int index,
+                                     int component, const cGH *local_cctkGH) {
+      if (level == 0)
+        return;
+      const auto &patchdata = ghext->patchdata.at(patch);
+      const CCTK_REAL xsi = (patchdata.leveldata.at(level).iteration ==
+                             patchdata.leveldata.at(level - 1).iteration)
+                                ? 1.0
+                                : 0.5;
+      update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
+      Subcycling::CalcYfFromKcs<rkstages>(const_cast<cGH *>(local_cctkGH),
+                                          var_groups, old_groups, ks_groups,
+                                          dt * 2, xsi, 1);
+    });
+    synchronize();
+    var.set_valid(make_valid_all());
   };
   // set ks in the interior which will be used for prolongation later
   const auto setks = [&](const int stage) {
@@ -187,6 +213,16 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
       Subcycling::SetK<rkstages>(const_cast<cGH *>(local_cctkGH), ks_groups,
                                  rhs_groups, stage);
+    });
+    synchronize();
+  };
+  // set old in the interior which will be used for prolongation later
+  const auto setold = [&]() {
+    active_levels->loop_parallel([&](int patch, int level, int index,
+                                     int component, const cGH *local_cctkGH) {
+      update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
+      Subcycling::SetOld(const_cast<cGH *>(local_cctkGH), old_groups,
+                         var_groups);
     });
     synchronize();
   };
@@ -207,33 +243,27 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
-    // Initialize Ks: for sync's sake (make ks valid at the first iteration
-    // whenever restart). This is not needed after the first iteration.
-    for (int s = 0; s < rkstages; s++) {
-      statecomp_t::lincomb(ks[s], 0, reals<1>{1.0}, states<1>{&var},
-                           make_valid_int());
-    }
-
-    // Set OldState: the reason we can't use temp vars for old here is because
-    // we need to access it in the following CallScheduleGroup functions which
-    // are not able to access temp vars yet.
-    {
-      Interval interval_lincomb(timer_lincomb);
-      statecomp_t::lincomb(old, 0, reals<1>{1.0}, states<1>{&var},
-                           make_valid_int());
-    }
-
     // Sync OldState and Ks: prolongate old and ks from parent level which are
-    // set in previous steps. We update the refinement boundary ghost values
-    // which are set by lincomb above.
+    // set in previous steps.
     // CallScheduleGroup(cctkGH, "ODESolvers_SyncKsOld");
     if (old_groups.size() > 0) {
-      SyncGroupsByDirI(cctkGH, old_groups.size(), old_groups.data(), nullptr);
-      for (int i = 0; i < rkstages; i++) {
-        SyncGroupsByDirI(cctkGH, ks_groups[i].size(), ks_groups[i].data(),
-                         nullptr);
+      old.set_valid(make_valid_int()); // mark interior valid to work around
+                                       // poison mechanism
+      SyncGroupsByDirIProlongateOnly(cctkGH, old_groups.size(),
+                                     old_groups.data(), nullptr);
+      for (int s = 0; s < rkstages; ++s) {
+        ks[s].set_valid(make_valid_int()); // mark interior valid to work around
+                                           // poison mechanism
+        SyncGroupsByDirIProlongateOnly(cctkGH, ks_groups[s].size(),
+                                       ks_groups[s].data(), nullptr);
       }
     }
+
+    // Grid functions used to fill the refinement boundary substate.
+    // Temporary variables cannot be used for old values here because
+    // they need to be accessed in subsequent CallScheduleGroup functions,
+    // which do not yet support access to temporary variables.
+    setold();
 
     // k1 = f(Y1)
     calcys_rmbnd(1); // refinement boundary only
@@ -257,15 +287,12 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcys_rmbnd(4); // refinement boundary only
     calcrhs(4);
     setks(4); // interior only
-    //{
-    //  Interval interval_lincomb(timer_lincomb);
-    //  statecomp_t::lincomb(ks[3], 0.0, reals<1>{1.0}, states<1>{&rhs},
-    //                       make_valid_int());
-    //}
-
-    // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
     calcupdate(4, dt, 0.0, reals<5>{1.0, dt / 6, dt / 3, dt / 3, dt / 6},
                states<5>{&old, &ks[0], &ks[1], &ks[2], &ks[3]});
+
+    if (sync_interprocess_ghost_only_on_update) {
+      calcyn_rmbnd();
+    }
 
   } else {
     assert(0);
