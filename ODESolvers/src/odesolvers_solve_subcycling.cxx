@@ -133,9 +133,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   static Timer timer_rhs("ODESolvers::Solve::rhs");
   static Timer timer_poststep("ODESolvers::Solve::poststep");
 
-  const auto copy_state = [](const auto &var, const valid_t where) {
-    return var.copy(where);
-  };
   const auto calcrhs = [&](const int n) {
     Interval interval_rhs(timer_rhs);
     if (verbose)
@@ -220,17 +217,15 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
-    // Temporary local state used for updating the interior region of the
-    // current level.
-    const auto old_tmp = copy_state(var, make_valid_all());
-
     // Grid functions used to fill the refinement boundary substate.
     // Temporary variables cannot be used for old values here because
     // they need to be accessed in subsequent CallScheduleGroup functions,
     // which do not yet support access to temporary variables.
     setold();
 
-    // Mark the valid interior for ks to work around the poison mechanism.
+    // Mark the valid interior for old and ks to work around the poison
+    // mechanism.
+    old.set_valid(make_valid_int());
     for (int s = 0; s < rkstages; s++) {
       ks[s].set_valid(make_valid_int());
     }
@@ -258,14 +253,13 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcys_rmbnd(2); // refinement boundary only
     calcrhs(2);
     setks(2); // interior only
-    calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2},
-               states<2>{&old_tmp, &rhs});
+    calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
 
     // k3 = f(Y3)
     calcys_rmbnd(3); // refinement boundary only
     calcrhs(3);
     setks(3); // interior only
-    calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old_tmp, &rhs});
+    calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
 
     // k4 = f(Y4)
     calcys_rmbnd(4); // refinement boundary only
@@ -279,7 +273,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
     calcupdate(4, dt, 0.0, reals<5>{1.0, dt / 6, dt / 3, dt / 3, dt / 6},
-               states<5>{&old_tmp, &ks[0], &ks[1], &ks[2], &ks[3]});
+               states<5>{&old, &ks[0], &ks[1], &ks[2], &ks[3]});
 
   } else {
     assert(0);
