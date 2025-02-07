@@ -54,12 +54,13 @@ void statecomp_t::set_valid(const valid_t valid) const {
             << (valid.valid_int ? "valid" : "invalid");
         return buf.str();
       });
-      // TODO: Parallelize over patches, levels, group, variables, and
-      // timelevels
-      const active_levels_t active_levels(
-          groupdata->level, groupdata->level + 1, groupdata->patch,
-          groupdata->patch + 1);
-      CarpetX::poison_invalid_gf(active_levels, groupdata->groupindex, vi, tl);
+      // // TODO: Parallelize over patches, levels, group, variables, and
+      // // timelevels
+      // const active_levels_t active_levels(
+      //     groupdata->level, groupdata->level + 1, groupdata->patch,
+      //     groupdata->patch + 1);
+      // CarpetX::poison_invalid_gf(active_levels, groupdata->groupindex, vi,
+      // tl);
     }
   }
 }
