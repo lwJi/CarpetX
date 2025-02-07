@@ -19,6 +19,13 @@ SCHEDULE TestSubcyclingMC_Sync AT postregrid
   SYNC: ustate
 } "Synchronize"
 
+SCHEDULE TestSubcyclingMC_Sync AT postrestrict
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: ustate
+} "Synchronize"
+
 
 
 SCHEDULE GROUP TestSubcyclingMC_RK4Group AT evol
