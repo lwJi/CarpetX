@@ -190,7 +190,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     });
     synchronize();
   };
-  // initilize old state
+  // set old in the interior which will be used for prolongation later
   const auto setold = [&]() {
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
