@@ -156,7 +156,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     {
       Interval interval_poststep(timer_poststep);
       *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
-      if (sync_interprocess_ghost_only_on_update) {
+      if (sync_interprocess_ghost_only_during_subcycle) {
         SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
                                   nullptr);
         CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
@@ -271,7 +271,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcupdate(4, dt, 0.0, reals<5>{1.0, dt / 6, dt / 3, dt / 3, dt / 6},
                states<5>{&old, &ks[0], &ks[1], &ks[2], &ks[3]});
 
-    // In the sync_interprocess_ghost_only_on_update case, the refinement
+    // In the sync_interprocess_ghost_only_during_subcycle case, the refinement
     // boundary is not synchronized at this point. Instead, we rely on the SYNCs
     // in CCTK_POSTRESTRICT to fill in these ghost zones. If the fine level is
     // not properly aligned with the coarse level in time, the filled-in values
