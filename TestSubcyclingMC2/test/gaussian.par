@@ -72,7 +72,7 @@ Cactus::cctk_final_time = 2.0
 
 ODESolvers::method = "RK4"
 #ODESolvers::verbose = yes
-ODESolvers::sync_interprocess_ghost_only_during_subcycle = no
+ODESolvers::interprocess_ghost_sync_during_substep = no
 
 IO::out_dir = $parfile
 IO::out_every = $out_every
