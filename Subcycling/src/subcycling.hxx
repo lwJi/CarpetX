@@ -92,28 +92,28 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
   const CCTK_REAL xsi3 = xsi2 * xsi;
 
   // Coefficients for the dense output formulas (U, Ut, Utt, Uttt)
-  const std::array<CCTK_REAL, RKSTAGES> b = {
+  const array<CCTK_REAL, RKSTAGES> b = {
       xsi - 1.5 * xsi2 + (2. / 3.) * xsi3, // b1
       xsi2 - (2. / 3.) * xsi3,             // b2
       xsi2 - (2. / 3.) * xsi3,             // b3
       -0.5 * xsi2 + (2. / 3.) * xsi3       // b4
   };
 
-  const std::array<CCTK_REAL, RKSTAGES> bt = {
+  const array<CCTK_REAL, RKSTAGES> bt = {
       1.0 - 3.0 * xsi + 2.0 * xsi2, // bt1
       2.0 * xsi - 2.0 * xsi2,       // bt2
       2.0 * xsi - 2.0 * xsi2,       // bt3
       -xsi + 2.0 * xsi2             // bt4
   };
 
-  const std::array<CCTK_REAL, RKSTAGES> btt = {
+  const array<CCTK_REAL, RKSTAGES> btt = {
       -3.0 + 4.0 * xsi, // btt1
       2.0 - 4.0 * xsi,  // btt2
       2.0 - 4.0 * xsi,  // btt3
       -1.0 + 4.0 * xsi  // btt4
   };
 
-  constexpr std::array<CCTK_REAL, RKSTAGES> bttt = {
+  constexpr array<CCTK_REAL, RKSTAGES> bttt = {
       4.0,  // bttt1
       -4.0, // bttt2
       -4.0, // bttt3
@@ -126,8 +126,8 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
         indextype, grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           if (isrmbndry(p.I)) {
-            const std::array<CCTK_REAL, RKSTAGES> k = {
-                kcs[0](p.I), kcs[1](p.I), kcs[2](p.I), kcs[3](p.I)};
+            const array<CCTK_REAL, RKSTAGES> k = {kcs[0](p.I), kcs[1](p.I),
+                                                  kcs[2](p.I), kcs[3](p.I)};
             const CCTK_REAL uu =
                 b[0] * k[0] + b[1] * k[1] + b[2] * k[2] + b[3] * k[3];
             Yf(p.I) = u0(p.I) + dtc * uu;
@@ -138,8 +138,8 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
         indextype, grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           if (isrmbndry(p.I)) {
-            const std::array<CCTK_REAL, RKSTAGES> k = {
-                kcs[0](p.I), kcs[1](p.I), kcs[2](p.I), kcs[3](p.I)};
+            const array<CCTK_REAL, RKSTAGES> k = {kcs[0](p.I), kcs[1](p.I),
+                                                  kcs[2](p.I), kcs[3](p.I)};
             const CCTK_REAL uu =
                 b[0] * k[0] + b[1] * k[1] + b[2] * k[2] + b[3] * k[3];
             const CCTK_REAL ut =
@@ -159,8 +159,8 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
         indextype, grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           if (isrmbndry(p.I)) {
-            const std::array<CCTK_REAL, RKSTAGES> k = {
-                kcs[0](p.I), kcs[1](p.I), kcs[2](p.I), kcs[3](p.I)};
+            const array<CCTK_REAL, RKSTAGES> k = {kcs[0](p.I), kcs[1](p.I),
+                                                  kcs[2](p.I), kcs[3](p.I)};
             const CCTK_REAL uu =
                 b[0] * k[0] + b[1] * k[1] + b[2] * k[2] + b[3] * k[3];
             const CCTK_REAL ut =
