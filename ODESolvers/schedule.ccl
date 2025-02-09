@@ -1,6 +1,7 @@
 # Schedule definitions for thorn ODESolvers
 
 if(use_subcycling_wip) {
+
   SCHEDULE ODESolvers_Solve_Subcycling AT evol
   {
     LANG: C
@@ -9,14 +10,16 @@ if(use_subcycling_wip) {
 
   SCHEDULE GROUP ODESolvers_PostSubStep
   {
-  } "Apply boundary conditions to state vector, and project if necessary"
-}
-else {
- SCHEDULE ODESolvers_Solve AT evol
- {
-   LANG: C
-   OPTIONS: level
- } "Solve ODEs"
+  } "Apply operations after each RK substep, except SYNCs of state vectors (already done by ODESolvers)"
+
+} else {
+
+  SCHEDULE ODESolvers_Solve AT evol
+  {
+    LANG: C
+    OPTIONS: level
+  } "Solve ODEs"
+
 }
 
 
