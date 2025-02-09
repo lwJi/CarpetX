@@ -186,8 +186,12 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
   const Loop::GridDescBaseDevice grid(cctkGH);
   const int tl = 0;
 
-  // TODO: we need different centering types of flag for refinement boundary,
-  // maybe make it a group
+  // Set 'isrmbndry' based on the vertex-centered grid function type.
+  // For the first ncell = nvert-1 points, both vertex-centered and
+  // cell-centered grid functions should have the same value. However, for the
+  // nvert-th (last) point, the value is incorrect for the cell-centered grid
+  // function. This is not an issue, as this value will not be used when
+  // iterating over all ghost points.
   const int isrmbndry_0 =
       CCTK_FirstVarIndexI(CCTK_GroupIndex("Subcycling::isrmbndry"));
   const Loop::GF3D2<const CCTK_REAL> isrmbndry(
