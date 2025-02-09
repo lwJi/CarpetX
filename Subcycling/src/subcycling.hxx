@@ -185,6 +185,7 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
 
   const Loop::GridDescBaseDevice grid(cctkGH);
   const int tl = 0;
+
   // TODO: we need different centering types of flag for refinement boundary,
   // maybe make it a group
   const int isrmbndry_0 =
@@ -192,6 +193,7 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
   const Loop::GF3D2<const CCTK_REAL> isrmbndry(
       Loop::GF3D2layout(cctkGH, array<int, Loop::dim>{0, 0, 0}),
       static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, isrmbndry_0 + 0)));
+
   for (size_t i = 0; i < Yfs.size(); ++i) {
     const int nvars = CCTK_NumVarsInGroupI(Yfs[i]);
     const array<int, Loop::dim> indextype = get_group_indextype(Yfs[i]);
@@ -199,7 +201,7 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
 
     const int Yf_0 = CCTK_FirstVarIndexI(Yfs[i]);
     const int u0_0 = CCTK_FirstVarIndexI(u0s[i]);
-    for (int vi = 0; vi < nvars; vi++) {
+    for (int vi = 0; vi < nvars; ++vi) {
       const Loop::GF3D2<CCTK_REAL> Yf(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, Yf_0 + vi)));
@@ -260,7 +262,7 @@ SetK(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss, vector<int> &rhss,
     const Loop::GF3D2layout layout(cctkGH, indextype);
     const int rhs_0 = CCTK_FirstVarIndexI(rhss[i]);
     const int K_0 = CCTK_FirstVarIndexI(kss[stage - 1][i]);
-    for (int vi = 0; vi < nvars; vi++) {
+    for (int vi = 0; vi < nvars; ++vi) {
       const Loop::GF3D2<CCTK_REAL> K(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, K_0 + vi)));
