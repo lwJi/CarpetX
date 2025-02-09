@@ -260,16 +260,18 @@ SetK(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss, vector<int> &rhss,
   assert(stage > 0 && stage <= 4);
   const Loop::GridDescBaseDevice grid(cctkGH);
   const int tl = 0;
+
   for (size_t i = 0; i < rhss.size(); ++i) {
     const int nvars = CCTK_NumVarsInGroupI(rhss[i]);
     const array<int, Loop::dim> indextype = get_group_indextype(rhss[i]);
     const Loop::GF3D2layout layout(cctkGH, indextype);
+
     const int rhs_0 = CCTK_FirstVarIndexI(rhss[i]);
-    const int K_0 = CCTK_FirstVarIndexI(kss[stage - 1][i]);
+    const int k_0 = CCTK_FirstVarIndexI(kss[stage - 1][i]);
     for (int vi = 0; vi < nvars; ++vi) {
       const Loop::GF3D2<CCTK_REAL> K(
           layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, K_0 + vi)));
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, k_0 + vi)));
       const Loop::GF3D2<const CCTK_REAL> rhs(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, rhs_0 + vi)));
@@ -283,21 +285,23 @@ CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 SetOld(CCTK_ARGUMENTS, vector<int> &olds, vector<int> &vars) {
   const Loop::GridDescBaseDevice grid(cctkGH);
   const int tl = 0;
+
   // Loop over groups
   for (size_t i = 0; i < vars.size(); ++i) {
     const int nvars = CCTK_NumVarsInGroupI(vars[i]);
     const array<int, Loop::dim> indextype = get_group_indextype(vars[i]);
     const Loop::GF3D2layout layout(cctkGH, indextype);
+
     const int var_0 = CCTK_FirstVarIndexI(vars[i]);
     const int old_0 = CCTK_FirstVarIndexI(olds[i]);
     for (int vi = 0; vi < nvars; ++vi) {
+      const Loop::GF3D2<CCTK_REAL> old(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, old_0 + vi)));
       const Loop::GF3D2<const CCTK_REAL> var(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, var_0 + vi)));
-      const Loop::GF3D2<CCTK_REAL> Old(
-          layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, old_0 + vi)));
-      SetStateInterior(grid, indextype, Old, var);
+      SetStateInterior(grid, indextype, old, var);
     }
   }
 }
