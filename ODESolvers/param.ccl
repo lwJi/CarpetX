@@ -19,7 +19,7 @@ BOOLEAN verbose "Verbose output" STEERABLE=always
 {
 } "no"
 
-BOOLEAN sync_interprocess_ghost_only_on_update "Sync interprocess ghost only when update state (the user should disable SYNCs in ODESolvers_PostStep)"
+BOOLEAN interprocess_ghost_sync_during_substep "Sync interprocess ghost only when updating state during RK substep in subcycling"
 {
 } "no"
 

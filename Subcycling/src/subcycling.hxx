@@ -60,18 +60,19 @@ inline array<int, Loop::dim> get_group_indextype(const int gi) {
 }
 
 /**
- * \brief Calculate Ys ghost points for fine grid using Ks on coarse grid
+ * \brief Compute fine-grid ghost points for Ys using the prolongated Ks from
+ *        the coarse-grid
  *
- * \param Yf        RK substage Ys on the fine side to be interperated into
- *                  the ghost zones
- * \param kcs       RK ks on the coarset side
- * \param u0        u at t0
- * \param dtc       Time step size on coarse side
- * \param xsi       which substep on fine level during a coarse time
- *                  step.  For an AMR simulation with subcycling and a
- *                  refinement ratio of 2, the number is either 0 or 0.5,
- *                  denoting the first and second substep, respectively.
- * \param stage     RK stage number starting from 1
+ * \param Yf        RK substage values (Ys) at the fine-grid ghost points.
+ * \param kcs       RK substage derivatives (Ks) prolongated from the
+ *                  coarse-grid to the fine-grid ghost points.
+ * \param u0        Field values at the initial time t0.
+ * \param dtc       Time step size on the coarse-grid.
+ * \param xsi       Substep position within a coarse time step on the fine grid.
+ *                  In an AMR simulation with subcycling and a refinement ratio
+ *                  of 2, this value is either 0 (first substep) or 0.5 (second
+ *                  substep).
+ * \param stage     RK stage number (starting from 1).
  */
 template <int RKSTAGES>
 CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
@@ -84,40 +85,51 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
               const CCTK_REAL dtc, const CCTK_REAL xsi, const CCTK_INT stage) {
   assert(stage > 0 && stage <= 4);
 
-  CCTK_REAL r = 0.5; // ratio between coarse and fine cell size (2 to 1 MR case)
-  CCTK_REAL xsi2 = xsi * xsi;
-  CCTK_REAL xsi3 = xsi2 * xsi;
-  // coefficients for U
-  CCTK_REAL b1 = xsi - CCTK_REAL(1.5) * xsi2 + CCTK_REAL(2. / 3.) * xsi3;
-  CCTK_REAL b2 = xsi2 - CCTK_REAL(2. / 3.) * xsi3;
-  CCTK_REAL b3 = b2;
-  CCTK_REAL b4 = CCTK_REAL(-0.5) * xsi2 + CCTK_REAL(2. / 3.) * xsi3;
-  // coefficients for Ut
-  CCTK_REAL c1 = CCTK_REAL(1.) - CCTK_REAL(3.) * xsi + CCTK_REAL(2.) * xsi2;
-  CCTK_REAL c2 = CCTK_REAL(2.) * xsi - CCTK_REAL(2.) * xsi2;
-  CCTK_REAL c3 = c2;
-  CCTK_REAL c4 = -xsi + CCTK_REAL(2.) * xsi2;
-  // coefficients for Utt
-  CCTK_REAL d1 = CCTK_REAL(-3.) + CCTK_REAL(4.) * xsi;
-  CCTK_REAL d2 = CCTK_REAL(2.) - CCTK_REAL(4.) * xsi;
-  CCTK_REAL d3 = d2;
-  CCTK_REAL d4 = CCTK_REAL(-1.) + CCTK_REAL(4.) * xsi;
-  // coefficients for Uttt
-  constexpr CCTK_REAL e1 = CCTK_REAL(4.);
-  constexpr CCTK_REAL e2 = CCTK_REAL(-4.);
-  constexpr CCTK_REAL e3 = CCTK_REAL(-4.);
-  constexpr CCTK_REAL e4 = CCTK_REAL(4.);
+  constexpr CCTK_REAL r =
+      0.5; // ratio between coarse and fine cell size (2 to 1 MR case)
 
+  const CCTK_REAL xsi2 = xsi * xsi;
+  const CCTK_REAL xsi3 = xsi2 * xsi;
+
+  // Coefficients for the dense output formulas (U, Ut, Utt, Uttt)
+  const array<CCTK_REAL, RKSTAGES> b = {
+      xsi - 1.5 * xsi2 + (2. / 3.) * xsi3, // b1
+      xsi2 - (2. / 3.) * xsi3,             // b2
+      xsi2 - (2. / 3.) * xsi3,             // b3
+      -0.5 * xsi2 + (2. / 3.) * xsi3       // b4
+  };
+
+  const array<CCTK_REAL, RKSTAGES> bt = {
+      1.0 - 3.0 * xsi + 2.0 * xsi2, // bt1
+      2.0 * xsi - 2.0 * xsi2,       // bt2
+      2.0 * xsi - 2.0 * xsi2,       // bt3
+      -xsi + 2.0 * xsi2             // bt4
+  };
+
+  const array<CCTK_REAL, RKSTAGES> btt = {
+      -3.0 + 4.0 * xsi, // btt1
+      2.0 - 4.0 * xsi,  // btt2
+      2.0 - 4.0 * xsi,  // btt3
+      -1.0 + 4.0 * xsi  // btt4
+  };
+
+  constexpr array<CCTK_REAL, RKSTAGES> bttt = {
+      4.0,  // bttt1
+      -4.0, // bttt2
+      -4.0, // bttt3
+      4.0   // bttt4
+  };
+
+  // Create and launch the appropriate lambda based on the stage.
   if (stage == 1) {
     grid.loop_device_idx<Loop::where_t::ghosts>(
         indextype, grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           if (isrmbndry(p.I)) {
-            CCTK_REAL k1 = kcs[0](p.I);
-            CCTK_REAL k2 = kcs[1](p.I);
-            CCTK_REAL k3 = kcs[2](p.I);
-            CCTK_REAL k4 = kcs[3](p.I);
-            CCTK_REAL uu = b1 * k1 + b2 * k2 + b3 * k3 + b4 * k4;
+            const array<CCTK_REAL, RKSTAGES> k = {kcs[0](p.I), kcs[1](p.I),
+                                                  kcs[2](p.I), kcs[3](p.I)};
+            const CCTK_REAL uu =
+                b[0] * k[0] + b[1] * k[1] + b[2] * k[2] + b[3] * k[3];
             Yf(p.I) = u0(p.I) + dtc * uu;
           }
         });
@@ -126,38 +138,39 @@ CalcYfFromKcs(const Loop::GridDescBaseDevice &grid,
         indextype, grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           if (isrmbndry(p.I)) {
-            CCTK_REAL k1 = kcs[0](p.I);
-            CCTK_REAL k2 = kcs[1](p.I);
-            CCTK_REAL k3 = kcs[2](p.I);
-            CCTK_REAL k4 = kcs[3](p.I);
-            CCTK_REAL uu = b1 * k1 + b2 * k2 + b3 * k3 + b4 * k4;
-            CCTK_REAL ut = c1 * k1 + c2 * k2 + c3 * k3 + c4 * k4;
-            Yf(p.I) = u0(p.I) + dtc * (uu + CCTK_REAL(0.5) * r * ut);
+            const array<CCTK_REAL, RKSTAGES> k = {kcs[0](p.I), kcs[1](p.I),
+                                                  kcs[2](p.I), kcs[3](p.I)};
+            const CCTK_REAL uu =
+                b[0] * k[0] + b[1] * k[1] + b[2] * k[2] + b[3] * k[3];
+            const CCTK_REAL ut =
+                bt[0] * k[0] + bt[1] * k[1] + bt[2] * k[2] + bt[3] * k[3];
+            Yf(p.I) = u0(p.I) + dtc * (uu + 0.5 * r * ut);
           }
         });
-  } else if (stage == 3 || stage == 4) {
-    CCTK_REAL r2 = r * r;
-    CCTK_REAL r3 = r2 * r;
-    CCTK_REAL at = (stage == 3) ? CCTK_REAL(0.5) * r : r;
-    CCTK_REAL att = (stage == 3) ? CCTK_REAL(0.25) * r2 : CCTK_REAL(0.5) * r2;
-    CCTK_REAL attt =
-        (stage == 3) ? CCTK_REAL(0.0625) * r3 : CCTK_REAL(0.125) * r3;
-    CCTK_REAL ak = (stage == 3) ? CCTK_REAL(-4.) : CCTK_REAL(4.);
+  } else { // stage 3 or stage 4
+    const CCTK_REAL r2 = r * r;
+    const CCTK_REAL r3 = r2 * r;
+    const CCTK_REAL at = (stage == 3) ? 0.5 * r : r;
+    const CCTK_REAL att = (stage == 3) ? 0.25 * r2 : 0.5 * r2;
+    const CCTK_REAL attt = (stage == 3) ? 0.0625 * r3 : 0.125 * r3;
+    const CCTK_REAL ak = (stage == 3) ? -4.0 : 4.0;
 
     grid.loop_device_idx<Loop::where_t::ghosts>(
         indextype, grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           if (isrmbndry(p.I)) {
-            CCTK_REAL k1 = kcs[0](p.I);
-            CCTK_REAL k2 = kcs[1](p.I);
-            CCTK_REAL k3 = kcs[2](p.I);
-            CCTK_REAL k4 = kcs[3](p.I);
-            CCTK_REAL uu = b1 * k1 + b2 * k2 + b3 * k3 + b4 * k4;
-            CCTK_REAL ut = c1 * k1 + c2 * k2 + c3 * k3 + c4 * k4;
-            CCTK_REAL utt = d1 * k1 + d2 * k2 + d3 * k3 + d4 * k4;
-            CCTK_REAL uttt = e1 * k1 + e2 * k2 + e3 * k3 + e4 * k4;
+            const array<CCTK_REAL, RKSTAGES> k = {kcs[0](p.I), kcs[1](p.I),
+                                                  kcs[2](p.I), kcs[3](p.I)};
+            const CCTK_REAL uu =
+                b[0] * k[0] + b[1] * k[1] + b[2] * k[2] + b[3] * k[3];
+            const CCTK_REAL ut =
+                bt[0] * k[0] + bt[1] * k[1] + bt[2] * k[2] + bt[3] * k[3];
+            const CCTK_REAL utt =
+                btt[0] * k[0] + btt[1] * k[1] + btt[2] * k[2] + btt[3] * k[3];
+            const CCTK_REAL uttt = bttt[0] * k[0] + bttt[1] * k[1] +
+                                   bttt[2] * k[2] + bttt[3] * k[3];
             Yf(p.I) = u0(p.I) + dtc * (uu + at * ut + att * utt +
-                                       attt * (uttt + ak * (k3 - k2)));
+                                       attt * (uttt + ak * (k[2] - k[1])));
           }
         });
   }
@@ -172,13 +185,19 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
 
   const Loop::GridDescBaseDevice grid(cctkGH);
   const int tl = 0;
-  // TODO: we need different centering types of flag for refinement boundary,
-  // maybe make it a group
+
+  // Set 'isrmbndry' based on the vertex-centered grid function type.
+  // For the first ncell = nvert-1 points, both vertex-centered and
+  // cell-centered grid functions should have the same value. However, for the
+  // nvert-th (last) point, the value is incorrect for the cell-centered grid
+  // function. This is not an issue, as this value will not be used when
+  // iterating over all ghost points.
   const int isrmbndry_0 =
       CCTK_FirstVarIndexI(CCTK_GroupIndex("Subcycling::isrmbndry"));
   const Loop::GF3D2<const CCTK_REAL> isrmbndry(
       Loop::GF3D2layout(cctkGH, array<int, Loop::dim>{0, 0, 0}),
       static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, isrmbndry_0 + 0)));
+
   for (size_t i = 0; i < Yfs.size(); ++i) {
     const int nvars = CCTK_NumVarsInGroupI(Yfs[i]);
     const array<int, Loop::dim> indextype = get_group_indextype(Yfs[i]);
@@ -186,7 +205,7 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
 
     const int Yf_0 = CCTK_FirstVarIndexI(Yfs[i]);
     const int u0_0 = CCTK_FirstVarIndexI(u0s[i]);
-    for (int vi = 0; vi < nvars; vi++) {
+    for (int vi = 0; vi < nvars; ++vi) {
       const Loop::GF3D2<CCTK_REAL> Yf(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, Yf_0 + vi)));
@@ -241,16 +260,18 @@ SetK(CCTK_ARGUMENTS, const array<vector<int>, RKSTAGES> &kss, vector<int> &rhss,
   assert(stage > 0 && stage <= 4);
   const Loop::GridDescBaseDevice grid(cctkGH);
   const int tl = 0;
+
   for (size_t i = 0; i < rhss.size(); ++i) {
     const int nvars = CCTK_NumVarsInGroupI(rhss[i]);
     const array<int, Loop::dim> indextype = get_group_indextype(rhss[i]);
     const Loop::GF3D2layout layout(cctkGH, indextype);
+
     const int rhs_0 = CCTK_FirstVarIndexI(rhss[i]);
-    const int K_0 = CCTK_FirstVarIndexI(kss[stage - 1][i]);
-    for (int vi = 0; vi < nvars; vi++) {
+    const int k_0 = CCTK_FirstVarIndexI(kss[stage - 1][i]);
+    for (int vi = 0; vi < nvars; ++vi) {
       const Loop::GF3D2<CCTK_REAL> K(
           layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, K_0 + vi)));
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, k_0 + vi)));
       const Loop::GF3D2<const CCTK_REAL> rhs(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, rhs_0 + vi)));
@@ -264,21 +285,23 @@ CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline void
 SetOld(CCTK_ARGUMENTS, vector<int> &olds, vector<int> &vars) {
   const Loop::GridDescBaseDevice grid(cctkGH);
   const int tl = 0;
+
   // Loop over groups
   for (size_t i = 0; i < vars.size(); ++i) {
     const int nvars = CCTK_NumVarsInGroupI(vars[i]);
     const array<int, Loop::dim> indextype = get_group_indextype(vars[i]);
     const Loop::GF3D2layout layout(cctkGH, indextype);
+
     const int var_0 = CCTK_FirstVarIndexI(vars[i]);
     const int old_0 = CCTK_FirstVarIndexI(olds[i]);
     for (int vi = 0; vi < nvars; ++vi) {
+      const Loop::GF3D2<CCTK_REAL> old(
+          layout,
+          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, old_0 + vi)));
       const Loop::GF3D2<const CCTK_REAL> var(
           layout,
           static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, var_0 + vi)));
-      const Loop::GF3D2<CCTK_REAL> Old(
-          layout,
-          static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, old_0 + vi)));
-      SetStateInterior(grid, indextype, Old, var);
+      SetStateInterior(grid, indextype, old, var);
     }
   }
 }
