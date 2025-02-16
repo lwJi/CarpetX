@@ -157,9 +157,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
       Interval interval_poststep(timer_poststep);
       *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
       if (interprocess_ghost_sync_during_substep) {
+        CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
         SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
                                   nullptr);
-        CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
       } else {
         CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
       }
