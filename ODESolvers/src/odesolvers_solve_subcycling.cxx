@@ -146,26 +146,25 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
                               const CCTK_REAL a0, const auto &as,
                               const auto &vars) {
-    {
-      Interval interval_lincomb(timer_lincomb);
-      statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
-      var.check_valid(make_valid_int(),
-                      "ODESolvers after defining new state vector");
-      mark_invalid(dep_groups);
-    }
-    {
-      Interval interval_poststep(timer_poststep);
-      *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
-      if (interprocess_ghost_sync_during_substep) {
-        CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
-        SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
-                                  nullptr);
-      } else {
-        CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
-      }
-      if (verbose)
-        CCTK_VINFO("Calculated new state #%d at t=%g", n,
-                   double(cctkGH->cctk_time));
+    Interval interval_lincomb(timer_lincomb);
+    statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
+    var.check_valid(make_valid_int(),
+                    "ODESolvers after defining new state vector");
+    mark_invalid(dep_groups);
+    *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
+    if (verbose)
+      CCTK_VINFO("Calculated new state #%d at t=%g", n,
+                 double(cctkGH->cctk_time));
+  };
+  // calling ODESolvers_PostStep Group
+  const auto calcpoststep = [&]() {
+    Interval interval_poststep(timer_poststep);
+    if (interprocess_ghost_sync_during_substep) {
+      CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
+      SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
+                                nullptr);
+    } else {
+      CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
     }
   };
   // calculate Ys from ks and old on the mesh refinement boundary
@@ -251,18 +250,21 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcrhs(1);
     setks(1); // interior only
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
+    calcpoststep();
 
     // k2 = f(Y2)
     calcys_rmbnd(2); // refinement boundary only
     calcrhs(2);
     setks(2); // interior only
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
+    calcpoststep();
 
     // k3 = f(Y3)
     calcys_rmbnd(3); // refinement boundary only
     calcrhs(3);
     setks(3); // interior only
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
+    calcpoststep();
 
     // k4 = f(Y4)
     calcys_rmbnd(4); // refinement boundary only
@@ -270,6 +272,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     setks(4); // interior only
     calcupdate(4, dt, 0.0, reals<5>{1.0, dt / 6, dt / 3, dt / 3, dt / 6},
                states<5>{&old, &ks[0], &ks[1], &ks[2], &ks[3]});
+    calcpoststep();
 
     // In the interprocess_ghost_sync_during_substep case, the refinement
     // boundary is not synchronized at this point. Instead, we rely on the SYNCs
