@@ -173,15 +173,20 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                                      int component, const cGH *local_cctkGH) {
       if (level == 0)
         return;
+
       const auto &patchdata = ghext->patchdata.at(patch);
-      const CCTK_REAL xsi = (patchdata.leveldata.at(level).iteration ==
-                             patchdata.leveldata.at(level - 1).iteration)
-                                ? 0.5
-                                : 0.0;
+      const auto &leveldata = patchdata.leveldata.at(level);
+      const auto &prev_leveldata = patchdata.leveldata.at(level - 1);
+      CCTK_REAL xsi =
+          (leveldata.iteration == prev_leveldata.iteration) ? 0.5 : 0.0;
+      if (stage == 5) {
+        xsi += 0.5;
+      }
+      const int stage0 = (stage == 5 ? 1 : stage);
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
       Subcycling::CalcYfFromKcs<rkstages>(const_cast<cGH *>(local_cctkGH),
                                           var_groups, old_groups, ks_groups,
-                                          dt * 2, xsi, stage);
+                                          dt * 2, xsi, stage0);
     });
     synchronize();
     var.set_valid(make_valid_all());
@@ -245,33 +250,35 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // which do not yet support access to temporary variables.
     setold();
 
-    // k1 = f(Y1)
     calcys_rmbnd(1); // refinement boundary only
+
+    // k1 = f(Y1)
     calcrhs(1);
     setks(1); // interior only
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
+    calcys_rmbnd(2); // refinement boundary only
     calcpoststep();
 
     // k2 = f(Y2)
-    calcys_rmbnd(2); // refinement boundary only
     calcrhs(2);
     setks(2); // interior only
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
+    calcys_rmbnd(3); // refinement boundary only
     calcpoststep();
 
     // k3 = f(Y3)
-    calcys_rmbnd(3); // refinement boundary only
     calcrhs(3);
     setks(3); // interior only
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
+    calcys_rmbnd(4); // refinement boundary only
     calcpoststep();
 
     // k4 = f(Y4)
-    calcys_rmbnd(4); // refinement boundary only
     calcrhs(4);
     setks(4); // interior only
     calcupdate(4, dt, 0.0, reals<5>{1.0, dt / 6, dt / 3, dt / 3, dt / 6},
                states<5>{&old, &ks[0], &ks[1], &ks[2], &ks[3]});
+    calcys_rmbnd(5); // refinement boundary only
     calcpoststep();
 
     // In the interprocess_ghost_sync_during_substep case, the refinement
