@@ -2631,7 +2631,7 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
       buf << CCTK_FullGroupName(groups0[n]);
     }
 #pragma omp critical
-    CCTK_VINFO("SyncGroups %s", buf.str().c_str());
+    CCTK_VINFO("SyncGroupsProlongateOnly %s", buf.str().c_str());
   }
 
   const int gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
@@ -2795,7 +2795,7 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
       buf << CCTK_FullGroupName(groups0[n]);
     }
 #pragma omp critical
-    CCTK_VINFO("SyncGroups %s", buf.str().c_str());
+    CCTK_VINFO("SyncGroupsGhostOnly %s", buf.str().c_str());
   }
 
   const int gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
