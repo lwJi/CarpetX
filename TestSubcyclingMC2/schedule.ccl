@@ -31,7 +31,7 @@ SCHEDULE TestSubcyclingMC2_RHS IN ODESolvers_RHS
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-SCHEDULE TestSubcyclingMC2_Error IN ODESolvers_PostStep AFTER TestSubcyclingMC2_Sync
+SCHEDULE TestSubcyclingMC2_Error AT analysis
 {
   LANG: C
   READS: state(interior)
