@@ -159,13 +159,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   // calling ODESolvers_PostStep Group
   const auto calcpoststep = [&]() {
     Interval interval_poststep(timer_poststep);
-    if (interprocess_ghost_sync_during_substep) {
-      CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
-      SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
-                                nullptr);
-    } else {
-      CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
-    }
+    CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
+    SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
+                              nullptr);
   };
   // calculate Ys from ks and old on the mesh refinement boundary
   const auto calcys_rmbnd = [&](const int stage) {
