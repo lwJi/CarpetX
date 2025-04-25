@@ -1796,14 +1796,19 @@ int Evolve(tFleshConfig *config) {
       active_levels = make_optional<active_levels_t>(min_level, max_level);
 
       if (!restrict_during_sync) {
+        bool restricted = false;
         // Restrict
         active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
-          if (leveldata.level + 1 < active_levels->max_level)
+          if (leveldata.level + 1 < active_levels->max_level) {
             Restrict(cctkGH, leveldata.level);
+            restricted = true;
+          }
         });
-        // Prolongation
-        SyncAfterRestrict(cctkGH);
-        CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+        if (restricted) {
+          // Prolongation
+          SyncAfterRestrict(cctkGH);
+          CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+        }
       }
 
       CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
