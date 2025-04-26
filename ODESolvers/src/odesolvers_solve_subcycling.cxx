@@ -155,7 +155,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     }
     {
       *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
-      CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
+      CallScheduleGroup(cctkGH, "ODESolvers_PostSubStepBeforeSync");
       if (verbose)
         CCTK_VINFO("Calculated new state #%d at t=%g", n,
                    double(cctkGH->cctk_time));
