@@ -12,6 +12,10 @@ if(use_subcycling_wip) {
   {
   } "Apply operations after each RK substep, before Sync and CalcYs at refinement boundries"
 
+  SCHEDULE GROUP ODESolvers_PostSubStepAfterSync
+  {
+  } "Apply operations after each RK substep, after Sync and CalcYs at refinement boundries"
+
 } else {
 
   SCHEDULE ODESolvers_Solve AT evol

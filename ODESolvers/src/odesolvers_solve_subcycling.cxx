@@ -156,6 +156,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     {
       *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
       CallScheduleGroup(cctkGH, "ODESolvers_PostSubStepBeforeSync");
+      SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
+                                nullptr);
       if (verbose)
         CCTK_VINFO("Calculated new state #%d at t=%g", n,
                    double(cctkGH->cctk_time));
@@ -164,8 +166,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   // calling ODESolvers_PostStep Group
   const auto calcpoststep = [&]() {
     Interval interval_poststep(timer_poststep);
-    SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
-                              nullptr);
+    CallScheduleGroup(cctkGH, "ODESolvers_PostSubStepAfterSync");
   };
   // calculate Ys from ks and old on the mesh refinement boundary
   const auto calcys_rmbnd = [&](const int stage) {
