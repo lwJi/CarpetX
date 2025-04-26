@@ -146,20 +146,24 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
                               const CCTK_REAL a0, const auto &as,
                               const auto &vars) {
-    Interval interval_lincomb(timer_lincomb);
-    statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
-    var.check_valid(make_valid_int(),
-                    "ODESolvers after defining new state vector");
-    mark_invalid(dep_groups);
-    *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
-    if (verbose)
-      CCTK_VINFO("Calculated new state #%d at t=%g", n,
-                 double(cctkGH->cctk_time));
+    {
+      Interval interval_lincomb(timer_lincomb);
+      statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
+      var.check_valid(make_valid_int(),
+                      "ODESolvers after defining new state vector");
+      mark_invalid(dep_groups);
+    }
+    {
+      *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
+      CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
+      if (verbose)
+        CCTK_VINFO("Calculated new state #%d at t=%g", n,
+                   double(cctkGH->cctk_time));
+    }
   };
   // calling ODESolvers_PostStep Group
   const auto calcpoststep = [&]() {
     Interval interval_poststep(timer_poststep);
-    CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
     SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
                               nullptr);
   };
