@@ -17,14 +17,12 @@ SCHEDULE TestSubcyclingMC2_Sync AT postregrid
   SYNC: state
 } "Synchronize"
 
-if(!use_subcycling_wip) {
-  SCHEDULE TestSubcyclingMC2_Sync IN ODESolvers_PostStep
-  {
-    LANG: C
-    OPTIONS: global
-    SYNC: state
-  } "Synchronize"
-}
+SCHEDULE TestSubcyclingMC2_Sync IN ODESolvers_PostStep
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: state
+} "Synchronize"
 
 SCHEDULE TestSubcyclingMC2_RHS IN ODESolvers_RHS
 {
