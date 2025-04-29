@@ -148,13 +148,13 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                               const auto &vars) {
     {
       Interval interval_lincomb(timer_lincomb);
+      if (verbose)
+        CCTK_VINFO("Calculated new state #%d at t=%g", n,
+                   double(cctkGH->cctk_time));
       statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
       var.check_valid(make_valid_int(),
                       "ODESolvers after defining new state vector");
       mark_invalid(dep_groups);
-      if (verbose)
-        CCTK_VINFO("Calculated new state #%d at t=%g", n,
-                   double(cctkGH->cctk_time));
     }
     {
       Interval interval_poststep(timer_poststep);
@@ -175,6 +175,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   };
   // calculate Ys from ks and old on the mesh refinement boundary
   const auto calcys_rmbnd = [&](const int stage) {
+    if (verbose)
+      CCTK_VINFO(
+          "Fill refinement boundary ghost zones using Ys for stage #%d at t=%g",
+          stage, double(cctkGH->cctk_time));
+
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
       if (level == 0)
@@ -199,6 +204,10 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   };
   // set ks in the interior which will be used for prolongation later
   const auto setks = [&](const int stage) {
+    if (verbose)
+      CCTK_VINFO(
+          "Set interior Ks for stage #%d at t=%g, to be prolongated later",
+          stage, double(cctkGH->cctk_time));
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
@@ -209,6 +218,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   };
   // set old in the interior which will be used for prolongation later
   const auto setold = [&]() {
+    if (verbose)
+      CCTK_VINFO("Set interior old state at t=%g, to be prolongated later",
+                 double(cctkGH->cctk_time));
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
