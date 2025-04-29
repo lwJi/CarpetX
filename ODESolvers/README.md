@@ -16,9 +16,9 @@ Solve systems of coupled ordinary differential equations
     * Set to `yes`:
         - After each RK substep, `ODESolvers_PostStep` will be called (user must scheudule a `SYNC` operation of state vector within this bin).
     * Set to `no`:
-        - After each RK substep, ODESolver will first call `ODESolvers_PostSubStepBeforeSync`
+        - ~~After each RK substep, ODESolver will first call `ODESolvers_PostSubStepBeforeSync`~~
         - Automatically synchronize the state vector (**interprocess only**)
-        - Call `ODESolvers_PostSubStepAfterSync`.
+        - Call `ODESolvers_PostSubStep`.
     * Tips (when set to `no`):
         - we should remove `SYNC` from `ODESolvers_PostStep`, **no sync** (both interprocess and prolongation) should happend in this time bin. `interprocess` is harmless but redundant, while `prolongation` might fill the ghost points with wrong data (wrong time step).
 

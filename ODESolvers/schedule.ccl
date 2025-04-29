@@ -8,11 +8,7 @@ if(use_subcycling_wip) {
     OPTIONS: level
   } "Solve ODEs using Subcycling"
 
-  SCHEDULE GROUP ODESolvers_PostSubStepBeforeSync
-  {
-  } "Apply operations after each RK substep, before Sync and CalcYs at refinement boundries"
-
-  SCHEDULE GROUP ODESolvers_PostSubStepAfterSync
+  SCHEDULE GROUP ODESolvers_PostSubStep
   {
   } "Apply operations after each RK substep, after Sync and CalcYs at refinement boundries"
 
