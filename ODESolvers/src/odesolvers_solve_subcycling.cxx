@@ -152,6 +152,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
       var.check_valid(make_valid_int(),
                       "ODESolvers after defining new state vector");
       mark_invalid(dep_groups);
+      if (verbose)
+        CCTK_VINFO("Calculated new state #%d at t=%g", n,
+                   double(cctkGH->cctk_time));
     }
     {
       Interval interval_poststep(timer_poststep);
@@ -162,9 +165,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
         SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
                                   nullptr);
       }
-      if (verbose)
-        CCTK_VINFO("Calculated new state #%d at t=%g", n,
-                   double(cctkGH->cctk_time));
     }
   };
   // calling ODESolvers_PostStep Group
