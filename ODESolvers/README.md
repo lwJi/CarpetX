@@ -25,6 +25,7 @@ Solve systems of coupled ordinary differential equations
 ### To Do
 
 * [ ] Make Restriction sync interprocess ghosts only.
+* [ ] Remove the first call of `calcys_rmbnd`.
 
 ### Rules
 
