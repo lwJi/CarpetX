@@ -22,6 +22,10 @@ Solve systems of coupled ordinary differential equations
     * Tips (when set to `no`):
         - we should remove `SYNC` from `ODESolvers_PostStep`, **no sync** (both interprocess and prolongation) should happend in this time bin. `interprocess` is harmless but redundant, while `prolongation` might fill the ghost points with wrong data (wrong time step).
 
+### To Do
+
+* [ ] Make Restriction sync interprocess ghosts only.
+
 ### Rules
 
 * [ ] Sync of state vector should only happen at RK substep and no where else.
