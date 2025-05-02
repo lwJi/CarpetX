@@ -14,9 +14,7 @@ extern "C" void TestLoopX_Init(CCTK_ARGUMENTS) {
   grid.loop_int_device<0, 0, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE CCTK_HOST(const PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE {
-          testloop_gf(p.I) = 0.0;
-      });
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { testloop_gf(p.I) = 0.0; });
 }
 
 extern "C" void TestLoopX_Sync(CCTK_ARGUMENTS) {
@@ -30,16 +28,12 @@ extern "C" void TestLoopX_OutermostInterior(CCTK_ARGUMENTS) {
   grid.loop_outermost_int<0, 0, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE CCTK_HOST(const PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE {
-          testloop_gf(p.I) += 10.0;
-      });
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { testloop_gf(p.I) += 10.0; });
 
   grid.loop_outermost_int_device<0, 0, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE CCTK_HOST(const PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE {
-          testloop_gf(p.I) += 1.0;
-      });
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { testloop_gf(p.I) += 1.0; });
 }
 
 } // namespace TestLoopX
