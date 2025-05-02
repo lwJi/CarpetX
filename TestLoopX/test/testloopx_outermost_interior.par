@@ -46,4 +46,7 @@ IO::parfile_write = no
 CarpetX::out_metadata = no
 CarpetX::out_tsv_vars = "
   TestLoopX::testloop_gf
+  TestLoopX::testloop_gf_fx
+  TestLoopX::testloop_gf_fy
+  TestLoopX::testloop_gf_fz
 "
