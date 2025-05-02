@@ -141,6 +141,29 @@ public:
     loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
   }
 
+  // Loop over interior points in cell-centered direction, and all points in
+  // vertex-centered direction
+  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
+            int NT = AMREX_GPU_MAX_THREADS, typename F>
+  inline CCTK_KERNEL void
+  loop_mix_device(const vect<int, dim> &group_nghostzones, const F &f) const {
+    vect<int, dim> bnd_min, bnd_max;
+    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
+    vect<int, dim> imin_int, imax_int;
+    vect<int, dim> imin_all, imax_all;
+    box_int<CI, CJ, CK>(group_nghostzones, imin_int, imax_int);
+    box_all<CI, CJ, CK>(group_nghostzones, imin_all, imax_all);
+
+    constexpr vect<int, dim> facetype{CI, CJ, CK};
+
+    vect<int, dim> imin, imax;
+    for (int d = 0; d < dim; ++d) {
+      imin[d] = facetype[d] ? imin_all[d] : imin_int[d];
+      imax[d] = facetype[d] ? imax_all[d] : imax_int[d];
+    }
+    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
+  }
+
   // Loop over a part of the domain. Loop over the interior first,
   // then faces, then edges, then corners.
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
