@@ -125,7 +125,7 @@ extern "C" void TestSubcyclingMC2_RHS(CCTK_ARGUMENTS) {
   const vec<GF3D5<CCTK_REAL>, 3> tl_du(make_vec_gf());
   const smat<GF3D5<CCTK_REAL>, 3> tl_ddu(make_mat_gf());
 
-  const int deriv_order = 4;
+  constexpr int deriv_order = 4;
   Derivs::calc_derivs2<0, 0, 0>(tl_u, tl_du, tl_ddu, layout5, grid, u, dx,
                                 deriv_order);
 
@@ -142,6 +142,21 @@ extern "C" void TestSubcyclingMC2_RHS(CCTK_ARGUMENTS) {
         rho_rhs(p.I) =
             tl_ddu(0, 0)(index5) + tl_ddu(1, 1)(index5) + tl_ddu(2, 2)(index5);
       });
+
+  // dissipation
+  const auto apply_diss = [&](const GF3D2<const CCTK_REAL> &gf_,
+                              const GF3D2<CCTK_REAL> &gf_rhs_) {
+    grid.loop_int_device<0, 0, 0>(
+        grid.nghostzones,
+        [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+          const auto rhs_old = gf_rhs_(p.I);
+          const auto rhs_new =
+              rhs_old + epsdiss * Derivs::calc_diss<deriv_order>(gf_, p.I, dx);
+          gf_rhs_(p.I) = rhs_new;
+        });
+  };
+  apply_diss(u, u_rhs);
+  apply_diss(rho, rho_rhs);
 }
 
 extern "C" void TestSubcyclingMC2_Sync(CCTK_ARGUMENTS) {
