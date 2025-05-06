@@ -17,14 +17,58 @@ if(use_subcycling_wip) {
   SCHEDULE Subcycling_SetLevelNeighbor IN Subcycling_RMBndryGroup
   {
     LANG: C
-    WRITES: level_neighbor(interior)
-    SYNC: level_neighbor
+    WRITES: isrmbndry_ccc(everywhere)
+    WRITES: isrmbndry_vcc(everywhere)
+    WRITES: isrmbndry_cvc(everywhere)
+    WRITES: isrmbndry_ccv(everywhere)
+    WRITES: isrmbndry_cvv(everywhere)
+    WRITES: isrmbndry_vcv(everywhere)
+    WRITES: isrmbndry_vvc(everywhere)
+    WRITES: isrmbndry_vvv(everywhere)
+    WRITES: level_neighbor_ccc(interior)
+    WRITES: level_neighbor_vcc(interior)
+    WRITES: level_neighbor_cvc(interior)
+    WRITES: level_neighbor_ccv(interior)
+    WRITES: level_neighbor_cvv(interior)
+    WRITES: level_neighbor_vcv(interior)
+    WRITES: level_neighbor_vvc(interior)
+    WRITES: level_neighbor_vvv(interior)
+    SYNC: level_neighbor_ccc
+    SYNC: level_neighbor_vcc
+    SYNC: level_neighbor_cvc
+    SYNC: level_neighbor_ccv
+    SYNC: level_neighbor_cvv
+    SYNC: level_neighbor_vcv
+    SYNC: level_neighbor_vvc
+    SYNC: level_neighbor_vvv
   } "Set level_neighbor"
 
   SCHEDULE Subcycling_SetIsRMBndry IN Subcycling_RMBndryGroup AFTER Subcycling_SetLevelNeighbor
   {
     LANG: C
-    READS: level_neighbor(everywhere)
-    WRITES: isrmbndry(everywhere)
+    READS: level_neighbor_ccc(everywhere)
+    READS: level_neighbor_vcc(everywhere)
+    READS: level_neighbor_cvc(everywhere)
+    READS: level_neighbor_ccv(everywhere)
+    READS: level_neighbor_cvv(everywhere)
+    READS: level_neighbor_vcv(everywhere)
+    READS: level_neighbor_vvc(everywhere)
+    READS: level_neighbor_vvv(everywhere)
+    READS: isrmbndry_ccc(everywhere)
+    READS: isrmbndry_vcc(everywhere)
+    READS: isrmbndry_cvc(everywhere)
+    READS: isrmbndry_ccv(everywhere)
+    READS: isrmbndry_cvv(everywhere)
+    READS: isrmbndry_vcv(everywhere)
+    READS: isrmbndry_vvc(everywhere)
+    READS: isrmbndry_vvv(everywhere)
+    WRITES: isrmbndry_ccc(everywhere)
+    WRITES: isrmbndry_vcc(everywhere)
+    WRITES: isrmbndry_cvc(everywhere)
+    WRITES: isrmbndry_ccv(everywhere)
+    WRITES: isrmbndry_cvv(everywhere)
+    WRITES: isrmbndry_vcv(everywhere)
+    WRITES: isrmbndry_vvc(everywhere)
+    WRITES: isrmbndry_vvv(everywhere)
   } "Set isrmbndry"
 }
