@@ -37,7 +37,7 @@ CarpetX::restrict_during_sync = no
 ErrorEstimator::region_shape = "cube"
 ErrorEstimator::scale_by_resolution = "yes"
 Driver::regrid_error_threshold = 4.
-CarpetX::max_num_levels = 2
+CarpetX::max_num_levels = 4
 
 IO::out_dir = $parfile
 IO::out_every = 1
