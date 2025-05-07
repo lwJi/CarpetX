@@ -32,22 +32,6 @@ get_isrmbndry_idx() {
       CCTK_VarIndex("Subcycling::isrmbndry_vvv")};
 }
 
-/**
- * \brief return level of its neighbor grid function indexes
- */
-inline array<int, static_cast<size_t>(centering_t::ntypes)>
-get_level_neighbor_idx() {
-  return array<int, static_cast<size_t>(centering_t::ntypes)>{
-      CCTK_VarIndex("Subcycling::level_neighbor_ccc"),
-      CCTK_VarIndex("Subcycling::level_neighbor_vcc"),
-      CCTK_VarIndex("Subcycling::level_neighbor_cvc"),
-      CCTK_VarIndex("Subcycling::level_neighbor_ccv"),
-      CCTK_VarIndex("Subcycling::level_neighbor_cvv"),
-      CCTK_VarIndex("Subcycling::level_neighbor_vcv"),
-      CCTK_VarIndex("Subcycling::level_neighbor_vvc"),
-      CCTK_VarIndex("Subcycling::level_neighbor_vvv")};
-}
-
 } // namespace Subcycling
 
 #endif // #ifndef CARPETX_SUBCYCLING_UTILS_HXX

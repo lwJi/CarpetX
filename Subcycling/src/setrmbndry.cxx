@@ -10,86 +10,41 @@ extern "C" void Subcycling_SetLevelNeighbor(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_Subcycling_SetLevelNeighbor;
 
   // Set level values
-  grid.loop_int_device<1, 1, 1>(grid.nghostzones,
-                                [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                                    CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                                      level_neighbor_ccc(p.I) = cctk_level;
-                                    });
+  grid.loop_int_device<1, 1, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p)
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_ccc(p.I) = cctk_level; });
 
-  grid.loop_int_device<0, 1, 1>(grid.nghostzones,
-                                [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                                    CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                                      level_neighbor_vcc(p.I) = cctk_level;
-                                    });
-  grid.loop_int_device<1, 0, 1>(grid.nghostzones,
-                                [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                                    CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                                      level_neighbor_cvc(p.I) = cctk_level;
-                                    });
-  grid.loop_int_device<1, 1, 0>(grid.nghostzones,
-                                [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                                    CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                                      level_neighbor_ccv(p.I) = cctk_level;
-                                    });
+  grid.loop_int_device<0, 1, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p)
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_vcc(p.I) = cctk_level; });
+  grid.loop_int_device<1, 0, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p)
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_cvc(p.I) = cctk_level; });
+  grid.loop_int_device<1, 1, 0>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p)
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_ccv(p.I) = cctk_level; });
 
-  grid.loop_int_device<1, 0, 0>(grid.nghostzones,
-                                [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                                    CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                                      level_neighbor_cvv(p.I) = cctk_level;
-                                    });
-  grid.loop_int_device<0, 1, 0>(grid.nghostzones,
-                                [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                                    CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                                      level_neighbor_vcv(p.I) = cctk_level;
-                                    });
-  grid.loop_int_device<0, 0, 1>(grid.nghostzones,
-                                [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                                    CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                                      level_neighbor_vvc(p.I) = cctk_level;
-                                    });
+  grid.loop_int_device<1, 0, 0>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p)
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_cvv(p.I) = cctk_level; });
+  grid.loop_int_device<0, 1, 0>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p)
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_vcv(p.I) = cctk_level; });
+  grid.loop_int_device<0, 0, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p)
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_vvc(p.I) = cctk_level; });
 
-  grid.loop_int_device<0, 0, 0>(grid.nghostzones,
-                                [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                                    CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                                      level_neighbor_vvv(p.I) = cctk_level;
-                                    });
-
-  // Initialize all points
-  grid.loop_all_device<1, 1, 1>(
+  grid.loop_int_device<0, 0, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_ccc(p.I) = 0; });
-
-  grid.loop_all_device<0, 1, 1>(
-      grid.nghostzones,
-      [=] CCTK_DEVICE(const Loop::PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_vcc(p.I) = 0; });
-  grid.loop_all_device<1, 0, 1>(
-      grid.nghostzones,
-      [=] CCTK_DEVICE(const Loop::PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_cvc(p.I) = 0; });
-  grid.loop_all_device<1, 1, 0>(
-      grid.nghostzones,
-      [=] CCTK_DEVICE(const Loop::PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_ccv(p.I) = 0; });
-
-  grid.loop_all_device<1, 0, 0>(
-      grid.nghostzones,
-      [=] CCTK_DEVICE(const Loop::PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_cvv(p.I) = 0; });
-  grid.loop_all_device<0, 1, 0>(
-      grid.nghostzones,
-      [=] CCTK_DEVICE(const Loop::PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_vcv(p.I) = 0; });
-  grid.loop_all_device<0, 0, 1>(
-      grid.nghostzones,
-      [=] CCTK_DEVICE(const Loop::PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_vvc(p.I) = 0; });
-
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones,
-      [=] CCTK_DEVICE(const Loop::PointDesc &p)
-          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_vvv(p.I) = 0; });
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { isrmbndry_vvv(p.I) = cctk_level; });
 }
 
 extern "C" void Subcycling_SetIsRMBndry(CCTK_ARGUMENTS) {
@@ -98,45 +53,45 @@ extern "C" void Subcycling_SetIsRMBndry(CCTK_ARGUMENTS) {
   grid.loop_ghosts_device<1, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        isrmbndry_ccc(p.I) = (level_neighbor_ccc(p.I) == cctk_level) ? 0 : 1;
+        isrmbndry_ccc(p.I) = (isrmbndry_ccc(p.I) == cctk_level) ? 0 : 1;
       });
 
   grid.loop_ghosts_device<0, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        isrmbndry_vcc(p.I) = (level_neighbor_vcc(p.I) == cctk_level) ? 0 : 1;
+        isrmbndry_vcc(p.I) = (isrmbndry_vcc(p.I) == cctk_level) ? 0 : 1;
       });
   grid.loop_ghosts_device<1, 0, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        isrmbndry_cvc(p.I) = (level_neighbor_cvc(p.I) == cctk_level) ? 0 : 1;
+        isrmbndry_cvc(p.I) = (isrmbndry_cvc(p.I) == cctk_level) ? 0 : 1;
       });
   grid.loop_ghosts_device<1, 1, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        isrmbndry_ccv(p.I) = (level_neighbor_ccv(p.I) == cctk_level) ? 0 : 1;
+        isrmbndry_ccv(p.I) = (isrmbndry_ccv(p.I) == cctk_level) ? 0 : 1;
       });
 
   grid.loop_ghosts_device<1, 0, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        isrmbndry_cvv(p.I) = (level_neighbor_cvv(p.I) == cctk_level) ? 0 : 1;
+        isrmbndry_cvv(p.I) = (isrmbndry_cvv(p.I) == cctk_level) ? 0 : 1;
       });
   grid.loop_ghosts_device<0, 1, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        isrmbndry_vcv(p.I) = (level_neighbor_vcv(p.I) == cctk_level) ? 0 : 1;
+        isrmbndry_vcv(p.I) = (isrmbndry_vcv(p.I) == cctk_level) ? 0 : 1;
       });
   grid.loop_ghosts_device<0, 0, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        isrmbndry_vvc(p.I) = (level_neighbor_vvc(p.I) == cctk_level) ? 0 : 1;
+        isrmbndry_vvc(p.I) = (isrmbndry_vvc(p.I) == cctk_level) ? 0 : 1;
       });
 
   grid.loop_ghosts_device<0, 0, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        isrmbndry_vvv(p.I) = (level_neighbor_vvv(p.I) == cctk_level) ? 0 : 1;
+        isrmbndry_vvv(p.I) = (isrmbndry_vvv(p.I) == cctk_level) ? 0 : 1;
       });
 }
 
