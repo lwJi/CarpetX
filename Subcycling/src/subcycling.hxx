@@ -186,18 +186,17 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
               const CCTK_REAL xsi, const CCTK_INT stage) {
 
   const Loop::GridDescBaseDevice grid(cctkGH);
-  const auto isrmbndry_idx = get_isrmbndry_idx();
+  const auto isrmbndry_map = construct_index_map();
   const int tl = 0;
 
   // Helper to find the isrmbndry gf for a given indextype
   auto get_isrmbndry =
       [&](const array<int, Loop::dim> &indextype,
           const Loop::GF3D2layout &layout) -> Loop::GF3D2<const CCTK_REAL> {
-    for (size_t i = 0; i < static_cast<size_t>(centering_t::ntypes); ++i) {
-      if (indextype == g_indextypes[i]) {
-        return {layout, static_cast<CCTK_REAL *>(
-                            CCTK_VarDataPtrI(cctkGH, tl, isrmbndry_idx[i]))};
-      }
+    auto it = isrmbndry_map.find(indextype);
+    if (it != isrmbndry_map.end()) {
+      return {layout, static_cast<CCTK_REAL *>(
+                          CCTK_VarDataPtrI(cctkGH, tl, it->second))};
     }
     CCTK_ERROR("get_isrmbndry: No matching indextype found.");
   };
