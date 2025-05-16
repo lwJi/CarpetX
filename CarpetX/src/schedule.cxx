@@ -1804,6 +1804,7 @@ int Evolve(tFleshConfig *config) {
             restricted = true;
           }
         });
+        // Perform actions if the current level was restricted
         if (restricted) {
           // Prolongation
           SyncAfterRestrict(cctkGH);
