@@ -141,7 +141,7 @@ public:
     loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
   }
 
-  // Loop over interior points in cell-centered direction, and all points in
+  // Loop over all points in cell-centered direction, and interior points in
   // vertex-centered direction
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
