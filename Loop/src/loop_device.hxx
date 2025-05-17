@@ -164,6 +164,19 @@ public:
     loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
   }
 
+  // Loop over all points, excluding the outermost point
+  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
+            int NT = AMREX_GPU_MAX_THREADS, typename F>
+  inline CCTK_KERNEL void
+  loop_allm1_device(const vect<int, dim> &group_nghostzones, const F &f) const {
+    vect<int, dim> bnd_min, bnd_max;
+    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
+    vect<int, dim> imin, imax;
+    box_all<CI, CJ, CK>(group_nghostzones, imin, imax);
+    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin + 1, imax - 1,
+                                           f);
+  }
+
   // Loop over a part of the domain. Loop over the interior first,
   // then faces, then edges, then corners.
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
