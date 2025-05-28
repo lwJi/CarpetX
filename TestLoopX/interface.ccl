@@ -5,3 +5,7 @@ USES INCLUDE HEADER: loop.hxx
 USES INCLUDE HEADER: loop_device.hxx
 
 CCTK_REAL testloop_gf TYPE=gf CENTERING={VVV} "Test grid function"
+
+CCTK_REAL testloop_gf_fx TYPE=gf CENTERING={VCC} "Test grid function lives on x-faces"
+CCTK_REAL testloop_gf_fy TYPE=gf CENTERING={CVC} "Test grid function lives on y-faces"
+CCTK_REAL testloop_gf_fz TYPE=gf CENTERING={CCV} "Test grid function lives on z-faces"

@@ -16,6 +16,8 @@
 #include <cmath>
 #include <limits>
 
+#include "utils.hxx"
+
 namespace Subcycling {
 using namespace Arith;
 
@@ -184,24 +186,27 @@ CalcYfFromKcs(CCTK_ARGUMENTS, vector<int> &Yfs, vector<int> &u0s,
               const CCTK_REAL xsi, const CCTK_INT stage) {
 
   const Loop::GridDescBaseDevice grid(cctkGH);
+  const auto isrmbndry_map = construct_index_map();
   const int tl = 0;
 
-  // Set 'isrmbndry' based on the vertex-centered grid function type.
-  // For the first ncell = nvert-1 points, both vertex-centered and
-  // cell-centered grid functions should have the same value. However, for the
-  // nvert-th (last) point, the value is incorrect for the cell-centered grid
-  // function. This is not an issue, as this value will not be used when
-  // iterating over all ghost points.
-  const int isrmbndry_0 =
-      CCTK_FirstVarIndexI(CCTK_GroupIndex("Subcycling::isrmbndry"));
-  const Loop::GF3D2<const CCTK_REAL> isrmbndry(
-      Loop::GF3D2layout(cctkGH, array<int, Loop::dim>{0, 0, 0}),
-      static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, isrmbndry_0 + 0)));
+  // Helper to find the isrmbndry gf for a given indextype
+  auto get_isrmbndry =
+      [&](const array<int, Loop::dim> &indextype,
+          const Loop::GF3D2layout &layout) -> Loop::GF3D2<const CCTK_REAL> {
+    auto it = isrmbndry_map.find(indextype);
+    if (it != isrmbndry_map.end()) {
+      return {layout, static_cast<CCTK_REAL *>(
+                          CCTK_VarDataPtrI(cctkGH, tl, it->second))};
+    }
+    CCTK_ERROR("get_isrmbndry: No matching indextype found.");
+  };
 
   for (size_t i = 0; i < Yfs.size(); ++i) {
     const int nvars = CCTK_NumVarsInGroupI(Yfs[i]);
     const array<int, Loop::dim> indextype = get_group_indextype(Yfs[i]);
     const Loop::GF3D2layout layout(cctkGH, indextype);
+    const Loop::GF3D2<const CCTK_REAL> isrmbndry =
+        get_isrmbndry(indextype, layout);
 
     const int Yf_0 = CCTK_FirstVarIndexI(Yfs[i]);
     const int u0_0 = CCTK_FirstVarIndexI(u0s[i]);

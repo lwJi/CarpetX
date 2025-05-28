@@ -19,9 +19,11 @@ BOOLEAN verbose "Verbose output" STEERABLE=always
 {
 } "no"
 
-BOOLEAN interprocess_ghost_sync_during_substep "Sync interprocess ghost only when updating state during RK substep in subcycling"
+RESTRICTED:
+
+BOOLEAN use_odesolvers_poststep_during_rksubsteps "Use ODESolvers_PostStep or PostSubStep (with sophisticated syncs) during RK substeps" STEERABLE=always
 {
-} "no"
+} "yes"
 
 
 SHARES: Driver

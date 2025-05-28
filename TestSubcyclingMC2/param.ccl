@@ -35,3 +35,12 @@ CCTK_REAL epsdiss "Dissipation coefficient <arXiv:gr-qc/0610128>" STEERABLE=alwa
 {
   0.0:* :: ""
 } 0.0
+
+SHARES: Driver
+
+USES BOOLEAN use_subcycling_wip
+
+
+SHARES: ODESolvers
+
+USES BOOLEAN use_odesolvers_poststep_during_rksubsteps

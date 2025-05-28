@@ -148,6 +148,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                               const auto &vars) {
     {
       Interval interval_lincomb(timer_lincomb);
+      if (verbose)
+        CCTK_VINFO("Calculated new state #%d at t=%g", n,
+                   double(cctkGH->cctk_time));
       statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
       var.check_valid(make_valid_int(),
                       "ODESolvers after defining new state vector");
@@ -156,39 +159,55 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     {
       Interval interval_poststep(timer_poststep);
       *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
-      if (interprocess_ghost_sync_during_substep) {
-        CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
+      if (use_odesolvers_poststep_during_rksubsteps) {
+        CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+      } else {
         SyncGroupsByDirIGhostOnly(cctkGH, var_groups.size(), var_groups.data(),
                                   nullptr);
-      } else {
-        CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
       }
-      if (verbose)
-        CCTK_VINFO("Calculated new state #%d at t=%g", n,
-                   double(cctkGH->cctk_time));
+    }
+  };
+  // calling ODESolvers_PostStep Group
+  const auto calcpostsubstep = [&]() {
+    if (!use_odesolvers_poststep_during_rksubsteps) {
+      CallScheduleGroup(cctkGH, "ODESolvers_PostSubStep");
     }
   };
   // calculate Ys from ks and old on the mesh refinement boundary
   const auto calcys_rmbnd = [&](const int stage) {
+    if (verbose)
+      CCTK_VINFO(
+          "Fill refinement boundary ghost zones using Ys for stage #%d at t=%g",
+          stage, double(cctkGH->cctk_time));
+
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
       if (level == 0)
         return;
+
       const auto &patchdata = ghext->patchdata.at(patch);
-      const CCTK_REAL xsi = (patchdata.leveldata.at(level).iteration ==
-                             patchdata.leveldata.at(level - 1).iteration)
-                                ? 0.5
-                                : 0.0;
+      const auto &leveldata = patchdata.leveldata.at(level);
+      const auto &prev_leveldata = patchdata.leveldata.at(level - 1);
+      CCTK_REAL xsi =
+          (leveldata.iteration == prev_leveldata.iteration) ? 0.5 : 0.0;
+      if (stage == 5) {
+        xsi += 0.5;
+      }
+      const int stage0 = (stage == 5 ? 1 : stage);
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
       Subcycling::CalcYfFromKcs<rkstages>(const_cast<cGH *>(local_cctkGH),
                                           var_groups, old_groups, ks_groups,
-                                          dt * 2, xsi, stage);
+                                          dt * 2, xsi, stage0);
     });
     synchronize();
     var.set_valid(make_valid_all());
   };
   // set ks in the interior which will be used for prolongation later
   const auto setks = [&](const int stage) {
+    if (verbose)
+      CCTK_VINFO(
+          "Set interior Ks for stage #%d at t=%g, to be prolongated later",
+          stage, double(cctkGH->cctk_time));
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
@@ -199,6 +218,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   };
   // set old in the interior which will be used for prolongation later
   const auto setold = [&]() {
+    if (verbose)
+      CCTK_VINFO("Set interior old state at t=%g, to be prolongated later",
+                 double(cctkGH->cctk_time));
     active_levels->loop_parallel([&](int patch, int level, int index,
                                      int component, const cGH *local_cctkGH) {
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
@@ -246,30 +268,36 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // which do not yet support access to temporary variables.
     setold();
 
-    // k1 = f(Y1)
     calcys_rmbnd(1); // refinement boundary only
+
+    // k1 = f(Y1)
     calcrhs(1);
     setks(1); // interior only
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
+    calcys_rmbnd(2); // refinement boundary only
+    calcpostsubstep();
 
     // k2 = f(Y2)
-    calcys_rmbnd(2); // refinement boundary only
     calcrhs(2);
     setks(2); // interior only
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
+    calcys_rmbnd(3); // refinement boundary only
+    calcpostsubstep();
 
     // k3 = f(Y3)
-    calcys_rmbnd(3); // refinement boundary only
     calcrhs(3);
     setks(3); // interior only
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
+    calcys_rmbnd(4); // refinement boundary only
+    calcpostsubstep();
 
     // k4 = f(Y4)
-    calcys_rmbnd(4); // refinement boundary only
     calcrhs(4);
     setks(4); // interior only
     calcupdate(4, dt, 0.0, reals<5>{1.0, dt / 6, dt / 3, dt / 3, dt / 6},
                states<5>{&old, &ks[0], &ks[1], &ks[2], &ks[3]});
+    calcys_rmbnd(5); // refinement boundary only
+    calcpostsubstep();
 
     // In the interprocess_ghost_sync_during_substep case, the refinement
     // boundary is not synchronized at this point. Instead, we rely on the SYNCs

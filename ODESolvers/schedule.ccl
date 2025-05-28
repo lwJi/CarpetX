@@ -10,7 +10,7 @@ if(use_subcycling_wip) {
 
   SCHEDULE GROUP ODESolvers_PostSubStep
   {
-  } "Apply operations after each RK substep, except SYNCs of state vectors (already done by ODESolvers)"
+  } "Apply operations after each RK substep, after Sync and CalcYs at refinement boundries"
 
 } else {
 

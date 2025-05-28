@@ -1349,7 +1349,7 @@ int Initialise(tFleshConfig *config) {
         Restrict(cctkGH, leveldata.level);
     });
     // Prolongation
-    // SyncAfterRestrict(cctkGH);
+    SyncAfterRestrict(cctkGH);
     CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
   }
 
@@ -1795,14 +1795,20 @@ int Evolve(tFleshConfig *config) {
       active_levels = make_optional<active_levels_t>(min_level, max_level);
 
       if (!restrict_during_sync) {
+        bool restricted = false;
         // Restrict
         active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
-          if (leveldata.level + 1 < active_levels->max_level)
+          if (leveldata.level + 1 < active_levels->max_level) {
             Restrict(cctkGH, leveldata.level);
+            restricted = true;
+          }
         });
-        // Prolongation
-        // SyncAfterRestrict(cctkGH);
-        CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+        // Perform actions if the current level was restricted
+        if (restricted) {
+          // Prolongation
+          SyncAfterRestrict(cctkGH);
+          CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+        }
       }
 
       CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
@@ -2630,7 +2636,7 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
       buf << CCTK_FullGroupName(groups0[n]);
     }
 #pragma omp critical
-    CCTK_VINFO("SyncGroups %s", buf.str().c_str());
+    CCTK_VINFO("SyncGroupsProlongateOnly %s", buf.str().c_str());
   }
 
   const int gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
@@ -2794,7 +2800,7 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
       buf << CCTK_FullGroupName(groups0[n]);
     }
 #pragma omp critical
-    CCTK_VINFO("SyncGroups %s", buf.str().c_str());
+    CCTK_VINFO("SyncGroupsGhostOnly %s", buf.str().c_str());
   }
 
   const int gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");

@@ -17,14 +17,42 @@ if(use_subcycling_wip) {
   SCHEDULE Subcycling_SetLevelNeighbor IN Subcycling_RMBndryGroup
   {
     LANG: C
-    WRITES: level_neighbor(interior)
-    SYNC: level_neighbor
-  } "Set level_neighbor"
+    WRITES: isrmbndry_ccc(interior)
+    WRITES: isrmbndry_vcc(interior)
+    WRITES: isrmbndry_cvc(interior)
+    WRITES: isrmbndry_ccv(interior)
+    WRITES: isrmbndry_cvv(interior)
+    WRITES: isrmbndry_vcv(interior)
+    WRITES: isrmbndry_vvc(interior)
+    WRITES: isrmbndry_vvv(interior)
+    SYNC: isrmbndry_ccc
+    SYNC: isrmbndry_vcc
+    SYNC: isrmbndry_cvc
+    SYNC: isrmbndry_ccv
+    SYNC: isrmbndry_cvv
+    SYNC: isrmbndry_vcv
+    SYNC: isrmbndry_vvc
+    SYNC: isrmbndry_vvv
+  } "Set isrmbndry"
 
   SCHEDULE Subcycling_SetIsRMBndry IN Subcycling_RMBndryGroup AFTER Subcycling_SetLevelNeighbor
   {
     LANG: C
-    READS: level_neighbor(everywhere)
-    WRITES: isrmbndry(everywhere)
+    READS: isrmbndry_ccc(everywhere)
+    READS: isrmbndry_vcc(everywhere)
+    READS: isrmbndry_cvc(everywhere)
+    READS: isrmbndry_ccv(everywhere)
+    READS: isrmbndry_cvv(everywhere)
+    READS: isrmbndry_vcv(everywhere)
+    READS: isrmbndry_vvc(everywhere)
+    READS: isrmbndry_vvv(everywhere)
+    WRITES: isrmbndry_ccc(everywhere)
+    WRITES: isrmbndry_vcc(everywhere)
+    WRITES: isrmbndry_cvc(everywhere)
+    WRITES: isrmbndry_ccv(everywhere)
+    WRITES: isrmbndry_cvv(everywhere)
+    WRITES: isrmbndry_vcv(everywhere)
+    WRITES: isrmbndry_vvc(everywhere)
+    WRITES: isrmbndry_vvv(everywhere)
   } "Set isrmbndry"
 }
