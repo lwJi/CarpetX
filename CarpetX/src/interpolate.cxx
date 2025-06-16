@@ -614,7 +614,7 @@ extern "C" void CarpetX_Interpolate(const CCTK_POINTER_TO_CONST cctkGH_,
 
   // Define result variables
   const int nprocs = amrex::ParallelDescriptor::NProcs();
-  std::vector<std::vector<CCTK_REAL> > results(nprocs); // [nprocs]
+  std::vector<std::vector<CCTK_REAL>> results(nprocs); // [nprocs]
 
   // Interpolate
   constexpr int tl = 0;
@@ -649,7 +649,7 @@ extern "C" void CarpetX_Interpolate(const CCTK_POINTER_TO_CONST cctkGH_,
         // CCTK_VINFO("patch=%d level=%d component=%d npoints=%d", patch, level,
         //            component, np);
 
-        std::vector<std::vector<CCTK_REAL> > varresults(nvars);
+        std::vector<std::vector<CCTK_REAL>> varresults(nvars);
 
         // TODO: Don't re-calculate interpolation coefficients for each
         // variable
