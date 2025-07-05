@@ -1480,6 +1480,8 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
 
   // TODO: Parallelize over groups
   const int num_groups = CCTK_NumGroups();
+  const bool presync_only = CCTK_EQUALS(presync_mode, "presync-only");
+  std::vector<int> presync_groups;
   for (int gi = 0; gi < num_groups; ++gi) {
     cGroup group;
     int ierr = CCTK_GroupData(gi, &group);
@@ -1512,12 +1514,20 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
         }
         // All time levels (except the current) must be valid everywhere for
         // checkpointed groups
-        if (groupdata.do_checkpoint)
-          for (int tl = (ntls == 1 ? 0 : 1); tl < ntls; ++tl)
-            for (int vi = 0; vi < groupdata.numvars; ++vi)
-              error_if_invalid(groupdata, vi, tl, make_valid_all(), []() {
-                return "CycleTimelevels for the state vector";
-              });
+        if (groupdata.do_checkpoint) {
+          for (int tl = (ntls == 1 ? 0 : 1); tl < ntls; ++tl) {
+            // it is only possible to sync time-level zero
+            if (tl == 0 && presync_only) {
+              presync_groups.push_back(gi);
+            } else {
+              for (int vi = 0; vi < groupdata.numvars; ++vi) {
+                error_if_invalid(groupdata, vi, tl, make_valid_all(), []() {
+                  return "CycleTimelevels for the state vector";
+                });
+              }
+            }
+          }
+        }
       });
       for (int vi = 0; vi < groupdata0.numvars; ++vi) {
         if (ntls0 > 1)
@@ -1554,6 +1564,10 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
     }
 
   } // for gi
+  if (!presync_groups.empty()) {
+    SyncGroupsByDirI(cctkGH, presync_groups.size(), presync_groups.data(),
+                     nullptr);
+  }
 }
 
 // Schedule evolution
