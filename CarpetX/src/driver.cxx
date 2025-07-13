@@ -2605,6 +2605,11 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
     free(arg);
   args.clear();
 
+  if (CCTK_IsFunctionAliased("MultiPatch_Setup")) {
+    const int ierr = MultiPatch_Setup();
+    assert(!ierr);
+  }
+
   // Create grid structure
   ghext = make_unique<GHExt>();
 

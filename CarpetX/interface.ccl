@@ -21,6 +21,10 @@ INCLUDES HEADER: timer.hxx IN timer.hxx
 
 
 
+# Setup for multipatch system
+CCTK_INT FUNCTION MultiPatch_Setup()
+USES FUNCTION MultiPatch_Setup
+
 # Number of patches
 CCTK_INT FUNCTION MultiPatch_GetSystemSpecification( \
   CCTK_INT OUT npatches)
