@@ -536,6 +536,75 @@ public:
     } // for rank
   }
 
+  // Loop over all interior and outer ghost points. This excludes ghost
+  // edges/corners on non-ghost faces. Loop over faces first, then edges, then
+  // corners.
+  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
+            int NT = AMREX_GPU_MAX_THREADS, typename F>
+  inline CCTK_KERNEL void
+  loop_int_ghosts_device(const vect<int, dim> &group_nghostzones,
+                         const F &f) const {
+    vect<int, dim> bnd_min, bnd_max;
+    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
+
+    // loop over all interior points
+    vect<int, dim> imin_int, imax_int;
+    box_int<CI, CJ, CK>(group_nghostzones, imin_int, imax_int);
+    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin_int, imax_int,
+                                           f);
+
+    // loop over all ghost points
+    vect<int, dim> all_min, all_max, int_min, int_max;
+    domain_boxes<CI, CJ, CK>(group_nghostzones, all_min, all_max, int_min,
+                             int_max);
+
+    for (int rank = dim - 1; rank >= 0; --rank) {
+
+      for (int nk = -1; nk <= +1; ++nk) {
+        for (int nj = -1; nj <= +1; ++nj) {
+          for (int ni = -1; ni <= +1; ++ni) {
+            if ((ni == 0) + (nj == 0) + (nk == 0) == rank) {
+
+              if ((ni == 0 || !bbox[ni < 0 ? 0 : 1][0]) &&
+                  (nj == 0 || !bbox[nj < 0 ? 0 : 1][1]) &&
+                  (nk == 0 || !bbox[nk < 0 ? 0 : 1][2])) {
+
+                const vect<int, dim> inormal{ni, nj, nk};
+
+                vect<int, dim> imin, imax;
+                for (int d = 0; d < dim; ++d) {
+                  switch (inormal[d]) {
+                  case -1: // lower boundary
+                    imin[d] = all_min[d];
+                    imax[d] = int_min[d];
+                    break;
+                  case 0: // interior
+                    imin[d] = int_min[d];
+                    imax[d] = int_max[d];
+                    break;
+                  case +1: // upper boundary
+                    imin[d] = int_max[d];
+                    imax[d] = all_max[d];
+                    break;
+                  default:
+                    assert(0);
+                  }
+
+                  using std::min, std::max;
+                  imin[d] = max(tmin[d], imin[d]);
+                  imax[d] = min(tmax[d], imax[d]);
+                }
+
+                loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin,
+                                                       imax, f);
+              }
+            } // if rank
+          }
+        }
+      }
+    } // for rank
+  }
+
   template <int CI, int CJ, int CK, where_t where, typename F>
   inline CCTK_KERNEL std::enable_if_t<(where == where_t::everywhere), void>
   loop_device(const vect<int, dim> &group_nghostzones, const F &f) const {
