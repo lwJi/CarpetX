@@ -82,7 +82,6 @@ double gettime() {
 std::optional<active_levels_t> active_levels;
 
 void Reflux(const cGH *cctkGH, int level);
-void Restrict(const cGH *cctkGH, int level, const std::vector<int> &groups);
 void Restrict(const cGH *cctkGH, int level);
 void SyncAfterRestrict(const cGH *cctkGH);
 
