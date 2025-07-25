@@ -538,7 +538,7 @@ template <int ORDER> struct interp1d<VC, HERMITE, ORDER> {
       return crse(0);
 
     constexpr int N = ORDER + 1;
-    constexpr std::array<T, N> cs = coeffs1d<VC, POLY, N - 1, T>::coeffs;
+    constexpr std::array<T, N> cs = coeffs1d<VC, HERMITE, N - 1, T>::coeffs;
     const int i0 = N / 2 - off;
 #ifndef __CUDACC__
     constexpr int i0min = N / 2 - 1;
