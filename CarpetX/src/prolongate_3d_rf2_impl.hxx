@@ -189,7 +189,7 @@ template <typename T> struct coeffs1d<CC, POLY, /*order*/ 11, T> {
 
 // Linear Hermite interpolation is the same as linear Lagrange interpolation
 template <typename T> struct coeffs1d<VC, HERMITE, /*order*/ 1, T> {
-  static constexpr std::array<T, 4> coeffs = {
+  static constexpr std::array<T, 2> coeffs = {
       +1 / T(2),
       +1 / T(2),
   };
@@ -210,7 +210,7 @@ template <typename T> struct coeffs1d<VC, HERMITE, /*order*/ 5, T> {
   };
 };
 template <typename T> struct coeffs1d<VC, HERMITE, /*order*/ 7, T> {
-  static constexpr std::array<T, 6> coeffs = {
+  static constexpr std::array<T, 8> coeffs = {
       -129 / T(32768),     +1127 / T(36864),    -6419 / T(49152),
       +178115 / T(294912), +178115 / T(294912), -6419 / T(49152),
       +1127 / T(36864),    -129 / T(32768),
