@@ -205,8 +205,12 @@ template <typename T> struct coeffs1d<VC, HERMITE, /*order*/ 3, T> {
 };
 template <typename T> struct coeffs1d<VC, HERMITE, /*order*/ 5, T> {
   static constexpr std::array<T, 6> coeffs = {
-      +121 / T(8192),  -875 / T(8192), +2425 / T(4096),
-      +2425 / T(4096), -875 / T(8192), +121 / T(8192),
+    +1 / T(96),
+    -9 / T(96),
+    56 / T(96),
+    56 / T(96),
+    -9 / T(96),
+    +1 / T(96)
   };
 };
 template <typename T> struct coeffs1d<VC, HERMITE, /*order*/ 7, T> {
