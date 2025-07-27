@@ -1233,9 +1233,9 @@ amrex::Interpolater *get_interpolator(const std::array<int, dim> indextype) {
       case 0b010:
         return &prolongate_hermite_3d_rf2_c010_o1;
       case 0b011:
-        return &prolongate_hermite_3d_rf2_c011_o1;
+        return &prolongate_poly_cons3lfb_3d_rf2_c011_o1;
       case 0b100:
-        return &prolongate_poly_cons3lfb_3d_rf2_c100_o1;
+        return &prolongate_hermite_3d_rf2_c100_o1;
       case 0b101:
         return &prolongate_poly_cons3lfb_3d_rf2_c101_o1;
       case 0b110:
@@ -1254,9 +1254,9 @@ amrex::Interpolater *get_interpolator(const std::array<int, dim> indextype) {
       case 0b010:
         return &prolongate_hermite_3d_rf2_c010_o3;
       case 0b011:
-        return &prolongate_hermite_3d_rf2_c011_o3;
+        return &prolongate_poly_cons3lfb_3d_rf2_c011_o3;
       case 0b100:
-        return &prolongate_poly_cons3lfb_3d_rf2_c100_o3;
+        return &prolongate_hermite_3d_rf2_c100_o3;
       case 0b101:
         return &prolongate_poly_cons3lfb_3d_rf2_c101_o3;
       case 0b110:
@@ -1275,9 +1275,9 @@ amrex::Interpolater *get_interpolator(const std::array<int, dim> indextype) {
       case 0b010:
         return &prolongate_hermite_3d_rf2_c010_o5;
       case 0b011:
-        return &prolongate_hermite_3d_rf2_c011_o5;
+        return &prolongate_poly_cons3lfb_3d_rf2_c011_o5;
       case 0b100:
-        return &prolongate_poly_cons3lfb_3d_rf2_c100_o5;
+        return &prolongate_hermite_3d_rf2_c100_o5;
       case 0b101:
         return &prolongate_poly_cons3lfb_3d_rf2_c101_o5;
       case 0b110:
