@@ -337,6 +337,12 @@ calc_derivs<0, 0, 0>(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
                      const GF3D2<const T> &gf0, const vect<T, dim> dx,
                      const int deriv_order);
 
+template void
+calc_derivs<1, 1, 1>(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
+                     const GF3D5layout layout, const GridDescBaseDevice &grid,
+                     const GF3D2<const T> &gf0, const vect<T, dim> dx,
+                     const int deriv_order);
+
 template void calc_derivs<0, 0, 0>(const vec<GF3D5<T>, dim> &gf,
                                    const vec<vec<GF3D5<T>, dim>, dim> &dgf,
                                    const GF3D5layout layout,
