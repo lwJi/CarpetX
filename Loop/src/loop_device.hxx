@@ -164,6 +164,29 @@ public:
     loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
   }
 
+  // Loop over all points in cell-centered direction, and interior points
+  // plus n in vertex-centered direction
+  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
+            int NT = AMREX_GPU_MAX_THREADS, typename F>
+  inline CCTK_KERNEL void
+  loop_mixpn_device(const vect<int, dim> &group_nghostzones, const int ord, const F &f) const {
+    vect<int, dim> bnd_min, bnd_max;
+    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
+    vect<int, dim> imin_int, imax_int;
+    vect<int, dim> imin_all, imax_all;
+    box_int<CI, CJ, CK>(group_nghostzones, imin_int, imax_int);
+    box_all<CI, CJ, CK>(group_nghostzones, imin_all, imax_all);
+
+    constexpr vect<int, dim> facetype{CI, CJ, CK};
+
+    vect<int, dim> imin, imax;
+    for (int d = 0; d < dim; ++d) {
+      imin[d] = facetype[d] ? imin_all[d] : imin_int[d] - ord;
+      imax[d] = facetype[d] ? imax_all[d] : imax_int[d] + ord;
+    }
+    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
+  }
+
   // Loop over all points, excluding the outermost point
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
@@ -174,6 +197,45 @@ public:
     vect<int, dim> imin, imax;
     box_all<CI, CJ, CK>(group_nghostzones, imin, imax);
     loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin + 1, imax - 1,
+                                           f);
+  }
+
+  // Loop over all points excluding outer n points
+  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
+            int NT = AMREX_GPU_MAX_THREADS, typename F>
+  inline CCTK_KERNEL void
+  loop_allmn_device(const vect<int, dim> &group_nghostzones, const int ord, const F &f) const {
+    vect<int, dim> bnd_min, bnd_max;
+    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
+    vect<int, dim> imin, imax;
+    box_all<CI, CJ, CK>(group_nghostzones, imin, imax);
+    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin + ord, imax - ord,
+                                           f);
+  }
+
+  // Loop over lower n points
+  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
+            int NT = AMREX_GPU_MAX_THREADS, typename F>
+  inline CCTK_KERNEL void
+  loop_lbnd_n_device(const vect<int, dim> &group_nghostzones, const int ord, const F &f) const {
+    vect<int, dim> bnd_min, bnd_max;
+    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
+    vect<int, dim> imin, imax;
+    box_all<CI, CJ, CK>(group_nghostzones, imin, imax);
+    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imin + ord,
+                                           f);
+  }
+
+  // Loop over upper n points
+  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
+            int NT = AMREX_GPU_MAX_THREADS, typename F>
+  inline CCTK_KERNEL void
+  loop_ubnd_n_device(const vect<int, dim> &group_nghostzones, const int ord, const F &f) const {
+    vect<int, dim> bnd_min, bnd_max;
+    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
+    vect<int, dim> imin, imax;
+    box_all<CI, CJ, CK>(group_nghostzones, imin, imax);
+    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imax - ord, imax,
                                            f);
   }
 
