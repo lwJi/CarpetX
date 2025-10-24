@@ -1500,11 +1500,13 @@ GHExt::PatchData::PatchData(const int patch) : patch(patch) {
   amrex::Vector<int> ncells{ncells_x, ncells_y, ncells_z};
 
   if (CCTK_IsFunctionAliased("MultiPatch_GetPatchSpecification2")) {
+    CCTK_INT is_cartesian1;
     CCTK_INT ncells1[dim];
     CCTK_REAL xmin1[dim], xmax1[dim];
-    const int ierr = MultiPatch_GetPatchSpecification2(patch, nullptr, dim,
-                                                       ncells1, xmin1, xmax1);
+    const int ierr = MultiPatch_GetPatchSpecification2(
+        patch, &is_cartesian1, dim, ncells1, xmin1, xmax1);
     assert(!ierr);
+    is_cartesian = is_cartesian1;
     for (int d = 0; d < dim; ++d)
       ncells[d] = ncells1[d];
     domain = amrex::RealBox(xmin1, xmax1);
@@ -2451,6 +2453,28 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml, const amrex::AmrCore &amrcore) {
 } // namespace amrex
 namespace CarpetX {
 
+std::ostream &
+operator<<(std::ostream &os,
+           const GHExt::GlobalData::AnyTypeVector::AnyTypeScalarRef &scalar) {
+  const char sep = '\t';
+  switch (scalar._vect.type()) {
+  case CCTK_VARIABLE_REAL:
+    os << *(CCTK_REAL *)scalar._vect.data_at(scalar._idx);
+    break;
+  case CCTK_VARIABLE_INT:
+    os << *(CCTK_INT *)scalar._vect.data_at(scalar._idx);
+    break;
+  case CCTK_VARIABLE_COMPLEX: {
+    CCTK_COMPLEX value = *(CCTK_COMPLEX *)scalar._vect.data_at(scalar._idx);
+    os << value.real() << sep << value.imag();
+  } break;
+  default:
+    assert(0 && "Unexpected variable type");
+    break;
+  }
+  return os;
+}
+
 YAML::Emitter &operator<<(YAML::Emitter &yaml,
                           const GHExt::CommonGroupData &commongroupdata) {
   yaml << YAML::LocalTag("commongroupdata-1.0.0");
@@ -2469,6 +2493,47 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
        << commongroupdata.do_restrict;
   yaml << YAML::Key << "valid" << YAML::Value << commongroupdata.valid;
   yaml << YAML::EndMap;
+  return yaml;
+}
+
+YAML::Emitter &operator<<(YAML::Emitter &yaml, const CCTK_COMPLEX &cval) {
+  yaml << YAML::Flow << YAML::BeginSeq << cval.real() << cval.imag()
+       << YAML::EndSeq;
+  return yaml;
+};
+
+YAML::Emitter &
+operator<<(YAML::Emitter &yaml,
+           const GHExt::GlobalData::AnyTypeVector::AnyTypeScalarRef
+               &anytypescalarref) {
+  switch (anytypescalarref._vect.type()) {
+  case CCTK_VARIABLE_COMPLEX:
+    yaml << *(const CCTK_COMPLEX *)anytypescalarref._vect.data_at(
+        anytypescalarref._idx);
+    break;
+  case CCTK_VARIABLE_REAL:
+    yaml << *(const CCTK_REAL *)anytypescalarref._vect.data_at(
+        anytypescalarref._idx);
+    break;
+  case CCTK_VARIABLE_INT:
+    yaml << *(const CCTK_INT *)anytypescalarref._vect.data_at(
+        anytypescalarref._idx);
+    break;
+  default:
+    // missed to implement a type
+    CCTK_VERROR("Cannot handle type %d", anytypescalarref._vect.type());
+    break;
+  }
+  return yaml;
+}
+
+YAML::Emitter &
+operator<<(YAML::Emitter &yaml,
+           const GHExt::GlobalData::AnyTypeVector &anytypevector) {
+  yaml << YAML::BeginSeq;
+  for (size_t i = 0; i < anytypevector.size(); ++i)
+    yaml << anytypevector[i];
+  yaml << YAML::EndSeq;
   return yaml;
 }
 
