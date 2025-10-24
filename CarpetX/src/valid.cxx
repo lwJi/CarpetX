@@ -297,7 +297,7 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
 #else
   constexpr auto run_on = amrex::RunOn::Host;
 #endif
-  poison_found.operator=<run_on>(0.0);
+  poison_found.operator= <run_on>(0.0);
   CCTK_REAL *restrict const poison_found_ptr = poison_found.dataPtr();
 
   active_levels.loop_parallel([&](const int patch, const int level,

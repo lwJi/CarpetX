@@ -346,9 +346,9 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
             }
           }
         } // if output_something
-      }   // for mfi
-    }     // for leveldata
-  }       // for patchdata
+      } // for mfi
+    } // for leveldata
+  } // for patchdata
   assert(data.size() % nvalues == 0);
 
   const MPI_Comm comm = amrex::ParallelDescriptor::Communicator();

@@ -787,7 +787,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         }
 
       } // for record_component
-    }   // for mesh
+    } // for mesh
   }
 
   // First read grid functions in a loop over patches and levels
@@ -1026,7 +1026,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               }
 
             } // for vi
-          }   // for local_component
+          } // for local_component
 
           // Mark read variables as valid
           for (int vi = 0; vi < numvars; ++vi)
@@ -1038,7 +1038,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
       } // for gi
 
     } // for leveldata
-  }   // for patchdata
+  } // for patchdata
 
   // Next read grid scalars and grid arrays
 
@@ -1697,12 +1697,12 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                                                     count);
               }
             } // for vi
-          }   // for local_component
+          } // for local_component
         }
       } // for gi
 
     } // for leveldata
-  }   // for patchdata
+  } // for patchdata
 
   // Next write grid scalars and grid arrays
 

@@ -1450,7 +1450,6 @@ amrex::Interpolater *get_interpolator(const std::array<int, dim> indextype) {
         return &prolongate_poly_eno3lfb_3d_rf2_c111_o5;
       }
       break;
-
     }
     break;
 
@@ -2085,9 +2084,9 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
   // in time
   if (leveldata.iteration != coarseleveldata.iteration) {
     ostringstream msg;
-    msg << "Coarse (rl=" << (level-1) <<", it=" << coarseleveldata.iteration <<
-           ") and fine (rl=" << level << ", it=" << leveldata.iteration <<
-           ") grid do not align in time when regridding";
+    msg << "Coarse (rl=" << (level - 1) << ", it=" << coarseleveldata.iteration
+        << ") and fine (rl=" << level << ", it=" << leveldata.iteration
+        << ") grid do not align in time when regridding";
 #pragma omp critical
     CCTK_VERROR(msg.str().c_str());
   }
@@ -2191,9 +2190,9 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
   // time
   if (leveldata.iteration != coarseleveldata.iteration) {
     ostringstream msg;
-    msg << "Coarse (rl=" << (level-1) <<", it=" << coarseleveldata.iteration <<
-           ") and fine (rl=" << level << ", it=" << leveldata.iteration <<
-           ") grid do not align in time when regridding";
+    msg << "Coarse (rl=" << (level - 1) << ", it=" << coarseleveldata.iteration
+        << ") and fine (rl=" << level << ", it=" << leveldata.iteration
+        << ") grid do not align in time when regridding";
 #pragma omp critical
     CCTK_VERROR(msg.str().c_str());
   }
@@ -2236,7 +2235,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
         check_valid_gf(active_levels, gi, vi, tl, nan_handling,
                        []() { return "RemakeLevel before prolongation"; });
       } // for vi
-    }   // for tl
+    } // for tl
 
   } // for gi
 

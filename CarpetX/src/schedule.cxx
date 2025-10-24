@@ -1298,7 +1298,7 @@ int Initialise(tFleshConfig *config) {
               }
             }
           } // omp critical
-        }   // for patchdata
+        } // for patchdata
 
         int first_modified_level = INT_MAX;
         int last_modified_level = -1;
@@ -1693,7 +1693,7 @@ int Evolve(tFleshConfig *config) {
             }
           }
         } // omp critical
-      }   // for patchdata
+      } // for patchdata
 
       int first_modified_level = INT_MAX;
       int last_modified_level = -1;
@@ -2454,7 +2454,7 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
                        []() { return "SyncGroupsByDirI before syncing"; });
       }
     } // for tl
-  }   // for gi
+  } // for gi
 
   // We need to loop over groups, patches, and levels in a definite
   // order so that AMReX's communication pattern does not get
@@ -2584,7 +2584,7 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
                          []() { return "SyncGroupsByDirI after syncing"; });
       }
     } // for tl
-  }   // for gi
+  } // for gi
 
   if (have_multipatch_boundaries) {
     std::vector<CCTK_INT> cactusvarinds;
@@ -2983,8 +2983,8 @@ void Reflux(const cGH *cctkGH, int level) {
             });
         }
       } // for gi
-    }   // if level exists
-  }     // for patchdata
+    } // if level exists
+  } // for patchdata
 }
 
 void Restrict(const cGH *cctkGH, int level, const vector<int> &groups) {
@@ -3104,9 +3104,9 @@ void Restrict(const cGH *cctkGH, int level, const vector<int> &groups) {
           }
 
         } // for tl
-      }   // for gi
-    }     // if level exists
-  }       // for patchdata
+      } // for gi
+    } // if level exists
+  } // for patchdata
 }
 
 void RestrictNoPoison(const cGH *cctkGH, int level, const vector<int> &groups) {
