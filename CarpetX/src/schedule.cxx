@@ -2690,7 +2690,7 @@ int SyncGroupsByDirINoRestrict(const cGH *restrict cctkGH, int numgroups,
   assert(groups0);
 
   if (verbose) {
-    ostringstream buf;
+    std::ostringstream buf;
     for (int n = 0; n < numgroups; ++n) {
       if (n != 0)
         buf << ", ";
@@ -2703,7 +2703,7 @@ int SyncGroupsByDirINoRestrict(const cGH *restrict cctkGH, int numgroups,
   const int gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
   assert(gi_regrid_error >= 0);
 
-  vector<int> groups;
+  std::vector<int> groups;
   for (int n = 0; n < numgroups; ++n) {
     const int gi = groups0[n];
     if (CCTK_GroupTypeI(gi) != CCTK_GF)
@@ -2759,8 +2759,7 @@ int SyncGroupsByDirINoRestrict(const cGH *restrict cctkGH, int numgroups,
         auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
-        amrex::Interpolater *const interpolator =
-            get_interpolator(groupdata.indextype);
+        amrex::Interpolater *const interpolator = groupdata.interpolator;
 
         for (int tl = 0; tl < sync_tl; ++tl) {
 
@@ -2845,7 +2844,7 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
   assert(groups0);
 
   if (verbose) {
-    ostringstream buf;
+    std::ostringstream buf;
     for (int n = 0; n < numgroups; ++n) {
       if (n != 0)
         buf << ", ";
@@ -2858,7 +2857,7 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
   const int gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
   assert(gi_regrid_error >= 0);
 
-  vector<int> groups;
+  std::vector<int> groups;
   for (int n = 0; n < numgroups; ++n) {
     const int gi = groups0[n];
     if (CCTK_GroupTypeI(gi) != CCTK_GF)
@@ -2912,8 +2911,7 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
       auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
       assert(coarsegroupdata.numvars == groupdata.numvars);
 
-      amrex::Interpolater *const interpolator =
-          get_interpolator(groupdata.indextype);
+      amrex::Interpolater *const interpolator = groupdata.interpolator;
 
       for (int tl = 0; tl < sync_tl; ++tl) {
 
