@@ -10,12 +10,6 @@ SCHEDULE ODESolvers_InitConstants AT WRAGH
   WRITES: do_substeps
 } "Set up dummy loop counters for schedule printout"
 
-SCHEDULE ODESolvers_Solve AT evol
-{
-  LANG: C
-  OPTIONS: level
-} "Solve ODEs"
-
 if(use_subcycling_wip) {
 
   SCHEDULE ODESolvers_Solve_Subcycling AT evol
