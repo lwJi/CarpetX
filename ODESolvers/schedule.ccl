@@ -10,6 +10,12 @@ SCHEDULE ODESolvers_InitConstants AT WRAGH
   WRITES: do_substeps
 } "Set up dummy loop counters for schedule printout"
 
+SCHEDULE ODESolvers_Solve AT evol
+{
+  LANG: C
+  OPTIONS: level
+} "Solve ODEs"
+
 if(use_subcycling_wip) {
 
   SCHEDULE ODESolvers_Solve_Subcycling AT evol
@@ -202,7 +208,7 @@ if(use_subcycling_wip) {
   # {
   # } "Take an implicit step everywhere on the grid"
 
-  # TODO: this does not yet handle "Implicit Euler" correctly
+  # TODO: this does not yet handle "IMEX122" correctly
   # this group never actually executes since do_subseteps == 0 always, it is
   # only present to show up in the schedule printout
   SCHEDULE GROUP ODESolvers_CalledBySolve AT EVOL AFTER ODESolvers_Solve WHILE (ODESolvers::do_substeps)
