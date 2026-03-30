@@ -11,6 +11,9 @@ void InputGH(const cGH *cctkGH);
 
 int OutputGH(const cGH *cctkGH);
 
+bool HasRecoveredLevelIterations();
+void SetRecoveredLevelIterations(bool value);
+
 } // namespace CarpetX
 
 #endif // #ifndef CARPETX_CARPETX_IO_HXX

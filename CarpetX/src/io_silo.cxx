@@ -1,6 +1,7 @@
 #include "io_silo.hxx"
 
 #include "driver.hxx"
+#include "io.hxx"
 #include "io_meta.hxx"
 #include "mpi_types.hxx"
 #include "timer.hxx"
@@ -447,6 +448,48 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
     } // for level
   } // for patch
 
+  // Read per-level iteration (new checkpoint format)
+  {
+    int total_levels = 0;
+    for (int p = 0; p < npatches; ++p)
+      total_levels += nlevels.at(p);
+
+    bool has_iteration_data = false;
+    std::vector<long long> iter_nums(total_levels);
+    std::vector<long long> iter_dens(total_levels);
+
+    if (read_metafile) {
+      const std::string varname =
+          dirname + "/" + DB::legalize_name("iteration_num");
+      const int vartype = DBGetVarType(metafile.get(), varname.c_str());
+      if (vartype == DB_LONG_LONG) {
+        has_iteration_data = true;
+        ierr = DBReadVar(metafile.get(), varname.c_str(), iter_nums.data());
+        assert(!ierr);
+        const std::string den_varname =
+            dirname + "/" + DB::legalize_name("iteration_den");
+        ierr = DBReadVar(metafile.get(), den_varname.c_str(), iter_dens.data());
+        assert(!ierr);
+      }
+    }
+    MPI_Bcast(&has_iteration_data, 1, MPI_C_BOOL, metafile_ioproc, mpi_comm);
+
+    if (has_iteration_data) {
+      MPI_Bcast(iter_nums.data(), total_levels, MPI_LONG_LONG, metafile_ioproc,
+                mpi_comm);
+      MPI_Bcast(iter_dens.data(), total_levels, MPI_LONG_LONG, metafile_ioproc,
+                mpi_comm);
+      int idx = 0;
+      for (int patch = 0; patch < npatches; ++patch)
+        for (int level = 0; level < nlevels.at(patch); ++level) {
+          ghext->patchdata.at(patch).leveldata.at(level).iteration =
+              rat64(iter_nums.at(idx), iter_dens.at(idx));
+          ++idx;
+        }
+      SetRecoveredLevelIterations(true);
+    }
+  }
+
   interval_meta = nullptr;
 }
 
@@ -753,7 +796,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
   auto interval_data = std::make_unique<Interval>(timer_data);
 
   // Global coordinate extents for each component
-  std::vector<std::vector<std::vector<std::array<CCTK_REAL, dim> > > >
+  std::vector<std::vector<std::vector<std::array<CCTK_REAL, dim>>>>
       coordinate_minima, coordinate_maxima;
 
   // Write data
@@ -1186,8 +1229,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
         const int npatches = ghext->num_patches();
         std::vector<int> comp0_level(nlevels);
         std::vector<int> ncomps_level(nlevels);
-        std::vector<std::vector<int> > comp0_level_patch(nlevels);
-        std::vector<std::vector<int> > ncomps_level_patch(nlevels);
+        std::vector<std::vector<int>> comp0_level_patch(nlevels);
+        std::vector<std::vector<int>> ncomps_level_patch(nlevels);
         for (int level = 0; level < nlevels; ++level) {
           comp0_level_patch.at(level).resize(npatches, 0);
           ncomps_level_patch.at(level).resize(npatches, 0);
@@ -1216,7 +1259,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         const std::string levelmaps_name = multimeshname + "_wmrgtree_lvlMaps";
         {
           std::vector<int> segment_types;
-          std::vector<std::vector<int> > segment_data;
+          std::vector<std::vector<int>> segment_data;
           segment_types.reserve(nlevels);
           segment_data.reserve(nlevels);
           for (int l = 0; l < nlevels; ++l) {
@@ -1251,7 +1294,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         std::vector<int> num_children;
         {
           std::vector<int> segment_types;
-          std::vector<std::vector<int> > segment_data;
+          std::vector<std::vector<int>> segment_data;
           segment_types.reserve(ncomps_total);
           segment_data.reserve(ncomps_total);
 
@@ -1276,7 +1319,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   const amrex::Box &box = mfab.box(component); // interior
                   amrex::Box refined_box(box);
                   refined_box.refine(2);
-                  const std::vector<pair<int, amrex::Box> > child_boxes =
+                  const std::vector<pair<int, amrex::Box>> child_boxes =
                       fine_boxarray.intersections(refined_box);
                   std::vector<int> children;
                   children.reserve(child_boxes.size());
@@ -1799,6 +1842,38 @@ void OutputSilo(const cGH *restrict const cctkGH,
               make_fabarraybasename(patchdata.patch, leveldata.level);
           ierr = DBWrite(metafile.get(), varname.c_str(), boxes.data(), dims, 2,
                          DB_INT);
+          assert(!ierr);
+        }
+      }
+
+      // Write per-level iteration (numerator and denominator)
+      {
+        int total_levels = 0;
+        for (const auto &patchdata : ghext->patchdata)
+          total_levels += int(patchdata.leveldata.size());
+
+        std::vector<long long> iter_nums(total_levels);
+        std::vector<long long> iter_dens(total_levels);
+        int idx = 0;
+        for (const auto &patchdata : ghext->patchdata)
+          for (const auto &leveldata : patchdata.leveldata) {
+            iter_nums.at(idx) = leveldata.iteration.num;
+            iter_dens.at(idx) = leveldata.iteration.den;
+            ++idx;
+          }
+
+        {
+          const std::string varname =
+              dirname + "/" + DB::legalize_name("iteration_num");
+          ierr = DBWrite(metafile.get(), varname.c_str(), iter_nums.data(),
+                         &total_levels, 1, DB_LONG_LONG);
+          assert(!ierr);
+        }
+        {
+          const std::string varname =
+              dirname + "/" + DB::legalize_name("iteration_den");
+          ierr = DBWrite(metafile.get(), varname.c_str(), iter_dens.data(),
+                         &total_levels, 1, DB_LONG_LONG);
           assert(!ierr);
         }
       }

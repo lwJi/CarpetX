@@ -1,5 +1,5 @@
-#include "driver.hxx"
 #include "io.hxx"
+#include "driver.hxx"
 #include "io_adios2.hxx"
 #include "io_meta.hxx"
 #include "io_norm.hxx"
@@ -30,6 +30,14 @@
 #include <vector>
 
 namespace CarpetX {
+
+static bool recovered_level_iterations = false;
+
+bool HasRecoveredLevelIterations() { return recovered_level_iterations; }
+
+void SetRecoveredLevelIterations(bool value) {
+  recovered_level_iterations = value;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -126,6 +134,8 @@ extern "C" int CarpetX_RecoverParameters() {
 void RecoverGridStructure(cGH *restrict cctkGH) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
+
+  recovered_level_iterations = false;
 
   if (CCTK_EQUALS(recover_method, "openpmd")) {
 
@@ -367,7 +377,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
 struct parameters {};
 YAML::Emitter &operator<<(YAML::Emitter &yaml, parameters) {
   // Collect all parameters and their values
-  std::vector<std::pair<std::string, const cParamData *> > parameter_values;
+  std::vector<std::pair<std::string, const cParamData *>> parameter_values;
   int first = 1;
   for (;;) {
     const cParamData *data;
