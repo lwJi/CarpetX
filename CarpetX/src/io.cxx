@@ -1,5 +1,5 @@
-#include "io.hxx"
 #include "driver.hxx"
+#include "io.hxx"
 #include "io_adios2.hxx"
 #include "io_meta.hxx"
 #include "io_norm.hxx"
@@ -377,7 +377,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
 struct parameters {};
 YAML::Emitter &operator<<(YAML::Emitter &yaml, parameters) {
   // Collect all parameters and their values
-  std::vector<std::pair<std::string, const cParamData *>> parameter_values;
+  std::vector<std::pair<std::string, const cParamData *> > parameter_values;
   int first = 1;
   for (;;) {
     const cParamData *data;

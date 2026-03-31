@@ -796,7 +796,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
   auto interval_data = std::make_unique<Interval>(timer_data);
 
   // Global coordinate extents for each component
-  std::vector<std::vector<std::vector<std::array<CCTK_REAL, dim>>>>
+  std::vector<std::vector<std::vector<std::array<CCTK_REAL, dim> > > >
       coordinate_minima, coordinate_maxima;
 
   // Write data
@@ -1229,8 +1229,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
         const int npatches = ghext->num_patches();
         std::vector<int> comp0_level(nlevels);
         std::vector<int> ncomps_level(nlevels);
-        std::vector<std::vector<int>> comp0_level_patch(nlevels);
-        std::vector<std::vector<int>> ncomps_level_patch(nlevels);
+        std::vector<std::vector<int> > comp0_level_patch(nlevels);
+        std::vector<std::vector<int> > ncomps_level_patch(nlevels);
         for (int level = 0; level < nlevels; ++level) {
           comp0_level_patch.at(level).resize(npatches, 0);
           ncomps_level_patch.at(level).resize(npatches, 0);
@@ -1259,7 +1259,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         const std::string levelmaps_name = multimeshname + "_wmrgtree_lvlMaps";
         {
           std::vector<int> segment_types;
-          std::vector<std::vector<int>> segment_data;
+          std::vector<std::vector<int> > segment_data;
           segment_types.reserve(nlevels);
           segment_data.reserve(nlevels);
           for (int l = 0; l < nlevels; ++l) {
@@ -1294,7 +1294,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         std::vector<int> num_children;
         {
           std::vector<int> segment_types;
-          std::vector<std::vector<int>> segment_data;
+          std::vector<std::vector<int> > segment_data;
           segment_types.reserve(ncomps_total);
           segment_data.reserve(ncomps_total);
 
@@ -1319,7 +1319,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   const amrex::Box &box = mfab.box(component); // interior
                   amrex::Box refined_box(box);
                   refined_box.refine(2);
-                  const std::vector<pair<int, amrex::Box>> child_boxes =
+                  const std::vector<pair<int, amrex::Box> > child_boxes =
                       fine_boxarray.intersections(refined_box);
                   std::vector<int> children;
                   children.reserve(child_boxes.size());
