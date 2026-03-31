@@ -39,6 +39,24 @@ void SetRecoveredLevelIterations(bool value) {
   recovered_level_iterations = value;
 }
 
+struct RecoveredIteration {
+  int patch, level;
+  int64_t num, den;
+};
+static std::vector<RecoveredIteration> recovered_iteration_buffer;
+
+void StoreRecoveredLevelIteration(int patch, int level, int64_t num,
+                                  int64_t den) {
+  recovered_iteration_buffer.push_back({patch, level, num, den});
+}
+
+void ApplyRecoveredLevelIterations() {
+  for (const auto &ri : recovered_iteration_buffer)
+    ghext->patchdata.at(ri.patch).leveldata.at(ri.level).iteration =
+        rat64(ri.num, ri.den);
+  recovered_iteration_buffer.clear();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace {
@@ -136,6 +154,7 @@ void RecoverGridStructure(cGH *restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
   recovered_level_iterations = false;
+  recovered_iteration_buffer.clear();
 
   if (CCTK_EQUALS(recover_method, "openpmd")) {
 

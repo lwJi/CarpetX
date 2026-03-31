@@ -1132,8 +1132,7 @@ int Initialise(tFleshConfig *config) {
     CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
 
     if (HasRecoveredLevelIterations()) {
-      // Per-level iterations were restored from checkpoint metadata
-      // by InputOpenPMDGridStructure / InputSiloGridStructure.
+      ApplyRecoveredLevelIterations();
     } else {
       // Fallback for old checkpoints without per-level iteration data.
       // Assumes all levels have caught up to the coarsest one.

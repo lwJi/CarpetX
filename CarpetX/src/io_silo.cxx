@@ -482,8 +482,8 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
       int idx = 0;
       for (int patch = 0; patch < npatches; ++patch)
         for (int level = 0; level < nlevels.at(patch); ++level) {
-          ghext->patchdata.at(patch).leveldata.at(level).iteration =
-              rat64(iter_nums.at(idx), iter_dens.at(idx));
+          StoreRecoveredLevelIteration(patch, level, iter_nums.at(idx),
+                                       iter_dens.at(idx));
           ++idx;
         }
       SetRecoveredLevelIterations(true);

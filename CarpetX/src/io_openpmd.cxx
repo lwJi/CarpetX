@@ -687,7 +687,7 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
               read_iter
                   ->getAttribute("iteration_den" + level_suffixes.at(level))
                   .get<std::int64_t>();
-          patchdata.leveldata.at(level).iteration = rat64(num, den);
+          StoreRecoveredLevelIteration(patch, level, num, den);
         }
         SetRecoveredLevelIterations(true);
       }

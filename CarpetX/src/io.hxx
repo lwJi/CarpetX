@@ -3,6 +3,8 @@
 
 #include <cctk.h>
 
+#include <cstdint>
+
 namespace CarpetX {
 
 void RecoverGridStructure(cGH *cctkGH);
@@ -13,6 +15,10 @@ int OutputGH(const cGH *cctkGH);
 
 bool HasRecoveredLevelIterations();
 void SetRecoveredLevelIterations(bool value);
+
+void StoreRecoveredLevelIteration(int patch, int level, int64_t num,
+                                  int64_t den);
+void ApplyRecoveredLevelIterations();
 
 } // namespace CarpetX
 
