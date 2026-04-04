@@ -1131,13 +1131,23 @@ int Initialise(tFleshConfig *config) {
     CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
     CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
 
-    // Here we assume that all levels have catched up to the coarsed one when
-    // checkpointing.
-    // TODO: checkpoint level.iteration instead.
-    const int iteration_ratio = pow(2, ghext->num_levels() - 1);
-    active_levels->loop_serially([&](auto &restrict leveldata) {
-      leveldata.iteration = rat64(cctkGH->cctk_iteration) / iteration_ratio;
-    });
+    if (ghext->recovered_level_iterations) {
+      // New checkpoint format: restore per-level iteration values
+      active_levels->loop_serially([&](auto &restrict leveldata) {
+        const auto &data =
+            ghext->recovered_level_iterations->at(leveldata.patch)
+                .at(leveldata.level);
+        leveldata.iteration = data.iteration;
+        leveldata.delta_iteration = data.delta_iteration;
+      });
+      ghext->recovered_level_iterations.reset();
+    } else {
+      // Old checkpoint format: assume all levels synchronized
+      const int iteration_ratio = pow(2, ghext->num_levels() - 1);
+      active_levels->loop_serially([&](auto &restrict leveldata) {
+        leveldata.iteration = rat64(cctkGH->cctk_iteration) / iteration_ratio;
+      });
+    }
 
     active_levels = optional<active_levels_t>();
 
