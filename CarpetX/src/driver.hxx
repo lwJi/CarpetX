@@ -142,7 +142,7 @@ struct GHExt {
     bool do_checkpoint; // whether to checkpoint
     bool do_restrict;   // whether to restrict
 
-    std::vector<std::vector<why_valid_t>> valid; // [time level][var index]
+    std::vector<std::vector<why_valid_t> > valid; // [time level][var index]
 
     // TODO: add poison_invalid and check_valid functions
 
@@ -322,7 +322,7 @@ struct GHExt {
                                        const ArrayGroupData &arraygroupdata);
     };
     // TODO: right now this is sized for the total number of groups
-    std::vector<std::unique_ptr<ArrayGroupData>>
+    std::vector<std::unique_ptr<ArrayGroupData> >
         arraygroupdata; // [group index]
 
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
@@ -402,7 +402,7 @@ struct GHExt {
 
         std::array<std::array<boundary_t, dim>, 2> boundaries;
         bool all_faces_have_symmetries_or_boundaries() const;
-        std::vector<array<int, dim>> parities;
+        std::vector<array<int, dim> > parities;
         std::vector<CCTK_REAL> dirichlet_values;
         std::vector<CCTK_REAL> robin_values;
         amrex::Vector<amrex::BCRec> bcrecs;
@@ -411,7 +411,7 @@ struct GHExt {
         void apply_boundary_conditions(amrex::MultiFab &mfab) const;
 
         // each amrex::MultiFab has numvars components
-        std::vector<std::unique_ptr<amrex::MultiFab>> mfab; // [time level]
+        std::vector<std::unique_ptr<amrex::MultiFab> > mfab; // [time level]
 
         // flux register between this and the next coarser level
         std::unique_ptr<amrex::FluxRegister> freg;
@@ -427,7 +427,7 @@ struct GHExt {
         // changes). This is used e.g. by ODESolvers for its
         // temporaries.
       private:
-        mutable std::vector<std::unique_ptr<amrex::MultiFab>> tmp_mfabs;
+        mutable std::vector<std::unique_ptr<amrex::MultiFab> > tmp_mfabs;
         mutable std::size_t next_tmp_mfab;
 
       public:
@@ -439,7 +439,7 @@ struct GHExt {
                                          const GroupData &groupdata);
       };
       // TODO: right now this is sized for the total number of groups
-      std::vector<unique_ptr<GroupData>> groupdata; // [group index]
+      std::vector<unique_ptr<GroupData> > groupdata; // [group index]
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const LevelData &leveldata);
@@ -458,7 +458,7 @@ struct GHExt {
     rat64 iteration;
     rat64 delta_iteration;
   };
-  std::optional<std::vector<std::vector<RecoveredIterationData>>>
+  std::optional<std::vector<std::vector<RecoveredIterationData> > >
       recovered_level_iterations; // [patch][level]
 
   int num_patches() const { return patchdata.size(); }

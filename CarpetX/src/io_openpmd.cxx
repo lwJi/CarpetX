@@ -341,7 +341,7 @@ struct carpetx_openpmd_t {
       }
       return r;
     }
-    std::vector<box_t<I, D>> grids;
+    std::vector<box_t<I, D> > grids;
     Arith::vect<std::vector<I>, 2> offsets_sizes() const {
       std::vector<I> offsets(grids.size() + 1), sizes(grids.size());
       I offset{0};
@@ -358,7 +358,7 @@ struct carpetx_openpmd_t {
 
   template <typename T, typename I, std::size_t D> struct grid_structure_t {
     box_t<T, D> rdomain;
-    std::vector<level_t<T, I, D>> levels;
+    std::vector<level_t<T, I, D> > levels;
   };
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -607,7 +607,7 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
     assert(read_iter->getAttribute("patchSuffixes").dtype ==
            openPMD::Datatype::VEC_STRING);
     patch_suffixes = read_iter->getAttribute("patchSuffixes")
-                         .get<std::vector<std::string>>();
+                         .get<std::vector<std::string> >();
   }
 
   for (auto &patchdata : ghext->patchdata) {
@@ -630,7 +630,7 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
                  .dtype == openPMD::Datatype::VEC_STRING);
       level_suffixes =
           read_iter->getAttribute("levelSuffixes" + patch_suffixes.at(patch))
-              .get<std::vector<std::string>>();
+              .get<std::vector<std::string> >();
     }
     assert(int(level_suffixes.size()) == nlevels);
 
@@ -641,7 +641,7 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
     for (int level = 0; level < nlevels; ++level) {
       const std::vector<std::int64_t> chunk_infos =
           read_iter->getAttribute("chunkInfo" + level_suffixes.at(level))
-              .get<std::vector<std::int64_t>>();
+              .get<std::vector<std::int64_t> >();
       assert(chunk_infos.size() % (2 * ndims) == 0);
       const int nfabs = chunk_infos.size() / (2 * ndims);
       amrex::Vector<amrex::Box> levboxes(nfabs);
@@ -683,12 +683,12 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
         if (int(patch_vec.size()) < nlevels)
           patch_vec.resize(nlevels);
 
-        const auto iter_vec =
-            read_iter->getAttribute(iter_attr).get<std::vector<std::int64_t>>();
+        const auto iter_vec = read_iter->getAttribute(iter_attr)
+                                  .get<std::vector<std::int64_t> >();
         const auto diter_vec =
             read_iter
                 ->getAttribute("levelDeltaIteration" + level_suffixes.at(level))
-                .get<std::vector<std::int64_t>>();
+                .get<std::vector<std::int64_t> >();
 
         patch_vec.at(level) = {rat64(iter_vec.at(0), iter_vec.at(1)),
                                rat64(diter_vec.at(0), diter_vec.at(1))};
@@ -829,7 +829,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
   }
 
   // Post-read tasks
-  std::vector<std::function<void()>> tasks;
+  std::vector<std::function<void()> > tasks;
 
   // First read grid functions in a loop over patches and levels
 
@@ -984,7 +984,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               assert(
                   start.at(d) <
                   std::numeric_limits<
-                      std::remove_reference_t<decltype(start.at(d))>>::max() /
+                      std::remove_reference_t<decltype(start.at(d))> >::max() /
                       2);
             for (int d = 0; d < 3; ++d)
               assert(start.at(d) + count.at(d) <= extent.at(d));
@@ -1180,7 +1180,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           // assert(start.at(d) >= 0);
           assert(start.at(d) <
                  std::numeric_limits<
-                     std::remove_reference_t<decltype(start.at(d))>>::max() /
+                     std::remove_reference_t<decltype(start.at(d))> >::max() /
                      2);
         for (int d = 0; d < 3; ++d)
           assert(start.at(d) + count.at(d) <= extent.at(d));
@@ -1718,7 +1718,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
               assert(
                   start.at(d) <
                   std::numeric_limits<
-                      std::remove_reference_t<decltype(start.at(d))>>::max() /
+                      std::remove_reference_t<decltype(start.at(d))> >::max() /
                       2);
             for (int d = 0; d < 3; ++d)
               assert(start.at(d) + count.at(d) <= extent.at(d));
@@ -1885,7 +1885,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
           // assert(start.at(d) >= 0);
           assert(start.at(d) <
                  std::numeric_limits<
-                     std::remove_reference_t<decltype(start.at(d))>>::max() /
+                     std::remove_reference_t<decltype(start.at(d))> >::max() /
                      2);
         for (int d = 0; d < 3; ++d)
           assert(start.at(d) + count.at(d) <= extent.at(d));
