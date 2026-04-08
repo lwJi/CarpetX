@@ -1131,13 +1131,37 @@ int Initialise(tFleshConfig *config) {
     CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
     CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
 
-    // Here we assume that all levels have catched up to the coarsed one when
-    // checkpointing.
-    // TODO: checkpoint level.iteration instead.
-    const int iteration_ratio = pow(2, ghext->num_levels() - 1);
-    active_levels->loop_serially([&](auto &restrict leveldata) {
-      leveldata.iteration = rat64(cctkGH->cctk_iteration) / iteration_ratio;
-    });
+    // Restore per-level iterations from checkpoint if available,
+    // otherwise fall back to synchronized formula.
+    if (ghext->recovered_level_iterations) {
+      const auto &recovered = *ghext->recovered_level_iterations;
+      active_levels->loop_serially([&](auto &restrict leveldata) {
+        if (leveldata.level < int(recovered.size()))
+          leveldata.iteration = recovered.at(leveldata.level);
+        else {
+          // Fallback for levels not in checkpoint (should not happen)
+          const int iteration_ratio = pow(2, ghext->num_levels() - 1);
+          leveldata.iteration = rat64(cctkGH->cctk_iteration) / iteration_ratio;
+        }
+      });
+      ghext->recovered_level_iterations = std::nullopt;
+#pragma omp critical
+      CCTK_VINFO("Restored per-level iterations from checkpoint");
+    } else {
+      // Old checkpoint without per-level iteration metadata: fall back
+      // to synchronized formula and warn
+      const int iteration_ratio = pow(2, ghext->num_levels() - 1);
+      active_levels->loop_serially([&](auto &restrict leveldata) {
+        leveldata.iteration = rat64(cctkGH->cctk_iteration) / iteration_ratio;
+      });
+      if (use_subcycling_wip) {
+#pragma omp critical
+        CCTK_VWARN(CCTK_WARN_ALERT,
+                   "Old checkpoint without per-level iteration metadata. "
+                   "Assuming all levels are synchronized. Recovery from "
+                   "mid-subcycle checkpoints will be incorrect.");
+      }
+    }
 
     active_levels = optional<active_levels_t>();
 
@@ -1357,22 +1381,24 @@ int Initialise(tFleshConfig *config) {
   assert(!active_levels);
   active_levels = make_optional<active_levels_t>();
 
-  if (!restrict_during_sync) {
-    // Restrict
-    assert(active_levels);
-    active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
-      if (leveldata.level != ghext->num_levels() - 1)
-        Restrict(cctkGH, leveldata.level);
-    });
-    // Prolongation
-    SyncAfterRestrict(cctkGH);
-    CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
-  }
+  if (!config->recovered) {
+    if (!restrict_during_sync) {
+      // Restrict
+      assert(active_levels);
+      active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
+        if (leveldata.level != ghext->num_levels() - 1)
+          Restrict(cctkGH, leveldata.level);
+      });
+      // Prolongation
+      SyncAfterRestrict(cctkGH);
+      CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+    }
 
-  // Checkpoint, analysis, output
-  CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
-  CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
-  CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+    // Checkpoint, analysis, output
+    CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+    CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
+    CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+  }
   CCTK_OutputGH(cctkGH);
 
   active_levels = optional<active_levels_t>();
