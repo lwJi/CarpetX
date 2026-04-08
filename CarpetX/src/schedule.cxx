@@ -1786,6 +1786,9 @@ int Evolve(tFleshConfig *config) {
 
     cctkGH->cctk_iteration += 1;
 
+    int min_level_of_current_iteration = 0;
+    int max_level_of_current_iteration = 0;
+
     // Loop over all levels, in batches that combine levels that don't
     // subcycle. The level range is [min_level, max_level).
     for (int min_level = 0, max_level = min_level + 1;
@@ -1863,6 +1866,10 @@ int Evolve(tFleshConfig *config) {
         else
           break;
       }
+
+      min_level_of_current_iteration = min_level;
+      max_level_of_current_iteration = max_level;
+
       active_levels = make_optional<active_levels_t>(min_level, max_level);
 
       if ((!restrict_during_sync) &&
@@ -1877,7 +1884,6 @@ int Evolve(tFleshConfig *config) {
       }
 
       CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
-      CCTK_Traverse(cctkGH, "CCTK_CHECKPOINT");
       CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
       const double output_start_time = gettime();
       CCTK_OutputGH(cctkGH);
@@ -1886,6 +1892,11 @@ int Evolve(tFleshConfig *config) {
 
       active_levels = optional<active_levels_t>();
     } // for min_level, max_level
+
+    active_levels = make_optional<active_levels_t>(
+        min_level_of_current_iteration, max_level_of_current_iteration);
+    CCTK_Traverse(cctkGH, "CCTK_CHECKPOINT");
+    active_levels = optional<active_levels_t>();
 
     const double waiting_start_time = gettime();
     MPI_Barrier(MPI_COMM_WORLD);
