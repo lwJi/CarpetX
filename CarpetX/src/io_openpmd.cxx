@@ -673,6 +673,43 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
                                     []() { return "Recovering"; });
     } // for level
   } // for patch
+
+  // Read per-level subcycling iteration state (if present)
+  {
+    std::vector<rat64> level_iterations;
+    bool found_any = false;
+    for (const auto &patchdata : ghext->patchdata) {
+      const int patch = patchdata.patch;
+      const int nlevels = patchdata.leveldata.size();
+
+      // Reconstruct level suffixes
+      std::vector<std::string> level_suffixes(nlevels);
+      for (int level = 0; level < nlevels; ++level) {
+        std::ostringstream buf;
+        buf << patch_suffixes.at(patch) << "_lev" << std::setw(2)
+            << std::setfill('0') << level;
+        level_suffixes.at(level) = buf.str();
+      }
+
+      for (int level = 0; level < nlevels; ++level) {
+        const std::string attr_name =
+            "levelSubcyclingState" + level_suffixes.at(level);
+        if (read_iter->containsAttribute(attr_name)) {
+          const auto state = read_iter->getAttribute(attr_name)
+                                 .get<std::vector<std::int64_t> >();
+          assert(state.size() == 2);
+          if (!found_any) {
+            level_iterations.resize(nlevels);
+            found_any = true;
+          }
+          level_iterations.at(level) = rat64(state[0], state[1]);
+        }
+      }
+    }
+    if (found_any) {
+      ghext->recovered_level_iterations = std::move(level_iterations);
+    }
+  }
 }
 
 void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
@@ -1482,6 +1519,14 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         }
         write_iter.setAttribute("chunkInfo" + level_suffixes.at(level),
                                 chunk_infos);
+        // Write per-level subcycling iteration state
+        {
+          const auto &iter = leveldata.iteration;
+          std::vector<std::int64_t> subcycling_state{iter.num, iter.den};
+          write_iter.setAttribute("levelSubcyclingState" +
+                                      level_suffixes.at(level),
+                                  subcycling_state);
+        }
       }
     }
   } // if ioproc

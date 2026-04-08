@@ -447,6 +447,55 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
     } // for level
   } // for patch
 
+  // Read per-level subcycling iteration state (if present)
+  {
+    std::vector<rat64> level_iterations;
+    bool found_any = false;
+    for (int patch = 0; patch < npatches; ++patch) {
+      std::ostringstream buf;
+      buf << "levelSubcyclingState"
+          << "_m" << std::setw(4) << std::setfill('0') << patch;
+      const std::string varname = dirname + "/" + DB::legalize_name(buf.str());
+
+      int var_exists = 0;
+      if (read_metafile) {
+        var_exists = (DBInqVarExists(metafile.get(), varname.c_str()) != 0);
+      }
+      MPI_Bcast(&var_exists, 1, MPI_INT, metafile_ioproc, mpi_comm);
+
+      if (var_exists) {
+        int var_length = 0;
+        if (read_metafile) {
+          var_length = DBGetVarLength(metafile.get(), varname.c_str());
+          assert(var_length >= 0);
+          assert(var_length % 2 == 0);
+        }
+        MPI_Bcast(&var_length, 1, MPI_INT, metafile_ioproc, mpi_comm);
+
+        std::vector<std::int64_t> data(var_length);
+        if (read_metafile) {
+          ierr = DBReadVar(metafile.get(), varname.c_str(), data.data());
+          assert(!ierr);
+        }
+        MPI_Bcast(data.data(), var_length, MPI_LONG_LONG, metafile_ioproc,
+                  mpi_comm);
+
+        const int nlevels_patch = var_length / 2;
+        if (!found_any) {
+          level_iterations.resize(nlevels_patch);
+          found_any = true;
+        }
+        for (int level = 0; level < nlevels_patch; ++level) {
+          level_iterations.at(level) =
+              rat64(data.at(2 * level), data.at(2 * level + 1));
+        }
+      }
+    }
+    if (found_any) {
+      ghext->recovered_level_iterations = std::move(level_iterations);
+    }
+  }
+
   interval_meta = nullptr;
 }
 
@@ -1777,6 +1826,26 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
         ierr = DBWrite(metafile.get(), varname.c_str(), values.data(),
                        &num_patches, 1, DB_INT);
+        assert(!ierr);
+      }
+
+      // Write per-level subcycling iteration state
+      for (const auto &patchdata : ghext->patchdata) {
+        const int nlevels_patch = patchdata.leveldata.size();
+        std::vector<std::int64_t> subcycling_state(2 * nlevels_patch);
+        for (const auto &leveldata : patchdata.leveldata) {
+          const int level = leveldata.level;
+          subcycling_state.at(2 * level) = leveldata.iteration.num;
+          subcycling_state.at(2 * level + 1) = leveldata.iteration.den;
+        }
+        std::ostringstream buf;
+        buf << "levelSubcyclingState"
+            << "_m" << std::setw(4) << std::setfill('0') << patchdata.patch;
+        const std::string varname =
+            dirname + "/" + DB::legalize_name(buf.str());
+        const int dims = 2 * nlevels_patch;
+        ierr = DBWrite(metafile.get(), varname.c_str(), subcycling_state.data(),
+                       &dims, 1, DB_LONG_LONG);
         assert(!ierr);
       }
 

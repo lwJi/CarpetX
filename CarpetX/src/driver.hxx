@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <type_traits>
 #include <vector>
@@ -114,6 +115,11 @@ struct GHExt {
   GHExt(GHExt &&) = delete;
   GHExt &operator=(const GHExt &) = delete;
   GHExt &operator=(GHExt &&) = delete;
+
+  // Per-level iteration values recovered from a checkpoint file.
+  // Populated by IO grid-structure readers, consumed and cleared
+  // during iteration assignment in schedule.cxx.
+  std::optional<std::vector<rat64> > recovered_level_iterations;
 
   struct cctkGHptr {
     cGH *cctkGH;
