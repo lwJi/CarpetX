@@ -7,9 +7,10 @@ SCHEDULE TestSubcyclingMC_Initial AT initial
 {
   LANG: C
   WRITES: ustate(interior)
+  WRITES: pstate(interior)
   WRITES: k1(interior) k2(interior) k3(interior) k4(interior)
   SYNC: ustate
-  SYNC: k1 k2 k3 k4
+  SYNC: pstate k1 k2 k3 k4
 } "Initialize scalar wave state"
 
 SCHEDULE TestSubcyclingMC_Sync AT postregrid
@@ -117,3 +118,10 @@ SCHEDULE TestSubcyclingMC_Error IN TestSubcyclingMC_PostStepGroup
   WRITES: error(interior)
   SYNC: error
 } "Calculate error in scalar wave state"
+
+SCHEDULE TestSubcyclingMC_Sync AT post_recover_variables
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: ustate pstate k1 k2 k3 k4
+} "Synchronize after recovery"
