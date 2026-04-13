@@ -444,6 +444,41 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
 
       patchdata.amrcore->SetupLevel(level, boxarray, dm,
                                     []() { return "Recovering"; });
+
+      // Read per-level iteration if present (new checkpoint format)
+      {
+        std::ostringstream buf;
+        buf << "iteration"
+            << ".m" << std::setw(4) << std::setfill('0') << patch << ".rl"
+            << std::setw(2) << std::setfill('0') << level;
+        const std::string iter_varname =
+            dirname + "/" + DB::legalize_name(buf.str());
+        std::int64_t iter_data[2];
+        bool have_iter = false;
+        if (read_metafile) {
+          const int vartype =
+              DBGetVarType(metafile.get(), iter_varname.c_str());
+          if (vartype == DB_LONG_LONG) {
+            const int varlength =
+                DBGetVarLength(metafile.get(), iter_varname.c_str());
+            if (varlength == 2) {
+              ierr = DBReadVar(metafile.get(), iter_varname.c_str(), iter_data);
+              assert(!ierr);
+              have_iter = true;
+            }
+          }
+        }
+        MPI_Bcast(&have_iter, 1, MPI_C_BOOL, metafile_ioproc, mpi_comm);
+        if (have_iter) {
+          MPI_Bcast(iter_data, 2, MPI_INT64_T, metafile_ioproc, mpi_comm);
+          if (ghext->recovered_iterations.empty())
+            ghext->recovered_iterations.resize(ghext->num_patches());
+          auto &patch_iters = ghext->recovered_iterations.at(patch);
+          if (int(patch_iters.size()) <= level)
+            patch_iters.resize(level + 1);
+          patch_iters.at(level) = rat64(iter_data[0], iter_data[1]);
+        }
+      }
     } // for level
   } // for patch
 
@@ -1799,6 +1834,25 @@ void OutputSilo(const cGH *restrict const cctkGH,
               make_fabarraybasename(patchdata.patch, leveldata.level);
           ierr = DBWrite(metafile.get(), varname.c_str(), boxes.data(), dims, 2,
                          DB_INT);
+          assert(!ierr);
+        }
+      }
+
+      // Write per-level iteration as {numerator, denominator}
+      for (const auto &patchdata : ghext->patchdata) {
+        for (const auto &leveldata : patchdata.leveldata) {
+          std::int64_t iter_data[2] = {
+              static_cast<std::int64_t>(leveldata.iteration.num),
+              static_cast<std::int64_t>(leveldata.iteration.den)};
+          const int dims = 2;
+          std::ostringstream buf;
+          buf << "iteration"
+              << ".m" << std::setw(4) << std::setfill('0') << patchdata.patch
+              << ".rl" << std::setw(2) << std::setfill('0') << leveldata.level;
+          const std::string varname =
+              dirname + "/" + DB::legalize_name(buf.str());
+          ierr = DBWrite(metafile.get(), varname.c_str(), iter_data, &dims, 1,
+                         DB_LONG_LONG);
           assert(!ierr);
         }
       }

@@ -139,6 +139,8 @@ struct GHExt {
     int numvars;
 
     bool do_checkpoint; // whether to checkpoint
+    bool do_evolve;     // whether this is an evolved variable (restrict, sync,
+                        // prolongation, NaN)
     bool do_restrict;   // whether to restrict
 
     std::vector<std::vector<why_valid_t> > valid; // [time level][var index]
@@ -449,6 +451,11 @@ struct GHExt {
                                      const PatchData &patchdata);
   };
   std::vector<PatchData> patchdata; // [patch]
+
+  // Side storage for per-level iterations recovered from checkpoint.
+  // Populated by RecoverGridStructure, consumed by recovery code.
+  // Indexed as [patch][level]. Empty means old checkpoint (uniform fallback).
+  std::vector<std::vector<rat64> > recovered_iterations;
 
   bool use_subcycling = false;
 

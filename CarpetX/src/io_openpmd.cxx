@@ -671,6 +671,20 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
 
       patchdata.amrcore->SetupLevel(level, boxarray, dm,
                                     []() { return "Recovering"; });
+
+      // Read per-level iteration if present (new checkpoint format)
+      const std::string iter_attr = "iteration" + level_suffixes.at(level);
+      if (read_iter->containsAttribute(iter_attr)) {
+        if (ghext->recovered_iterations.empty())
+          ghext->recovered_iterations.resize(ghext->num_patches());
+        auto &patch_iters = ghext->recovered_iterations.at(patch);
+        if (int(patch_iters.size()) <= level)
+          patch_iters.resize(level + 1);
+        const auto iter_vec = read_iter->getAttribute(iter_attr)
+                                  .get<std::vector<std::int64_t> >();
+        assert(iter_vec.size() == 2);
+        patch_iters.at(level) = rat64(iter_vec[0], iter_vec[1]);
+      }
     } // for level
   } // for patch
 }
@@ -1482,6 +1496,12 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         }
         write_iter.setAttribute("chunkInfo" + level_suffixes.at(level),
                                 chunk_infos);
+        // Write per-level iteration as {numerator, denominator}
+        const std::vector<std::int64_t> iter_rational = {
+            static_cast<std::int64_t>(leveldata.iteration.num),
+            static_cast<std::int64_t>(leveldata.iteration.den)};
+        write_iter.setAttribute("iteration" + level_suffixes.at(level),
+                                iter_rational);
       }
     }
   } // if ioproc
