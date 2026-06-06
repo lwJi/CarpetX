@@ -1704,6 +1704,85 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     CCTK_VINFO("RemakeLevel patch %d level %d done.", patch, level);
 }
 
+void CactusAmrCore::RedistributeLevel(const int level,
+                                      const amrex::BoxArray &ba,
+                                      const amrex::DistributionMapping &dm) {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (verbose)
+#pragma omp critical
+    CCTK_VINFO("RedistributeLevel patch %d level %d", patch, level);
+
+  auto &patchdata = ghext->patchdata.at(patch);
+  auto &leveldata = patchdata.leveldata.at(level);
+
+  assert(ba.ixType() == amrex::IndexType(amrex::IndexType::CELL,
+                                         amrex::IndexType::CELL,
+                                         amrex::IndexType::CELL));
+
+  // The time bookkeeping of this level must survive the relayout. The
+  // LevelData constructor would otherwise reset it (level 0) or re-derive it
+  // from the coarser level (level > 0).
+  const rat64 saved_iteration = leveldata.iteration;
+  const rat64 saved_delta_iteration = leveldata.delta_iteration;
+  const bool saved_is_subcycling_level = leveldata.is_subcycling_level;
+
+  // Build a fresh LevelData (and hence fresh, empty MultiFabs and cctkGHs) on
+  // the new layout, then swap it in. The old LevelData lives on in the local
+  // variable so we can copy its data across before it is destroyed.
+  GHExt::PatchData::LevelData oldleveldata(
+      patch, level, ba, dm, []() { return "RedistributeLevel"; });
+  using std::swap;
+  swap(oldleveldata, leveldata);
+
+  leveldata.iteration = saved_iteration;
+  leveldata.delta_iteration = saved_delta_iteration;
+  leveldata.is_subcycling_level = saved_is_subcycling_level;
+
+  const amrex::Periodicity period =
+      patchdata.amrcore->Geom(level).periodicity();
+
+  const int num_groups = CCTK_NumGroups();
+  for (int gi = 0; gi < num_groups; ++gi) {
+    cGroup group;
+    int ierr = CCTK_GroupData(gi, &group);
+    assert(!ierr);
+
+    if (group.grouptype != CCTK_GF)
+      continue;
+
+    auto &restrict groupdata = *leveldata.groupdata.at(gi);
+    auto &restrict oldgroupdata = *oldleveldata.groupdata.at(gi);
+    assert(oldgroupdata.numvars == groupdata.numvars);
+
+    const int ntls = groupdata.mfab.size();
+    assert(int(oldgroupdata.mfab.size()) == ntls);
+
+    for (int tl = 0; tl < ntls; ++tl) {
+      amrex::MultiFab &newmfab = *groupdata.mfab.at(tl);
+      amrex::MultiFab &oldmfab = *oldgroupdata.mfab.at(tl);
+      assert(newmfab.nGrowVect() == oldmfab.nGrowVect());
+
+      // Pure relayout: old and new layouts cover an identical region (interior
+      // and, since the ghost width is unchanged, ghosts too), so a
+      // ghost-inclusive ParallelCopy reproduces every cell bit-for-bit. No
+      // interpolation, no boundary refill, no restriction is needed.
+      newmfab.ParallelCopy(oldmfab, 0, 0, groupdata.numvars,
+                           oldmfab.nGrowVect(), newmfab.nGrowVect(), period);
+    }
+
+    // The data is an exact copy of the old layout, so its validity (interior,
+    // outer, ghosts, per timelevel and variable) carries over verbatim.
+    groupdata.valid = oldgroupdata.valid;
+  }
+
+  level_modified.at(level) = true;
+
+  if (verbose)
+#pragma omp critical
+    CCTK_VINFO("RedistributeLevel patch %d level %d done.", patch, level);
+}
+
 void CactusAmrCore::ClearLevel(const int level) {
   DECLARE_CCTK_PARAMETERS;
 

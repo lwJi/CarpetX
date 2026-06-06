@@ -405,6 +405,16 @@ CCTK_INT regrid_every "Regridding interval" STEERABLE=always
   1:* :: "every that many iterations"
 } 0
 
+# When recovering from a checkpoint the box decomposition is read verbatim,
+# so a steered max_grid_size_* (e.g. tuned for a different node count) would
+# otherwise never take effect on a fixed grid (regrid_every = 0). Enabling
+# this re-chops every recovered level to the current max_grid_size and builds
+# a fresh load balance. The covered region per level is preserved exactly, so
+# the relayout is a pure data redistribution (bit-for-bit, no interpolation).
+BOOLEAN rebalance_on_recovery "Re-chop and load-balance the grid to the current max_grid_size after recovering from a checkpoint" STEERABLE=recover
+{
+} no
+
 #TODO: eliminate in favor of regrid_error being a true/false field
 CCTK_REAL regrid_error_threshold "Regridding error threshold" STEERABLE=always
 {

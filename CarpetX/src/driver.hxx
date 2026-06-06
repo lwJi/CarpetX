@@ -110,6 +110,12 @@ public:
   virtual void RemakeLevel(int level, amrex::Real time,
                            const amrex::BoxArray &ba,
                            const amrex::DistributionMapping &dm) override;
+  // Redistribute an existing level onto a new (re-chopped, re-balanced)
+  // BoxArray/DistributionMapping without changing the covered region. Unlike
+  // RemakeLevel this performs no interpolation and works for level 0: the data
+  // is copied verbatim (all timelevels, ghosts included) from the old layout.
+  void RedistributeLevel(int level, const amrex::BoxArray &ba,
+                         const amrex::DistributionMapping &dm);
   virtual void ClearLevel(int level) override;
 };
 
@@ -181,7 +187,7 @@ struct GHExt {
                                         const AnyTypeScalarRef &scalar);
       };
 
-      AnyTypeVector() : _type(-1), _typesize(-1), _count(0), _data(nullptr) {};
+      AnyTypeVector() : _type(-1), _typesize(-1), _count(0), _data(nullptr){};
       AnyTypeVector(int type_, size_t count_)
           : _type(-1), _typesize(-1), _count(0), _data(nullptr) {
         alloc(type_, count_);

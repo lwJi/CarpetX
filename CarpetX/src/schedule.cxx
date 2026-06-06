@@ -1084,6 +1084,100 @@ CCTK_REAL get_finest_mindx() {
   return mindx;
 }
 
+// Re-chop and load-balance every recovered level to the current
+// max_grid_size. With regrid_every = 0 the box decomposition read from the
+// checkpoint would otherwise be kept verbatim, so a steered max_grid_size
+// (e.g. tuned for a different node count) would never take effect. This
+// preserves the covered region of every level exactly and therefore only
+// redistributes data (RedistributeLevel copies it verbatim, no
+// interpolation) -- it works for level 0 / unigrid as well, which the AMReX
+// regrid path can never re-chop.
+void RebalanceAfterRecovery(cGH *restrict const cctkGH) {
+  DECLARE_CCTK_PARAMETERS;
+
+  static Timer timer("RebalanceAfterRecovery");
+  Interval interval(timer);
+
+#pragma omp critical
+  CCTK_VINFO("Rebalancing grid after recovery...");
+
+  // Determine the (possibly newly steered) max_grid_size for every level.
+  amrex::Vector<amrex::IntVect> max_grid_sizes_vec(20);
+  for (int level = 0; level < 20; ++level) {
+    int size_x = max_grid_sizes_x[level];
+    if (size_x == -1)
+      size_x = max_grid_size_x;
+    int size_y = max_grid_sizes_y[level];
+    if (size_y == -1)
+      size_y = max_grid_size_y;
+    int size_z = max_grid_sizes_z[level];
+    if (size_z == -1)
+      size_z = max_grid_size_z;
+    max_grid_sizes_vec.at(level) = amrex::IntVect{size_x, size_y, size_z};
+  }
+
+  int first_modified_level = INT_MAX;
+  int last_modified_level = -1;
+
+  for (auto &patchdata : ghext->patchdata) {
+    patchdata.amrcore->SetMaxGridSize(max_grid_sizes_vec);
+
+    const int numlevels = patchdata.amrcore->finestLevel() + 1;
+    patchdata.amrcore->level_modified.clear();
+    patchdata.amrcore->level_modified.resize(numlevels, false);
+
+    for (int level = 0; level < numlevels; ++level) {
+      // A value (the BoxArray is reference-counted, so this is cheap): the
+      // referenced fab is replaced by RedistributeLevel below, after which a
+      // reference into it would dangle.
+      const amrex::BoxArray old_ba =
+          patchdata.leveldata.at(level).fab->boxArray();
+
+      // Re-chop the recovered boxes to the current max_grid_size. simplify()
+      // first so that maxSize() can also *coarsen* an over-split decomposition
+      // (maxSize only ever splits boxes, it never merges them).
+      amrex::BoxList bl = old_ba.boxList();
+      bl.simplify();
+      amrex::BoxArray new_ba(std::move(bl));
+      new_ba.maxSize(max_grid_sizes_vec.at(level));
+
+      // Nothing to do if the decomposition is unchanged.
+      if (new_ba == old_ba)
+        continue;
+
+      amrex::DistributionMapping new_dm(new_ba);
+
+      // Keep the AmrCore's own view of the grids consistent, so that finer
+      // levels and AMReX internals see the new layout too.
+      patchdata.amrcore->SetBoxArray(level, new_ba);
+      patchdata.amrcore->SetDistributionMap(level, new_dm);
+
+      patchdata.amrcore->RedistributeLevel(level, new_ba, new_dm);
+
+      using std::max;
+      using std::min;
+      first_modified_level = min(first_modified_level, level);
+      last_modified_level = max(last_modified_level, level);
+
+#pragma omp critical
+      CCTK_VINFO("  patch %d level %d: %d -> %d boxes", patchdata.patch, level,
+                 int(old_ba.size()), int(new_ba.size()));
+    }
+  }
+
+  // Let downstream thorns (e.g. ODESolvers) rebuild any layout-dependent
+  // temporaries, mirroring the evolution-loop regrid.
+  const bool did_modify_any_level = last_modified_level >= first_modified_level;
+  if (did_modify_any_level) {
+    assert(!active_levels);
+    active_levels = make_optional<active_levels_t>(first_modified_level,
+                                                   last_modified_level + 1);
+    CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
+    CCTK_Traverse(cctkGH, "CCTK_POSTREGRID");
+    active_levels = optional<active_levels_t>();
+  }
+}
+
 // Schedule initialisation
 int Initialise(tFleshConfig *config) {
   DECLARE_CCTK_PARAMETERS;
@@ -1201,6 +1295,12 @@ int Initialise(tFleshConfig *config) {
     ghext->recovered_level_iterations.clear();
 
     active_levels = optional<active_levels_t>();
+
+    // Re-chop and load-balance the recovered grid to the current
+    // max_grid_size. Required for the new max_grid_size to take effect when
+    // restarting on a different node count with a fixed grid (regrid_every=0).
+    if (rebalance_on_recovery)
+      RebalanceAfterRecovery(cctkGH);
 
     // Enable regridding
     for (auto &patchdata : ghext->patchdata)
@@ -2184,9 +2284,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     cFunctionData *const key = attribute;
     bool needs_check;
 #pragma omp critical(CarpetX_CallFunction)
-    {
-      needs_check = validated.insert(key).second;
-    }
+    { needs_check = validated.insert(key).second; }
     if (needs_check)
       check_storage_clauses(attribute);
   }
