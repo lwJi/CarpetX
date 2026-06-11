@@ -682,6 +682,38 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
 
       amrex::BoxList boxlist(std::move(levboxes));
       amrex::BoxArray boxarray(std::move(boxlist));
+
+      if (rechop_on_recovery) {
+        // Keep cuts aligned to the blocking factor and, on fine levels, the
+        // refinement ratio
+        amrex::IntVect chop_unit = patchdata.amrcore->blockingFactor(level);
+        if (level > 0)
+          chop_unit.max(patchdata.amrcore->refRatio(level - 1));
+        const amrex::BoxArray old_boxarray = boxarray;
+        boxarray = rechop_boxarray(
+            old_boxarray, patchdata.amrcore->maxGridSize(level), chop_unit,
+            refine_grid_layout, amrex::ParallelDescriptor::NProcs());
+        if (boxarray.numPts() != old_boxarray.numPts() ||
+            !boxarray.contains(old_boxarray) ||
+            !old_boxarray.contains(boxarray))
+          CCTK_VERROR(
+              "rechop_on_recovery changed the grid coverage on patch %d "
+              "level %d. This can happen when the checkpointed boxes are not "
+              "aligned with the current blocking factor; restart with the "
+              "checkpoint's blocking_factor_[xyz] or disable "
+              "rechop_on_recovery.",
+              patchdata.patch, level);
+        if (io_verbose)
+          CCTK_VINFO("Re-chopped patch %d level %d: %d boxes -> %d boxes "
+                     "(max_grid_size [%d,%d,%d], %d processes)",
+                     patchdata.patch, level, int(old_boxarray.size()),
+                     int(boxarray.size()),
+                     int(patchdata.amrcore->maxGridSize(level)[0]),
+                     int(patchdata.amrcore->maxGridSize(level)[1]),
+                     int(patchdata.amrcore->maxGridSize(level)[2]),
+                     amrex::ParallelDescriptor::NProcs());
+      }
+
       patchdata.amrcore->SetBoxArray(level, boxarray);
 
       amrex::DistributionMapping dm(boxarray);

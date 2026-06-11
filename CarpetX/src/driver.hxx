@@ -601,6 +601,16 @@ enum class band_kind { ks_consumer, old_consumer };
 // for ks_consumer, "oldc" for old_consumer. Shared by both IO backends.
 std::string subcycling_band_tag(band_kind kind, int stage = -1);
 
+// Union-preserving re-chop of a level's BoxArray: merge the boxes, re-split
+// to max_grid_size, and halve chunks toward nranks boxes if
+// refine_grid_layout. All cuts are aligned to chop_unit; the caller must
+// verify that the union is unchanged (it is not if the input boxes are not
+// chop_unit-aligned).
+amrex::BoxArray rechop_boxarray(const amrex::BoxArray &ba,
+                                const amrex::IntVect &max_grid_size,
+                                const amrex::IntVect &chop_unit,
+                                bool refine_grid_layout, int nranks);
+
 } // namespace CarpetX
 
 #endif // #ifndef CARPETX_CARPETX_DRIVER_HXX

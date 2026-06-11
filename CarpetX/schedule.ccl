@@ -18,6 +18,15 @@ if (!CCTK_Equals(recover, "no") && *recover_file)
   } "Recover parameters"
 }
 
+if (rechop_on_recovery)
+{
+  SCHEDULE CarpetX_CheckRechopParameters AT CCTK_PARAMCHECK
+  {
+    LANG: C
+    OPTIONS: global
+  } "Reject rechop_on_recovery with the Silo recovery backend"
+}
+
 
 
 # I/O

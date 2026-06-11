@@ -1130,6 +1130,38 @@ std::string subcycling_band_tag(const band_kind kind, const int stage) {
   return buf.str();
 }
 
+amrex::BoxArray rechop_boxarray(const amrex::BoxArray &ba,
+                                const amrex::IntVect &max_grid_size,
+                                const amrex::IntVect &chop_unit,
+                                const bool refine_grid_layout,
+                                const int nranks) {
+  amrex::BoxList bl = ba.boxList();
+  bl.simplify(true); // merge boxes
+  bl.coarsen(chop_unit);
+
+  amrex::IntVect chunk = max_grid_size / chop_unit;
+  chunk.max(amrex::IntVect(1));
+  bl.maxSize(chunk);
+
+  if (refine_grid_layout) {
+    // Halve the largest chunk dimension toward one box per rank
+    // (cf. AmrMesh::ChopGrids)
+    while (int(bl.size()) < nranks) {
+      int idim = -1;
+      for (int d = 0; d < dim; ++d)
+        if (chunk[d] >= 2 && (idim < 0 || chunk[d] > chunk[idim]))
+          idim = d;
+      if (idim < 0)
+        break;
+      chunk[idim] /= 2;
+      bl.maxSize(chunk);
+    }
+  }
+
+  bl.refine(chop_unit);
+  return amrex::BoxArray(std::move(bl));
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void GHExt::PatchData::LevelData::GroupData::init_tmp_mfabs() const {

@@ -143,6 +143,18 @@ extern "C" int CarpetX_RecoverParameters() {
   return recover_iteration >= 0;
 }
 
+extern "C" void CarpetX_CheckRechopParameters(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (rechop_on_recovery && CCTK_EQUALS(recover_method, "silo") &&
+      !CCTK_EQUALS(recover, "no"))
+    CCTK_PARAMWARN(
+        "CarpetX::rechop_on_recovery is not supported with "
+        "CarpetX::recover_method = \"silo\": the Silo reader is tied to the "
+        "checkpointed box decomposition. Use openPMD checkpoints "
+        "(CarpetX::recover_method = \"openpmd\") to re-chop on recovery.");
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void RecoverGridStructure(cGH *restrict cctkGH) {

@@ -335,6 +335,10 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
   assert(!input_file.empty());
   assert(input_iteration >= 0);
 
+  if (rechop_on_recovery)
+    CCTK_VERROR("CarpetX::rechop_on_recovery is not supported with the Silo "
+                "recovery backend; use openPMD checkpoints instead");
+
   int ierr;
 
   // Set up timers

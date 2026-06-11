@@ -531,6 +531,10 @@ KEYWORD recover_method "I/O method for recovery" STEERABLE=recover
   "silo" :: ""
 } "error"
 
+BOOLEAN rechop_on_recovery "Re-chop and load-balance all levels to the current max_grid_size when recovering from a checkpoint (openPMD only)" STEERABLE=recover
+{
+} "no"
+
 KEYWORD checkpoint_method "I/O method for checkpointing" STEERABLE=recover
 {
   "error" :: "Abort with error instead of checkpointing"
