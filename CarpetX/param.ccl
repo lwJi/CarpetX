@@ -375,6 +375,10 @@ BOOLEAN refine_grid_layout "Ensure that each MPI process has at least one grid" 
 {
 } yes
 
+BOOLEAN rechop_on_recover "Re-chop grid to current max_grid_size when recovering from checkpoint" STEERABLE=recover
+{
+} no
+
 CCTK_INT max_tile_size_x "Maximum tile size" STEERABLE=recover
 {
   1:* :: ""

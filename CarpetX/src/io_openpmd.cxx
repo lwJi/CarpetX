@@ -682,6 +682,33 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
 
       amrex::BoxList boxlist(std::move(levboxes));
       amrex::BoxArray boxarray(std::move(boxlist));
+
+      // Rechop grid if enabled
+      if (rechop_on_recover) {
+        const int original_nboxes = boxarray.size();
+        // Get max_grid_size for this level (with per-level override support)
+        const int mgs_x = max_grid_sizes_x[level] != -1
+                              ? max_grid_sizes_x[level]
+                              : max_grid_size_x;
+        const int mgs_y = max_grid_sizes_y[level] != -1
+                              ? max_grid_sizes_y[level]
+                              : max_grid_size_y;
+        const int mgs_z = max_grid_sizes_z[level] != -1
+                              ? max_grid_sizes_z[level]
+                              : max_grid_size_z;
+        boxarray.maxSize(amrex::IntVect{mgs_x, mgs_y, mgs_z});
+        if (refine_grid_layout) {
+          patchdata.amrcore->ChopGrids(level, boxarray,
+                                       amrex::ParallelDescriptor::NProcs());
+        }
+        const int new_nboxes = boxarray.size();
+        if (new_nboxes != original_nboxes) {
+          CCTK_VINFO("Rechop on recover: patch %d level %d box count changed "
+                     "from %d to %d",
+                     patchdata.patch, level, original_nboxes, new_nboxes);
+        }
+      }
+
       patchdata.amrcore->SetBoxArray(level, boxarray);
 
       amrex::DistributionMapping dm(boxarray);
