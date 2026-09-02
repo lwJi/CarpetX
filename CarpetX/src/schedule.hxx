@@ -22,8 +22,6 @@ int Initialise(tFleshConfig *config);
 int Evolve(tFleshConfig *config);
 int Shutdown(tFleshConfig *config);
 
-// Restrict `groups` from level+1 onto `level` without validity tracking.
-// No-op if the two levels are at different iterations (subcycling).
 void RestrictNoPoison(const cGH *cctkGH, int level,
                       const std::vector<int> &groups);
 
