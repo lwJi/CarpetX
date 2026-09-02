@@ -1,0 +1,24 @@
+# Schedule definitions for thorn TestSubcyclingRestrict
+
+STORAGE: canary
+
+schedule TestSubcyclingRestrict_Init AT INITIAL
+{
+  LANG: C
+  WRITES: canary(interior)
+  SYNC: canary
+} "initialize canary grid function"
+
+schedule TestSubcyclingRestrict_Update AT EVOL
+{
+  LANG: C
+  WRITES: canary(interior)
+  SYNC: canary
+} "update canary grid function"
+
+schedule TestSubcyclingRestrict_Restrict AT POSTSTEP
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: canary
+} "restrict canary with RestrictIfAligned on every pass"

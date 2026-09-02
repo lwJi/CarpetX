@@ -1,0 +1,21 @@
+Cactus Code Thorn TestSubcyclingRestrict
+Author(s)    : Liwei Ji <jiliwei.phys@gmail.com>
+Maintainer(s): Liwei Ji <jiliwei.phys@gmail.com>
+Licence      : LGPL
+--------------------------------------------------------------------------
+
+1. Purpose
+
+Test the iteration-aware restriction entry point CarpetX::RestrictIfAligned,
+which restricts a fine level onto its parent only when the two levels are at
+the same iteration, and leaves the coarse data untouched otherwise.
+
+The thorn runs two refinement levels with 2:1 subcycling in time. A canary
+grid function stores 100 + 10 * cctk_iteration + cctk_level in the interior
+of every level at INITIAL and EVOL, so fine and coarse data are always
+distinguishable. The canary carries the tag restrict="no" so that the driver
+never restricts it itself; the only restriction it ever sees is the call to
+RestrictIfAligned made by this thorn at POSTSTEP on every pass, without
+inspecting the level clocks. On the first (misaligned) pass of each coarse
+step the coarse interior under the fine box must keep the coarse value; on
+the second (aligned) pass it must take the fine value.

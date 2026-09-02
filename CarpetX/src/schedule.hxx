@@ -25,6 +25,13 @@ int Shutdown(tFleshConfig *config);
 void RestrictNoPoison(const cGH *cctkGH, int level,
                       const std::vector<int> &groups);
 
+// Restrict level+1 onto level for the given groups, but only on patches where
+// both levels are at the same iteration; misaligned patches are left
+// untouched. Refilling fine boundaries afterwards and any CCTK_POSTRESTRICT
+// work remain the caller's job, as for RestrictNoPoison.
+void RestrictIfAligned(const cGH *cctkGH, int level,
+                       const std::vector<int> &groups);
+
 int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
                      const int *groups, const int *directions);
 

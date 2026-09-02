@@ -184,6 +184,7 @@ CarpetX/TestSubcycleStepping
 CarpetX/TestSubcyclingMC
 CarpetX/TestSubcyclingMC2
 CarpetX/TestSubcyclingProlong
+CarpetX/TestSubcyclingRestrict
 CarpetX/TestSymmetries
 CarpetX/TmunuBaseX
 CarpetX/VGFWaveToyX

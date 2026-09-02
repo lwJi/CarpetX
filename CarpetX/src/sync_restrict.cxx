@@ -886,9 +886,14 @@ void Reflux(const cGH *cctkGH, int level) {
 // Restrict
 // =======================================================================
 
+// Restrict level+1 onto level on every patch that has a finer level. With
+// check_alignment set, a patch whose fine and coarse levels are at different
+// iterations (a mid-cycle substep under subcycling) is skipped and its coarse
+// data left untouched.
 static void Restrict_impl(const cGH *cctkGH, int level,
                           const std::vector<int> &groups,
-                          const bool do_validity_tracking) {
+                          const bool do_validity_tracking,
+                          const bool check_alignment) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(do_restrict);
@@ -905,6 +910,20 @@ static void Restrict_impl(const cGH *cctkGH, int level,
     if (level + 1 < int(patchdata.leveldata.size())) {
       auto &leveldata = patchdata.leveldata.at(level);
       const auto &fineleveldata = patchdata.leveldata.at(level + 1);
+      if (check_alignment) {
+        const bool aligned = fineleveldata.iteration == leveldata.iteration;
+        if (verbose) {
+          std::ostringstream msg;
+          msg << "Restrict: " << (aligned ? "restricting" : "skipping")
+              << " rl=" << level << " patch=" << patch
+              << " (coarse it=" << leveldata.iteration
+              << ", fine it=" << fineleveldata.iteration << ")";
+#pragma omp critical
+          CCTK_VINFO("%s", msg.str().c_str());
+        }
+        if (!aligned)
+          continue;
+      }
       const active_levels_t active_levels(level, level + 1, patch, patch + 1);
       const active_levels_t active_fine_levels(level + 1, level + 2, patch,
                                                patch + 1);
@@ -1010,11 +1029,22 @@ static void Restrict_impl(const cGH *cctkGH, int level,
 }
 
 void Restrict(const cGH *cctkGH, int level, const std::vector<int> &groups) {
-  Restrict_impl(cctkGH, level, groups, /*do_validity_tracking=*/true);
+  Restrict_impl(cctkGH, level, groups, /*do_validity_tracking=*/true,
+                /*check_alignment=*/false);
 }
 
 void RestrictNoPoison(const cGH *cctkGH, int level, const std::vector<int> &groups) {
-  Restrict_impl(cctkGH, level, groups, /*do_validity_tracking=*/false);
+  Restrict_impl(cctkGH, level, groups, /*do_validity_tracking=*/false,
+                /*check_alignment=*/false);
+}
+
+void RestrictIfAligned(const cGH *cctkGH, int level,
+                       const std::vector<int> &groups) {
+  // Same validity-tracking choice as the 2-arg Restrict below, so this is a
+  // drop-in for the scheduler's restrict in either configuration
+  Restrict_impl(cctkGH, level, groups,
+                /*do_validity_tracking=*/!ghext->use_subcycling,
+                /*check_alignment=*/true);
 }
 
 void Restrict(const cGH *cctkGH, int level) {

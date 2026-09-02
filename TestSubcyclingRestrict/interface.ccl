@@ -1,0 +1,8 @@
+# Interface definition for thorn TestSubcyclingRestrict
+implements: TestSubcyclingRestrict
+
+USES INCLUDE HEADER: loop.hxx
+
+# restrict="no" keeps the driver's own restriction away from this group, so
+# the only restriction it sees is the thorn's call to RestrictIfAligned.
+CCTK_REAL canary TYPE=GF CENTERING={VVV} TAGS='checkpoint="yes" restrict="no"' "canary encoding level and iteration"
