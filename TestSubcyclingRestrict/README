@@ -19,3 +19,35 @@ RestrictIfAligned made by this thorn at POSTSTEP on every pass, without
 inspecting the level clocks. On the first (misaligned) pass of each coarse
 step the coarse interior under the fine box must keep the coarse value; on
 the second (aligned) pass it must take the fine value.
+
+2. Pass table
+
+The testsuite entry test/restrict.par runs cctk_itlast = 4 with dtfac = 8.0
+and out_every = 1. Under 2:1 subcycling each odd pass of the time loop
+advances both levels (L0 in its own batch, then L1), and each even pass
+advances only L1, which brings it back into alignment with L0. The thorn's
+POSTSTEP routine is traversed once per batch, so it runs twice on odd passes
+and once on even passes, and it calls RestrictIfAligned(0) every time.
+
+The canary is 100 + 10 * cctk_iteration + cctk_level in the interior of
+every level, so L0 holds 1x0 and L1 holds 1x1 after an update. Level clocks
+below are the rational iterations after the pass has advanced its batches.
+
+  pass  L0 clock  L1 clock  RestrictIfAligned(0)  L0 under fine box  L0 elsewhere  L1 interior
+  ----  --------  --------  --------------------  -----------------  ------------  -----------
+   0       0         0      restricted (initial)        101              100           101
+   1       1        1/2     skipped (twice)             110              110           111
+   2       1         1      restricted                  121              110           121
+   3       2        3/2     skipped (twice)             130              130           131
+   4       2         2      restricted                  141              130           141
+
+Reading test/restrict/testsubcyclingrestrict-canary.it00000N.{x,y,z}.tsv:
+at odd N the level-0 rows are uniform and never contain the fine value
+(1N1); at even N the level-0 rows under the fine box (|x|, |y|, |z| <= 0.5)
+carry the fine value while the rest of level 0 keeps the value it was given
+at the previous odd pass. Replacing RestrictIfAligned with the unconditional
+RestrictNoPoison overwrites the level-0 rows under the fine box with 111 and
+131 at iterations 1 and 3 and makes the test fail; the even iterations are
+unaffected. The two level-1 ghost rows at x = +-0.5625 hold 100.5 on every
+iteration, the same as in TestSubcycleStepping, and are unrelated to
+restriction.
