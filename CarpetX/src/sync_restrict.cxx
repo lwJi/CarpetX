@@ -905,13 +905,6 @@ static void Restrict_impl(const cGH *cctkGH, int level,
     if (level + 1 < int(patchdata.leveldata.size())) {
       auto &leveldata = patchdata.leveldata.at(level);
       const auto &fineleveldata = patchdata.leveldata.at(level + 1);
-      // With subcycling the fine level can lag behind this level within a
-      // step. Callers that restrict mid-step over active_levels (implicit
-      // restrict in SyncGroupsByDirI, or thorns such as AsterX) would then
-      // copy stale fine data onto a coarse level that has already advanced.
-      if (fineleveldata.iteration != leveldata.iteration) {
-        continue;
-      }
       const active_levels_t active_levels(level, level + 1, patch, patch + 1);
       const active_levels_t active_fine_levels(level + 1, level + 2, patch,
                                                patch + 1);
