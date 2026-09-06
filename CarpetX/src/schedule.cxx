@@ -1441,7 +1441,14 @@ int Initialise(tFleshConfig *config) {
   // finest level traversed; mirrors the assignment in the evolve loop.
   cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
 
-  if (!restrict_during_sync) {
+  if (max_level - min_level < 2) {
+    // Only the finest level is at the current time: nothing to restrict
+    if (verbose)
+#pragma omp critical
+      CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
+                 "at the current time",
+                 cctkGH->cctk_iteration, min_level);
+  } else if (!restrict_during_sync) {
     // Restrict
     assert(active_levels);
     active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
@@ -1973,7 +1980,14 @@ int Evolve(tFleshConfig *config) {
       active_levels = std::make_optional<active_levels_t>(min_level, max_level);
 
       if (max_level == ghext->num_levels()) {
-        if (!restrict_during_sync) {
+        if (max_level - min_level < 2) {
+          // Only the finest level is at the current time: nothing to restrict
+          if (verbose)
+#pragma omp critical
+            CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
+                       "at the current time",
+                       cctkGH->cctk_iteration, min_level);
+        } else if (!restrict_during_sync) {
           // Restrict
           active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
             if (leveldata.level < ghext->num_levels() - 1)

@@ -7,3 +7,31 @@ Licence      : NCSA
 1. Purpose
 
 Test subcycle time stepping
+
+2. Grid functions
+
+"iteration" is stamped with 100 + 10*cctk_iteration + cctk_level at INITIAL
+and at EVOL, so its value on each level records the last pass on which that
+level was evolved.
+
+"postrestrict" (restrict="no") is stamped the same way at INITIAL and at
+CCTK_POSTRESTRICT. Restriction never overwrites it, so its value on each
+level records the last pass on which that level was inside the active range
+of a CCTK_POSTRESTRICT traversal. The driver only enters the restriction
+phase when the finest level has caught up with its parent, so with 2 levels
+and subcycling the level-1 stamp is unchanged on odd passes (1, 3, ...) and
+both levels update on even passes (2, 4, ...). If the restriction phase ever
+runs on a pass where nothing is time-aligned, the finest level's stamp
+changes on an odd pass and the test fails.
+
+With 3 levels (test/subcycle_3levels.par, two coarse steps) the finest level
+aligns with level 1 on every second pass and with level 0 on every fourth,
+so within each coarse step the "postrestrict" stamps update as follows:
+
+  pass 1: none          (levels at t = 1, 1/2, 1/4)
+  pass 2: levels 1, 2   (levels at t = 1, 1/2, 1/2; level 2 restricted into 1)
+  pass 3: none          (levels at t = 1, 1, 3/4)
+  pass 4: levels 0,1,2  (levels at t = 1, 1, 1; full cascade)
+
+Pass 2 is the case a too-eager gate would get wrong: level 0 must keep its
+previous stamp while levels 1 and 2 update.
