@@ -487,6 +487,10 @@ BOOLEAN restrict_during_sync "Restrict fine to coarse grid functions when syncin
 {
 } yes
 
+BOOLEAN restrict_cf_interface "Restrict nodal grid points lying on the boundary of the fine region"
+{
+} yes
+
 
 
 KEYWORD timestep_choice "How to set the time step size"

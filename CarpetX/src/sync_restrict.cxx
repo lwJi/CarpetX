@@ -12,6 +12,7 @@
 #include <AMReX_MultiFabUtil.H>
 
 #include <cassert>
+#include <memory>
 #include <sstream>
 #include <vector>
 
@@ -955,16 +956,31 @@ static void Restrict_impl(const cGH *cctkGH, int level,
             });
           }
 
+          // rank: 0: vertex, 1: edge, 2: face, 3: volume
+          int rank = 0;
+          for (int d = 0; d < dim; ++d)
+            rank += groupdata.indextype.at(d);
+
+          // Optionally keep the coarse values of nodal points that lie on
+          // the boundary of the fine region (the coarse-fine interface).
+          // These points belong to coarse cells that are not covered by the
+          // fine level; leaving them untouched ensures that every uncovered
+          // coarse cell is built from coarse-level data only.
+          const bool skip_cf_interface = !restrict_cf_interface && rank < dim;
+          std::unique_ptr<amrex::MultiFab> saved;
+          if (skip_cf_interface) {
+            const auto &crse = *groupdata.mfab.at(tl);
+            saved = std::make_unique<amrex::MultiFab>(
+                crse.boxArray(), crse.DistributionMap(), crse.nComp(), 0);
+            amrex::MultiFab::Copy(*saved, crse, 0, 0, crse.nComp(), 0);
+          }
+
 #if 1
           {
             static Timer timer("Restrict::average_down");
             Interval interval(timer);
 #warning                                                                       \
     "TODO: Allow different restriction operators, and ensure this is conservative"
-            // rank: 0: vertex, 1: edge, 2: face, 3: volume
-            int rank = 0;
-            for (int d = 0; d < dim; ++d)
-              rank += groupdata.indextype.at(d);
             switch (rank) {
             case 0:
               average_down_nodal(*finegroupdata.mfab.at(tl),
@@ -987,6 +1003,46 @@ static void Restrict_impl(const cGH *cctkGH, int level,
             }
           }
 #endif
+
+          if (skip_cf_interface) {
+            static Timer timer("Restrict::skip_cf_interface");
+            Interval interval(timer);
+            auto &crse = *groupdata.mfab.at(tl);
+            const auto &fine = *finegroupdata.mfab.at(tl);
+            const amrex::IntVect cellvect = amrex::IntVect::TheZeroVector();
+            const amrex::BoxArray cba = amrex::convert(crse.boxArray(), cellvect);
+            const amrex::BoxArray fba = amrex::convert(fine.boxArray(), cellvect);
+            const auto &geom = patchdata.amrcore->Geom(level);
+            // Cell-centred mask on the coarse level: 1 where covered by the
+            // fine level, 0 elsewhere. One ghost cell so that nodal points on
+            // the boundary of a coarse box can look at their outward
+            // neighbour cell.
+            const amrex::iMultiFab fmask = amrex::makeFineMask(
+                cba, crse.DistributionMap(), amrex::IntVect(1), fba, reffact,
+                geom.periodicity(), 0, 1);
+            const amrex::IntVect nodal = crse.ixType().toIntVect();
+            const int ncomp = crse.nComp();
+            for (amrex::MFIter mfi(crse); mfi.isValid(); ++mfi) {
+              const amrex::Box &bx = mfi.validbox();
+              const auto crsearr = crse.array(mfi);
+              const auto savedarr = saved->const_array(mfi);
+              const auto maskarr = fmask.const_array(mfi);
+              amrex::ParallelFor(
+                  bx, ncomp,
+                  [=] CCTK_DEVICE(const int i, const int j, const int k,
+                                  const int n) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+                    // A nodal point is interior to the fine region iff all
+                    // cells adjacent to it are covered by the fine level
+                    bool interior = true;
+                    for (int kk = k - nodal[2]; kk <= k; ++kk)
+                      for (int jj = j - nodal[1]; jj <= j; ++jj)
+                        for (int ii = i - nodal[0]; ii <= i; ++ii)
+                          interior &= maskarr(ii, jj, kk) == 1;
+                    if (!interior)
+                      crsearr(i, j, k, n) = savedarr(i, j, k, n);
+                  });
+            }
+          }
 
           if (do_validity_tracking) {
             // TODO: Also remember old why_valid for interior?
