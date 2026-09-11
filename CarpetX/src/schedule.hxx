@@ -37,6 +37,13 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
                                    const int *groups, const int *directions,
                                    int tl = -1);
 
+// Like SyncGroupsByDirIProlongateOnly, but under subcycling only prolongates
+// into a level whose iteration equals its parent's (time-aligned pairs).
+// Without subcycling the two are identical.
+int SyncGroupsByDirIProlongateOnlyAligned(const cGH *restrict cctkGH,
+                                          int numgroups, const int *groups,
+                                          const int *directions, int tl = -1);
+
 int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
                               const int *groups, const int *directions,
                               int tl = -1);
