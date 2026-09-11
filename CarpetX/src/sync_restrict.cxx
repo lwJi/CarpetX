@@ -717,6 +717,13 @@ int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
                                              directions, false, tl);
 }
 
+int SyncGroupsByDirIProlongateOnlyAligned(const cGH *restrict cctkGH,
+                                          int numgroups, const int *groups0,
+                                          const int *directions, const int tl) {
+  return SyncGroupsByDirIProlongateOnly_impl(cctkGH, numgroups, groups0,
+                                             directions, true, tl);
+}
+
 int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
                               const int *groups0, const int *directions,
                               const int tl_arg) {
