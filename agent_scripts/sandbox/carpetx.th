@@ -181,6 +181,7 @@ CarpetX/TestOutput
 CarpetX/TestProlongate
 CarpetX/TestStorageKeyword
 CarpetX/TestSubcycleStepping
+CarpetX/TestSubcyclingCC
 CarpetX/TestSubcyclingMC
 CarpetX/TestSubcyclingMC2
 CarpetX/TestSubcyclingProlong
