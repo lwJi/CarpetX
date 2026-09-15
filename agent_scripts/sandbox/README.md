@@ -65,6 +65,30 @@ sbx exec -w "$PWD" claude-CarpetX ./agent_scripts/build.sh
 sbx exec -w "$PWD" claude-CarpetX ./agent_scripts/test.sh
 ```
 
+## Known issue: sbx drops the template's layers (sbx v0.37.0 up to at least v0.43.0)
+
+Symptom: a freshly created sandbox contains only the base image. Every `sbx exec` prints `bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8): No such file or directory` (the image's `LC_ALL` is set, but the `locales` layer is missing), `which cmake` is empty, `$CACTUSX` is set but the directory does not exist, and `setup.sh` stops with "the sandbox rootfs is missing the template's layers". `sbx inspect` still reports the right image digest.
+
+Cause: [docker/sbx-releases#366](https://github.com/docker/sbx-releases/issues/366). Since v0.37.0 the sbx daemon no longer builds a merged `fsmeta.erofs` for newly pulled or loaded layers. When the local store already holds a merged `fsmeta.erofs` for the base image chain (written by sbx ≤ v0.35), the guest mounts only that merged prefix and silently drops every layer this template adds on top. Rebuilding the image, `docker push` + pull, and `docker save` + `sbx template load` all end up the same way. The precondition is visible on the host (macOS path):
+
+```bash
+ls ~/.sbx/run/d/containerd/root/io.containerd.snapshotter.v1.erofs/snapshots/*/fsmeta.erofs
+```
+
+Any hit means new layers stacked on that chain are dropped by an affected sbx. Sandboxes created from a template that was pulled before the upgrade to v0.37.0 keep working (their whole chain is merged), which is why an old `claude-carpetx` sandbox can be fine while a new one is empty.
+
+Fix: upgrade sbx to a build with the fix (the maintainers say the release after v0.43.0; nightlies from `d67e801`, 2026-09-11, are confirmed), then recreate the template and the sandbox. On macOS the nightly ships as the `docker/tap/sbx@nightly` cask, which conflicts with `docker/tap/sbx`:
+
+```bash
+brew uninstall --cask sbx && brew install --cask docker/tap/sbx@nightly
+sbx daemon start -d
+sbx rm claude-CarpetX
+sbx template rm docker.io/lwji/sandbox-templates:claude-carpetx   # "not found" is fine
+sbx run -t lwji/sandbox-templates:claude-carpetx --name claude-CarpetX claude . ../amrex:ro
+```
+
+The nightly cask pins one build, so switch back once a fixed stable release exists: `brew uninstall --cask sbx@nightly && brew install --cask docker/tap/sbx`. The issue thread also states that a store with no pre-v0.37 merged metadata is unaffected, so `sbx reset` (which deletes every sandbox on the host) followed by a fresh pull should work without upgrading; that path is untested here.
+
 ## How it works
 
 - sbx mounts workspaces at their **host paths** (`/Users/liwei/docker-workspace/repos/CarpetX` appears at the same path inside the microVM), and the agent runs as the non-root `agent` user (uid 1000, passwordless sudo) provided by the base image.

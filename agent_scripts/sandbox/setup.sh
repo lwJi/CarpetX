@@ -13,8 +13,13 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-if [ -z "${CACTUSX:-}" ] || [ ! -d "$CACTUSX" ]; then
-  echo "✗ CACTUSX is unset or does not exist (is this the sandbox image?)" >&2
+if [ -z "${CACTUSX:-}" ]; then
+  echo "✗ CACTUSX is unset (is this the sandbox image?)" >&2
+  exit 1
+fi
+if [ ! -d "$CACTUSX" ]; then
+  echo "✗ CACTUSX=$CACTUSX does not exist: the sandbox rootfs is missing the template's layers" >&2
+  echo "  (sbx bug docker/sbx-releases#366; see 'Known issue' in agent_scripts/sandbox/README.md)" >&2
   exit 1
 fi
 
