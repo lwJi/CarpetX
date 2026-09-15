@@ -37,3 +37,11 @@ case, with no refinement-boundary artifacts.
                           prolongation_type = "eno", prolongation_order = 3;
                           outputs state and error every 64 iterations
                           up to t = 2 (reference: test/gaussian_eno/)
+
+The domain in gaussian_eno.par is offset from the pulse by a different
+generic amount in each direction. On a grid that is mirror-symmetric
+about the pulse, the ENO stencil selection compares candidate stencils
+whose undivided differences tie exactly, and the tie is broken by
+platform-dependent rounding, so the reference output would depend on the
+compiler and CPU. Breaking the symmetry makes the stencil choice
+deterministic across platforms.

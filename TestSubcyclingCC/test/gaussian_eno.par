@@ -27,13 +27,20 @@ CarpetX::verbose = no
 Cactus::cctk_show_schedule = yes
 Cactus::presync_mode = "mixed-error"
 
-CarpetX::xmin = -4.0
-CarpetX::ymin = -4.0
-CarpetX::zmin = -4.0
+# The domain is shifted by a different, generic amount in each direction
+# so that no cell centre is mirrored about the pulse at the origin and no
+# two axes are interchangeable. The ENO stencil selection compares
+# undivided differences of candidate stencils; on a symmetric grid these
+# tie exactly and the tie is broken by platform-dependent rounding, which
+# makes the reference output compiler-specific. The offsets are not
+# multiples of half the cell spacing on any level (0.125, 0.0625, 0.03125).
+CarpetX::xmin = -4.0371
+CarpetX::ymin = -4.0193
+CarpetX::zmin = -4.0117
 
-CarpetX::xmax = +4.0
-CarpetX::ymax = +4.0
-CarpetX::zmax = +4.0
+CarpetX::xmax = +3.9629
+CarpetX::ymax = +3.9807
+CarpetX::zmax = +3.9883
 
 CarpetX::ncells_x = $ncells
 CarpetX::ncells_y = $ncells
