@@ -3,7 +3,6 @@ ActiveThorns = "
     CarpetX
     IOUtil
     ODESolvers
-    Subcycling
     TestSubcyclingMC2
 "
 

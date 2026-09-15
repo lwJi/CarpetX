@@ -1,4 +1,4 @@
-# Main make.code.defn file for thorn TestSubcyclingMC
+# Main make.code.defn file for thorn TestSubcyclingMC2
 
 # Source files in this directory
 SRCS = testsubcyclingmc.cxx

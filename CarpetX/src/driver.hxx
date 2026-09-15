@@ -389,14 +389,10 @@ struct GHExt {
       // and its distribution over all processes, but holds no data.
       std::unique_ptr<amrex::FabArrayBase> fab;
 
-      // Per-centering coarse-fine ghost masks, built single-threaded by
-      // build_cf_mask and read by get_cf_mask.
-      // Indexed by (indextype[0]<<2)|(indextype[1]<<1)|indextype[2].
-      mutable std::array<std::unique_ptr<amrex::iMultiFab>, 8> cf_masks;
-
       // Per-centering coarse-fine source-band geometry for subcycling RK
       // stages, built lazily by build_bands and used to allocate the per-group
-      // band MultiFabs. Indexed by centering s, mirroring cf_masks. The source
+      // band MultiFabs. Indexed by centering
+      // s = (indextype[0]<<2)|(indextype[1]<<1)|indextype[2]. The source
       // band covers the coarse cells under this level's children's cf-ghost
       // footprint (child fpc.ba_crse_patch on fpc.dm_patch, i.e. exactly the
       // coarse-patch buffer FillPatch_Prolongate copies into). Empty on the
@@ -413,22 +409,6 @@ struct GHExt {
       // means not yet built; an empty BoxArray means there was no child.
       mutable std::array<std::unique_ptr<amrex::BoxArray>, 8>
           source_band_child_ba;
-
-      // Returns the coarse-fine ghost mask for this (level, centering), or
-      // nullptr at level 0 / when subcycling is disabled. Pure reader,
-      // side-effect-free and safe to call from a parallel consume; callers MUST
-      // warm the centerings single-threaded via build_cf_mask first.
-      amrex::iMultiFab *
-      get_cf_mask(const std::array<int, dim> &indextype,
-                  const std::array<int, dim> &nghostzones) const;
-
-      // Build and cache the coarse-fine ghost mask for this (level,
-      // centering). Idempotent; a no-op at level 0 / when subcycling is
-      // disabled. The only caller of iMultiFab::BuildMask, which opens its own
-      // OpenMP region, so this must run single-threaded (no active MFIter, no
-      // enclosing parallel region).
-      void build_cf_mask(const std::array<int, dim> &indextype,
-                         const std::array<int, dim> &nghostzones) const;
 
       cctkGHptr patch_cctkGH;
       std::vector<cctkGHptr> local_cctkGHs; // [component]
@@ -519,8 +499,8 @@ struct GHExt {
       // old_source_band MultiFabs (zero ghost, numvars comps). A no-op when
       // subcycling is disabled or the group is not evolved. Computes the
       // source-band geometry from the next-finer level's fpc, so it must run
-      // after all levels exist; like build_cf_mask it warms a cache and must
-      // run single-threaded. Rebuilds the bands when the child layout changed.
+      // after all levels exist; it warms a cache and must run single-threaded.
+      // Rebuilds the bands when the child layout changed.
       void build_bands(const GroupData &groupdata) const;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,

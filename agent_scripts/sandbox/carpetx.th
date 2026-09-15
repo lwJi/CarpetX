@@ -167,7 +167,6 @@ CarpetX/ParticlesX
 CarpetX/SIMDWaveToyX
 CarpetX/SpacetimeWaveToyX
 CarpetX/StaggeredWaveToyX
-CarpetX/Subcycling
 CarpetX/TestArrayGroup
 CarpetX/TestBoundaries
 CarpetX/TestBoxInBox
@@ -182,7 +181,6 @@ CarpetX/TestProlongate
 CarpetX/TestStorageKeyword
 CarpetX/TestSubcycleStepping
 CarpetX/TestSubcyclingCC
-CarpetX/TestSubcyclingMC
 CarpetX/TestSubcyclingMC2
 CarpetX/TestSubcyclingProlong
 CarpetX/TestSymmetries
