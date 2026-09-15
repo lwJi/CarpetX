@@ -1048,29 +1048,11 @@ void GHExt::PatchData::LevelData::build_bands(
   // ---- Band geometry, built once per (level, centering), and rebuilt when
   // the child layout changes (operator== short-circuits on the shared m_ref,
   // so this is O(1) on unchanged grids). ----
-  // A non-null source_band_ba[s] marks the geometry as built; the consumer and
-  // source slots are filled together, each possibly holding an empty BoxArray
-  // (level 0 has no consumer band, the finest level has no source band). This
-  // must run after all levels exist so the source band can see its children.
+  // A non-null source_band_ba[s] marks the geometry as built, possibly holding
+  // an empty BoxArray (the finest level has no source band). This must run
+  // after all levels exist so the source band can see its children.
   if (!source_band_ba[s] || !source_band_child_ba[s] ||
       *source_band_child_ba[s] != current_child_ba) {
-    // Consumer band == this level's cf-ghost region (fpc.ba_fine_patch w.r.t.
-    // the parent). Empty at level 0.
-    amrex::BoxArray fba;
-    amrex::DistributionMapping fdm;
-    if (level > 0) {
-      const auto &mfab = *groupdata.mfab.at(0);
-      const amrex::IntVect &nghosts = mfab.nGrowVect();
-      const auto &fgeom = patchdata.amrcore->Geom(level);
-      const auto &cgeom = patchdata.amrcore->Geom(level - 1);
-      const amrex::FabArrayBase::FPinfo &fpc = amrex::FabArrayBase::TheFPinfo(
-          mfab, mfab, nghosts, coarsener, fgeom, cgeom, index_space);
-      fba = fpc.ba_fine_patch;
-      fdm = fpc.dm_patch;
-    }
-    consumer_band_ba[s] = std::make_unique<amrex::BoxArray>(fba);
-    consumer_band_dm[s] = std::make_unique<amrex::DistributionMapping>(fdm);
-
     // Source band == coarse cells under the next-finer level's cf-ghost
     // footprint (child fpc.ba_crse_patch). Empty when this is the finest level.
     amrex::BoxArray cba;
@@ -1098,9 +1080,6 @@ void GHExt::PatchData::LevelData::build_bands(
   // ---- Per-group band MultiFab allocation (idempotent, zero ghost) ----
   const int numvars = groupdata.numvars;
   for (int stage = 0; stage < ghext->num_rk_stages; ++stage) {
-    if (!groupdata.ks_consumer_band[stage] && !consumer_band_ba[s]->empty())
-      groupdata.ks_consumer_band[stage] = std::make_unique<amrex::MultiFab>(
-          *consumer_band_ba[s], *consumer_band_dm[s], numvars, 0);
     // Drop a source band whose layout no longer matches the (rebuilt or
     // emptied) geometry, then (re)allocate below.
     if (groupdata.ks_source_band[stage] &&
@@ -1111,10 +1090,7 @@ void GHExt::PatchData::LevelData::build_bands(
           *source_band_ba[s], *source_band_dm[s], numvars, 0);
   }
 
-  // Old-state bands (single snapshot, share the ks band geometry above).
-  if (!groupdata.old_consumer_band && !consumer_band_ba[s]->empty())
-    groupdata.old_consumer_band = std::make_unique<amrex::MultiFab>(
-        *consumer_band_ba[s], *consumer_band_dm[s], numvars, 0);
+  // Old-state band (single snapshot, shares the ks band geometry above).
   if (groupdata.old_source_band &&
       groupdata.old_source_band->boxArray() != *source_band_ba[s])
     groupdata.old_source_band.reset();
@@ -1139,15 +1115,35 @@ bool all_levels_synchronized() {
   return true;
 }
 
+bool recovered_level_needs_rk_bands(const int patch, const int level) {
+  if (!ghext->use_subcycling)
+    return false;
+  const auto &iterations = ghext->recovered_level_iterations;
+  if (patch < 0 || patch >= int(iterations.size()))
+    return false;
+  const auto &level_iterations = iterations.at(patch);
+  const int child = level + 1;
+  if (level < 0 || child >= int(level_iterations.size()))
+    return false; // finest level: no children to fill
+  const std::optional<rat64> &self = level_iterations.at(level);
+  const std::optional<rat64> &child_iteration = level_iterations.at(child);
+  if (!self || !child_iteration)
+    return false; // old checkpoint without per-level iteration: time-aligned
+  // Under 2:1 time refinement the child is either aligned with this level or
+  // half a coarse step behind it; only in the latter case does the child's
+  // next substep read this level's in-progress step from the bands.
+  return *child_iteration < *self;
+}
+
 std::string subcycling_band_tag(const band_kind kind, const int stage) {
   std::ostringstream buf;
   switch (kind) {
-  case band_kind::ks_consumer:
+  case band_kind::ks_source:
     assert(stage >= 0 && stage < max_num_rk_stages);
-    buf << "ksc_s" << std::setw(2) << std::setfill('0') << stage;
+    buf << "kss_s" << std::setw(2) << std::setfill('0') << stage;
     break;
-  case band_kind::old_consumer:
-    buf << "oldc";
+  case band_kind::old_source:
+    buf << "olds";
     break;
   default:
     assert(0);

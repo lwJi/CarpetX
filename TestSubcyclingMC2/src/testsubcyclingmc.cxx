@@ -1,5 +1,4 @@
 #include <loop_device.hxx>
-#include <subcycling.hxx>
 
 #include <derivs.hxx>
 #include <mat.hxx>
