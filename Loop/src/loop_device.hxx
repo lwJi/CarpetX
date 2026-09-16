@@ -187,39 +187,64 @@ public:
     loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
   }
 
-  // Loop over all points, excluding the outermost point
+  // Loop over all points excluding the outermost n points of the grid
+  // function component in every direction, i.e. over
+  // [all_min + ord, all_max - ord) with all_min/all_max from domain_boxes.
+  // The range is built from the component extents and only then clipped to
+  // the current tile, so the union over the tiles of a box does not depend
+  // on how the box is tiled (the shrink never applies at interior tile
+  // faces). loop_allmn_device(ord) and loop_outer_n_device(ord) partition
+  // the component [all_min, all_max) exactly for every ord, every
+  // nghostzones and every tiling: each point is visited by exactly one of
+  // the two. ord may exceed nghostzones; the box is then merely shrunk into
+  // the interior (and is empty once 2*ord reaches the component extent).
+  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
+            int NT = AMREX_GPU_MAX_THREADS, typename F>
+  inline CCTK_KERNEL void
+  loop_allmn_device(const vect<int, dim> &group_nghostzones, const int ord,
+                    const F &f) const {
+    vect<int, dim> bnd_min, bnd_max;
+    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
+    vect<int, dim> all_min, all_max, int_min, int_max;
+    domain_boxes<CI, CJ, CK>(group_nghostzones, all_min, all_max, int_min,
+                             int_max);
+    using std::max, std::min;
+    const vect<int, dim> imin = max(all_min + ord, tmin);
+    const vect<int, dim> imax = min(all_max - ord, tmax);
+    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
+  }
+
+  // Loop over all points, excluding the outermost point of the grid function
+  // component in every direction. This is loop_allmn_device with ord = 1,
+  // so the same tile independence and the same complement relation with
+  // loop_outer_n_device(1) hold.
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
   loop_allm1_device(const vect<int, dim> &group_nghostzones, const F &f) const {
-    vect<int, dim> bnd_min, bnd_max;
-    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
-    vect<int, dim> imin, imax;
-    box_all<CI, CJ, CK>(group_nghostzones, imin, imax);
-    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin + 1, imax - 1,
-                                           f);
+    loop_allmn_device<CI, CJ, CK, VS, N, NT>(group_nghostzones, 1, f);
   }
 
-  // Loop over all points excluding outer n points
+  // Loop over the outermost n points (ghost OR boundary; there is no bbox
+  // filter) of the grid function component in every direction, i.e. over
+  // the exact complement of loop_allmn_device(ord) within
+  // [all_min, all_max). The band is assembled from the 26 face, edge and
+  // corner regions (faces first, then edges, then corners): normal to the
+  // band a region spans the n outermost points, tangentially it spans
+  // [all_min + ord, all_max - ord), the allmn box, so the regions are
+  // disjoint and together with the allmn box cover the component exactly,
+  // including the ghost layers beyond the band in the tangential
+  // directions. Each region is built from the component extents and only
+  // then clipped to the current tile, so the union over tiles is tile
+  // independent. ord may exceed nghostzones: the band then reaches into the
+  // interior, still without double visits, because the tangential extent
+  // shrinks with ord (only once 2*ord exceeds the component extent do the
+  // lower and upper bands overlap).
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
-  loop_allmn_device(const vect<int, dim> &group_nghostzones, const int ord, const F &f) const {
-    vect<int, dim> bnd_min, bnd_max;
-    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
-    vect<int, dim> imin, imax;
-    box_all<CI, CJ, CK>(group_nghostzones, imin, imax);
-    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin + ord, imax - ord,
-                                           f);
-  }
-
-  // Loop over n outer (ghost OR boundary) points. 
-  // Loop over faces first, then edges, then corners.
-  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
-            int NT = AMREX_GPU_MAX_THREADS, typename F>
-  inline CCTK_KERNEL void
-  loop_outer_n_device(const vect<int, dim> &group_nghostzones,
-                     const int ord, const F &f) const {
+  loop_outer_n_device(const vect<int, dim> &group_nghostzones, const int ord,
+                      const F &f) const {
     vect<int, dim> bnd_min, bnd_max;
     boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
     vect<int, dim> all_min, all_max, int_min, int_max;
@@ -238,15 +263,15 @@ public:
               vect<int, dim> imin, imax;
               for (int d = 0; d < dim; ++d) {
                 switch (inormal[d]) {
-                case -1: // lower boundary
+                case -1: // lower band
                   imin[d] = all_min[d];
                   imax[d] = all_min[d] + ord;
                   break;
-                case 0: // interior
-                  imin[d] = int_min[d];
-                  imax[d] = int_max[d];
+                case 0: // tangential: the allmn box, not just the interior
+                  imin[d] = all_min[d] + ord;
+                  imax[d] = all_max[d] - ord;
                   break;
-                case +1: // upper boundary
+                case +1: // upper band
                   imin[d] = all_max[d] - ord;
                   imax[d] = all_max[d];
                   break;
