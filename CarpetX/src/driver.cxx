@@ -961,8 +961,18 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
 
 void GHExt::PatchData::LevelData::build_bands(
     const GroupData &groupdata) const {
-  // Bands only exist for evolved groups under subcycling.
-  if (!ghext->use_subcycling || !groupdata.do_evolve)
+  // Bands only exist under subcycling, and only for the groups the time
+  // integrator advances: it alone fills them (StoreRKOldState/StoreRKStage)
+  // and publishes that set in rk_integrated_group. do_evolve is no substitute,
+  // since it defaults to the checkpoint flag and is thus also set for
+  // checkpointed groups that are never integrated. Recovery calls this for
+  // every group and then expects a mid-cycle checkpoint to carry each band
+  // built here, so this must match what the evolution builds.
+  if (!ghext->use_subcycling)
+    return;
+  const std::vector<bool> &integrated = ghext->rk_integrated_group;
+  if (groupdata.groupindex >= int(integrated.size()) ||
+      !integrated[groupdata.groupindex])
     return;
 
   const std::array<int, dim> &indextype = groupdata.indextype;

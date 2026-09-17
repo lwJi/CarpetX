@@ -12,6 +12,16 @@ extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
   // Publish the active RK stage count for the subcycling band machinery
   // (read by CarpetX::build_bands and the recovery path).
   CarpetX::ghext->num_rk_stages = CCTK_EQUALS(method, "SSPRK3") ? 3 : 4;
+
+  // Publish the groups we integrate, i.e. the var_groups the solvers collect:
+  // grid functions that declare a RHS. Only these own subcycling source bands,
+  // and recovery must rebuild bands for exactly these groups.
+  std::vector<bool> &integrated = CarpetX::ghext->rk_integrated_group;
+  integrated.assign(CCTK_NumGroups(), false);
+  for (int gi = 0; gi < CCTK_NumGroups(); ++gi)
+    // TODO: add support for evolving grid scalars
+    integrated.at(gi) =
+        CCTK_GroupTypeI(gi) == CCTK_GF && get_group_rhs(gi) >= 0;
 }
 
 extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {

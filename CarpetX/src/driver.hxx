@@ -497,7 +497,9 @@ struct GHExt {
       // Build (lazily, idempotently) the coarse-fine source-band geometry for
       // this group's centering and allocate the group's ks_source_band[] and
       // old_source_band MultiFabs (zero ghost, numvars comps). A no-op when
-      // subcycling is disabled or the group is not evolved. Computes the
+      // subcycling is disabled or the group is not in
+      // GHExt::rk_integrated_group, so that recovery rebuilds exactly the
+      // bands a mid-cycle checkpoint carries. Computes the
       // source-band geometry from the next-finer level's fpc, so it must run
       // after all levels exist; it warms a cache and must run single-threaded.
       // Rebuilds the bands when the child layout changed.
@@ -524,6 +526,12 @@ struct GHExt {
   // Active number of RK stages for subcycling, set from ODESolvers::method at
   // WRAGH (SSPRK3 -> 3, else 4). Must be <= max_num_rk_stages.
   int num_rk_stages = 4;
+
+  // Groups advanced by the time integrator, published by it at WRAGH
+  // (ODESolvers: the groups with an "rhs" tag). These are exactly the groups
+  // that own coarse-fine source bands under subcycling, both during evolution
+  // and when recovery rebuilds the bands. Empty means none.
+  std::vector<bool> rk_integrated_group; // [group index]
 
   // Per-level iteration values read from checkpoint; consumed by recovery fixup
   // in schedule.cxx. Indexed [patch][level]. Empty outside of recovery window.
