@@ -45,3 +45,9 @@ void TestSubcycleStepping_PostRestrict(CCTK_ARGUMENTS)
   });
 
 }
+
+extern "C"
+void TestSubcycleStepping_Sync(CCTK_ARGUMENTS)
+{
+  // do nothing
+}
