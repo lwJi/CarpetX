@@ -24,3 +24,11 @@ schedule TestSubcycleStepping_PostRestrict AT postrestrict
   WRITES: postrestrict(interior)
   SYNC: postrestrict
 } "stamp levels that see CCTK_POSTRESTRICT"
+
+schedule TestSubcycleStepping_Sync AT post_recover_variables
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: iteration
+  SYNC: postrestrict
+} "restore the ghost zones, which checkpoints do not carry"

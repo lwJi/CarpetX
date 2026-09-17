@@ -250,6 +250,14 @@ void StoreRKOldState(const int patch, const int level,
 
   for (const int gi : var_groups) {
     const GroupData &groupdata = *leveldata.groupdata.at(gi);
+    // build_bands is a no-op for unpublished groups, which would leave the
+    // children without a prolongation source and recovery without bands.
+    if (gi >= int(ghext->rk_integrated_group.size()) ||
+        !ghext->rk_integrated_group[gi])
+      CCTK_VERROR("Group \"%s\" is integrated under subcycling but is not "
+                  "listed in GHExt::rk_integrated_group. The time integrator "
+                  "must publish its evolved groups at WRAGH.",
+                  CCTK_FullGroupName(gi));
     // Lazy, idempotent allocation with a child-layout dirty check. The band
     // geometry reads the next-finer level, so all levels must already exist.
     leveldata.build_bands(groupdata);
