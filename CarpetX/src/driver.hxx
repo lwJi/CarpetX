@@ -389,30 +389,19 @@ struct GHExt {
       // and its distribution over all processes, but holds no data.
       std::unique_ptr<amrex::FabArrayBase> fab;
 
-      // Per-centering coarse-fine ghost masks, built single-threaded by
-      // build_cf_mask and read by get_cf_mask.
-      // Indexed by (indextype[0]<<2)|(indextype[1]<<1)|indextype[2].
-      mutable std::array<std::unique_ptr<amrex::iMultiFab>, 8> cf_masks;
-
-      // Per-centering coarse-fine boundary-band geometry for subcycling RK
-      // k-stages, built lazily by build_bands and used to allocate the
-      // per-group band MultiFabs. Indexed by centering s, mirroring cf_masks.
-      //   source_band_*   : coarse cells under this level's children's cf-ghost
-      //                     footprint (child fpc.ba_crse_patch). Empty on the
-      //                     finest level.
-      //   consumer_band_* : this level's own cf-ghost region (fpc.ba_fine_patch
-      //                     w.r.t. the parent). Empty at level 0.
-      // A non-null BoxArray slot (even if the BoxArray itself is empty) means
-      // the geometry for that centering has been built; both slots are set
-      // together. The DistributionMapping is the fpc.dm_patch the consumer band
-      // must share for the band->band FillPatchInterp to stay local. Shared by
+      // Per-centering coarse-fine source-band geometry for subcycling RK
+      // stages, built lazily by build_bands and used to allocate the per-group
+      // band MultiFabs. Indexed by centering
+      // s = (indextype[0]<<2)|(indextype[1]<<1)|indextype[2]. The source
+      // band covers the coarse cells under this level's children's cf-ghost
+      // footprint (child fpc.ba_crse_patch on fpc.dm_patch, i.e. exactly the
+      // coarse-patch buffer FillPatch_Prolongate copies into). Empty on the
+      // finest level. A non-null BoxArray slot (even if the BoxArray itself is
+      // empty) means the geometry for that centering has been built. Shared by
       // both band families (ks_* and old_*).
       mutable std::array<std::unique_ptr<amrex::BoxArray>, 8> source_band_ba;
       mutable std::array<std::unique_ptr<amrex::DistributionMapping>, 8>
           source_band_dm;
-      mutable std::array<std::unique_ptr<amrex::BoxArray>, 8> consumer_band_ba;
-      mutable std::array<std::unique_ptr<amrex::DistributionMapping>, 8>
-          consumer_band_dm;
 
       // The child (level+1) BoxArray the source band was last built against.
       // A mismatch with the current child layout (which AMReX may have changed
@@ -420,22 +409,6 @@ struct GHExt {
       // means not yet built; an empty BoxArray means there was no child.
       mutable std::array<std::unique_ptr<amrex::BoxArray>, 8>
           source_band_child_ba;
-
-      // Returns the coarse-fine ghost mask for this (level, centering), or
-      // nullptr at level 0 / when subcycling is disabled. Pure reader,
-      // side-effect-free and safe to call from a parallel consume; callers MUST
-      // warm the centerings single-threaded via build_cf_mask first.
-      amrex::iMultiFab *
-      get_cf_mask(const std::array<int, dim> &indextype,
-                  const std::array<int, dim> &nghostzones) const;
-
-      // Build and cache the coarse-fine ghost mask for this (level,
-      // centering). Idempotent; a no-op at level 0 / when subcycling is
-      // disabled. The only caller of iMultiFab::BuildMask, which opens its own
-      // OpenMP region, so this must run single-threaded (no active MFIter, no
-      // enclosing parallel region).
-      void build_cf_mask(const std::array<int, dim> &indextype,
-                         const std::array<int, dim> &nghostzones) const;
 
       cctkGHptr patch_cctkGH;
       std::vector<cctkGHptr> local_cctkGHs; // [component]
@@ -476,28 +449,22 @@ struct GHExt {
         // each amrex::MultiFab has numvars components
         std::vector<std::unique_ptr<amrex::MultiFab> > mfab; // [time level]
 
-        // Coarse-fine boundary bands holding the subcycling RK k-stages
-        // (zero-ghost, numvars comps), allocated lazily by build_bands only
-        // under subcycling for evolved groups. Indexed by RK stage.
-        //   ks_source_band[s]  : coarse cells under children's cf-ghost
-        //                        footprint, written by setks and read as the
-        //                        prolongation source. Empty on the finest
-        //                        level.
-        //   ks_consumer_band[s]: this level's own cf-ghost region, filled by
-        //                        prolongation from the parent and read by the
-        //                        dense-output kernel. Empty at level 0.
+        // Coarse-fine source bands holding this level's subcycling RK stage
+        // derivatives (zero-ghost, numvars comps) on the coarse cells under the
+        // children's cf-ghost footprint, allocated lazily by build_bands only
+        // under subcycling for evolved groups. Indexed by RK stage; written by
+        // StoreRKStage and read by FillRKBoundary on the children, which
+        // evaluates the dense-output polynomial here and prolongates the
+        // resulting coarse state. Empty on the finest level. Serialized at
+        // mid-cycle checkpoints.
         mutable std::array<std::unique_ptr<amrex::MultiFab>, max_num_rk_stages>
             ks_source_band;
-        mutable std::array<std::unique_ptr<amrex::MultiFab>, max_num_rk_stages>
-            ks_consumer_band;
 
-        // Coarse-fine boundary bands holding the subcycling old state u(t_n), a
+        // Coarse-fine source band holding the subcycling old state u(t_n), a
         // single snapshot (not RK-stage indexed) sharing the ks bands' geometry
-        // and lifecycle above. old_source_band is filled from var(tl=0) at
-        // solve start; old_consumer_band is its prolongation, read by the
-        // dense-output kernel as the u(t_n) base.
+        // and lifecycle above. Filled from var(tl) by StoreRKOldState at solve
+        // start; the u(t_n) base of the dense output.
         mutable std::unique_ptr<amrex::MultiFab> old_source_band;
-        mutable std::unique_ptr<amrex::MultiFab> old_consumer_band;
 
         // flux register between this and the next coarser level
         std::unique_ptr<amrex::FluxRegister> freg;
@@ -527,13 +494,15 @@ struct GHExt {
       // TODO: right now this is sized for the total number of groups
       std::vector<std::unique_ptr<GroupData> > groupdata; // [group index]
 
-      // Build (lazily, idempotently) the coarse-fine band geometry for this
-      // group's centering and allocate the group's ks_source_band/
-      // ks_consumer_band MultiFabs (zero ghost, numvars comps). A no-op when
-      // subcycling is disabled or the group is not evolved. Computes the
+      // Build (lazily, idempotently) the coarse-fine source-band geometry for
+      // this group's centering and allocate the group's ks_source_band[] and
+      // old_source_band MultiFabs (zero ghost, numvars comps). A no-op when
+      // subcycling is disabled or the group is not in
+      // GHExt::rk_integrated_group, so that recovery rebuilds exactly the
+      // bands a mid-cycle checkpoint carries. Computes the
       // source-band geometry from the next-finer level's fpc, so it must run
-      // after all levels exist; like build_cf_mask it warms a cache and must
-      // run single-threaded.
+      // after all levels exist; it warms a cache and must run single-threaded.
+      // Rebuilds the bands when the child layout changed.
       void build_bands(const GroupData &groupdata) const;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
@@ -557,6 +526,12 @@ struct GHExt {
   // Active number of RK stages for subcycling, set from ODESolvers::method at
   // WRAGH (SSPRK3 -> 3, else 4). Must be <= max_num_rk_stages.
   int num_rk_stages = 4;
+
+  // Groups advanced by the time integrator, published by it at WRAGH
+  // (ODESolvers: the groups with an "rhs" tag). These are exactly the groups
+  // that own coarse-fine source bands under subcycling, both during evolution
+  // and when recovery rebuilds the bands. Empty means none.
+  std::vector<bool> rk_integrated_group; // [group index]
 
   // Per-level iteration values read from checkpoint; consumed by recovery fixup
   // in schedule.cxx. Indexed [patch][level]. Empty outside of recovery window.
@@ -597,16 +572,25 @@ extern std::unique_ptr<GHExt> ghext;
 
 // True iff every level of every patch sits at the same subcycling iteration,
 // i.e. the checkpoint is time-aligned. Always true without subcycling. When
-// false, the fine consumer bands hold mid-cycle state that must be serialized.
+// false, the coarse source bands hold the in-progress coarse step (u(t_n) and
+// the stage derivatives) that must be serialized.
 bool all_levels_synchronized();
 
-// Subcycling consumer-band kinds serialized at unsynchronized checkpoints:
-// ks_consumer is the RK stages 0..max_num_rk_stages-1, old_consumer the u(t_n)
-// snapshot.
-enum class band_kind { ks_consumer, old_consumer };
+// True when (patch, level) is a coarse level ahead of one of its children in
+// the checkpoint being recovered, so its evolved groups must carry olds/kss_*.
+// Reads ghext->recovered_level_iterations; a missing entry (checkpoint without
+// iteration_num/den) means time-aligned, hence false. Always false without
+// subcycling and on the finest level. Only meaningful during RecoverGH, while
+// the recovered iterations are still populated.
+bool recovered_level_needs_rk_bands(int patch, int level);
 
-// Token identifying a consumer band in checkpoint names: "ksc_s00".."ksc_s03"
-// for ks_consumer, "oldc" for old_consumer. Shared by both IO backends.
+// Subcycling source-band kinds serialized at unsynchronized checkpoints:
+// ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)
+// snapshot.
+enum class band_kind { ks_source, old_source };
+
+// Token identifying a source band in checkpoint names: "kss_s00".."kss_s03"
+// for ks_source, "olds" for old_source. Shared by both IO backends.
 std::string subcycling_band_tag(band_kind kind, int stage = -1);
 
 // Monotonically increasing counter. Incremented whenever the AMR grid

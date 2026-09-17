@@ -1,0 +1,2 @@
+# 1:iteration	2:time	3:testloopx::testloop_gf_n1.min	4:testloopx::testloop_gf_n1.max	5:testloopx::testloop_gf_n1.sum	6:testloopx::testloop_gf_n1.avg	7:testloopx::testloop_gf_n1.stddev	8:testloopx::testloop_gf_n1.volume	9:testloopx::testloop_gf_n1.L1norm	10:testloopx::testloop_gf_n1.L2norm	11:testloopx::testloop_gf_n1.maxabs
+0	0.0000000000000000e+00	1.0100000000000000e+02	1.0100000000000000e+02	2.0684800000000000e+05	1.0100000000000000e+02	0.0000000000000000e+00	2.0480000000000000e+03	1.0100000000000000e+02	1.0100000000000000e+02	1.0100000000000000e+02

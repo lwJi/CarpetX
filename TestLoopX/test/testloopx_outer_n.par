@@ -1,0 +1,87 @@
+# Partition test for loop_allmn_device(ord), loop_outer_n_device(ord) and
+# loop_allm1_device on a box that is tiled in all three directions.
+#
+# TestLoopX_OuterN accumulates one marker per primitive into two grid
+# functions (see src/testloop.cxx), TestLoopX_OuterN_Check aborts if any
+# point of the box, ghosts included, was visited by neither or by both
+# primitives, and the TSV cuts and norms pin the values. With ghost_size = 3
+# both ord = 1 (testloop_gf_n1) and ord = 2 (testloop_gf_n2) are smaller than
+# the ghost width, which is the configuration in which the old
+# loop_outer_n_device skipped the tangential ghost band, and the tile size of
+# 8 cuts the 32 x 32 x 16 box into 4 x 4 x 2 tiles, which is where the old
+# loop_allmn_device skipped the planes next to every interior tile face.
+ActiveThorns = "
+    CarpetX
+    IOUtil
+    TestLoopX
+"
+
+Cactus::cctk_show_schedule = "no"
+Cactus::presync_mode = "mixed-error"
+
+Cactus::cctk_itlast = 0
+
+CarpetX::verbose = "no"
+CarpetX::poison_undefined_values = "yes"
+
+CarpetX::xmin = -8
+CarpetX::ymin = -8
+CarpetX::zmin = 0
+CarpetX::xmax = +8
+CarpetX::ymax = +8
+CarpetX::zmax = +8
+
+# Plain outer boundaries everywhere: neither primitive filters on bbox, so
+# no periodicity or reflection symmetry is needed
+CarpetX::boundary_x = "dirichlet"
+CarpetX::boundary_y = "dirichlet"
+CarpetX::boundary_z = "dirichlet"
+
+CarpetX::boundary_upper_x = "dirichlet"
+CarpetX::boundary_upper_y = "dirichlet"
+CarpetX::boundary_upper_z = "dirichlet"
+
+CarpetX::reflection_x = "no"
+CarpetX::reflection_y = "no"
+CarpetX::reflection_z = "no"
+
+CarpetX::reflection_upper_x = "no"
+CarpetX::reflection_upper_y = "no"
+CarpetX::reflection_upper_z = "no"
+
+Driver::periodic = "no"
+
+CarpetX::ncells_x = 32
+CarpetX::ncells_y = 32
+CarpetX::ncells_z = 16
+
+CarpetX::max_num_levels = 1
+
+CarpetX::dtfac = 0.5
+
+# ghost_size > ord for both marker functions
+CarpetX::ghost_size = 3
+
+# Every box is cut into 4 x 4 x 2 tiles
+CarpetX::max_tile_size_x = 8
+CarpetX::max_tile_size_y = 8
+CarpetX::max_tile_size_z = 8
+
+IO::out_dir = $parfile
+IO::out_every = 1
+IO::out_fileinfo = "axis labels"
+IO::parfile_write = no
+
+CarpetX::out_metadata = no
+CarpetX::out_tsv_vars = "
+  TestLoopX::testloop_gf_n1
+  TestLoopX::testloop_gf_n2
+"
+# The norms (interior only) pin the whole interior, not only the axis cuts
+CarpetX::out_norm_vars = "
+  TestLoopX::testloop_gf_n1
+  TestLoopX::testloop_gf_n2
+"
+CarpetX::out_norm_omit_unstable = yes
+# The sumloc columns depend on the box decomposition (1 vs 2 ranks)
+CarpetX::out_norm_omit_sumloc_for_backward_compatibility = yes

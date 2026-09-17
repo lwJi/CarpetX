@@ -1,0 +1,16 @@
+# Parameter definitions for thorn TestSubcyclingCC
+
+CCTK_REAL amplitude "Initial amplitude"
+{
+  *:* :: ""
+} 1.0
+
+CCTK_REAL gaussian_width "width of Gaussian"
+{
+  (0:* :: ""
+} 1.0
+
+CCTK_REAL epsdiss "Dissipation coefficient <arXiv:gr-qc/0610128>" STEERABLE=always
+{
+  0.0:* :: ""
+} 0.0

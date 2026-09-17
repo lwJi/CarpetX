@@ -1,4 +1,0 @@
-# Schedule definitions for thorn Subcycling
-# (intentionally empty: the coarse-fine ghost mask consumed by CalcYfFromKcs is
-# built lazily by CarpetX via LevelData::get_cf_mask, with no schedule-level
-# wiring required.)

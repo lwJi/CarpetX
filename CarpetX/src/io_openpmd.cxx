@@ -367,7 +367,7 @@ struct carpetx_openpmd_t {
   ////////////////////////////////////////////////////////////////////////////////
 
   // Allowed characters are only [A-Za-z_]
-  // The optional `band` tag namespaces subcycling consumer-band meshes apart
+  // The optional `band` tag namespaces subcycling source-band meshes apart
   // from the regular tl=0 data (see subcycling checkpoint/recovery). An empty
   // tag (the default) leaves regular-data mesh names unchanged.
   static std::string make_meshname(const int gi, const int patch,
@@ -1105,9 +1105,12 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                   []() { return "read from openPMD file"; });
           } // for tl
 
-          // Subcycling consumer bands (see OutputOpenPMD): zero-ghost MultiFabs
-          // sharing the level's idomain frame. Guard on mesh existence so
-          // synchronized/old checkpoints leave the rebuilt band untouched.
+          // Subcycling coarse source bands (see OutputOpenPMD): zero-ghost
+          // MultiFabs sharing the level's idomain frame. A time-aligned
+          // checkpoint carries no bands, so a missing mesh leaves the rebuilt
+          // band untouched; a mid-cycle checkpoint must carry them for every
+          // coarse level that is ahead of its child, so there a missing mesh
+          // (old derivative-band format, or a truncated file) is refused.
           {
             const auto read_band = [&](amrex::MultiFab *const band,
                                        const band_kind kind, const int stage) {
@@ -1117,8 +1120,19 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               const std::string band_tag = subcycling_band_tag(kind, stage);
               const std::string meshname = make_meshname(
                   gi, leveldata.patch, leveldata.level, 0, band_tag);
-              if (!read_iter->meshes.count(meshname))
-                return; // old/synchronized checkpoint: no band data
+              if (!read_iter->meshes.count(meshname)) {
+                if (recovered_level_needs_rk_bands(leveldata.patch,
+                                                   leveldata.level))
+                  CCTK_VERROR(
+                      "Mid-cycle checkpoint lacks coarse RK step data: mesh "
+                      "\"%s\" (band %s) for group %s on patch %d level %d is "
+                      "missing. The checkpoint was written by the "
+                      "derivative-band scheme or is incomplete. Restart from "
+                      "a time-aligned checkpoint.",
+                      meshname.c_str(), band_tag.c_str(),
+                      CCTK_FullGroupName(gi), leveldata.patch, leveldata.level);
+                return; // time-aligned checkpoint: no band data expected
+              }
               if (io_verbose)
                 CCTK_VINFO("Reading band mesh %s...", meshname.c_str());
               const openPMD::Mesh &mesh = read_iter->meshes.at(meshname);
@@ -1170,10 +1184,10 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              read_band(groupdata.ks_consumer_band[s].get(),
-                        band_kind::ks_consumer, s);
-            read_band(groupdata.old_consumer_band.get(),
-                      band_kind::old_consumer, -1);
+              read_band(groupdata.ks_source_band[s].get(), band_kind::ks_source,
+                        s);
+            read_band(groupdata.old_source_band.get(), band_kind::old_source,
+                      -1);
           }
         }
       } // for gi
@@ -1554,9 +1568,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
   const int myproc = CCTK_MyProc(cctkGH);
   const int ioproc = 0;
 
-  // At an unsynchronized subcycling checkpoint the fine consumer bands hold
-  // mid-cycle state that exists nowhere else and must be serialized. Otherwise
-  // the on-disk format is unchanged.
+  // At an unsynchronized subcycling checkpoint the coarse source bands hold
+  // the in-progress coarse step (u(t_n) and the stage derivatives), which
+  // exists nowhere else and must be serialized. Otherwise the on-disk format
+  // is unchanged.
   const bool write_bands = !all_levels_synchronized();
 
   // Iteration attributes are set on EVERY rank (all inputs are replicated):
@@ -1904,11 +1919,12 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             } // for local_component
           } // for tl
 
-          // Subcycling consumer bands: zero-ghost MultiFabs in this level's
-          // index space, so they share the level's idomain frame and dataset
-          // extent and write a sparse subset of chunks. Geometry is rebuilt on
-          // recovery; we serialize only the data, namespaced by a band tag.
-          // 2D slices emit only the main grid data; bands remain 3D-only.
+          // Subcycling coarse source bands: zero-ghost MultiFabs in this
+          // level's index space, so they share the level's idomain frame and
+          // dataset extent and write a sparse subset of chunks. Geometry is
+          // rebuilt on recovery; we serialize only the data, namespaced by a
+          // band tag. Present on every level with children. 2D slices emit
+          // only the main grid data; bands remain 3D-only.
           if (write_bands && !slice) {
             const auto write_band = [&](const amrex::MultiFab *const band,
                                         const band_kind kind, const int stage) {
@@ -1990,10 +2006,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              write_band(groupdata.ks_consumer_band[s].get(),
-                         band_kind::ks_consumer, s);
-            write_band(groupdata.old_consumer_band.get(),
-                       band_kind::old_consumer, -1);
+              write_band(groupdata.ks_source_band[s].get(),
+                         band_kind::ks_source, s);
+            write_band(groupdata.old_source_band.get(), band_kind::old_source,
+                       -1);
           } // if write_bands
         }
       } // for gi

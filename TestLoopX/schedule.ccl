@@ -1,6 +1,7 @@
 # Schedule definitions for thorn TestLoopX
 
 STORAGE: testloop_gf testloop_gf_fx testloop_gf_fy testloop_gf_fz
+STORAGE: testloop_gf_n1 testloop_gf_n2
 
 SCHEDULE TestLoopX_Init AT initial
 {
@@ -40,3 +41,17 @@ SCHEDULE TestLoopX_Mix AT poststep AFTER TestLoopX_OutermostInterior
   WRITES: testloop_gf_fy(everywhere)
   WRITES: testloop_gf_fz(everywhere)
 } "Fill test grid function which correspond to the outermost points in the interior"
+
+SCHEDULE TestLoopX_OuterN AT initial
+{
+  LANG: C
+  WRITES: testloop_gf_n1(everywhere)
+  WRITES: testloop_gf_n2(everywhere)
+} "Accumulate markers with loop_allm1_device, loop_allmn_device and loop_outer_n_device"
+
+SCHEDULE TestLoopX_OuterN_Check AT initial AFTER TestLoopX_OuterN
+{
+  LANG: C
+  READS: testloop_gf_n1(everywhere)
+  READS: testloop_gf_n2(everywhere)
+} "Abort if any point of the marker functions was visited by neither or by both primitives"

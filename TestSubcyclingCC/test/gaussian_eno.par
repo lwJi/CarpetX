@@ -1,0 +1,85 @@
+# Subcycling with a nonlinear (limited) prolongation operator on
+# cell-centred data: 3 levels, RK4, prolongation_type = "eno". The
+# refinement-boundary ghosts are filled from time-interpolated coarse
+# *states*, so this is the one case where the order of time interpolation
+# and spatial prolongation is visible in the output.
+
+ActiveThorns = "
+    BoxInBox
+    CarpetX
+    IOUtil
+    ODESolvers
+    TestSubcyclingCC
+"
+
+$out_every = 64
+$nlevels = 3
+$ncells = 32
+
+TestSubcyclingCC::gaussian_width = 0.17677669529 # sqrt(2)*W = 0.25
+
+CarpetX::use_subcycling = yes
+CarpetX::restrict_during_sync = no
+
+CarpetX::poison_undefined_values = yes
+CarpetX::verbose = no
+
+Cactus::cctk_show_schedule = yes
+Cactus::presync_mode = "mixed-error"
+
+# The domain is shifted by a different, generic amount in each direction
+# so that no cell centre is mirrored about the pulse at the origin and no
+# two axes are interchangeable. The ENO stencil selection compares
+# undivided differences of candidate stencils; on a symmetric grid these
+# tie exactly and the tie is broken by platform-dependent rounding, which
+# makes the reference output compiler-specific. The offsets are not
+# multiples of half the cell spacing on any level (0.125, 0.0625, 0.03125).
+CarpetX::xmin = -4.0371
+CarpetX::ymin = -4.0193
+CarpetX::zmin = -4.0117
+
+CarpetX::xmax = +3.9629
+CarpetX::ymax = +3.9807
+CarpetX::zmax = +3.9883
+
+CarpetX::ncells_x = $ncells
+CarpetX::ncells_y = $ncells
+CarpetX::ncells_z = $ncells
+
+Driver::periodic = "yes"
+Driver::periodic_x = yes
+Driver::periodic_y = yes
+Driver::periodic_z = yes
+
+CarpetX::max_num_levels = $nlevels
+Driver::regrid_every = 128
+Driver::regrid_error_threshold = 0.9
+
+CarpetX::prolongation_type = "eno"
+CarpetX::prolongation_order = 3
+CarpetX::ghost_size = 3
+CarpetX::dtfac = 0.25
+
+CarpetX::blocking_factor_x = 2
+CarpetX::blocking_factor_y = 2
+CarpetX::blocking_factor_z = 2
+
+BoxInBox::num_regions = 1
+# Region 1
+BoxInBox::shape_1 = "cube"
+BoxInBox::num_levels_1 = $nlevels
+BoxInBox::radius_1 = [ -1.0, 1.0, 0.5 ]
+
+
+Cactus::terminate = "time"
+Cactus::cctk_final_time = 2.0
+
+ODESolvers::method = "RK4"
+
+IO::out_dir = $parfile
+IO::out_every = $out_every
+
+CarpetX::out_tsv_vars = "
+    TestSubcyclingCC::state
+    TestSubcyclingCC::error
+"

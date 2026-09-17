@@ -146,7 +146,7 @@ int match_filename(const std::string &file_name) {
   return std::stoi(sm.str(1));
 }
 
-// The optional `band` tag namespaces subcycling consumer-band meshes/vars
+// The optional `band` tag namespaces subcycling source-band meshes/vars
 // apart from the regular tl=0 data (see subcycling checkpoint/recovery). An
 // empty tag (the default) leaves regular-data names byte-identical.
 std::string make_meshname(const std::array<int, dim> &nghosts,
@@ -635,9 +635,9 @@ void InputSilo(const cGH *restrict const cctkGH,
                 }
               };
               for (int s = 0; s < max_num_rk_stages; ++s)
-                probe(groupdata.ks_consumer_band[s].get(),
-                      band_kind::ks_consumer, s);
-              probe(groupdata.old_consumer_band.get(), band_kind::old_consumer,
+                probe(groupdata.ks_source_band[s].get(), band_kind::ks_source,
+                      s);
+              probe(groupdata.old_source_band.get(), band_kind::old_source,
                     -1);
             }
           }
@@ -647,6 +647,41 @@ void InputSilo(const cGH *restrict const cctkGH,
       MPI_Allreduce(&local_has_bands, &global_has_bands, 1, MPI_INT, MPI_MAX,
                     mpi_comm);
       file_has_bands = global_has_bands != 0;
+
+      // A mid-cycle checkpoint must carry the coarse source bands for every
+      // coarse level that is ahead of its child; a file without any band data
+      // there was written by the derivative-band scheme or is incomplete.
+      // Every rank evaluates the same predicate on replicated data (recovered
+      // iterations, band geometry), so the abort is collective and the
+      // per-component MPI protocol below stays symmetric.
+      if (!file_has_bands) {
+        for (const auto &patchdata : ghext->patchdata) {
+          for (const auto &leveldata : patchdata.leveldata) {
+            if (!recovered_level_needs_rk_bands(patchdata.patch,
+                                                leveldata.level))
+              continue;
+            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+              if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
+                continue;
+              const auto &groupdata = *leveldata.groupdata.at(gi);
+              if (groupdata.mfab.empty())
+                continue;
+              const amrex::MultiFab *const band =
+                  groupdata.old_source_band.get();
+              if (!band || band->empty())
+                continue; // not evolved, or an empty coarse-fine footprint
+              CCTK_VERROR(
+                  "Mid-cycle checkpoint lacks coarse RK step data (bands %s, "
+                  "%s..) for group %s on patch %d level %d. The checkpoint "
+                  "was written by the derivative-band scheme or is "
+                  "incomplete. Restart from a time-aligned checkpoint.",
+                  subcycling_band_tag(band_kind::old_source).c_str(),
+                  subcycling_band_tag(band_kind::ks_source, 0).c_str(),
+                  CCTK_FullGroupName(gi), patchdata.patch, leveldata.level);
+            }
+          }
+        }
+      }
     }
 
     // Loop over patches and levels
@@ -810,10 +845,10 @@ void InputSilo(const cGH *restrict const cctkGH,
 
           } // for component
 
-          // Subcycling consumer bands: zero-ghost MultiFabs with their own
-          // DistributionMap, each read in its own component loop mirroring the
-          // Phase 1 write (reversed MPI). When file_has_bands, every rebuilt
-          // non-empty band is present in full.
+          // Subcycling coarse source bands: zero-ghost MultiFabs with their
+          // own DistributionMap, each read in its own component loop mirroring
+          // the Phase 1 write (reversed MPI). When file_has_bands, every
+          // rebuilt non-empty band is present in full.
           if (file_has_bands) {
             const int centering = [&]() {
               const int rank = indextype.cellCentered(0) +
@@ -918,10 +953,10 @@ void InputSilo(const cGH *restrict const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              read_band(groupdata.ks_consumer_band[s].get(),
-                        band_kind::ks_consumer, s);
-            read_band(groupdata.old_consumer_band.get(),
-                      band_kind::old_consumer, -1);
+              read_band(groupdata.ks_source_band[s].get(), band_kind::ks_source,
+                        s);
+            read_band(groupdata.old_source_band.get(), band_kind::old_source,
+                      -1);
           } // if file_has_bands
 
         } // for gi
@@ -991,9 +1026,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
   constexpr int ndims = dim;
 
-  // At an unsynchronized subcycling checkpoint the fine consumer bands hold
-  // mid-cycle state that exists nowhere else and must be serialized. Otherwise
-  // the on-disk format is unchanged.
+  // At an unsynchronized subcycling checkpoint the coarse source bands hold
+  // the in-progress coarse step (u(t_n) and the stage derivatives), which
+  // exists nowhere else and must be serialized. Otherwise the on-disk format
+  // is unchanged.
   const bool write_bands = !all_levels_synchronized();
 
   // 2D slice output maps a physical coord to an index via (coord - x0)/dx,
@@ -1409,11 +1445,12 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
           } // for component
 
-          // Subcycling consumer bands: zero-ghost MultiFabs in this level's
-          // index space with their own DistributionMap, so each gets its own
-          // component loop. Geometry is rebuilt on recovery; we serialize only
-          // the data, namespaced by a band tag. 2D slice output covers only the
-          // main grid data, so bands are skipped entirely when slicing.
+          // Subcycling coarse source bands: zero-ghost MultiFabs in this
+          // level's index space with their own DistributionMap, so each gets
+          // its own component loop. Geometry is rebuilt on recovery; we
+          // serialize only the data, namespaced by a band tag. Present on
+          // every level with children. 2D slice output covers only the main
+          // grid data, so bands are skipped entirely when slicing.
           if (write_bands && !slice) {
             const int centering = [&]() {
               const int rank = indextype.cellCentered(0) +
@@ -1588,10 +1625,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              write_band(groupdata.ks_consumer_band[s].get(),
-                         band_kind::ks_consumer, s);
-            write_band(groupdata.old_consumer_band.get(),
-                       band_kind::old_consumer, -1);
+              write_band(groupdata.ks_source_band[s].get(),
+                         band_kind::ks_source, s);
+            write_band(groupdata.old_source_band.get(), band_kind::old_source,
+                       -1);
           } // if write_bands
 
         } // for gi

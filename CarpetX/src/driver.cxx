@@ -1,7 +1,6 @@
 #include "driver.hxx"
 
 #include "boundaries.hxx"
-#include "cf_mask.hxx"
 #include "fillpatch.hxx"
 #include "interp.hxx"
 #include "io.hxx"
@@ -960,73 +959,26 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void GHExt::PatchData::LevelData::build_cf_mask(
-    const std::array<int, dim> &indextype,
-    const std::array<int, dim> &nghostzones) const {
-  // Nothing to mask at the coarsest level or outside subcycling runs.
-  if (level == 0 || !ghext->use_subcycling)
-    return;
-
-  const int s = (indextype[0] << 2) | (indextype[1] << 1) | indextype[2];
-  if (cf_masks[s])
-    return; // already built (idempotent: warm-up runs every step)
-
-  const amrex::IntVect ng(nghostzones[0], nghostzones[1], nghostzones[2]);
-  const amrex::BoxArray gba = amrex::convert(
-      fab->boxArray(),
-      amrex::IndexType(
-          indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
-          indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
-          indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE));
-
-  auto mask = std::make_unique<amrex::iMultiFab>(gba, fab->DistributionMap(),
-                                                 /*ncomp=*/1, ng);
-  const auto &geom = ghext->patchdata.at(patch).amrcore->Geom(level);
-  // covered=0  : ghosts filled by same-level FillBoundary (intra-/inter-
-  //              process and periodic-image — see getFB(ngrow, period)
-  //              overlay in AMReX_FabArray.H).
-  // notcovered : coarse-fine prolongation ghosts. Set to cf_ghost (truthy).
-  // physbnd=0  : physical-outer boundary ghosts.
-  // interior=0 : not read by the consumer (loop_device_idx<ghosts>).
-  mask->BuildMask(geom.Domain(), geom.periodicity(),
-                  /*covered=*/0,
-                  /*notcovered=*/cf_ghost,
-                  /*physbnd=*/0,
-                  /*interior=*/0);
-  cf_masks[s] = std::move(mask);
-}
-
-amrex::iMultiFab *GHExt::PatchData::LevelData::get_cf_mask(
-    const std::array<int, dim> &indextype,
-    const std::array<int, dim> &nghostzones) const {
-  // Pure reader: no MFIter, no cache store, so concurrent reads are safe.
-  // The slot must have been warmed single-threaded via build_cf_mask; an
-  // un-warmed centering is a missing warm-up and trips the assert below.
-  if (level == 0 || !ghext->use_subcycling)
-    return nullptr;
-
-  const int s = (indextype[0] << 2) | (indextype[1] << 1) | indextype[2];
-  const amrex::IntVect ng(nghostzones[0], nghostzones[1], nghostzones[2]);
-  // Slot must be warm (build_cf_mask ran single-threaded). Sharing assumption:
-  // all groups of this centering at this level use the same nghostzones; if the
-  // nGrowVect check trips, widen the cache key from `centering` to
-  // `(centering, nghost)` inside build_cf_mask.
-  assert(cf_masks[s] && cf_masks[s]->nGrowVect() == ng);
-  return cf_masks[s].get();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 void GHExt::PatchData::LevelData::build_bands(
     const GroupData &groupdata) const {
-  // Bands only exist for evolved groups under subcycling.
-  if (!ghext->use_subcycling || !groupdata.do_evolve)
+  // Bands only exist under subcycling, and only for the groups the time
+  // integrator advances: it alone fills them (StoreRKOldState/StoreRKStage)
+  // and publishes that set in rk_integrated_group. do_evolve is no substitute,
+  // since it defaults to the checkpoint flag and is thus also set for
+  // checkpointed groups that are never integrated. Recovery calls this for
+  // every group and then expects a mid-cycle checkpoint to carry each band
+  // built here, so this must match what the evolution builds.
+  if (!ghext->use_subcycling)
+    return;
+  const std::vector<bool> &integrated = ghext->rk_integrated_group;
+  if (groupdata.groupindex >= int(integrated.size()) ||
+      !integrated[groupdata.groupindex])
     return;
 
   const std::array<int, dim> &indextype = groupdata.indextype;
-  // Sharing assumption (as for cf_masks): all groups of this centering at this
-  // level use the same nghostzones and interpolator, so the band geometry can
-  // be cached per (level, centering).
+  // Sharing assumption: all groups of this centering at this level use the
+  // same nghostzones and interpolator, so the band geometry can be cached per
+  // (level, centering).
   const int s = (indextype[0] << 2) | (indextype[1] << 1) | indextype[2];
 
   const auto &patchdata = ghext->patchdata.at(patch);
@@ -1048,29 +1000,11 @@ void GHExt::PatchData::LevelData::build_bands(
   // ---- Band geometry, built once per (level, centering), and rebuilt when
   // the child layout changes (operator== short-circuits on the shared m_ref,
   // so this is O(1) on unchanged grids). ----
-  // A non-null source_band_ba[s] marks the geometry as built; the consumer and
-  // source slots are filled together, each possibly holding an empty BoxArray
-  // (level 0 has no consumer band, the finest level has no source band). This
-  // must run after all levels exist so the source band can see its children.
+  // A non-null source_band_ba[s] marks the geometry as built, possibly holding
+  // an empty BoxArray (the finest level has no source band). This must run
+  // after all levels exist so the source band can see its children.
   if (!source_band_ba[s] || !source_band_child_ba[s] ||
       *source_band_child_ba[s] != current_child_ba) {
-    // Consumer band == this level's cf-ghost region (fpc.ba_fine_patch w.r.t.
-    // the parent). Empty at level 0.
-    amrex::BoxArray fba;
-    amrex::DistributionMapping fdm;
-    if (level > 0) {
-      const auto &mfab = *groupdata.mfab.at(0);
-      const amrex::IntVect &nghosts = mfab.nGrowVect();
-      const auto &fgeom = patchdata.amrcore->Geom(level);
-      const auto &cgeom = patchdata.amrcore->Geom(level - 1);
-      const amrex::FabArrayBase::FPinfo &fpc = amrex::FabArrayBase::TheFPinfo(
-          mfab, mfab, nghosts, coarsener, fgeom, cgeom, index_space);
-      fba = fpc.ba_fine_patch;
-      fdm = fpc.dm_patch;
-    }
-    consumer_band_ba[s] = std::make_unique<amrex::BoxArray>(fba);
-    consumer_band_dm[s] = std::make_unique<amrex::DistributionMapping>(fdm);
-
     // Source band == coarse cells under the next-finer level's cf-ghost
     // footprint (child fpc.ba_crse_patch). Empty when this is the finest level.
     amrex::BoxArray cba;
@@ -1098,9 +1032,6 @@ void GHExt::PatchData::LevelData::build_bands(
   // ---- Per-group band MultiFab allocation (idempotent, zero ghost) ----
   const int numvars = groupdata.numvars;
   for (int stage = 0; stage < ghext->num_rk_stages; ++stage) {
-    if (!groupdata.ks_consumer_band[stage] && !consumer_band_ba[s]->empty())
-      groupdata.ks_consumer_band[stage] = std::make_unique<amrex::MultiFab>(
-          *consumer_band_ba[s], *consumer_band_dm[s], numvars, 0);
     // Drop a source band whose layout no longer matches the (rebuilt or
     // emptied) geometry, then (re)allocate below.
     if (groupdata.ks_source_band[stage] &&
@@ -1111,10 +1042,7 @@ void GHExt::PatchData::LevelData::build_bands(
           *source_band_ba[s], *source_band_dm[s], numvars, 0);
   }
 
-  // Old-state bands (single snapshot, share the ks band geometry above).
-  if (!groupdata.old_consumer_band && !consumer_band_ba[s]->empty())
-    groupdata.old_consumer_band = std::make_unique<amrex::MultiFab>(
-        *consumer_band_ba[s], *consumer_band_dm[s], numvars, 0);
+  // Old-state band (single snapshot, shares the ks band geometry above).
   if (groupdata.old_source_band &&
       groupdata.old_source_band->boxArray() != *source_band_ba[s])
     groupdata.old_source_band.reset();
@@ -1139,15 +1067,35 @@ bool all_levels_synchronized() {
   return true;
 }
 
+bool recovered_level_needs_rk_bands(const int patch, const int level) {
+  if (!ghext->use_subcycling)
+    return false;
+  const auto &iterations = ghext->recovered_level_iterations;
+  if (patch < 0 || patch >= int(iterations.size()))
+    return false;
+  const auto &level_iterations = iterations.at(patch);
+  const int child = level + 1;
+  if (level < 0 || child >= int(level_iterations.size()))
+    return false; // finest level: no children to fill
+  const std::optional<rat64> &self = level_iterations.at(level);
+  const std::optional<rat64> &child_iteration = level_iterations.at(child);
+  if (!self || !child_iteration)
+    return false; // old checkpoint without per-level iteration: time-aligned
+  // Under 2:1 time refinement the child is either aligned with this level or
+  // half a coarse step behind it; only in the latter case does the child's
+  // next substep read this level's in-progress step from the bands.
+  return *child_iteration < *self;
+}
+
 std::string subcycling_band_tag(const band_kind kind, const int stage) {
   std::ostringstream buf;
   switch (kind) {
-  case band_kind::ks_consumer:
+  case band_kind::ks_source:
     assert(stage >= 0 && stage < max_num_rk_stages);
-    buf << "ksc_s" << std::setw(2) << std::setfill('0') << stage;
+    buf << "kss_s" << std::setw(2) << std::setfill('0') << stage;
     break;
-  case band_kind::old_consumer:
-    buf << "oldc";
+  case band_kind::old_source:
+    buf << "olds";
     break;
   default:
     assert(0);

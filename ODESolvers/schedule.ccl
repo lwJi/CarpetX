@@ -16,7 +16,7 @@ if(use_subcycling) {
   {
     LANG: C
     OPTIONS: level
-  } "Solve ODEs using Subcycling"
+  } "Solve ODEs with subcycling"
 
   # Refill refinement-boundary ghosts of the evolved state so they match
   # what a normal-step trajectory would have produced at the same point.

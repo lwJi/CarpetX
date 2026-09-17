@@ -219,10 +219,11 @@ void RecoverGH(const cGH *restrict cctkGH) {
     return enabled;
   }();
 
-  // Rebuild the consumer-band geometry (deterministic, not serialized) so the
-  // band read below has somewhere to land. All levels exist here, so source
-  // geometry (reads level+1) is valid; build_bands is a no-op for non-evolved
-  // groups.
+  // Rebuild the coarse source-band geometry (deterministic, not serialized)
+  // so the band read below has somewhere to land. All levels exist here, so
+  // the source geometry (which reads level+1) is valid; build_bands is a no-op
+  // for groups the time integrator does not advance (the evolution never
+  // fills or writes their bands) and allocates nothing on the finest level.
   if (ghext->use_subcycling) {
     for (const auto &patchdata : ghext->patchdata)
       for (const auto &leveldata : patchdata.leveldata)
