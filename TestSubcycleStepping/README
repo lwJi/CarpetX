@@ -35,3 +35,9 @@ so within each coarse step the "postrestrict" stamps update as follows:
 
 Pass 2 is the case a too-eager gate would get wrong: level 0 must keep its
 previous stamp while levels 1 and 2 update.
+
+"prerestrict" (restrict="no") is stamped the same way at INITIAL and in the
+driver's CarpetX_PreRestrict group, which CarpetX traverses immediately
+before the restriction, over the same widened level range as
+CCTK_POSTRESTRICT. Its stamps must therefore match "postrestrict" on every
+pass; a difference means the hook and the restriction have drifted apart.

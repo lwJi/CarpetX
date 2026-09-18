@@ -1449,8 +1449,11 @@ int Initialise(tFleshConfig *config) {
                  "at the current time",
                  cctkGH->cctk_iteration, min_level);
   } else if (!restrict_during_sync) {
-    // Restrict
     assert(active_levels);
+    // Pre-restriction hook, traversed over the widened time-aligned window
+    // immediately before the restriction below
+    CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
+    // Restrict
     active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
       if (leveldata.level < ghext->num_levels() - 1)
         Restrict(cctkGH, leveldata.level);
@@ -1988,6 +1991,9 @@ int Evolve(tFleshConfig *config) {
                        "at the current time",
                        cctkGH->cctk_iteration, min_level);
         } else if (!restrict_during_sync) {
+          // Pre-restriction hook, traversed over the widened time-aligned
+          // window immediately before the restriction below
+          CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
           // Restrict
           active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
             if (leveldata.level < ghext->num_levels() - 1)
