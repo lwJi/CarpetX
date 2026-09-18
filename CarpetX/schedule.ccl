@@ -45,3 +45,13 @@ SCHEDULE CarpetX_Shutdown AT shutdown AS Driver_Shutdown
   LANG: C
   OPTIONS: meta
 } "Shut down the driver"
+
+
+
+# Schedule hooks
+
+# Traversed by the driver, never scheduled into a bin. Thorns may schedule
+# routines IN this group; with nothing scheduled the traversal is empty.
+SCHEDULE GROUP CarpetX_PreRestrict
+{
+} "Traversed over the time-aligned level window immediately before the driver restricts"
