@@ -13,6 +13,19 @@
 // All three entry points are C++-only, operate on one (patch, level) like the
 // driver's other internals, and are called by ODESolvers, which owns the RK
 // tableau and the choice of (stage, xsi) evaluation points.
+//
+// Contract: on return from any of these, the device is idle. The driver owns
+// every device wait on the subcycling path; the time integrator issues none.
+// Each primitive closes with a wait on all streams, so that its own result,
+// and every kernel the caller issued before the call (ODESolvers launches its
+// linear combinations without waiting for them), may be consumed by kernels
+// on any stream or by host code. StoreRKOldState and StoreRKStage wait on
+// every path: also on levels without children, where there is no band to
+// fill, and for an empty group list. The one exception is a FillRKBoundary
+// call that has nothing to fill (level 0): it launches nothing and does not
+// wait, so the device is as idle as it was on entry. A caller that needs its
+// own kernels drained must therefore issue them before one of the two stores,
+// not before the fill.
 
 #include "subcycling_tally.hxx"
 

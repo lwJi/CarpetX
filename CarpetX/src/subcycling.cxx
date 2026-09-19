@@ -5,6 +5,7 @@
 #include "schedule.hxx"
 #include "subcycling_tally.hxx"
 #include "task_manager.hxx"
+#include "timer.hxx"
 
 #include <AMReX_FabArray.H>      // MultiArray4, MultiFab::arrays()
 #include <AMReX_GpuContainers.H> // amrex::GpuArray
@@ -243,58 +244,80 @@ void CountLincombLaunches(const int n) { charge_launches(n); }
 
 void StoreRKOldState(const int patch, const int level,
                      const std::vector<int> &var_groups, const int tl) {
-  if (!ghext->use_subcycling)
-    return;
-  const auto &patchdata = ghext->patchdata.at(patch);
-  const auto &leveldata = patchdata.leveldata.at(level);
-  const amrex::Periodicity &period =
-      patchdata.amrcore->Geom(level).periodicity();
+  static Timer timer("StoreRKOldState");
+  Interval interval(timer);
 
-  for (const int gi : var_groups) {
-    const GroupData &groupdata = *leveldata.groupdata.at(gi);
-    // build_bands is a no-op for unpublished groups, which would leave the
-    // children without a prolongation source and recovery without bands.
-    if (gi >= int(ghext->rk_integrated_group.size()) ||
-        !ghext->rk_integrated_group[gi])
-      CCTK_VERROR("Group \"%s\" is integrated under subcycling but is not "
-                  "listed in GHExt::rk_integrated_group. The time integrator "
-                  "must publish its evolved groups at WRAGH.",
-                  CCTK_FullGroupName(gi));
-    // Lazy, idempotent allocation with a child-layout dirty check. The band
-    // geometry reads the next-finer level, so all levels must already exist.
-    leveldata.build_bands(groupdata);
-    // The finest level has no source band (no children to prolongate to).
-    if (!groupdata.old_source_band)
-      continue;
-    copy_interior_to_band(*groupdata.old_source_band, *groupdata.mfab.at(tl),
-                          period);
+  if (ghext->use_subcycling) {
+    const auto &patchdata = ghext->patchdata.at(patch);
+    const auto &leveldata = patchdata.leveldata.at(level);
+    const amrex::Periodicity &period =
+        patchdata.amrcore->Geom(level).periodicity();
+
+    for (const int gi : var_groups) {
+      const GroupData &groupdata = *leveldata.groupdata.at(gi);
+      // build_bands is a no-op for unpublished groups, which would leave the
+      // children without a prolongation source and recovery without bands.
+      if (gi >= int(ghext->rk_integrated_group.size()) ||
+          !ghext->rk_integrated_group[gi])
+        CCTK_VERROR("Group \"%s\" is integrated under subcycling but is not "
+                    "listed in GHExt::rk_integrated_group. The time integrator "
+                    "must publish its evolved groups at WRAGH.",
+                    CCTK_FullGroupName(gi));
+      // Lazy, idempotent allocation with a child-layout dirty check. The band
+      // geometry reads the next-finer level, so all levels must already exist.
+      leveldata.build_bands(groupdata);
+      // The finest level has no source band (no children to prolongate to).
+      if (!groupdata.old_source_band)
+        continue;
+      copy_interior_to_band(*groupdata.old_source_band, *groupdata.mfab.at(tl),
+                            period);
+    }
   }
+
+  // Idle-on-return contract (see subcycling.hxx): the one wait of this
+  // primitive. It is deliberately outside every branch and after the loop, so
+  // that it is reached when no group has a band (finest level), when the group
+  // list is empty, and for groups that `continue` above. The caller relies on
+  // it to drain kernels it issued before the call (ODESolvers' deferred copy
+  // of the old state), not only the band copies.
+  synchronize();
 }
 
 void StoreRKStage(const int patch, const int level,
                   const std::vector<int> &var_groups,
                   const std::vector<int> &rhs_groups, const int stage) {
-  if (!ghext->use_subcycling)
-    return;
-  assert(stage >= 1 && stage <= ghext->num_rk_stages);
-  assert(var_groups.size() == rhs_groups.size());
-  const int s = stage - 1;
-  const auto &patchdata = ghext->patchdata.at(patch);
-  const auto &leveldata = patchdata.leveldata.at(level);
-  const amrex::Periodicity &period =
-      patchdata.amrcore->Geom(level).periodicity();
+  static Timer timer("StoreRKStage");
+  Interval interval(timer);
 
-  // rhs_groups[i] and var_groups[i] are paired by sort order; the k-stage
-  // bands live on the evolved group's GroupData.
-  for (size_t i = 0; i < var_groups.size(); ++i) {
-    const GroupData &groupdata = *leveldata.groupdata.at(var_groups[i]);
-    const GroupData &rhs_groupdata = *leveldata.groupdata.at(rhs_groups[i]);
-    // The finest level has no source band (no children to prolongate to).
-    if (!groupdata.ks_source_band[s])
-      continue;
-    copy_interior_to_band(*groupdata.ks_source_band[s],
-                          *rhs_groupdata.mfab.at(0), period);
+  if (ghext->use_subcycling) {
+    assert(stage >= 1 && stage <= ghext->num_rk_stages);
+    assert(var_groups.size() == rhs_groups.size());
+    const int s = stage - 1;
+    const auto &patchdata = ghext->patchdata.at(patch);
+    const auto &leveldata = patchdata.leveldata.at(level);
+    const amrex::Periodicity &period =
+        patchdata.amrcore->Geom(level).periodicity();
+
+    // rhs_groups[i] and var_groups[i] are paired by sort order; the k-stage
+    // bands live on the evolved group's GroupData.
+    for (size_t i = 0; i < var_groups.size(); ++i) {
+      const GroupData &groupdata = *leveldata.groupdata.at(var_groups[i]);
+      const GroupData &rhs_groupdata = *leveldata.groupdata.at(rhs_groups[i]);
+      // The finest level has no source band (no children to prolongate to).
+      if (!groupdata.ks_source_band[s])
+        continue;
+      copy_interior_to_band(*groupdata.ks_source_band[s],
+                            *rhs_groupdata.mfab.at(0), period);
+    }
   }
+
+  // Idle-on-return contract (see subcycling.hxx): the one wait of this
+  // primitive, reached on every path (see StoreRKOldState). On the finest
+  // level, and on level 0 where there is no refinement-boundary fill, this is
+  // the only wait that drains the stage's linear combinations, which
+  // ODESolvers issues without a wait of their own, before the next RHS
+  // evaluation reads the new state on other streams.
+  synchronize();
 }
 
 void FillRKBoundary(const int patch, const int level,
@@ -304,6 +327,9 @@ void FillRKBoundary(const int patch, const int level,
     return;
   if (!ghext->use_subcycling)
     return;
+
+  static Timer timer("FillRKBoundary");
+  Interval interval(timer);
 
   const auto &patchdata = ghext->patchdata.at(patch);
   auto &leveldata = patchdata.leveldata.at(level);
@@ -366,6 +392,9 @@ void FillRKBoundary(const int patch, const int level,
     });
   }
 
+  // The three waits are unconditional: they are also reached when every group
+  // was skipped above, so the last one always upholds the idle-on-return
+  // contract (see subcycling.hxx).
   tasks1.run_tasks_serially();
   synchronize();
   tasks2.run_tasks_serially();

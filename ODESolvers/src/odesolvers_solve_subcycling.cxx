@@ -221,15 +221,19 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
       CarpetX::FillRKBoundary(leveldata.patch, leveldata.level, var_groups,
                               /*tl=*/0, stage0, xsi, dt * 2);
     });
-    synchronize();
+    // No wait here: the fill returns with the device idle, and on level 0,
+    // where there is no fill, the preceding setks has left it idle.
     var.set_valid(make_valid_all());
   };
   // Store the interior RHS of this stage into each level's k-stage source band
   // (levels with children only), to be combined into the children's
   // refinement-boundary fills by calcys_rmbnd. This runs after the stage's
   // linear combinations, which are issued with drain_t::deferred: the wait
-  // that closes the store drains them on every level, including level 0 where
-  // there is no refinement-boundary fill. The order is result-neutral: the
+  // that closes the driver's store drains them on every level, including level
+  // 0 where there is no refinement-boundary fill and the finest level where
+  // there is no band to store to. This solver issues no device wait of its
+  // own; the driver primitives return with the device idle (see
+  // CarpetX/src/subcycling.hxx). The order is result-neutral: the
   // store only reads rhs, which no linear combination writes, and
   // mark_invalid only flips validity flags.
   const auto setks = [&](const int stage) {
@@ -241,21 +245,19 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
       CarpetX::StoreRKStage(leveldata.patch, leveldata.level, var_groups,
                             rhs_groups, stage);
     });
-    synchronize();
   };
   // Capture u(t_n) = var(tl=0) into each level's old_source_band (interior
   // only, levels with children only), once per step before the RK stages
   // overwrite var. This is also where the bands are (lazily) allocated: the
   // source-band geometry reads the next-finer level, so it must run once all
   // levels exist, and it opens its own MFIter/OpenMP region, so it must run
-  // single-threaded (loop_serially). Its closing wait also drains the deferred
-  // copy of the old state that precedes it.
+  // single-threaded (loop_serially). The driver's closing wait also drains the
+  // deferred copy of the old state that precedes it.
   const auto store_old = [&]() {
     active_levels->loop_serially([&](const auto &restrict leveldata) {
       CarpetX::StoreRKOldState(leveldata.patch, leveldata.level, var_groups,
                                /*tl=*/0);
     });
-    synchronize();
   };
 
   *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
@@ -417,8 +419,8 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
                     "ODESolvers_Solve_Subcycling_Recovery requires the tl=0 "
                     "interior to be populated by checkpoint recovery");
 
-    // Spatial prolongation fills every fine level's cf-ghosts; the
-    // unsynchronized levels below are then overwritten with dense output.
+    // Spatial prolongation fills every fine level's cf-ghosts; the levels
+    // that are behind their parent are then overwritten with dense output.
     SyncGroupsByDirIProlongateOnly(cctkGH, var_groups.size(), var_groups.data(),
                                    nullptr, /*tl=*/0);
 
@@ -437,7 +439,8 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
       CarpetX::FillRKBoundary(leveldata.patch, level, var_groups, /*tl=*/0,
                               /*stage=*/1, /*xsi=*/0.5, dt * 2);
     });
-    synchronize();
+    // No wait here: both the prolongation and the fill return with the device
+    // idle, and nothing else is launched in this routine.
     var.set_valid(make_valid_all());
   }
 }
