@@ -18,10 +18,26 @@ make_temp_mfab(const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
                const amrex::FabFactory<amrex::FArrayBox> &factory =
                    amrex::DefaultFabFactory<amrex::FArrayBox>());
 
-// Sync
+// Sync: exchange ghosts with adjacent boxes on the same level (started now,
+// finished by the task queued on `tasks2`), then boundary conditions.
+//
+// `streams` is where the boundary-condition kernels go (see `bc_streams_t`).
+// It is taken by reference and only read when the queued task runs, so that a
+// caller can decide it after all its tasks are queued (the subcycling `SYNC`
+// only knows then whether the call prolongates anything; see
+// `SyncGroupsByDirISubcycling`). The referenced object must therefore stay
+// alive, and must have its final value, from the moment the first task runs
+// until `tasks2` has run. Passing a temporary would leave the task with a
+// dangling reference, hence the deleted overload: callers name a variable that
+// lives at least as long as their task queues.
 void FillPatch_Sync(task_manager &tasks2,
                     const GHExt::PatchData::LevelData::GroupData &groupdata,
-                    amrex::MultiFab &mfab, const amrex::Geometry &geom);
+                    amrex::MultiFab &mfab, const amrex::Geometry &geom,
+                    const bc_streams_t &streams);
+void FillPatch_Sync(task_manager &tasks2,
+                    const GHExt::PatchData::LevelData::GroupData &groupdata,
+                    amrex::MultiFab &mfab, const amrex::Geometry &geom,
+                    const bc_streams_t &&streams) = delete;
 
 // Prolongate ghosts from coarse level, optionally with same-level sync.
 // When do_sync=true, also performs FillBoundary (same-level ghost exchange).

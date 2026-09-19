@@ -43,6 +43,12 @@ struct mark_sync_active {
   ~mark_sync_active() { sync_active = false; }
 };
 
+// `FillPatch_Sync` reads the stream policy of its boundary-condition kernels
+// through a reference, when its queued task runs. The sync entry points that
+// wait for all streams between their task phases always want `round_robin`;
+// they pass this object, which outlives every task queue.
+static const bc_streams_t round_robin_streams = bc_streams_t::round_robin;
+
 static void sync_log_groups(const char *label, int numgroups,
                             const int *groups0) {
   DECLARE_CCTK_PARAMETERS;
@@ -423,7 +429,8 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
             FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
                            ghext->patchdata.at(leveldata.patch)
-                               .amrcore->Geom(leveldata.level));
+                               .amrcore->Geom(leveldata.level),
+                           round_robin_streams);
           });
         } // for tl
 
@@ -520,6 +527,93 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
   return numgroups; // number of groups synchronized
 }
 
+// How an exchange-only SYNC is ordered on a GPU
+// =============================================
+//
+// Under subcycling a SYNC on level 0, and a SYNC of an evolving group once its
+// level has stepped, queues nothing but `FillPatch_Sync` tasks
+// (`any_prolongation` stays false). Per (group, time level) that is the chain
+//
+//   interior of mfab -FillBoundary_nowait-> [MPI] -FillBoundary_finish->
+//     ghosts of mfab -BC-> outer boundary of mfab
+//
+// in which the boundary conditions consume the exchanged ghosts (the boundary
+// regions of a box span its ghost zones in the tangential directions, and are
+// filled from the points inward of them). Such a call skips the two waits
+// between the task phases, never runs `tasks3` (nothing queues on it), and ends
+// in one all-stream wait. What orders the chain instead is the default-stream
+// rule written down at `FillRKBoundary` (subcycling.cxx): the boundary kernels
+// go on AMReX's stream 0, which is also the current stream of all the AMReX
+// calls here, and where issue order is execution order. Host code never
+// dereferences device memory in between (BoundaryCondition only stores a
+// pointer).
+//
+// A call that prolongates anything is literally unchanged: three waits,
+// `tasks3`, and `round_robin` boundary kernels for all of its tasks, the
+// `FillPatch_Sync` ones included.
+//
+// This was verified by reading AMReX 26.07 (26.07-29-g8addf4d92). It leans on
+// the behaviours marked [C] and [D], and on the current stream being stream 0
+// outside of an MFIter loop (see `FillRKBoundary`; the tasks run on the host,
+// outside of any MFIter, and the MFIter of a previous task's boundary
+// conditions has reset the index, Base/AMReX_MFIter.cpp:255). If a later AMReX
+// changes any of this, the waits have to come back (dropping the two
+// `if (any_prolongation)` conditions restores the old ordering). CPU builds are
+// unaffected. Paths below are relative to amrex/Src.
+//
+// The steps, in issue order:
+// 1. tasks1, per (group, time level): mfab.FillBoundary_nowait ->
+//    FBEP_nowait (Base/AMReX_FabArray.H:3769-3774).
+//    - The send buffers are packed by one kernel on the current stream that is
+//      waited for before the sends are posted: pack_send_buffer_gpu,
+//      Base/AMReX_FBI.H:1130-1143, called at Base/AMReX_FabArrayCommI.H:149
+//      ahead of PostSnds at :159. Receives and sends are host MPI calls.
+//    - The local copy is one kernel on the current stream: FB_local_copy_gpu ->
+//      detail::ParallelFor_doit on Gpu::gpuStream() (Base/AMReX_FBI.H:534-559,
+//      Base/AMReX_TagParallelFor.H:350); the masked variant for non-atomic
+//      stores is not taken for CCTK_REAL.
+//      [C] FBEP_nowait waits for it on a single process (unless in a no-sync
+//          region, which CarpetX never enters;
+//          Base/AMReX_FabArrayCommI.H:65-68), and under MPI only when this
+//          process receives nothing (`N_rcvs == 0`, :186-189). Otherwise it is
+//          *left in flight on stream 0*, for the unpack kernel to follow.
+//    Different (group, time level) pairs are different MultiFabs and share no
+//    data, so a wait AMReX issues for one merely also drains the others'
+//    stream-0 kernels. Under MPI all their messages are in flight at once when
+//    tasks1 is done, as before.
+// 2. tasks2, per (group, time level): mfab.FillBoundary_finish()
+//    (Base/AMReX_FabArrayCommI.H:221-303): returns at once when nothing was
+//    started (:228, always so on a single process); otherwise MPI_Waitall on
+//    the receives (:248), then
+//    [D] one unpack kernel on the current stream, behind the local copy of (1)
+//        by issue order, and waited for (unpack_recv_buffer_gpu,
+//        Base/AMReX_FBI.H:1271-1304; called at
+//        Base/AMReX_FabArrayCommI.H:274). That wait drains stream 0, local copy
+//        included, before the receive buffer is freed (:285-289).
+//    There is one corner where no wait happens and the local copy of (1) is
+//    still in flight when FillBoundary_finish returns: receives are expected
+//    but all of them are empty (Base/AMReX_FBI.H:1265, tag vector null,
+//    :1157-1161). The local copy and the unpack write disjoint ghost regions,
+//    so nothing in AMReX needs that wait; our boundary kernels do, see (3).
+// 3. tasks2, same task: boundary-condition kernels. `streams` is
+//    `bc_streams_t::default_stream`, i.e. MFItInfo::UseDefaultStream()
+//    (Base/AMReX_MFIter.H:75-78) in apply_boundary_conditions: stream 0 on
+//    every OpenMP thread, hence after the local copy and the unpack of the same
+//    MultiFab by issue order, whether or not AMReX waited for them. Not waited
+//    for. With `round_robin` they would sit on streams 1..3, where only the
+//    waits of [C] and [D] would order them against (1) and (2), and the corner
+//    case of (2) and any future no-sync region would not be covered: this is
+//    why the kernels move together with the waits going. The
+//    FillBoundary_finish of the next task waits on stream 0 [D] and thereby
+//    drains these kernels early; the two tasks share no data.
+// 4. synchronize(): waits for all streams. This is the wait that hands the
+//    ghosts and boundaries to everyone else: the poison/validity checks right
+//    below, RHS kernels on other streams, and host code.
+//
+// What is in flight on entry is not changed by any of this: there never was a
+// wait ahead of tasks1. A local-mode routine has been waited for by
+// CallFunction; the solver's fills and stores return with the device idle (see
+// subcycling.hxx).
 int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
                                const int *groups0, const int *directions) {
   DECLARE_CCTK_PARAMETERS;
@@ -548,13 +642,22 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
   // parallelization happens within AMReX and within our boundary
   // conditions. This is not efficient.
 
+  // Where the boundary-condition kernels of the `FillPatch_Sync` tasks go. This
+  // is only known once everything is queued (see `any_prolongation`), so the
+  // tasks hold a reference to this variable and read it when they run. It is
+  // declared before the task queues, so it outlives them and every task in
+  // them; it gets its final value after the queuing loop and before
+  // `tasks1.run_tasks_serially()`, and no task runs before that. Until then it
+  // holds the setting of the unchanged, prolongating path.
+  bc_streams_t streams = bc_streams_t::round_robin;
+
   task_manager tasks1;
   task_manager tasks2;
   task_manager tasks3;
 
   // Whether any task queued below prolongates from the next coarser level. A
-  // call that queues none only exchanges same-level ghosts. (So far this only
-  // classifies the call for the subcycling counter report.)
+  // call that queues none only exchanges same-level ghosts: it takes the short
+  // path below, with one wait instead of three.
   bool any_prolongation = false;
 
   for (const int gi : groups) {
@@ -573,11 +676,13 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
         // Copy from adjacent boxes on same level
 
         for (int tl = 0; tl < sync_tl; ++tl) {
-          tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-            FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
-                           ghext->patchdata.at(leveldata.patch)
-                               .amrcore->Geom(leveldata.level));
-          });
+          tasks1.submit_serially(
+              [&tasks2, &leveldata, &groupdata, &streams, tl]() {
+                FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+                               ghext->patchdata.at(leveldata.patch)
+                                   .amrcore->Geom(leveldata.level),
+                               streams);
+              });
         } // for tl
 
       } else { // if leveldata.level > 0
@@ -595,11 +700,13 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
         if (evolving_subiter) {
           // Copy from adjacent boxes on same level only
           for (int tl = 0; tl < sync_tl; ++tl) {
-            tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-              FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
-                             ghext->patchdata.at(leveldata.patch)
-                                 .amrcore->Geom(leveldata.level));
-            });
+            tasks1.submit_serially(
+                [&tasks2, &leveldata, &groupdata, &streams, tl]() {
+                  FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+                                 ghext->patchdata.at(leveldata.patch)
+                                     .amrcore->Geom(leveldata.level),
+                                 streams);
+                });
           } // for tl
         } else {
           // Copy from adjacent boxes on same level, and interpolate
@@ -663,11 +770,25 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
                                      : scope_kind_t::ghost_sync_exchange,
                                  std::max(0, active_levels->max_level - 1));
 
+    // Everything is queued and nothing has run yet: fix the stream policy the
+    // `FillPatch_Sync` tasks read (see `streams` above). A call that
+    // prolongates anything is unchanged, kernel placement included.
+    streams = any_prolongation ? bc_streams_t::round_robin
+                               : bc_streams_t::default_stream;
+
     tasks1.run_tasks_serially();
-    synchronize();
+    if (any_prolongation)
+      synchronize();
     tasks2.run_tasks_serially();
-    synchronize();
-    tasks3.run_tasks_serially();
+    if (any_prolongation) {
+      synchronize();
+      tasks3.run_tasks_serially();
+    }
+    // Only `FillPatch_Prolongate` queues on `tasks3`; an exchange-only call
+    // leaves it empty (its destructor checks that).
+    //
+    // The one wait of an exchange-only call, the third of a prolongating one:
+    // it hands the ghosts to kernels on other streams and to host code.
     synchronize();
   }
 
@@ -793,7 +914,8 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
         tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
           FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
                          ghext->patchdata.at(leveldata.patch)
-                             .amrcore->Geom(leveldata.level));
+                             .amrcore->Geom(leveldata.level),
+                         round_robin_streams);
         });
       } // for tl
     });
@@ -1040,7 +1162,8 @@ void Restrict(const cGH *cctkGH, int level, const std::vector<int> &groups) {
   Restrict_impl(cctkGH, level, groups, /*do_validity_tracking=*/true);
 }
 
-void RestrictNoPoison(const cGH *cctkGH, int level, const std::vector<int> &groups) {
+void RestrictNoPoison(const cGH *cctkGH, int level,
+                      const std::vector<int> &groups) {
   Restrict_impl(cctkGH, level, groups, /*do_validity_tracking=*/false);
 }
 

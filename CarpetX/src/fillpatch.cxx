@@ -39,13 +39,16 @@ MultiFab make_temp_mfab(const BoxArray &ba, const DistributionMapping &dm,
 
 void FillPatch_Sync(task_manager &tasks2,
                     const GHExt::PatchData::LevelData::GroupData &groupdata,
-                    MultiFab &mfab, const Geometry &geom) {
+                    MultiFab &mfab, const Geometry &geom,
+                    const bc_streams_t &streams) {
   assert(!groupdata.mfab.empty());
   mfab.FillBoundary_nowait(0, mfab.nComp(), mfab.nGrowVect(),
                            geom.periodicity());
-  tasks2.submit_serially([&groupdata, &mfab]() {
+  // `streams` is captured by reference and read when the task runs; see the
+  // lifetime rule in fillpatch.hxx
+  tasks2.submit_serially([&groupdata, &mfab, &streams]() {
     mfab.FillBoundary_finish();
-    groupdata.apply_boundary_conditions(mfab);
+    groupdata.apply_boundary_conditions(mfab, streams);
   });
 }
 
