@@ -4,7 +4,6 @@
 #include "fillpatch.hxx"
 #include "schedule.hxx"
 #include "subcycling_tally.hxx"
-#include "task_manager.hxx"
 #include "timer.hxx"
 
 #include <AMReX_FabArray.H>      // MultiArray4, MultiFab::arrays()
@@ -30,6 +29,10 @@ using GroupData = GHExt::PatchData::LevelData::GroupData;
 // coefficient tables are AMReX's FillPatcher::fillRK dense-output formulas
 // (AMReX_FillPatcher.H: RK3 table around lines 474-527, RK4 table around
 // 530-605), with the coarse-to-fine step ratio r fixed at 1/2.
+//
+// Must be called outside of any amrex::MFIter loop and outside of OpenMP
+// parallel regions, so that the kernel goes on the default GPU stream. It is
+// not waited for (see FillRKBoundary).
 //
 // The kernel walks `crse_patch` and the bands box by box, so they must share
 // one BoxArray and one DistributionMapping (see ensure_rk_fill_buffers).
@@ -206,8 +209,9 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
     }
   }
 
-  // Wait for the device kernel before the result is consumed.
-  synchronize_device();
+  // No wait here: the kernel is in flight on the default stream when this
+  // returns. Its consumers are ordered behind it by the default-stream rule
+  // written down at FillRKBoundary.
 }
 
 // crse_patch = u0 + dtc * P_stage(xsi; k_1..k_N), num_rk_stages in {3, 4}
@@ -379,6 +383,103 @@ void StoreRKStage(const int patch, const int level,
   synchronize();
 }
 
+// How one fill is ordered on a GPU
+// ================================
+//
+// Per group the fill is a chain in which every step consumes what the step
+// before it produced:
+//
+//   old band -Copy-> rk_crse_patch -dense output-> -coarse BC->
+//     -FillPatchInterp-> rk_fine_patch -scatter ParallelCopy-> ghosts of mfab
+//     -fine BC->
+//
+// There is no wait of ours inside that chain, and none between the group
+// loops below; there is one all-stream wait at the very end. What orders the
+// chain instead is the *default-stream rule*: every kernel CarpetX itself
+// issues here goes on AMReX's stream 0, where issue order is execution order,
+// and every AMReX operation in the chain either waits for itself or also runs
+// on stream 0. Host code never dereferences device memory in between
+// (BoundaryCondition only stores a pointer).
+//
+// This was verified by reading AMReX 26.07 (26.07-29-g8addf4d92). It leans on
+// the two behaviours marked [A] and [B]; if a later AMReX changes either, the
+// waits have to come back (a `synchronize()` after each of the group loops
+// restores the old ordering). CPU builds are unaffected. Paths below are
+// relative to amrex/Src.
+//
+// Which stream is "current", and why it is stream 0 here:
+// - The current stream is an index per OpenMP thread into one stream pool
+//   shared by all threads (Base/AMReX_GpuDevice.H:86-94,
+//   Base/AMReX_GpuDevice.cpp:729-738). All of AMReX's launch functions use it:
+//   ParallelFor(Box, ...) (Base/AMReX_GpuLaunchFunctsG.H:1011-1018),
+//   ParallelFor(FabArray, ...) (Base/AMReX_MFParallelForG.H:68-73,83-84,92)
+//   and the tag-vector launches of the communication code
+//   (Base/AMReX_TagParallelFor.H:350).
+// - Only MFIter changes it: round-robin over its streams inside the loop
+//   (Base/AMReX_MFIter.cpp:381,541), and back to 0 in MFIter::Finalize whether
+//   or not device sync is enabled (Base/AMReX_MFIter.cpp:255). CarpetX never
+//   sets it. So outside of an MFIter loop the current stream is stream 0.
+//
+// The steps, in issue order:
+// 1. MultiFab::Copy(rk_crse_patch <- old band): current stream, and it waits
+//    for itself -- fused branch Base/AMReX_FabArray.H:204-214, otherwise a
+//    default MFIter, which waits for every stream it used
+//    (Base/AMReX_MFIter.cpp:246-252).
+// 2. Dense-output kernel: ParallelFor(FabArray, ...), outside of any MFIter,
+//    hence stream 0. Not waited for.
+// 3. Coarse BC kernels: `bc_streams_t::default_stream` makes the loop in
+//    apply_boundary_conditions use MFItInfo::UseDefaultStream()
+//    (Base/AMReX_MFIter.H:75-78), i.e. `streams == 1` and stream index
+//    `currentIndex % 1 == 0` on every OpenMP thread. Stream 0, after (2) by
+//    issue order. Not waited for. With `round_robin` they would sit on streams
+//    1..3, where neither issue order nor [A] covers them: this is why the BC
+//    kernels must move for the waits to go.
+// 4. FillPatchInterp (AmrCore/AMReX_FillPatchUtil_I.H:219-249) runs the
+//    group's interpolator in a default MFIter, serially on the host
+//    (`omp parallel if (Gpu::notInLaunchRegion())`), one ParallelFor per box
+//    on the MFIter's round-robin streams.
+//    [A] Before its first iteration, a default MFIter with more than one
+//        stream and more than one local box waits for the current stream
+//        (Base/AMReX_MFIter.cpp:371-380), which is stream 0 here: that drains
+//        (2) and (3) before any interpolation kernel starts on another stream.
+//        When that wait is skipped -- one stream, or one local box -- the
+//        kernels go on stream `0 % streams == 0` themselves
+//        (Base/AMReX_MFIter.cpp:381), behind (2) and (3). (Up to 26.01 the
+//        same wait sat in MFIter::operator++, before the first kernel on
+//        stream 1.)
+//    On destruction the MFIter waits for every stream it used, stream 0
+//    included (Base/AMReX_MFIter.cpp:246-252): rk_fine_patch is complete when
+//    FillPatchInterp returns.
+// 5. mfab.ParallelCopy_nowait(rk_fine_patch): all on the current stream, and
+//    nothing is left in flight on the device.
+//    [B] The local copy is synchronous: PC_local_gpu -> fab_to_fab (also via
+//        fab_to_fab_atomic_cpy, as CCTK_REAL stores are atomic) builds a local
+//        TagVector whose destructor waits for the current stream
+//        (Base/AMReX_PCI.H:90,146-154, Base/AMReX_FBI.H:55-73,184-191,
+//        Base/AMReX_TagParallelFor.H:174-178,288-302); it runs inside
+//        ParallelCopy_nowait also when there are MPI messages
+//        (Base/AMReX_FabArrayCommI.H:636-648). The single-box shortcut waits
+//        as well (Base/AMReX_FabArrayCommI.H:449-456).
+//    The send buffers are packed by a kernel that is waited for before the
+//    sends are posted (Base/AMReX_FBI.H:1113-1144,
+//    Base/AMReX_FabArrayCommI.H:613-631). What stays in flight is MPI only.
+// 6. mfab.ParallelCopy_finish(): MPI_Waitall, then an unpack kernel on the
+//    current stream that is waited for (Base/AMReX_FabArrayCommI.H:698-717,
+//    Base/AMReX_FBI.H:1211,1271-1304).
+// 7. Fine BC kernels: stream 0 as in (3), after (5) and (6), which have
+//    completed. Not waited for.
+// 8. synchronize(): waits for all streams. This is the wait that hands the
+//    ghosts to everyone else: RHS kernels on other streams, and host code.
+//
+// Different groups share no data, so running every group through each step
+// together adds no dependency: a wait that AMReX issues for one group merely
+// also drains the other groups' stream-0 kernels. Under MPI all groups'
+// scatter messages are in flight at once between the last two loops. The
+// persistent buffers are overwritten by the next fill at the earliest, which
+// comes after (8).
+//
+// On entry the device is idle: every caller comes here from a driver primitive
+// or a sync that ended in an all-stream wait (see subcycling.hxx).
 void FillRKBoundary(const int patch, const int level,
                     const std::vector<int> &var_groups, const int tl,
                     const int stage, const CCTK_REAL xsi, const CCTK_REAL dtc) {
@@ -397,14 +498,17 @@ void FillRKBoundary(const int patch, const int level,
   const auto &cgeom = patchdata.amrcore->Geom(level - 1);
   const int num_rk_stages = ghext->num_rk_stages;
 
-  // We need to loop over groups in a definite order so that AMReX's
-  // communication pattern does not get confused (as in
-  // SyncGroupsByDirIProlongateOnly_impl), hence the serial task managers.
-  // tasks1 evaluates the dense output, tasks2 starts the prolongation, tasks3
-  // finishes it.
-  task_manager tasks1;
-  task_manager tasks2;
-  task_manager tasks3;
+  // The groups that have something to fill. Which groups these are does not
+  // depend on the process, and they are walked in the same order in every loop
+  // below, so that AMReX's communication pattern does not get confused (as in
+  // SyncGroupsByDirIProlongateOnly_impl).
+  struct fill_t {
+    GroupData &groupdata;
+    const GroupData &coarsegroupdata;
+    amrex::MultiFab &mfab;
+  };
+  std::vector<fill_t> fills;
+  fills.reserve(var_groups.size());
 
   for (const int gi : var_groups) {
     GroupData &groupdata = *leveldata.groupdata.at(gi);
@@ -422,7 +526,6 @@ void FillRKBoundary(const int patch, const int level,
     assert(coarseleveldata.source_band_ba[cs]);
     if (!coarsegroupdata.old_source_band)
       continue;
-    const amrex::MultiFab &old_band = *coarsegroupdata.old_source_band;
 
     amrex::MultiFab &mfab = *groupdata.mfab.at(tl);
     // As in FillPatch_Prolongate: without ghosts there is nothing to fill
@@ -431,42 +534,42 @@ void FillRKBoundary(const int patch, const int level,
 
     // Persistent work buffers, owned by this (fine) level; allocated by the
     // first fill after the level was made. There is no precondition on the
-    // caller: the recovery fill allocates them just the same.
-    ensure_rk_fill_buffers(groupdata, mfab, old_band, fgeom, cgeom);
-    amrex::MultiFab &crse_patch = *groupdata.rk_crse_patch;
-    amrex::MultiFab &fine_patch = *groupdata.rk_fine_patch;
+    // caller: the recovery fill allocates them just the same. This also checks
+    // the layouts, before anything is launched.
+    ensure_rk_fill_buffers(groupdata, mfab, *coarsegroupdata.old_source_band,
+                           fgeom, cgeom);
 
-    // Coarse state at the fine stage time, evaluated on the parent's bands
-    // straight into the coarse patch buffer: both have the geometry
-    // fpc.ba_crse_patch / fpc.dm_patch. Every point of the buffer is
-    // overwritten. Points outside the domain hold whatever the bands hold
-    // there; the coarse boundary conditions overwrite them next.
-    tasks1.submit_serially([&coarsegroupdata, &crse_patch, &old_band,
-                            num_rk_stages, stage, xsi, dtc]() {
-      rk_dense_output(crse_patch, old_band, coarsegroupdata.ks_source_band,
-                      num_rk_stages, stage, xsi, dtc);
-    });
-
-    // Coarse BC on the combined state, spatial interpolation with the group's
-    // operator, scatter into the fine ghost halo, fine BC: the same back half
-    // every other coarse-to-fine fill takes.
-    tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
-                            &fine_patch, &fgeom, &cgeom]() {
-      Prolongate_Start(groupdata, coarsegroupdata, mfab, crse_patch, fine_patch,
-                       fgeom, cgeom, groupdata.interpolator, groupdata.bcrecs);
-    });
-    tasks3.submit_serially(
-        [&groupdata, &mfab]() { Prolongate_Finish(groupdata, mfab); });
+    fills.push_back({groupdata, coarsegroupdata, mfab});
   }
 
-  // The three waits are unconditional: they are also reached when every group
-  // was skipped above, so the last one always upholds the idle-on-return
-  // contract (see subcycling.hxx).
-  tasks1.run_tasks_serially();
-  synchronize();
-  tasks2.run_tasks_serially();
-  synchronize();
-  tasks3.run_tasks_serially();
+  // Coarse state at the fine stage time, evaluated on the parent's bands
+  // straight into the coarse patch buffer: both have the geometry
+  // fpc.ba_crse_patch / fpc.dm_patch. Every point of the buffer is
+  // overwritten. Points outside the domain hold whatever the bands hold there;
+  // the coarse boundary conditions overwrite them next.
+  for (const fill_t &fill : fills)
+    rk_dense_output(
+        *fill.groupdata.rk_crse_patch, *fill.coarsegroupdata.old_source_band,
+        fill.coarsegroupdata.ks_source_band, num_rk_stages, stage, xsi, dtc);
+
+  // Coarse BC on the combined state, spatial interpolation with the group's
+  // operator, start of the scatter into the fine ghost halo: the same back
+  // half every other coarse-to-fine fill takes, with its boundary-condition
+  // kernels on the default stream.
+  for (const fill_t &fill : fills)
+    Prolongate_Start(fill.groupdata, fill.coarsegroupdata, fill.mfab,
+                     *fill.groupdata.rk_crse_patch,
+                     *fill.groupdata.rk_fine_patch, fgeom, cgeom,
+                     fill.groupdata.interpolator, fill.groupdata.bcrecs,
+                     bc_streams_t::default_stream);
+
+  // End of the scatter, fine BC
+  for (const fill_t &fill : fills)
+    Prolongate_Finish(fill.groupdata, fill.mfab, bc_streams_t::default_stream);
+
+  // Idle-on-return contract (see subcycling.hxx): the one wait of this
+  // primitive. It is unconditional, so it is also reached when every group was
+  // skipped above.
   synchronize();
 }
 

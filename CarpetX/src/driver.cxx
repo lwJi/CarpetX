@@ -1153,7 +1153,7 @@ bool GHExt::PatchData::LevelData::GroupData::
 }
 
 void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
-    amrex::MultiFab &mfab) const {
+    amrex::MultiFab &mfab, const bc_streams_t streams) const {
   DECLARE_CCTK_PARAMETERS;
 
   assert(!this->mfab.empty());
@@ -1173,8 +1173,19 @@ void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
     if (geom.isPeriodic(d))
       gdomain.grow(d, mfab.nGrow(d));
 
-  // Do not tile because the boundary boxes are likely already small
-  const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync();
+  // Do not tile because the boundary boxes are likely already small.
+  //
+  // The kernels are never waited for here. With `round_robin` the boxes are
+  // spread over AMReX's GPU streams, and the caller brackets the call with
+  // all-stream waits. With `default_stream` the loop uses one stream, which is
+  // stream 0 on every OpenMP thread (`MFIter` sets the stream index to
+  // `currentIndex % 1`, and the stream pool is shared by all threads), so the
+  // kernels are ordered against the other default-stream work of the caller by
+  // issue order. The kernels of one box are issued by one thread in order;
+  // different boxes do not depend on each other.
+  auto mfitinfo = amrex::MFItInfo().DisableDeviceSync();
+  if (streams == bc_streams_t::default_stream)
+    mfitinfo.UseDefaultStream();
 #pragma omp parallel
   for (amrex::MFIter mfi(mfab, mfitinfo); mfi.isValid(); ++mfi) {
     amrex::FArrayBox &dest = mfab[mfi];

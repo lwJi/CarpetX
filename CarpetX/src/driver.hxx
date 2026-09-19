@@ -65,6 +65,23 @@ enum class boundary_t {
 };
 std::ostream &operator<<(std::ostream &os, const boundary_t boundary);
 
+// On which GPU streams `GroupData::apply_boundary_conditions` launches its
+// kernels. Where the kernels go is the caller's statement; it has no effect on
+// CPU builds, and none on the values computed.
+//
+// round_robin: the boxes are spread over AMReX's streams
+//   (`amrex.max_gpu_streams`) and nothing waits for them. The caller must issue
+//   an all-stream wait (`synchronize()`) both before the call, if the input was
+//   produced by kernels that may still be running, and before the result is
+//   consumed.
+//
+// default_stream: all kernels go on stream 0 (`MFItInfo::UseDefaultStream`), so
+//   they run after every kernel issued on the default stream before them, and
+//   before every one issued there after them. Still nothing waits for them.
+//   For paths that order their kernels by issue order instead of by waits (the
+//   subcycling RK boundary fill, see `FillRKBoundary`).
+enum class bc_streams_t { round_robin, default_stream };
+
 static_assert(AMREX_SPACEDIM == dim,
               "AMReX's AMREX_SPACEDIM must be the same as Cactus's cctk_dim");
 
@@ -450,8 +467,12 @@ struct GHExt {
         std::vector<CCTK_REAL> robin_values;
         amrex::Vector<amrex::BCRec> bcrecs;
 
-        // Apply outer (physical) boundary conditions to a MultiFab
-        void apply_boundary_conditions(amrex::MultiFab &mfab) const;
+        // Apply outer (physical) boundary conditions to a MultiFab. The
+        // kernels are launched without waiting for them; `streams` says on
+        // which GPU streams (see `bc_streams_t`).
+        void apply_boundary_conditions(
+            amrex::MultiFab &mfab,
+            bc_streams_t streams = bc_streams_t::round_robin) const;
 
         // each amrex::MultiFab has numvars components
         std::vector<std::unique_ptr<amrex::MultiFab> > mfab; // [time level]

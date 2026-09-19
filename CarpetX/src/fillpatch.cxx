@@ -157,15 +157,18 @@ void FillPatch_Prolongate(
     MultiFab &mfab_fine_patch = *mfab_fine_patch_ptr;
 
     // Coarse boundary conditions, interpolation into the fine buffer, and
-    // start of the copy into the destination
+    // start of the copy into the destination. The callers of this generic
+    // engine wait for all streams between their task phases, and the
+    // boundary-condition kernels stay spread over the streams.
     Prolongate_Start(groupdata, coarsegroupdata, mfab, mfab_crse_patch,
-                     mfab_fine_patch, fgeom, cgeom, mapper, bcrecs);
+                     mfab_fine_patch, fgeom, cgeom, mapper, bcrecs,
+                     bc_streams_t::round_robin);
 
     delete mfab_crse_patch_ptr;
 
     tasks3.submit_serially([&groupdata, &mfab, mfab_fine_patch_ptr]() {
       // Finish the copy into the destination, fine boundary conditions
-      Prolongate_Finish(groupdata, mfab);
+      Prolongate_Finish(groupdata, mfab, bc_streams_t::round_robin);
 
       delete mfab_fine_patch_ptr;
     });
@@ -177,7 +180,7 @@ void Prolongate_Start(
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     MultiFab &mfab, MultiFab &crse_patch, MultiFab &fine_patch,
     const Geometry &fgeom, const Geometry &cgeom, Interpolater *const mapper,
-    const Vector<BCRec> &bcrecs) {
+    const Vector<BCRec> &bcrecs, const bc_streams_t streams) {
   static Timer timer("Prolongate_Start");
   Interval interval(timer);
 
@@ -193,7 +196,7 @@ void Prolongate_Start(
   assert(crse_patch.DistributionMap() == fine_patch.DistributionMap());
   assert(crse_patch.size() == fine_patch.size());
 
-  coarsegroupdata.apply_boundary_conditions(crse_patch);
+  coarsegroupdata.apply_boundary_conditions(crse_patch, streams);
 
   // Interpolate coarse buffer into fine buffer (in space, local)
   FillPatchInterp(fine_patch, 0, crse_patch, 0, ncomps,
@@ -208,7 +211,7 @@ void Prolongate_Start(
 }
 
 void Prolongate_Finish(const GHExt::PatchData::LevelData::GroupData &groupdata,
-                       MultiFab &mfab) {
+                       MultiFab &mfab, const bc_streams_t streams) {
   static Timer timer("Prolongate_Finish");
   Interval interval(timer);
 
@@ -216,7 +219,7 @@ void Prolongate_Finish(const GHExt::PatchData::LevelData::GroupData &groupdata,
   mfab.ParallelCopy_finish();
 
   // Apply symmetry and boundary conditions
-  groupdata.apply_boundary_conditions(mfab);
+  groupdata.apply_boundary_conditions(mfab, streams);
 }
 
 void FillPatch_NewLevel(
