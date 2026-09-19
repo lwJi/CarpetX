@@ -43,6 +43,12 @@ const int tl = 0;
 // TODO: Generalize this
 const Arith::arr<int, 3> indextype{0, 0, 0}; // vertex centred
 
+// `FillPatch_Sync` reads the stream policy of its boundary-condition kernels
+// through a reference, when its queued task runs; this object outlives every
+// task queue.
+static const CarpetX::bc_streams_t round_robin_streams =
+    CarpetX::bc_streams_t::round_robin;
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Erik Schnetter the blocks for vertex centred grids overlap by one
@@ -247,11 +253,11 @@ void define_point_type() {
         const int level = leveldata.level;
         const auto &groupdata = *leveldata.groupdata.at(gi_ind);
         amrex::MultiFab &mfab_ind = *groupdata.mfab.at(tl);
-        tasks1.submit_serially(
-            [&tasks2, &groupdata, &mfab_ind, &patchdata, level]() {
-              FillPatch_Sync(tasks2, groupdata, mfab_ind,
-                             patchdata.amrcore->Geom(level));
-            });
+        tasks1.submit_serially([&tasks2, &groupdata, &mfab_ind, &patchdata,
+                                level]() {
+          FillPatch_Sync(tasks2, groupdata, mfab_ind,
+                         patchdata.amrcore->Geom(level), round_robin_streams);
+        });
       }
     }
     tasks1.run_tasks_serially();
@@ -639,11 +645,11 @@ void enumerate_points(
         const int level = leveldata.level;
         const auto &groupdata = *leveldata.groupdata.at(gi_idx);
         amrex::MultiFab &mfab_idx = *groupdata.mfab.at(tl);
-        tasks1.submit_serially(
-            [&tasks2, &patchdata, &groupdata, &mfab_idx, level]() {
-              FillPatch_Sync(tasks2, groupdata, mfab_idx,
-                             patchdata.amrcore->Geom(level));
-            });
+        tasks1.submit_serially([&tasks2, &patchdata, &groupdata, &mfab_idx,
+                                level]() {
+          FillPatch_Sync(tasks2, groupdata, mfab_idx,
+                         patchdata.amrcore->Geom(level), round_robin_streams);
+        });
       }
     }
     tasks1.run_tasks_serially();
