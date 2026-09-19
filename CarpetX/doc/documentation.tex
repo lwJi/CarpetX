@@ -1490,6 +1490,27 @@ Installing \texttt{HPCToolkit} on an HPC system will probably require the help o
 
 This will generate the \texttt{hpctoolkit-cactus\_config-name-database} folder, which can be used with \texttt{HPCToolkit}'s provided profile visualization tool called \href{http://hpctoolkit.org/download.html}{\texttt{hpcviewer}}. See chapter 10 of the \texttt{HPCToolkit} \href{http://hpctoolkit.org/manual/HPCToolkit-users-manual.pdf}{manual} for usage details.
 
+\subsection{Built-in timers}
+\label{sec:timers}
+
+\CarpetX\space wraps parts of the driver in named \Cactus\space timers. They can be printed with the \texttt{TimerReport} thorn, and on CUDA builds every timer is also an \texttt{NVTX} range that shows up in profilers such as \texttt{Nsight Systems}. The timers measure the time spent on the host; they do not wait for the device, so the time of a kernel that is still running on a GPU is attributed to the next timer that contains a device wait.
+
+Apart from a timer for every scheduled function (\texttt{CallFunction ...}) and timers such as \texttt{Evolve}, \texttt{EvolveRegrid}, \texttt{Sync}, \texttt{Restrict} and \texttt{Reflux}, there are timers for the functions that subcycling in time adds to every Runge-Kutta stage. They are listed in Tab.~\ref{tab:subcycling_timers}. The first three are the driver functions that the time integrator calls. Each of them ends in a wait for all GPU streams (\texttt{FillRKBoundary} only when there is something to fill), so their timers include the device time of their own work. The time integrator does not wait for its linear combinations; the device time of these shows up in the \texttt{StoreRKOldState} or \texttt{StoreRKStage} call that follows them, not in \texttt{ODESolvers::Solve::lincomb}.
+
+\begin{table}[ht]
+  \centering
+  \begin{tabularx}{\textwidth}{lX}
+    Timer                       & What it covers \\\hline\hline
+    \texttt{StoreRKOldState}    & Once per time step of a level: copy the state at the beginning of the step to the level's source bands (the strip of points that the next finer level's refinement boundary is interpolated from), and wait. Runs on every level; only levels that have a finer level copy anything. \\
+    \texttt{StoreRKStage}       & Once per Runge-Kutta stage: copy the stage's right hand side to the source bands, and wait. \\
+    \texttt{FillRKBoundary}     & Once per Runge-Kutta stage on a refined level: evaluate the coarser level's dense output on its source bands, interpolate it in space into the refinement boundary ghosts of all evolved groups, and wait. Not started on level $0$. \\
+    \texttt{Prolongate\_Start}  & Per group, the back half of every interpolation from a coarser level: boundary conditions on the coarse buffer, interpolation into the fine buffer, and the start of the copy into the ghost zones. Its time is also contained in \texttt{FillRKBoundary} or, for all other prolongations, in \texttt{Sync}. \\
+    \texttt{Prolongate\_Finish} & Per group: the end of that copy, and boundary conditions on the fine level. \\\hline\hline
+  \end{tabularx}
+  \caption{\CarpetX\space timers on the subcycling path.}
+  \label{tab:subcycling_timers}
+\end{table}
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Outputting data}
 \label{sec:data}
@@ -1707,6 +1728,79 @@ As an example, to  have performance measurements output for a simulation every 2
 \begin{lstlisting}[language=bash]
   CarpetX::out_performance = yes  
   CarpetX::out_performance_every = 2
+\end{lstlisting}
+
+\subsection{Subcycling counts file}
+\label{sec:subcycling_counts}
+
+With subcycling in time (\texttt{CarpetX::use\_subcycling}), the time integrator and the driver stop a GPU a fixed number of times per Runge-Kutta step of a level. \CarpetX\space can count these device waits, together with the temporary buffers and kernel launches on the same path, and write them to a file called \texttt{subcycling-counts.tsv} in \texttt{IO::out\_dir}. The counts are logical: a CPU build, where a device wait does nothing, reports the numbers that a GPU build would. They do not depend on the number of processes either. This makes the file suitable for regression tests, and the tests \texttt{counts\_rk4} and \texttt{counts\_ssprk3} of thorn \texttt{TestSubcyclingMC2} use it as such. The output is controlled by the parameter in Tab.~\ref{tab:subcycling_counts_output}; with the default setting a simulation pays one branch per device wait for it.
+
+\begin{table}[ht]
+  \centering
+  \begin{tabularx}{\textwidth}{cccX}
+    Parameter                        & Type    & Default Value & Description \\\hline\hline
+    \texttt{out\_subcycling\_counts} & Boolean & \texttt{"no"} & Whether to write \texttt{subcycling-counts.tsv} during the evolution and to print a summary of it at shutdown. \\\hline\hline
+  \end{tabularx}
+  \caption{\CarpetX\space parameter for the subcycling counts output.}
+  \label{tab:subcycling_counts_output}
+\end{table}
+
+The file is written by process $0$. It starts with two comment lines, the second of which names the columns, and then has one row per refinement level per coarse step. A coarse step is complete when level $0$ has taken a step and all levels are aligned in time again. Initialisation and recovery are not counted. The columns are separated by tab characters and are described in Tab.~\ref{tab:subcycling_counts_columns}. Columns 4 to 8 hold the worst case of the coarse step and not an average: the solver call with the most waits, the linear combination with the most launches, the \texttt{SYNC} with the most waits.
+
+\begin{table}[ht]
+  \centering
+  \begin{tabularx}{\textwidth}{clX}
+    Column & Name                                 & Description \\\hline\hline
+    1      & \texttt{coarse\_step}                & Iteration of level $0$ at the end of the coarse step \\
+    2      & \texttt{level}                       & Refinement level \\
+    3      & \texttt{solver\_calls}               & Number of time steps (calls of the time integrator) of this level in this coarse step, normally $2^\mathtt{level}$ \\
+    4      & \texttt{stream\_waits\_per\_call}    & Waits for all GPU streams per solver call \\
+    5      & \texttt{device\_waits\_per\_call}    & Waits for the whole device per solver call \\
+    6      & \texttt{temp\_buffers\_per\_call}    & Temporary \texttt{MultiFab}s allocated by the refinement boundary fill per solver call \\
+    7      & \texttt{launches\_per\_lincomb}      & Kernel launches per Runge-Kutta linear combination. This is the number of evolved groups, whatever the number of boxes \\
+    8      & \texttt{waits\_per\_ghost\_sync}     & Waits per \texttt{SYNC} that only exchanges ghost zones between boxes of the same level; $0$ if there was no such \texttt{SYNC} \\
+    9      & \texttt{regrid}                      & $1$ if a regrid changed a level during this coarse step, otherwise $0$ \\
+    10     & \texttt{buffer\_bytes}               & Memory held by the persistent buffers of subcycling on this level, in bytes, summed over all processes \\\hline\hline
+  \end{tabularx}
+  \caption{Columns of \texttt{subcycling-counts.tsv}.}
+  \label{tab:subcycling_counts_columns}
+\end{table}
+
+For the fourth order Runge-Kutta method \texttt{RK4}, three levels and one evolved group, a coarse step looks as follows (tab characters are shown as spaces). The expected values of column 4 are 9 on a refined level and 5 on level $0$ for \texttt{RK4} (one wait where the state at the beginning of the step is stored, one per stage where the right hand side is stored, and one per stage where the refinement boundary is filled, which level $0$ does not have), and 7 and 4 for \texttt{SSPRK3}. Columns 5 and 6 should be $0$.
+
+\begin{lstlisting}[language=bash]
+# subcycling-counts.tsv
+# 1:coarse_step 2:level 3:solver_calls 4:stream_waits_per_call 5:device_waits_per_call 6:temp_buffers_per_call 7:launches_per_lincomb 8:waits_per_ghost_sync 9:regrid 10:buffer_bytes
+1  0  1  5  0  0  1  1  0  408800
+1  1  2  9  0  0  1  1  0  606624
+1  2  4  9  0  0  1  1  0  197824
+\end{lstlisting}
+
+The following is not counted, or not counted in the way one might expect:
+%
+\begin{itemize}
+  \item Only the time integrator, the refinement boundary fill and the ghost zone synchronisation are counted. Waits inside the scheduled functions of \texttt{ODESolvers\_RHS} and \texttt{ODESolvers\_PostStep} are not. The waits of a \texttt{SYNC} are reported in column 8 and are not part of column 4.
+
+  \item The waits caused by \texttt{poison\_undefined\_values} (poisoning, validity checks and checksums) are not counted, and neither are waits inside \AMReX.
+
+  \item A \texttt{SYNC} that acts on several levels is charged to the finest of them. Column 8 reports only those \texttt{SYNC}s that do nothing but exchange ghost zones within a level. These are all \texttt{SYNC}s on level $0$ and, on a refined level that has taken its first step, the \texttt{SYNC}s of evolved groups. They wait once. A \texttt{SYNC} that interpolates from the next coarser level waits three times and is not reported.
+
+  \item A coarse step is only flagged in column 9 if a regrid actually changed a level, not whenever \texttt{regrid\_every} triggers a regrid. Column 10 can only change in flagged coarse steps.
+\end{itemize}
+
+Column 10 adds up two kinds of buffers, which exist per evolved group. A level that has a finer level holds the source bands: its state at the beginning of the step and the right hand side of every Runge-Kutta stage, on the strip of points that the refinement boundary of the finer level is interpolated from. A refined level holds the two work buffers of its refinement boundary fill. These are allocated by the first fill after a regrid created or changed the level and are kept until the next regrid does so again; they are not written to checkpoints. Level $0$ thus reports source bands only, and the finest level work buffers only.
+
+At shutdown \CarpetX\space prints the worst coarse step per level in the same layout, together with the memory held. Flagged coarse steps are left out of this summary unless there are no others. The summary ends with a reminder that the waits of \texttt{poison\_undefined\_values} are not included, if that parameter is set. For production runs on GPUs we recommend setting it to \texttt{no}.
+
+\begin{lstlisting}[language=bash,basicstyle=\scriptsize\tt]
+INFO (CarpetX): Subcycling path counts, worst steady-state coarse step (3 levels, RK4, G=1):
+  level  solver calls  stream waits/call  device waits/call  temp buffers/call  launches/lincomb  waits/ghost sync
+  0      1             5                  0                  0                  1                 1
+  1      2             9                  0                  0                  1                 1
+  2      4             9                  0                  0                  1                 1
+  subcycling buffers held (bands + fill buffers): level 0: 0.39 MiB, level 1: 0.58 MiB, level 2: 0.19 MiB
+  note: poison_undefined_values = yes - validity/poison/checksum waits are NOT included above;
+        set it to "no" for production GPU runs.
 \end{lstlisting}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
