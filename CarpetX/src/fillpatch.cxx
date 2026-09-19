@@ -1,6 +1,7 @@
 #include "fillpatch.hxx"
 #include "schedule.hxx"
 #include "subcycling_tally.hxx"
+#include "timer.hxx"
 
 #include <utility>
 
@@ -127,9 +128,7 @@ void FillPatch_Prolongate(
   tasks2.submit_serially([&tasks3, &groupdata, &coarsegroupdata, &mfab, &cgeom,
                           &fgeom, mapper, &bcrecs, &fpc, mfab_crse_patch_ptr,
                           mfab_crse_patch_old_ptr, w_new, do_sync]() {
-    const IntVect &nghosts = mfab.nGrowVect();
     const int ncomps = mfab.nComp();
-    const IntVect ratio{2, 2, 2};
     MultiFab &mfab_crse_patch = *mfab_crse_patch_ptr;
 
     // Finish same-level sync (only when do_sync)
@@ -152,36 +151,72 @@ void FillPatch_Prolongate(
       delete mfab_crse_patch_old_ptr;
     }
 
-    coarsegroupdata.apply_boundary_conditions(mfab_crse_patch);
-
     // (same allocation as AMReX's make_mf_fine_patch, but counted)
     MultiFab *const mfab_fine_patch_ptr = new MultiFab(make_temp_mfab(
         fpc.ba_fine_patch, fpc.dm_patch, ncomps, 0, *fpc.fact_fine_patch));
     MultiFab &mfab_fine_patch = *mfab_fine_patch_ptr;
 
-    // Interpolate coarse buffer into fine buffer (in space, local)
-    FillPatchInterp(mfab_fine_patch, 0, mfab_crse_patch, 0, ncomps,
-                    IntVect{0} /* don't add any new ghosts */, cgeom, fgeom,
-                    grow(convert(fgeom.Domain(), mfab.ixType()), nghosts),
-                    ratio, mapper, bcrecs, 0);
-
-    // Copy fine buffer into destination
-    mfab.ParallelCopy_nowait(
-        mfab_fine_patch, 0, 0, ncomps,
-        IntVect{0} /* don't use any ghosts from the buffer */, nghosts);
+    // Coarse boundary conditions, interpolation into the fine buffer, and
+    // start of the copy into the destination
+    Prolongate_Start(groupdata, coarsegroupdata, mfab, mfab_crse_patch,
+                     mfab_fine_patch, fgeom, cgeom, mapper, bcrecs);
 
     delete mfab_crse_patch_ptr;
 
     tasks3.submit_serially([&groupdata, &mfab, mfab_fine_patch_ptr]() {
-      // Finish copying fine buffer into destination
-      mfab.ParallelCopy_finish();
-
-      // Apply symmetry and boundary conditions
-      groupdata.apply_boundary_conditions(mfab);
+      // Finish the copy into the destination, fine boundary conditions
+      Prolongate_Finish(groupdata, mfab);
 
       delete mfab_fine_patch_ptr;
     });
   });
+}
+
+void Prolongate_Start(
+    const GHExt::PatchData::LevelData::GroupData &groupdata,
+    const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
+    MultiFab &mfab, MultiFab &crse_patch, MultiFab &fine_patch,
+    const Geometry &fgeom, const Geometry &cgeom, Interpolater *const mapper,
+    const Vector<BCRec> &bcrecs) {
+  static Timer timer("Prolongate_Start");
+  Interval interval(timer);
+
+  assert(!groupdata.mfab.empty());
+  assert(!coarsegroupdata.mfab.empty());
+  const IntVect &nghosts = mfab.nGrowVect();
+  const int ncomps = mfab.nComp();
+  const IntVect ratio{2, 2, 2};
+  assert(crse_patch.nComp() == ncomps);
+  assert(fine_patch.nComp() == ncomps);
+  // `FillPatchInterp` walks the fine buffer and indexes the coarse buffer box
+  // by box
+  assert(crse_patch.DistributionMap() == fine_patch.DistributionMap());
+  assert(crse_patch.size() == fine_patch.size());
+
+  coarsegroupdata.apply_boundary_conditions(crse_patch);
+
+  // Interpolate coarse buffer into fine buffer (in space, local)
+  FillPatchInterp(fine_patch, 0, crse_patch, 0, ncomps,
+                  IntVect{0} /* don't add any new ghosts */, cgeom, fgeom,
+                  grow(convert(fgeom.Domain(), mfab.ixType()), nghosts), ratio,
+                  mapper, bcrecs, 0);
+
+  // Copy fine buffer into destination
+  mfab.ParallelCopy_nowait(
+      fine_patch, 0, 0, ncomps,
+      IntVect{0} /* don't use any ghosts from the buffer */, nghosts);
+}
+
+void Prolongate_Finish(const GHExt::PatchData::LevelData::GroupData &groupdata,
+                       MultiFab &mfab) {
+  static Timer timer("Prolongate_Finish");
+  Interval interval(timer);
+
+  // Finish copying fine buffer into destination
+  mfab.ParallelCopy_finish();
+
+  // Apply symmetry and boundary conditions
+  groupdata.apply_boundary_conditions(mfab);
 }
 
 void FillPatch_NewLevel(

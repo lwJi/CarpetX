@@ -111,7 +111,8 @@ std::int64_t local_bytes(const amrex::MultiFab &mfab) {
 }
 
 // Memory held by subcycling's persistent buffers, attributed to the level that
-// holds it, summed over all processes
+// holds it, summed over all processes: source bands on levels with a child,
+// RK fill buffers on refined levels
 std::vector<std::int64_t> calc_buffer_bytes(const int nlevels) {
   std::vector<std::int64_t> bytes(nlevels, 0);
   for (const auto &patchdata : ghext->patchdata) {
@@ -127,6 +128,11 @@ std::vector<std::int64_t> calc_buffer_bytes(const int nlevels) {
         for (const auto &band : groupdata.ks_source_band)
           if (band)
             bytes.at(leveldata.level) += local_bytes(*band);
+        // The RK fill buffers are held by the (refined) level they fill
+        if (groupdata.rk_crse_patch)
+          bytes.at(leveldata.level) += local_bytes(*groupdata.rk_crse_patch);
+        if (groupdata.rk_fine_patch)
+          bytes.at(leveldata.level) += local_bytes(*groupdata.rk_fine_patch);
       }
     }
   }

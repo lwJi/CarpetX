@@ -8,7 +8,10 @@
 // footprint, see LevelData::build_bands), the time polynomial is evaluated on
 // the coarse side to produce a single coarse *state* at the fine stage time,
 // and only that state is prolongated in space into the fine ghost halo.
-// Nothing is cached on the fine level between stages.
+// No data is cached on the fine level between stages; the fine level only
+// keeps the fill's two work buffers per evolved group (GroupData::rk_crse_patch
+// and rk_fine_patch) allocated from regrid to regrid, so that a fill in steady
+// state allocates nothing.
 //
 // All three entry points are C++-only, operate on one (patch, level) like the
 // driver's other internals, and are called by ODESolvers, which owns the RK
@@ -50,7 +53,10 @@ void StoreRKStage(int patch, int level, const std::vector<int> &var_groups,
 // Parent's old_source_band + ks_source_band[] -> dense output at (stage, xsi)
 // on the parent's band geometry -> coarse boundary conditions -> spatial
 // prolongation (the group's interpolator) into the refinement-boundary ghosts
-// of var(tl) on (patch, level). No-op at level 0. `dtc` is the parent's time
+// of var(tl) on (patch, level). No-op at level 0. Allocates the level's
+// persistent fill buffers on first use, so there is no "bands must have been
+// built by this process first" precondition beyond the parent's bands existing
+// (recovery reads them from the checkpoint). `dtc` is the parent's time
 // step; `xsi` is the fine substep's start within the parent step (0 or 1/2),
 // possibly plus 1/2 for the virtual end-of-substep evaluation. Ghost validity
 // is left to the caller.
