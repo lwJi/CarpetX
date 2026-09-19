@@ -1,5 +1,14 @@
 #include "solve.hxx"
 
+// Subcycling counter report (CountLincombLaunches).
+// TODO: Don't include files from other thorns; create a proper interface.
+#include "../../CarpetX/src/subcycling.hxx"
+
+#ifdef AMREX_USE_GPU
+#include <AMReX_FabArray.H>      // MultiArray4, MultiFab::arrays()
+#include <AMReX_MFParallelFor.H> // amrex::ParallelFor(MF, IntVect, ncomp, F)
+#endif
+
 namespace ODESolvers {
 using namespace std;
 
@@ -129,7 +138,8 @@ void statecomp_t::check_valid(const valid_t required,
 }
 
 // Copy state vector into newly allocated memory
-statecomp_t statecomp_t::copy(const CarpetX::valid_t where) const {
+statecomp_t statecomp_t::copy(const CarpetX::valid_t where,
+                              const drain_t drain) const {
   const std::size_t size = mfabs.size();
   statecomp_t result;
   result.timelevel = this->timelevel;
@@ -149,7 +159,7 @@ statecomp_t statecomp_t::copy(const CarpetX::valid_t where) const {
     result.groupdatas.push_back(groupdata);
     result.mfabs.push_back(y);
   }
-  lincomb(result, 0, make_array(CCTK_REAL(1)), make_array(this), where);
+  lincomb(result, 0, make_array(CCTK_REAL(1)), make_array(this), where, drain);
   // This global nan-check doesn't work since we don't care about the boundaries
   // #ifdef CCTK_DEBUG
   //   for (std::size_t n = 0; n < size; ++n) {
@@ -167,7 +177,7 @@ template <std::size_t N>
 void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
                           const std::array<CCTK_REAL, N> &factors,
                           const std::array<const statecomp_t *, N> &srcs,
-                          const CarpetX::valid_t where) {
+                          const CarpetX::valid_t where, const drain_t drain) {
   const std::size_t size = dst.mfabs.size();
   for (std::size_t n = 0; n < N; ++n)
     assert(srcs[n]->mfabs.size() == size);
@@ -195,6 +205,9 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
   // TODO: Poison ghosts/boundaries
 
   for (std::size_t m = 0; m < size; ++m) {
+#ifndef AMREX_USE_GPU
+    // CPU: walk the boxes of each group and queue one task per tile
+
     const std::ptrdiff_t ncomps = dst.mfabs.at(m)->nComp();
     const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync();
     for (amrex::MFIter mfi(*dst.mfabs.at(m), mfitinfo); mfi.isValid(); ++mfi) {
@@ -226,7 +239,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
       for (std::size_t n = 0; n < N; ++n)
         srcptrs[n] = srcvars[n].dataPtr();
 
-#ifndef AMREX_USE_GPU
       // CPU
 
       const std::ptrdiff_t ntiles = omp_get_max_threads();
@@ -303,64 +315,72 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           tasks.push_back(std::move(task));
         }
       } // for imin
+    }
 
 #else
-      // GPU
+    // GPU: one fused kernel launch per group, independent of the number of
+    // boxes. The kernel covers the valid and ghost zones and all components
+    // of every local box, i.e. the same points, with the same per-point
+    // order of summation, as the CPU branch. It goes onto the current stream,
+    // which is the default stream outside of an MFIter loop.
 
-      const CCTK_REAL scale1 = scale;
-      assert(npoints < INT_MAX);
-      const amrex::Box box(
-          amrex::IntVect(0, 0, 0), amrex::IntVect(npoints - 1, 0, 0),
-          amrex::IntVect(amrex::IndexType::CELL, amrex::IndexType::CELL,
-                         amrex::IndexType::CELL));
+    amrex::MultiFab &dstmf = *dst.mfabs.at(m);
+    // The sources are indexed with the destination's local box numbers
+    for (std::size_t n = 0; n < N; ++n) {
+      assert(srcs[n]->mfabs.at(m)->boxArray() == dstmf.boxArray());
+      assert(srcs[n]->mfabs.at(m)->DistributionMap() ==
+             dstmf.DistributionMap());
+    }
 
-      if (!read_dst) {
+    const CCTK_REAL scale1 = scale;
+    const amrex::MultiArray4<CCTK_REAL> dsta = dstmf.arrays();
+    std::array<amrex::MultiArray4<const CCTK_REAL>, N> srcas;
+    for (std::size_t n = 0; n < N; ++n)
+      srcas[n] = srcs[n]->mfabs.at(m)->const_arrays();
 
-        amrex::launch(
-            box,
-            [=] CCTK_DEVICE(const amrex::Box &box)
-                __attribute__((__always_inline__, __flatten__)) {
-                  const int i = box.smallEnd()[0];
-                  // const int j = box.smallEnd()[1];
-                  // const int k = box.smallEnd()[2];
-                  CCTK_REAL accum = 0;
-                  // The ROCM 6.2 compiler can't handle
-                  // `std::array::operator[]`, so we avoid it via pointers:
-                  // for (std::size_t n = 0; n < N; ++n)
-                  //   accum += factors[n] * srcptrs[n][i];
-                  const CCTK_REAL *restrict const factors_ptr = factors.data();
-                  const CCTK_REAL *restrict const *restrict const srcptrs_ptr =
-                      srcptrs.data();
-                  for (std::size_t n = 0; n < N; ++n)
-                    accum += factors_ptr[n] * srcptrs_ptr[n][i];
-                  dstptr[i] = accum;
-                });
+    if (!read_dst) {
+      // The destination may hold nan poison: never read it
 
-      } else {
+      amrex::ParallelFor(
+          dstmf, dstmf.nGrowVect(), dstmf.nComp(),
+          [=] CCTK_DEVICE(const int b, const int i, const int j, const int k,
+                          const int c)
+              __attribute__((__always_inline__, __flatten__)) {
+                CCTK_REAL accum = 0;
+                // The ROCM 6.2 compiler can't handle
+                // `std::array::operator[]`, so we avoid it via pointers:
+                // for (std::size_t n = 0; n < N; ++n)
+                //   accum += factors[n] * srcas[n][b](i, j, k, c);
+                const CCTK_REAL *restrict const factors_ptr = factors.data();
+                const amrex::MultiArray4<const CCTK_REAL>
+                    *restrict const srcas_ptr = srcas.data();
+                for (std::size_t n = 0; n < N; ++n)
+                  accum += factors_ptr[n] * srcas_ptr[n][b](i, j, k, c);
+                dsta[b](i, j, k, c) = accum;
+              });
 
-        amrex::launch(
-            box,
-            [=] CCTK_DEVICE(const amrex::Box &box)
-                __attribute__((__always_inline__, __flatten__)) {
-                  const int i = box.smallEnd()[0];
-                  // const int j = box.smallEnd()[1];
-                  // const int k = box.smallEnd()[2];
-                  CCTK_REAL accum = scale1 * dstptr[i];
-                  // The ROCM 6.2 compiler can't handle
-                  // `std::array::operator[]`, so we avoid it via pointers:
-                  // for (std::size_t n = 0; n < N; ++n)
-                  //   accum += factors[n] * srcptrs[n][i];
-                  const CCTK_REAL *restrict const factors_ptr = factors.data();
-                  const CCTK_REAL *restrict const *restrict const srcptrs_ptr =
-                      srcptrs.data();
-                  for (std::size_t n = 0; n < N; ++n)
-                    accum += factors_ptr[n] * srcptrs_ptr[n][i];
-                  dstptr[i] = accum;
-                });
-      }
+    } else {
+
+      amrex::ParallelFor(
+          dstmf, dstmf.nGrowVect(), dstmf.nComp(),
+          [=] CCTK_DEVICE(const int b, const int i, const int j, const int k,
+                          const int c)
+              __attribute__((__always_inline__, __flatten__)) {
+                CCTK_REAL accum = scale1 * dsta[b](i, j, k, c);
+                // The ROCM 6.2 compiler can't handle
+                // `std::array::operator[]`, so we avoid it via pointers:
+                // for (std::size_t n = 0; n < N; ++n)
+                //   accum += factors[n] * srcas[n][b](i, j, k, c);
+                const CCTK_REAL *restrict const factors_ptr = factors.data();
+                const amrex::MultiArray4<const CCTK_REAL>
+                    *restrict const srcas_ptr = srcas.data();
+                for (std::size_t n = 0; n < N; ++n)
+                  accum += factors_ptr[n] * srcas_ptr[n][b](i, j, k, c);
+                dsta[b](i, j, k, c) = accum;
+              });
+    }
 
 #endif
-    }
   }
 
 #ifndef AMREX_USE_GPU
@@ -369,10 +389,15 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
   for (std::size_t i = 0; i < tasks.size(); ++i)
     tasks[i]();
 #endif
-  // wait for all tasks (GPU). Outside the #if so that CPU builds, where the
-  // wait itself is empty, charge the logical wait to the subcycling counter
-  // report.
-  CarpetX::synchronize_device();
+  // wait for all tasks (GPU), unless the caller leaves that to a later driver
+  // primitive. Outside the #if so that CPU builds, where the wait itself is
+  // empty, charge the logical wait to the subcycling counter report.
+  if (drain == drain_t::device)
+    CarpetX::synchronize_device();
+
+  // Outside the #if as well: CPU builds report the GPU's logical launch count,
+  // one fused kernel per group
+  CarpetX::CountLincombLaunches(size);
 }
 
 namespace detail {
@@ -381,7 +406,7 @@ void call_lincomb(const statecomp_t &dst, const CCTK_REAL scale,
                   const std::vector<CCTK_REAL> &factors,
                   const std::vector<const statecomp_t *> &srcs,
                   const std::vector<std::size_t> &indices,
-                  const CarpetX::valid_t where) {
+                  const CarpetX::valid_t where, const drain_t drain) {
   assert(indices.size() == N);
   std::array<CCTK_REAL, N> factors1;
   std::array<const statecomp_t *, N> srcs1;
@@ -389,14 +414,14 @@ void call_lincomb(const statecomp_t &dst, const CCTK_REAL scale,
     factors1[n] = factors.at(indices[n]);
     srcs1[n] = srcs.at(indices[n]);
   }
-  statecomp_t::lincomb(dst, scale, factors1, srcs1, where);
+  statecomp_t::lincomb(dst, scale, factors1, srcs1, where, drain);
 }
 } // namespace detail
 
 void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
                           const std::vector<CCTK_REAL> &factors,
                           const std::vector<const statecomp_t *> &srcs,
-                          const CarpetX::valid_t where) {
+                          const CarpetX::valid_t where, const drain_t drain) {
   const std::size_t N = factors.size();
   assert(srcs.size() == N);
 
@@ -412,39 +437,56 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
 
   switch (NNZ) {
   case 0:
-    return detail::call_lincomb<0>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<0>(dst, scale, factors, srcs, indices, where,
+                                   drain);
   case 1:
-    return detail::call_lincomb<1>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<1>(dst, scale, factors, srcs, indices, where,
+                                   drain);
   case 2:
-    return detail::call_lincomb<2>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<2>(dst, scale, factors, srcs, indices, where,
+                                   drain);
   case 3:
-    return detail::call_lincomb<3>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<3>(dst, scale, factors, srcs, indices, where,
+                                   drain);
   case 4:
-    return detail::call_lincomb<4>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<4>(dst, scale, factors, srcs, indices, where,
+                                   drain);
   case 5:
-    return detail::call_lincomb<5>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<5>(dst, scale, factors, srcs, indices, where,
+                                   drain);
   case 6:
-    return detail::call_lincomb<6>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<6>(dst, scale, factors, srcs, indices, where,
+                                   drain);
   case 7:
-    return detail::call_lincomb<7>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<7>(dst, scale, factors, srcs, indices, where,
+                                   drain);
   case 8:
-    return detail::call_lincomb<8>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<8>(dst, scale, factors, srcs, indices, where,
+                                   drain);
   case 9:
-    return detail::call_lincomb<9>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<9>(dst, scale, factors, srcs, indices, where,
+                                   drain);
   case 10:
-    return detail::call_lincomb<10>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<10>(dst, scale, factors, srcs, indices, where,
+                                    drain);
   case 11:
-    return detail::call_lincomb<11>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<11>(dst, scale, factors, srcs, indices, where,
+                                    drain);
   case 12:
-    return detail::call_lincomb<12>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<12>(dst, scale, factors, srcs, indices, where,
+                                    drain);
   case 13:
-    return detail::call_lincomb<13>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<13>(dst, scale, factors, srcs, indices, where,
+                                    drain);
   case 14:
-    return detail::call_lincomb<14>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<14>(dst, scale, factors, srcs, indices, where,
+                                    drain);
   case 15:
-    return detail::call_lincomb<15>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<15>(dst, scale, factors, srcs, indices, where,
+                                    drain);
   case 16:
-    return detail::call_lincomb<16>(dst, scale, factors, srcs, indices, where);
+    return detail::call_lincomb<16>(dst, scale, factors, srcs, indices, where,
+                                    drain);
   default:
     CCTK_VERROR("Unsupported vector length: %d", (int)NNZ);
   }
@@ -453,73 +495,73 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
 template void statecomp_t::lincomb<1>(const statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 1> &factors,
                                       const array<const statecomp_t *, 1> &srcs,
-                                      const valid_t where);
+                                      const valid_t where, const drain_t drain);
 template void statecomp_t::lincomb<2>(const statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 2> &factors,
                                       const array<const statecomp_t *, 2> &srcs,
-                                      const valid_t where);
+                                      const valid_t where, const drain_t drain);
 template void statecomp_t::lincomb<3>(const statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 3> &factors,
                                       const array<const statecomp_t *, 3> &srcs,
-                                      const valid_t where);
+                                      const valid_t where, const drain_t drain);
 template void statecomp_t::lincomb<4>(const statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 4> &factors,
                                       const array<const statecomp_t *, 4> &srcs,
-                                      const valid_t where);
+                                      const valid_t where, const drain_t drain);
 template void statecomp_t::lincomb<5>(const statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 5> &factors,
                                       const array<const statecomp_t *, 5> &srcs,
-                                      const valid_t where);
+                                      const valid_t where, const drain_t drain);
 template void statecomp_t::lincomb<6>(const statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 6> &factors,
                                       const array<const statecomp_t *, 6> &srcs,
-                                      const valid_t where);
+                                      const valid_t where, const drain_t drain);
 template void statecomp_t::lincomb<7>(const statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 7> &factors,
                                       const array<const statecomp_t *, 7> &srcs,
-                                      const valid_t where);
+                                      const valid_t where, const drain_t drain);
 template void statecomp_t::lincomb<8>(const statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 8> &factors,
                                       const array<const statecomp_t *, 8> &srcs,
-                                      const valid_t where);
+                                      const valid_t where, const drain_t drain);
 template void statecomp_t::lincomb<9>(const statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 9> &factors,
                                       const array<const statecomp_t *, 9> &srcs,
-                                      const valid_t where);
+                                      const valid_t where, const drain_t drain);
 template void
 statecomp_t::lincomb<10>(const statecomp_t &dst, CCTK_REAL scale,
                          const array<CCTK_REAL, 10> &factors,
                          const array<const statecomp_t *, 10> &srcs,
-                         const valid_t where);
+                         const valid_t where, const drain_t drain);
 template void
 statecomp_t::lincomb<11>(const statecomp_t &dst, CCTK_REAL scale,
                          const array<CCTK_REAL, 11> &factors,
                          const array<const statecomp_t *, 11> &srcs,
-                         const valid_t where);
+                         const valid_t where, const drain_t drain);
 template void
 statecomp_t::lincomb<12>(const statecomp_t &dst, CCTK_REAL scale,
                          const array<CCTK_REAL, 12> &factors,
                          const array<const statecomp_t *, 12> &srcs,
-                         const valid_t where);
+                         const valid_t where, const drain_t drain);
 template void
 statecomp_t::lincomb<13>(const statecomp_t &dst, CCTK_REAL scale,
                          const array<CCTK_REAL, 13> &factors,
                          const array<const statecomp_t *, 13> &srcs,
-                         const valid_t where);
+                         const valid_t where, const drain_t drain);
 template void
 statecomp_t::lincomb<14>(const statecomp_t &dst, CCTK_REAL scale,
                          const array<CCTK_REAL, 14> &factors,
                          const array<const statecomp_t *, 14> &srcs,
-                         const valid_t where);
+                         const valid_t where, const drain_t drain);
 template void
 statecomp_t::lincomb<15>(const statecomp_t &dst, CCTK_REAL scale,
                          const array<CCTK_REAL, 15> &factors,
                          const array<const statecomp_t *, 15> &srcs,
-                         const valid_t where);
+                         const valid_t where, const drain_t drain);
 template void
 statecomp_t::lincomb<16>(const statecomp_t &dst, CCTK_REAL scale,
                          const array<CCTK_REAL, 16> &factors,
                          const array<const statecomp_t *, 16> &srcs,
-                         const valid_t where);
+                         const valid_t where, const drain_t drain);
 
 } // namespace ODESolvers

@@ -73,6 +73,14 @@ constexpr details::return_type<D, Types...> make_array(Types &&...t) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+// Who waits for the device kernels of a `copy` or `lincomb` (GPU builds)
+enum class drain_t {
+  device,  // the call itself ends with a full-device wait
+  deferred // no wait here: the caller guarantees that a later driver primitive
+           // (idle-on-return contract, see CarpetX/src/subcycling.hxx) drains
+           // the device before anyone else consumes the result
+};
+
 // A state vector component, with mfabs for each level, group, and variable
 struct statecomp_t {
 
@@ -105,28 +113,31 @@ struct statecomp_t {
     check_valid(required, [=]() { return why; });
   }
 
-  statecomp_t copy(const valid_t where) const;
+  statecomp_t copy(const valid_t where,
+                   const drain_t drain = drain_t::device) const;
 
   template <size_t N>
   static void lincomb(const statecomp_t &dst, CCTK_REAL scale,
                       const array<CCTK_REAL, N> &factors,
                       const array<const statecomp_t *, N> &srcs,
-                      const valid_t where);
+                      const valid_t where,
+                      const drain_t drain = drain_t::device);
   template <size_t N>
   static void lincomb(const statecomp_t &dst, CCTK_REAL scale,
                       const array<CCTK_REAL, N> &factors,
-                      const array<statecomp_t *, N> &srcs,
-                      const valid_t where) {
+                      const array<statecomp_t *, N> &srcs, const valid_t where,
+                      const drain_t drain = drain_t::device) {
     array<const statecomp_t *, N> srcs1;
     for (size_t n = 0; n < N; ++n)
       srcs1[n] = srcs[n];
-    lincomb(dst, scale, factors, srcs1, where);
+    lincomb(dst, scale, factors, srcs1, where, drain);
   }
 
   static void lincomb(const statecomp_t &dst, CCTK_REAL scale,
                       const vector<CCTK_REAL> &factors,
                       const vector<const statecomp_t *> &srcs,
-                      const valid_t where);
+                      const valid_t where,
+                      const drain_t drain = drain_t::device);
 };
 
 template <std::size_t N> using reals = std::array<CCTK_REAL, N>;

@@ -188,7 +188,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
       if (verbose)
         CCTK_VINFO("Calculated new state #%d at t=%g", n,
                    double(cctkGH->cctk_time));
-      statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
+      statecomp_t::lincomb(var, a0, as, vars, make_valid_int(),
+                           drain_t::deferred);
       var.check_valid(make_valid_int(),
                       "ODESolvers after defining new state vector");
       mark_invalid(dep_groups);
@@ -225,7 +226,12 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   };
   // Store the interior RHS of this stage into each level's k-stage source band
   // (levels with children only), to be combined into the children's
-  // refinement-boundary fills by calcys_rmbnd.
+  // refinement-boundary fills by calcys_rmbnd. This runs after the stage's
+  // linear combinations, which are issued with drain_t::deferred: the wait
+  // that closes the store drains them on every level, including level 0 where
+  // there is no refinement-boundary fill. The order is result-neutral: the
+  // store only reads rhs, which no linear combination writes, and
+  // mark_invalid only flips validity flags.
   const auto setks = [&](const int stage) {
     if (verbose)
       CCTK_VINFO(
@@ -242,7 +248,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   // overwrite var. This is also where the bands are (lazily) allocated: the
   // source-band geometry reads the next-finer level, so it must run once all
   // levels exist, and it opens its own MFIter/OpenMP region, so it must run
-  // single-threaded (loop_serially).
+  // single-threaded (loop_serially). Its closing wait also drains the deferred
+  // copy of the old state that precedes it.
   const auto store_old = [&]() {
     active_levels->loop_serially([&](const auto &restrict leveldata) {
       CarpetX::StoreRKOldState(leveldata.patch, leveldata.level, var_groups,
@@ -270,7 +277,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // Scratch copy of u(t_n) = var(tl=0), the RK4 interior anchor y0. At one
     // timelevel var(tl=0) holds the previous step's result, so no init copy is
     // needed (mirrors the non-subcycling solver).
-    const auto old = var.copy(make_valid_all());
+    const auto old = var.copy(make_valid_all(), drain_t::deferred);
 
     // Capture u(t_n) into the old source bands (and allocate the bands) before
     // the RK stages overwrite var.
@@ -279,35 +286,35 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
     // k1 = f(Y1)
     calcrhs(1);
-    setks(1); // interior only
-    const auto kaccum = rhs.copy(make_valid_int());
+    const auto kaccum = rhs.copy(make_valid_int(), drain_t::deferred);
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
+    setks(1);        // interior only
     calcys_rmbnd(2); // refinement boundary only
     calcpoststep();
 
     // k2 = f(Y2)
     calcrhs(2);
-    setks(2); // interior only
     statecomp_t::lincomb(kaccum, 1.0, reals<1>{2.0}, states<1>{&rhs},
-                         make_valid_int());
+                         make_valid_int(), drain_t::deferred);
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
+    setks(2);        // interior only
     calcys_rmbnd(3); // refinement boundary only
     calcpoststep();
 
     // k3 = f(Y3)
     calcrhs(3);
-    setks(3); // interior only
     statecomp_t::lincomb(kaccum, 1.0, reals<1>{2.0}, states<1>{&rhs},
-                         make_valid_int());
+                         make_valid_int(), drain_t::deferred);
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
+    setks(3);        // interior only
     calcys_rmbnd(4); // refinement boundary only
     calcpoststep();
 
     // k4 = f(Y4)
     calcrhs(4);
-    setks(4); // interior only
     calcupdate(4, dt, 0.0, reals<3>{1.0, dt / 6, dt / 6},
                states<3>{&old, &kaccum, &rhs});
+    setks(4);        // interior only
     calcys_rmbnd(5); // refinement boundary only
     calcpoststep();
 
@@ -325,7 +332,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     assert(ghext->num_rk_stages == 3);
 
     // Scratch copy of u(t_n) = var(tl=0), the SSPRK3 interior anchor y0.
-    const auto old = var.copy(make_valid_all());
+    const auto old = var.copy(make_valid_all(), drain_t::deferred);
 
     // Capture u(t_n) into the old source bands (and allocate the bands) before
     // the RK stages overwrite var.
@@ -334,26 +341,27 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
     // k1 = f(Y1)
     calcrhs(1);
-    setks(1); // interior only
-    const auto k1 = rhs.copy(make_valid_int());
-    calcupdate(1, dt, 1.0, reals<1>{dt}, states<1>{&rhs}); // var = y0 + dt*k1
+    const auto k1 = rhs.copy(make_valid_int(), drain_t::deferred);
+    // var = y0 + dt*k1
+    calcupdate(1, dt, 1.0, reals<1>{dt}, states<1>{&rhs});
+    setks(1);        // interior only
     calcys_rmbnd(2); // refinement boundary only
     calcpoststep();
 
     // k2 = f(Y2)
     calcrhs(2);
-    setks(2); // interior only
-    const auto k2 = rhs.copy(make_valid_int());
+    const auto k2 = rhs.copy(make_valid_int(), drain_t::deferred);
     calcupdate(2, dt / 2, 0.0, reals<3>{1.0, dt / 4, dt / 4},
                states<3>{&old, &k1, &k2});
+    setks(2);        // interior only
     calcys_rmbnd(3); // refinement boundary only
     calcpoststep();
 
     // k3 = f(Y3)
     calcrhs(3);
-    setks(3); // interior only
     calcupdate(3, dt, 0.0, reals<4>{1.0, dt / 6, dt / 6, 2 * dt / 3},
                states<4>{&old, &k1, &k2, &rhs});
+    setks(3);        // interior only
     calcys_rmbnd(4); // virtual end-of-step (num_rk_stages + 1)
     calcpoststep();
 
