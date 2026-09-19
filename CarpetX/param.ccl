@@ -586,6 +586,10 @@ INT out_performance_every "Output performance data every that many iterations" S
   1:* :: "every that many iterations"
 } -1
 
+BOOLEAN out_subcycling_counts "Write subcycling-counts.tsv and print a summary at shutdown"
+{
+} no
+
 
 
 STRING out_norm_vars "Variables to output as norms" STEERABLE=always

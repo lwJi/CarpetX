@@ -368,11 +368,11 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
 #pragma omp parallel for schedule(dynamic)
   for (std::size_t i = 0; i < tasks.size(); ++i)
     tasks[i]();
-#else
-  // wait for all tasks
-  amrex::Gpu::synchronize();
-  AMREX_GPU_ERROR_CHECK();
 #endif
+  // wait for all tasks (GPU). Outside the #if so that CPU builds, where the
+  // wait itself is empty, charge the logical wait to the subcycling counter
+  // report.
+  CarpetX::synchronize_device();
 }
 
 namespace detail {

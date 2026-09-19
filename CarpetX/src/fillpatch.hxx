@@ -8,6 +8,16 @@
 
 namespace CarpetX {
 
+// Allocate a temporary MultiFab on the fill path. Every temporary in
+// fillpatch.cxx / subcycling.cxx that is created per fill goes through here,
+// so that the subcycling counter report sees it (one `charge_temp_buffer()`
+// per call; free when the report is off).
+amrex::MultiFab
+make_temp_mfab(const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
+               int ncomps, int nghosts,
+               const amrex::FabFactory<amrex::FArrayBox> &factory =
+                   amrex::DefaultFabFactory<amrex::FArrayBox>());
+
 // Sync
 void FillPatch_Sync(task_manager &tasks2,
                     const GHExt::PatchData::LevelData::GroupData &groupdata,

@@ -1,0 +1,87 @@
+ActiveThorns = "
+    BoxInBox
+    CarpetX
+    IOUtil
+    ODESolvers
+    TestSubcyclingMC2
+"
+
+# Pins the structural counts of the subcycling path (device waits, temporary
+# buffers, kernel launches per RK linear combination, waits per ghost sync) via
+# the counter report. The reference is subcycling-counts.tsv only: all
+# integers, and independent of the number of processes. No field output.
+#
+# RK4, 3 levels, a slowly drifting refined box and a small regrid_every: some
+# coarse steps regrid (also in the middle of a coarse step) and are flagged,
+# the others are steady-state steps.
+
+$nlevels = 3
+$ncells = 32
+
+TestSubcyclingMC2::initial_condition = "Gaussian"
+TestSubcyclingMC2::gaussian_width = 0.17677669529 # sqrt(2)*W = 0.25
+
+# Drift the refined box along +x so that the refined grids change at some, but
+# not all, regrids.
+TestSubcyclingMC2::box_velocity_x = 0.5
+
+CarpetX::use_subcycling = yes
+CarpetX::restrict_during_sync = no
+
+CarpetX::out_subcycling_counts = yes
+
+CarpetX::poison_undefined_values = yes
+CarpetX::verbose = no
+
+Cactus::cctk_show_schedule = yes
+Cactus::presync_mode = "mixed-error"
+
+CarpetX::xmin = -4.0
+CarpetX::ymin = -4.0
+CarpetX::zmin = -4.0
+
+CarpetX::xmax = +4.0
+CarpetX::ymax = +4.0
+CarpetX::zmax = +4.0
+
+CarpetX::ncells_x = $ncells
+CarpetX::ncells_y = $ncells
+CarpetX::ncells_z = $ncells
+
+Driver::periodic = "yes"
+Driver::periodic_x = yes
+Driver::periodic_y = yes
+Driver::periodic_z = yes
+
+CarpetX::max_num_levels = $nlevels
+Driver::regrid_every = 2
+Driver::regrid_error_threshold = 0.9
+
+CarpetX::prolongation_type = "ddf"
+CarpetX::ghost_size = 3
+CarpetX::dtfac = 0.25
+
+CarpetX::blocking_factor_x = 2
+CarpetX::blocking_factor_y = 2
+CarpetX::blocking_factor_z = 2
+# Several boxes per level
+CarpetX::max_grid_size_x = 8
+CarpetX::max_grid_size_y = 8
+CarpetX::max_grid_size_z = 8
+
+BoxInBox::num_regions = 1
+# Region 1
+BoxInBox::shape_1 = "cube"
+BoxInBox::num_levels_1 = $nlevels
+BoxInBox::radius_1 = [ -1.0, 1.0, 0.5 ]
+
+
+Cactus::terminate = "iteration"
+Cactus::cctk_itlast = 32
+
+ODESolvers::method = "RK4"
+
+IO::out_dir = $parfile
+IO::out_every = 0
+
+CarpetX::out_performance = no

@@ -1,6 +1,7 @@
 #include "schedule.hxx"
 #include "driver.hxx"
 #include "fillpatch.hxx"
+#include "subcycling_tally.hxx"
 #include "sync_restrict_internal.hxx"
 #include "task_manager.hxx"
 #include "timer.hxx"
@@ -11,6 +12,7 @@
 
 #include <AMReX_MultiFabUtil.H>
 
+#include <algorithm>
 #include <cassert>
 #include <sstream>
 #include <vector>
@@ -550,6 +552,11 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
   task_manager tasks2;
   task_manager tasks3;
 
+  // Whether any task queued below prolongates from the next coarser level. A
+  // call that queues none only exchanges same-level ghosts. (So far this only
+  // classifies the call for the subcycling counter report.)
+  bool any_prolongation = false;
+
   for (const int gi : groups) {
     active_levels->loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
@@ -597,6 +604,7 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
         } else {
           // Copy from adjacent boxes on same level, and interpolate
           // from next coarser level
+          any_prolongation = true;
           amrex::Interpolater *const interpolator = groupdata.interpolator;
 
           // Time-blend gate: only a non-evolved group can reach this branch
@@ -644,12 +652,24 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
     });
   } // for gi
 
-  tasks1.run_tasks_serially();
-  synchronize();
-  tasks2.run_tasks_serially();
-  synchronize();
-  tasks3.run_tasks_serially();
-  synchronize();
+  {
+    // The waits of this call are charged to a ghost sync of its kind, on the
+    // finest level it covers (inside a solver call that is the solver's
+    // level). Opened after queuing, when the kind is known, and before the
+    // first wait; closed before the postcondition checks, whose waits belong
+    // to validity tracking.
+    const TallyScope tally_scope(any_prolongation
+                                     ? scope_kind_t::ghost_sync_prolongate
+                                     : scope_kind_t::ghost_sync_exchange,
+                                 std::max(0, active_levels->max_level - 1));
+
+    tasks1.run_tasks_serially();
+    synchronize();
+    tasks2.run_tasks_serially();
+    synchronize();
+    tasks3.run_tasks_serially();
+    synchronize();
+  }
 
   // Check postconditions
   for (const int gi : groups) {

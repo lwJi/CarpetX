@@ -14,6 +14,8 @@
 // driver's other internals, and are called by ODESolvers, which owns the RK
 // tableau and the choice of (stage, xsi) evaluation points.
 
+#include "subcycling_tally.hxx"
+
 #include <cctk.h>
 
 #include <vector>
@@ -41,6 +43,20 @@ void StoreRKStage(int patch, int level, const std::vector<int> &var_groups,
 // is left to the caller.
 void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
                     int tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
+
+// Counter report (`CarpetX::out_subcycling_counts`). The time integrator takes
+// part through these two entry points only; both are no-ops unless the report
+// is on.
+
+// RAII: while alive, the waits, temporaries and kernel launches of the
+// subcycling path are charged to one solver call on `level`.
+struct SubcyclingSolverScope : TallyScope {
+  explicit SubcyclingSolverScope(const int level)
+      : TallyScope(scope_kind_t::solver, level) {}
+};
+
+// Report the number of kernel launches of one RK linear combination.
+void CountLincombLaunches(int n);
 
 } // namespace CarpetX
 

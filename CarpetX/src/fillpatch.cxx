@@ -1,5 +1,6 @@
 #include "fillpatch.hxx"
 #include "schedule.hxx"
+#include "subcycling_tally.hxx"
 
 #include <utility>
 
@@ -27,6 +28,13 @@ using namespace amrex::detail;
 //
 // Coroutines were popularized in the "Modula" language in the 1980s.
 // Welcome to the future, C++, you're only 40 years behind.
+
+MultiFab make_temp_mfab(const BoxArray &ba, const DistributionMapping &dm,
+                        const int ncomps, const int nghosts,
+                        const FabFactory<FArrayBox> &factory) {
+  charge_temp_buffer();
+  return MultiFab(ba, dm, ncomps, nghosts, MFInfo(), factory);
+}
 
 void FillPatch_Sync(task_manager &tasks2,
                     const GHExt::PatchData::LevelData::GroupData &groupdata,
@@ -92,8 +100,9 @@ void FillPatch_Prolongate(
   // boundary conditions might require prolongated points).
 
   // Copy parts of coarse grid into temporary buffer
-  MultiFab *const mfab_crse_patch_ptr =
-      new MultiFab(make_mf_crse_patch<MultiFab>(fpc, ncomps));
+  // (same allocation as AMReX's make_mf_crse_patch, but counted)
+  MultiFab *const mfab_crse_patch_ptr = new MultiFab(make_temp_mfab(
+      fpc.ba_crse_patch, fpc.dm_patch, ncomps, 0, *fpc.fact_crse_patch));
   MultiFab &mfab_crse_patch = *mfab_crse_patch_ptr;
   mf_set_domain_bndry(mfab_crse_patch, cgeom);
 
@@ -107,8 +116,8 @@ void FillPatch_Prolongate(
   // pattern as mfab_crse_patch; its copy is overlapped with the one above.
   MultiFab *mfab_crse_patch_old_ptr = nullptr;
   if (do_blend) {
-    mfab_crse_patch_old_ptr =
-        new MultiFab(make_mf_crse_patch<MultiFab>(fpc, ncomps));
+    mfab_crse_patch_old_ptr = new MultiFab(make_temp_mfab(
+        fpc.ba_crse_patch, fpc.dm_patch, ncomps, 0, *fpc.fact_crse_patch));
     mf_set_domain_bndry(*mfab_crse_patch_old_ptr, cgeom);
     mfab_crse_patch_old_ptr->ParallelCopy_nowait(
         *cmfab_old, 0, 0, ncomps, IntVect{0} /* don't use coarse ghosts */,
@@ -145,8 +154,9 @@ void FillPatch_Prolongate(
 
     coarsegroupdata.apply_boundary_conditions(mfab_crse_patch);
 
-    MultiFab *const mfab_fine_patch_ptr =
-        new MultiFab(make_mf_fine_patch<MultiFab>(fpc, ncomps));
+    // (same allocation as AMReX's make_mf_fine_patch, but counted)
+    MultiFab *const mfab_fine_patch_ptr = new MultiFab(make_temp_mfab(
+        fpc.ba_fine_patch, fpc.dm_patch, ncomps, 0, *fpc.fact_fine_patch));
     MultiFab &mfab_fine_patch = *mfab_fine_patch_ptr;
 
     // Interpolate coarse buffer into fine buffer (in space, local)

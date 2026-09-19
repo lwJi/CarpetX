@@ -151,6 +151,12 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
   interval_setup.reset();
 
+  // Subcycling counter report: everything the subcycling path does from here
+  // on is charged to one solver call on this level. Under subcycling the
+  // solver acts on exactly one level per call.
+  assert(active_levels);
+  const CarpetX::SubcyclingSolverScope tally_scope(active_levels->min_level);
+
   {
     static Timer timer_alloc_temps("ODESolvers::Solve::alloc_temps");
     Interval interval_alloc_temps(timer_alloc_temps);

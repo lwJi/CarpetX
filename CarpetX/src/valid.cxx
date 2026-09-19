@@ -1,5 +1,6 @@
 #include "driver.hxx"
 #include "schedule.hxx"
+#include "subcycling_tally.hxx"
 #include "timer.hxx"
 #include "valid.hxx"
 
@@ -167,6 +168,9 @@ void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
   static Timer timer("poison_invalid<GF>");
   Interval interval(timer);
 
+  // Validity tracking is not part of the subcycling counter report
+  const TallyScope tally_scope(scope_kind_t::excluded);
+
   const poison_value_t<CCTK_REAL> poison_value;
   CCTK_REAL poison;
   poison_value.set_to_poison(poison);
@@ -281,6 +285,9 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
 
   static Timer timer("check_valid<GF>");
   Interval interval(timer);
+
+  // Validity tracking is not part of the subcycling counter report
+  const TallyScope tally_scope(scope_kind_t::excluded);
 
 #warning "TODO"
   constexpr nan_handling_t nan_handling = nan_handling_t::forbid_nans;

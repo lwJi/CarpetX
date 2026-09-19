@@ -3,11 +3,11 @@
 #include "driver.hxx"
 #include "fillpatch.hxx"
 #include "schedule.hxx"
+#include "subcycling_tally.hxx"
 #include "task_manager.hxx"
 
 #include <AMReX_FabArray.H>      // MultiArray4, MultiFab::arrays()
 #include <AMReX_GpuContainers.H> // amrex::GpuArray
-#include <AMReX_GpuDevice.H>     // amrex::Gpu::synchronize
 #include <AMReX_IntVect.H>
 #include <AMReX_MFParallelFor.H> // amrex::ParallelFor(MF, IntVect, ncomp, F)
 #include <AMReX_MultiFab.H>
@@ -201,7 +201,7 @@ void rk_dense_output_impl(amrex::MultiFab &scratch,
   }
 
   // Wait for the device kernel before the result is consumed.
-  amrex::Gpu::synchronize();
+  synchronize_device();
 }
 
 // scratch = u0 + dtc * P_stage(xsi; k_1..k_N), num_rk_stages in {3, 4}
@@ -238,6 +238,8 @@ void copy_interior_to_band(amrex::MultiFab &band, const amrex::MultiFab &src,
 }
 
 } // namespace
+
+void CountLincombLaunches(const int n) { charge_launches(n); }
 
 void StoreRKOldState(const int patch, const int level,
                      const std::vector<int> &var_groups, const int tl) {
@@ -342,8 +344,8 @@ void FillRKBoundary(const int patch, const int level,
     const amrex::MultiFab &old_band = *coarsegroupdata.old_source_band;
     const int nvars = groupdata.numvars;
 
-    scratches.push_back(std::make_unique<amrex::MultiFab>(
-        old_band.boxArray(), old_band.DistributionMap(), nvars, 0));
+    scratches.push_back(std::make_unique<amrex::MultiFab>(make_temp_mfab(
+        old_band.boxArray(), old_band.DistributionMap(), nvars, 0)));
     amrex::MultiFab &scratch = *scratches.back();
 
     // Coarse state at the fine stage time, on the coarse band geometry.

@@ -8,6 +8,7 @@
 #include "loop_device.hxx"
 #include "prolongate_3d_rf2.hxx"
 #include "schedule.hxx"
+#include "subcycling_tally.hxx"
 #include "timer.hxx"
 
 #include <cctk.h>
@@ -2397,6 +2398,10 @@ void CarpetX_CallScheduleGroup(void *cctkGH_, const char *groupname) {
   cGH *cctkGH = static_cast<cGH *>(cctkGH_);
   static Timer timer("CallScheduleGroup");
   Interval interval(timer);
+  // Subcycling counter report: the scheduled routines (thorn kernels, poison,
+  // validity, checksums) are not part of the path that is counted. A SYNC
+  // inside opens its own scope.
+  const TallyScope tally_scope(scope_kind_t::excluded);
   int ierr = CCTK_ScheduleTraverse(groupname, cctkGH, CallFunction);
   assert(!ierr);
 }

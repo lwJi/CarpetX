@@ -55,6 +55,7 @@ SRCS =							\
 	reduction.cxx					\
 	schedule.cxx					\
 	subcycling.cxx					\
+	subcycling_tally.cxx				\
 	sync_restrict.cxx				\
 	task_manager.cxx				\
 	timer.cxx					\

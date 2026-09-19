@@ -3,6 +3,7 @@
 #include "fillpatch.hxx"
 #include "io.hxx"
 #include "loop.hxx"
+#include "subcycling_tally.hxx"
 #include "sync_restrict_internal.hxx"
 #include "task_manager.hxx"
 #include "timer.hxx"
@@ -908,9 +909,20 @@ void active_levels_t::loop_serially(
 }
 
 void synchronize() {
+  // Counted also on CPU builds, where the wait itself is empty
+  charge_stream_wait();
 #ifdef AMREX_USE_GPU
   // TODO: Synchronize only if GPU kernels were actually launched
   amrex::Gpu::streamSynchronizeAll();
+  AMREX_GPU_ERROR_CHECK();
+#endif
+}
+
+void synchronize_device() {
+  // Counted also on CPU builds, where the wait itself is empty
+  charge_device_wait();
+#ifdef AMREX_USE_GPU
+  amrex::Gpu::synchronize();
   AMREX_GPU_ERROR_CHECK();
 #endif
 }
@@ -1763,6 +1775,9 @@ int Evolve(tFleshConfig *config) {
     }
   }
 
+  // Subcycling counter report (off by default)
+  init_tally();
+
   while (!EvolutionIsDone(cctkGH)) {
 
     const double start_time = gettime();
@@ -1871,6 +1886,10 @@ int Evolve(tFleshConfig *config) {
           last_modified_level >= first_modified_level;
 
       if (did_modify_any_level) {
+        // The grid structure changed: subcycling buffers are legitimately
+        // rebuilt in this coarse step, so the counter report flags it
+        flag_regrid();
+
         // Determine time step size
         if (CCTK_EQUALS(timestep_choice, "timestep")) {
           cctkGH->cctk_delta_time = timestep;
@@ -2018,6 +2037,18 @@ int Evolve(tFleshConfig *config) {
     // Mark all levels inactive now that we are done processing a time step
     active_levels = std::optional<active_levels_t>();
 
+    // Subcycling counter report: a coarse step is complete when level 0 has
+    // stepped and all levels are aligned in time again
+    {
+      bool all_levels_aligned = true;
+      const rat64 iteration0 = ghext->patchdata.at(0).leveldata.at(0).iteration;
+      for (const auto &patchdata : ghext->patchdata)
+        for (const auto &leveldata : patchdata.leveldata)
+          all_levels_aligned &= leveldata.iteration == iteration0;
+      if (all_levels_aligned)
+        end_coarse_step();
+    }
+
     const double waiting_start_time = gettime();
     MPI_Barrier(MPI_COMM_WORLD);
     const double waiting_finish_time = gettime();
@@ -2108,6 +2139,9 @@ int Shutdown(tFleshConfig *config) {
 
 #pragma omp critical
   CCTK_VINFO("Shutting down...");
+
+  // Subcycling counter report (needs ghext, which CCTK_SHUTDOWN destroys)
+  print_summary();
 
   assert(!active_levels);
   // CCTK_TERMINATE must run on the same level range that completed the last

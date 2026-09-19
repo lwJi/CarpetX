@@ -257,7 +257,12 @@ void leave_local_mode(cGH *restrict cctkGH,
                       const GHExt::PatchData::LevelData &restrict leveldata,
                       const MFPointer &mfp);
 
+// Wait for all GPU streams. Charges one stream wait to the subcycling tally.
 void synchronize();
+// Wait for the whole device. Charges one device wait to the subcycling tally;
+// this is the only permitted spelling of `amrex::Gpu::synchronize()` on the
+// subcycling path.
+void synchronize_device();
 
 // These functions are defined in valid.cxx. These prototypes should
 // be moved to valid.hxx. Unfortunately, they depend on GHExt, which is declared
