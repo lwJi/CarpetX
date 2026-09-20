@@ -24,13 +24,16 @@ namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
 
-// scratch = u0 + dtc * P_stage(xsi; k_1..k_RKSTAGES), evaluated with one fused
-// amrex::ParallelFor over the coarse source-band geometry. The coefficient
-// tables are AMReX's FillPatcher::fillRK dense-output formulas
+// crse_patch = u0 + dtc * P_stage(xsi; k_1..k_RKSTAGES), evaluated with one
+// fused amrex::ParallelFor over the coarse source-band geometry. The
+// coefficient tables are AMReX's FillPatcher::fillRK dense-output formulas
 // (AMReX_FillPatcher.H: RK3 table around lines 474-527, RK4 table around
 // 530-605), with the coarse-to-fine step ratio r fixed at 1/2.
+//
+// The kernel walks `crse_patch` and the bands box by box, so they must share
+// one BoxArray and one DistributionMapping (see ensure_rk_fill_buffers).
 template <int RKSTAGES>
-void rk_dense_output_impl(amrex::MultiFab &scratch,
+void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                           const amrex::MultiFab &old_band,
                           const std::array<std::unique_ptr<amrex::MultiFab>,
                                            max_num_rk_stages> &ks_bands,
@@ -43,22 +46,25 @@ void rk_dense_output_impl(amrex::MultiFab &scratch,
   // ratio between coarse and fine time step (2:1 refinement)
   constexpr CCTK_REAL r = 0.5;
 
-  const int nvars = scratch.nComp();
+  const int nvars = crse_patch.nComp();
   assert(old_band.nComp() == nvars);
-  assert(old_band.boxArray() == scratch.boxArray());
+  assert(old_band.boxArray() == crse_patch.boxArray());
+  // The kernel below indexes all MultiFabs with one local box index
+  assert(old_band.DistributionMap() == crse_patch.DistributionMap());
 
   const CCTK_REAL xsi2 = xsi * xsi;
 
   // Stage the coarse old state u(t_n); the polynomial is then accumulated in
-  // place on scratch.
-  amrex::MultiFab::Copy(scratch, old_band, 0, 0, nvars, 0);
+  // place on the coarse patch.
+  amrex::MultiFab::Copy(crse_patch, old_band, 0, 0, nvars, 0);
 
-  auto yf_arrs = scratch.arrays();
+  auto yf_arrs = crse_patch.arrays();
   amrex::GpuArray<amrex::MultiArray4<const CCTK_REAL>, RKSTAGES> kcs_arrs;
   for (int s = 0; s < RKSTAGES; ++s) {
     assert(ks_bands[s]);
     assert(ks_bands[s]->nComp() == nvars);
-    assert(ks_bands[s]->boxArray() == scratch.boxArray());
+    assert(ks_bands[s]->boxArray() == crse_patch.boxArray());
+    assert(ks_bands[s]->DistributionMap() == crse_patch.DistributionMap());
     kcs_arrs[s] = ks_bands[s]->const_arrays();
   }
 
@@ -83,7 +89,7 @@ void rk_dense_output_impl(amrex::MultiFab &scratch,
 
     if (stage == 1) {
       amrex::ParallelFor(
-          scratch, amrex::IntVect{0}, nvars,
+          crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
             const std::array<CCTK_REAL, 3> kk = {kcs_arrs[0][b_](i, j, k, n),
                                                  kcs_arrs[1][b_](i, j, k, n),
@@ -93,7 +99,7 @@ void rk_dense_output_impl(amrex::MultiFab &scratch,
           });
     } else if (stage == 2) {
       amrex::ParallelFor(
-          scratch, amrex::IntVect{0}, nvars,
+          crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
             const std::array<CCTK_REAL, 3> kk = {kcs_arrs[0][b_](i, j, k, n),
                                                  kcs_arrs[1][b_](i, j, k, n),
@@ -106,7 +112,7 @@ void rk_dense_output_impl(amrex::MultiFab &scratch,
     } else { // stage 3
       const CCTK_REAL r2 = r * r;
       amrex::ParallelFor(
-          scratch, amrex::IntVect{0}, nvars,
+          crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
             const std::array<CCTK_REAL, 3> kk = {kcs_arrs[0][b_](i, j, k, n),
                                                  kcs_arrs[1][b_](i, j, k, n),
@@ -150,7 +156,7 @@ void rk_dense_output_impl(amrex::MultiFab &scratch,
 
     if (stage == 1) {
       amrex::ParallelFor(
-          scratch, amrex::IntVect{0}, nvars,
+          crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
             const std::array<CCTK_REAL, 4> kk = {
                 kcs_arrs[0][b_](i, j, k, n), kcs_arrs[1][b_](i, j, k, n),
@@ -161,7 +167,7 @@ void rk_dense_output_impl(amrex::MultiFab &scratch,
           });
     } else if (stage == 2) {
       amrex::ParallelFor(
-          scratch, amrex::IntVect{0}, nvars,
+          crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
             const std::array<CCTK_REAL, 4> kk = {
                 kcs_arrs[0][b_](i, j, k, n), kcs_arrs[1][b_](i, j, k, n),
@@ -180,7 +186,7 @@ void rk_dense_output_impl(amrex::MultiFab &scratch,
       const CCTK_REAL attt = (stage == 3) ? 0.0625 * r3 : 0.125 * r3;
       const CCTK_REAL ak = (stage == 3) ? -4.0 : 4.0;
       amrex::ParallelFor(
-          scratch, amrex::IntVect{0}, nvars,
+          crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
             const std::array<CCTK_REAL, 4> kk = {
                 kcs_arrs[0][b_](i, j, k, n), kcs_arrs[1][b_](i, j, k, n),
@@ -204,18 +210,19 @@ void rk_dense_output_impl(amrex::MultiFab &scratch,
   amrex::Gpu::synchronize();
 }
 
-// scratch = u0 + dtc * P_stage(xsi; k_1..k_N), num_rk_stages in {3, 4}
-void rk_dense_output(amrex::MultiFab &scratch, const amrex::MultiFab &old_band,
+// crse_patch = u0 + dtc * P_stage(xsi; k_1..k_N), num_rk_stages in {3, 4}
+void rk_dense_output(amrex::MultiFab &crse_patch,
+                     const amrex::MultiFab &old_band,
                      const std::array<std::unique_ptr<amrex::MultiFab>,
                                       max_num_rk_stages> &ks_bands,
                      const int num_rk_stages, const int stage,
                      const CCTK_REAL xsi, const CCTK_REAL dtc) {
   switch (num_rk_stages) {
   case 3:
-    rk_dense_output_impl<3>(scratch, old_band, ks_bands, stage, xsi, dtc);
+    rk_dense_output_impl<3>(crse_patch, old_band, ks_bands, stage, xsi, dtc);
     break;
   case 4:
-    rk_dense_output_impl<4>(scratch, old_band, ks_bands, stage, xsi, dtc);
+    rk_dense_output_impl<4>(crse_patch, old_band, ks_bands, stage, xsi, dtc);
     break;
   default:
     CCTK_VERROR("Subcycling dense output supports 3 (SSPRK3) or 4 (RK4) RK "
@@ -235,6 +242,60 @@ void copy_interior_to_band(amrex::MultiFab &band, const amrex::MultiFab &src,
   assert(band.nComp() == src.nComp());
   band.ParallelCopy(src, 0, 0, band.nComp(), amrex::IntVect{0},
                     amrex::IntVect{0}, period);
+}
+
+// Make sure the persistent buffers of the RK fill into `groupdata` exist:
+// rk_crse_patch (the dense-output destination) and rk_fine_patch (the
+// interpolation destination). Lazy and idempotent, in the style of
+// LevelData::build_bands, but without a dirty check: both buffers are a
+// function of the fine level's layout alone -- the FPinfo of `mfab`, which
+// FillPatch_Prolongate would look up as well -- and they are owned by the fine
+// level's GroupData, so a regrid that changes that layout destroys them
+// together with their LevelData. They are allocated exactly as the
+// temporaries of FillPatch_Prolongate that they replace (the body of AMReX's
+// make_mf_crse_patch / make_mf_fine_patch), minus the NaN prefill outside the
+// domain: the dense output overwrites every point of rk_crse_patch.
+//
+// The dense-output kernel walks rk_crse_patch and the parent's bands box by
+// box, so both must have one layout. They do by construction: build_bands
+// takes the band geometry from the same FPinfo and rebuilds it whenever this
+// level's BoxArray or DistributionMapping changes. This is checked on every
+// call, before anything is launched.
+void ensure_rk_fill_buffers(const GroupData &groupdata,
+                            const amrex::MultiFab &mfab,
+                            const amrex::MultiFab &parent_band,
+                            const amrex::Geometry &fgeom,
+                            const amrex::Geometry &cgeom) {
+  assert(bool(groupdata.rk_crse_patch) == bool(groupdata.rk_fine_patch));
+  if (!groupdata.rk_crse_patch) {
+    const amrex::IntVect &nghosts = mfab.nGrowVect();
+    const int ncomps = mfab.nComp();
+    const amrex::IntVect ratio{2, 2, 2};
+    const amrex::EB2::IndexSpace *const index_space = nullptr;
+    const amrex::InterpolaterBoxCoarsener &coarsener =
+        groupdata.interpolator->BoxCoarsener(ratio);
+    // Cached by AMReX; the same lookup as in FillPatch_Prolongate and
+    // build_bands
+    const amrex::FabArrayBase::FPinfo &fpc = amrex::FabArrayBase::TheFPinfo(
+        mfab, mfab, nghosts, coarsener, fgeom, cgeom, index_space);
+    // The parent holds a band, hence the coarse-fine footprint is not empty
+    assert(!fpc.ba_crse_patch.empty());
+    groupdata.rk_crse_patch = std::make_unique<amrex::MultiFab>(
+        fpc.ba_crse_patch, fpc.dm_patch, ncomps, 0, amrex::MFInfo(),
+        *fpc.fact_crse_patch);
+    groupdata.rk_fine_patch = std::make_unique<amrex::MultiFab>(
+        fpc.ba_fine_patch, fpc.dm_patch, ncomps, 0, amrex::MFInfo(),
+        *fpc.fact_fine_patch);
+  }
+
+  // Layout equality with the parent's bands
+  assert(groupdata.rk_crse_patch->boxArray() == parent_band.boxArray());
+  assert(groupdata.rk_crse_patch->DistributionMap() ==
+         parent_band.DistributionMap());
+  assert(groupdata.rk_crse_patch->nComp() == parent_band.nComp());
+  assert(groupdata.rk_fine_patch->DistributionMap() ==
+         parent_band.DistributionMap());
+  assert(groupdata.rk_fine_patch->nComp() == mfab.nComp());
 }
 
 } // namespace
@@ -313,15 +374,11 @@ void FillRKBoundary(const int patch, const int level,
   // We need to loop over groups in a definite order so that AMReX's
   // communication pattern does not get confused (as in
   // SyncGroupsByDirIProlongateOnly_impl), hence the serial task managers.
+  // tasks1 evaluates the dense output, tasks2 starts the prolongation, tasks3
+  // finishes it.
   task_manager tasks1;
   task_manager tasks2;
   task_manager tasks3;
-
-  // The combined coarse states are the prolongation sources; their
-  // ParallelCopy into the coarse patch is started in tasks1 and finished in
-  // tasks2, so they must outlive both.
-  std::vector<std::unique_ptr<amrex::MultiFab> > scratches;
-  scratches.reserve(var_groups.size());
 
   for (const int gi : var_groups) {
     GroupData &groupdata = *leveldata.groupdata.at(gi);
@@ -340,28 +397,40 @@ void FillRKBoundary(const int patch, const int level,
     if (!coarsegroupdata.old_source_band)
       continue;
     const amrex::MultiFab &old_band = *coarsegroupdata.old_source_band;
-    const int nvars = groupdata.numvars;
 
-    scratches.push_back(std::make_unique<amrex::MultiFab>(
-        old_band.boxArray(), old_band.DistributionMap(), nvars, 0));
-    amrex::MultiFab &scratch = *scratches.back();
+    amrex::MultiFab &mfab = *groupdata.mfab.at(tl);
+    // As in FillPatch_Prolongate: without ghosts there is nothing to fill
+    if (mfab.nGrowVect().max() == 0)
+      continue;
 
-    // Coarse state at the fine stage time, on the coarse band geometry.
-    rk_dense_output(scratch, old_band, coarsegroupdata.ks_source_band,
-                    num_rk_stages, stage, xsi, dtc);
+    // Persistent work buffers, owned by this (fine) level; allocated by the
+    // first fill after the level was made. There is no precondition on the
+    // caller: the recovery fill allocates them just the same.
+    ensure_rk_fill_buffers(groupdata, mfab, old_band, fgeom, cgeom);
+    amrex::MultiFab &crse_patch = *groupdata.rk_crse_patch;
+    amrex::MultiFab &fine_patch = *groupdata.rk_fine_patch;
+
+    // Coarse state at the fine stage time, evaluated on the parent's bands
+    // straight into the coarse patch buffer: both have the geometry
+    // fpc.ba_crse_patch / fpc.dm_patch. Every point of the buffer is
+    // overwritten. Points outside the domain hold whatever the bands hold
+    // there; the coarse boundary conditions overwrite them next.
+    tasks1.submit_serially([&coarsegroupdata, &crse_patch, &old_band,
+                            num_rk_stages, stage, xsi, dtc]() {
+      rk_dense_output(crse_patch, old_band, coarsegroupdata.ks_source_band,
+                      num_rk_stages, stage, xsi, dtc);
+    });
 
     // Coarse BC on the combined state, spatial interpolation with the group's
-    // operator, scatter into the fine ghost halo, fine BC: the same path every
-    // other coarse-to-fine fill takes. The source band shares
-    // fpc.ba_crse_patch / fpc.dm_patch with the coarse patch buffer, so the
-    // coarse-patch copy is local.
-    amrex::MultiFab &mfab = *groupdata.mfab.at(tl);
-    tasks1.submit_serially([&tasks2, &tasks3, &groupdata, &coarsegroupdata,
-                            &mfab, &scratch, &fgeom, &cgeom]() {
-      FillPatch_ProlongateOnly(tasks2, tasks3, groupdata, coarsegroupdata, mfab,
-                               scratch, fgeom, cgeom, groupdata.interpolator,
-                               groupdata.bcrecs);
+    // operator, scatter into the fine ghost halo, fine BC: the same back half
+    // every other coarse-to-fine fill takes.
+    tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
+                            &fine_patch, &fgeom, &cgeom]() {
+      Prolongate_Start(groupdata, coarsegroupdata, mfab, crse_patch, fine_patch,
+                       fgeom, cgeom, groupdata.interpolator, groupdata.bcrecs);
     });
+    tasks3.submit_serially(
+        [&groupdata, &mfab]() { Prolongate_Finish(groupdata, mfab); });
   }
 
   tasks1.run_tasks_serially();

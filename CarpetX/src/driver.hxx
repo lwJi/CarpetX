@@ -403,12 +403,21 @@ struct GHExt {
       mutable std::array<std::unique_ptr<amrex::DistributionMapping>, 8>
           source_band_dm;
 
-      // The child (level+1) BoxArray the source band was last built against.
-      // A mismatch with the current child layout (which AMReX may have changed
-      // without re-making this coarser level) rebuilds the source band. null
-      // means not yet built; an empty BoxArray means there was no child.
+      // The child (level+1) layout the source band was last built against:
+      // its BoxArray and its DistributionMapping. A mismatch of either half
+      // with the current child layout (which AMReX may have changed without
+      // re-making this coarser level) rebuilds the source band. null means not
+      // yet built; an empty BoxArray / DistributionMapping means there was no
+      // child. AMReX never changes a level's distribution without changing
+      // its boxes; comparing both makes "the band has the layout of the
+      // child's rk_crse_patch (fpc.ba_crse_patch on fpc.dm_patch)", which the
+      // dense-output kernel relies on when it walks the bands and that
+      // buffer with one local box index, an enforced invariant rather than
+      // an observation.
       mutable std::array<std::unique_ptr<amrex::BoxArray>, 8>
           source_band_child_ba;
+      mutable std::array<std::unique_ptr<amrex::DistributionMapping>, 8>
+          source_band_child_dm;
 
       cctkGHptr patch_cctkGH;
       std::vector<cctkGHptr> local_cctkGHs; // [component]
@@ -465,6 +474,22 @@ struct GHExt {
         // and lifecycle above. Filled from var(tl) by StoreRKOldState at solve
         // start; the u(t_n) base of the dense output.
         mutable std::unique_ptr<amrex::MultiFab> old_source_band;
+
+        // Persistent work buffers of the subcycling RK boundary fill
+        // (FillRKBoundary) into this group on this level: the parent's dense
+        // output is evaluated straight into rk_crse_patch
+        // (FPinfo::ba_crse_patch on FPinfo::dm_patch, the layout of the
+        // parent's source bands), which is then interpolated into
+        // rk_fine_patch (FPinfo::ba_fine_patch on the same dm_patch). Zero
+        // ghosts, numvars comps. Both are a function of this (fine) level's
+        // layout alone, so this level owns them: they are allocated lazily by
+        // the first FillRKBoundary after the level was made and die with this
+        // LevelData when a regrid remakes or clears the level; there is no
+        // other invalidation. Null on level 0, for groups that are not
+        // integrated, and where the coarse-fine footprint is empty. Pure
+        // scratch, fully overwritten before each read: never checkpointed and
+        // not valid-tracked.
+        mutable std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;
 
         // flux register between this and the next coarser level
         std::unique_ptr<amrex::FluxRegister> freg;
