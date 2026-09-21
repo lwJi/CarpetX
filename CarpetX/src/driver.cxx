@@ -1092,10 +1092,16 @@ std::string subcycling_band_tag(const band_kind kind, const int stage) {
 amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
                                 const band_kind kind, const int stage) {
   // The one place that decides which GroupData holds the band that level
-  // `level` fills as a parent: the IO backends iterate the parent level and
-  // reach the band through here.
-  const auto &leveldata = ghext->patchdata.at(patch).leveldata.at(level);
-  const auto *const groupdata = leveldata.groupdata.at(gi).get();
+  // `level` fills as a parent: it is owned by the child level's GroupData,
+  // next to the child's rk_crse_patch / rk_fine_patch. The IO backends iterate
+  // the parent level (the bands sit in its index space and are serialized
+  // under its name) and reach the band through here.
+  const auto &patchdata = ghext->patchdata.at(patch);
+  assert(level >= 0);
+  if (level + 1 >= int(patchdata.leveldata.size()))
+    return nullptr; // finest level: no children to fill
+  const auto &childleveldata = patchdata.leveldata.at(level + 1);
+  const auto *const groupdata = childleveldata.groupdata.at(gi).get();
   if (!groupdata)
     return nullptr;
   switch (kind) {

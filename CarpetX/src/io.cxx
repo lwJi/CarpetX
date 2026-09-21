@@ -8,6 +8,7 @@
 #include "io_slice.hxx"
 #include "io_tsv.hxx"
 #include "schedule.hxx"
+#include "subcycling.hxx"
 #include "timer.hxx"
 
 #include <CactusBase/IOUtil/src/ioGH.h>
@@ -219,23 +220,27 @@ void RecoverGH(const cGH *restrict cctkGH) {
     return enabled;
   }();
 
-  // Rebuild the coarse source bands, each on its group's own geometry
-  // (deterministic, not serialized: a function of the child's layout and the
-  // group's interpolator and ghost width), so the band read below has
-  // somewhere to land. All levels exist here, so the source geometry (which
-  // reads level+1) is valid; build_bands is a no-op for groups the time
-  // integrator does not advance (the evolution never fills or writes their
-  // bands) and allocates nothing on the finest level.
+  // Rebuild the source bands, each on its group's own geometry
+  // (deterministic, not serialized: a function of the refined level's layout
+  // and the group's interpolator and ghost width), so the band read below has
+  // somewhere to land. The refined level owns the bands of the step its parent
+  // takes, so there is nothing to allocate on level 0; EnsureRKBuffers is a
+  // no-op for groups the time integrator does not advance (the evolution never
+  // fills or writes their bands) and where the coarse-fine footprint is empty.
+  // Single-threaded: it warms AMReX's FPinfo cache.
   if (ghext->use_subcycling) {
     for (const auto &patchdata : ghext->patchdata)
-      for (const auto &leveldata : patchdata.leveldata)
+      for (const auto &leveldata : patchdata.leveldata) {
+        if (leveldata.level == 0)
+          continue;
         for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
           if (CCTK_GroupTypeI(gi) != CCTK_GF)
             continue;
           const auto *const gd = leveldata.groupdata.at(gi).get();
           if (gd)
-            leveldata.build_bands(*gd);
+            EnsureRKBuffers(leveldata.patch, leveldata.level, gi);
         }
+      }
   }
 
   if (CCTK_EQUALS(recover_method, "openpmd")) {
