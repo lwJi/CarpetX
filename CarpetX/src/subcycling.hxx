@@ -8,10 +8,7 @@
 // footprint, see LevelData::build_bands), the time polynomial is evaluated on
 // the coarse side to produce a single coarse *state* at the fine stage time,
 // and only that state is prolongated in space into the fine ghost halo.
-// No data is cached on the fine level between stages; the fine level only
-// keeps the fill's two work buffers per evolved group (GroupData::rk_crse_patch
-// and rk_fine_patch) allocated from regrid to regrid, so that a fill in steady
-// state allocates nothing.
+// Nothing is cached on the fine level between stages.
 //
 // All three entry points are C++-only, operate on one (patch, level) like the
 // driver's other internals, and are called by ODESolvers, which owns the RK
