@@ -1,0 +1,49 @@
+Cactus Code Thorn TestSubcyclingMixedProlong
+Author(s)    : Liwei Ji <jiliwei.phys@gmail.com>
+Maintainer(s): Liwei Ji <jiliwei.phys@gmail.com>
+Licence      : LGPL
+--------------------------------------------------------------------------
+
+1. Purpose
+
+Regression test for subcycling-in-time when two RK-integrated groups of
+one centering use different prolongation operators.
+
+Under subcycling, a coarse level keeps "source bands" (the old state and
+the RK stage derivatives) on the coarse cells underneath its child's
+coarse-fine ghost footprint, and the child evaluates the RK dense output
+from them into a per-group coarse patch that it then prolongates. The
+dense-output kernel walks the bands and the coarse patch with one box
+index, so both must have the same layout. The width of that layout
+depends on the group's prolongation stencil (on vertex-centred data one
+coarse point of padding for "ddf" order 1, three for "hermite" order 5),
+hence the band geometry must follow the group, not only its centering.
+
+This thorn is a trimmed copy of TestSubcyclingMC2 (scalar wave equation
+against the analytic Gaussian solution, fourth-order centred Laplacian,
+ODESolvers RK4, three refinement levels) with two vertex-centred state
+groups that solve the same problem and differ only in their tags:
+
+  state_lo {u_lo, rho_lo}   prolongation_type="ddf"     prolongation_order=1
+  state_hi {u_hi, rho_hi}   prolongation_type="hermite" prolongation_order=5
+
+Both tags are explicit, so the driver-wide CarpetX::prolongation_type of
+the parameter file is irrelevant.
+
+The narrow group is declared first on purpose. Cactus numbers the groups
+of a thorn in declaration order, and a driver that shares the band
+geometry per centering takes it from the group with the lowest index.
+With the narrow group first the shared band is narrower than the coarse
+patch of the wide group: the layout assertion in ensure_rk_fill_buffers
+(CarpetX/src/subcycling.cxx) fires, and in a build without assertions
+(NDEBUG) the kernel reads outside the band's boxes, which
+poison_undefined_values turns into a visible failure. With the wide group
+first the assertion would fire too, but an NDEBUG build would be silently
+correct, so that order cannot pin the defect in every build.
+
+2. Tests
+
+  test/gaussian.par   3 levels, RK4, use_subcycling = yes, ghost_size = 3,
+                      poison_undefined_values = yes; outputs both state
+                      groups and both error groups every 64 iterations up
+                      to t = 2
