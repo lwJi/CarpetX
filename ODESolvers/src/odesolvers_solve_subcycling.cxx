@@ -48,8 +48,8 @@ dense_output_point(const CarpetX::GHExt::PatchData::LevelData &leveldata,
 
 // Collect evolved groups into statecomp_t bundles. The old-state anchor is now
 // a scratch copy of var(tl=0) made by the solver (no extra timelevel); the RK
-// k-stages live as coarse-fine bands on each group's GroupData. Operates on
-// CarpetX::active_levels; no cGH needed.
+// k-stages live as coarse-fine bands on the child level's GroupData. Operates
+// on CarpetX::active_levels; no cGH needed.
 solve_setup_t collect_solve_setup() {
   solve_setup_t s;
   s.var.timelevel = 0;
@@ -198,9 +198,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   };
   // Fill the refinement-boundary ghosts of var(tl=0) on every fine level for
   // the given stage: the driver evaluates the dense-output polynomial on the
-  // parent's source bands (old state + k-stages) at (stage0, xsi) and
-  // prolongates that single coarse state in space. dtc = dt*2 is the parent's
-  // step under 2:1 time refinement.
+  // level's own source bands (the parent's old state + k-stages) at
+  // (stage0, xsi) and prolongates that single coarse state in space.
+  // dtc = dt*2 is the parent's step under 2:1 time refinement.
   const auto calcys_rmbnd = [&](const int stage) {
     if (verbose)
       CCTK_VINFO(
@@ -217,9 +217,10 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     synchronize();
     var.set_valid(make_valid_all());
   };
-  // Store the interior RHS of this stage into each level's k-stage source band
-  // (levels with children only), to be combined into the children's
-  // refinement-boundary fills by calcys_rmbnd.
+  // Store the interior RHS of this stage of each level into the k-stage source
+  // band of its child level, which owns the bands (levels with children only),
+  // to be combined into the children's refinement-boundary fills by
+  // calcys_rmbnd.
   const auto setks = [&](const int stage) {
     if (verbose)
       CCTK_VINFO(
@@ -379,7 +380,7 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   if (verbose)
     CCTK_VINFO("Subcycling recovery: refilling refinement-boundary ghosts "
                "(spatial prolongation on time-aligned levels, dense output "
-               "from the parent's restored source bands otherwise)");
+               "from the level's restored source bands otherwise)");
 
   static Timer timer("ODESolvers::Solve_Subcycling_Recovery");
   Interval interval(timer);
@@ -394,7 +395,7 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
 
   // Refill each recovered fine level's refinement-boundary (cf) ghosts.
   // Time-aligned levels use spatial tl=0 prolongation. A level that is behind
-  // its parent is mid-cycle: the parent's restored source bands hold the
+  // its parent is mid-cycle: its restored source bands hold the parent's
   // in-progress coarse step, and the same driver fill the uninterrupted run
   // made at the previous fine substep's virtual end-of-step reconstructs the
   // cf-ghosts it last wrote. The checkpoint reader has already refused a
