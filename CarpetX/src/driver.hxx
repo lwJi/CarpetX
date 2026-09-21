@@ -597,6 +597,12 @@ enum class band_kind { ks_source, old_source };
 // for ks_source, "olds" for old_source. Shared by both IO backends.
 std::string subcycling_band_tag(band_kind kind, int stage = -1);
 
+// The source band that level `level` fills as a parent. Null on the finest
+// level, for groups that are not integrated, and where the coarse-fine
+// footprint is empty.
+amrex::MultiFab *rk_source_band(int patch, int level, int gi, band_kind kind,
+                                int stage = -1);
+
 // Monotonically increasing counter. Incremented whenever the AMR grid
 // hierarchy is invalidated (regridding, recovery). Starts at 0.
 extern std::atomic<CCTK_INT> carpetx_epoch;

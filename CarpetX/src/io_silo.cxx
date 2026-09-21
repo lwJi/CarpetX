@@ -635,10 +635,12 @@ void InputSilo(const cGH *restrict const cctkGH,
                 }
               };
               for (int s = 0; s < max_num_rk_stages; ++s)
-                probe(groupdata.ks_source_band[s].get(), band_kind::ks_source,
-                      s);
-              probe(groupdata.old_source_band.get(), band_kind::old_source,
-                    -1);
+                probe(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                     band_kind::ks_source, s),
+                      band_kind::ks_source, s);
+              probe(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                   band_kind::old_source),
+                    band_kind::old_source, -1);
             }
           }
         }
@@ -667,7 +669,8 @@ void InputSilo(const cGH *restrict const cctkGH,
               if (groupdata.mfab.empty())
                 continue;
               const amrex::MultiFab *const band =
-                  groupdata.old_source_band.get();
+                  rk_source_band(patchdata.patch, leveldata.level, gi,
+                                 band_kind::old_source);
               if (!band || band->empty())
                 continue; // not evolved, or an empty coarse-fine footprint
               CCTK_VERROR(
@@ -953,10 +956,12 @@ void InputSilo(const cGH *restrict const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              read_band(groupdata.ks_source_band[s].get(), band_kind::ks_source,
-                        s);
-            read_band(groupdata.old_source_band.get(), band_kind::old_source,
-                      -1);
+              read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                       band_kind::ks_source, s),
+                        band_kind::ks_source, s);
+            read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                     band_kind::old_source),
+                      band_kind::old_source, -1);
           } // if file_has_bands
 
         } // for gi
@@ -1625,10 +1630,12 @@ void OutputSilo(const cGH *restrict const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              write_band(groupdata.ks_source_band[s].get(),
+              write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                        band_kind::ks_source, s),
                          band_kind::ks_source, s);
-            write_band(groupdata.old_source_band.get(), band_kind::old_source,
-                       -1);
+            write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                      band_kind::old_source),
+                       band_kind::old_source, -1);
           } // if write_bands
 
         } // for gi

@@ -1089,6 +1089,27 @@ std::string subcycling_band_tag(const band_kind kind, const int stage) {
   return buf.str();
 }
 
+amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
+                                const band_kind kind, const int stage) {
+  // The one place that decides which GroupData holds the band that level
+  // `level` fills as a parent: the IO backends iterate the parent level and
+  // reach the band through here.
+  const auto &leveldata = ghext->patchdata.at(patch).leveldata.at(level);
+  const auto *const groupdata = leveldata.groupdata.at(gi).get();
+  if (!groupdata)
+    return nullptr;
+  switch (kind) {
+  case band_kind::ks_source:
+    assert(stage >= 0 && stage < max_num_rk_stages);
+    return groupdata->ks_source_band[stage].get();
+  case band_kind::old_source:
+    return groupdata->old_source_band.get();
+  default:
+    assert(0);
+  }
+  return nullptr;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void GHExt::PatchData::LevelData::GroupData::init_tmp_mfabs() const {
