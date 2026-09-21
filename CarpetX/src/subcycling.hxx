@@ -3,40 +3,30 @@
 
 // Driver primitives for subcycling-in-time. The RK dense-output fill of the
 // refinement-boundary ghosts follows AMReX's FillPatcher::fillRK order of
-// operations: the coarse level keeps its start-of-step state and stage
-// derivatives on zero-ghost "source bands" (the children's coarse-fine ghost
-// footprint, see LevelData::build_bands), the time polynomial is evaluated on
+// operations: the coarse level's start-of-step state and stage derivatives are
+// kept on zero-ghost "source bands" (the coarse cells underneath the refined
+// level's coarse-fine ghost footprint), the time polynomial is evaluated on
 // the coarse side to produce a single coarse *state* at the fine stage time,
 // and only that state is prolongated in space into the fine ghost halo.
-// No data is cached on the fine level between stages; the fine level only
-// keeps the fill's two work buffers per evolved group (GroupData::rk_crse_patch
-// and rk_fine_patch) allocated from regrid to regrid, so that a fill in steady
-// state allocates nothing.
 //
-// All three entry points are C++-only, operate on one (patch, level) like the
-// driver's other internals, and are called by ODESolvers, which owns the RK
-// tableau and the choice of (stage, xsi) evaluation points.
+// The refined level owns everything the fill needs, per evolved group: the
+// source bands, which the coarse level fills during its own step
+// (StoreRKOldState, StoreRKStage), and the fill's two work buffers
+// (GroupData::rk_crse_patch and rk_fine_patch). All of them have the geometry
+// of one FPinfo, are allocated together (EnsureRKBuffers) and stay allocated
+// from regrid to regrid, so that a fill in steady state allocates nothing.
+//
+// All entry points are C++-only and operate on one (patch, level) like the
+// driver's other internals. StoreRKOldState, StoreRKStage and FillRKBoundary
+// are called by ODESolvers, which owns the RK tableau and the choice of
+// (stage, xsi) evaluation points; EnsureRKBuffers is called by StoreRKOldState
+// and by the recovery path (RecoverGH).
 
 #include <cctk.h>
-
-#include <AMReX_FabArrayBase.H>
-#include <AMReX_Geometry.H>
-#include <AMReX_Interpolater.H>
-#include <AMReX_MultiFab.H>
 
 #include <vector>
 
 namespace CarpetX {
-
-// The FPinfo of the RK boundary fill into `finemfab`: the one lookup behind
-// both the parent's source bands (LevelData::build_bands) and the child's
-// rk_crse_patch/rk_fine_patch (FillRKBoundary), which the dense-output kernel
-// walks with one local box index. Cached by AMReX; the returned reference
-// lives as long as `finemfab`'s layout does.
-const amrex::FabArrayBase::FPinfo &
-rk_fill_fpinfo(const amrex::MultiFab &finemfab,
-               amrex::Interpolater *interpolator, const amrex::Geometry &fgeom,
-               const amrex::Geometry &cgeom);
 
 // Allocate (lazily, idempotently) all RK buffers of group gi on the refined
 // level (patch, level >= 1): old_source_band, ks_source_band[0..num_rk_stages),

@@ -428,46 +428,45 @@ struct GHExt {
         // each amrex::MultiFab has numvars components
         std::vector<std::unique_ptr<amrex::MultiFab> > mfab; // [time level]
 
-        // Coarse-fine source bands holding this level's subcycling RK stage
-        // derivatives (zero-ghost, numvars comps) on the coarse cells under the
-        // children's cf-ghost footprint, allocated lazily by build_bands only
-        // under subcycling for evolved groups. Their layout is this group's
-        // own: the child's FPinfo for this group's interpolator and ghost
-        // width (fpc.ba_crse_patch on fpc.dm_patch, see rk_fill_fpinfo), i.e.
-        // exactly the layout of the child's rk_crse_patch below. Indexed by RK
-        // stage; written by StoreRKStage and read by FillRKBoundary on the
-        // children, which evaluates the dense-output polynomial here and
-        // prolongates the resulting coarse state. Null on the finest level.
-        // Serialized at mid-cycle checkpoints.
+        // The RK buffers of the subcycling boundary fill (FillRKBoundary) into
+        // this group on this (refined) level. All of them are owned by this
+        // level and have the geometry of one FPinfo, that of this level's
+        // MultiFab of the group for the group's interpolator and ghost width.
+        // EnsureRKBuffers allocates them together, lazily, at the parent's
+        // first StoreRKOldState after this level was made (or in the recovery
+        // pre-pass). They die with this LevelData when a regrid remakes or
+        // clears the level; there is no other invalidation. Null on level 0,
+        // for groups that are not integrated, and where the coarse-fine
+        // footprint is empty.
+
+        // Coarse-fine source bands holding the parent level's subcycling RK
+        // stage derivatives (zero-ghost, numvars comps) on the coarse cells
+        // under this level's cf-ghost footprint: FPinfo::ba_crse_patch on
+        // FPinfo::dm_patch, i.e. in the parent's index space and with exactly
+        // the layout of rk_crse_patch below. Indexed by RK stage; filled by
+        // StoreRKStage on the parent and read by FillRKBoundary on this level,
+        // which evaluates the dense-output polynomial on them and prolongates
+        // the resulting coarse state. Data with history: they hold the
+        // parent's in-progress step for both of this level's substeps, and are
+        // serialized at mid-cycle checkpoints under the parent level's name
+        // (see rk_source_band).
         mutable std::array<std::unique_ptr<amrex::MultiFab>, max_num_rk_stages>
             ks_source_band;
 
-        // Coarse-fine source band holding the subcycling old state u(t_n), a
-        // single snapshot (not RK-stage indexed) with the geometry and
-        // lifecycle of the ks bands above. Filled from var(tl) by
-        // StoreRKOldState at solve start; the u(t_n) base of the dense output.
+        // Coarse-fine source band holding the parent's subcycling old state
+        // u(t_n), a single snapshot (not RK-stage indexed) with the geometry
+        // and lifecycle of the ks bands above. Filled from the parent's
+        // var(tl) by StoreRKOldState at solve start; the u(t_n) base of the
+        // dense output.
         mutable std::unique_ptr<amrex::MultiFab> old_source_band;
 
-        // Set by build_bands once this group's source bands reflect the
-        // current child layout (they stay null where the coarse-fine footprint
-        // is empty). FillRKBoundary on the child asserts it, to tell "nothing
-        // to prolongate" from "the parent never stored its old state".
-        mutable bool source_bands_built = false;
-
-        // Persistent work buffers of the subcycling RK boundary fill
-        // (FillRKBoundary) into this group on this level: the parent's dense
-        // output is evaluated straight into rk_crse_patch
-        // (FPinfo::ba_crse_patch on FPinfo::dm_patch, the layout of the
-        // parent's source bands), which is then interpolated into
-        // rk_fine_patch (FPinfo::ba_fine_patch on the same dm_patch). Zero
-        // ghosts, numvars comps. Both are a function of this (fine) level's
-        // layout alone, so this level owns them: they are allocated lazily by
-        // the first FillRKBoundary after the level was made and die with this
-        // LevelData when a regrid remakes or clears the level; there is no
-        // other invalidation. Null on level 0, for groups that are not
-        // integrated, and where the coarse-fine footprint is empty. Pure
-        // scratch, fully overwritten before each read: never checkpointed and
-        // not valid-tracked.
+        // Persistent work buffers of the fill: the dense output is evaluated
+        // from the bands straight into rk_crse_patch (FPinfo::ba_crse_patch on
+        // FPinfo::dm_patch, the layout of the bands), which is then
+        // interpolated into rk_fine_patch (FPinfo::ba_fine_patch on the same
+        // dm_patch). Zero ghosts, numvars comps. Pure scratch, fully
+        // overwritten before each read: never checkpointed and not
+        // valid-tracked.
         mutable std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;
 
         // flux register between this and the next coarser level
@@ -497,17 +496,6 @@ struct GHExt {
       };
       // TODO: right now this is sized for the total number of groups
       std::vector<std::unique_ptr<GroupData> > groupdata; // [group index]
-
-      // Allocate (lazily, idempotently) this group's ks_source_band[] and
-      // old_source_band MultiFabs (zero ghost, numvars comps) on the group's
-      // own coarse-fine source-band geometry. A no-op when subcycling is
-      // disabled or the group is not in GHExt::rk_integrated_group, so that
-      // recovery rebuilds exactly the bands a mid-cycle checkpoint carries.
-      // Takes the geometry from the next-finer level's fpc for this group
-      // (rk_fill_fpinfo), so it must run after all levels exist; it warms a
-      // cache and must run single-threaded. Rebuilds the bands when the child
-      // layout changed.
-      void build_bands(const GroupData &groupdata) const;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const LevelData &leveldata);

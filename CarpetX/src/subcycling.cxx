@@ -5,10 +5,13 @@
 #include "schedule.hxx"
 #include "task_manager.hxx"
 
-#include <AMReX_FabArray.H>      // MultiArray4, MultiFab::arrays()
+#include <AMReX_FabArray.H>     // MultiArray4, MultiFab::arrays()
+#include <AMReX_FabArrayBase.H> // FabArrayBase::TheFPinfo
+#include <AMReX_Geometry.H>
 #include <AMReX_GpuContainers.H> // amrex::GpuArray
 #include <AMReX_GpuDevice.H>     // amrex::Gpu::synchronize
 #include <AMReX_IntVect.H>
+#include <AMReX_Interpolater.H>
 #include <AMReX_MFParallelFor.H> // amrex::ParallelFor(MF, IntVect, ncomp, F)
 #include <AMReX_MultiFab.H>
 #include <AMReX_Periodicity.H>
@@ -244,11 +247,12 @@ void copy_interior_to_band(amrex::MultiFab &band, const amrex::MultiFab &src,
                     amrex::IntVect{0}, period);
 }
 
-} // namespace
-
-// The same lookup as in FillPatch_Prolongate. The refinement ratio, the ghost
-// width (that of `finemfab`) and the absent EB index space are fixed here, so
-// that the two callers cannot drift apart.
+// The FPinfo of the RK boundary fill into `finemfab`: the same lookup as in
+// FillPatch_Prolongate. The refinement ratio, the ghost width (that of
+// `finemfab`) and the absent EB index space are fixed here, so that the
+// allocation (EnsureRKBuffers) and the empty-footprint check (FillRKBoundary)
+// cannot drift apart. Cached by AMReX; the returned reference lives as long as
+// `finemfab`'s layout does.
 const amrex::FabArrayBase::FPinfo &
 rk_fill_fpinfo(const amrex::MultiFab &finemfab,
                amrex::Interpolater *const interpolator,
@@ -261,6 +265,8 @@ rk_fill_fpinfo(const amrex::MultiFab &finemfab,
                                         finemfab.nGrowVect(), coarsener, fgeom,
                                         cgeom, index_space);
 }
+
+} // namespace
 
 // The single allocation site of the RK buffers of a group: the source bands
 // (old_source_band, ks_source_band[]: data with history, filled by the parent
