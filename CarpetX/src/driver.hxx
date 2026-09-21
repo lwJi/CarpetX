@@ -389,36 +389,6 @@ struct GHExt {
       // and its distribution over all processes, but holds no data.
       std::unique_ptr<amrex::FabArrayBase> fab;
 
-      // Per-centering coarse-fine source-band geometry for subcycling RK
-      // stages, built lazily by build_bands and used to allocate the per-group
-      // band MultiFabs. Indexed by centering
-      // s = (indextype[0]<<2)|(indextype[1]<<1)|indextype[2]. The source
-      // band covers the coarse cells under this level's children's cf-ghost
-      // footprint (child fpc.ba_crse_patch on fpc.dm_patch, i.e. exactly the
-      // coarse-patch buffer FillPatch_Prolongate copies into). Empty on the
-      // finest level. A non-null BoxArray slot (even if the BoxArray itself is
-      // empty) means the geometry for that centering has been built. Shared by
-      // both band families (ks_* and old_*).
-      mutable std::array<std::unique_ptr<amrex::BoxArray>, 8> source_band_ba;
-      mutable std::array<std::unique_ptr<amrex::DistributionMapping>, 8>
-          source_band_dm;
-
-      // The child (level+1) layout the source band was last built against:
-      // its BoxArray and its DistributionMapping. A mismatch of either half
-      // with the current child layout (which AMReX may have changed without
-      // re-making this coarser level) rebuilds the source band. null means not
-      // yet built; an empty BoxArray / DistributionMapping means there was no
-      // child. AMReX never changes a level's distribution without changing
-      // its boxes; comparing both makes "the band has the layout of the
-      // child's rk_crse_patch (fpc.ba_crse_patch on fpc.dm_patch)", which the
-      // dense-output kernel relies on when it walks the bands and that
-      // buffer with one local box index, an enforced invariant rather than
-      // an observation.
-      mutable std::array<std::unique_ptr<amrex::BoxArray>, 8>
-          source_band_child_ba;
-      mutable std::array<std::unique_ptr<amrex::DistributionMapping>, 8>
-          source_band_child_dm;
-
       cctkGHptr patch_cctkGH;
       std::vector<cctkGHptr> local_cctkGHs; // [component]
 
@@ -461,19 +431,28 @@ struct GHExt {
         // Coarse-fine source bands holding this level's subcycling RK stage
         // derivatives (zero-ghost, numvars comps) on the coarse cells under the
         // children's cf-ghost footprint, allocated lazily by build_bands only
-        // under subcycling for evolved groups. Indexed by RK stage; written by
-        // StoreRKStage and read by FillRKBoundary on the children, which
-        // evaluates the dense-output polynomial here and prolongates the
-        // resulting coarse state. Empty on the finest level. Serialized at
-        // mid-cycle checkpoints.
+        // under subcycling for evolved groups. Their layout is this group's
+        // own: the child's FPinfo for this group's interpolator and ghost
+        // width (fpc.ba_crse_patch on fpc.dm_patch, see rk_fill_fpinfo), i.e.
+        // exactly the layout of the child's rk_crse_patch below. Indexed by RK
+        // stage; written by StoreRKStage and read by FillRKBoundary on the
+        // children, which evaluates the dense-output polynomial here and
+        // prolongates the resulting coarse state. Null on the finest level.
+        // Serialized at mid-cycle checkpoints.
         mutable std::array<std::unique_ptr<amrex::MultiFab>, max_num_rk_stages>
             ks_source_band;
 
         // Coarse-fine source band holding the subcycling old state u(t_n), a
-        // single snapshot (not RK-stage indexed) sharing the ks bands' geometry
-        // and lifecycle above. Filled from var(tl) by StoreRKOldState at solve
-        // start; the u(t_n) base of the dense output.
+        // single snapshot (not RK-stage indexed) with the geometry and
+        // lifecycle of the ks bands above. Filled from var(tl) by
+        // StoreRKOldState at solve start; the u(t_n) base of the dense output.
         mutable std::unique_ptr<amrex::MultiFab> old_source_band;
+
+        // Set by build_bands once this group's source bands reflect the
+        // current child layout (they stay null where the coarse-fine footprint
+        // is empty). FillRKBoundary on the child asserts it, to tell "nothing
+        // to prolongate" from "the parent never stored its old state".
+        mutable bool source_bands_built = false;
 
         // Persistent work buffers of the subcycling RK boundary fill
         // (FillRKBoundary) into this group on this level: the parent's dense
@@ -519,15 +498,15 @@ struct GHExt {
       // TODO: right now this is sized for the total number of groups
       std::vector<std::unique_ptr<GroupData> > groupdata; // [group index]
 
-      // Build (lazily, idempotently) the coarse-fine source-band geometry for
-      // this group's centering and allocate the group's ks_source_band[] and
-      // old_source_band MultiFabs (zero ghost, numvars comps). A no-op when
-      // subcycling is disabled or the group is not in
-      // GHExt::rk_integrated_group, so that recovery rebuilds exactly the
-      // bands a mid-cycle checkpoint carries. Computes the
-      // source-band geometry from the next-finer level's fpc, so it must run
-      // after all levels exist; it warms a cache and must run single-threaded.
-      // Rebuilds the bands when the child layout changed.
+      // Allocate (lazily, idempotently) this group's ks_source_band[] and
+      // old_source_band MultiFabs (zero ghost, numvars comps) on the group's
+      // own coarse-fine source-band geometry. A no-op when subcycling is
+      // disabled or the group is not in GHExt::rk_integrated_group, so that
+      // recovery rebuilds exactly the bands a mid-cycle checkpoint carries.
+      // Takes the geometry from the next-finer level's fpc for this group
+      // (rk_fill_fpinfo), so it must run after all levels exist; it warms a
+      // cache and must run single-threaded. Rebuilds the bands when the child
+      // layout changed.
       void build_bands(const GroupData &groupdata) const;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,

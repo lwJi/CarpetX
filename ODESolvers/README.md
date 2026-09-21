@@ -20,7 +20,7 @@ CarpetX::use_subcycling = yes
 CarpetX::restrict_during_sync = no
 ```
 
-Memory: under subcycling each refined level holds, per evolved group, two extra zero-ghost work buffers over its coarse-fine boundary footprint, one at the coarse and one at the fine resolution (the latter has about 8 times the cells of the former). They are allocated by the first boundary fill after the level was made and stay allocated until the next regrid remakes the level, so that the per-stage boundary fill allocates nothing. They come on top of the `num_rk_stages + 1` coarse-resolution source bands that each level with a finer level keeps per evolved group. Runs without subcycling never allocate any of these.
+Memory: under subcycling each refined level holds, per evolved group, two extra zero-ghost work buffers over its coarse-fine boundary footprint, one at the coarse and one at the fine resolution (the latter has about 8 times the cells of the former). They are allocated by the first boundary fill after the level was made and stay allocated until the next regrid remakes the level, so that the per-stage boundary fill allocates nothing. They come on top of the `num_rk_stages + 1` coarse-resolution source bands that each level with a finer level keeps per evolved group; the bands of a group cover the footprint of that group's own prolongation stencil, so groups with different `prolongation_type` / `prolongation_order` tags may be mixed freely. Runs without subcycling never allocate any of these.
 
 
 ## To Do
