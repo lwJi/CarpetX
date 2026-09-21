@@ -456,6 +456,10 @@ void FillRKBoundary(const int patch, const int level,
 
     amrex::MultiFab &mfab = *groupdata.mfab.at(tl);
 
+    // As in FillPatch_Prolongate: without ghosts there is nothing to fill
+    if (mfab.nGrowVect().max() == 0)
+      continue;
+
     // This level owns the bands; the parent filled them (StoreRKOldState ran
     // on it before this level stepped, or recovery read them). Nothing is
     // allocated here. A null band means an empty coarse-fine footprint, i.e.
@@ -466,10 +470,6 @@ void FillRKBoundary(const int patch, const int level,
       continue;
     }
     const amrex::MultiFab &old_band = *groupdata.old_source_band;
-
-    // As in FillPatch_Prolongate: without ghosts there is nothing to fill
-    if (mfab.nGrowVect().max() == 0)
-      continue;
 
     // Persistent work buffers, allocated together with the bands
     assert(groupdata.rk_crse_patch && groupdata.rk_fine_patch);
