@@ -258,9 +258,10 @@ void copy_interior_to_band(amrex::MultiFab &band, const amrex::MultiFab &src,
 //
 // The dense-output kernel walks rk_crse_patch and the parent's bands box by
 // box, so both must have one layout. They do by construction: build_bands
-// takes the band geometry from the same FPinfo and rebuilds it whenever this
-// level's BoxArray or DistributionMapping changes. This is checked on every
-// call, before anything is launched.
+// takes this group's band geometry from rk_fill_fpinfo as well, with the same
+// arguments (this level's MultiFab of the group, the group's interpolator),
+// and rebuilds the bands whenever that lookup returns another layout. This is
+// checked on every call, before anything is launched.
 void ensure_rk_fill_buffers(const GroupData &groupdata,
                             const amrex::MultiFab &mfab,
                             const amrex::MultiFab &parent_band,
@@ -268,16 +269,9 @@ void ensure_rk_fill_buffers(const GroupData &groupdata,
                             const amrex::Geometry &cgeom) {
   assert(bool(groupdata.rk_crse_patch) == bool(groupdata.rk_fine_patch));
   if (!groupdata.rk_crse_patch) {
-    const amrex::IntVect &nghosts = mfab.nGrowVect();
     const int ncomps = mfab.nComp();
-    const amrex::IntVect ratio{2, 2, 2};
-    const amrex::EB2::IndexSpace *const index_space = nullptr;
-    const amrex::InterpolaterBoxCoarsener &coarsener =
-        groupdata.interpolator->BoxCoarsener(ratio);
-    // Cached by AMReX; the same lookup as in FillPatch_Prolongate and
-    // build_bands
-    const amrex::FabArrayBase::FPinfo &fpc = amrex::FabArrayBase::TheFPinfo(
-        mfab, mfab, nghosts, coarsener, fgeom, cgeom, index_space);
+    const amrex::FabArrayBase::FPinfo &fpc =
+        rk_fill_fpinfo(mfab, groupdata.interpolator, fgeom, cgeom);
     // The parent holds a band, hence the coarse-fine footprint is not empty
     assert(!fpc.ba_crse_patch.empty());
     groupdata.rk_crse_patch = std::make_unique<amrex::MultiFab>(
@@ -299,6 +293,22 @@ void ensure_rk_fill_buffers(const GroupData &groupdata,
 }
 
 } // namespace
+
+// The same lookup as in FillPatch_Prolongate. The refinement ratio, the ghost
+// width (that of `finemfab`) and the absent EB index space are fixed here, so
+// that the two callers cannot drift apart.
+const amrex::FabArrayBase::FPinfo &
+rk_fill_fpinfo(const amrex::MultiFab &finemfab,
+               amrex::Interpolater *const interpolator,
+               const amrex::Geometry &fgeom, const amrex::Geometry &cgeom) {
+  const amrex::IntVect ratio{2, 2, 2};
+  const amrex::EB2::IndexSpace *const index_space = nullptr;
+  const amrex::InterpolaterBoxCoarsener &coarsener =
+      interpolator->BoxCoarsener(ratio);
+  return amrex::FabArrayBase::TheFPinfo(finemfab, finemfab,
+                                        finemfab.nGrowVect(), coarsener, fgeom,
+                                        cgeom, index_space);
+}
 
 void StoreRKOldState(const int patch, const int level,
                      const std::vector<int> &var_groups, const int tl) {
@@ -388,12 +398,10 @@ void FillRKBoundary(const int patch, const int level,
     assert(coarsegroupdata.numvars == groupdata.numvars);
     assert(groupdata.do_evolve);
 
-    // The parent must have built its band geometry (StoreRKOldState ran on it
-    // before this level stepped); a null band then means an empty coarse-fine
-    // footprint, i.e. nothing to prolongate.
-    const std::array<int, dim> &indextype = coarsegroupdata.indextype;
-    const int cs = (indextype[0] << 2) | (indextype[1] << 1) | indextype[2];
-    assert(coarseleveldata.source_band_ba[cs]);
+    // The parent must have built this group's bands (StoreRKOldState ran on
+    // it before this level stepped); a null band then means an empty
+    // coarse-fine footprint, i.e. nothing to prolongate.
+    assert(coarsegroupdata.source_bands_built);
     if (!coarsegroupdata.old_source_band)
       continue;
     const amrex::MultiFab &old_band = *coarsegroupdata.old_source_band;

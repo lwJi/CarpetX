@@ -245,6 +245,7 @@ CarpetX/TestStorageKeyword
 CarpetX/TestSubcycleStepping
 CarpetX/TestSubcyclingCC
 CarpetX/TestSubcyclingMC2
+CarpetX/TestSubcyclingMixedProlong
 CarpetX/TestSubcyclingProlong
 CarpetX/TestSymmetries
 CarpetX/TmunuBaseX

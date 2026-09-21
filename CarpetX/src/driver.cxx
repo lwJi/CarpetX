@@ -8,6 +8,7 @@
 #include "loop_device.hxx"
 #include "prolongate_3d_rf2.hxx"
 #include "schedule.hxx"
+#include "subcycling.hxx"
 #include "timer.hxx"
 
 #include <cctk.h>
@@ -967,7 +968,12 @@ void GHExt::PatchData::LevelData::build_bands(
   // since it defaults to the checkpoint flag and is thus also set for
   // checkpointed groups that are never integrated. Recovery calls this for
   // every group and then expects a mid-cycle checkpoint to carry each band
-  // built here, so this must match what the evolution builds.
+  // built here, so this must match what the evolution builds. It does for
+  // checkpoints written with this per-group geometry, and for older ones from
+  // runs whose integrated groups did not mix prolongation operators or ghost
+  // widths. A mid-cycle checkpoint that an older driver wrote from a run that
+  // did mix them carries bands on another group's geometry; that is not
+  // handled.
   if (!ghext->use_subcycling)
     return;
   const std::vector<bool> &integrated = ghext->rk_integrated_group;
@@ -975,92 +981,60 @@ void GHExt::PatchData::LevelData::build_bands(
       !integrated[groupdata.groupindex])
     return;
 
-  const std::array<int, dim> &indextype = groupdata.indextype;
-  // Sharing assumption: all groups of this centering at this level use the
-  // same nghostzones and interpolator, so the band geometry can be cached per
-  // (level, centering).
-  const int s = (indextype[0] << 2) | (indextype[1] << 1) | indextype[2];
-
   const auto &patchdata = ghext->patchdata.at(patch);
-  const amrex::IntVect ratio{2, 2, 2};
-  const amrex::InterpolaterBoxCoarsener &coarsener =
-      groupdata.interpolator->BoxCoarsener(ratio);
-  const amrex::EB2::IndexSpace *const index_space = nullptr;
 
-  // Current child (level+1) layout the source band must match; empty on the
-  // finest level.
-  amrex::BoxArray current_child_ba;
-  amrex::DistributionMapping current_child_dm;
+  // ---- Band geometry: the coarse cells under the next-finer level's cf-ghost
+  // footprint of this group, i.e. the child's fpc.ba_crse_patch on
+  // fpc.dm_patch; empty on the finest level. It is taken per group from
+  // rk_fill_fpinfo, the lookup FillRKBoundary allocates the child's
+  // rk_crse_patch from, with the same arguments: the dense output walks the
+  // bands and that buffer with one local box index, so they must match box by
+  // box and process by process, whatever interpolator and ghost width the
+  // group has. AMReX caches the FPinfo for as long as the child's layout
+  // lives, and groups with one stencil width and ghost width share an entry.
+  // This must run after all levels exist so the source band can see its
+  // children. ----
+  amrex::BoxArray cba;
+  amrex::DistributionMapping cdm;
   if (level + 1 < int(patchdata.leveldata.size())) {
     const auto &childleveldata = patchdata.leveldata.at(level + 1);
     const auto &childgroupdata =
         *childleveldata.groupdata.at(groupdata.groupindex);
-    current_child_ba = childgroupdata.mfab.at(0)->boxArray();
-    current_child_dm = childgroupdata.mfab.at(0)->DistributionMap();
-  }
-
-  // ---- Band geometry, built once per (level, centering), and rebuilt when
-  // the child layout changes (operator== short-circuits on the shared m_ref,
-  // so this is O(1) on unchanged grids). The child's DistributionMapping is
-  // compared as well as its BoxArray: the dense output walks the bands and
-  // the child's coarse patch (same FPinfo) with one local box index, so they
-  // must match box by box and process by process. ----
-  // A non-null source_band_ba[s] marks the geometry as built, possibly holding
-  // an empty BoxArray (the finest level has no source band). This must run
-  // after all levels exist so the source band can see its children.
-  if (!source_band_ba[s] || !source_band_child_ba[s] ||
-      !source_band_child_dm[s] ||
-      *source_band_child_ba[s] != current_child_ba ||
-      *source_band_child_dm[s] != current_child_dm) {
-    // Source band == coarse cells under the next-finer level's cf-ghost
-    // footprint (child fpc.ba_crse_patch). Empty when this is the finest level.
-    amrex::BoxArray cba;
-    amrex::DistributionMapping cdm;
-    if (level + 1 < int(patchdata.leveldata.size())) {
-      const auto &childleveldata = patchdata.leveldata.at(level + 1);
-      const auto &childgroupdata =
-          *childleveldata.groupdata.at(groupdata.groupindex);
-      const auto &childmfab = *childgroupdata.mfab.at(0);
-      const amrex::IntVect &childnghosts = childmfab.nGrowVect();
-      const auto &fgeom = patchdata.amrcore->Geom(level + 1);
-      const auto &cgeom = patchdata.amrcore->Geom(level);
-      const amrex::FabArrayBase::FPinfo &fpc =
-          amrex::FabArrayBase::TheFPinfo(childmfab, childmfab, childnghosts,
-                                         coarsener, fgeom, cgeom, index_space);
-      cba = fpc.ba_crse_patch;
-      cdm = fpc.dm_patch;
-    }
-    source_band_ba[s] = std::make_unique<amrex::BoxArray>(cba);
-    source_band_dm[s] = std::make_unique<amrex::DistributionMapping>(cdm);
-    source_band_child_ba[s] =
-        std::make_unique<amrex::BoxArray>(current_child_ba);
-    source_band_child_dm[s] =
-        std::make_unique<amrex::DistributionMapping>(current_child_dm);
+    const amrex::FabArrayBase::FPinfo &fpc = rk_fill_fpinfo(
+        *childgroupdata.mfab.at(0), groupdata.interpolator,
+        patchdata.amrcore->Geom(level + 1), patchdata.amrcore->Geom(level));
+    cba = fpc.ba_crse_patch;
+    cdm = fpc.dm_patch;
   }
 
   // ---- Per-group band MultiFab allocation (idempotent, zero ghost) ----
   const int numvars = groupdata.numvars;
   for (int stage = 0; stage < ghext->num_rk_stages; ++stage) {
-    // Drop a source band whose layout no longer matches the (rebuilt or
-    // emptied) geometry, then (re)allocate below.
+    // Drop a source band whose layout no longer matches the geometry (the
+    // child was regridded or removed), then (re)allocate below. An unchanged
+    // child returns the same FPinfo, and operator== short-circuits on the
+    // shared m_ref, so this is O(1) on unchanged grids.
     if (groupdata.ks_source_band[stage] &&
-        (groupdata.ks_source_band[stage]->boxArray() != *source_band_ba[s] ||
-         groupdata.ks_source_band[stage]->DistributionMap() !=
-             *source_band_dm[s]))
+        (groupdata.ks_source_band[stage]->boxArray() != cba ||
+         groupdata.ks_source_band[stage]->DistributionMap() != cdm))
       groupdata.ks_source_band[stage].reset();
-    if (!groupdata.ks_source_band[stage] && !source_band_ba[s]->empty())
-      groupdata.ks_source_band[stage] = std::make_unique<amrex::MultiFab>(
-          *source_band_ba[s], *source_band_dm[s], numvars, 0);
+    if (!groupdata.ks_source_band[stage] && !cba.empty())
+      groupdata.ks_source_band[stage] =
+          std::make_unique<amrex::MultiFab>(cba, cdm, numvars, 0);
   }
 
-  // Old-state band (single snapshot, shares the ks band geometry above).
+  // Old-state band (single snapshot, same geometry as the ks bands above).
   if (groupdata.old_source_band &&
-      (groupdata.old_source_band->boxArray() != *source_band_ba[s] ||
-       groupdata.old_source_band->DistributionMap() != *source_band_dm[s]))
+      (groupdata.old_source_band->boxArray() != cba ||
+       groupdata.old_source_band->DistributionMap() != cdm))
     groupdata.old_source_band.reset();
-  if (!groupdata.old_source_band && !source_band_ba[s]->empty())
-    groupdata.old_source_band = std::make_unique<amrex::MultiFab>(
-        *source_band_ba[s], *source_band_dm[s], numvars, 0);
+  if (!groupdata.old_source_band && !cba.empty())
+    groupdata.old_source_band =
+        std::make_unique<amrex::MultiFab>(cba, cdm, numvars, 0);
+
+  // The bands now reflect the current child layout; they stay null where the
+  // coarse-fine footprint is empty.
+  groupdata.source_bands_built = true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

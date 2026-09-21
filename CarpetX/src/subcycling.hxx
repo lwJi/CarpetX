@@ -19,9 +19,24 @@
 
 #include <cctk.h>
 
+#include <AMReX_FabArrayBase.H>
+#include <AMReX_Geometry.H>
+#include <AMReX_Interpolater.H>
+#include <AMReX_MultiFab.H>
+
 #include <vector>
 
 namespace CarpetX {
+
+// The FPinfo of the RK boundary fill into `finemfab`: the one lookup behind
+// both the parent's source bands (LevelData::build_bands) and the child's
+// rk_crse_patch/rk_fine_patch (FillRKBoundary), which the dense-output kernel
+// walks with one local box index. Cached by AMReX; the returned reference
+// lives as long as `finemfab`'s layout does.
+const amrex::FabArrayBase::FPinfo &
+rk_fill_fpinfo(const amrex::MultiFab &finemfab,
+               amrex::Interpolater *interpolator, const amrex::Geometry &fgeom,
+               const amrex::Geometry &cgeom);
 
 // var(tl) interior -> old_source_band on (patch, level); builds the bands
 // lazily. No-op on levels without children (there is nothing to prolongate
