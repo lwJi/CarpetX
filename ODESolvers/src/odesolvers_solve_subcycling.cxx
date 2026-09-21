@@ -231,11 +231,12 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     });
     synchronize();
   };
-  // Capture u(t_n) = var(tl=0) into each level's old_source_band (interior
-  // only, levels with children only), once per step before the RK stages
-  // overwrite var. This is also where the bands are (lazily) allocated: the
-  // source-band geometry reads the next-finer level, so it must run once all
-  // levels exist, and it opens its own MFIter/OpenMP region, so it must run
+  // Capture u(t_n) = var(tl=0) of each level into the old_source_band of its
+  // child level, which owns the bands (interior only, levels with children
+  // only), once per step before the RK stages overwrite var. This is also
+  // where the child's RK buffers are (lazily) allocated: that reads the
+  // next-finer level, so it must run once all levels exist, and it warms an
+  // AMReX cache and opens its own MFIter/OpenMP region, so it must run
   // single-threaded (loop_serially).
   const auto store_old = [&]() {
     active_levels->loop_serially([&](const auto &restrict leveldata) {
