@@ -34,12 +34,16 @@ The narrow group is declared first on purpose. Cactus numbers the groups
 of a thorn in declaration order, and a driver that shares the band
 geometry per centering takes it from the group with the lowest index.
 With the narrow group first the shared band is narrower than the coarse
-patch of the wide group: the layout assertion in ensure_rk_fill_buffers
-(CarpetX/src/subcycling.cxx) fires, and in a build without assertions
-(NDEBUG) the kernel reads outside the band's boxes, which
-poison_undefined_values turns into a visible failure. With the wide group
-first the assertion would fire too, but an NDEBUG build would be silently
-correct, so that order cannot pin the defect in every build.
+patch of the wide group. That was the failure mode of the driver that
+shared the band geometry: its layout assertion in the RK boundary fill
+fired, and in a build without assertions (NDEBUG) the kernel read outside
+the band's boxes, which poison_undefined_values turned into a visible
+failure. With the wide group first the assertion would have fired too,
+but an NDEBUG build would have been silently correct, so that order could
+not pin the defect in every build. The driver no longer has that
+assertion: the bands and the coarse patch of a group are now allocated
+together from one FPinfo (EnsureRKBuffers in CarpetX/src/subcycling.cxx),
+so the per-group geometry is structural, and this test guards it.
 
 2. Tests
 

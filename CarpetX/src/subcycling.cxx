@@ -5,10 +5,13 @@
 #include "schedule.hxx"
 #include "task_manager.hxx"
 
-#include <AMReX_FabArray.H>      // MultiArray4, MultiFab::arrays()
+#include <AMReX_FabArray.H>     // MultiArray4, MultiFab::arrays()
+#include <AMReX_FabArrayBase.H> // FabArrayBase::TheFPinfo
+#include <AMReX_Geometry.H>
 #include <AMReX_GpuContainers.H> // amrex::GpuArray
 #include <AMReX_GpuDevice.H>     // amrex::Gpu::synchronize
 #include <AMReX_IntVect.H>
+#include <AMReX_Interpolater.H>
 #include <AMReX_MFParallelFor.H> // amrex::ParallelFor(MF, IntVect, ncomp, F)
 #include <AMReX_MultiFab.H>
 #include <AMReX_Periodicity.H>
@@ -31,7 +34,7 @@ using GroupData = GHExt::PatchData::LevelData::GroupData;
 // 530-605), with the coarse-to-fine step ratio r fixed at 1/2.
 //
 // The kernel walks `crse_patch` and the bands box by box, so they must share
-// one BoxArray and one DistributionMapping (see ensure_rk_fill_buffers).
+// one BoxArray and one DistributionMapping (see EnsureRKBuffers).
 template <int RKSTAGES>
 void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                           const amrex::MultiFab &old_band,
@@ -244,59 +247,12 @@ void copy_interior_to_band(amrex::MultiFab &band, const amrex::MultiFab &src,
                     amrex::IntVect{0}, period);
 }
 
-// Make sure the persistent buffers of the RK fill into `groupdata` exist:
-// rk_crse_patch (the dense-output destination) and rk_fine_patch (the
-// interpolation destination). Lazy and idempotent, in the style of
-// LevelData::build_bands, but without a dirty check: both buffers are a
-// function of the fine level's layout alone -- the FPinfo of `mfab`, which
-// FillPatch_Prolongate would look up as well -- and they are owned by the fine
-// level's GroupData, so a regrid that changes that layout destroys them
-// together with their LevelData. They are allocated exactly as the
-// temporaries of FillPatch_Prolongate that they replace (the body of AMReX's
-// make_mf_crse_patch / make_mf_fine_patch), minus the NaN prefill outside the
-// domain: the dense output overwrites every point of rk_crse_patch.
-//
-// The dense-output kernel walks rk_crse_patch and the parent's bands box by
-// box, so both must have one layout. They do by construction: build_bands
-// takes this group's band geometry from rk_fill_fpinfo as well, with the same
-// arguments (this level's MultiFab of the group, the group's interpolator),
-// and rebuilds the bands whenever that lookup returns another layout. This is
-// checked on every call, before anything is launched.
-void ensure_rk_fill_buffers(const GroupData &groupdata,
-                            const amrex::MultiFab &mfab,
-                            const amrex::MultiFab &parent_band,
-                            const amrex::Geometry &fgeom,
-                            const amrex::Geometry &cgeom) {
-  assert(bool(groupdata.rk_crse_patch) == bool(groupdata.rk_fine_patch));
-  if (!groupdata.rk_crse_patch) {
-    const int ncomps = mfab.nComp();
-    const amrex::FabArrayBase::FPinfo &fpc =
-        rk_fill_fpinfo(mfab, groupdata.interpolator, fgeom, cgeom);
-    // The parent holds a band, hence the coarse-fine footprint is not empty
-    assert(!fpc.ba_crse_patch.empty());
-    groupdata.rk_crse_patch = std::make_unique<amrex::MultiFab>(
-        fpc.ba_crse_patch, fpc.dm_patch, ncomps, 0, amrex::MFInfo(),
-        *fpc.fact_crse_patch);
-    groupdata.rk_fine_patch = std::make_unique<amrex::MultiFab>(
-        fpc.ba_fine_patch, fpc.dm_patch, ncomps, 0, amrex::MFInfo(),
-        *fpc.fact_fine_patch);
-  }
-
-  // Layout equality with the parent's bands
-  assert(groupdata.rk_crse_patch->boxArray() == parent_band.boxArray());
-  assert(groupdata.rk_crse_patch->DistributionMap() ==
-         parent_band.DistributionMap());
-  assert(groupdata.rk_crse_patch->nComp() == parent_band.nComp());
-  assert(groupdata.rk_fine_patch->DistributionMap() ==
-         parent_band.DistributionMap());
-  assert(groupdata.rk_fine_patch->nComp() == mfab.nComp());
-}
-
-} // namespace
-
-// The same lookup as in FillPatch_Prolongate. The refinement ratio, the ghost
-// width (that of `finemfab`) and the absent EB index space are fixed here, so
-// that the two callers cannot drift apart.
+// The FPinfo of the RK boundary fill into `finemfab`: the same lookup as in
+// FillPatch_Prolongate. The refinement ratio, the ghost width (that of
+// `finemfab`) and the absent EB index space are fixed here, so that the
+// allocation (EnsureRKBuffers) and the empty-footprint check (FillRKBoundary)
+// cannot drift apart. Cached by AMReX; the returned reference lives as long as
+// `finemfab`'s layout does.
 const amrex::FabArrayBase::FPinfo &
 rk_fill_fpinfo(const amrex::MultiFab &finemfab,
                amrex::Interpolater *const interpolator,
@@ -310,18 +266,106 @@ rk_fill_fpinfo(const amrex::MultiFab &finemfab,
                                         cgeom, index_space);
 }
 
+} // namespace
+
+// The single allocation site of the RK buffers of a group: the source bands
+// (old_source_band, ks_source_band[]: data with history, filled by the parent
+// level) and the work buffers of the fill (rk_crse_patch, the dense-output
+// destination, and rk_fine_patch, the interpolation destination). All four
+// are owned by the refined level's GroupData and have the geometry of one
+// FPinfo, that of this level's MultiFab of the group, which
+// FillPatch_Prolongate would look up as well. The dense-output kernel walks
+// the bands and rk_crse_patch box by box; they have one layout by
+// construction, so there is nothing to compare across levels.
+//
+// Lazy and idempotent, without a dirty check: the layout is a function of this
+// level's own layout alone, and a regrid that changes it destroys the buffers
+// together with their LevelData. The work buffers are allocated exactly as the
+// temporaries of FillPatch_Prolongate that they replace (the body of AMReX's
+// make_mf_crse_patch / make_mf_fine_patch), minus the NaN prefill outside the
+// domain: the dense output overwrites every point of rk_crse_patch.
+void EnsureRKBuffers(const int patch, const int level, const int gi) {
+  // The buffers only exist under subcycling, and only for the groups the time
+  // integrator advances: it alone fills the bands (StoreRKOldState /
+  // StoreRKStage) and publishes that set in rk_integrated_group. do_evolve is
+  // no substitute, since it defaults to the checkpoint flag and is thus also
+  // set for checkpointed groups that are never integrated. Recovery calls this
+  // for every group and then expects a mid-cycle checkpoint to carry each band
+  // allocated here, so this must match what the evolution allocates. It does
+  // for checkpoints written with this per-group geometry, and for older ones
+  // from runs whose integrated groups did not mix prolongation operators or
+  // ghost widths. A mid-cycle checkpoint that an older driver wrote from a run
+  // that did mix them carries bands on another group's geometry; that is not
+  // handled.
+  if (!ghext->use_subcycling)
+    return;
+  const std::vector<bool> &integrated = ghext->rk_integrated_group;
+  if (gi < 0 || gi >= int(integrated.size()) || !integrated[gi])
+    return;
+
+  assert(level >= 1);
+  const auto &patchdata = ghext->patchdata.at(patch);
+  const auto &leveldata = patchdata.leveldata.at(level);
+  const GroupData &groupdata = *leveldata.groupdata.at(gi);
+  const int num_rk_stages = ghext->num_rk_stages;
+  assert(num_rk_stages >= 0 && num_rk_stages <= max_num_rk_stages);
+
+  // All four are allocated together, or none is
+  [[maybe_unused]] const auto have_all_or_none = [&]() {
+    const bool have = bool(groupdata.rk_crse_patch);
+    bool good = bool(groupdata.rk_fine_patch) == have &&
+                bool(groupdata.old_source_band) == have;
+    for (int stage = 0; stage < num_rk_stages; ++stage)
+      good = good && bool(groupdata.ks_source_band[stage]) == have;
+    return good;
+  };
+  assert(have_all_or_none());
+  if (groupdata.rk_crse_patch)
+    return;
+
+  assert(!groupdata.mfab.empty());
+  const amrex::MultiFab &mfab = *groupdata.mfab.at(0);
+  const amrex::FabArrayBase::FPinfo &fpc = rk_fill_fpinfo(
+      mfab, groupdata.interpolator, patchdata.amrcore->Geom(level),
+      patchdata.amrcore->Geom(level - 1));
+  // Empty coarse-fine footprint: all buffers stay null
+  if (fpc.ba_crse_patch.empty())
+    return;
+
+  const int ncomps = mfab.nComp();
+  groupdata.rk_crse_patch = std::make_unique<amrex::MultiFab>(
+      fpc.ba_crse_patch, fpc.dm_patch, ncomps, 0, amrex::MFInfo(),
+      *fpc.fact_crse_patch);
+  groupdata.rk_fine_patch = std::make_unique<amrex::MultiFab>(
+      fpc.ba_fine_patch, fpc.dm_patch, ncomps, 0, amrex::MFInfo(),
+      *fpc.fact_fine_patch);
+
+  // Zero-ghost source bands on the coarse patch geometry
+  const int numvars = groupdata.numvars;
+  assert(numvars == ncomps);
+  for (int stage = 0; stage < num_rk_stages; ++stage)
+    groupdata.ks_source_band[stage] = std::make_unique<amrex::MultiFab>(
+        fpc.ba_crse_patch, fpc.dm_patch, numvars, 0);
+  groupdata.old_source_band = std::make_unique<amrex::MultiFab>(
+      fpc.ba_crse_patch, fpc.dm_patch, numvars, 0);
+
+  assert(have_all_or_none());
+}
+
 void StoreRKOldState(const int patch, const int level,
                      const std::vector<int> &var_groups, const int tl) {
   if (!ghext->use_subcycling)
     return;
   const auto &patchdata = ghext->patchdata.at(patch);
   const auto &leveldata = patchdata.leveldata.at(level);
+  const bool have_child = level + 1 < int(patchdata.leveldata.size());
+  // The bands sit in this level's index space: this level's periodicity
   const amrex::Periodicity &period =
       patchdata.amrcore->Geom(level).periodicity();
 
   for (const int gi : var_groups) {
     const GroupData &groupdata = *leveldata.groupdata.at(gi);
-    // build_bands is a no-op for unpublished groups, which would leave the
+    // EnsureRKBuffers is a no-op for unpublished groups, which would leave the
     // children without a prolongation source and recovery without bands.
     if (gi >= int(ghext->rk_integrated_group.size()) ||
         !ghext->rk_integrated_group[gi])
@@ -329,14 +373,20 @@ void StoreRKOldState(const int patch, const int level,
                   "listed in GHExt::rk_integrated_group. The time integrator "
                   "must publish its evolved groups at WRAGH.",
                   CCTK_FullGroupName(gi));
-    // Lazy, idempotent allocation with a child-layout dirty check. The band
-    // geometry reads the next-finer level, so all levels must already exist.
-    leveldata.build_bands(groupdata);
-    // The finest level has no source band (no children to prolongate to).
-    if (!groupdata.old_source_band)
+    // The finest level has no children to prolongate to.
+    if (!have_child)
       continue;
-    copy_interior_to_band(*groupdata.old_source_band, *groupdata.mfab.at(tl),
-                          period);
+    // The child owns the bands. Lazy, idempotent allocation: a child that was
+    // remade since this level's last step has lost its buffers and gets new
+    // ones here, before its first fill.
+    EnsureRKBuffers(patch, level + 1, gi);
+    const GroupData &childgroupdata =
+        *patchdata.leveldata.at(level + 1).groupdata.at(gi);
+    // Empty coarse-fine footprint
+    if (!childgroupdata.old_source_band)
+      continue;
+    copy_interior_to_band(*childgroupdata.old_source_band,
+                          *groupdata.mfab.at(tl), period);
   }
 }
 
@@ -349,19 +399,25 @@ void StoreRKStage(const int patch, const int level,
   assert(var_groups.size() == rhs_groups.size());
   const int s = stage - 1;
   const auto &patchdata = ghext->patchdata.at(patch);
+  // The finest level has no children to prolongate to.
+  if (level + 1 >= int(patchdata.leveldata.size()))
+    return;
   const auto &leveldata = patchdata.leveldata.at(level);
+  const auto &childleveldata = patchdata.leveldata.at(level + 1);
   const amrex::Periodicity &period =
       patchdata.amrcore->Geom(level).periodicity();
 
   // rhs_groups[i] and var_groups[i] are paired by sort order; the k-stage
-  // bands live on the evolved group's GroupData.
+  // bands live on the evolved group's GroupData on the child level.
   for (size_t i = 0; i < var_groups.size(); ++i) {
-    const GroupData &groupdata = *leveldata.groupdata.at(var_groups[i]);
+    const GroupData &childgroupdata =
+        *childleveldata.groupdata.at(var_groups[i]);
     const GroupData &rhs_groupdata = *leveldata.groupdata.at(rhs_groups[i]);
-    // The finest level has no source band (no children to prolongate to).
-    if (!groupdata.ks_source_band[s])
+    // Empty coarse-fine footprint. StoreRKOldState allocated the bands
+    // earlier in this step; nothing is allocated here.
+    if (!childgroupdata.ks_source_band[s])
       continue;
-    copy_interior_to_band(*groupdata.ks_source_band[s],
+    copy_interior_to_band(*childgroupdata.ks_source_band[s],
                           *rhs_groupdata.mfab.at(0), period);
   }
 }
@@ -398,36 +454,38 @@ void FillRKBoundary(const int patch, const int level,
     assert(coarsegroupdata.numvars == groupdata.numvars);
     assert(groupdata.do_evolve);
 
-    // The parent must have built this group's bands (StoreRKOldState ran on
-    // it before this level stepped); a null band then means an empty
-    // coarse-fine footprint, i.e. nothing to prolongate.
-    assert(coarsegroupdata.source_bands_built);
-    if (!coarsegroupdata.old_source_band)
-      continue;
-    const amrex::MultiFab &old_band = *coarsegroupdata.old_source_band;
-
     amrex::MultiFab &mfab = *groupdata.mfab.at(tl);
+
     // As in FillPatch_Prolongate: without ghosts there is nothing to fill
     if (mfab.nGrowVect().max() == 0)
       continue;
 
-    // Persistent work buffers, owned by this (fine) level; allocated by the
-    // first fill after the level was made. There is no precondition on the
-    // caller: the recovery fill allocates them just the same.
-    ensure_rk_fill_buffers(groupdata, mfab, old_band, fgeom, cgeom);
+    // This level owns the bands; the parent filled them (StoreRKOldState ran
+    // on it before this level stepped, or recovery read them). Nothing is
+    // allocated here. A null band means an empty coarse-fine footprint, i.e.
+    // nothing to prolongate -- and not that nobody allocated the buffers.
+    if (!groupdata.old_source_band) {
+      assert(rk_fill_fpinfo(mfab, groupdata.interpolator, fgeom, cgeom)
+                 .ba_crse_patch.empty());
+      continue;
+    }
+    const amrex::MultiFab &old_band = *groupdata.old_source_band;
+
+    // Persistent work buffers, allocated together with the bands
+    assert(groupdata.rk_crse_patch && groupdata.rk_fine_patch);
     amrex::MultiFab &crse_patch = *groupdata.rk_crse_patch;
     amrex::MultiFab &fine_patch = *groupdata.rk_fine_patch;
 
-    // Coarse state at the fine stage time, evaluated on the parent's bands
-    // straight into the coarse patch buffer: both have the geometry
+    // Coarse state at the fine stage time, evaluated on the bands straight
+    // into the coarse patch buffer: both have the geometry
     // fpc.ba_crse_patch / fpc.dm_patch. Every point of the buffer is
     // overwritten. Points outside the domain hold whatever the bands hold
     // there; the coarse boundary conditions overwrite them next.
-    tasks1.submit_serially([&coarsegroupdata, &crse_patch, &old_band,
-                            num_rk_stages, stage, xsi, dtc]() {
-      rk_dense_output(crse_patch, old_band, coarsegroupdata.ks_source_band,
-                      num_rk_stages, stage, xsi, dtc);
-    });
+    tasks1.submit_serially(
+        [&groupdata, &crse_patch, &old_band, num_rk_stages, stage, xsi, dtc]() {
+          rk_dense_output(crse_patch, old_band, groupdata.ks_source_band,
+                          num_rk_stages, stage, xsi, dtc);
+        });
 
     // Coarse BC on the combined state, spatial interpolation with the group's
     // operator, scatter into the fine ghost halo, fine BC: the same back half
