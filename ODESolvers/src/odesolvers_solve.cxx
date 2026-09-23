@@ -10,7 +10,7 @@ extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
   *do_substeps = 0;
 
   // Publish the active RK stage count for the subcycling band machinery
-  // (read by CarpetX::build_bands and the recovery path).
+  // (read by CarpetX::EnsureRKBuffers and the recovery path).
   CarpetX::ghext->num_rk_stages = CCTK_EQUALS(method, "SSPRK3") ? 3 : 4;
 
   // Publish the groups we integrate, i.e. the var_groups the solvers collect:

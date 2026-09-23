@@ -1,0 +1,70 @@
+# Schedule definitions for thorn TestSubcyclingMixedProlong
+
+STORAGE: state_lo[timelevels] state_hi[timelevels]
+STORAGE: rhs_lo rhs_hi error_lo error_hi
+
+
+SCHEDULE TestSubcyclingMixedProlong_Initial_lo AT initial
+{
+  LANG: C
+  WRITES: state_lo(interior)
+  SYNC: state_lo
+} "Initialize scalar wave state (narrow prolongation stencil)"
+
+SCHEDULE TestSubcyclingMixedProlong_Initial_hi AT initial
+{
+  LANG: C
+  WRITES: state_hi(interior)
+  SYNC: state_hi
+} "Initialize scalar wave state (wide prolongation stencil)"
+
+SCHEDULE TestSubcyclingMixedProlong_Sync AT postregrid
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: state_lo state_hi
+} "Synchronize"
+
+SCHEDULE TestSubcyclingMixedProlong_Sync AT post_recover_variables
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: state_lo state_hi
+} "Synchronize"
+
+SCHEDULE TestSubcyclingMixedProlong_Sync IN ODESolvers_PostStep
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: state_lo state_hi
+} "Synchronize"
+
+SCHEDULE TestSubcyclingMixedProlong_RHS_lo IN ODESolvers_RHS
+{
+  LANG: C
+  READS: state_lo(everywhere)
+  WRITES: rhs_lo(interior)
+} "Calculate scalar wave RHS (narrow prolongation stencil)"
+
+SCHEDULE TestSubcyclingMixedProlong_RHS_hi IN ODESolvers_RHS
+{
+  LANG: C
+  READS: state_hi(everywhere)
+  WRITES: rhs_hi(interior)
+} "Calculate scalar wave RHS (wide prolongation stencil)"
+
+SCHEDULE TestSubcyclingMixedProlong_Error_lo AT analysis
+{
+  LANG: C
+  READS: state_lo(interior)
+  WRITES: error_lo(interior)
+  SYNC: error_lo
+} "Calculate error in scalar wave state (narrow prolongation stencil)"
+
+SCHEDULE TestSubcyclingMixedProlong_Error_hi AT analysis
+{
+  LANG: C
+  READS: state_hi(interior)
+  WRITES: error_hi(interior)
+  SYNC: error_hi
+} "Calculate error in scalar wave state (wide prolongation stencil)"

@@ -5,3 +5,4 @@ USES INCLUDE HEADER: loop.hxx
 
 CCTK_REAL iteration TYPE=GF CENTERING={VVV} TAGS="checkpoint='yes'" "subcycling and prolongation test"
 CCTK_REAL postrestrict TYPE=GF CENTERING={VVV} TAGS='checkpoint="yes" restrict="no"' "levels that saw CCTK_POSTRESTRICT"
+CCTK_REAL prerestrict TYPE=GF CENTERING={VVV} TAGS='checkpoint="yes" restrict="no"' "levels that saw CarpetX_PreRestrict"

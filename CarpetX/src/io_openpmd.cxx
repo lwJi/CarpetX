@@ -1184,10 +1184,12 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              read_band(groupdata.ks_source_band[s].get(), band_kind::ks_source,
-                        s);
-            read_band(groupdata.old_source_band.get(), band_kind::old_source,
-                      -1);
+              read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                       band_kind::ks_source, s),
+                        band_kind::ks_source, s);
+            read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                     band_kind::old_source),
+                      band_kind::old_source, -1);
           }
         }
       } // for gi
@@ -2006,10 +2008,12 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              write_band(groupdata.ks_source_band[s].get(),
+              write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                        band_kind::ks_source, s),
                          band_kind::ks_source, s);
-            write_band(groupdata.old_source_band.get(), band_kind::old_source,
-                       -1);
+            write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                      band_kind::old_source),
+                       band_kind::old_source, -1);
           } // if write_bands
         }
       } // for gi

@@ -14,6 +14,7 @@ void TestSubcycleStepping_Init(CCTK_ARGUMENTS)
     CCTK_REAL canary = 100 + 10 * cctk_iteration + 1 * cctk_level;
     iteration(pt.I) = canary;
     postrestrict(pt.I) = canary;
+    prerestrict(pt.I) = canary;
   });
 
 }
@@ -42,6 +43,20 @@ void TestSubcycleStepping_PostRestrict(CCTK_ARGUMENTS)
   grid.loop_int<0,0,0>(grid.nghostzones, [=] CCTK_HOST(const Loop::PointDesc &pt) {
     CCTK_REAL canary = 100 + 10 * cctk_iteration + 1 * cctk_level;
     postrestrict(pt.I) = canary;
+  });
+
+}
+
+extern "C"
+void TestSubcycleStepping_PreRestrict(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_PARAMETERS;
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_PreRestrict;
+
+  CCTK_VINFO("Stamping prerestrict at iteration %d level %d time %g", cctk_iteration, cctk_level, cctk_time);
+  grid.loop_int<0,0,0>(grid.nghostzones, [=] CCTK_HOST(const Loop::PointDesc &pt) {
+    CCTK_REAL canary = 100 + 10 * cctk_iteration + 1 * cctk_level;
+    prerestrict(pt.I) = canary;
   });
 
 }

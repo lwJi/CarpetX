@@ -959,100 +959,6 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void GHExt::PatchData::LevelData::build_bands(
-    const GroupData &groupdata) const {
-  // Bands only exist under subcycling, and only for the groups the time
-  // integrator advances: it alone fills them (StoreRKOldState/StoreRKStage)
-  // and publishes that set in rk_integrated_group. do_evolve is no substitute,
-  // since it defaults to the checkpoint flag and is thus also set for
-  // checkpointed groups that are never integrated. Recovery calls this for
-  // every group and then expects a mid-cycle checkpoint to carry each band
-  // built here, so this must match what the evolution builds.
-  if (!ghext->use_subcycling)
-    return;
-  const std::vector<bool> &integrated = ghext->rk_integrated_group;
-  if (groupdata.groupindex >= int(integrated.size()) ||
-      !integrated[groupdata.groupindex])
-    return;
-
-  const std::array<int, dim> &indextype = groupdata.indextype;
-  // Sharing assumption: all groups of this centering at this level use the
-  // same nghostzones and interpolator, so the band geometry can be cached per
-  // (level, centering).
-  const int s = (indextype[0] << 2) | (indextype[1] << 1) | indextype[2];
-
-  const auto &patchdata = ghext->patchdata.at(patch);
-  const amrex::IntVect ratio{2, 2, 2};
-  const amrex::InterpolaterBoxCoarsener &coarsener =
-      groupdata.interpolator->BoxCoarsener(ratio);
-  const amrex::EB2::IndexSpace *const index_space = nullptr;
-
-  // Current child (level+1) layout the source band must match; empty on the
-  // finest level.
-  amrex::BoxArray current_child_ba;
-  if (level + 1 < int(patchdata.leveldata.size())) {
-    const auto &childleveldata = patchdata.leveldata.at(level + 1);
-    const auto &childgroupdata =
-        *childleveldata.groupdata.at(groupdata.groupindex);
-    current_child_ba = childgroupdata.mfab.at(0)->boxArray();
-  }
-
-  // ---- Band geometry, built once per (level, centering), and rebuilt when
-  // the child layout changes (operator== short-circuits on the shared m_ref,
-  // so this is O(1) on unchanged grids). ----
-  // A non-null source_band_ba[s] marks the geometry as built, possibly holding
-  // an empty BoxArray (the finest level has no source band). This must run
-  // after all levels exist so the source band can see its children.
-  if (!source_band_ba[s] || !source_band_child_ba[s] ||
-      *source_band_child_ba[s] != current_child_ba) {
-    // Source band == coarse cells under the next-finer level's cf-ghost
-    // footprint (child fpc.ba_crse_patch). Empty when this is the finest level.
-    amrex::BoxArray cba;
-    amrex::DistributionMapping cdm;
-    if (level + 1 < int(patchdata.leveldata.size())) {
-      const auto &childleveldata = patchdata.leveldata.at(level + 1);
-      const auto &childgroupdata =
-          *childleveldata.groupdata.at(groupdata.groupindex);
-      const auto &childmfab = *childgroupdata.mfab.at(0);
-      const amrex::IntVect &childnghosts = childmfab.nGrowVect();
-      const auto &fgeom = patchdata.amrcore->Geom(level + 1);
-      const auto &cgeom = patchdata.amrcore->Geom(level);
-      const amrex::FabArrayBase::FPinfo &fpc =
-          amrex::FabArrayBase::TheFPinfo(childmfab, childmfab, childnghosts,
-                                         coarsener, fgeom, cgeom, index_space);
-      cba = fpc.ba_crse_patch;
-      cdm = fpc.dm_patch;
-    }
-    source_band_ba[s] = std::make_unique<amrex::BoxArray>(cba);
-    source_band_dm[s] = std::make_unique<amrex::DistributionMapping>(cdm);
-    source_band_child_ba[s] =
-        std::make_unique<amrex::BoxArray>(current_child_ba);
-  }
-
-  // ---- Per-group band MultiFab allocation (idempotent, zero ghost) ----
-  const int numvars = groupdata.numvars;
-  for (int stage = 0; stage < ghext->num_rk_stages; ++stage) {
-    // Drop a source band whose layout no longer matches the (rebuilt or
-    // emptied) geometry, then (re)allocate below.
-    if (groupdata.ks_source_band[stage] &&
-        groupdata.ks_source_band[stage]->boxArray() != *source_band_ba[s])
-      groupdata.ks_source_band[stage].reset();
-    if (!groupdata.ks_source_band[stage] && !source_band_ba[s]->empty())
-      groupdata.ks_source_band[stage] = std::make_unique<amrex::MultiFab>(
-          *source_band_ba[s], *source_band_dm[s], numvars, 0);
-  }
-
-  // Old-state band (single snapshot, shares the ks band geometry above).
-  if (groupdata.old_source_band &&
-      groupdata.old_source_band->boxArray() != *source_band_ba[s])
-    groupdata.old_source_band.reset();
-  if (!groupdata.old_source_band && !source_band_ba[s]->empty())
-    groupdata.old_source_band = std::make_unique<amrex::MultiFab>(
-        *source_band_ba[s], *source_band_dm[s], numvars, 0);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 bool all_levels_synchronized() {
   if (!ghext->use_subcycling)
     return true;
@@ -1101,6 +1007,33 @@ std::string subcycling_band_tag(const band_kind kind, const int stage) {
     assert(0);
   }
   return buf.str();
+}
+
+amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
+                                const band_kind kind, const int stage) {
+  // The one place that decides which GroupData holds the band that level
+  // `level` fills as a parent: it is owned by the child level's GroupData,
+  // next to the child's rk_crse_patch / rk_fine_patch. The IO backends iterate
+  // the parent level (the bands sit in its index space and are serialized
+  // under its name) and reach the band through here.
+  const auto &patchdata = ghext->patchdata.at(patch);
+  assert(level >= 0);
+  if (level + 1 >= int(patchdata.leveldata.size()))
+    return nullptr; // finest level: no children to fill
+  const auto &childleveldata = patchdata.leveldata.at(level + 1);
+  const auto *const groupdata = childleveldata.groupdata.at(gi).get();
+  if (!groupdata)
+    return nullptr;
+  switch (kind) {
+  case band_kind::ks_source:
+    assert(stage >= 0 && stage < max_num_rk_stages);
+    return groupdata->ks_source_band[stage].get();
+  case band_kind::old_source:
+    return groupdata->old_source_band.get();
+  default:
+    assert(0);
+  }
+  return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

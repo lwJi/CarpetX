@@ -1,0 +1,55 @@
+# Interface definition for thorn TestSubcyclingMixedProlong
+
+IMPLEMENTS: TestSubcyclingMixedProlong
+
+INHERITS: BoxInBox
+
+USES INCLUDE HEADER: loop_device.hxx
+USES INCLUDE HEADER: vect.hxx
+USES INCLUDE HEADER: vec.hxx
+USES INCLUDE HEADER: mat.hxx
+
+USES INCLUDE HEADER: derivs.hxx
+
+
+
+# Two vertex-centred state groups that differ only in their prolongation
+# tags. The narrow-stencil group is declared first on purpose: groups are
+# numbered in declaration order, and only this order fails visibly when the
+# RK source-band geometry is shared between groups (see README).
+
+CCTK_REAL state_lo TYPE=gf TAGS='rhs="rhs_lo" dependents="error_lo" prolongation_type="ddf" prolongation_order=1'
+{
+  u_lo
+  rho_lo
+} "Scalar wave state vector, narrow prolongation stencil (declared first on purpose)"
+
+CCTK_REAL state_hi TYPE=gf TAGS='rhs="rhs_hi" dependents="error_hi" prolongation_type="hermite" prolongation_order=5'
+{
+  u_hi
+  rho_hi
+} "Scalar wave state vector, wide prolongation stencil"
+
+CCTK_REAL rhs_lo TYPE=gf TAGS='checkpoint="no"'
+{
+  u_lo_rhs
+  rho_lo_rhs
+} "RHS of scalar wave state vector, narrow prolongation stencil"
+
+CCTK_REAL rhs_hi TYPE=gf TAGS='checkpoint="no"'
+{
+  u_hi_rhs
+  rho_hi_rhs
+} "RHS of scalar wave state vector, wide prolongation stencil"
+
+CCTK_REAL error_lo TYPE=gf TAGS='checkpoint="no"'
+{
+  u_lo_err
+  rho_lo_err
+} "Error in scalar wave state vector, narrow prolongation stencil"
+
+CCTK_REAL error_hi TYPE=gf TAGS='checkpoint="no"'
+{
+  u_hi_err
+  rho_hi_err
+} "Error in scalar wave state vector, wide prolongation stencil"

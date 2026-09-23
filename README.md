@@ -21,3 +21,7 @@ The recorded talk "[Using CarpetX: A Guide for Early Adopters](http://einsteinto
 ## Getting started
 
 Instructions for downloading the Einstein Toolkit including CarpetX, building, and running an example are available on the [Wiki](https://github.com/eschnett/CarpetX/wiki/Getting-Started).
+
+## Subcycling
+
+The initial subcycling implementation applied prolongation to time derivatives rather than the state vector itself, causing issues during hydrodynamic evolution. This bug was identified by Jay Kalinani (jaykalinani@gmail.com) and fixed in [PR #114](https://github.com/lwJi/CarpetX/pull/114). The current codebase features a reimplementation of this fix.

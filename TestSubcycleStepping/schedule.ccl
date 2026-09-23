@@ -1,14 +1,16 @@
 # Schedule definitions for thorn TestSubcycleStepping
 
-STORAGE: iteration postrestrict
+STORAGE: iteration postrestrict prerestrict
 
 schedule TestSubcycleStepping_Init AT INITIAL
 {
   LANG: C
   WRITES: iteration(interior)
   WRITES: postrestrict(interior)
+  WRITES: prerestrict(interior)
   SYNC: iteration
   SYNC: postrestrict
+  SYNC: prerestrict
 } "initialize test grid functions"
 
 schedule TestSubcycleStepping_Update AT EVOL
@@ -25,10 +27,18 @@ schedule TestSubcycleStepping_PostRestrict AT postrestrict
   SYNC: postrestrict
 } "stamp levels that see CCTK_POSTRESTRICT"
 
+schedule TestSubcycleStepping_PreRestrict IN CarpetX_PreRestrict
+{
+  LANG: C
+  WRITES: prerestrict(interior)
+  SYNC: prerestrict
+} "stamp levels that see CarpetX_PreRestrict"
+
 schedule TestSubcycleStepping_Sync AT post_recover_variables
 {
   LANG: C
   OPTIONS: global
   SYNC: iteration
   SYNC: postrestrict
+  SYNC: prerestrict
 } "restore the ghost zones, which checkpoints do not carry"

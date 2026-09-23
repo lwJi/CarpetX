@@ -1,0 +1,3 @@
+# Configuration definitions for thorn TestSubcyclingMixedProlong
+
+REQUIRES Arith Derivs Loop
