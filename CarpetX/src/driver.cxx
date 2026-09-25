@@ -809,6 +809,15 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
   // face-centred in d and cell-centred elsewhere, and is not the state group
   // itself. Checked for every group with a fluxes= tag on every level, not
   // only where a register is allocated.
+  //
+  // Component contract: the leading `numvars` components of each flux group
+  // are the fluxes of the state group's components, in the same order; any
+  // further components are ignored by the register (AccumulateFluxes and
+  // Reflux only ever touch components 0 .. numvars-1). A flux group may thus
+  // carry more components than the state, e.g. transport terms of quantities
+  // that are not part of the state (AsterX's flux groups hold the fluxes of
+  // its seven conserved variables followed by three B-field transport
+  // components used by its constrained-transport electric field).
   for (int gi = 0; gi < numgroups; ++gi) {
     cGroup group;
     int ierr = CCTK_GroupData(gi, &group);
@@ -825,7 +834,7 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
         std::array<int, dim> flux_indextype{1, 1, 1};
         flux_indextype[d] = 0;
         assert(flux_groupdata.indextype == flux_indextype);
-        assert(flux_groupdata.numvars == groupdata.numvars);
+        assert(flux_groupdata.numvars >= groupdata.numvars);
       }
     }
   }
