@@ -1026,6 +1026,10 @@ std::string subcycling_band_tag(const band_kind kind, const int stage) {
   case band_kind::old_source:
     buf << "olds";
     break;
+  case band_kind::flux_register:
+    assert(stage >= 0 && stage < 2 * dim);
+    buf << "freg_" << "xyz"[stage / 2] << (stage % 2 ? "hi" : "lo");
+    break;
   default:
     assert(0);
   }
@@ -1053,6 +1057,19 @@ amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
     return groupdata->ks_source_band[stage].get();
   case band_kind::old_source:
     return groupdata->old_source_band.get();
+  case band_kind::flux_register: {
+    // The child's flux register for the pair (level, level+1): six face
+    // FabSets on the coarsened fine BoxArray, i.e. in this level's index
+    // space like the bands above. Each face is a zero-ghost MultiFab, nodal
+    // in its own direction and cell-centred transversally.
+    assert(stage >= 0 && stage < 2 * dim);
+    if (!groupdata->freg)
+      return nullptr;
+    const int dir = stage / 2;
+    const amrex::Orientation::Side side =
+        stage % 2 ? amrex::Orientation::high : amrex::Orientation::low;
+    return &(*groupdata->freg)[amrex::Orientation(dir, side)].multiFab();
+  }
   default:
     assert(0);
   }

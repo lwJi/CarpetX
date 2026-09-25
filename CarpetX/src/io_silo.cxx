@@ -641,6 +641,10 @@ void InputSilo(const cGH *restrict const cctkGH,
               probe(rk_source_band(patchdata.patch, leveldata.level, gi,
                                    band_kind::old_source),
                     band_kind::old_source, -1);
+              for (int f = 0; f < 2 * dim; ++f)
+                probe(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                     band_kind::flux_register, f),
+                      band_kind::flux_register, f);
             }
           }
         }
@@ -962,6 +966,14 @@ void InputSilo(const cGH *restrict const cctkGH,
             read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                      band_kind::old_source),
                       band_kind::old_source, -1);
+            // The child's flux register (six faces), restored so that the
+            // first reflux after recovery repays the same mismatch the
+            // uninterrupted run would have. Null (skipped) for groups
+            // without a register.
+            for (int f = 0; f < 2 * dim; ++f)
+              read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                       band_kind::flux_register, f),
+                        band_kind::flux_register, f);
           } // if file_has_bands
 
         } // for gi
@@ -1636,6 +1648,15 @@ void OutputSilo(const cGH *restrict const cctkGH,
             write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                       band_kind::old_source),
                        band_kind::old_source, -1);
+            // The child's flux register (partially accumulated mid-cycle):
+            // six zero-ghost face MultiFabs in this level's index space,
+            // nodal in their own direction. They are serialized like the
+            // bands above, as thickness-1 slabs with the group's (zone)
+            // centering; the mesh is hidden and only the data round-trips.
+            for (int f = 0; f < 2 * dim; ++f)
+              write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                        band_kind::flux_register, f),
+                         band_kind::flux_register, f);
           } // if write_bands
 
         } // for gi

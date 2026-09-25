@@ -578,16 +578,23 @@ bool recovered_level_needs_rk_bands(int patch, int level);
 
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
 // ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)
-// snapshot.
-enum class band_kind { ks_source, old_source };
+// snapshot, flux_register the six face FabSets of the child's flux register
+// (GroupData::freg), each a zero-ghost MultiFab in the parent's index space
+// holding the partially accumulated flux mismatch of the pair (level,
+// level+1). For flux_register `stage` is the face index 0..5, namely
+// 2*dir + (high ? 1 : 0).
+enum class band_kind { ks_source, old_source, flux_register };
 
 // Token identifying a source band in checkpoint names: "kss_s00".."kss_s03"
-// for ks_source, "olds" for old_source. Shared by both IO backends.
+// for ks_source, "olds" for old_source, "freg_xlo".."freg_zhi" for
+// flux_register. Shared by both IO backends.
 std::string subcycling_band_tag(band_kind kind, int stage = -1);
 
 // The source band that level `level` fills as a parent: owned by the child
 // level's GroupData. Null on the finest level, for groups that are not
-// integrated, and where the coarse-fine footprint is empty.
+// integrated, and where the coarse-fine footprint is empty. For
+// flux_register, null unless the child owns a register for this group (a
+// fluxes= tag under use_subcycling && do_reflux).
 amrex::MultiFab *rk_source_band(int patch, int level, int gi, band_kind kind,
                                 int stage = -1);
 
