@@ -805,7 +805,10 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
               patch, level, gi, ba, dm, why));
   }
 
-  // Check flux register consistency
+  // Check flux register consistency: the flux group in direction d is
+  // face-centred in d and cell-centred elsewhere, and is not the state group
+  // itself. Checked for every group with a fluxes= tag on every level, not
+  // only where a register is allocated.
   for (int gi = 0; gi < numgroups; ++gi) {
     cGroup group;
     int ierr = CCTK_GroupData(gi, &group);
@@ -815,7 +818,7 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     if (group.grouptype != CCTK_GF)
       continue;
     const auto &groupdata = *this->groupdata.at(gi);
-    if (groupdata.freg) {
+    if (groupdata.fluxes[0] >= 0) {
       for (int d = 0; d < dim; ++d) {
         assert(groupdata.fluxes[d] != groupdata.groupindex);
         const auto &flux_groupdata = *this->groupdata.at(groupdata.fluxes[d]);
@@ -853,6 +856,13 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     }
     leave_patch_mode(cctkGH, leveldata);
   }
+}
+
+// The parameter is read through a helper because DECLARE_CCTK_PARAMETERS in
+// the GroupData constructor would shadow the member `do_restrict`.
+static bool get_do_reflux() {
+  DECLARE_CCTK_PARAMETERS;
+  return do_reflux;
 }
 
 GHExt::PatchData::LevelData::GroupData::GroupData(
@@ -943,17 +953,21 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     valid.at(tl).resize(numvars, why_valid_t(why));
   }
 
-  if (level > 0) {
-    fluxes = get_group_fluxes(groupindex);
-    const bool have_fluxes = fluxes[0] >= 0;
-    if (have_fluxes) {
-      assert((indextype == std::array<int, dim>{1, 1, 1}));
+  // Flux-register (reflux) bookkeeping. The fluxes= tag is parsed on every
+  // level, so that the coarsest level also knows its flux groups: it feeds
+  // the register of the pair (0, 1) as the coarse side. The register itself
+  // belongs to the fine level of each pair and exists only where it can be
+  // filled: under subcycling, ODESolvers accumulates each RK stage's flux
+  // through AccumulateFluxes, and the driver applies the correction to the
+  // coarse state once per coarse step (Reflux). Without subcycling nothing
+  // feeds a register, so none is allocated and Reflux is a no-op.
+  fluxes = get_group_fluxes(groupindex);
+  if (fluxes[0] >= 0) {
+    assert((indextype == std::array<int, dim>{1, 1, 1}));
+    if (level > 0 && ghext->use_subcycling && get_do_reflux())
       freg = std::make_unique<amrex::FluxRegister>(
           gba, dm, ghext->patchdata.at(patch).amrcore->refRatio(level - 1),
           level, numvars);
-    }
-  } else {
-    fluxes.fill(-1);
   }
 }
 

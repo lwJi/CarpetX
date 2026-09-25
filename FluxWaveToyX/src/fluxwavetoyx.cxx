@@ -144,13 +144,22 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
   // "Reconstructing" at the cell interface is just averaging here, and flux
   // limiting is not necessary since the solution is smooth
 
+  // The fluxes follow the conservation-law convention
+  //   d/dt state + div(flux) = 0,
+  // which the driver's flux register (the fluxes= tag on `state`) and AMReX
+  // expect. The wave equation as a first-order system is d/dt ft = div f and
+  // d/dt f_i = d_i ft, so the fluxes are the negatives of the averaged
+  // quantities, and the RHS below subtracts their divergence. (Negating the
+  // fluxes and the divergence is exact in floating point, so the evolution
+  // is unchanged by this convention.)
+
   // Calculate x-flux
   grid.loop_int_device<0, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         u_flux_x(p.I) = 0;
-        ft_flux_x(p.I) = average(fx, p, 0);
-        fx_flux_x(p.I) = average(ft, p, 0);
+        ft_flux_x(p.I) = -average(fx, p, 0);
+        fx_flux_x(p.I) = -average(ft, p, 0);
         fy_flux_x(p.I) = 0;
         fz_flux_x(p.I) = 0;
 
@@ -179,9 +188,9 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         u_flux_y(p.I) = 0;
-        ft_flux_y(p.I) = average(fy, p, 1);
+        ft_flux_y(p.I) = -average(fy, p, 1);
         fx_flux_y(p.I) = 0;
-        fy_flux_y(p.I) = average(ft, p, 1);
+        fy_flux_y(p.I) = -average(ft, p, 1);
         fz_flux_y(p.I) = 0;
 
         if (bc != bc_t::CarpetX && p.BI[1] != 0) {
@@ -209,10 +218,10 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         u_flux_z(p.I) = 0;
-        ft_flux_z(p.I) = average(fz, p, 2);
+        ft_flux_z(p.I) = -average(fz, p, 2);
         fx_flux_z(p.I) = 0;
         fy_flux_z(p.I) = 0;
-        fz_flux_z(p.I) = average(ft, p, 2);
+        fz_flux_z(p.I) = -average(ft, p, 2);
 
         if (bc != bc_t::CarpetX && p.BI[2] != 0) {
           auto chi_m = ft_flux_z(p.I) + p.BI[2] * fz_flux_z(p.I);
@@ -239,14 +248,16 @@ extern "C" void FluxWaveToyX_RHS(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_RHS;
   DECLARE_CCTK_PARAMETERS;
 
+  // d/dt state = -div(flux) (+ source): see FluxWaveToyX_Fluxes for the
+  // sign convention of the fluxes. u has no flux, only the source ft.
   grid.loop_int_device<1, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        u_rhs(p.I) = flux_div(u_flux_x, u_flux_y, u_flux_z, p) + ft(p.I);
-        ft_rhs(p.I) = flux_div(ft_flux_x, ft_flux_y, ft_flux_z, p);
-        fx_rhs(p.I) = flux_div(fx_flux_x, fx_flux_y, fx_flux_z, p);
-        fy_rhs(p.I) = flux_div(fy_flux_x, fy_flux_y, fy_flux_z, p);
-        fz_rhs(p.I) = flux_div(fz_flux_x, fz_flux_y, fz_flux_z, p);
+        u_rhs(p.I) = -flux_div(u_flux_x, u_flux_y, u_flux_z, p) + ft(p.I);
+        ft_rhs(p.I) = -flux_div(ft_flux_x, ft_flux_y, ft_flux_z, p);
+        fx_rhs(p.I) = -flux_div(fx_flux_x, fx_flux_y, fx_flux_z, p);
+        fy_rhs(p.I) = -flux_div(fy_flux_x, fy_flux_y, fy_flux_z, p);
+        fz_rhs(p.I) = -flux_div(fz_flux_x, fz_flux_y, fz_flux_z, p);
       });
 }
 

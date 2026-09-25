@@ -78,7 +78,7 @@ if(use_subcycling) {
 #   [cycle time levels]
 #   PRESTEP
 #   EVOL
-#   [reflux]
+#   [reflux]  (inside the time-aligned restrict block, before CarpetX_PreRestrict)
 #   (disabled) [restrict]
 #   (disabled) POSTRESTRICT
 #   POSTSTEP
