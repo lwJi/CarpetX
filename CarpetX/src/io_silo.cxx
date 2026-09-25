@@ -602,16 +602,22 @@ void InputSilo(const cGH *restrict const cctkGH,
     }
 
     // Bands are written all-or-nothing (only at unsynchronized checkpoints), so
-    // detect their presence once with a global flag. This keeps the band read
+    // detect their presence once with global flags. This keeps the band read
     // symmetric with the regular read; a per-variable file probe inside the
-    // loop would desync the band owner's MPI_Recv.
+    // loop would desync the band owner's MPI_Recv. The source bands (kss_*,
+    // olds) and the flux-register bands (freg_*) are probed separately: a
+    // mid-cycle checkpoint written before flux registers existed, or with
+    // do_reflux = no, carries the former but not the latter.
     bool file_has_bands = false;
+    bool file_has_freg = false;
     if (ghext->use_subcycling) {
-      int local_has_bands = 0;
+      int local_has[2] = {0, 0}; // [0]: kss_*/olds, [1]: freg_*
       if (read_file) {
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
-            for (int gi = 0; gi < CCTK_NumGroups() && !local_has_bands; ++gi) {
+            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+              if (local_has[0] && local_has[1])
+                break;
               if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
                 continue;
               const auto &groupdata = *leveldata.groupdata.at(gi);
@@ -619,7 +625,8 @@ void InputSilo(const cGH *restrict const cctkGH,
                 continue;
               const auto probe = [&](const amrex::MultiFab *const band,
                                      const band_kind kind, const int stage) {
-                if (local_has_bands || !band || band->empty())
+                int &found = local_has[kind == band_kind::flux_register];
+                if (found || !band || band->empty())
                   return;
                 const std::string band_tag = subcycling_band_tag(kind, stage);
                 const amrex::DistributionMapping &bdm = band->DistributionMap();
@@ -629,7 +636,7 @@ void InputSilo(const cGH *restrict const cctkGH,
                   const std::string varname = make_varname(
                       gi, 0, patchdata.patch, leveldata.level, c, band_tag);
                   if (DBInqVarExists(file.get(), varname.c_str())) {
-                    local_has_bands = 1;
+                    found = 1;
                     return;
                   }
                 }
@@ -649,10 +656,10 @@ void InputSilo(const cGH *restrict const cctkGH,
           }
         }
       }
-      int global_has_bands = 0;
-      MPI_Allreduce(&local_has_bands, &global_has_bands, 1, MPI_INT, MPI_MAX,
-                    mpi_comm);
-      file_has_bands = global_has_bands != 0;
+      int global_has[2] = {0, 0};
+      MPI_Allreduce(local_has, global_has, 2, MPI_INT, MPI_MAX, mpi_comm);
+      file_has_bands = global_has[0] != 0;
+      file_has_freg = global_has[1] != 0;
 
       // A mid-cycle checkpoint must carry the coarse source bands for every
       // coarse level that is ahead of its child; a file without any band data
@@ -672,9 +679,8 @@ void InputSilo(const cGH *restrict const cctkGH,
               const auto &groupdata = *leveldata.groupdata.at(gi);
               if (groupdata.mfab.empty())
                 continue;
-              const amrex::MultiFab *const band =
-                  rk_source_band(patchdata.patch, leveldata.level, gi,
-                                 band_kind::old_source);
+              const amrex::MultiFab *const band = rk_source_band(
+                  patchdata.patch, leveldata.level, gi, band_kind::old_source);
               if (!band || band->empty())
                 continue; // not evolved, or an empty coarse-fine footprint
               CCTK_VERROR(
@@ -855,8 +861,9 @@ void InputSilo(const cGH *restrict const cctkGH,
           // Subcycling coarse source bands: zero-ghost MultiFabs with their
           // own DistributionMap, each read in its own component loop mirroring
           // the Phase 1 write (reversed MPI). When file_has_bands, every
-          // rebuilt non-empty band is present in full.
-          if (file_has_bands) {
+          // rebuilt non-empty source band is present in full, and likewise
+          // every flux-register band when file_has_freg.
+          if (file_has_bands || file_has_freg) {
             const int centering = [&]() {
               const int rank = indextype.cellCentered(0) +
                                indextype.cellCentered(1) +
@@ -959,22 +966,49 @@ void InputSilo(const cGH *restrict const cctkGH,
               } // for band component
             };
 
-            for (int s = 0; s < max_num_rk_stages; ++s)
+            if (file_has_bands) {
+              for (int s = 0; s < max_num_rk_stages; ++s)
+                read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                         band_kind::ks_source, s),
+                          band_kind::ks_source, s);
               read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                       band_kind::ks_source, s),
-                        band_kind::ks_source, s);
-            read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                     band_kind::old_source),
-                      band_kind::old_source, -1);
+                                       band_kind::old_source),
+                        band_kind::old_source, -1);
+            }
             // The child's flux register (six faces), restored so that the
             // first reflux after recovery repays the same mismatch the
             // uninterrupted run would have. Null (skipped) for groups
-            // without a register.
-            for (int f = 0; f < 2 * dim; ++f)
-              read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                       band_kind::flux_register, f),
-                        band_kind::flux_register, f);
-          } // if file_has_bands
+            // without a register. Without the bands the register stays
+            // invalid and its next reflux is skipped (see Reflux); that
+            // loses one correction only if the register was live at the
+            // checkpoint.
+            if (auto *const owner =
+                    flux_register_owner(patchdata.patch, leveldata.level, gi)) {
+              if (file_has_freg) {
+                for (int f = 0; f < 2 * dim; ++f)
+                  read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                           band_kind::flux_register, f),
+                            band_kind::flux_register, f);
+                owner->freg_valid = true;
+              } else {
+                owner->freg_valid = false;
+                if (recovered_flux_register_is_live(patchdata.patch,
+                                                    leveldata.level) &&
+                    myproc == 0)
+                  CCTK_VWARN(
+                      CCTK_WARN_ALERT,
+                      "Mid-cycle checkpoint carries no flux-register "
+                      "data (bands %s..) for group %s on patch %d "
+                      "level %d: the checkpoint predates flux "
+                      "registers or was written with do_reflux = no. "
+                      "The first reflux of levels (%d, %d) after "
+                      "recovery is skipped.",
+                      subcycling_band_tag(band_kind::flux_register, 0).c_str(),
+                      CCTK_FullGroupName(gi), patchdata.patch, leveldata.level,
+                      leveldata.level, leveldata.level + 1);
+              }
+            }
+          } // if file_has_bands || file_has_freg
 
         } // for gi
       } // for leveldata

@@ -1016,6 +1016,30 @@ bool recovered_level_needs_rk_bands(const int patch, const int level) {
   return *child_iteration < *self;
 }
 
+bool recovered_flux_register_is_live(const int patch, const int level) {
+  if (!ghext->use_subcycling)
+    return false;
+  const auto &iterations = ghext->recovered_level_iterations;
+  if (patch < 0 || patch >= int(iterations.size()))
+    return false;
+  const auto &level_iterations = iterations.at(patch);
+  if (level < 0 || level + 1 >= int(level_iterations.size()))
+    return false; // finest level: no register below it
+  const std::optional<rat64> &self = level_iterations.at(level);
+  if (!self)
+    return false; // old checkpoint without per-level iteration: time-aligned
+  // Reflux(level) runs once every level from `level` down to the finest is
+  // time-aligned (see the evolve loop), so the register is live while any
+  // finer level is still behind this one. The pair (level, level + 1) may
+  // itself be aligned with the register complete but unapplied.
+  for (int finer = level + 1; finer < int(level_iterations.size()); ++finer) {
+    const std::optional<rat64> &finer_iteration = level_iterations.at(finer);
+    if (finer_iteration && *finer_iteration < *self)
+      return true;
+  }
+  return false;
+}
+
 std::string subcycling_band_tag(const band_kind kind, const int stage) {
   std::ostringstream buf;
   switch (kind) {
@@ -1074,6 +1098,19 @@ amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
     assert(0);
   }
   return nullptr;
+}
+
+GHExt::PatchData::LevelData::GroupData *
+flux_register_owner(const int patch, const int level, const int gi) {
+  const auto &patchdata = ghext->patchdata.at(patch);
+  assert(level >= 0);
+  if (level + 1 >= int(patchdata.leveldata.size()))
+    return nullptr; // finest level: no children to fill
+  auto *const groupdata =
+      patchdata.leveldata.at(level + 1).groupdata.at(gi).get();
+  if (!groupdata || !groupdata->freg)
+    return nullptr;
+  return groupdata;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

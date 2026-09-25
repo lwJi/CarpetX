@@ -1111,6 +1111,9 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           // band untouched; a mid-cycle checkpoint must carry them for every
           // coarse level that is ahead of its child, so there a missing mesh
           // (old derivative-band format, or a truncated file) is refused.
+          // The flux-register bands are handled separately below: they are
+          // optional, since a checkpoint written without them (older format,
+          // or do_reflux = no) is still a complete state.
           {
             const auto read_band = [&](amrex::MultiFab *const band,
                                        const band_kind kind, const int stage) {
@@ -1192,11 +1195,42 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                       band_kind::old_source, -1);
             // The child's flux register, restored so that the first reflux
             // after recovery repays the same mismatch the uninterrupted run
-            // would have. Null (skipped) for groups without a register.
-            for (int f = 0; f < 2 * dim; ++f)
-              read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                       band_kind::flux_register, f),
-                        band_kind::flux_register, f);
+            // would have. The six faces are written all-or-nothing, so the
+            // first one stands for the set. Without them the register stays
+            // invalid and its next reflux is skipped (see Reflux); that loses
+            // one correction only if the register was live at the checkpoint.
+            if (auto *const owner =
+                    flux_register_owner(patchdata.patch, leveldata.level, gi)) {
+              const amrex::MultiFab *const face0 =
+                  rk_source_band(patchdata.patch, leveldata.level, gi,
+                                 band_kind::flux_register, 0);
+              const std::string meshname0 = make_meshname(
+                  gi, leveldata.patch, leveldata.level, 0,
+                  subcycling_band_tag(band_kind::flux_register, 0));
+              if (face0 && !face0->empty() &&
+                  read_iter->meshes.count(meshname0)) {
+                for (int f = 0; f < 2 * dim; ++f)
+                  read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                           band_kind::flux_register, f),
+                            band_kind::flux_register, f);
+                owner->freg_valid = true;
+              } else {
+                owner->freg_valid = false;
+                if (recovered_flux_register_is_live(patchdata.patch,
+                                                    leveldata.level) &&
+                    CCTK_MyProc(cctkGH) == 0)
+                  CCTK_VWARN(CCTK_WARN_ALERT,
+                             "Mid-cycle checkpoint carries no flux-register "
+                             "data (mesh \"%s\"..) for group %s on patch %d "
+                             "level %d: the checkpoint predates flux "
+                             "registers or was written with do_reflux = no. "
+                             "The first reflux of levels (%d, %d) after "
+                             "recovery is skipped.",
+                             meshname0.c_str(), CCTK_FullGroupName(gi),
+                             patchdata.patch, leveldata.level, leveldata.level,
+                             leveldata.level + 1);
+              }
+            }
           }
         }
       } // for gi
