@@ -469,7 +469,10 @@ struct GHExt {
         // valid-tracked.
         mutable std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;
 
-        // flux register between this and the next coarser level
+        // Flux register of the pair (level - 1, level), owned by this (fine)
+        // level: allocated only where it is fed (fluxes= tag under
+        // use_subcycling && do_reflux), zeroed on creation, and reset by the
+        // parent's first RK stage (AccumulateFluxes).
         std::unique_ptr<amrex::FluxRegister> freg;
         // associated flux group indices
         std::array<int, dim> fluxes; // [dir]
@@ -575,6 +578,13 @@ bool all_levels_synchronized();
 // subcycling and on the finest level. Only meaningful during RecoverGH, while
 // the recovered iterations are still populated.
 bool recovered_level_needs_rk_bands(int patch, int level);
+
+// True when the flux register of the pair (level, level + 1) is live in the
+// checkpoint being recovered: level `level` has begun a coarse step whose
+// reflux has not yet been applied, i.e. some finer level is behind it, so the
+// checkpoint must carry its freg_* bands. Same preconditions as
+// recovered_level_needs_rk_bands.
+bool recovered_flux_register_is_live(int patch, int level);
 
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
 // ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)

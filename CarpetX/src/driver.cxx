@@ -973,10 +973,16 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   fluxes = get_group_fluxes(groupindex);
   if (fluxes[0] >= 0) {
     assert((indextype == std::array<int, dim>{1, 1, 1}));
-    if (level > 0 && ghext->use_subcycling && get_do_reflux())
+    if (level > 0 && ghext->use_subcycling && get_do_reflux()) {
       freg = std::make_unique<amrex::FluxRegister>(
           gba, dm, ghext->patchdata.at(patch).amrcore->refRatio(level - 1),
           level, numvars);
+      // FluxRegister::define leaves the FabSets uninitialized. Zero them so
+      // that a register that is never fed (e.g. ODESolvers::method =
+      // "constant") is a no-op in Reflux and serializes as zeros at a
+      // mid-cycle checkpoint.
+      freg->setVal(0);
+    }
   }
 }
 
@@ -1014,6 +1020,30 @@ bool recovered_level_needs_rk_bands(const int patch, const int level) {
   // half a coarse step behind it; only in the latter case does the child's
   // next substep read this level's in-progress step from the bands.
   return *child_iteration < *self;
+}
+
+bool recovered_flux_register_is_live(const int patch, const int level) {
+  if (!ghext->use_subcycling)
+    return false;
+  const auto &iterations = ghext->recovered_level_iterations;
+  if (patch < 0 || patch >= int(iterations.size()))
+    return false;
+  const auto &level_iterations = iterations.at(patch);
+  if (level < 0 || level + 1 >= int(level_iterations.size()))
+    return false; // finest level: no register below it
+  const std::optional<rat64> &self = level_iterations.at(level);
+  if (!self)
+    return false; // old checkpoint without per-level iteration: time-aligned
+  // Reflux(level) runs once every level from `level` down to the finest is
+  // time-aligned (see the evolve loop), so the register is live while any
+  // finer level is still behind this one. The pair (level, level + 1) may
+  // itself be aligned with the register complete but unapplied.
+  for (int finer = level + 1; finer < int(level_iterations.size()); ++finer) {
+    const std::optional<rat64> &finer_iteration = level_iterations.at(finer);
+    if (finer_iteration && *finer_iteration < *self)
+      return true;
+  }
+  return false;
 }
 
 std::string subcycling_band_tag(const band_kind kind, const int stage) {
