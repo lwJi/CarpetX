@@ -979,8 +979,8 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
           level, numvars);
       // FluxRegister::define leaves the FabSets uninitialized. Zero them so
       // that a register that is never fed (e.g. ODESolvers::method =
-      // "constant") serializes as zeros at a mid-cycle checkpoint instead of
-      // as garbage that a recovery would then mark valid.
+      // "constant") is a no-op in Reflux and serializes as zeros at a
+      // mid-cycle checkpoint.
       freg->setVal(0);
     }
   }
@@ -1104,19 +1104,6 @@ amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
     assert(0);
   }
   return nullptr;
-}
-
-GHExt::PatchData::LevelData::GroupData *
-flux_register_owner(const int patch, const int level, const int gi) {
-  const auto &patchdata = ghext->patchdata.at(patch);
-  assert(level >= 0);
-  if (level + 1 >= int(patchdata.leveldata.size()))
-    return nullptr; // finest level: no children to fill
-  auto *const groupdata =
-      patchdata.leveldata.at(level + 1).groupdata.at(gi).get();
-  if (!groupdata || !groupdata->freg)
-    return nullptr;
-  return groupdata;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -885,12 +885,9 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
     if (child_freg) {
       // The coarse step is the reset: the coarse level's first stage zeroes
       // the register below it, and everything that follows (the remaining
-      // coarse stages, the child's substeps) only adds. From here on the
-      // register holds a complete accumulation, so it may be applied.
-      if (stage == 1) {
+      // coarse stages, the child's substeps) only adds.
+      if (stage == 1)
         child_freg->setVal(0);
-        childleveldata->groupdata.at(gi)->freg_valid = true;
-      }
       for (int d = 0; d < dim; ++d) {
         const auto &flux_groupdata =
             *leveldata.groupdata.at(groupdata.fluxes.at(d));
@@ -947,24 +944,6 @@ void Reflux(const cGH *cctkGH, int level) {
       // If the group has a flux register on the fine level
       if (!finegroupdata.freg)
         continue;
-
-      // A register that has not been reset since it was created (or since a
-      // recovery that found no flux-register bands in the checkpoint) holds
-      // at best a partial accumulation; applying it would be worse than the
-      // plain restriction. Skip this one correction; the next coarse step
-      // resets the register and refluxing resumes.
-      if (!finegroupdata.freg_valid) {
-        if (CCTK_MyProc(cctkGH) == 0)
-          CCTK_VWARN(CCTK_WARN_ALERT,
-                     "Reflux: skipping the flux register of levels (%d, %d) "
-                     "for %s at iteration %d: it does not hold a complete "
-                     "coarse step (no flux-register data was recovered), so "
-                     "this coarse-fine interface is not conservative over "
-                     "this step",
-                     level, level + 1, groupdata.groupname.c_str(),
-                     cctkGH->cctk_iteration);
-        continue;
-      }
 
       if (verbose)
         CCTK_VINFO("Reflux: applying the flux register of levels (%d, %d) to "

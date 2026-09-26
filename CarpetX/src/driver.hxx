@@ -471,15 +471,9 @@ struct GHExt {
 
         // Flux register of the pair (level - 1, level), owned by this (fine)
         // level: allocated only where it is fed (fluxes= tag under
-        // use_subcycling && do_reflux). freg_valid says whether it holds a
-        // complete accumulation since its last reset: false on construction
-        // (FluxRegister::define does not zero the FabSets) and after a
-        // recovery that found no flux-register bands in the checkpoint; set
-        // by the parent's first RK stage (the reset in AccumulateFluxes) and
-        // by a successful band read. Reflux skips, with a warning, a register
-        // that is not valid rather than apply an incomplete correction.
+        // use_subcycling && do_reflux), zeroed on creation, and reset by the
+        // parent's first RK stage (AccumulateFluxes).
         std::unique_ptr<amrex::FluxRegister> freg;
-        bool freg_valid = false;
         // associated flux group indices
         std::array<int, dim> fluxes; // [dir]
 
@@ -587,10 +581,9 @@ bool recovered_level_needs_rk_bands(int patch, int level);
 
 // True when the flux register of the pair (level, level + 1) is live in the
 // checkpoint being recovered: level `level` has begun a coarse step whose
-// reflux has not yet been applied, i.e. some finer level is behind it. Such
-// a register is written at a mid-cycle checkpoint; a checkpoint lacking it
-// (older format, or written with do_reflux = no) loses that one correction.
-// Same preconditions as recovered_level_needs_rk_bands.
+// reflux has not yet been applied, i.e. some finer level is behind it, so the
+// checkpoint must carry its freg_* bands. Same preconditions as
+// recovered_level_needs_rk_bands.
 bool recovered_flux_register_is_live(int patch, int level);
 
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
@@ -614,12 +607,6 @@ std::string subcycling_band_tag(band_kind kind, int stage = -1);
 // fluxes= tag under use_subcycling && do_reflux).
 amrex::MultiFab *rk_source_band(int patch, int level, int gi, band_kind kind,
                                 int stage = -1);
-
-// The child GroupData that owns the flux register of the pair (level,
-// level + 1) for group gi, i.e. the object whose freg_valid the recovery
-// sets; null exactly where rk_source_band(..., flux_register, f) is null.
-GHExt::PatchData::LevelData::GroupData *flux_register_owner(int patch,
-                                                            int level, int gi);
 
 // Monotonically increasing counter. Incremented whenever the AMR grid
 // hierarchy is invalidated (regridding, recovery). Starts at 0.

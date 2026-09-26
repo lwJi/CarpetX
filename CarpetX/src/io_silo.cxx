@@ -606,8 +606,8 @@ void InputSilo(const cGH *restrict const cctkGH,
     // symmetric with the regular read; a per-variable file probe inside the
     // loop would desync the band owner's MPI_Recv. The source bands (kss_*,
     // olds) and the flux-register bands (freg_*) are probed separately: a
-    // mid-cycle checkpoint written before flux registers existed, or with
-    // do_reflux = no, carries the former but not the latter.
+    // mid-cycle checkpoint written before flux registers were checkpointed
+    // carries the former but not the latter.
     bool file_has_bands = false;
     bool file_has_freg = false;
     if (ghext->use_subcycling) {
@@ -690,6 +690,39 @@ void InputSilo(const cGH *restrict const cctkGH,
                   "incomplete. Restart from a time-aligned checkpoint.",
                   subcycling_band_tag(band_kind::old_source).c_str(),
                   subcycling_band_tag(band_kind::ks_source, 0).c_str(),
+                  CCTK_FullGroupName(gi), patchdata.patch, leveldata.level);
+            }
+          }
+        }
+      }
+
+      // Likewise the child's flux register wherever it is live: without it
+      // the first reflux after recovery would apply only the remaining fine
+      // substeps' fluxes. Same collective predicate as above.
+      if (!file_has_freg) {
+        for (const auto &patchdata : ghext->patchdata) {
+          for (const auto &leveldata : patchdata.leveldata) {
+            if (!recovered_flux_register_is_live(patchdata.patch,
+                                                 leveldata.level))
+              continue;
+            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+              if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
+                continue;
+              const auto &groupdata = *leveldata.groupdata.at(gi);
+              if (groupdata.mfab.empty())
+                continue;
+              const amrex::MultiFab *const band =
+                  rk_source_band(patchdata.patch, leveldata.level, gi,
+                                 band_kind::flux_register, 0);
+              if (!band || band->empty())
+                continue; // no register for this group
+              CCTK_VERROR(
+                  "Mid-cycle checkpoint lacks flux-register data (bands "
+                  "%s..) for group %s on patch %d level %d. The checkpoint "
+                  "was written by a version without flux-register "
+                  "checkpointing or is incomplete. Restart from a "
+                  "time-aligned checkpoint.",
+                  subcycling_band_tag(band_kind::flux_register, 0).c_str(),
                   CCTK_FullGroupName(gi), patchdata.patch, leveldata.level);
             }
           }
@@ -978,36 +1011,14 @@ void InputSilo(const cGH *restrict const cctkGH,
             // The child's flux register (six faces), restored so that the
             // first reflux after recovery repays the same mismatch the
             // uninterrupted run would have. Null (skipped) for groups
-            // without a register. Without the bands the register stays
-            // invalid and its next reflux is skipped (see Reflux); that
-            // loses one correction only if the register was live at the
-            // checkpoint.
-            if (auto *const owner =
-                    flux_register_owner(patchdata.patch, leveldata.level, gi)) {
-              if (file_has_freg) {
-                for (int f = 0; f < 2 * dim; ++f)
-                  read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                           band_kind::flux_register, f),
-                            band_kind::flux_register, f);
-                owner->freg_valid = true;
-              } else {
-                owner->freg_valid = false;
-                if (recovered_flux_register_is_live(patchdata.patch,
-                                                    leveldata.level) &&
-                    myproc == 0)
-                  CCTK_VWARN(
-                      CCTK_WARN_ALERT,
-                      "Mid-cycle checkpoint carries no flux-register "
-                      "data (bands %s..) for group %s on patch %d "
-                      "level %d: the checkpoint predates flux "
-                      "registers or was written with do_reflux = no. "
-                      "The first reflux of levels (%d, %d) after "
-                      "recovery is skipped.",
-                      subcycling_band_tag(band_kind::flux_register, 0).c_str(),
-                      CCTK_FullGroupName(gi), patchdata.patch, leveldata.level,
-                      leveldata.level, leveldata.level + 1);
-              }
-            }
+            // without a register. When absent the register stays zero; the
+            // check above guarantees it is not live, so the parent resets it
+            // before its next reflux.
+            if (file_has_freg)
+              for (int f = 0; f < 2 * dim; ++f)
+                read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                         band_kind::flux_register, f),
+                          band_kind::flux_register, f);
           } // if file_has_bands || file_has_freg
 
         } // for gi
