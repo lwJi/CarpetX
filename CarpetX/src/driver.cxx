@@ -973,10 +973,16 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   fluxes = get_group_fluxes(groupindex);
   if (fluxes[0] >= 0) {
     assert((indextype == std::array<int, dim>{1, 1, 1}));
-    if (level > 0 && ghext->use_subcycling && get_do_reflux())
+    if (level > 0 && ghext->use_subcycling && get_do_reflux()) {
       freg = std::make_unique<amrex::FluxRegister>(
           gba, dm, ghext->patchdata.at(patch).amrcore->refRatio(level - 1),
           level, numvars);
+      // FluxRegister::define leaves the FabSets uninitialized. Zero them so
+      // that a register that is never fed (e.g. ODESolvers::method =
+      // "constant") serializes as zeros at a mid-cycle checkpoint instead of
+      // as garbage that a recovery would then mark valid.
+      freg->setVal(0);
+    }
   }
 }
 
