@@ -1127,6 +1127,13 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               const std::string meshname = make_meshname(
                   gi, leveldata.patch, leveldata.level, 0, band_tag);
               if (!read_iter->meshes.count(meshname)) {
+                // A do_reflux mismatch cannot reach this error: the parameter
+                // is STEERABLE = NEVER and the flesh restores it from the
+                // checkpoint before any mesh is read, so a differing par-file
+                // value aborts in IOUtil_SetAllParameters and an omitted one
+                // adopts the checkpoint's, allocating no register when that is
+                // "no". What arrives here is a checkpoint written before
+                // flux-register checkpointing existed, or a truncated one.
                 if (kind == band_kind::flux_register ? need_freg_bands
                                                      : need_rk_bands)
                   CCTK_VERROR(

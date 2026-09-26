@@ -716,6 +716,14 @@ void InputSilo(const cGH *restrict const cctkGH,
                                  band_kind::flux_register, 0);
               if (!band || band->empty())
                 continue; // no register for this group
+              // A do_reflux mismatch cannot reach this error: the parameter
+              // is STEERABLE = NEVER and the flesh restores it from the
+              // checkpoint before any variable is read, so a differing
+              // par-file value aborts in IOUtil_SetAllParameters and an
+              // omitted one adopts the checkpoint's, allocating no register
+              // when that is "no". What arrives here is a checkpoint written
+              // before flux-register checkpointing existed, or a truncated
+              // one.
               CCTK_VERROR(
                   "Mid-cycle checkpoint lacks flux-register data (bands "
                   "%s..) for group %s on patch %d level %d. The checkpoint "
