@@ -471,7 +471,7 @@ CCTK_INT interpolation_order "Interpolation order" STEERABLE=always
 
 
 
-BOOLEAN do_reflux "Flux-register (reflux) correction for grid function groups with a fluxes= tag that ODESolvers integrates (groups with an rhs= tag; the tag then promises that the fluxes are computed in ODESolvers_RHS, and on any other group it is inert): under subcycling, ODESolvers accumulates each level's stage-weighted fluxes into a register per level pair and the driver applies the correction to the coarse level once per coarse step, before restriction. Without subcycling no register is allocated and this parameter has no effect."
+BOOLEAN do_reflux "Flux-register (reflux) correction for grid function groups with a fluxes= tag that ODESolvers integrates (groups with an rhs= tag; the tag then promises that the fluxes are computed in ODESolvers_RHS, and on any other group it is inert). ODESolvers accumulates each level's stage-weighted fluxes into a register per level pair at every RK stage, with and without subcycling. Under subcycling the driver applies the correction to the coarse level once per coarse step, before restriction; without subcycling ODESolvers applies it at the end of every step, before the final ODESolvers_PostStep, under either setting of restrict_during_sync. Requires an explicit ODESolvers::method when an integrated group carries a fluxes= tag (checked at PARAMCHECK)."
 {
 } yes
 

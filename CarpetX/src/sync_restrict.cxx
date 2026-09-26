@@ -822,11 +822,11 @@ static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
   return area;
 }
 
-// See subcycling.hxx for the contract. Called by ODESolvers once per RK
-// stage, between ODESolvers_RHS and the state update.
+// See subcycling.hxx for the contract. Called by both ODESolvers solvers
+// once per RK stage, between ODESolvers_RHS and the state update.
 void AccumulateFluxes(const int patch, const int level, const int stage,
                       const CCTK_REAL weight) {
-  if (!ghext->use_subcycling || !ghext->do_reflux)
+  if (!ghext->do_reflux)
     return;
   assert(stage >= 1 && stage <= ghext->num_rk_stages);
 
@@ -943,9 +943,11 @@ static void sync_level_ghosts(const GHExt::PatchData &patchdata,
 // Apply the flux register of the pair (level, level + 1) to the coarse
 // state on `level`: state += register / volume on the coarse cells next to
 // the coarse-fine boundary. The register was filled by AccumulateFluxes
-// over the coarse step and the fine substeps; nothing is read from the
-// flux groups here. Called from the evolve loop once per coarse step, in
-// the time-aligned restrict block, before the fine state is restricted.
+// over the coarse step and, under subcycling, the fine substeps; nothing is
+// read from the flux groups here. Reached through the range overload below:
+// under subcycling from the evolve loop once per coarse step, in the
+// time-aligned restrict block, before the fine state is restricted; without
+// subcycling from ODESolvers_Solve at the end of every step.
 //
 // Reflux changes interior cells next to the coarse-fine boundary; their
 // copies in neighbouring boxes' ghosts (including periodic images) and the
@@ -1026,6 +1028,21 @@ void Reflux(const cGH *cctkGH, int level) {
         });
     } // for gi
   } // for patchdata
+}
+
+// See subcycling.hxx for the contract. Every level pair (level, level + 1)
+// with both levels in [min_level, max_level), finest pair first, so that a
+// level is corrected by its child's register before it is restricted onto
+// (or, under subcycling, before its own register is applied to) its parent.
+// The window is the alignment test under subcycling: with three levels,
+// [1,3) refluxes the pair (1,2) only, and the later [0,3) refluxes (1,2)
+// and then (0,1). Without subcycling the caller passes every level.
+void Reflux(const cGH *cctkGH, const int min_level, const int max_level) {
+  if (!ghext->do_reflux)
+    return;
+  assert(min_level >= 0 && max_level <= ghext->num_levels());
+  for (int level = max_level - 2; level >= min_level; --level)
+    Reflux(cctkGH, level);
 }
 
 // =======================================================================

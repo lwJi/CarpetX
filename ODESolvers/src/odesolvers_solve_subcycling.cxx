@@ -476,26 +476,51 @@ extern "C" void ODESolvers_CheckTimelevels(CCTK_ARGUMENTS) {
   }
 }
 
-// Reject at PARAMCHECK a method the subcycling solver does not implement
-// (rk_methods.hxx), instead of at the first CCTK_EVOL. Only these methods
-// have a stage count that fits the driver's band arrays and a b row the flux
-// registers can be fed with.
+// Reject at PARAMCHECK, instead of at the first CCTK_EVOL, a method the
+// configuration cannot run (rk_methods.hxx):
+//  - under subcycling, one the subcycling solver does not implement; only
+//    the implemented ones have a stage count that fits the driver's band
+//    arrays and a b row the flux registers can be fed with;
+//  - with CarpetX::do_reflux and an integrated group carrying a fluxes=
+//    tag, an implicit (IMEX) method: the driver would allocate a register
+//    for that group, and only an explicit method hands every stage's flux
+//    to it with a known weight (ODESolvers_Solve's calcrhs).
+// Runs after WRAGH, so ghext (InitGH) is set up; the integrated set is
+// recomputed from the rhs= tags exactly as ODESolvers_InitConstants does.
 extern "C" void ODESolvers_CheckMethod(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckMethod;
   DECLARE_CCTK_PARAMETERS;
 
   const rk_method_t &rk = rk_method(method);
-  if (rk.subcycling_ok)
-    return;
 
-  std::string supported;
-  for (const auto &row : rk_methods)
-    if (row.subcycling_ok)
-      supported +=
-          (supported.empty() ? "\"" : ", \"") + std::string(row.name) + "\"";
-  CCTK_VERROR("ODESolvers::method = \"%s\" is not supported by the subcycling "
-              "solver (CarpetX::use_subcycling = yes); supported methods: %s",
-              method, supported.c_str());
+  if (CarpetX::ghext->use_subcycling && !rk.subcycling_ok) {
+    std::string supported;
+    for (const auto &row : rk_methods)
+      if (row.subcycling_ok)
+        supported +=
+            (supported.empty() ? "\"" : ", \"") + std::string(row.name) + "\"";
+    CCTK_VERROR("ODESolvers::method = \"%s\" is not supported by the "
+                "subcycling solver (CarpetX::use_subcycling = yes); supported "
+                "methods: %s",
+                method, supported.c_str());
+  }
+
+  if (CarpetX::ghext->do_reflux && !rk.reflux_ok) {
+    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+      // TODO: add support for evolving grid scalars
+      if (CCTK_GroupTypeI(gi) != CCTK_GF || get_group_rhs(gi) < 0)
+        continue; // not an ODE-evolved group: its fluxes= tag is inert
+      const int tags = CCTK_GroupTagsTableI(gi);
+      assert(tags >= 0);
+      if (Util_TableQueryValueInfo(tags, nullptr, nullptr, "fluxes") <= 0)
+        continue;
+      CCTK_VERROR("CarpetX::do_reflux with fluxes= tags requires an explicit "
+                  "ODESolvers::method, but \"%s\" is implicit and group "
+                  "\"%s\" (integrated by ODESolvers) carries a fluxes= tag. "
+                  "Choose an explicit method or set CarpetX::do_reflux = no.",
+                  method, CCTK_FullGroupName(gi));
+    }
+  }
 }
 
 } // namespace ODESolvers

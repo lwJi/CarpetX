@@ -34,12 +34,6 @@ if(use_subcycling) {
     OPTIONS: global
   } "Reject multiple timelevels for evolved groups under subcycling"
 
-  SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
-  {
-    LANG: C
-    OPTIONS: global
-  } "Reject ODE methods the subcycling solver does not implement"
-
 } else {
 
   SCHEDULE ODESolvers_Solve AT evol
@@ -49,6 +43,12 @@ if(use_subcycling) {
   } "Solve ODEs"
 
 }
+
+SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
+{
+  LANG: C
+  OPTIONS: global
+} "Reject ODE methods the subcycling solver does not implement, and implicit methods when a flux register would need feeding"
 
 
 
@@ -83,14 +83,17 @@ if(use_subcycling) {
 #     POSTREGRID (in driver)
 #   [cycle time levels]
 #   PRESTEP
-#   EVOL
-#   [reflux]  (inside the time-aligned restrict block, before CarpetX_PreRestrict)
-#   (disabled) [restrict]
-#   (disabled) POSTRESTRICT
-#   POSTSTEP
-#   CHECKPOINT
-#   ANALYSIS
-#   OutputGH
+#   EVOL            (without subcycling: [reflux] inside ODESolvers_Solve,
+#                    before the final ODESolvers_PostStep)
+#   [when restrict_during_sync = no and >= 2 levels are time-aligned:]
+#     [reflux]      (subcycling: finest pair first, once per coarse step)
+#     CarpetX_PreRestrict
+#     [restrict]    (fine to coarse, then prolongate restricted GFs)
+#     POSTRESTRICT  (ODESolvers_PostStep runs here)
+#   POSTSTEP        (per level batch under subcycling)
+#   ANALYSIS        (per level batch under subcycling)
+#   CHECKPOINT      (once, after all batches)
+#   OutputGH        (once, after all batches)
 #
 # Shutdown:
 #   TERMINATE

@@ -3,6 +3,7 @@
 #include "fillpatch.hxx"
 #include "io.hxx"
 #include "loop.hxx"
+#include "subcycling.hxx"
 #include "sync_restrict_internal.hxx"
 #include "task_manager.hxx"
 #include "timer.hxx"
@@ -1991,8 +1992,12 @@ int Evolve(tFleshConfig *config) {
           // state is restricted onto the corrected coarse cells. The window
           // is the alignment test: with three levels, [1,3) refluxes the pair
           // (1,2) only, and the later [0,3) refluxes (1,2) and then (0,1).
-          for (int level = max_level - 2; level >= min_level; --level)
-            Reflux(cctkGH, level);
+          // Only under subcycling: without it every step completes every
+          // pair, and ODESolvers_Solve applies the registers itself at its
+          // final stage, before the ODESolvers_PostStep that repairs what the
+          // correction invalidated (subcycling.hxx).
+          if (ghext->use_subcycling)
+            Reflux(cctkGH, min_level, max_level);
           // Pre-restriction hook, traversed over the widened time-aligned
           // window immediately before the restriction below
           CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");

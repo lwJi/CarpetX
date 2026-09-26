@@ -961,19 +961,18 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   // belongs to the fine level of each pair and exists only where it can be
   // filled: for a group ODESolvers integrates (rk_integrated_group, published
   // at WRAGH before any level is made), whose fluxes are therefore computed
-  // in ODESolvers_RHS, under subcycling, where ODESolvers accumulates each RK
-  // stage's flux through AccumulateFluxes and the driver applies the
-  // correction to the coarse state once per coarse step (Reflux). A
-  // flux-tagged group that is not integrated (e.g. a diagnostic computed at
-  // analysis) gets no register, and AccumulateFluxes never looks at it.
-  // Without subcycling nothing feeds a register, so none is allocated and
-  // Reflux is a no-op.
+  // in ODESolvers_RHS. Both solvers accumulate each RK stage's flux through
+  // AccumulateFluxes; the correction is applied to the coarse state once per
+  // coarse step, by the driver's evolve loop under subcycling and by
+  // ODESolvers_Solve at its final stage otherwise (Reflux). A flux-tagged
+  // group that is not integrated (e.g. a diagnostic computed at analysis)
+  // gets no register, and AccumulateFluxes never looks at it.
   fluxes = get_group_fluxes(groupindex);
   if (fluxes[0] >= 0) {
     assert((indextype == std::array<int, dim>{1, 1, 1}));
     const bool integrated = gi < int(ghext->rk_integrated_group.size()) &&
                             ghext->rk_integrated_group.at(gi);
-    if (level > 0 && ghext->use_subcycling && ghext->do_reflux && integrated) {
+    if (level > 0 && ghext->do_reflux && integrated) {
       freg = std::make_unique<amrex::FluxRegister>(
           gba, dm, ghext->patchdata.at(patch).amrcore->refRatio(level - 1),
           level, numvars);

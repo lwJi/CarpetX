@@ -472,8 +472,8 @@ struct GHExt {
         // Flux register of the pair (level - 1, level), owned by this (fine)
         // level: allocated only where it is fed, i.e. for a group with a
         // fluxes= tag that ODESolvers integrates (ghext->rk_integrated_group)
-        // under use_subcycling && do_reflux; zeroed on creation, and reset by
-        // the parent's first RK stage (AccumulateFluxes).
+        // under do_reflux, with and without subcycling; zeroed on creation,
+        // and reset by the parent's first RK stage (AccumulateFluxes).
         //
         // Contract of the fluxes= tag: on an ODESolvers-integrated group it
         // promises that the flux groups are computed in ODESolvers_RHS, so
@@ -620,7 +620,7 @@ std::string subcycling_band_tag(band_kind kind, int stage = -1);
 // level's GroupData. Null on the finest level, for groups that are not
 // integrated, and where the coarse-fine footprint is empty. For
 // flux_register, null unless the child owns a register for this group (an
-// integrated group with a fluxes= tag under use_subcycling && do_reflux).
+// integrated group with a fluxes= tag under do_reflux).
 amrex::MultiFab *rk_source_band(int patch, int level, int gi, band_kind kind,
                                 int stage = -1);
 

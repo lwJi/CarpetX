@@ -63,11 +63,12 @@ void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
                     int tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
 // Flux-register (reflux) accumulation for one RK stage on (patch, level).
-// Called by ODESolvers once per stage, after ODESolvers_RHS evaluated the
-// fluxes and before the state update consumes them (and marks them invalid
-// as dependents of the state). `weight` is b_stage * dt of this level's
-// step, the stage's effective weight in the update, so that after a full
-// step a register holds exactly the flux combination the state received.
+// Called by both ODESolvers solvers once per stage, after ODESolvers_RHS
+// evaluated the fluxes and before the state update consumes them (and marks
+// them invalid as dependents of the state). `weight` is b_stage * dt of
+// this level's step, the stage's effective weight in the update, so that
+// after a full step a register holds exactly the flux combination the state
+// received.
 //
 // For every ODESolvers-integrated GF group with a fluxes= tag (only these
 // own a register; a flux-tagged group outside rk_integrated_group is never
@@ -81,9 +82,27 @@ void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
 // the level's own face area, so that the fine faces under a coarse face sum
 // to the coarse face and FluxRegister::Reflux can divide by the coarse cell
 // volume. Reads only interior faces of the flux groups (time level 0, which
-// must be valid there) and updates no valid flag. No-op without subcycling,
-// with do_reflux = no, and for groups without a register.
+// must be valid there) and updates no valid flag. No-op with do_reflux = no
+// and for groups without a register.
 void AccumulateFluxes(int patch, int level, int stage, CCTK_REAL weight);
+
+// Flux-register (reflux) correction of every level pair (level, level + 1)
+// with both levels in [min_level, max_level), finest pair first: the coarse
+// state's time level 0 receives register / volume on the cells next to the
+// coarse-fine boundary, then its same-level ghosts and outer boundary are
+// re-established (validity flags unchanged). Defined in sync_restrict.cxx.
+//
+// Two callers, one per solver, each at the point where it knows a pair's
+// step is complete: the driver's evolve loop under subcycling, with the
+// widened time-aligned window, once per coarse step in the restrict block
+// before the fine state is restricted; ODESolvers_Solve without subcycling,
+// with [0, num_levels), in its final stage after the state update. Every
+// call must be followed by an ODESolvers_PostStep on the corrected levels
+// before the state is read again: the correction leaves the state's
+// dependents= groups (and, with restrict_during_sync, the in-sync
+// restriction) to that traversal. No-op with do_reflux = no and for pairs
+// without a register.
+void Reflux(const cGH *cctkGH, int min_level, int max_level);
 
 } // namespace CarpetX
 
