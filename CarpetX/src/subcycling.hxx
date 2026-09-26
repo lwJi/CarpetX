@@ -62,6 +62,14 @@ void StoreRKStage(int patch, int level, const std::vector<int> &var_groups,
 void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
                     int tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
+// Allocate (lazily, idempotently) the cached flux geometry of (patch,
+// level): LevelData::face_area[0..dim) and LevelData::cell_volume, filled
+// with the level's constant face areas and cell volume from
+// Geom(level).CellSize(), on the level's own layout (see driver.hxx). Called
+// by AccumulateFluxes and Reflux on a level with a register on either side;
+// defined in sync_restrict.cxx.
+void EnsureFluxGeometry(int patch, int level);
+
 // Flux-register (reflux) accumulation for one RK stage on (patch, level).
 // Called by both ODESolvers solvers once per stage, after ODESolvers_RHS
 // evaluated the fluxes and before the state update consumes them (and marks
@@ -79,11 +87,12 @@ void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
 //  - as the fine side of (level - 1, level): every stage adds
 //    +weight * area_d * flux_d into this level's own register.
 // Fluxes are per unit area, following d/dt state + div(flux) = 0; area_d is
-// the level's own face area, so that the fine faces under a coarse face sum
-// to the coarse face and FluxRegister::Reflux can divide by the coarse cell
+// the level's own face area (the cached LevelData::face_area[d], see
+// EnsureFluxGeometry), so that the fine faces under a coarse face sum to
+// the coarse face and FluxRegister::Reflux can divide by the coarse cell
 // volume. Reads only interior faces of the flux groups (time level 0, which
 // must be valid there) and updates no valid flag. No-op with do_reflux = no
-// and for groups without a register.
+// and for groups without a register. Allocates nothing in steady state.
 void AccumulateFluxes(int patch, int level, int stage, CCTK_REAL weight);
 
 // Flux-register (reflux) correction of every level pair (level, level + 1)

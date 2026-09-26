@@ -389,6 +389,26 @@ struct GHExt {
       // and its distribution over all processes, but holds no data.
       std::unique_ptr<amrex::FabArrayBase> fab;
 
+      // Cached flux geometry of this level for the flux-register (reflux)
+      // path: face_area[d] is a one-component, zero-ghost MultiFab on this
+      // level's BoxArray converted to the d-face centring (the centring of
+      // the flux group in direction d), holding the constant face area
+      // prod_{j != d} dx_j; cell_volume is its cell-centred counterpart
+      // holding dx_0 dx_1 dx_2. All four share the level's
+      // DistributionMapping with every GroupData MultiFab, so that the
+      // (mflx, area, ...) and (mf, volume, ...) overloads of
+      // amrex::FluxRegister can index them with the flux's or the state's
+      // MFIter. EnsureFluxGeometry builds them together, lazily, on the
+      // first AccumulateFluxes or Reflux that finds a register on this
+      // level, so that neither call allocates a CarpetX-side MultiFab in
+      // steady state. Constant per level: CarpetX levels are Cartesian, and
+      // the layout only changes when a regrid remakes or clears the level,
+      // which destroys this LevelData and the cache with it; there is no
+      // other invalidation. Null on levels that never see a register; pure
+      // geometry, never checkpointed and not valid-tracked.
+      mutable std::array<std::unique_ptr<amrex::MultiFab>, dim> face_area;
+      mutable std::unique_ptr<amrex::MultiFab> cell_volume;
+
       cctkGHptr patch_cctkGH;
       std::vector<cctkGHptr> local_cctkGHs; // [component]
 
