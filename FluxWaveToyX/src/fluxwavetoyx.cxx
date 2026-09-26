@@ -304,6 +304,38 @@ extern "C" void FluxWaveToyX_Energy(CCTK_ARGUMENTS) {
                                     });
 }
 
+// The conserved density ft and its fluxes (the ft components of the fluxes
+// in FluxWaveToyX_Fluxes), computed at analysis. This group carries a
+// fluxes= tag but no rhs= tag: it exists to check that the driver allocates
+// no flux register for a group ODESolvers does not integrate, and so never
+// demands these fluxes during the RK stages, when they are invalid.
+extern "C" void FluxWaveToyX_Mass(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_Mass;
+
+  grid.loop_int_device<1, 1, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p)
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { mass_density(p.I) = ft(p.I); });
+
+  grid.loop_int_device<0, 1, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        mass_density_flux_x(p.I) = -average(fx, p, 0);
+      });
+
+  grid.loop_int_device<1, 0, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        mass_density_flux_y(p.I) = -average(fy, p, 1);
+      });
+
+  grid.loop_int_device<1, 1, 0>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        mass_density_flux_z(p.I) = -average(fz, p, 2);
+      });
+}
+
 extern "C" void FluxWaveToyX_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_Error;
   DECLARE_CCTK_PARAMETERS;

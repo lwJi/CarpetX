@@ -826,9 +826,7 @@ static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
 // stage, between ODESolvers_RHS and the state update.
 void AccumulateFluxes(const int patch, const int level, const int stage,
                       const CCTK_REAL weight) {
-  DECLARE_CCTK_PARAMETERS;
-
-  if (!ghext->use_subcycling || !do_reflux)
+  if (!ghext->use_subcycling || !ghext->do_reflux)
     return;
   assert(stage >= 1 && stage <= ghext->num_rk_stages);
 
@@ -857,10 +855,11 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
     // This level's two roles: coarse side of the pair (level, level + 1),
     // whose register the child owns, and fine side of (level - 1, level),
     // whose register this level owns. Either may be absent (finest level,
-    // coarsest level).
+    // coarsest level). Both are absent for a flux-tagged group ODESolvers
+    // does not integrate (no register is allocated for it), so such a
+    // group is skipped here before its fluxes are checked.
     amrex::FluxRegister *const child_freg =
-        childleveldata ? childleveldata->groupdata.at(gi)->freg.get()
-                       : nullptr;
+        childleveldata ? childleveldata->groupdata.at(gi)->freg.get() : nullptr;
     amrex::FluxRegister *const own_freg = groupdata.freg.get();
     if (!child_freg && !own_freg)
       continue;
@@ -915,9 +914,9 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
 // flux groups here. Called from the evolve loop once per coarse step, in
 // the time-aligned restrict block, before the fine state is restricted.
 void Reflux(const cGH *cctkGH, int level) {
-  DECLARE_CCTK_PARAMETERS;
+  DECLARE_CCTK_PARAMETERS; // verbose
 
-  if (!do_reflux)
+  if (!ghext->do_reflux)
     return;
 
   static Timer timer("Reflux");
@@ -1105,7 +1104,8 @@ void Restrict(const cGH *cctkGH, int level, const std::vector<int> &groups) {
   Restrict_impl(cctkGH, level, groups, /*do_validity_tracking=*/true);
 }
 
-void RestrictNoPoison(const cGH *cctkGH, int level, const std::vector<int> &groups) {
+void RestrictNoPoison(const cGH *cctkGH, int level,
+                      const std::vector<int> &groups) {
   Restrict_impl(cctkGH, level, groups, /*do_validity_tracking=*/false);
 }
 

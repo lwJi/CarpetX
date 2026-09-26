@@ -69,7 +69,9 @@ void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
 // step, the stage's effective weight in the update, so that after a full
 // step a register holds exactly the flux combination the state received.
 //
-// For every GF group with a fluxes= tag (defined in sync_restrict.cxx):
+// For every ODESolvers-integrated GF group with a fluxes= tag (only these
+// own a register; a flux-tagged group outside rk_integrated_group is never
+// touched here; defined in sync_restrict.cxx):
 //  - as the coarse side of the pair (level, level + 1): stage 1 zeroes the
 //    child's register (the coarse step is the reset), then every stage adds
 //    -weight * area_d * flux_d;

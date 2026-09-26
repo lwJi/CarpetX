@@ -1,6 +1,7 @@
 # Schedule definitions for thorn FluxWaveToyX
 
 STORAGE: state cons flux_x flux_y flux_z rhs energy error
+STORAGE: mass mass_flux_x mass_flux_y mass_flux_z
 
 SCHEDULE FluxWaveToyX_Initial AT initial
 {
@@ -78,3 +79,17 @@ SCHEDULE FluxWaveToyX_Error AT analysis
   WRITES: error(interior)
   SYNC: error
 } "Calculate error in scalar wave state"
+
+# Fixture for the driver's flux-register bookkeeping: a flux-tagged group
+# that is not integrated by ODESolvers, whose fluxes exist only after
+# analysis (see interface.ccl).
+SCHEDULE FluxWaveToyX_Mass AT analysis
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: mass(interior)
+  WRITES: mass_flux_x(interior)
+  WRITES: mass_flux_y(interior)
+  WRITES: mass_flux_z(interior)
+  SYNC: mass mass_flux_x mass_flux_y mass_flux_z
+} "Calculate the conserved density and its fluxes for output"

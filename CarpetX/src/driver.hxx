@@ -470,9 +470,16 @@ struct GHExt {
         mutable std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;
 
         // Flux register of the pair (level - 1, level), owned by this (fine)
-        // level: allocated only where it is fed (fluxes= tag under
-        // use_subcycling && do_reflux), zeroed on creation, and reset by the
-        // parent's first RK stage (AccumulateFluxes).
+        // level: allocated only where it is fed, i.e. for a group with a
+        // fluxes= tag that ODESolvers integrates (ghext->rk_integrated_group)
+        // under use_subcycling && do_reflux; zeroed on creation, and reset by
+        // the parent's first RK stage (AccumulateFluxes).
+        //
+        // Contract of the fluxes= tag: on an ODESolvers-integrated group it
+        // promises that the flux groups are computed in ODESolvers_RHS, so
+        // that every RK stage can accumulate them; on any other group the tag
+        // is validated for shape (LevelData constructor) and otherwise inert:
+        // no register, no accumulation, no validity check of the fluxes.
         std::unique_ptr<amrex::FluxRegister> freg;
         // associated flux group indices
         std::array<int, dim> fluxes; // [dir]
@@ -517,6 +524,12 @@ struct GHExt {
   bool storage_frozen = false;
 
   bool use_subcycling = false;
+
+  // CarpetX::do_reflux, cached in InitGH next to use_subcycling. Read from
+  // here rather than through DECLARE_CCTK_PARAMETERS in the GroupData
+  // constructor, where the parameter block would shadow the do_restrict
+  // member; recovery restores the parameter before InitGH runs.
+  bool do_reflux = false;
 
   // Active number of RK stages for subcycling, set from ODESolvers::method at
   // WRAGH (SSPRK3 -> 3, else 4). Must be <= max_num_rk_stages.
@@ -603,8 +616,8 @@ std::string subcycling_band_tag(band_kind kind, int stage = -1);
 // The source band that level `level` fills as a parent: owned by the child
 // level's GroupData. Null on the finest level, for groups that are not
 // integrated, and where the coarse-fine footprint is empty. For
-// flux_register, null unless the child owns a register for this group (a
-// fluxes= tag under use_subcycling && do_reflux).
+// flux_register, null unless the child owns a register for this group (an
+// integrated group with a fluxes= tag under use_subcycling && do_reflux).
 amrex::MultiFab *rk_source_band(int patch, int level, int gi, band_kind kind,
                                 int stage = -1);
 

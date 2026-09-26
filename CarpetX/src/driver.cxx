@@ -867,13 +867,6 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
   }
 }
 
-// The parameter is read through a helper because DECLARE_CCTK_PARAMETERS in
-// the GroupData constructor would shadow the member `do_restrict`.
-static bool get_do_reflux() {
-  DECLARE_CCTK_PARAMETERS;
-  return do_reflux;
-}
-
 GHExt::PatchData::LevelData::GroupData::GroupData(
     const int patch, const int level, const int gi, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm,
@@ -966,14 +959,21 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   // level, so that the coarsest level also knows its flux groups: it feeds
   // the register of the pair (0, 1) as the coarse side. The register itself
   // belongs to the fine level of each pair and exists only where it can be
-  // filled: under subcycling, ODESolvers accumulates each RK stage's flux
-  // through AccumulateFluxes, and the driver applies the correction to the
-  // coarse state once per coarse step (Reflux). Without subcycling nothing
-  // feeds a register, so none is allocated and Reflux is a no-op.
+  // filled: for a group ODESolvers integrates (rk_integrated_group, published
+  // at WRAGH before any level is made), whose fluxes are therefore computed
+  // in ODESolvers_RHS, under subcycling, where ODESolvers accumulates each RK
+  // stage's flux through AccumulateFluxes and the driver applies the
+  // correction to the coarse state once per coarse step (Reflux). A
+  // flux-tagged group that is not integrated (e.g. a diagnostic computed at
+  // analysis) gets no register, and AccumulateFluxes never looks at it.
+  // Without subcycling nothing feeds a register, so none is allocated and
+  // Reflux is a no-op.
   fluxes = get_group_fluxes(groupindex);
   if (fluxes[0] >= 0) {
     assert((indextype == std::array<int, dim>{1, 1, 1}));
-    if (level > 0 && ghext->use_subcycling && get_do_reflux()) {
+    const bool integrated = gi < int(ghext->rk_integrated_group.size()) &&
+                            ghext->rk_integrated_group.at(gi);
+    if (level > 0 && ghext->use_subcycling && ghext->do_reflux && integrated) {
       freg = std::make_unique<amrex::FluxRegister>(
           gba, dm, ghext->patchdata.at(patch).amrcore->refRatio(level - 1),
           level, numvars);
@@ -2297,6 +2297,11 @@ int InitGH(cGH *restrict cctkGH) {
 
   // Set up use_subcycling
   ghext->use_subcycling = use_subcycling;
+  // Cache do_reflux here, once: DECLARE_CCTK_PARAMETERS in the GroupData
+  // constructor would shadow its do_restrict member, so the constructor (and
+  // AccumulateFluxes, Reflux) read ghext->do_reflux instead. Recovery
+  // restores the parameter from the checkpoint before InitGH runs.
+  ghext->do_reflux = do_reflux;
 
   return 0; // unused
 }
