@@ -471,7 +471,7 @@ CCTK_INT interpolation_order "Interpolation order" STEERABLE=always
 
 
 
-BOOLEAN do_reflux "Manage flux registers to ensure conservation"
+BOOLEAN do_reflux "Flux-register (reflux) correction for grid function groups with a fluxes= tag: under subcycling, ODESolvers accumulates each level's stage-weighted fluxes into a register per level pair and the driver applies the correction to the coarse level once per coarse step, before restriction. Without subcycling no register is allocated and this parameter has no effect."
 {
 } yes
 

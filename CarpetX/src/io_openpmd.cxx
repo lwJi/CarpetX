@@ -1111,7 +1111,13 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           // band untouched; a mid-cycle checkpoint must carry them for every
           // coarse level that is ahead of its child, so there a missing mesh
           // (old derivative-band format, or a truncated file) is refused.
+          // Likewise the child's flux register must be present wherever it is
+          // live (see recovered_flux_register_is_live).
           {
+            const bool need_rk_bands = recovered_level_needs_rk_bands(
+                leveldata.patch, leveldata.level);
+            const bool need_freg_bands = recovered_flux_register_is_live(
+                leveldata.patch, leveldata.level);
             const auto read_band = [&](amrex::MultiFab *const band,
                                        const band_kind kind, const int stage) {
               if (!band || band->empty())
@@ -1121,17 +1127,22 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               const std::string meshname = make_meshname(
                   gi, leveldata.patch, leveldata.level, 0, band_tag);
               if (!read_iter->meshes.count(meshname)) {
-                if (recovered_level_needs_rk_bands(leveldata.patch,
-                                                   leveldata.level))
+                if (kind == band_kind::flux_register ? need_freg_bands
+                                                     : need_rk_bands)
                   CCTK_VERROR(
-                      "Mid-cycle checkpoint lacks coarse RK step data: mesh "
-                      "\"%s\" (band %s) for group %s on patch %d level %d is "
-                      "missing. The checkpoint was written by the "
-                      "derivative-band scheme or is incomplete. Restart from "
-                      "a time-aligned checkpoint.",
+                      "Mid-cycle checkpoint lacks %s: mesh \"%s\" (band %s) "
+                      "for group %s on patch %d level %d is missing. The "
+                      "checkpoint was written by %s or is incomplete. "
+                      "Restart from a time-aligned checkpoint.",
+                      kind == band_kind::flux_register ? "flux-register data"
+                                                       : "coarse RK step data",
                       meshname.c_str(), band_tag.c_str(),
-                      CCTK_FullGroupName(gi), leveldata.patch, leveldata.level);
-                return; // time-aligned checkpoint: no band data expected
+                      CCTK_FullGroupName(gi), leveldata.patch, leveldata.level,
+                      kind == band_kind::flux_register
+                          ? "a version without flux-register checkpointing"
+                          : "the derivative-band scheme");
+                return; // not needed: time-aligned, or a register the
+                        // parent resets before its next reflux
               }
               if (io_verbose)
                 CCTK_VINFO("Reading band mesh %s...", meshname.c_str());
@@ -1190,6 +1201,13 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                      band_kind::old_source),
                       band_kind::old_source, -1);
+            // The child's flux register, restored so that the first reflux
+            // after recovery repays the same mismatch the uninterrupted run
+            // would have. Null (skipped) for groups without a register.
+            for (int f = 0; f < 2 * dim; ++f)
+              read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                       band_kind::flux_register, f),
+                        band_kind::flux_register, f);
           }
         }
       } // for gi
@@ -2014,6 +2032,14 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                       band_kind::old_source),
                        band_kind::old_source, -1);
+            // The child's flux register (partially accumulated mid-cycle):
+            // six zero-ghost face MultiFabs in this level's index space,
+            // nodal in their own direction. idomain is vertex-framed, so a
+            // face plane on the domain boundary still fits the dataset.
+            for (int f = 0; f < 2 * dim; ++f)
+              write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                        band_kind::flux_register, f),
+                         band_kind::flux_register, f);
           } // if write_bands
         }
       } // for gi

@@ -1,6 +1,7 @@
 #include "schedule.hxx"
 #include "driver.hxx"
 #include "fillpatch.hxx"
+#include "subcycling.hxx"
 #include "sync_restrict_internal.hxx"
 #include "task_manager.hxx"
 #include "timer.hxx"
@@ -9,8 +10,10 @@
 #include <cctk.h>
 #include <cctk_Parameters.h>
 
+#include <AMReX_FluxRegister.H>
 #include <AMReX_MultiFabUtil.H>
 
+#include <array>
 #include <cassert>
 #include <sstream>
 #include <vector>
@@ -801,6 +804,116 @@ void ProlongateRestrictedGFs(const cGH *cctkGH) {
 // Reflux
 // =======================================================================
 
+// Face areas of one level, area[d] = prod_{j != d} dx_j. Thorns provide
+// fluxes per unit area (their RHS is -(F_{i+1/2} - F_{i-1/2}) / dx) while
+// amrex::FluxRegister::Reflux divides the register by the coarse cell
+// volume, so every contribution is multiplied by its own level's face area;
+// the fine faces under one coarse face then sum to the coarse face. CarpetX
+// levels are Cartesian, so this is one constant per level and direction.
+static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
+  const CCTK_REAL *const dx = geom.CellSize();
+  std::array<CCTK_REAL, dim> area;
+  for (int d = 0; d < dim; ++d) {
+    area[d] = 1;
+    for (int j = 0; j < dim; ++j)
+      if (j != d)
+        area[d] *= dx[j];
+  }
+  return area;
+}
+
+// See subcycling.hxx for the contract. Called by ODESolvers once per RK
+// stage, between ODESolvers_RHS and the state update.
+void AccumulateFluxes(const int patch, const int level, const int stage,
+                      const CCTK_REAL weight) {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (!ghext->use_subcycling || !do_reflux)
+    return;
+  assert(stage >= 1 && stage <= ghext->num_rk_stages);
+
+  static Timer timer("AccumulateFluxes");
+  Interval interval(timer);
+
+  const auto &patchdata = ghext->patchdata.at(patch);
+  const auto &leveldata = patchdata.leveldata.at(level);
+  const bool have_child = level + 1 < int(patchdata.leveldata.size());
+  const auto *const childleveldata =
+      have_child ? &patchdata.leveldata.at(level + 1) : nullptr;
+  const std::array<CCTK_REAL, dim> area =
+      face_areas(patchdata.amrcore->Geom(level));
+  const int tl = 0;
+
+  for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
+    // only grid functions live on levels
+    if (!leveldata.groupdata.at(gi))
+      continue;
+    const auto &groupdata = *leveldata.groupdata.at(gi);
+    if (groupdata.mfab.empty())
+      continue;
+    if (groupdata.fluxes[0] < 0)
+      continue;
+
+    // This level's two roles: coarse side of the pair (level, level + 1),
+    // whose register the child owns, and fine side of (level - 1, level),
+    // whose register this level owns. Either may be absent (finest level,
+    // coarsest level).
+    amrex::FluxRegister *const child_freg =
+        childleveldata ? childleveldata->groupdata.at(gi)->freg.get()
+                       : nullptr;
+    amrex::FluxRegister *const own_freg = groupdata.freg.get();
+    if (!child_freg && !own_freg)
+      continue;
+
+    // The fluxes of this stage must be valid on the interior: CrseInit reads
+    // the coarse faces under the child's boxes, FineAdd the faces on the
+    // boundary of this level's own boxes, both interior for a face-centred
+    // group.
+    for (int d = 0; d < dim; ++d) {
+      const auto &flux_groupdata =
+          *leveldata.groupdata.at(groupdata.fluxes.at(d));
+      assert(!flux_groupdata.mfab.empty());
+      for (int vi = 0; vi < groupdata.numvars; ++vi)
+        error_if_invalid(flux_groupdata, vi, tl, make_valid_int(), [&]() {
+          std::ostringstream buf;
+          buf << "AccumulateFluxes: flux of " << groupdata.groupname
+              << " in direction " << d << " at RK stage " << stage;
+          return buf.str();
+        });
+    }
+
+    if (child_freg) {
+      // The coarse step is the reset: the coarse level's first stage zeroes
+      // the register below it, and everything that follows (the remaining
+      // coarse stages, the child's substeps) only adds.
+      if (stage == 1)
+        child_freg->setVal(0);
+      for (int d = 0; d < dim; ++d) {
+        const auto &flux_groupdata =
+            *leveldata.groupdata.at(groupdata.fluxes.at(d));
+        child_freg->CrseInit(*flux_groupdata.mfab.at(tl), d, 0, 0,
+                             groupdata.numvars, -weight * area[d],
+                             amrex::FluxRegister::ADD);
+      }
+    }
+
+    if (own_freg) {
+      for (int d = 0; d < dim; ++d) {
+        const auto &flux_groupdata =
+            *leveldata.groupdata.at(groupdata.fluxes.at(d));
+        own_freg->FineAdd(*flux_groupdata.mfab.at(tl), d, 0, 0,
+                          groupdata.numvars, +weight * area[d]);
+      }
+    }
+  } // for gi
+}
+
+// Apply the flux register of the pair (level, level + 1) to the coarse
+// state on `level`: state += register / volume on the coarse cells next to
+// the coarse-fine boundary. The register was filled by AccumulateFluxes
+// over the coarse step and the fine substeps; nothing is read from the
+// flux groups here. Called from the evolve loop once per coarse step, in
+// the time-aligned restrict block, before the fine state is restricted.
 void Reflux(const cGH *cctkGH, int level) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -811,81 +924,53 @@ void Reflux(const cGH *cctkGH, int level) {
   Interval interval(timer);
 
   for (const auto &patchdata : ghext->patchdata) {
-    if (level + 1 < int(patchdata.leveldata.size())) {
-      auto &leveldata = patchdata.leveldata.at(level);
-      const auto &fineleveldata = patchdata.leveldata.at(level + 1);
-      for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
-        const int tl = 0;
-        cGroup group;
-        int ierr = CCTK_GroupData(gi, &group);
-        assert(!ierr);
+    if (level + 1 >= int(patchdata.leveldata.size()))
+      continue;
+    const auto &leveldata = patchdata.leveldata.at(level);
+    const auto &fineleveldata = patchdata.leveldata.at(level + 1);
+    const amrex::Geometry &geom = patchdata.amrcore->Geom(level);
+    const int tl = 0;
 
-        if (group.grouptype != CCTK_GF)
-          continue;
+    for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
+      // only grid functions live on levels
+      if (!leveldata.groupdata.at(gi))
+        continue;
+      const auto &groupdata = *leveldata.groupdata.at(gi);
+      if (groupdata.mfab.empty())
+        continue;
+      const auto &finegroupdata = *fineleveldata.groupdata.at(gi);
+      assert(!finegroupdata.mfab.empty());
 
-        auto &groupdata = *leveldata.groupdata.at(gi);
-        if (groupdata.mfab.empty())
-          continue;
-        const auto &finegroupdata = *fineleveldata.groupdata.at(gi);
-        assert(!finegroupdata.mfab.empty());
-        const nan_handling_t nan_handling = groupdata.do_evolve
-                                                ? nan_handling_t::forbid_nans
-                                                : nan_handling_t::allow_nans;
+      // If the group has a flux register on the fine level
+      if (!finegroupdata.freg)
+        continue;
 
-        // If the group has associated fluxes
-        if (finegroupdata.freg) {
+      if (verbose)
+        CCTK_VINFO("Reflux: applying the flux register of levels (%d, %d) to "
+                   "%s at iteration %d",
+                   level, level + 1, groupdata.groupname.c_str(),
+                   cctkGH->cctk_iteration);
 
-          // Check coarse and fine data and fluxes are valid
-          for (int vi = 0; vi < finegroupdata.numvars; ++vi) {
-            error_if_invalid(finegroupdata, vi, tl, make_valid_int(), []() {
-              return "Reflux before refluxing: Fine level data";
-            });
-            error_if_invalid(groupdata, vi, tl, make_valid_int(), []() {
-              return "Reflux before refluxing: Coarse level data";
-            });
-          }
-          for (int d = 0; d < dim; ++d) {
-            const int flux_gi = finegroupdata.fluxes.at(d);
-            const auto &flux_finegroupdata =
-                *fineleveldata.groupdata.at(flux_gi);
-            const auto &flux_groupdata = *leveldata.groupdata.at(flux_gi);
-            for (int vi = 0; vi < finegroupdata.numvars; ++vi) {
-              error_if_invalid(
-                  flux_finegroupdata, vi, tl, make_valid_int(), [&]() {
-                    std::ostringstream buf;
-                    buf << "Reflux: Fine level flux in direction " << d;
-                    return buf.str();
-                  });
-              error_if_invalid(flux_groupdata, vi, tl, make_valid_int(), [&]() {
-                std::ostringstream buf;
-                buf << "Reflux: Coarse level flux in direction " << d;
-                return buf.str();
-              });
-            }
-          }
+      const nan_handling_t nan_handling = groupdata.do_evolve
+                                              ? nan_handling_t::forbid_nans
+                                              : nan_handling_t::allow_nans;
 
-          for (int d = 0; d < dim; ++d) {
-            const int flux_gi = finegroupdata.fluxes.at(d);
-            const auto &flux_finegroupdata =
-                *fineleveldata.groupdata.at(flux_gi);
-            const auto &flux_groupdata = *leveldata.groupdata.at(flux_gi);
-            finegroupdata.freg->CrseInit(*flux_groupdata.mfab.at(tl), d, 0, 0,
-                                         flux_groupdata.numvars, -1);
-            finegroupdata.freg->FineAdd(*flux_finegroupdata.mfab.at(tl), d, 0,
-                                        0, flux_finegroupdata.numvars, 1);
-          }
-          const amrex::Geometry &geom = patchdata.amrcore->Geom(level);
-          finegroupdata.freg->Reflux(*groupdata.mfab.at(tl), 1.0, 0, 0,
-                                     groupdata.numvars, geom);
+      // The coarse state must be valid on the interior
+      for (int vi = 0; vi < groupdata.numvars; ++vi)
+        error_if_invalid(groupdata, vi, tl, make_valid_int(), []() {
+          return "Reflux before refluxing: Coarse level data";
+        });
 
-          const active_levels_t active_levels(level, level + 1);
-          for (int vi = 0; vi < finegroupdata.numvars; ++vi)
-            check_valid_gf(active_levels, gi, vi, tl, nan_handling, []() {
-              return "Reflux after refluxing: Fine level data";
-            });
-        }
-      } // for gi
-    } // if level exists
+      finegroupdata.freg->Reflux(*groupdata.mfab.at(tl), 1.0, 0, 0,
+                                 groupdata.numvars, geom);
+
+      // Re-check the coarse state that was just modified
+      const active_levels_t coarse_level(level, level + 1);
+      for (int vi = 0; vi < groupdata.numvars; ++vi)
+        check_valid_gf(coarse_level, gi, vi, tl, nan_handling, []() {
+          return "Reflux after refluxing: Coarse level data";
+        });
+    } // for gi
   } // for patchdata
 }
 

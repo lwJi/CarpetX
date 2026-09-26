@@ -805,7 +805,19 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
               patch, level, gi, ba, dm, why));
   }
 
-  // Check flux register consistency
+  // Check flux register consistency: the flux group in direction d is
+  // face-centred in d and cell-centred elsewhere, and is not the state group
+  // itself. Checked for every group with a fluxes= tag on every level, not
+  // only where a register is allocated.
+  //
+  // Component contract: the leading `numvars` components of each flux group
+  // are the fluxes of the state group's components, in the same order; any
+  // further components are ignored by the register (AccumulateFluxes and
+  // Reflux only ever touch components 0 .. numvars-1). A flux group may thus
+  // carry more components than the state, e.g. transport terms of quantities
+  // that are not part of the state (AsterX's flux groups hold the fluxes of
+  // its seven conserved variables followed by three B-field transport
+  // components used by its constrained-transport electric field).
   for (int gi = 0; gi < numgroups; ++gi) {
     cGroup group;
     int ierr = CCTK_GroupData(gi, &group);
@@ -815,14 +827,14 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     if (group.grouptype != CCTK_GF)
       continue;
     const auto &groupdata = *this->groupdata.at(gi);
-    if (groupdata.freg) {
+    if (groupdata.fluxes[0] >= 0) {
       for (int d = 0; d < dim; ++d) {
         assert(groupdata.fluxes[d] != groupdata.groupindex);
         const auto &flux_groupdata = *this->groupdata.at(groupdata.fluxes[d]);
         std::array<int, dim> flux_indextype{1, 1, 1};
         flux_indextype[d] = 0;
         assert(flux_groupdata.indextype == flux_indextype);
-        assert(flux_groupdata.numvars == groupdata.numvars);
+        assert(flux_groupdata.numvars >= groupdata.numvars);
       }
     }
   }
@@ -853,6 +865,13 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     }
     leave_patch_mode(cctkGH, leveldata);
   }
+}
+
+// The parameter is read through a helper because DECLARE_CCTK_PARAMETERS in
+// the GroupData constructor would shadow the member `do_restrict`.
+static bool get_do_reflux() {
+  DECLARE_CCTK_PARAMETERS;
+  return do_reflux;
 }
 
 GHExt::PatchData::LevelData::GroupData::GroupData(
@@ -943,17 +962,27 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     valid.at(tl).resize(numvars, why_valid_t(why));
   }
 
-  if (level > 0) {
-    fluxes = get_group_fluxes(groupindex);
-    const bool have_fluxes = fluxes[0] >= 0;
-    if (have_fluxes) {
-      assert((indextype == std::array<int, dim>{1, 1, 1}));
+  // Flux-register (reflux) bookkeeping. The fluxes= tag is parsed on every
+  // level, so that the coarsest level also knows its flux groups: it feeds
+  // the register of the pair (0, 1) as the coarse side. The register itself
+  // belongs to the fine level of each pair and exists only where it can be
+  // filled: under subcycling, ODESolvers accumulates each RK stage's flux
+  // through AccumulateFluxes, and the driver applies the correction to the
+  // coarse state once per coarse step (Reflux). Without subcycling nothing
+  // feeds a register, so none is allocated and Reflux is a no-op.
+  fluxes = get_group_fluxes(groupindex);
+  if (fluxes[0] >= 0) {
+    assert((indextype == std::array<int, dim>{1, 1, 1}));
+    if (level > 0 && ghext->use_subcycling && get_do_reflux()) {
       freg = std::make_unique<amrex::FluxRegister>(
           gba, dm, ghext->patchdata.at(patch).amrcore->refRatio(level - 1),
           level, numvars);
+      // FluxRegister::define leaves the FabSets uninitialized. Zero them so
+      // that a register that is never fed (e.g. ODESolvers::method =
+      // "constant") is a no-op in Reflux and serializes as zeros at a
+      // mid-cycle checkpoint.
+      freg->setVal(0);
     }
-  } else {
-    fluxes.fill(-1);
   }
 }
 
@@ -993,6 +1022,30 @@ bool recovered_level_needs_rk_bands(const int patch, const int level) {
   return *child_iteration < *self;
 }
 
+bool recovered_flux_register_is_live(const int patch, const int level) {
+  if (!ghext->use_subcycling)
+    return false;
+  const auto &iterations = ghext->recovered_level_iterations;
+  if (patch < 0 || patch >= int(iterations.size()))
+    return false;
+  const auto &level_iterations = iterations.at(patch);
+  if (level < 0 || level + 1 >= int(level_iterations.size()))
+    return false; // finest level: no register below it
+  const std::optional<rat64> &self = level_iterations.at(level);
+  if (!self)
+    return false; // old checkpoint without per-level iteration: time-aligned
+  // Reflux(level) runs once every level from `level` down to the finest is
+  // time-aligned (see the evolve loop), so the register is live while any
+  // finer level is still behind this one. The pair (level, level + 1) may
+  // itself be aligned with the register complete but unapplied.
+  for (int finer = level + 1; finer < int(level_iterations.size()); ++finer) {
+    const std::optional<rat64> &finer_iteration = level_iterations.at(finer);
+    if (finer_iteration && *finer_iteration < *self)
+      return true;
+  }
+  return false;
+}
+
 std::string subcycling_band_tag(const band_kind kind, const int stage) {
   std::ostringstream buf;
   switch (kind) {
@@ -1002,6 +1055,10 @@ std::string subcycling_band_tag(const band_kind kind, const int stage) {
     break;
   case band_kind::old_source:
     buf << "olds";
+    break;
+  case band_kind::flux_register:
+    assert(stage >= 0 && stage < 2 * dim);
+    buf << "freg_" << "xyz"[stage / 2] << (stage % 2 ? "hi" : "lo");
     break;
   default:
     assert(0);
@@ -1030,6 +1087,19 @@ amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
     return groupdata->ks_source_band[stage].get();
   case band_kind::old_source:
     return groupdata->old_source_band.get();
+  case band_kind::flux_register: {
+    // The child's flux register for the pair (level, level+1): six face
+    // FabSets on the coarsened fine BoxArray, i.e. in this level's index
+    // space like the bands above. Each face is a zero-ghost MultiFab, nodal
+    // in its own direction and cell-centred transversally.
+    assert(stage >= 0 && stage < 2 * dim);
+    if (!groupdata->freg)
+      return nullptr;
+    const int dir = stage / 2;
+    const amrex::Orientation::Side side =
+        stage % 2 ? amrex::Orientation::high : amrex::Orientation::low;
+    return &(*groupdata->freg)[amrex::Orientation(dir, side)].multiFab();
+  }
   default:
     assert(0);
   }

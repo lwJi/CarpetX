@@ -62,6 +62,27 @@ void StoreRKStage(int patch, int level, const std::vector<int> &var_groups,
 void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
                     int tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
+// Flux-register (reflux) accumulation for one RK stage on (patch, level).
+// Called by ODESolvers once per stage, after ODESolvers_RHS evaluated the
+// fluxes and before the state update consumes them (and marks them invalid
+// as dependents of the state). `weight` is b_stage * dt of this level's
+// step, the stage's effective weight in the update, so that after a full
+// step a register holds exactly the flux combination the state received.
+//
+// For every GF group with a fluxes= tag (defined in sync_restrict.cxx):
+//  - as the coarse side of the pair (level, level + 1): stage 1 zeroes the
+//    child's register (the coarse step is the reset), then every stage adds
+//    -weight * area_d * flux_d;
+//  - as the fine side of (level - 1, level): every stage adds
+//    +weight * area_d * flux_d into this level's own register.
+// Fluxes are per unit area, following d/dt state + div(flux) = 0; area_d is
+// the level's own face area, so that the fine faces under a coarse face sum
+// to the coarse face and FluxRegister::Reflux can divide by the coarse cell
+// volume. Reads only interior faces of the flux groups (time level 0, which
+// must be valid there) and updates no valid flag. No-op without subcycling,
+// with do_reflux = no, and for groups without a register.
+void AccumulateFluxes(int patch, int level, int stage, CCTK_REAL weight);
+
 } // namespace CarpetX
 
 #endif // #ifndef CARPETX_CARPETX_SUBCYCLING_HXX

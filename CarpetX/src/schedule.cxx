@@ -1971,12 +1971,6 @@ int Evolve(tFleshConfig *config) {
       CCTK_Traverse(cctkGH, "CCTK_PRESTEP");
       CCTK_Traverse(cctkGH, "CCTK_EVOL");
 
-      // Reflux
-      // TODO: These loop bounds are wrong for subcycling
-      assert(active_levels);
-      for (int level = ghext->num_levels() - 2; level >= 0; --level)
-        Reflux(cctkGH, level);
-
       // reset active_levels to include all levels that have caught up to the
       // current timestep
       min_level = WidenMinLevel(min_level, level_iteration);
@@ -1991,6 +1985,14 @@ int Evolve(tFleshConfig *config) {
                        "at the current time",
                        cctkGH->cctk_iteration, min_level);
         } else if (!restrict_during_sync) {
+          // Flux-register correction (reflux) of every time-aligned level
+          // pair in the widened window, finest pair first, so that each pair
+          // is corrected exactly once per coarse step and before the fine
+          // state is restricted onto the corrected coarse cells. The window
+          // is the alignment test: with three levels, [1,3) refluxes the pair
+          // (1,2) only, and the later [0,3) refluxes (1,2) and then (0,1).
+          for (int level = max_level - 2; level >= min_level; --level)
+            Reflux(cctkGH, level);
           // Pre-restriction hook, traversed over the widened time-aligned
           // window immediately before the restriction below
           CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");

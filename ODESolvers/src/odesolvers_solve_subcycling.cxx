@@ -7,6 +7,8 @@
 
 #include <AMReX_MultiFab.H>
 
+#include <array>
+
 namespace ODESolvers {
 
 namespace {
@@ -164,6 +166,26 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   static Timer timer_rhs("ODESolvers::Solve::rhs");
   static Timer timer_poststep("ODESolvers::Solve::poststep");
 
+  // Effective weight b_s of each RK stage in the final update,
+  //   y1 = y0 + dt * sum_s b_s f(Y_s),
+  // handed to the driver's flux register so that after a full step it holds
+  // exactly the flux combination the state received. One row per method the
+  // subcycling solver implements below; a method without a row is a hard
+  // error, so that adding a method cannot silently produce a
+  // non-conservative reflux.
+  const std::array<CCTK_REAL, CarpetX::max_num_rk_stages> stage_weights =
+      [&]() -> std::array<CCTK_REAL, CarpetX::max_num_rk_stages> {
+    if (CCTK_EQUALS(method, "constant"))
+      return {0, 0, 0, 0};
+    if (CCTK_EQUALS(method, "RK4"))
+      return {1.0 / 6, 1.0 / 3, 1.0 / 3, 1.0 / 6};
+    if (CCTK_EQUALS(method, "SSPRK3"))
+      return {1.0 / 6, 1.0 / 6, 2.0 / 3, 0};
+    CCTK_VERROR("ODESolvers::method = \"%s\" is not supported by the "
+                "subcycling solver (no flux-register stage weights)",
+                method);
+  }();
+
   const auto calcrhs = [&](const int n) {
     Interval interval_rhs(timer_rhs);
     if (verbose)
@@ -171,6 +193,15 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
+    // Feed the driver's flux registers with this stage's flux, weighted by
+    // the stage's effective weight and this batch's step, now: the flux
+    // groups hold exactly the flux the update below consumes, and calcupdate
+    // marks them invalid afterwards (they are dependents of the state).
+    active_levels->loop_coarse_to_fine([&](const auto &restrict leveldata) {
+      CarpetX::AccumulateFluxes(leveldata.patch, leveldata.level, n,
+                                stage_weights.at(n - 1) * dt);
+    });
+    synchronize();
   };
   // t = t_0 + c
   // var = a_0 * var + \Sum_i a_i * var_i
