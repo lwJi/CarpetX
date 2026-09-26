@@ -336,6 +336,46 @@ extern "C" void FluxWaveToyX_Mass(CCTK_ARGUMENTS) {
       });
 }
 
+// Energy density (ft^2 + f^2) / 2 at one grid point
+template <typename T>
+CCTK_DEVICE CCTK_HOST inline CCTK_ATTRIBUTE_ALWAYS_INLINE T
+energy_density(const Loop::GF3D2<const T> &ft, const Loop::GF3D2<const T> &fx,
+               const Loop::GF3D2<const T> &fy, const Loop::GF3D2<const T> &fz,
+               const Loop::vect<int, dim> &I) {
+  using std::pow;
+  return (pow(ft(I), 2) + pow(fx(I), 2) + pow(fy(I), 2) + pow(fz(I), 2)) / 2;
+}
+
+// The energy density averaged along each axis over the full ghost width,
+// computed IN CarpetX_PreRestrict. Interior cells at a box face then read
+// every ghost layer of the state, so the output pins the driver's Reflux
+// postcondition: the coarse ghosts hold the refluxed values before
+// restriction (see schedule.ccl and test/standing_subcycling_prerestrict.par).
+extern "C" void FluxWaveToyX_PreRestrictEnergy(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_PreRestrictEnergy;
+
+  const Loop::vect<int, dim> nghostzones = grid.nghostzones;
+
+  grid.loop_int_device<1, 1, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        CCTK_REAL sum = energy_density(ft, fx, fy, fz, p.I);
+        int npoints = 1;
+        for (int d = 0; d < dim; ++d) {
+          for (int k = 1; k <= nghostzones[d]; ++k) {
+            Loop::vect<int, dim> Im = p.I;
+            Loop::vect<int, dim> Ip = p.I;
+            Im[d] -= k;
+            Ip[d] += k;
+            sum += energy_density(ft, fx, fy, fz, Im) +
+                   energy_density(ft, fx, fy, fz, Ip);
+            npoints += 2;
+          }
+        }
+        prerestrict_eps(p.I) = sum / npoints;
+      });
+}
+
 extern "C" void FluxWaveToyX_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_Error;
   DECLARE_CCTK_PARAMETERS;

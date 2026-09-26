@@ -907,12 +907,56 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   } // for gi
 }
 
+// Same-level ghost exchange plus outer boundary conditions for time level
+// `tl` of `groups` on one level of one patch, without touching validity
+// flags. Built like the body of SyncGroupsByDirIGhostOnly: one
+// FillPatch_Sync per group through two task managers, in a definite order
+// so that AMReX's communication pattern is not confused. Inter-patch
+// (multi-patch) ghosts are not interpolated here; they are left to the next
+// scheduled SYNC.
+static void sync_level_ghosts(const GHExt::PatchData &patchdata,
+                              const GHExt::PatchData::LevelData &leveldata,
+                              const std::vector<int> &groups, const int tl) {
+  if (groups.empty())
+    return;
+
+  const amrex::Geometry &geom = patchdata.amrcore->Geom(leveldata.level);
+
+  task_manager tasks1;
+  task_manager tasks2;
+
+  for (const int gi : groups) {
+    const auto &groupdata = *leveldata.groupdata.at(gi);
+    assert(!groupdata.mfab.empty());
+    assert(tl >= 0 && tl < int(groupdata.mfab.size()));
+    tasks1.submit_serially([&tasks2, &groupdata, &geom, tl]() {
+      FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl), geom);
+    });
+  }
+
+  tasks1.run_tasks_serially();
+  synchronize();
+  tasks2.run_tasks_serially();
+  synchronize();
+}
+
 // Apply the flux register of the pair (level, level + 1) to the coarse
 // state on `level`: state += register / volume on the coarse cells next to
 // the coarse-fine boundary. The register was filled by AccumulateFluxes
 // over the coarse step and the fine substeps; nothing is read from the
 // flux groups here. Called from the evolve loop once per coarse step, in
 // the time-aligned restrict block, before the fine state is restricted.
+//
+// Reflux changes interior cells next to the coarse-fine boundary; their
+// copies in neighbouring boxes' ghosts (including periodic images) and the
+// outer boundary are re-established here, so the level is as consistent
+// after Reflux as before it and the validity flags are unchanged. Clearing
+// the ghost flags instead would not work under subcycling: the subcycling
+// SYNC never re-marks an evolved group's ghosts valid at iteration > 0 (the
+// solver does, after each refinement-boundary fill), and poisoning the
+// ghosts would destroy the dense-output refinement-boundary fill that the
+// next fine stage reads. Dependents of the state are recomputed by the
+// ODESolvers_PostStep that follows every reflux.
 void Reflux(const cGH *cctkGH, int level) {
   DECLARE_CCTK_PARAMETERS; // verbose
 
@@ -925,10 +969,14 @@ void Reflux(const cGH *cctkGH, int level) {
   for (const auto &patchdata : ghext->patchdata) {
     if (level + 1 >= int(patchdata.leveldata.size()))
       continue;
+    const int patch = patchdata.patch;
     const auto &leveldata = patchdata.leveldata.at(level);
     const auto &fineleveldata = patchdata.leveldata.at(level + 1);
     const amrex::Geometry &geom = patchdata.amrcore->Geom(level);
     const int tl = 0;
+
+    // Groups whose register was applied on this patch
+    std::vector<int> refluxed_groups;
 
     for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
       // only grid functions live on levels
@@ -950,10 +998,6 @@ void Reflux(const cGH *cctkGH, int level) {
                    level, level + 1, groupdata.groupname.c_str(),
                    cctkGH->cctk_iteration);
 
-      const nan_handling_t nan_handling = groupdata.do_evolve
-                                              ? nan_handling_t::forbid_nans
-                                              : nan_handling_t::allow_nans;
-
       // The coarse state must be valid on the interior
       for (int vi = 0; vi < groupdata.numvars; ++vi)
         error_if_invalid(groupdata, vi, tl, make_valid_int(), []() {
@@ -962,9 +1006,20 @@ void Reflux(const cGH *cctkGH, int level) {
 
       finegroupdata.freg->Reflux(*groupdata.mfab.at(tl), 1.0, 0, 0,
                                  groupdata.numvars, geom);
+      refluxed_groups.push_back(gi);
+    } // for gi
 
-      // Re-check the coarse state that was just modified
-      const active_levels_t coarse_level(level, level + 1);
+    // Re-exchange the same-level ghosts and re-apply the outer boundary
+    // conditions of the refluxed groups (see the comment above)
+    sync_level_ghosts(patchdata, leveldata, refluxed_groups, tl);
+
+    // Re-check the coarse state that was just modified, ghosts included
+    const active_levels_t coarse_level(level, level + 1, patch, patch + 1);
+    for (const int gi : refluxed_groups) {
+      const auto &groupdata = *leveldata.groupdata.at(gi);
+      const nan_handling_t nan_handling = groupdata.do_evolve
+                                              ? nan_handling_t::forbid_nans
+                                              : nan_handling_t::allow_nans;
       for (int vi = 0; vi < groupdata.numvars; ++vi)
         check_valid_gf(coarse_level, gi, vi, tl, nan_handling, []() {
           return "Reflux after refluxing: Coarse level data";
