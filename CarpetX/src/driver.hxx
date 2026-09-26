@@ -531,8 +531,11 @@ struct GHExt {
   // member; recovery restores the parameter before InitGH runs.
   bool do_reflux = false;
 
-  // Active number of RK stages for subcycling, set from ODESolvers::method at
-  // WRAGH (SSPRK3 -> 3, else 4). Must be <= max_num_rk_stages.
+  // Stage count of ODESolvers::method, published at WRAGH from the method
+  // table (ODESolvers/src/rk_methods.hxx). Under subcycling it is <=
+  // max_num_rk_stages (ODESolvers_CheckMethod rejects the others at
+  // PARAMCHECK) and sizes the bands; without subcycling it may exceed that
+  // (RKF78: 11, DP87: 13) and only bounds the stage AccumulateFluxes accepts.
   int num_rk_stages = 4;
 
   // Groups advanced by the time integrator, published by it at WRAGH

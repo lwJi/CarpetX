@@ -34,6 +34,12 @@ if(use_subcycling) {
     OPTIONS: global
   } "Reject multiple timelevels for evolved groups under subcycling"
 
+  SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
+  {
+    LANG: C
+    OPTIONS: global
+  } "Reject ODE methods the subcycling solver does not implement"
+
 } else {
 
   SCHEDULE ODESolvers_Solve AT evol

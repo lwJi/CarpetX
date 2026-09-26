@@ -1,3 +1,4 @@
+#include "rk_methods.hxx"
 #include "solve.hxx"
 
 namespace ODESolvers {
@@ -9,9 +10,10 @@ extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
 
   *do_substeps = 0;
 
-  // Publish the active RK stage count for the subcycling band machinery
-  // (read by CarpetX::EnsureRKBuffers and the recovery path).
-  CarpetX::ghext->num_rk_stages = CCTK_EQUALS(method, "SSPRK3") ? 3 : 4;
+  // Publish the method's stage count (rk_methods.hxx) for the driver: the
+  // subcycling band machinery (CarpetX::EnsureRKBuffers, the recovery path)
+  // and the stage bound CarpetX::AccumulateFluxes asserts.
+  CarpetX::ghext->num_rk_stages = rk_method(method).nstages;
 
   // Publish the groups we integrate, i.e. the var_groups the solvers collect:
   // grid functions that declare a RHS. Only these own subcycling source bands,
@@ -312,6 +314,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     // Check Butcher tableau
     const size_t nsteps = get<0>(tableau).size();
+    // The stage count published from the method table must be this tableau's
+    assert(int(nsteps) == rk_method(method).nstages);
     {
       for (size_t step = 0; step < nsteps; ++step) {
         // TODO: Could allow <=
@@ -429,6 +433,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     // Check Butcher tableau
     const size_t nsteps = get<0>(tableau).size();
+    // The stage count published from the method table must be this tableau's
+    assert(int(nsteps) == rk_method(method).nstages);
     {
       for (size_t step = 0; step < nsteps; ++step)
         // TODO: Could allow <=

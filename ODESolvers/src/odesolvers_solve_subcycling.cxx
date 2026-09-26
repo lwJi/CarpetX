@@ -1,3 +1,4 @@
+#include "rk_methods.hxx"
 #include "solve.hxx"
 
 // Driver primitives for the state-based refinement-boundary fill
@@ -166,25 +167,14 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   static Timer timer_rhs("ODESolvers::Solve::rhs");
   static Timer timer_poststep("ODESolvers::Solve::poststep");
 
-  // Effective weight b_s of each RK stage in the final update,
+  // The method's row in the RK method table (rk_methods.hxx): its stage
+  // count and the effective weight b_s of each stage in the final update,
   //   y1 = y0 + dt * sum_s b_s f(Y_s),
   // handed to the driver's flux register so that after a full step it holds
-  // exactly the flux combination the state received. One row per method the
-  // subcycling solver implements below; a method without a row is a hard
-  // error, so that adding a method cannot silently produce a
-  // non-conservative reflux.
-  const std::array<CCTK_REAL, CarpetX::max_num_rk_stages> stage_weights =
-      [&]() -> std::array<CCTK_REAL, CarpetX::max_num_rk_stages> {
-    if (CCTK_EQUALS(method, "constant"))
-      return {0, 0, 0, 0};
-    if (CCTK_EQUALS(method, "RK4"))
-      return {1.0 / 6, 1.0 / 3, 1.0 / 3, 1.0 / 6};
-    if (CCTK_EQUALS(method, "SSPRK3"))
-      return {1.0 / 6, 1.0 / 6, 2.0 / 3, 0};
-    CCTK_VERROR("ODESolvers::method = \"%s\" is not supported by the "
-                "subcycling solver (no flux-register stage weights)",
-                method);
-  }();
+  // exactly the flux combination the state received. ODESolvers_CheckMethod
+  // rejected at PARAMCHECK any method this solver does not implement.
+  const rk_method_t &rk = rk_method(method);
+  assert(rk.subcycling_ok);
 
   const auto calcrhs = [&](const int n) {
     Interval interval_rhs(timer_rhs);
@@ -199,7 +189,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // marks them invalid afterwards (they are dependents of the state).
     active_levels->loop_coarse_to_fine([&](const auto &restrict leveldata) {
       CarpetX::AccumulateFluxes(leveldata.patch, leveldata.level, n,
-                                stage_weights.at(n - 1) * dt);
+                                rk.b.at(n - 1) * dt);
     });
     synchronize();
   };
@@ -294,6 +284,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
+    // The table row must describe the sequence below
+    assert(rk.nstages == 4);
+
     // Scratch copy of u(t_n) = var(tl=0), the RK4 interior anchor y0. At one
     // timelevel var(tl=0) holds the previous step's result, so no init copy is
     // needed (mirrors the non-subcycling solver).
@@ -349,7 +342,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k3 = f(y0 + h/4 k1 + h/4 k2)
     // y1 = y0 + h/6 k1 + h/6 k2 + 2/3 h k3
 
-    assert(ghext->num_rk_stages == 3);
+    // The table row must describe the sequence below
+    assert(rk.nstages == 3);
 
     // Scratch copy of u(t_n) = var(tl=0), the SSPRK3 interior anchor y0.
     const auto old = var.copy(make_valid_all());
@@ -385,7 +379,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcpoststep();
 
   } else {
-    assert(0);
+    // Unreachable: rk.subcycling_ok is asserted above, and the table marks
+    // only the methods implemented here as subcycling_ok
+    CCTK_VERROR("ODESolvers::method = \"%s\" is marked subcycling_ok in "
+                "rk_methods.hxx but has no branch in the subcycling solver",
+                method);
   }
 
   {
@@ -476,6 +474,28 @@ extern "C" void ODESolvers_CheckTimelevels(CCTK_ARGUMENTS) {
                   "for evolution variables.",
                   CCTK_FullGroupName(gi), ntls);
   }
+}
+
+// Reject at PARAMCHECK a method the subcycling solver does not implement
+// (rk_methods.hxx), instead of at the first CCTK_EVOL. Only these methods
+// have a stage count that fits the driver's band arrays and a b row the flux
+// registers can be fed with.
+extern "C" void ODESolvers_CheckMethod(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckMethod;
+  DECLARE_CCTK_PARAMETERS;
+
+  const rk_method_t &rk = rk_method(method);
+  if (rk.subcycling_ok)
+    return;
+
+  std::string supported;
+  for (const auto &row : rk_methods)
+    if (row.subcycling_ok)
+      supported +=
+          (supported.empty() ? "\"" : ", \"") + std::string(row.name) + "\"";
+  CCTK_VERROR("ODESolvers::method = \"%s\" is not supported by the subcycling "
+              "solver (CarpetX::use_subcycling = yes); supported methods: %s",
+              method, supported.c_str());
 }
 
 } // namespace ODESolvers
