@@ -503,6 +503,32 @@ bool group_has_flux_register(const int gi) {
          ghext->rk_integrated_group.at(gi) && get_group_fluxes(gi)[0] >= 0;
 }
 
+// See driver.hxx for the contract. With do_reflux set, the only way a
+// flux-tagged grid function fails group_has_flux_register is not being
+// integrated by ODESolvers, hence the wording. Parsing the fluxes= tag of
+// every grid function is no stricter than the GroupData constructor, which
+// parses it for every group on every level. Every process reaches the same
+// verdict from the same tags and parameters, so only the root warns, and the
+// warning appears once per run rather than once per process.
+void warn_inert_flux_tags() {
+  DECLARE_CCTK_PARAMETERS;
+  if (!ghext->do_reflux || max_num_levels <= 1)
+    return;
+  if (CCTK_MyProc(nullptr) != 0)
+    return;
+  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+    if (CCTK_GroupTypeI(gi) != CCTK_GF || get_group_fluxes(gi)[0] < 0 ||
+        group_has_flux_register(gi))
+      continue;
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Group \"%s\" has a fluxes= tag but is not integrated by "
+               "ODESolvers: no flux register is allocated for it, and it is "
+               "not refluxed at coarse-fine boundaries (see "
+               "CarpetX::do_reflux)",
+               CCTK_FullGroupName(gi));
+  }
+}
+
 std::array<int, dim> get_group_nghostzones(const int gi) {
   DECLARE_CCTK_PARAMETERS;
   assert(gi >= 0);

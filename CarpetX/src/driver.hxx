@@ -601,6 +601,17 @@ struct GHExt {
 
 extern std::unique_ptr<GHExt> ghext;
 
+// Print one CCTK_WARN_ALERT for each grid-function group whose fluxes= tag
+// cannot take effect: flux-tagged, but rejected by group_has_flux_register
+// (subcycling.hxx), i.e. not integrated by ODESolvers, so it never gets a
+// flux register and is never refluxed. Silent unless CarpetX::do_reflux is
+// set and CarpetX::max_num_levels > 1, since otherwise no group gets a
+// register. Warns on the root process only. Called once by Initialise, after
+// PARAMCHECK (it needs ghext->do_reflux from InitGH and
+// ghext->rk_integrated_group from WRAGH) and before any level exists, so it
+// fires once per run, fresh start or recovery.
+void warn_inert_flux_tags();
+
 // True iff every level of every patch sits at the same subcycling iteration,
 // i.e. the checkpoint is time-aligned. Always true without subcycling. When
 // false, the coarse source bands hold the in-progress coarse step (u(t_n) and

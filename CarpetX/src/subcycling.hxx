@@ -66,8 +66,9 @@ void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
 // with a non-empty fluxes= tag, integrated by ODESolvers
 // (ghext->rk_integrated_group, published at WRAGH), with CarpetX::do_reflux.
 // This is the one definition of "gi is refluxed"; the GroupData constructor
-// (register allocation) and ODESolvers_CheckMethod both call it. Uses only
-// tag tables, parameters and ghext, and no grid structure, so it is valid
+// (register allocation), ODESolvers_CheckMethod and the startup warning
+// about inert fluxes= tags (warn_inert_flux_tags, driver.hxx) call it. Uses
+// only tag tables, parameters and ghext, and no grid structure, so it is valid
 // from PARAMCHECK on, before any level exists. Defined in driver.cxx.
 bool group_has_flux_register(int gi);
 
