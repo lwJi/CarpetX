@@ -8,6 +8,7 @@
 #include "loop_device.hxx"
 #include "prolongate_3d_rf2.hxx"
 #include "schedule.hxx"
+#include "subcycling.hxx"
 #include "timer.hxx"
 
 #include <cctk.h>
@@ -491,6 +492,17 @@ std::array<int, dim> get_group_fluxes(const int gi) {
   return fluxes;
 }
 
+// See subcycling.hxx for the contract. The conditions are ordered so that
+// the fluxes= tag is parsed only for integrated grid functions: its asserts
+// (malformed tag) then fire on no group whose register allocation would not
+// parse it anyway.
+bool group_has_flux_register(const int gi) {
+  assert(gi >= 0 && gi < CCTK_NumGroups());
+  return ghext->do_reflux && CCTK_GroupTypeI(gi) == CCTK_GF &&
+         gi < int(ghext->rk_integrated_group.size()) &&
+         ghext->rk_integrated_group.at(gi) && get_group_fluxes(gi)[0] >= 0;
+}
+
 std::array<int, dim> get_group_nghostzones(const int gi) {
   DECLARE_CCTK_PARAMETERS;
   assert(gi >= 0);
@@ -961,7 +973,9 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   // belongs to the fine level of each pair and exists only where it can be
   // filled: for a group ODESolvers integrates (rk_integrated_group, published
   // at WRAGH before any level is made), whose fluxes are therefore computed
-  // in ODESolvers_RHS. Both solvers accumulate each RK stage's flux through
+  // in ODESolvers_RHS. group_has_flux_register is that rule; the same
+  // predicate decides ODESolvers_CheckMethod's rejection of implicit
+  // methods. Both solvers accumulate each RK stage's flux through
   // AccumulateFluxes; the correction is applied to the coarse state once per
   // coarse step, by the driver's evolve loop under subcycling and by
   // ODESolvers_Solve at its final stage otherwise (Reflux). A flux-tagged
@@ -970,9 +984,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   fluxes = get_group_fluxes(groupindex);
   if (fluxes[0] >= 0) {
     assert((indextype == std::array<int, dim>{1, 1, 1}));
-    const bool integrated = gi < int(ghext->rk_integrated_group.size()) &&
-                            ghext->rk_integrated_group.at(gi);
-    if (level > 0 && ghext->do_reflux && integrated) {
+    if (level > 0 && group_has_flux_register(groupindex)) {
       freg = std::make_unique<amrex::FluxRegister>(
           gba, dm, ghext->patchdata.at(patch).amrcore->refRatio(level - 1),
           level, numvars);

@@ -62,6 +62,15 @@ void StoreRKStage(int patch, int level, const std::vector<int> &var_groups,
 void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
                     int tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
+// True iff group gi gets a flux register on every level > 0: a grid function
+// with a non-empty fluxes= tag, integrated by ODESolvers
+// (ghext->rk_integrated_group, published at WRAGH), with CarpetX::do_reflux.
+// This is the one definition of "gi is refluxed"; the GroupData constructor
+// (register allocation) and ODESolvers_CheckMethod both call it. Uses only
+// tag tables, parameters and ghext, and no grid structure, so it is valid
+// from PARAMCHECK on, before any level exists. Defined in driver.cxx.
+bool group_has_flux_register(int gi);
+
 // Allocate (lazily, idempotently) the cached flux geometry of (patch,
 // level): LevelData::face_area[0..dim) and LevelData::cell_volume, filled
 // with the level's constant face areas and cell volume from
