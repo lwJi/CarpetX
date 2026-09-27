@@ -107,20 +107,33 @@ void AccumulateFluxes(int patch, int level, int stage, CCTK_REAL weight);
 
 // Flux-register (reflux) correction of every level pair (level, level + 1)
 // with both levels in [min_level, max_level), finest pair first: the coarse
-// state's time level 0 receives register / volume on the cells next to the
-// coarse-fine boundary, then its same-level ghosts and outer boundary are
-// re-established (validity flags unchanged). Defined in sync_restrict.cxx.
+// state's time level 0 receives register / volume on the interior cells next
+// to the coarse-fine boundary. Only the registers are applied: no ghost,
+// outer boundary point or validity flag is touched, so the corrected cells'
+// copies in same-level ghosts (including periodic images), in the outer
+// boundary and in inter-patch ghosts keep their old values, and so do the
+// state's dependents= groups. Defined in sync_restrict.cxx.
 //
 // Two callers, one per solver, each at the point where it knows a pair's
-// step is complete: the driver's evolve loop under subcycling, with the
-// widened time-aligned window, once per coarse step in the restrict block
-// before the fine state is restricted; ODESolvers_Solve without subcycling,
-// with [0, num_levels), in its final stage after the state update. Every
-// call must be followed by an ODESolvers_PostStep on the corrected levels
-// before the state is read again: the correction leaves the state's
-// dependents= groups (and, with restrict_during_sync, the in-sync
-// restriction) to that traversal. No-op with do_reflux = no and for pairs
-// without a register.
+// step is complete, and each followed by an ODESolvers_PostStep on the
+// corrected levels before the state is read again. That traversal's SYNC
+// carries the correction into the ghosts, the outer boundary and the
+// inter-patch ghosts, and it recomputes the dependents:
+//  - ODESolvers_Solve without subcycling, with [0, num_levels), in its
+//    final stage after the state update, right before that stage's
+//    PostStep (which, with restrict_during_sync, also restricts); the state
+//    is valid on the interior only there;
+//  - the driver's evolve loop under subcycling, with the widened
+//    time-aligned window, once per coarse step in the restrict block, after
+//    CarpetX_PreRestrict and immediately before restriction. The PostStep
+//    is the one at POSTRESTRICT. Until then the state's ghost flags stay set
+//    over stale copies, exactly as they do after the restriction itself
+//    (RestrictNoPoison), and nothing in between reads them: restriction
+//    reads fine interior cells only, and ProlongateRestrictedGFs copies no
+//    coarse ghost. Clearing the flags instead would not work: the
+//    subcycling SYNC never re-marks an evolved group's ghosts valid at
+//    iteration > 0 (the solver does, after each refinement-boundary fill).
+// No-op with do_reflux = no and for pairs without a register.
 void Reflux(const cGH *cctkGH, int min_level, int max_level);
 
 } // namespace CarpetX

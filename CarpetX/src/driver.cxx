@@ -1071,10 +1071,11 @@ bool recovered_flux_register_is_live(const int patch, const int level) {
   const std::optional<rat64> &self = level_iterations.at(level);
   if (!self)
     return false; // old checkpoint without per-level iteration: time-aligned
-  // Reflux(level) runs once every level from `level` down to the finest is
-  // time-aligned (see the evolve loop), so the register is live while any
-  // finer level is still behind this one. The pair (level, level + 1) may
-  // itself be aligned with the register complete but unapplied.
+  // The pair (level, level + 1) is refluxed once every level from `level`
+  // down to the finest is time-aligned (see the evolve loop), so the
+  // register is live while any finer level is still behind this one. The
+  // pair (level, level + 1) may itself be aligned with the register complete
+  // but unapplied.
   for (int finer = level + 1; finer < int(level_iterations.size()); ++finer) {
     const std::optional<rat64> &finer_iteration = level_iterations.at(finer);
     if (finer_iteration && *finer_iteration < *self)

@@ -95,12 +95,13 @@ SCHEDULE FluxWaveToyX_Mass AT analysis
   SYNC: mass mass_flux_x mass_flux_y mass_flux_z
 } "Calculate the conserved density and its fluxes for output"
 
-# Fixture for the driver's Reflux postcondition: when CarpetX_PreRestrict is
-# traversed, the coarse level's ghosts must already hold the refluxed
-# values. The average reaches across the state's full ghost width because
-# the refluxed coarse cells (the cells just outside the refined box) lie up
-# to ghost_size cells from the neighbouring coarse box's face in the
-# standing_subcycling setup, so a narrower stencil would not read them.
+# Fixture for the order of CarpetX_PreRestrict and the driver's reflux: when
+# CarpetX_PreRestrict is traversed, the coarse level is not yet refluxed,
+# and its ghosts agree with its interior. The average reaches across the
+# state's full ghost width because the refluxed coarse cells (the cells just
+# outside the refined box) lie up to ghost_size cells from the neighbouring
+# coarse box's face in the standing_subcycling setup, so a narrower stencil
+# would not read them.
 SCHEDULE FluxWaveToyX_PreRestrictEnergy IN CarpetX_PreRestrict
 {
   LANG: C

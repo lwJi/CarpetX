@@ -1989,21 +1989,25 @@ int Evolve(tFleshConfig *config) {
                        "at the current time",
                        cctkGH->cctk_iteration, min_level);
         } else if (!restrict_during_sync) {
+          // Pre-restriction hook, traversed over the widened time-aligned
+          // window before the reflux and the restriction below, so that it
+          // sees the state and its dependents as the last RK stage's
+          // ODESolvers_PostStep left them, consistent everywhere
+          CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
           // Flux-register correction (reflux) of every time-aligned level
           // pair in the widened window, finest pair first, so that each pair
           // is corrected exactly once per coarse step and before the fine
           // state is restricted onto the corrected coarse cells. The window
           // is the alignment test: with three levels, [1,3) refluxes the pair
           // (1,2) only, and the later [0,3) refluxes (1,2) and then (0,1).
-          // Only under subcycling: without it every step completes every
-          // pair, and ODESolvers_Solve applies the registers itself at its
-          // final stage, before the ODESolvers_PostStep that repairs what the
-          // correction invalidated (subcycling.hxx).
+          // Like the restriction, it changes only coarse interior cells; the
+          // ODESolvers_PostStep at POSTRESTRICT below repairs the ghosts and
+          // the dependents of both (subcycling.hxx). Only under subcycling:
+          // without it every step completes every pair, and ODESolvers_Solve
+          // applies the registers itself at its final stage, before the
+          // ODESolvers_PostStep that repairs what the correction invalidated.
           if (ghext->use_subcycling)
             Reflux(cctkGH, min_level, max_level);
-          // Pre-restriction hook, traversed over the widened time-aligned
-          // window immediately before the restriction below
-          CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
           // Restrict
           active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
             if (leveldata.level < ghext->num_levels() - 1)

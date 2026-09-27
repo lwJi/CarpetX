@@ -89,11 +89,11 @@ CCTK_REAL error TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1   +1 +1 +1   -1
   fx_err fy_err fz_err
 } "Error"
 
-# Fixture for the driver's Reflux postcondition (see schedule.ccl): the
-# energy density averaged over the state's full ghost width, computed IN
-# CarpetX_PreRestrict, i.e. after the driver refluxed the coarse level and
-# before it restricts. It is not a dependent of state: it is a snapshot of
-# what a pre-restrict reader sees, kept until output.
+# Fixture for the order of CarpetX_PreRestrict and the driver's reflux (see
+# schedule.ccl): the energy density averaged over the state's full ghost
+# width, computed IN CarpetX_PreRestrict, i.e. before the driver refluxes
+# the coarse level and restricts. It is not a dependent of state: it is a
+# snapshot of what a pre-restrict reader sees, kept until output.
 CCTK_REAL prerestrict_energy TYPE=gf CENTERING={ccc} TAGS='checkpoint="no"'
 {
   prerestrict_eps

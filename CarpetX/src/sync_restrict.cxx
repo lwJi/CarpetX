@@ -980,63 +980,22 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   } // for gi
 }
 
-// Same-level ghost exchange plus outer boundary conditions for time level
-// `tl` of `groups` on one level of one patch, without touching validity
-// flags. Built like the body of SyncGroupsByDirIGhostOnly: one
-// FillPatch_Sync per group through two task managers, in a definite order
-// so that AMReX's communication pattern is not confused. Inter-patch
-// (multi-patch) ghosts are not interpolated here; they are left to the next
-// scheduled SYNC.
-static void sync_level_ghosts(const GHExt::PatchData &patchdata,
-                              const GHExt::PatchData::LevelData &leveldata,
-                              const std::vector<int> &groups, const int tl) {
-  if (groups.empty())
-    return;
-
-  const amrex::Geometry &geom = patchdata.amrcore->Geom(leveldata.level);
-
-  task_manager tasks1;
-  task_manager tasks2;
-
-  for (const int gi : groups) {
-    const auto &groupdata = *leveldata.groupdata.at(gi);
-    assert(!groupdata.mfab.empty());
-    assert(tl >= 0 && tl < int(groupdata.mfab.size()));
-    tasks1.submit_serially([&tasks2, &groupdata, &geom, tl]() {
-      FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl), geom);
-    });
-  }
-
-  tasks1.run_tasks_serially();
-  synchronize();
-  tasks2.run_tasks_serially();
-  synchronize();
-}
-
 // Apply the flux register of the pair (level, level + 1) to the coarse
-// state on `level`: state += register / volume on the coarse cells next to
-// the coarse-fine boundary. The register was filled by AccumulateFluxes
-// over the coarse step and, under subcycling, the fine substeps; nothing is
-// read from the flux groups here. Reached through the range overload below:
-// under subcycling from the evolve loop once per coarse step, in the
-// time-aligned restrict block, before the fine state is restricted; without
-// subcycling from ODESolvers_Solve at the end of every step.
+// state on `level`, on every patch that has level + 1: state += register /
+// volume on the coarse cells next to the coarse-fine boundary. The register
+// was filled by AccumulateFluxes over the coarse step and, under subcycling,
+// the fine substeps; nothing is read from the flux groups here. Reached
+// through Reflux(cctkGH, min_level, max_level) below.
 //
-// Reflux changes interior cells next to the coarse-fine boundary; their
-// copies in neighbouring boxes' ghosts (including periodic images) and the
-// outer boundary are re-established here, so the level is as consistent
-// after Reflux as before it and the validity flags are unchanged. Clearing
-// the ghost flags instead would not work under subcycling: the subcycling
-// SYNC never re-marks an evolved group's ghosts valid at iteration > 0 (the
-// solver does, after each refinement-boundary fill), and poisoning the
-// ghosts would destroy the dense-output refinement-boundary fill that the
-// next fine stage reads. Dependents of the state are recomputed by the
-// ODESolvers_PostStep that follows every reflux.
-void Reflux(const cGH *cctkGH, int level) {
+// Only the interior of time level 0 changes (FluxRegister::Reflux writes
+// the valid boxes only). No ghost, outer boundary point or validity flag is
+// touched: the copies of the corrected cells in neighbouring boxes' ghosts
+// (including periodic images), in the outer boundary and in other patches'
+// inter-patch ghosts keep their pre-reflux values until the
+// ODESolvers_PostStep that follows every reflux syncs the state (see
+// subcycling.hxx).
+static void reflux_level(const cGH *cctkGH, const int level) {
   DECLARE_CCTK_PARAMETERS; // verbose
-
-  if (!ghext->do_reflux)
-    return;
 
   static Timer timer("Reflux");
   Interval interval(timer);
@@ -1102,11 +1061,8 @@ void Reflux(const cGH *cctkGH, int level) {
       refluxed_groups.push_back(gi);
     } // for gi
 
-    // Re-exchange the same-level ghosts and re-apply the outer boundary
-    // conditions of the refluxed groups (see the comment above)
-    sync_level_ghosts(patchdata, leveldata, refluxed_groups, tl);
-
-    // Re-check the coarse state that was just modified, ghosts included
+    // Re-check the coarse state that was just modified, in whatever
+    // regions are flagged valid
     const active_levels_t coarse_level(level, level + 1, patch, patch + 1);
     for (const int gi : refluxed_groups) {
       const auto &groupdata = *leveldata.groupdata.at(gi);
@@ -1121,19 +1077,22 @@ void Reflux(const cGH *cctkGH, int level) {
   } // for patchdata
 }
 
-// See subcycling.hxx for the contract. Every level pair (level, level + 1)
-// with both levels in [min_level, max_level), finest pair first, so that a
-// level is corrected by its child's register before it is restricted onto
-// (or, under subcycling, before its own register is applied to) its parent.
-// The window is the alignment test under subcycling: with three levels,
-// [1,3) refluxes the pair (1,2) only, and the later [0,3) refluxes (1,2)
-// and then (0,1). Without subcycling the caller passes every level.
+// See subcycling.hxx for the contract, including why no ghost is repaired
+// here. Every level pair (level, level + 1) with both levels in [min_level,
+// max_level), finest pair first, so that a level is corrected by its
+// child's register before it is restricted onto (or, under subcycling,
+// before its own register is applied to) its parent. The window is the
+// alignment test under subcycling: with three levels, [1,3) refluxes the
+// pair (1,2) only, and the later [0,3) refluxes (1,2) and then (0,1).
+// Without subcycling the caller passes every level. Applying a register
+// reads only the register and writes only coarse interior cells, so the
+// cascade depends on no ghost.
 void Reflux(const cGH *cctkGH, const int min_level, const int max_level) {
   if (!ghext->do_reflux)
     return;
   assert(min_level >= 0 && max_level <= ghext->num_levels());
   for (int level = max_level - 2; level >= min_level; --level)
-    Reflux(cctkGH, level);
+    reflux_level(cctkGH, level);
 }
 
 // =======================================================================
