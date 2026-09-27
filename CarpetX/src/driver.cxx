@@ -512,10 +512,24 @@ bool group_has_flux_register(const int gi) {
 // warning appears once per run rather than once per process.
 void warn_inert_flux_tags() {
   DECLARE_CCTK_PARAMETERS;
-  if (!ghext->do_reflux || max_num_levels <= 1)
+  if (max_num_levels <= 1)
     return;
   if (CCTK_MyProc(nullptr) != 0)
     return;
+  if (!ghext->do_reflux) {
+    // Every fluxes= tag is inert; say so once if one would have taken effect
+    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+      if (CCTK_GroupTypeI(gi) == CCTK_GF &&
+          gi < int(ghext->rk_integrated_group.size()) &&
+          ghext->rk_integrated_group.at(gi) && get_group_fluxes(gi)[0] >= 0) {
+        CCTK_INFO("Grid functions integrated by ODESolvers carry fluxes= "
+                  "tags, but refluxing at coarse-fine boundaries is off; set "
+                  "CarpetX::do_reflux = yes to enable it");
+        break;
+      }
+    }
+    return;
+  }
   for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
     if (CCTK_GroupTypeI(gi) != CCTK_GF || get_group_fluxes(gi)[0] < 0 ||
         group_has_flux_register(gi))

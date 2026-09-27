@@ -11,9 +11,9 @@ ActiveThorns = "
 # fixed refined boxes, integrated with RK4. Pins the finest-first cascade of
 # the driver's flux-register (reflux) correction: at a point where only levels
 # 1 and 2 are time-aligned the pair (1,2) is corrected, and at the end of a
-# coarse step (1,2) is corrected and then (0,1). With CarpetX::do_reflux at
-# its default, the masked sum of every flux-conservative component of
-# FluxWaveToyX::state (ft, fx, fy, fz) is constant to round-off over the run.
+# coarse step (1,2) is corrected and then (0,1). With
+# CarpetX::do_reflux = yes, the masked sum of every flux-conservative
+# component of FluxWaveToyX::state (ft, fx, fy, fz) is constant to round-off over the run.
 
 Cactus::cctk_show_schedule = no
 Cactus::presync_mode = "mixed-error"
@@ -39,6 +39,7 @@ Driver::periodic_y = yes
 Driver::periodic_z = yes
 
 CarpetX::max_num_levels = 3
+CarpetX::do_reflux = yes
 Driver::regrid_every = 128000
 Driver::regrid_error_threshold = 0.9
 

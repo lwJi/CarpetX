@@ -15,7 +15,7 @@ ActiveThorns = "
 # path: ODESolvers_Solve feeds the register at every RK stage and applies it
 # at its final stage, before the driver restricts the fine state onto the
 # corrected coarse cells; the driver's own reflux in that block is for
-# subcycling only. With CarpetX::do_reflux at its default, the masked sum of
+# subcycling only. With CarpetX::do_reflux = yes, the masked sum of
 # every flux-conservative component of the state (ft, fx, fy, fz) is
 # constant to round-off over the run; with do_reflux = no it drifts. u has a
 # source term (u_rhs = ft) and no flux, so its sum is not a conservation
@@ -45,6 +45,7 @@ Driver::periodic_y = yes
 Driver::periodic_z = yes
 
 CarpetX::max_num_levels = 2
+CarpetX::do_reflux = yes
 Driver::regrid_every = 128000
 Driver::regrid_error_threshold = 0.9
 

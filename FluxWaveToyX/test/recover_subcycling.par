@@ -42,6 +42,7 @@ Driver::periodic_y = yes
 Driver::periodic_z = yes
 
 CarpetX::max_num_levels = 2
+CarpetX::do_reflux = yes
 Driver::regrid_every = 128000
 Driver::regrid_error_threshold = 0.9
 

@@ -486,8 +486,8 @@ extern "C" void ODESolvers_CheckTimelevels(CCTK_ARGUMENTS) {
 //    allocate the register on every refined level, and only an explicit
 //    method hands every stage's flux to it with a known weight
 //    (ODESolvers_Solve's calcrhs). A unigrid run owns no register (they
-//    live on levels > 0), so an implicit method is fine there with the
-//    default CarpetX::do_reflux = yes.
+//    live on levels > 0), so an implicit method is fine there even with
+//    CarpetX::do_reflux = yes.
 // Runs after WRAGH, where ODESolvers_InitConstants publishes
 // rk_integrated_group, so CarpetX::group_has_flux_register (the predicate
 // that register allocation uses) already gives its final answer.
