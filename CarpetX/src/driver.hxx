@@ -390,7 +390,8 @@ struct GHExt {
       std::unique_ptr<amrex::FabArrayBase> fab;
 
       // Cached flux geometry of this level for the flux-register (reflux)
-      // path: face_area[d] is a one-component, zero-ghost MultiFab on this
+      // path, built by amrex::Geometry::GetFaceArea and GetVolume:
+      // face_area[d] is a one-component, zero-ghost MultiFab on this
       // level's BoxArray converted to the d-face centring (the centring of
       // the flux group in direction d), holding the constant face area
       // prod_{j != d} dx_j; cell_volume is its cell-centred counterpart

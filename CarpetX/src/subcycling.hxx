@@ -74,10 +74,10 @@ bool group_has_flux_register(int gi);
 
 // Allocate (lazily, idempotently) the cached flux geometry of (patch,
 // level): LevelData::face_area[0..dim) and LevelData::cell_volume, filled
-// with the level's constant face areas and cell volume from
-// Geom(level).CellSize(), on the level's own layout (see driver.hxx). Called
-// by AccumulateFluxes and Reflux on a level with a register on either side;
-// defined in sync_restrict.cxx.
+// with the level's constant face areas and cell volume by
+// Geom(level).GetFaceArea and GetVolume, on the level's own layout (see
+// driver.hxx). Called by AccumulateFluxes and Reflux on a level with a
+// register on either side; defined in sync_restrict.cxx.
 void EnsureFluxGeometry(int patch, int level);
 
 // Flux-register (reflux) accumulation for one RK stage on (patch, level).

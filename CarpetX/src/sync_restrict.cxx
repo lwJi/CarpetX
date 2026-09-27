@@ -810,10 +810,12 @@ void ProlongateRestrictedGFs(const cGH *cctkGH) {
 // amrex::FluxRegister::Reflux divides the register by the coarse cell
 // volume, so every contribution is multiplied by its own level's face area;
 // the fine faces under one coarse face then sum to the coarse face. CarpetX
-// levels are Cartesian, so this is one constant per level and direction;
-// EnsureFluxGeometry materializes it once per level as the MultiFab that
-// the FluxRegister area overloads read.
-static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
+// levels are Cartesian, so this is one constant per level and direction.
+// The MultiFab form that the FluxRegister area overloads read,
+// LevelData::face_area, is filled by amrex::Geometry::GetFaceArea with the
+// same products (see EnsureFluxGeometry), so the two agree bitwise.
+[[maybe_unused]] static std::array<CCTK_REAL, dim>
+face_areas(const amrex::Geometry &geom) {
   const CCTK_REAL *const dx = geom.CellSize();
   std::array<CCTK_REAL, dim> area;
   for (int d = 0; d < dim; ++d) {
@@ -826,16 +828,22 @@ static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
 }
 
 // See subcycling.hxx for the contract and driver.hxx for the members. The
-// four MultiFabs are built on the level's cell-centred BoxArray (converted
-// to the d-face centring for face_area[d]) and DistributionMapping, the
-// layout of every GroupData MultiFab of the level up to centring, which is
-// what the area and volume overloads of amrex::FluxRegister require:
-// CrseInit and FineAdd index `area` with the MFIter of the flux MultiFab,
-// Reflux indexes `volume` with the MFIter of the state. Zero ghosts
-// suffice: every read is on a valid face or cell of the level's own boxes.
-// The cell volume is formed as AMReX's constant-volume Reflux overload
-// forms it (dx[0]*dx[1]*dx[2]), so switching overloads leaves the
-// correction bit-identical.
+// four MultiFabs are built by amrex::Geometry::GetFaceArea and GetVolume on
+// the level's cell-centred BoxArray (converted to the d-face centring for
+// face_area[d]) and DistributionMapping, the layout of every GroupData
+// MultiFab of the level up to centring, which is what the area and volume
+// overloads of amrex::FluxRegister require: CrseInit and FineAdd index
+// `area` with the MFIter of the flux MultiFab, Reflux indexes `volume` with
+// the MFIter of the state. Zero ghosts suffice: every read is on a valid
+// face or cell of the level's own boxes.
+//
+// Bit-identity: for Cartesian geometry (the only one AMReX supports in 3D)
+// GetVolume fills dx[0]*dx[1]*dx[2] (AMReX_Geometry.cpp:221), the product
+// AMReX's constant-volume Reflux overload forms, so switching Reflux
+// overloads leaves the correction bit-identical; GetFaceArea fills
+// dx[1]*dx[2], dx[0]*dx[2], dx[0]*dx[1] for d = 0, 1, 2
+// (AMReX_Geometry.cpp:327-331), the products face_areas() forms, so the
+// scalar and the MultiFab areas agree bitwise.
 void EnsureFluxGeometry(const int patch, const int level) {
   const auto &patchdata = ghext->patchdata.at(patch);
   const auto &leveldata = patchdata.leveldata.at(level);
@@ -858,15 +866,12 @@ void EnsureFluxGeometry(const int patch, const int level) {
   const amrex::DistributionMapping &dm = leveldata.fab->DistributionMap();
   assert(ba.ixType().cellCentered());
 
-  const std::array<CCTK_REAL, dim> area = face_areas(geom);
   for (int d = 0; d < dim; ++d) {
-    leveldata.face_area[d] = std::make_unique<amrex::MultiFab>(
-        amrex::convert(ba, amrex::IntVect::TheDimensionVector(d)), dm, 1, 0);
-    leveldata.face_area[d]->setVal(area[d]);
+    leveldata.face_area[d] = std::make_unique<amrex::MultiFab>();
+    geom.GetFaceArea(*leveldata.face_area[d], ba, dm, d, 0);
   }
-  const CCTK_REAL *const dx = geom.CellSize();
-  leveldata.cell_volume = std::make_unique<amrex::MultiFab>(ba, dm, 1, 0);
-  leveldata.cell_volume->setVal(dx[0] * dx[1] * dx[2]);
+  leveldata.cell_volume = std::make_unique<amrex::MultiFab>();
+  geom.GetVolume(*leveldata.cell_volume, ba, dm, 0);
 
   assert(have_all_or_none());
 }
@@ -888,10 +893,6 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   const auto *const childleveldata =
       have_child ? &patchdata.leveldata.at(level + 1) : nullptr;
   const int tl = 0;
-
-  // The cached face areas are built on the first registered group met
-  // (once per call at most); a level without a register never allocates
-  bool have_flux_geometry = false;
 
   for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
     // only grid functions live on levels
@@ -915,10 +916,9 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
     if (!child_freg && !own_freg)
       continue;
 
-    if (!have_flux_geometry) {
-      EnsureFluxGeometry(patch, level);
-      have_flux_geometry = true;
-    }
+    // The cached face areas; built on the first registered group met, a
+    // no-op afterwards, so a level without a register never allocates
+    EnsureFluxGeometry(patch, level);
 
     // The fluxes of this stage must be valid on the interior: CrseInit reads
     // the coarse faces under the child's boxes, FineAdd the faces on the
@@ -1012,10 +1012,6 @@ static void reflux_level(const cGH *cctkGH, const int level) {
     // Groups whose register was applied on this patch
     std::vector<int> refluxed_groups;
 
-    // The cached cell volume is built on the first registered group met
-    // (once per call at most); a level without a register never allocates
-    bool have_flux_geometry = false;
-
     for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
       // only grid functions live on levels
       if (!leveldata.groupdata.at(gi))
@@ -1042,10 +1038,9 @@ static void reflux_level(const cGH *cctkGH, const int level) {
           return "Reflux before refluxing: Coarse level data";
         });
 
-      if (!have_flux_geometry) {
-        EnsureFluxGeometry(patch, level);
-        have_flux_geometry = true;
-      }
+      // The cached cell volume; built on the first registered group met, a
+      // no-op afterwards, so a level without a register never allocates
+      EnsureFluxGeometry(patch, level);
 
       // The volume overload reads the cached cell-volume MultiFab of the
       // level (EnsureFluxGeometry above) instead of synthesizing one per
