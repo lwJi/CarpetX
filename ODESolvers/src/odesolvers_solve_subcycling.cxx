@@ -481,12 +481,16 @@ extern "C" void ODESolvers_CheckTimelevels(CCTK_ARGUMENTS) {
 //  - under subcycling, one the subcycling solver does not implement; only
 //    the implemented ones have a stage count that fits the driver's band
 //    arrays and a b row the flux registers can be fed with;
-//  - with CarpetX::do_reflux and an integrated group carrying a fluxes=
-//    tag, an implicit (IMEX) method: the driver would allocate a register
-//    for that group, and only an explicit method hands every stage's flux
-//    to it with a known weight (ODESolvers_Solve's calcrhs).
-// Runs after WRAGH, so ghext (InitGH) is set up; the integrated set is
-// recomputed from the rhs= tags exactly as ODESolvers_InitConstants does.
+//  - in a run that may refine (CarpetX::max_num_levels > 1), an implicit
+//    (IMEX) method when some group gets a flux register: the driver would
+//    allocate the register on every refined level, and only an explicit
+//    method hands every stage's flux to it with a known weight
+//    (ODESolvers_Solve's calcrhs). A unigrid run owns no register (they
+//    live on levels > 0), so an implicit method is fine there with the
+//    default CarpetX::do_reflux = yes.
+// Runs after WRAGH, where ODESolvers_InitConstants publishes
+// rk_integrated_group, so CarpetX::group_has_flux_register (the predicate
+// that register allocation uses) already gives its final answer.
 extern "C" void ODESolvers_CheckMethod(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckMethod;
   DECLARE_CCTK_PARAMETERS;
@@ -505,16 +509,21 @@ extern "C" void ODESolvers_CheckMethod(CCTK_ARGUMENTS) {
                 method, supported.c_str());
   }
 
-  if (CarpetX::ghext->do_reflux && !rk.reflux_ok) {
+  // CarpetX::max_num_levels is private to the driver; read it by name
+  int max_num_levels_type;
+  const void *const max_num_levels_p =
+      CCTK_ParameterGet("max_num_levels", "CarpetX", &max_num_levels_type);
+  assert(max_num_levels_p);
+  assert(max_num_levels_type == PARAMETER_INT);
+  const CCTK_INT max_num_levels =
+      *static_cast<const CCTK_INT *>(max_num_levels_p);
+
+  if (CarpetX::ghext->do_reflux && !rk.reflux_ok && max_num_levels > 1) {
     for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      // TODO: add support for evolving grid scalars
-      if (CCTK_GroupTypeI(gi) != CCTK_GF || get_group_rhs(gi) < 0)
-        continue; // not an ODE-evolved group: its fluxes= tag is inert
-      const int tags = CCTK_GroupTagsTableI(gi);
-      assert(tags >= 0);
-      if (Util_TableQueryValueInfo(tags, nullptr, nullptr, "fluxes") <= 0)
+      if (!CarpetX::group_has_flux_register(gi))
         continue;
-      CCTK_VERROR("CarpetX::do_reflux with fluxes= tags requires an explicit "
+      CCTK_VERROR("CarpetX::do_reflux with fluxes= tags and "
+                  "CarpetX::max_num_levels > 1 requires an explicit "
                   "ODESolvers::method, but \"%s\" is implicit and group "
                   "\"%s\" (integrated by ODESolvers) carries a fluxes= tag. "
                   "Choose an explicit method or set CarpetX::do_reflux = no.",
