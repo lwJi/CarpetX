@@ -86,10 +86,12 @@ SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
 #   EVOL            (without subcycling: [reflux] inside ODESolvers_Solve,
 #                    before the final ODESolvers_PostStep)
 #   [when restrict_during_sync = no and >= 2 levels are time-aligned:]
+#     CarpetX_PreRestrict  (sees the state before the reflux)
 #     [reflux]      (subcycling: finest pair first, once per coarse step)
-#     CarpetX_PreRestrict
 #     [restrict]    (fine to coarse, then prolongate restricted GFs)
-#     POSTRESTRICT  (ODESolvers_PostStep runs here)
+#     POSTRESTRICT  (ODESolvers_PostStep runs here; under subcycling its
+#                    SYNC repairs the ghosts after the reflux and the
+#                    restriction, and it recomputes the dependents)
 #   POSTSTEP        (per level batch under subcycling)
 #   ANALYSIS        (per level batch under subcycling)
 #   CHECKPOINT      (once, after all batches)
@@ -162,6 +164,15 @@ SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
   {
   } "Calculate analysis quantities everywhere"
 
+  # Traversed only by ODESolvers_Solve, in its IMEX122 / "Implicit Euler"
+  # branch (CallScheduleGroup); never scheduled into a bin. Thorns schedule
+  # their implicit solve IN this group; with nothing scheduled the traversal
+  # is empty. The group must be declared: traversing an undeclared group
+  # fails.
+  SCHEDULE GROUP ODESolvers_ImplicitStep
+  {
+  } "Take an implicit step everywhere on the grid"
+
 
 
 # Initialization
@@ -217,11 +228,6 @@ SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
   # SCHEDULE GROUP ODESolvers_RHS AT poststep AFTER ODESolvers_PostStep
   # {
   # } "Evaluate the RHS for of state vector everywhere on the grid"
-  
-  # # This group will also be scheduled dynamically from ODESolvers_solve
-  # SCHEDULE GROUP ODESolvers_ImplicitStep AT poststep AFTER ODESolvers_PostStep
-  # {
-  # } "Take an implicit step everywhere on the grid"
 
   # TODO: this does not yet handle "IMEX122" correctly
   # this group never actually executes since do_subseteps == 0 always, it is

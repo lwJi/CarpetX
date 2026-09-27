@@ -390,7 +390,8 @@ struct GHExt {
       std::unique_ptr<amrex::FabArrayBase> fab;
 
       // Cached flux geometry of this level for the flux-register (reflux)
-      // path: face_area[d] is a one-component, zero-ghost MultiFab on this
+      // path, built by amrex::Geometry::GetFaceArea and GetVolume:
+      // face_area[d] is a one-component, zero-ghost MultiFab on this
       // level's BoxArray converted to the d-face centring (the centring of
       // the flux group in direction d), holding the constant face area
       // prod_{j != d} dx_j; cell_volume is its cell-centred counterpart
@@ -501,6 +502,14 @@ struct GHExt {
         // is validated for shape (LevelData constructor) and otherwise inert:
         // no register, no accumulation, no validity check of the fluxes.
         std::unique_ptr<amrex::FluxRegister> freg;
+        // Coarse-side staging for AccumulateFluxes: the parent's raw flux is
+        // parallel-copied here, scaled, and added into freg. Allocated
+        // together with freg and with the same arguments, so each face FabSet
+        // has freg's BoxArray, DistributionMapping and component count.
+        // Contents are meaningless between calls (zeroed before each use);
+        // not checkpointed (not a freg_* band) and not valid-tracked; rebuilt
+        // with freg when the level is remade on regrid.
+        std::unique_ptr<amrex::FluxRegister> freg_scratch;
         // associated flux group indices
         std::array<int, dim> fluxes; // [dir]
 
@@ -600,6 +609,17 @@ struct GHExt {
 };
 
 extern std::unique_ptr<GHExt> ghext;
+
+// Print one CCTK_WARN_ALERT for each grid-function group whose fluxes= tag
+// cannot take effect: flux-tagged, but rejected by group_has_flux_register
+// (subcycling.hxx), i.e. not integrated by ODESolvers, so it never gets a
+// flux register and is never refluxed. Silent unless CarpetX::do_reflux is
+// set and CarpetX::max_num_levels > 1, since otherwise no group gets a
+// register. Warns on the root process only. Called once by Initialise, after
+// PARAMCHECK (it needs ghext->do_reflux from InitGH and
+// ghext->rk_integrated_group from WRAGH) and before any level exists, so it
+// fires once per run, fresh start or recovery.
+void warn_inert_flux_tags();
 
 // True iff every level of every patch sits at the same subcycling iteration,
 // i.e. the checkpoint is time-aligned. Always true without subcycling. When

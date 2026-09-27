@@ -348,9 +348,9 @@ energy_density(const Loop::GF3D2<const T> &ft, const Loop::GF3D2<const T> &fx,
 
 // The energy density averaged along each axis over the full ghost width,
 // computed IN CarpetX_PreRestrict. Interior cells at a box face then read
-// every ghost layer of the state, so the output pins the driver's Reflux
-// postcondition: the coarse ghosts hold the refluxed values before
-// restriction (see schedule.ccl and test/standing_subcycling_prerestrict.par).
+// every ghost layer of the state, so the output pins that the hook runs
+// before the driver's reflux: interior and ghosts both hold the uncorrected
+// values (see schedule.ccl and test/standing_subcycling_prerestrict.par).
 extern "C" void FluxWaveToyX_PreRestrictEnergy(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_PreRestrictEnergy;
 

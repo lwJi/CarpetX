@@ -9,16 +9,15 @@ ActiveThorns = "
 
 # standing_subcycling.par with one diagnostic added to the output: the
 # state's energy density averaged over its full ghost width, computed IN
-# CarpetX_PreRestrict (FluxWaveToyX_PreRestrictEnergy). Pins the driver's
-# Reflux postcondition: after the flux-register correction changes the coarse
-# cells next to the refined box, the copies of those cells in neighbouring
-# coarse boxes' ghosts (across the box faces at the domain centre and the
-# periodic domain faces) hold the corrected values before CarpetX_PreRestrict
-# is traversed. Without the same-level ghost exchange in Reflux the ghosts
-# keep their pre-reflux values while their validity flags say they are fine,
-# and prerestrict_energy at the box faces differs from this reference at
-# iteration 16 (the end of the last coarse step). The state and error output
-# is bit-identical to standing_subcycling.
+# CarpetX_PreRestrict (FluxWaveToyX_PreRestrictEnergy). Pins that the hook
+# runs before the driver's reflux: the coarse cells next to the refined box,
+# and their copies in neighbouring coarse boxes' ghosts (across the box faces
+# at the domain centre and the periodic domain faces), all hold the
+# uncorrected values when CarpetX_PreRestrict is traversed. Refluxing before
+# the hook changes prerestrict_energy next to the refined box at iteration 16
+# (the end of the last coarse step), whether or not the ghosts are then
+# repaired. The state and error output is bit-identical to
+# standing_subcycling.
 
 Cactus::cctk_show_schedule = no
 Cactus::presync_mode = "mixed-error"

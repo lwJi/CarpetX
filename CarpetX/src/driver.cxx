@@ -8,6 +8,7 @@
 #include "loop_device.hxx"
 #include "prolongate_3d_rf2.hxx"
 #include "schedule.hxx"
+#include "subcycling.hxx"
 #include "timer.hxx"
 
 #include <cctk.h>
@@ -491,6 +492,43 @@ std::array<int, dim> get_group_fluxes(const int gi) {
   return fluxes;
 }
 
+// See subcycling.hxx for the contract. The conditions are ordered so that
+// the fluxes= tag is parsed only for integrated grid functions: its asserts
+// (malformed tag) then fire on no group whose register allocation would not
+// parse it anyway.
+bool group_has_flux_register(const int gi) {
+  assert(gi >= 0 && gi < CCTK_NumGroups());
+  return ghext->do_reflux && CCTK_GroupTypeI(gi) == CCTK_GF &&
+         gi < int(ghext->rk_integrated_group.size()) &&
+         ghext->rk_integrated_group.at(gi) && get_group_fluxes(gi)[0] >= 0;
+}
+
+// See driver.hxx for the contract. With do_reflux set, the only way a
+// flux-tagged grid function fails group_has_flux_register is not being
+// integrated by ODESolvers, hence the wording. Parsing the fluxes= tag of
+// every grid function is no stricter than the GroupData constructor, which
+// parses it for every group on every level. Every process reaches the same
+// verdict from the same tags and parameters, so only the root warns, and the
+// warning appears once per run rather than once per process.
+void warn_inert_flux_tags() {
+  DECLARE_CCTK_PARAMETERS;
+  if (!ghext->do_reflux || max_num_levels <= 1)
+    return;
+  if (CCTK_MyProc(nullptr) != 0)
+    return;
+  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+    if (CCTK_GroupTypeI(gi) != CCTK_GF || get_group_fluxes(gi)[0] < 0 ||
+        group_has_flux_register(gi))
+      continue;
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Group \"%s\" has a fluxes= tag but is not integrated by "
+               "ODESolvers: no flux register is allocated for it, and it is "
+               "not refluxed at coarse-fine boundaries (see "
+               "CarpetX::do_reflux)",
+               CCTK_FullGroupName(gi));
+  }
+}
+
 std::array<int, dim> get_group_nghostzones(const int gi) {
   DECLARE_CCTK_PARAMETERS;
   assert(gi >= 0);
@@ -961,7 +999,9 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   // belongs to the fine level of each pair and exists only where it can be
   // filled: for a group ODESolvers integrates (rk_integrated_group, published
   // at WRAGH before any level is made), whose fluxes are therefore computed
-  // in ODESolvers_RHS. Both solvers accumulate each RK stage's flux through
+  // in ODESolvers_RHS. group_has_flux_register is that rule; the same
+  // predicate decides ODESolvers_CheckMethod's rejection of implicit
+  // methods. Both solvers accumulate each RK stage's flux through
   // AccumulateFluxes; the correction is applied to the coarse state once per
   // coarse step, by the driver's evolve loop under subcycling and by
   // ODESolvers_Solve at its final stage otherwise (Reflux). A flux-tagged
@@ -970,17 +1010,20 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   fluxes = get_group_fluxes(groupindex);
   if (fluxes[0] >= 0) {
     assert((indextype == std::array<int, dim>{1, 1, 1}));
-    const bool integrated = gi < int(ghext->rk_integrated_group.size()) &&
-                            ghext->rk_integrated_group.at(gi);
-    if (level > 0 && ghext->do_reflux && integrated) {
-      freg = std::make_unique<amrex::FluxRegister>(
-          gba, dm, ghext->patchdata.at(patch).amrcore->refRatio(level - 1),
-          level, numvars);
+    if (level > 0 && group_has_flux_register(groupindex)) {
+      const amrex::IntVect ratio =
+          ghext->patchdata.at(patch).amrcore->refRatio(level - 1);
+      freg =
+          std::make_unique<amrex::FluxRegister>(gba, dm, ratio, level, numvars);
       // FluxRegister::define leaves the FabSets uninitialized. Zero them so
       // that a register that is never fed (e.g. ODESolvers::method =
       // "constant") is a no-op in Reflux and serializes as zeros at a
       // mid-cycle checkpoint.
       freg->setVal(0);
+      // The coarse side's staging buffer (AccumulateFluxes): the register's
+      // layout by construction. Left uninitialized; every use zeroes it.
+      freg_scratch =
+          std::make_unique<amrex::FluxRegister>(gba, dm, ratio, level, numvars);
     }
   }
 }
@@ -1033,10 +1076,11 @@ bool recovered_flux_register_is_live(const int patch, const int level) {
   const std::optional<rat64> &self = level_iterations.at(level);
   if (!self)
     return false; // old checkpoint without per-level iteration: time-aligned
-  // Reflux(level) runs once every level from `level` down to the finest is
-  // time-aligned (see the evolve loop), so the register is live while any
-  // finer level is still behind this one. The pair (level, level + 1) may
-  // itself be aligned with the register complete but unapplied.
+  // The pair (level, level + 1) is refluxed once every level from `level`
+  // down to the finest is time-aligned (see the evolve loop), so the
+  // register is live while any finer level is still behind this one. The
+  // pair (level, level + 1) may itself be aligned with the register complete
+  // but unapplied.
   for (int finer = level + 1; finer < int(level_iterations.size()); ++finer) {
     const std::optional<rat64> &finer_iteration = level_iterations.at(finer);
     if (finer_iteration && *finer_iteration < *self)

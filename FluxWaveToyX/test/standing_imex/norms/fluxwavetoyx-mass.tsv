@@ -1,0 +1,2 @@
+# 1:iteration	2:time	3:fluxwavetoyx::mass_density.min	4:fluxwavetoyx::mass_density.max	5:fluxwavetoyx::mass_density.sum	6:fluxwavetoyx::mass_density.avg	7:fluxwavetoyx::mass_density.stddev	8:fluxwavetoyx::mass_density.volume	9:fluxwavetoyx::mass_density.L1norm	10:fluxwavetoyx::mass_density.L2norm	11:fluxwavetoyx::mass_density.maxabs
+0	0.0000000000000000e+00	0.0000000000000000e+00	0.0000000000000000e+00	0.0000000000000000e+00	0.0000000000000000e+00	0.0000000000000000e+00	8.0000000000000000e+00	0.0000000000000000e+00	0.0000000000000000e+00	0.0000000000000000e+00

@@ -810,9 +810,11 @@ void ProlongateRestrictedGFs(const cGH *cctkGH) {
 // amrex::FluxRegister::Reflux divides the register by the coarse cell
 // volume, so every contribution is multiplied by its own level's face area;
 // the fine faces under one coarse face then sum to the coarse face. CarpetX
-// levels are Cartesian, so this is one constant per level and direction;
-// EnsureFluxGeometry materializes it once per level as the MultiFab that
-// the FluxRegister area overloads read.
+// levels are Cartesian, so this is one constant per level and direction.
+// The coarse side of AccumulateFluxes multiplies by these scalars; the
+// MultiFab form that FineAdd reads, LevelData::face_area, is filled by
+// amrex::Geometry::GetFaceArea with the same products (see
+// EnsureFluxGeometry), so the two agree bitwise.
 static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
   const CCTK_REAL *const dx = geom.CellSize();
   std::array<CCTK_REAL, dim> area;
@@ -826,16 +828,23 @@ static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
 }
 
 // See subcycling.hxx for the contract and driver.hxx for the members. The
-// four MultiFabs are built on the level's cell-centred BoxArray (converted
-// to the d-face centring for face_area[d]) and DistributionMapping, the
-// layout of every GroupData MultiFab of the level up to centring, which is
-// what the area and volume overloads of amrex::FluxRegister require:
-// CrseInit and FineAdd index `area` with the MFIter of the flux MultiFab,
-// Reflux indexes `volume` with the MFIter of the state. Zero ghosts
-// suffice: every read is on a valid face or cell of the level's own boxes.
-// The cell volume is formed as AMReX's constant-volume Reflux overload
-// forms it (dx[0]*dx[1]*dx[2]), so switching overloads leaves the
-// correction bit-identical.
+// four MultiFabs are built by amrex::Geometry::GetFaceArea and GetVolume on
+// the level's cell-centred BoxArray (converted to the d-face centring for
+// face_area[d]) and DistributionMapping, the layout of every GroupData
+// MultiFab of the level up to centring, which is what the area and volume
+// overloads of amrex::FluxRegister require: FineAdd indexes `area` with the
+// MFIter of the flux MultiFab, Reflux indexes `volume` with the MFIter of
+// the state. (The coarse side of AccumulateFluxes uses the scalar
+// face_areas() instead, bitwise the same value.) Zero ghosts suffice: every
+// read is on a valid face or cell of the level's own boxes.
+//
+// Bit-identity: for Cartesian geometry (the only one AMReX supports in 3D)
+// GetVolume fills dx[0]*dx[1]*dx[2] (AMReX_Geometry.cpp:221), the product
+// AMReX's constant-volume Reflux overload forms, so switching Reflux
+// overloads leaves the correction bit-identical; GetFaceArea fills
+// dx[1]*dx[2], dx[0]*dx[2], dx[0]*dx[1] for d = 0, 1, 2
+// (AMReX_Geometry.cpp:327-331), the products face_areas() forms, so the
+// scalar and the MultiFab areas agree bitwise.
 void EnsureFluxGeometry(const int patch, const int level) {
   const auto &patchdata = ghext->patchdata.at(patch);
   const auto &leveldata = patchdata.leveldata.at(level);
@@ -858,15 +867,12 @@ void EnsureFluxGeometry(const int patch, const int level) {
   const amrex::DistributionMapping &dm = leveldata.fab->DistributionMap();
   assert(ba.ixType().cellCentered());
 
-  const std::array<CCTK_REAL, dim> area = face_areas(geom);
   for (int d = 0; d < dim; ++d) {
-    leveldata.face_area[d] = std::make_unique<amrex::MultiFab>(
-        amrex::convert(ba, amrex::IntVect::TheDimensionVector(d)), dm, 1, 0);
-    leveldata.face_area[d]->setVal(area[d]);
+    leveldata.face_area[d] = std::make_unique<amrex::MultiFab>();
+    geom.GetFaceArea(*leveldata.face_area[d], ba, dm, d, 0);
   }
-  const CCTK_REAL *const dx = geom.CellSize();
-  leveldata.cell_volume = std::make_unique<amrex::MultiFab>(ba, dm, 1, 0);
-  leveldata.cell_volume->setVal(dx[0] * dx[1] * dx[2]);
+  leveldata.cell_volume = std::make_unique<amrex::MultiFab>();
+  geom.GetVolume(*leveldata.cell_volume, ba, dm, 0);
 
   assert(have_all_or_none());
 }
@@ -888,10 +894,6 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   const auto *const childleveldata =
       have_child ? &patchdata.leveldata.at(level + 1) : nullptr;
   const int tl = 0;
-
-  // The cached face areas are built on the first registered group met
-  // (once per call at most); a level without a register never allocates
-  bool have_flux_geometry = false;
 
   for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
     // only grid functions live on levels
@@ -915,13 +917,12 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
     if (!child_freg && !own_freg)
       continue;
 
-    if (!have_flux_geometry) {
-      EnsureFluxGeometry(patch, level);
-      have_flux_geometry = true;
-    }
+    // The cached face areas; built on the first registered group met, a
+    // no-op afterwards, so a level without a register never allocates
+    EnsureFluxGeometry(patch, level);
 
-    // The fluxes of this stage must be valid on the interior: CrseInit reads
-    // the coarse faces under the child's boxes, FineAdd the faces on the
+    // The fluxes of this stage must be valid on the interior: the coarse
+    // side reads the faces under the child's boxes, FineAdd the faces on the
     // boundary of this level's own boxes, both interior for a face-centred
     // group.
     for (int d = 0; d < dim; ++d) {
@@ -937,32 +938,84 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
         });
     }
 
-    // Both roles read the cached face-area MultiFab of the level
-    // (EnsureFluxGeometry above) through the area overloads, with the stage
-    // weight as the scalar multiplier, so that nothing is allocated on the
-    // CarpetX side. What AMReX still allocates per call: CrseInit builds
-    // the scaled flux copy (flux * mult * area on the flux's layout) and,
-    // in ADD mode, a zeroed scratch FabSet on the register's layout that it
-    // parallel-copies into before adding; FineAdd is allocation-free. The
-    // fine-side kernel forms (mult * area) * flux, exactly the scalar
-    // product of the previous mult = weight * area; the coarse side forms
-    // (flux * mult) * area, which may differ from flux * (mult * area) in
-    // the last bit unless the area is a power of two.
+    // Nothing is allocated per call; both roles work on the register's thin
+    // faces only.
+    //
+    // Coarse side, in place of amrex::FluxRegister::CrseInit(ADD). Per
+    // direction, CrseInit allocates a full-level MultiFab on the flux's
+    // layout holding (flux * mult) * area on every face
+    // (AMReX_FluxRegister.cpp:188, :205), and a FabSet on the register's
+    // layout, which it zeroes, ParallelCopies the scaled flux into, and adds
+    // into the register (:220-255). The child's persistent freg_scratch has
+    // the register's layout, so per face orientation the same steps run on
+    // it, with the scaling moved after the copy: zero, ParallelCopy the raw
+    // flux, scale by (s * mult) * area[d], add. This is bit-identical:
+    //  - The copy has the same source BoxArray and DistributionMapping, no
+    //    source ghosts and no periodic shift, hence the same copy tags, so
+    //    where two source boxes share a face the same box wins. A copy moves
+    //    values unchanged, so scaling after it gives the values CrseInit
+    //    copies.
+    //  - area[d] (face_areas) equals face_area[d] bitwise, and the product
+    //    is formed in CrseInit's order, (s * mult) * area.
+    //  - Scaling and adding are separate kernels, as in CrseInit. A single
+    //    `r += s * mult * area` could be contracted into an FMA
+    //    (-ffp-contract=fast, nvcc's default --fmad=true), which would skip
+    //    the rounding of the product.
+    // A face the copy does not reach (none under proper nesting) adds
+    // (0 * mult) * area, a zero like CrseInit's, possibly of the other sign.
+    //
+    // Fine side: FineAdd reads the cached face-area MultiFab of the level
+    // (EnsureFluxGeometry above) through the area overload, with the stage
+    // weight as the scalar multiplier; it is local and allocation-free, and
+    // forms (mult * area) * flux.
     if (child_freg) {
+      amrex::FluxRegister *const child_scratch =
+          childleveldata->groupdata.at(gi)->freg_scratch.get();
+      assert(child_scratch);
       // The coarse step is the reset: the coarse level's first stage zeroes
       // the register below it, and everything that follows (the remaining
       // coarse stages, the child's substeps) only adds.
       if (stage == 1)
         child_freg->setVal(0);
+      const int numvars = groupdata.numvars;
+      const CCTK_REAL mult = -weight;
+      const std::array<CCTK_REAL, dim> area =
+          face_areas(patchdata.amrcore->Geom(level));
       for (int d = 0; d < dim; ++d) {
         const auto &flux_groupdata =
             *leveldata.groupdata.at(groupdata.fluxes.at(d));
         const amrex::MultiFab &flux = *flux_groupdata.mfab.at(tl);
-        const amrex::MultiFab &area = *leveldata.face_area[d];
-        assert(area.ixType() == flux.ixType());
-        assert(area.DistributionMap() == flux.DistributionMap());
-        child_freg->CrseInit(flux, area, d, 0, 0, groupdata.numvars, -weight,
-                             amrex::FluxRegister::ADD);
+        const CCTK_REAL area_d = area[d];
+        for (const auto side :
+             {amrex::Orientation::low, amrex::Orientation::high}) {
+          const amrex::Orientation face(d, side);
+          amrex::FabSet &scratch = (*child_scratch)[face];
+          amrex::FabSet &reg = (*child_freg)[face];
+          assert(scratch.boxArray() == reg.boxArray());
+          assert(scratch.DistributionMap() == reg.DistributionMap());
+          assert(scratch.nComp() == numvars && reg.nComp() == numvars);
+          scratch.setVal(0);
+          // (src, ngrow, scomp, dcomp, ncomp): valid faces only, non-periodic
+          scratch.copyFrom(flux, 0, 0, 0, numvars);
+          // Box by box over validbox(), as AMReX's own FabSet loops do: the
+          // tiled MFIter behind amrex::ParallelFor(MultiFab, ...) builds its
+          // tiles from the uncollapsed coarsened fine box of a register's
+          // BoxArray, not from its one-face-thick boxes, and would run out
+          // of bounds.
+          for (amrex::FabSetIter fsi(scratch); fsi.isValid(); ++fsi) {
+            const amrex::Box &bx = fsi.validbox();
+            const auto sfab = scratch.array(fsi);
+            amrex::ParallelFor(bx, numvars,
+                               [=] AMREX_GPU_DEVICE(int i, int j, int k,
+                                                    int n) noexcept {
+                                 sfab(i, j, k, n) =
+                                     sfab(i, j, k, n) * mult * area_d;
+                               });
+          }
+          // The local `reg += scratch` of identical layouts, the same add
+          // CrseInit(ADD) performs
+          reg.plusFrom(scratch, 0, 0, numvars);
+        }
       }
     }
 
@@ -980,63 +1033,22 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   } // for gi
 }
 
-// Same-level ghost exchange plus outer boundary conditions for time level
-// `tl` of `groups` on one level of one patch, without touching validity
-// flags. Built like the body of SyncGroupsByDirIGhostOnly: one
-// FillPatch_Sync per group through two task managers, in a definite order
-// so that AMReX's communication pattern is not confused. Inter-patch
-// (multi-patch) ghosts are not interpolated here; they are left to the next
-// scheduled SYNC.
-static void sync_level_ghosts(const GHExt::PatchData &patchdata,
-                              const GHExt::PatchData::LevelData &leveldata,
-                              const std::vector<int> &groups, const int tl) {
-  if (groups.empty())
-    return;
-
-  const amrex::Geometry &geom = patchdata.amrcore->Geom(leveldata.level);
-
-  task_manager tasks1;
-  task_manager tasks2;
-
-  for (const int gi : groups) {
-    const auto &groupdata = *leveldata.groupdata.at(gi);
-    assert(!groupdata.mfab.empty());
-    assert(tl >= 0 && tl < int(groupdata.mfab.size()));
-    tasks1.submit_serially([&tasks2, &groupdata, &geom, tl]() {
-      FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl), geom);
-    });
-  }
-
-  tasks1.run_tasks_serially();
-  synchronize();
-  tasks2.run_tasks_serially();
-  synchronize();
-}
-
 // Apply the flux register of the pair (level, level + 1) to the coarse
-// state on `level`: state += register / volume on the coarse cells next to
-// the coarse-fine boundary. The register was filled by AccumulateFluxes
-// over the coarse step and, under subcycling, the fine substeps; nothing is
-// read from the flux groups here. Reached through the range overload below:
-// under subcycling from the evolve loop once per coarse step, in the
-// time-aligned restrict block, before the fine state is restricted; without
-// subcycling from ODESolvers_Solve at the end of every step.
+// state on `level`, on every patch that has level + 1: state += register /
+// volume on the coarse cells next to the coarse-fine boundary. The register
+// was filled by AccumulateFluxes over the coarse step and, under subcycling,
+// the fine substeps; nothing is read from the flux groups here. Reached
+// through Reflux(cctkGH, min_level, max_level) below.
 //
-// Reflux changes interior cells next to the coarse-fine boundary; their
-// copies in neighbouring boxes' ghosts (including periodic images) and the
-// outer boundary are re-established here, so the level is as consistent
-// after Reflux as before it and the validity flags are unchanged. Clearing
-// the ghost flags instead would not work under subcycling: the subcycling
-// SYNC never re-marks an evolved group's ghosts valid at iteration > 0 (the
-// solver does, after each refinement-boundary fill), and poisoning the
-// ghosts would destroy the dense-output refinement-boundary fill that the
-// next fine stage reads. Dependents of the state are recomputed by the
-// ODESolvers_PostStep that follows every reflux.
-void Reflux(const cGH *cctkGH, int level) {
+// Only the interior of time level 0 changes (FluxRegister::Reflux writes
+// the valid boxes only). No ghost, outer boundary point or validity flag is
+// touched: the copies of the corrected cells in neighbouring boxes' ghosts
+// (including periodic images), in the outer boundary and in other patches'
+// inter-patch ghosts keep their pre-reflux values until the
+// ODESolvers_PostStep that follows every reflux syncs the state (see
+// subcycling.hxx).
+static void reflux_level(const cGH *cctkGH, const int level) {
   DECLARE_CCTK_PARAMETERS; // verbose
-
-  if (!ghext->do_reflux)
-    return;
 
   static Timer timer("Reflux");
   Interval interval(timer);
@@ -1052,10 +1064,6 @@ void Reflux(const cGH *cctkGH, int level) {
 
     // Groups whose register was applied on this patch
     std::vector<int> refluxed_groups;
-
-    // The cached cell volume is built on the first registered group met
-    // (once per call at most); a level without a register never allocates
-    bool have_flux_geometry = false;
 
     for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
       // only grid functions live on levels
@@ -1083,10 +1091,9 @@ void Reflux(const cGH *cctkGH, int level) {
           return "Reflux before refluxing: Coarse level data";
         });
 
-      if (!have_flux_geometry) {
-        EnsureFluxGeometry(patch, level);
-        have_flux_geometry = true;
-      }
+      // The cached cell volume; built on the first registered group met, a
+      // no-op afterwards, so a level without a register never allocates
+      EnsureFluxGeometry(patch, level);
 
       // The volume overload reads the cached cell-volume MultiFab of the
       // level (EnsureFluxGeometry above) instead of synthesizing one per
@@ -1102,11 +1109,8 @@ void Reflux(const cGH *cctkGH, int level) {
       refluxed_groups.push_back(gi);
     } // for gi
 
-    // Re-exchange the same-level ghosts and re-apply the outer boundary
-    // conditions of the refluxed groups (see the comment above)
-    sync_level_ghosts(patchdata, leveldata, refluxed_groups, tl);
-
-    // Re-check the coarse state that was just modified, ghosts included
+    // Re-check the coarse state that was just modified, in whatever
+    // regions are flagged valid
     const active_levels_t coarse_level(level, level + 1, patch, patch + 1);
     for (const int gi : refluxed_groups) {
       const auto &groupdata = *leveldata.groupdata.at(gi);
@@ -1121,19 +1125,22 @@ void Reflux(const cGH *cctkGH, int level) {
   } // for patchdata
 }
 
-// See subcycling.hxx for the contract. Every level pair (level, level + 1)
-// with both levels in [min_level, max_level), finest pair first, so that a
-// level is corrected by its child's register before it is restricted onto
-// (or, under subcycling, before its own register is applied to) its parent.
-// The window is the alignment test under subcycling: with three levels,
-// [1,3) refluxes the pair (1,2) only, and the later [0,3) refluxes (1,2)
-// and then (0,1). Without subcycling the caller passes every level.
+// See subcycling.hxx for the contract, including why no ghost is repaired
+// here. Every level pair (level, level + 1) with both levels in [min_level,
+// max_level), finest pair first, so that a level is corrected by its
+// child's register before it is restricted onto (or, under subcycling,
+// before its own register is applied to) its parent. The window is the
+// alignment test under subcycling: with three levels, [1,3) refluxes the
+// pair (1,2) only, and the later [0,3) refluxes (1,2) and then (0,1).
+// Without subcycling the caller passes every level. Applying a register
+// reads only the register and writes only coarse interior cells, so the
+// cascade depends on no ghost.
 void Reflux(const cGH *cctkGH, const int min_level, const int max_level) {
   if (!ghext->do_reflux)
     return;
   assert(min_level >= 0 && max_level <= ghext->num_levels());
   for (int level = max_level - 2; level >= min_level; --level)
-    Reflux(cctkGH, level);
+    reflux_level(cctkGH, level);
 }
 
 // =======================================================================

@@ -62,12 +62,22 @@ void StoreRKStage(int patch, int level, const std::vector<int> &var_groups,
 void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
                     int tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
+// True iff group gi gets a flux register on every level > 0: a grid function
+// with a non-empty fluxes= tag, integrated by ODESolvers
+// (ghext->rk_integrated_group, published at WRAGH), with CarpetX::do_reflux.
+// This is the one definition of "gi is refluxed"; the GroupData constructor
+// (register allocation), ODESolvers_CheckMethod and the startup warning
+// about inert fluxes= tags (warn_inert_flux_tags, driver.hxx) call it. Uses
+// only tag tables, parameters and ghext, and no grid structure, so it is valid
+// from PARAMCHECK on, before any level exists. Defined in driver.cxx.
+bool group_has_flux_register(int gi);
+
 // Allocate (lazily, idempotently) the cached flux geometry of (patch,
 // level): LevelData::face_area[0..dim) and LevelData::cell_volume, filled
-// with the level's constant face areas and cell volume from
-// Geom(level).CellSize(), on the level's own layout (see driver.hxx). Called
-// by AccumulateFluxes and Reflux on a level with a register on either side;
-// defined in sync_restrict.cxx.
+// with the level's constant face areas and cell volume by
+// Geom(level).GetFaceArea and GetVolume, on the level's own layout (see
+// driver.hxx). Called by AccumulateFluxes and Reflux on a level with a
+// register on either side; defined in sync_restrict.cxx.
 void EnsureFluxGeometry(int patch, int level);
 
 // Flux-register (reflux) accumulation for one RK stage on (patch, level).
@@ -87,30 +97,44 @@ void EnsureFluxGeometry(int patch, int level);
 //  - as the fine side of (level - 1, level): every stage adds
 //    +weight * area_d * flux_d into this level's own register.
 // Fluxes are per unit area, following d/dt state + div(flux) = 0; area_d is
-// the level's own face area (the cached LevelData::face_area[d], see
+// the level's own face area (the constant of LevelData::face_area[d], see
 // EnsureFluxGeometry), so that the fine faces under a coarse face sum to
 // the coarse face and FluxRegister::Reflux can divide by the coarse cell
 // volume. Reads only interior faces of the flux groups (time level 0, which
 // must be valid there) and updates no valid flag. No-op with do_reflux = no
-// and for groups without a register. Allocates nothing in steady state.
+// and for groups without a register. Allocates nothing in steady state: the
+// coarse side stages through the child's GroupData::freg_scratch.
 void AccumulateFluxes(int patch, int level, int stage, CCTK_REAL weight);
 
 // Flux-register (reflux) correction of every level pair (level, level + 1)
 // with both levels in [min_level, max_level), finest pair first: the coarse
-// state's time level 0 receives register / volume on the cells next to the
-// coarse-fine boundary, then its same-level ghosts and outer boundary are
-// re-established (validity flags unchanged). Defined in sync_restrict.cxx.
+// state's time level 0 receives register / volume on the interior cells next
+// to the coarse-fine boundary. Only the registers are applied: no ghost,
+// outer boundary point or validity flag is touched, so the corrected cells'
+// copies in same-level ghosts (including periodic images), in the outer
+// boundary and in inter-patch ghosts keep their old values, and so do the
+// state's dependents= groups. Defined in sync_restrict.cxx.
 //
 // Two callers, one per solver, each at the point where it knows a pair's
-// step is complete: the driver's evolve loop under subcycling, with the
-// widened time-aligned window, once per coarse step in the restrict block
-// before the fine state is restricted; ODESolvers_Solve without subcycling,
-// with [0, num_levels), in its final stage after the state update. Every
-// call must be followed by an ODESolvers_PostStep on the corrected levels
-// before the state is read again: the correction leaves the state's
-// dependents= groups (and, with restrict_during_sync, the in-sync
-// restriction) to that traversal. No-op with do_reflux = no and for pairs
-// without a register.
+// step is complete, and each followed by an ODESolvers_PostStep on the
+// corrected levels before the state is read again. That traversal's SYNC
+// carries the correction into the ghosts, the outer boundary and the
+// inter-patch ghosts, and it recomputes the dependents:
+//  - ODESolvers_Solve without subcycling, with [0, num_levels), in its
+//    final stage after the state update, right before that stage's
+//    PostStep (which, with restrict_during_sync, also restricts); the state
+//    is valid on the interior only there;
+//  - the driver's evolve loop under subcycling, with the widened
+//    time-aligned window, once per coarse step in the restrict block, after
+//    CarpetX_PreRestrict and immediately before restriction. The PostStep
+//    is the one at POSTRESTRICT. Until then the state's ghost flags stay set
+//    over stale copies, exactly as they do after the restriction itself
+//    (RestrictNoPoison), and nothing in between reads them: restriction
+//    reads fine interior cells only, and ProlongateRestrictedGFs copies no
+//    coarse ghost. Clearing the flags instead would not work: the
+//    subcycling SYNC never re-marks an evolved group's ghosts valid at
+//    iteration > 0 (the solver does, after each refinement-boundary fill).
+// No-op with do_reflux = no and for pairs without a register.
 void Reflux(const cGH *cctkGH, int min_level, int max_level);
 
 } // namespace CarpetX
