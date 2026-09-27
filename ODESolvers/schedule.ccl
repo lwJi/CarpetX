@@ -162,6 +162,15 @@ SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
   {
   } "Calculate analysis quantities everywhere"
 
+  # Traversed only by ODESolvers_Solve, in its IMEX122 / "Implicit Euler"
+  # branch (CallScheduleGroup); never scheduled into a bin. Thorns schedule
+  # their implicit solve IN this group; with nothing scheduled the traversal
+  # is empty. The group must be declared: traversing an undeclared group
+  # fails.
+  SCHEDULE GROUP ODESolvers_ImplicitStep
+  {
+  } "Take an implicit step everywhere on the grid"
+
 
 
 # Initialization
@@ -217,11 +226,6 @@ SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
   # SCHEDULE GROUP ODESolvers_RHS AT poststep AFTER ODESolvers_PostStep
   # {
   # } "Evaluate the RHS for of state vector everywhere on the grid"
-  
-  # # This group will also be scheduled dynamically from ODESolvers_solve
-  # SCHEDULE GROUP ODESolvers_ImplicitStep AT poststep AFTER ODESolvers_PostStep
-  # {
-  # } "Take an implicit step everywhere on the grid"
 
   # TODO: this does not yet handle "IMEX122" correctly
   # this group never actually executes since do_subseteps == 0 always, it is
