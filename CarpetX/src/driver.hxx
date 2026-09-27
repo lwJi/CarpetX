@@ -389,6 +389,27 @@ struct GHExt {
       // and its distribution over all processes, but holds no data.
       std::unique_ptr<amrex::FabArrayBase> fab;
 
+      // Cached flux geometry of this level for the flux-register (reflux)
+      // path, built by amrex::Geometry::GetFaceArea and GetVolume:
+      // face_area[d] is a one-component, zero-ghost MultiFab on this
+      // level's BoxArray converted to the d-face centring (the centring of
+      // the flux group in direction d), holding the constant face area
+      // prod_{j != d} dx_j; cell_volume is its cell-centred counterpart
+      // holding dx_0 dx_1 dx_2. All four share the level's
+      // DistributionMapping with every GroupData MultiFab, so that the
+      // (mflx, area, ...) and (mf, volume, ...) overloads of
+      // amrex::FluxRegister can index them with the flux's or the state's
+      // MFIter. EnsureFluxGeometry builds them together, lazily, on the
+      // first AccumulateFluxes or Reflux that finds a register on this
+      // level, so that neither call allocates a CarpetX-side MultiFab in
+      // steady state. Constant per level: CarpetX levels are Cartesian, and
+      // the layout only changes when a regrid remakes or clears the level,
+      // which destroys this LevelData and the cache with it; there is no
+      // other invalidation. Null on levels that never see a register; pure
+      // geometry, never checkpointed and not valid-tracked.
+      mutable std::array<std::unique_ptr<amrex::MultiFab>, dim> face_area;
+      mutable std::unique_ptr<amrex::MultiFab> cell_volume;
+
       cctkGHptr patch_cctkGH;
       std::vector<cctkGHptr> local_cctkGHs; // [component]
 
@@ -469,8 +490,26 @@ struct GHExt {
         // valid-tracked.
         mutable std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;
 
-        // flux register between this and the next coarser level
+        // Flux register of the pair (level - 1, level), owned by this (fine)
+        // level: allocated only where it is fed, i.e. for a group with a
+        // fluxes= tag that ODESolvers integrates (ghext->rk_integrated_group)
+        // under do_reflux, with and without subcycling; zeroed on creation,
+        // and reset by the parent's first RK stage (AccumulateFluxes).
+        //
+        // Contract of the fluxes= tag: on an ODESolvers-integrated group it
+        // promises that the flux groups are computed in ODESolvers_RHS, so
+        // that every RK stage can accumulate them; on any other group the tag
+        // is validated for shape (LevelData constructor) and otherwise inert:
+        // no register, no accumulation, no validity check of the fluxes.
         std::unique_ptr<amrex::FluxRegister> freg;
+        // Coarse-side staging for AccumulateFluxes: the parent's raw flux is
+        // parallel-copied here, scaled, and added into freg. Allocated
+        // together with freg and with the same arguments, so each face FabSet
+        // has freg's BoxArray, DistributionMapping and component count.
+        // Contents are meaningless between calls (zeroed before each use);
+        // not checkpointed (not a freg_* band) and not valid-tracked; rebuilt
+        // with freg when the level is remade on regrid.
+        std::unique_ptr<amrex::FluxRegister> freg_scratch;
         // associated flux group indices
         std::array<int, dim> fluxes; // [dir]
 
@@ -515,8 +554,17 @@ struct GHExt {
 
   bool use_subcycling = false;
 
-  // Active number of RK stages for subcycling, set from ODESolvers::method at
-  // WRAGH (SSPRK3 -> 3, else 4). Must be <= max_num_rk_stages.
+  // CarpetX::do_reflux, cached in InitGH next to use_subcycling. Read from
+  // here rather than through DECLARE_CCTK_PARAMETERS in the GroupData
+  // constructor, where the parameter block would shadow the do_restrict
+  // member; recovery restores the parameter before InitGH runs.
+  bool do_reflux = false;
+
+  // Stage count of ODESolvers::method, published at WRAGH from the method
+  // table (ODESolvers/src/rk_methods.hxx). Under subcycling it is <=
+  // max_num_rk_stages (ODESolvers_CheckMethod rejects the others at
+  // PARAMCHECK) and sizes the bands; without subcycling it may exceed that
+  // (RKF78: 11, DP87: 13) and only bounds the stage AccumulateFluxes accepts.
   int num_rk_stages = 4;
 
   // Groups advanced by the time integrator, published by it at WRAGH
@@ -562,6 +610,17 @@ struct GHExt {
 
 extern std::unique_ptr<GHExt> ghext;
 
+// Print one CCTK_WARN_ALERT for each grid-function group whose fluxes= tag
+// cannot take effect: flux-tagged, but rejected by group_has_flux_register
+// (subcycling.hxx), i.e. not integrated by ODESolvers, so it never gets a
+// flux register and is never refluxed. Silent unless CarpetX::do_reflux is
+// set and CarpetX::max_num_levels > 1, since otherwise no group gets a
+// register. Warns on the root process only. Called once by Initialise, after
+// PARAMCHECK (it needs ghext->do_reflux from InitGH and
+// ghext->rk_integrated_group from WRAGH) and before any level exists, so it
+// fires once per run, fresh start or recovery.
+void warn_inert_flux_tags();
+
 // True iff every level of every patch sits at the same subcycling iteration,
 // i.e. the checkpoint is time-aligned. Always true without subcycling. When
 // false, the coarse source bands hold the in-progress coarse step (u(t_n) and
@@ -576,18 +635,32 @@ bool all_levels_synchronized();
 // the recovered iterations are still populated.
 bool recovered_level_needs_rk_bands(int patch, int level);
 
+// True when the flux register of the pair (level, level + 1) is live in the
+// checkpoint being recovered: level `level` has begun a coarse step whose
+// reflux has not yet been applied, i.e. some finer level is behind it, so the
+// checkpoint must carry its freg_* bands. Same preconditions as
+// recovered_level_needs_rk_bands.
+bool recovered_flux_register_is_live(int patch, int level);
+
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
 // ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)
-// snapshot.
-enum class band_kind { ks_source, old_source };
+// snapshot, flux_register the six face FabSets of the child's flux register
+// (GroupData::freg), each a zero-ghost MultiFab in the parent's index space
+// holding the partially accumulated flux mismatch of the pair (level,
+// level+1). For flux_register `stage` is the face index 0..5, namely
+// 2*dir + (high ? 1 : 0).
+enum class band_kind { ks_source, old_source, flux_register };
 
 // Token identifying a source band in checkpoint names: "kss_s00".."kss_s03"
-// for ks_source, "olds" for old_source. Shared by both IO backends.
+// for ks_source, "olds" for old_source, "freg_xlo".."freg_zhi" for
+// flux_register. Shared by both IO backends.
 std::string subcycling_band_tag(band_kind kind, int stage = -1);
 
 // The source band that level `level` fills as a parent: owned by the child
 // level's GroupData. Null on the finest level, for groups that are not
-// integrated, and where the coarse-fine footprint is empty.
+// integrated, and where the coarse-fine footprint is empty. For
+// flux_register, null unless the child owns a register for this group (an
+// integrated group with a fluxes= tag under do_reflux).
 amrex::MultiFab *rk_source_band(int patch, int level, int gi, band_kind kind,
                                 int stage = -1);
 
