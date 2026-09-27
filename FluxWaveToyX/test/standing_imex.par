@@ -1,0 +1,61 @@
+ActiveThorns = "
+    CarpetX
+    CarpetXRegrid
+    FluxWaveToyX
+    IOUtil
+    ODESolvers
+"
+
+# standing.par with the implicit-explicit method IMEX122, with
+# CarpetX::do_reflux and CarpetX::max_num_levels at their defaults (yes, 1).
+# FluxWaveToyX::state is integrated and carries a fluxes= tag, but a unigrid
+# run can never own a flux register, so ODESolvers_CheckMethod must accept
+# the implicit method here; with max_num_levels > 1 the same setup is
+# rejected at PARAMCHECK unless CarpetX::do_reflux = no.
+#
+# This pins only that the run passes PARAMCHECK and sets up initial data
+# (cctk_itlast = 0; the reference is the iteration-0 output). The IMEX122
+# step itself is broken and tracked separately: in ODESolvers_Solve the
+# copies y0 and y1 (var.copy(make_valid_int()), odesolvers_solve.cxx:567 and
+# :593) strip the state's ghost validity, so the first ODESolvers_RHS
+# aborts, and kprime2 is an empty statecomp_t used as a lincomb destination.
+
+Cactus::cctk_show_schedule = no
+Cactus::presync_mode = "mixed-error"
+
+CarpetX::poison_undefined_values = yes
+
+CarpetX::ncells_x = 8
+CarpetX::ncells_y = 8
+CarpetX::ncells_z = 8
+
+Driver::periodic = "yes"
+Driver::periodic_x = yes
+Driver::periodic_y = yes
+Driver::periodic_z = yes
+
+Cactus::cctk_itlast = 0
+
+FluxWaveToyX::initial_condition = "standing wave"
+
+ODESolvers::method = "IMEX122"
+
+IO::out_dir = $parfile
+IO::out_every = 1
+IO::out_fileinfo = "axis labels"
+IO::parfile_write = no
+
+CarpetX::out_metadata = no
+CarpetX::out_norm_vars = "all"
+CarpetX::out_norm_omit_unstable = yes
+CarpetX::out_norm_omit_sumloc_for_backward_compatibility = yes
+
+CarpetX::out_tsv_vars = "
+    FluxWaveToyX::state
+    FluxWaveToyX::flux_x
+    FluxWaveToyX::flux_y
+    FluxWaveToyX::flux_z
+    FluxWaveToyX::rhs
+    FluxWaveToyX::energy
+    FluxWaveToyX::error
+"
