@@ -1011,14 +1011,19 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   if (fluxes[0] >= 0) {
     assert((indextype == std::array<int, dim>{1, 1, 1}));
     if (level > 0 && group_has_flux_register(groupindex)) {
-      freg = std::make_unique<amrex::FluxRegister>(
-          gba, dm, ghext->patchdata.at(patch).amrcore->refRatio(level - 1),
-          level, numvars);
+      const amrex::IntVect ratio =
+          ghext->patchdata.at(patch).amrcore->refRatio(level - 1);
+      freg =
+          std::make_unique<amrex::FluxRegister>(gba, dm, ratio, level, numvars);
       // FluxRegister::define leaves the FabSets uninitialized. Zero them so
       // that a register that is never fed (e.g. ODESolvers::method =
       // "constant") is a no-op in Reflux and serializes as zeros at a
       // mid-cycle checkpoint.
       freg->setVal(0);
+      // The coarse side's staging buffer (AccumulateFluxes): the register's
+      // layout by construction. Left uninitialized; every use zeroes it.
+      freg_scratch =
+          std::make_unique<amrex::FluxRegister>(gba, dm, ratio, level, numvars);
     }
   }
 }

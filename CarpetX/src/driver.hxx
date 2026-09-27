@@ -502,6 +502,14 @@ struct GHExt {
         // is validated for shape (LevelData constructor) and otherwise inert:
         // no register, no accumulation, no validity check of the fluxes.
         std::unique_ptr<amrex::FluxRegister> freg;
+        // Coarse-side staging for AccumulateFluxes: the parent's raw flux is
+        // parallel-copied here, scaled, and added into freg. Allocated
+        // together with freg and with the same arguments, so each face FabSet
+        // has freg's BoxArray, DistributionMapping and component count.
+        // Contents are meaningless between calls (zeroed before each use);
+        // not checkpointed (not a freg_* band) and not valid-tracked; rebuilt
+        // with freg when the level is remade on regrid.
+        std::unique_ptr<amrex::FluxRegister> freg_scratch;
         // associated flux group indices
         std::array<int, dim> fluxes; // [dir]
 

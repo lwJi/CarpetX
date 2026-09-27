@@ -97,12 +97,13 @@ void EnsureFluxGeometry(int patch, int level);
 //  - as the fine side of (level - 1, level): every stage adds
 //    +weight * area_d * flux_d into this level's own register.
 // Fluxes are per unit area, following d/dt state + div(flux) = 0; area_d is
-// the level's own face area (the cached LevelData::face_area[d], see
+// the level's own face area (the constant of LevelData::face_area[d], see
 // EnsureFluxGeometry), so that the fine faces under a coarse face sum to
 // the coarse face and FluxRegister::Reflux can divide by the coarse cell
 // volume. Reads only interior faces of the flux groups (time level 0, which
 // must be valid there) and updates no valid flag. No-op with do_reflux = no
-// and for groups without a register. Allocates nothing in steady state.
+// and for groups without a register. Allocates nothing in steady state: the
+// coarse side stages through the child's GroupData::freg_scratch.
 void AccumulateFluxes(int patch, int level, int stage, CCTK_REAL weight);
 
 // Flux-register (reflux) correction of every level pair (level, level + 1)
