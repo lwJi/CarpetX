@@ -9,10 +9,11 @@ ActiveThorns = "
 
 # Subcycled two-level standing wave on a periodic domain with a fixed refined
 # box in the middle. Pins the driver's flux-register (reflux) correction of
-# FluxWaveToyX::state across the refinement boundary: with CarpetX::do_reflux
-# at its default, the masked sum of every flux-conservative component of the
-# state (ft, fx, fy, fz) is constant to round-off over the run; u has a source
-# term (u_rhs = ft) and no flux, so its sum is not a conservation diagnostic.
+# FluxWaveToyX::state across the refinement boundary: with
+# CarpetX::do_reflux = yes, the masked sum of every flux-conservative
+# component of the state (ft, fx, fy, fz) is constant to round-off over the
+# run; u has a source term (u_rhs = ft) and no flux, so its sum is not a
+# conservation diagnostic.
 
 Cactus::cctk_show_schedule = no
 Cactus::presync_mode = "mixed-error"
@@ -38,6 +39,7 @@ Driver::periodic_y = yes
 Driver::periodic_z = yes
 
 CarpetX::max_num_levels = 2
+CarpetX::do_reflux = yes
 Driver::regrid_every = 128000
 Driver::regrid_error_threshold = 0.9
 

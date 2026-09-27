@@ -7,7 +7,7 @@ ActiveThorns = "
 "
 
 # standing.par with the implicit-explicit method IMEX122, with
-# CarpetX::do_reflux and CarpetX::max_num_levels at their defaults (yes, 1).
+# CarpetX::do_reflux = yes and CarpetX::max_num_levels at its default (1).
 # FluxWaveToyX::state is integrated and carries a fluxes= tag, but a unigrid
 # run can never own a flux register, so ODESolvers_CheckMethod must accept
 # the implicit method here; with max_num_levels > 1 the same setup is
@@ -24,6 +24,7 @@ Cactus::cctk_show_schedule = no
 Cactus::presync_mode = "mixed-error"
 
 CarpetX::poison_undefined_values = yes
+CarpetX::do_reflux = yes
 
 CarpetX::ncells_x = 8
 CarpetX::ncells_y = 8
