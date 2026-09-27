@@ -613,9 +613,11 @@ extern std::unique_ptr<GHExt> ghext;
 // Print one CCTK_WARN_ALERT for each grid-function group whose fluxes= tag
 // cannot take effect: flux-tagged, but rejected by group_has_flux_register
 // (subcycling.hxx), i.e. not integrated by ODESolvers, so it never gets a
-// flux register and is never refluxed. Silent unless CarpetX::do_reflux is
-// set and CarpetX::max_num_levels > 1, since otherwise no group gets a
-// register. Warns on the root process only. Called once by Initialise, after
+// flux register and is never refluxed. With CarpetX::do_reflux = no, print
+// instead a single CCTK_INFO if some integrated grid function carries a
+// fluxes= tag, since every such tag is then inert. Silent when
+// CarpetX::max_num_levels <= 1, since then no group gets a register. Warns
+// on the root process only. Called once by Initialise, after
 // PARAMCHECK (it needs ghext->do_reflux from InitGH and
 // ghext->rk_integrated_group from WRAGH) and before any level exists, so it
 // fires once per run, fresh start or recovery.
