@@ -1,6 +1,8 @@
 # Schedule definitions for thorn FluxWaveToyX
 
 STORAGE: state cons flux_x flux_y flux_z rhs energy error
+STORAGE: mass mass_flux_x mass_flux_y mass_flux_z
+STORAGE: prerestrict_energy
 
 SCHEDULE FluxWaveToyX_Initial AT initial
 {
@@ -78,3 +80,32 @@ SCHEDULE FluxWaveToyX_Error AT analysis
   WRITES: error(interior)
   SYNC: error
 } "Calculate error in scalar wave state"
+
+# Fixture for the driver's flux-register bookkeeping: a flux-tagged group
+# that is not integrated by ODESolvers, whose fluxes exist only after
+# analysis (see interface.ccl).
+SCHEDULE FluxWaveToyX_Mass AT analysis
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: mass(interior)
+  WRITES: mass_flux_x(interior)
+  WRITES: mass_flux_y(interior)
+  WRITES: mass_flux_z(interior)
+  SYNC: mass mass_flux_x mass_flux_y mass_flux_z
+} "Calculate the conserved density and its fluxes for output"
+
+# Fixture for the order of CarpetX_PreRestrict and the driver's reflux: when
+# CarpetX_PreRestrict is traversed, the coarse level is not yet refluxed,
+# and its ghosts agree with its interior. The average reaches across the
+# state's full ghost width because the refluxed coarse cells (the cells just
+# outside the refined box) lie up to ghost_size cells from the neighbouring
+# coarse box's face in the standing_subcycling setup, so a narrower stencil
+# would not read them.
+SCHEDULE FluxWaveToyX_PreRestrictEnergy IN CarpetX_PreRestrict
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: prerestrict_energy(interior)
+  SYNC: prerestrict_energy
+} "Average the energy density over the ghost width before restriction"

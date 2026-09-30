@@ -144,13 +144,22 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
   // "Reconstructing" at the cell interface is just averaging here, and flux
   // limiting is not necessary since the solution is smooth
 
+  // The fluxes follow the conservation-law convention
+  //   d/dt state + div(flux) = 0,
+  // which the driver's flux register (the fluxes= tag on `state`) and AMReX
+  // expect. The wave equation as a first-order system is d/dt ft = div f and
+  // d/dt f_i = d_i ft, so the fluxes are the negatives of the averaged
+  // quantities, and the RHS below subtracts their divergence. (Negating the
+  // fluxes and the divergence is exact in floating point, so the evolution
+  // is unchanged by this convention.)
+
   // Calculate x-flux
   grid.loop_int_device<0, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         u_flux_x(p.I) = 0;
-        ft_flux_x(p.I) = average(fx, p, 0);
-        fx_flux_x(p.I) = average(ft, p, 0);
+        ft_flux_x(p.I) = -average(fx, p, 0);
+        fx_flux_x(p.I) = -average(ft, p, 0);
         fy_flux_x(p.I) = 0;
         fz_flux_x(p.I) = 0;
 
@@ -179,9 +188,9 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         u_flux_y(p.I) = 0;
-        ft_flux_y(p.I) = average(fy, p, 1);
+        ft_flux_y(p.I) = -average(fy, p, 1);
         fx_flux_y(p.I) = 0;
-        fy_flux_y(p.I) = average(ft, p, 1);
+        fy_flux_y(p.I) = -average(ft, p, 1);
         fz_flux_y(p.I) = 0;
 
         if (bc != bc_t::CarpetX && p.BI[1] != 0) {
@@ -209,10 +218,10 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         u_flux_z(p.I) = 0;
-        ft_flux_z(p.I) = average(fz, p, 2);
+        ft_flux_z(p.I) = -average(fz, p, 2);
         fx_flux_z(p.I) = 0;
         fy_flux_z(p.I) = 0;
-        fz_flux_z(p.I) = average(ft, p, 2);
+        fz_flux_z(p.I) = -average(ft, p, 2);
 
         if (bc != bc_t::CarpetX && p.BI[2] != 0) {
           auto chi_m = ft_flux_z(p.I) + p.BI[2] * fz_flux_z(p.I);
@@ -239,14 +248,16 @@ extern "C" void FluxWaveToyX_RHS(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_RHS;
   DECLARE_CCTK_PARAMETERS;
 
+  // d/dt state = -div(flux) (+ source): see FluxWaveToyX_Fluxes for the
+  // sign convention of the fluxes. u has no flux, only the source ft.
   grid.loop_int_device<1, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        u_rhs(p.I) = flux_div(u_flux_x, u_flux_y, u_flux_z, p) + ft(p.I);
-        ft_rhs(p.I) = flux_div(ft_flux_x, ft_flux_y, ft_flux_z, p);
-        fx_rhs(p.I) = flux_div(fx_flux_x, fx_flux_y, fx_flux_z, p);
-        fy_rhs(p.I) = flux_div(fy_flux_x, fy_flux_y, fy_flux_z, p);
-        fz_rhs(p.I) = flux_div(fz_flux_x, fz_flux_y, fz_flux_z, p);
+        u_rhs(p.I) = -flux_div(u_flux_x, u_flux_y, u_flux_z, p) + ft(p.I);
+        ft_rhs(p.I) = -flux_div(ft_flux_x, ft_flux_y, ft_flux_z, p);
+        fx_rhs(p.I) = -flux_div(fx_flux_x, fx_flux_y, fx_flux_z, p);
+        fy_rhs(p.I) = -flux_div(fy_flux_x, fy_flux_y, fy_flux_z, p);
+        fz_rhs(p.I) = -flux_div(fz_flux_x, fz_flux_y, fz_flux_z, p);
       });
 }
 
@@ -291,6 +302,78 @@ extern "C" void FluxWaveToyX_Energy(CCTK_ARGUMENTS) {
 
                                       eps(p.I) = (pow(ft(p.I), 2) + f2) / 2;
                                     });
+}
+
+// The conserved density ft and its fluxes (the ft components of the fluxes
+// in FluxWaveToyX_Fluxes), computed at analysis. This group carries a
+// fluxes= tag but no rhs= tag: it exists to check that the driver allocates
+// no flux register for a group ODESolvers does not integrate, and so never
+// demands these fluxes during the RK stages, when they are invalid.
+extern "C" void FluxWaveToyX_Mass(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_Mass;
+
+  grid.loop_int_device<1, 1, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p)
+          CCTK_ATTRIBUTE_ALWAYS_INLINE { mass_density(p.I) = ft(p.I); });
+
+  grid.loop_int_device<0, 1, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        mass_density_flux_x(p.I) = -average(fx, p, 0);
+      });
+
+  grid.loop_int_device<1, 0, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        mass_density_flux_y(p.I) = -average(fy, p, 1);
+      });
+
+  grid.loop_int_device<1, 1, 0>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        mass_density_flux_z(p.I) = -average(fz, p, 2);
+      });
+}
+
+// Energy density (ft^2 + f^2) / 2 at one grid point
+template <typename T>
+CCTK_DEVICE CCTK_HOST inline CCTK_ATTRIBUTE_ALWAYS_INLINE T
+energy_density(const Loop::GF3D2<const T> &ft, const Loop::GF3D2<const T> &fx,
+               const Loop::GF3D2<const T> &fy, const Loop::GF3D2<const T> &fz,
+               const Loop::vect<int, dim> &I) {
+  using std::pow;
+  return (pow(ft(I), 2) + pow(fx(I), 2) + pow(fy(I), 2) + pow(fz(I), 2)) / 2;
+}
+
+// The energy density averaged along each axis over the full ghost width,
+// computed IN CarpetX_PreRestrict. Interior cells at a box face then read
+// every ghost layer of the state, so the output pins that the hook runs
+// before the driver's reflux: interior and ghosts both hold the uncorrected
+// values (see schedule.ccl and test/standing_subcycling_prerestrict.par).
+extern "C" void FluxWaveToyX_PreRestrictEnergy(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_PreRestrictEnergy;
+
+  const Loop::vect<int, dim> nghostzones = grid.nghostzones;
+
+  grid.loop_int_device<1, 1, 1>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        CCTK_REAL sum = energy_density(ft, fx, fy, fz, p.I);
+        int npoints = 1;
+        for (int d = 0; d < dim; ++d) {
+          for (int k = 1; k <= nghostzones[d]; ++k) {
+            Loop::vect<int, dim> Im = p.I;
+            Loop::vect<int, dim> Ip = p.I;
+            Im[d] -= k;
+            Ip[d] += k;
+            sum += energy_density(ft, fx, fy, fz, Im) +
+                   energy_density(ft, fx, fy, fz, Ip);
+            npoints += 2;
+          }
+        }
+        prerestrict_eps(p.I) = sum / npoints;
+      });
 }
 
 extern "C" void FluxWaveToyX_Error(CCTK_ARGUMENTS) {

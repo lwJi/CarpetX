@@ -7,12 +7,42 @@ USES INCLUDE HEADER: vect.hxx
 
 
 
-CCTK_REAL state TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1   +1 +1 +1   -1 +1 +1   +1 -1 +1   +1 +1 -1} rhs="rhs" dependents="flux_x flux_y flux_z rhs cons energy error"'
+# The fluxes= tag registers flux_x/y/z with the driver's flux-register
+# (reflux) correction. The driver expects the conservation-law convention
+# d/dt state + div(flux) = 0, with the leading components of each flux group
+# being the fluxes of the state's components in order.
+CCTK_REAL state TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1   +1 +1 +1   -1 +1 +1   +1 -1 +1   +1 +1 -1} rhs="rhs" fluxes="flux_x flux_y flux_z" dependents="flux_x flux_y flux_z rhs cons energy error mass mass_flux_x mass_flux_y mass_flux_z"'
 {
   u
   ft
   fx fy fz
 } "State vector"
+
+# A flux-tagged diagnostic that ODESolvers does not integrate (no rhs= tag):
+# the conserved density ft and its fluxes, computed AT analysis, not in
+# ODESolvers_RHS. The driver must allocate no flux register for it and never
+# check its fluxes during the RK stages; the fluxes= tag is inert here. The
+# flux groups are dependents of state so that every stage update invalidates
+# them (a register for this group would then abort at the second RK stage).
+CCTK_REAL mass TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1} fluxes="mass_flux_x mass_flux_y mass_flux_z" checkpoint="no"'
+{
+  mass_density
+} "Conserved density ft, computed at analysis"
+
+CCTK_REAL mass_flux_x TYPE=gf CENTERING={vcc} TAGS='parities={-1 +1 +1} checkpoint="no"'
+{
+  mass_density_flux_x
+} "Flux of mass in x direction"
+
+CCTK_REAL mass_flux_y TYPE=gf CENTERING={cvc} TAGS='parities={+1 -1 +1} checkpoint="no"'
+{
+  mass_density_flux_y
+} "Flux of mass in y direction"
+
+CCTK_REAL mass_flux_z TYPE=gf CENTERING={ccv} TAGS='parities={+1 +1 -1} checkpoint="no"'
+{
+  mass_density_flux_z
+} "Flux of mass in z direction"
 
 CCTK_REAL flux_x TYPE=gf CENTERING={vcc} TAGS='parities={-1 +1 +1   -1 +1 +1   +1 +1 +1   -1 -1 +1   -1 +1 -1} dependents="rhs" checkpoint="no"'
 {
@@ -58,3 +88,13 @@ CCTK_REAL error TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1   +1 +1 +1   -1
   ft_err
   fx_err fy_err fz_err
 } "Error"
+
+# Fixture for the order of CarpetX_PreRestrict and the driver's reflux (see
+# schedule.ccl): the energy density averaged over the state's full ghost
+# width, computed IN CarpetX_PreRestrict, i.e. before the driver refluxes
+# the coarse level and restricts. It is not a dependent of state: it is a
+# snapshot of what a pre-restrict reader sees, kept until output.
+CCTK_REAL prerestrict_energy TYPE=gf CENTERING={ccc} TAGS='checkpoint="no"'
+{
+  prerestrict_eps
+} "Energy density averaged over the ghost width, computed before restriction"

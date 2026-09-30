@@ -1,3 +1,4 @@
+#include "rk_methods.hxx"
 #include "solve.hxx"
 
 // Driver primitives for the state-based refinement-boundary fill
@@ -6,6 +7,8 @@
 #include "../../CarpetX/src/subcycling.hxx"
 
 #include <AMReX_MultiFab.H>
+
+#include <array>
 
 namespace ODESolvers {
 
@@ -164,6 +167,15 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   static Timer timer_rhs("ODESolvers::Solve::rhs");
   static Timer timer_poststep("ODESolvers::Solve::poststep");
 
+  // The method's row in the RK method table (rk_methods.hxx): its stage
+  // count and the effective weight b_s of each stage in the final update,
+  //   y1 = y0 + dt * sum_s b_s f(Y_s),
+  // handed to the driver's flux register so that after a full step it holds
+  // exactly the flux combination the state received. ODESolvers_CheckMethod
+  // rejected at PARAMCHECK any method this solver does not implement.
+  const rk_method_t &rk = rk_method(method);
+  assert(rk.subcycling_ok);
+
   const auto calcrhs = [&](const int n) {
     Interval interval_rhs(timer_rhs);
     if (verbose)
@@ -171,6 +183,15 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     CallScheduleGroup(cctkGH, "ODESolvers_RHS");
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
+    // Feed the driver's flux registers with this stage's flux, weighted by
+    // the stage's effective weight and this batch's step, now: the flux
+    // groups hold exactly the flux the update below consumes, and calcupdate
+    // marks them invalid afterwards (they are dependents of the state).
+    active_levels->loop_coarse_to_fine([&](const auto &restrict leveldata) {
+      CarpetX::AccumulateFluxes(leveldata.patch, leveldata.level, n,
+                                rk.b.at(n - 1) * dt);
+    });
+    synchronize();
   };
   // t = t_0 + c
   // var = a_0 * var + \Sum_i a_i * var_i
@@ -263,6 +284,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
+    // The table row must describe the sequence below
+    assert(rk.nstages == 4);
+
     // Scratch copy of u(t_n) = var(tl=0), the RK4 interior anchor y0. At one
     // timelevel var(tl=0) holds the previous step's result, so no init copy is
     // needed (mirrors the non-subcycling solver).
@@ -318,7 +342,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k3 = f(y0 + h/4 k1 + h/4 k2)
     // y1 = y0 + h/6 k1 + h/6 k2 + 2/3 h k3
 
-    assert(ghext->num_rk_stages == 3);
+    // The table row must describe the sequence below
+    assert(rk.nstages == 3);
 
     // Scratch copy of u(t_n) = var(tl=0), the SSPRK3 interior anchor y0.
     const auto old = var.copy(make_valid_all());
@@ -354,7 +379,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcpoststep();
 
   } else {
-    assert(0);
+    // Unreachable: rk.subcycling_ok is asserted above, and the table marks
+    // only the methods implemented here as subcycling_ok
+    CCTK_VERROR("ODESolvers::method = \"%s\" is marked subcycling_ok in "
+                "rk_methods.hxx but has no branch in the subcycling solver",
+                method);
   }
 
   {
@@ -444,6 +473,62 @@ extern "C" void ODESolvers_CheckTimelevels(CCTK_ARGUMENTS) {
                   "timelevels. Subcycling does not support timelevels >= 2 "
                   "for evolution variables.",
                   CCTK_FullGroupName(gi), ntls);
+  }
+}
+
+// Reject at PARAMCHECK, instead of at the first CCTK_EVOL, a method the
+// configuration cannot run (rk_methods.hxx):
+//  - under subcycling, one the subcycling solver does not implement; only
+//    the implemented ones have a stage count that fits the driver's band
+//    arrays and a b row the flux registers can be fed with;
+//  - in a run that may refine (CarpetX::max_num_levels > 1), an implicit
+//    (IMEX) method when some group gets a flux register: the driver would
+//    allocate the register on every refined level, and only an explicit
+//    method hands every stage's flux to it with a known weight
+//    (ODESolvers_Solve's calcrhs). A unigrid run owns no register (they
+//    live on levels > 0), so an implicit method is fine there even with
+//    CarpetX::do_reflux = yes.
+// Runs after WRAGH, where ODESolvers_InitConstants publishes
+// rk_integrated_group, so CarpetX::group_has_flux_register (the predicate
+// that register allocation uses) already gives its final answer.
+extern "C" void ODESolvers_CheckMethod(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckMethod;
+  DECLARE_CCTK_PARAMETERS;
+
+  const rk_method_t &rk = rk_method(method);
+
+  if (CarpetX::ghext->use_subcycling && !rk.subcycling_ok) {
+    std::string supported;
+    for (const auto &row : rk_methods)
+      if (row.subcycling_ok)
+        supported +=
+            (supported.empty() ? "\"" : ", \"") + std::string(row.name) + "\"";
+    CCTK_VERROR("ODESolvers::method = \"%s\" is not supported by the "
+                "subcycling solver (CarpetX::use_subcycling = yes); supported "
+                "methods: %s",
+                method, supported.c_str());
+  }
+
+  // CarpetX::max_num_levels is private to the driver; read it by name
+  int max_num_levels_type;
+  const void *const max_num_levels_p =
+      CCTK_ParameterGet("max_num_levels", "CarpetX", &max_num_levels_type);
+  assert(max_num_levels_p);
+  assert(max_num_levels_type == PARAMETER_INT);
+  const CCTK_INT max_num_levels =
+      *static_cast<const CCTK_INT *>(max_num_levels_p);
+
+  if (CarpetX::ghext->do_reflux && !rk.reflux_ok && max_num_levels > 1) {
+    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+      if (!CarpetX::group_has_flux_register(gi))
+        continue;
+      CCTK_VERROR("CarpetX::do_reflux with fluxes= tags and "
+                  "CarpetX::max_num_levels > 1 requires an explicit "
+                  "ODESolvers::method, but \"%s\" is implicit and group "
+                  "\"%s\" (integrated by ODESolvers) carries a fluxes= tag. "
+                  "Choose an explicit method or set CarpetX::do_reflux = no.",
+                  method, CCTK_FullGroupName(gi));
+    }
   }
 }
 

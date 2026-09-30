@@ -14,5 +14,6 @@ Then curate the generated `<Thorn>/test/<test>/` directory to mirror an existing
 
 - Match the **file set** of a sibling reference dir (e.g. `recover-openpmd/`). Recovery references typically omit the recovered iteration's output (`it000000`) and the `it00000000.bp5` / `performance.yaml` files — keep only the iterations the sibling keeps.
 - For physics-invariant changes (e.g. a re-decomposition), `diff` the new `*.tsv` against the sibling reference and confirm they are bit-for-bit identical.
+- Delete `profiling.json` from every `.bp5` directory before checking it in (checkpoint directories under `<Thorn>/test/checkpoints*/` as well as `.bp5` output inside a reference dir). ADIOS2's BP5 engine writes it unconditionally, it holds wall-clock timings that differ on every run, and nothing reads it on recovery, so it only adds a spurious diff to every regeneration.
 
 Finally run `./agent_scripts/test.sh` to confirm the new test is discovered and passes (`Number failed -> 0`).
