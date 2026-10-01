@@ -56,6 +56,11 @@ void StoreRKStage(int patch, int level, const std::vector<int> &var_groups,
 // the parent step (0 or 1/2), possibly plus 1/2 for the virtual
 // end-of-substep evaluation. Ghost validity is left to the caller.
 //
+// Called only for group_is_integrated groups (asserted). These are exactly the
+// groups whose refined-level coarse-fine ghosts the subcycling SYNC
+// (SyncGroupsByDirISubcycling) skips during evolution: this function owns
+// them. Every other group gets them prolongated by the SYNC.
+//
 // Never allocates. Precondition: StoreRKOldState on the parent level, or the
 // RecoverGH pre-pass, ran since this level was made; they allocate the bands
 // and the work buffers. A null band then means an empty coarse-fine footprint.
@@ -66,7 +71,9 @@ void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
 // ghext->rk_integrated_group, which ODESolvers publishes at WRAGH (the grid
 // functions with an rhs= tag). An empty vector, as when ODESolvers is not
 // active, means nothing is integrated. This is the one definition of "gi is
-// integrated"; EnsureRKBuffers, StoreRKOldState, group_has_flux_register,
+// integrated"; SyncGroupsByDirISubcycling (which skips the refined-level
+// coarse-fine ghosts of exactly these groups during evolution),
+// FillRKBoundary, EnsureRKBuffers, StoreRKOldState, group_has_flux_register,
 // warn_inert_flux_tags and ODESolvers_CheckEvolved call it. Uses only ghext
 // and no grid structure, so it is valid from PARAMCHECK on, before any level
 // exists. Defined in driver.cxx.

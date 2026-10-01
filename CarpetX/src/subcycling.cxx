@@ -287,9 +287,12 @@ rk_fill_fpinfo(const amrex::MultiFab &finemfab,
 void EnsureRKBuffers(const int patch, const int level, const int gi) {
   // The buffers only exist under subcycling, and only for the groups the time
   // integrator advances: it alone fills the bands (StoreRKOldState /
-  // StoreRKStage) and publishes that set in rk_integrated_group. do_evolve is
-  // no substitute, since it defaults to the checkpoint flag and is thus also
-  // set for checkpointed groups that are never integrated. Recovery calls this
+  // StoreRKStage) and publishes that set, read through group_is_integrated.
+  // do_evolve is no substitute, since it defaults to the checkpoint flag and is
+  // thus also set for checkpointed groups that are never integrated. The
+  // subcycling SYNC (SyncGroupsByDirISubcycling) and FillRKBoundary key on the
+  // same predicate, so the groups with bands are exactly the groups whose
+  // coarse-fine ghosts the SYNC leaves to FillRKBoundary. Recovery calls this
   // for every group and then expects a mid-cycle checkpoint to carry each band
   // allocated here, so this must match what the evolution allocates. It does
   // for checkpoints written with this per-group geometry, and for older ones
@@ -450,7 +453,9 @@ void FillRKBoundary(const int patch, const int level,
     assert(!groupdata.mfab.empty());
     assert(!coarsegroupdata.mfab.empty());
     assert(coarsegroupdata.numvars == groupdata.numvars);
-    assert(groupdata.do_evolve);
+    // Only integrated groups have bands, and only for them does the
+    // subcycling SYNC leave the coarse-fine ghosts to this function
+    assert(group_is_integrated(gi));
 
     amrex::MultiFab &mfab = *groupdata.mfab.at(tl);
 
