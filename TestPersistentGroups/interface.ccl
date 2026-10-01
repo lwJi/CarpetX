@@ -1,0 +1,31 @@
+# Interface definition for thorn TestPersistentGroups
+
+IMPLEMENTS: TestPersistentGroups
+
+USES INCLUDE HEADER: loop.hxx
+
+
+
+# Two single-timelevel, checkpointed grid functions without an rhs= tag that
+# differ only in their evolve tag. Each holds a time stamp (an integer number
+# of finest-level steps, stored as a CCTK_REAL since CarpetX grid functions
+# are real-valued). persist_default defaults to evolve="yes" (evolve follows
+# checkpoint); persist_noevolve is persistent but not evolved, as
+# MHD_Diagnostics::vels_old.
+CCTK_REAL persist_default TYPE=GF TAGS='checkpoint="yes"' "Time stamp, default-tagged (evolved by default)"
+CCTK_REAL persist_noevolve TYPE=GF TAGS='checkpoint="yes" evolve="no"' "Time stamp, checkpointed but not evolved"
+
+# Number of stale points found so far (rank-summed running total); this is
+# what the testsuite compares
+CCTK_INT stale_count TYPE=scalar TAGS='checkpoint="no"'
+{
+  stale_default
+  stale_noevolve
+} "Running total of stale points per tested group"
+
+# Number of stale points found by the current check pass (rank-summed)
+CCTK_INT stale_step TYPE=scalar TAGS='checkpoint="no"'
+{
+  stale_step_default
+  stale_step_noevolve
+} "Stale points per tested group in the current check pass"

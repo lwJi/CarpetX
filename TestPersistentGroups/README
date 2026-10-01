@@ -1,0 +1,14 @@
+Cactus Code Thorn TestPersistentGroups
+Author(s)    : Liwei Ji
+Maintainer(s): Liwei Ji
+Licence      : LGPL
+--------------------------------------------------------------------------
+
+1. Purpose
+
+Test that refined-level coarse-fine ghosts of checkpointed grid functions
+that the time integrator does not own are refreshed by SYNC under
+subcycling, for a default-tagged group (evolved by default) and for a
+checkpoint="yes" evolve="no" group. Each group holds a time stamp written on
+the interior every step; a check counts the points that hold neither the
+level's own stamp nor, on coarse-fine ghosts, the parent level's stamp.

@@ -1,0 +1,80 @@
+# Schedule definitions for thorn TestPersistentGroups
+
+STORAGE: persist_default persist_noevolve stale_count stale_step
+
+
+
+# Initial data: stamp 0 everywhere, start the running total, check
+
+SCHEDULE TestPersistentGroups_Init AT initial
+{
+  LANG: C
+  WRITES: persist_default(interior)
+  WRITES: persist_noevolve(interior)
+  SYNC: persist_default
+  SYNC: persist_noevolve
+} "Stamp the tested groups with the initial time"
+
+SCHEDULE TestPersistentGroups_Zero AT initial AFTER TestPersistentGroups_Init
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: stale_count
+} "Reset the running total of stale points"
+
+SCHEDULE GROUP TestPersistentGroups_CheckGroup AT initial AFTER (TestPersistentGroups_Init, TestPersistentGroups_Zero)
+{
+} "Count stale points in the tested groups"
+
+
+
+# Evolution: after the integrated state has been advanced, stamp the level's
+# new time on the interior, SYNC, and check every point including the ghosts
+
+SCHEDULE TestPersistentGroups_Write AT evol AFTER (ODESolvers_Solve, ODESolvers_Solve_Subcycling)
+{
+  LANG: C
+  WRITES: persist_default(interior)
+  WRITES: persist_noevolve(interior)
+  SYNC: persist_default
+  SYNC: persist_noevolve
+} "Stamp the tested groups with the level's current time"
+
+SCHEDULE GROUP TestPersistentGroups_CheckGroup AT evol AFTER TestPersistentGroups_Write
+{
+} "Count stale points in the tested groups"
+
+
+
+# Regridding: the stamps must survive (levels are time-aligned at a regrid)
+
+SCHEDULE GROUP TestPersistentGroups_CheckGroup AT postregrid
+{
+} "Count stale points in the tested groups"
+
+
+
+# The check pass
+
+SCHEDULE TestPersistentGroups_ZeroStep IN TestPersistentGroups_CheckGroup
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: stale_step
+} "Reset the per-pass stale counts"
+
+SCHEDULE TestPersistentGroups_Check IN TestPersistentGroups_CheckGroup AFTER TestPersistentGroups_ZeroStep
+{
+  LANG: C
+  READS: persist_default(everywhere)
+  READS: persist_noevolve(everywhere)
+} "Count points that hold neither the level's nor the parent's stamp"
+
+SCHEDULE TestPersistentGroups_Reduce IN TestPersistentGroups_CheckGroup AFTER TestPersistentGroups_Check
+{
+  LANG: C
+  OPTIONS: global
+  READS: stale_count
+  WRITES: stale_count
+  WRITES: stale_step
+} "Sum the per-pass stale counts over ranks, warn, and add them to the running total"
