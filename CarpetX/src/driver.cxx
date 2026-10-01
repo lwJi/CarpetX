@@ -382,6 +382,28 @@ bool get_group_restrict_flag(const int gi) {
   }
 }
 
+bool get_group_sync_restrict_flag(const int gi) {
+  int tags = CCTK_GroupTagsTableI(gi);
+  assert(tags >= 0);
+  char buf[100];
+  int iret = Util_TableGetString(tags, sizeof buf, buf, "restrict");
+  if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
+    // Restrict during a SYNC unless restriction is explicitly disabled
+    return true;
+  } else if (iret >= 0) {
+    std::string str(buf);
+    for (auto &c : str)
+      c = tolower(c);
+    if (str == "yes")
+      return true;
+    if (str == "no")
+      return false;
+    assert(0);
+  } else {
+    assert(0);
+  }
+}
+
 bool get_group_evolve_flag(const int gi) {
   int tags = CCTK_GroupTagsTableI(gi);
   assert(tags >= 0);
@@ -946,6 +968,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   do_checkpoint = get_group_checkpoint_flag(gi);
   do_evolve = get_group_evolve_flag(gi);
   do_restrict = get_group_restrict_flag(gi);
+  do_sync_restrict = get_group_sync_restrict_flag(gi);
   indextype = get_group_indextype(gi);
   nghostzones = get_group_nghostzones(gi);
 
@@ -1368,6 +1391,7 @@ void SetupGlobals() {
     arraygroupdata.do_checkpoint = get_group_checkpoint_flag(gi);
     arraygroupdata.do_evolve = get_group_evolve_flag(gi);
     arraygroupdata.do_restrict = get_group_restrict_flag(gi);
+    arraygroupdata.do_sync_restrict = get_group_sync_restrict_flag(gi);
 
     CCTK_INT const *const *const sz = CCTK_GroupSizesI(gi);
     arraygroupdata.array_size = 1;
@@ -1977,6 +2001,8 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "do_evolve" << YAML::Value << commongroupdata.do_evolve;
   yaml << YAML::Key << "do_restrict" << YAML::Value
        << commongroupdata.do_restrict;
+  yaml << YAML::Key << "do_sync_restrict" << YAML::Value
+       << commongroupdata.do_sync_restrict;
   yaml << YAML::Key << "active_timelevels" << YAML::Value
        << (ghext ? ghext->active_timelevels.at(commongroupdata.groupindex)
                  : -1);
