@@ -299,17 +299,9 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
   }
 
   if (restrict_during_sync) {
-    // Skip grid functions tagged restrict="no". Untagged groups are restricted
-    // here even when do_restrict is false (it defaults to do_checkpoint).
-    std::vector<int> restrict_groups;
-    restrict_groups.reserve(groups.size());
-    const auto &leveldata0 = ghext->patchdata.at(0).leveldata.at(0);
-    for (const int gi : groups)
-      if (leveldata0.groupdata.at(gi)->do_sync_restrict)
-        restrict_groups.push_back(gi);
     active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
       if (leveldata.level < ghext->num_levels() - 1)
-        Restrict(cctkGH, leveldata.level, restrict_groups);
+        Restrict(cctkGH, leveldata.level, groups);
     });
     // FIXME: cannot call POSTRESTRICT since this could contain a SYNC leading
     // to an infinite loop. This means that outer boundaries will be left
@@ -1187,6 +1179,9 @@ static void Restrict_impl(const cGH *cctkGH, int level,
 
         // Don't restrict the regridding error
         if (gi == gi_regrid_error)
+          continue;
+        // Don't restrict groups tagged restrict="no", not even during a SYNC
+        if (!groupdata.allow_restrict)
           continue;
 
         // If there is more than one time level, then we don't restrict the

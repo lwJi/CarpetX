@@ -155,10 +155,10 @@ struct GHExt {
     bool do_checkpoint; // whether to checkpoint
     bool do_evolve;     // whether this is an evolved state variable
     bool do_restrict;   // whether to restrict
-    // whether the restriction during a SYNC (restrict_during_sync) acts on
-    // this group: unlike do_restrict, which defaults to do_checkpoint, false
-    // only for an explicit restrict="no" tag
-    bool do_sync_restrict;
+    // whether this group may be restricted at all, including during a SYNC
+    // (restrict_during_sync): unlike do_restrict, which defaults to
+    // do_checkpoint, false only for an explicit restrict="no" tag
+    bool allow_restrict;
 
     std::vector<std::vector<why_valid_t> > valid; // [time level][var index]
 
