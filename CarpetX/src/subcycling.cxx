@@ -299,8 +299,7 @@ void EnsureRKBuffers(const int patch, const int level, const int gi) {
   // handled.
   if (!ghext->use_subcycling)
     return;
-  const std::vector<bool> &integrated = ghext->rk_integrated_group;
-  if (gi < 0 || gi >= int(integrated.size()) || !integrated[gi])
+  if (!group_is_integrated(gi))
     return;
 
   assert(level >= 1);
@@ -367,8 +366,7 @@ void StoreRKOldState(const int patch, const int level,
     const GroupData &groupdata = *leveldata.groupdata.at(gi);
     // EnsureRKBuffers is a no-op for unpublished groups, which would leave the
     // children without a prolongation source and recovery without bands.
-    if (gi >= int(ghext->rk_integrated_group.size()) ||
-        !ghext->rk_integrated_group[gi])
+    if (!group_is_integrated(gi))
       CCTK_VERROR("Group \"%s\" is integrated under subcycling but is not "
                   "listed in GHExt::rk_integrated_group. The time integrator "
                   "must publish its evolved groups at WRAGH.",
