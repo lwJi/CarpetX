@@ -1528,71 +1528,6 @@ bool EvolutionIsDone(cGH *restrict const cctkGH) {
   return we_are_done;
 }
 
-void InvalidateTimelevels(cGH *restrict const cctkGH) {
-  DECLARE_CCTK_PARAMETERS;
-
-  static Timer timer("InvalidateTimelevels");
-  Interval interval(timer);
-
-  // TODO: Parallelize over groups
-  const int num_groups = CCTK_NumGroups();
-  for (int gi = 0; gi < num_groups; ++gi) {
-    cGroup group;
-    int ierr = CCTK_GroupData(gi, &group);
-    assert(!ierr);
-
-    if (group.grouptype == CCTK_GF) {
-      const auto &patchdata0 = ghext->patchdata.at(0);
-      const auto &leveldata0 = patchdata0.leveldata.at(0);
-      const auto &groupdata0 = *leveldata0.groupdata.at(gi);
-      if (!groupdata0.do_evolve) {
-        const int ntls0 = groupdata0.mfab.size();
-        if (ntls0 == 0)
-          continue;
-        assert(active_levels);
-        active_levels->loop_serially([&](const auto &restrict leveldata) {
-          auto &restrict groupdata = *leveldata.groupdata.at(gi);
-          // Invalidate all time levels
-          const int ntls = groupdata.mfab.size();
-          assert(ntls == ntls0);
-          for (int tl = 0; tl < ntls; ++tl)
-            for (int vi = 0; vi < groupdata.numvars; ++vi)
-              groupdata.valid.at(tl).at(vi).set_all(valid_t(), []() {
-                return "InvalidateTimelevels (invalidate all non-checkpointed "
-                       "variables)";
-              });
-        });
-        // TODO: Parallelize over timelevels and variables
-        for (int tl = 0; tl < ntls0; ++tl)
-          for (int vi = 0; vi < groupdata0.numvars; ++vi)
-            poison_invalid_gf(*active_levels, gi, vi, tl);
-      }
-    } else { // CCTK_ARRAY or CCTK_SCALAR
-
-      auto &restrict globaldata = ghext->globaldata;
-      auto &restrict arraygroupdata = *globaldata.arraygroupdata.at(gi);
-      if (!arraygroupdata.do_evolve) {
-        // Invalidate all time levels
-        const int ntls = arraygroupdata.data.size();
-        if (ntls == 0)
-          continue;
-        for (int tl = 0; tl < ntls; ++tl)
-          for (int vi = 0; vi < arraygroupdata.numvars; ++vi)
-            // TODO: handle this more nicely
-            arraygroupdata.valid.at(tl).at(vi).set_int(false, []() {
-              return "InvalidateTimelevels (invalidate all non-checkpointed "
-                     "variables)";
-            });
-        // TODO: Parallelize over timelevels and variables
-        for (int tl = 0; tl < ntls; ++tl)
-          for (int vi = 0; vi < arraygroupdata.numvars; ++vi)
-            poison_invalid_ga(gi, vi, tl);
-      }
-    }
-
-  } // for gi
-}
-
 void CycleTimelevels(cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -1617,9 +1552,6 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       const int ntls0 = groupdata0.mfab.size();
       if (ntls0 == 0)
         continue;
-      const nan_handling_t nan_handling = groupdata0.do_evolve
-                                              ? nan_handling_t::forbid_nans
-                                              : nan_handling_t::allow_nans;
 
       assert(active_levels);
       active_levels->loop_serially([&](auto &restrict leveldata) {
@@ -1694,16 +1626,13 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
         if (ntls0 > 1 && groupdata0.do_evolve)
           poison_invalid_gf(*active_levels, gi, vi, 0);
         for (int tl = 0; tl < ntls0; ++tl)
-          check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
+          check_valid_gf(*active_levels, gi, vi, tl,
                          []() { return "CycleTimelevels"; });
       }
     } else { // CCTK_ARRAY or CCTK_SCALAR
 
       auto &restrict globaldata = ghext->globaldata;
       auto &restrict arraygroupdata = *globaldata.arraygroupdata.at(gi);
-      const nan_handling_t nan_handling = arraygroupdata.do_evolve
-                                              ? nan_handling_t::forbid_nans
-                                              : nan_handling_t::allow_nans;
       const int ntls = arraygroupdata.data.size();
       if (ntls == 0)
         continue;
@@ -1722,8 +1651,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       }
       for (int tl = 0; tl < ntls; ++tl)
         for (int vi = 0; vi < arraygroupdata.numvars; ++vi)
-          check_valid_ga(gi, vi, tl, nan_handling,
-                         []() { return "CycleTimelevels"; });
+          check_valid_ga(gi, vi, tl, []() { return "CycleTimelevels"; });
     }
 
   } // for gi
@@ -1958,11 +1886,6 @@ int Evolve(tFleshConfig *config) {
         assert(level_iteration == leveldata.iteration);
         assert(level_delta_iteration == leveldata.delta_iteration);
       });
-
-      // We cannot invalidate all non-evolved variables. ODESolvers
-      // calculates things in ODESolvers_Poststep, and we want to use
-      // them in the next iteration.
-      // InvalidateTimelevels(cctkGH);
 
       CycleTimelevels(cctkGH);
 
@@ -2284,13 +2207,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       if (ghext->active_timelevels.at(rd.gi) == 0)
         continue;
       if (CCTK_GroupTypeI(rd.gi) == CCTK_GF) {
-        const auto &patchdata0 = ghext->patchdata.at(0);
-        const auto &leveldata0 = patchdata0.leveldata.at(0);
-        const auto &groupdata0 = *leveldata0.groupdata.at(rd.gi);
-        const nan_handling_t nan_handling = groupdata0.do_evolve
-                                                ? nan_handling_t::forbid_nans
-                                                : nan_handling_t::allow_nans;
-
         active_levels->loop_serially([&](const auto &restrict leveldata) {
           const auto &restrict groupdata = *leveldata.groupdata.at(rd.gi);
           const valid_t &need = rd.valid;
@@ -2303,7 +2219,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                 return buf.str();
               });
         });
-        check_valid_gf(*active_levels, rd.gi, rd.vi, rd.tl, nan_handling,
+        check_valid_gf(*active_levels, rd.gi, rd.vi, rd.tl,
                        [attribute, cctkGH]() {
                          std::ostringstream buf;
                          buf << "CallFunction iteration "
@@ -2316,9 +2232,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
 
         const auto &restrict arraygroupdata =
             *ghext->globaldata.arraygroupdata.at(rd.gi);
-        const nan_handling_t nan_handling = arraygroupdata.do_evolve
-                                                ? nan_handling_t::forbid_nans
-                                                : nan_handling_t::allow_nans;
         const valid_t &need = rd.valid;
         error_if_invalid(
             arraygroupdata, rd.vi, rd.tl, need, [attribute, cctkGH]() {
@@ -2328,14 +2241,13 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                   << "::" << attribute->routine << " checking input";
               return buf.str();
             });
-        check_valid_ga(
-            rd.gi, rd.vi, rd.tl, nan_handling, [attribute, cctkGH]() {
-              std::ostringstream buf;
-              buf << "CallFunction iteration " << cctkGH->cctk_iteration << " "
-                  << attribute->where << ": " << attribute->thorn
-                  << "::" << attribute->routine << " checking input";
-              return buf.str();
-            });
+        check_valid_ga(rd.gi, rd.vi, rd.tl, [attribute, cctkGH]() {
+          std::ostringstream buf;
+          buf << "CallFunction iteration " << cctkGH->cctk_iteration << " "
+              << attribute->where << ": " << attribute->thorn
+              << "::" << attribute->routine << " checking input";
+          return buf.str();
+        });
       }
     }
   }
@@ -2468,13 +2380,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
         decode_clauses(attribute, rdwr_t::write);
     for (const auto &wr : writes) {
       if (CCTK_GroupTypeI(wr.gi) == CCTK_GF) {
-        const auto &patchdata0 = ghext->patchdata.at(0);
-        const auto &leveldata0 = patchdata0.leveldata.at(0);
-        const auto &groupdata0 = *leveldata0.groupdata.at(wr.gi);
-        const nan_handling_t nan_handling = groupdata0.do_evolve
-                                                ? nan_handling_t::forbid_nans
-                                                : nan_handling_t::allow_nans;
-
         active_levels->loop_serially([&](auto &restrict leveldata) {
           auto &restrict groupdata = *leveldata.groupdata.at(wr.gi);
           const valid_t &provided = wr.valid;
@@ -2489,7 +2394,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                 return buf.str();
               });
         });
-        check_valid_gf(*active_levels, wr.gi, wr.vi, wr.tl, nan_handling,
+        check_valid_gf(*active_levels, wr.gi, wr.vi, wr.tl,
                        [attribute, cctkGH]() {
                          std::ostringstream buf;
                          buf << "CallFunction iteration "
@@ -2502,9 +2407,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       } else { // CCTK_ARRAY or CCTK_SCALAR
         auto &restrict arraygroupdata =
             *ghext->globaldata.arraygroupdata.at(wr.gi);
-        const nan_handling_t nan_handling = arraygroupdata.do_evolve
-                                                ? nan_handling_t::forbid_nans
-                                                : nan_handling_t::allow_nans;
         const valid_t &provided = wr.valid;
         arraygroupdata.valid.at(wr.tl).at(wr.vi).set_valid(
             provided,
@@ -2516,14 +2418,13 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                   << ": Mark output variables as valid";
               return buf.str();
             });
-        check_valid_ga(
-            wr.gi, wr.vi, wr.tl, nan_handling, [attribute, cctkGH]() {
-              std::ostringstream buf;
-              buf << "CallFunction iteration " << cctkGH->cctk_iteration << " "
-                  << attribute->where << ": " << attribute->thorn
-                  << "::" << attribute->routine << " checking output";
-              return buf.str();
-            });
+        check_valid_ga(wr.gi, wr.vi, wr.tl, [attribute, cctkGH]() {
+          std::ostringstream buf;
+          buf << "CallFunction iteration " << cctkGH->cctk_iteration << " "
+              << attribute->where << ": " << attribute->thorn
+              << "::" << attribute->routine << " checking output";
+          return buf.str();
+        });
       }
     }
   }
@@ -2534,13 +2435,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
         decode_clauses(attribute, rdwr_t::invalid);
     for (const auto &inv : invalids) {
       if (CCTK_GroupTypeI(inv.gi) == CCTK_GF) {
-        const auto &patchdata0 = ghext->patchdata.at(0);
-        const auto &leveldata0 = patchdata0.leveldata.at(0);
-        const auto &groupdata0 = *leveldata0.groupdata.at(inv.gi);
-        const nan_handling_t nan_handling = groupdata0.do_evolve
-                                                ? nan_handling_t::forbid_nans
-                                                : nan_handling_t::allow_nans;
-
         active_levels->loop_serially([&](auto &restrict leveldata) {
           auto &restrict groupdata = *leveldata.groupdata.at(inv.gi);
           const valid_t &invalidated = inv.valid;
@@ -2555,7 +2449,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                 return buf.str();
               });
         });
-        check_valid_gf(*active_levels, inv.gi, inv.vi, inv.tl, nan_handling,
+        check_valid_gf(*active_levels, inv.gi, inv.vi, inv.tl,
                        [attribute, cctkGH]() {
                          std::ostringstream buf;
                          buf << "CallFunction iteration "
@@ -2568,9 +2462,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       } else { // CCTK_ARRAY or CCTK_SCALAR
         auto &restrict arraygroupdata =
             *ghext->globaldata.arraygroupdata.at(inv.gi);
-        const nan_handling_t nan_handling = arraygroupdata.do_evolve
-                                                ? nan_handling_t::forbid_nans
-                                                : nan_handling_t::allow_nans;
         const valid_t &invalidated = inv.valid;
         arraygroupdata.valid.at(inv.tl).at(inv.vi).set_invalid(
             invalidated,
@@ -2582,14 +2473,13 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                   << ": Mark invalid variables as invalid";
               return buf.str();
             });
-        check_valid_ga(
-            inv.gi, inv.vi, inv.tl, nan_handling, [attribute, cctkGH]() {
-              std::ostringstream buf;
-              buf << "CallFunction iteration " << cctkGH->cctk_iteration << " "
-                  << attribute->where << ": " << attribute->thorn
-                  << "::" << attribute->routine << " checking output";
-              return buf.str();
-            });
+        check_valid_ga(inv.gi, inv.vi, inv.tl, [attribute, cctkGH]() {
+          std::ostringstream buf;
+          buf << "CallFunction iteration " << cctkGH->cctk_iteration << " "
+              << attribute->where << ": " << attribute->thorn
+              << "::" << attribute->routine << " checking output";
+          return buf.str();
+        });
       }
     }
   }
