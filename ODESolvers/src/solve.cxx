@@ -123,7 +123,7 @@ void statecomp_t::check_valid(const valid_t required,
           groupdata->level, groupdata->level + 1, groupdata->patch,
           groupdata->patch + 1);
       CarpetX::check_valid_gf(active_levels, groupdata->groupindex, vi, tl,
-                              CarpetX::nan_handling_t::forbid_nans, why);
+                              why);
     }
   }
 }

@@ -278,16 +278,13 @@ void warn_if_invalid(const GHExt::GlobalData::ArrayGroupData &groupdata, int vi,
                      int tl, const valid_t &required,
                      const std::function<std::string()> &msg);
 
-enum class nan_handling_t { allow_nans, forbid_nans };
-
 void poison_invalid_gf(const active_levels_t &active_levels, int gi, int vi,
                        int tl);
 void poison_invalid_ga(int gi, int vi, int tl);
 
 void check_valid_gf(const active_levels_t &active_levels, int gi, int vi,
-                    int tl, nan_handling_t nan_handling,
-                    const std::function<std::string()> &msg);
-void check_valid_ga(int gi, int vi, int tl, nan_handling_t nan_handling,
+                    int tl, const std::function<std::string()> &msg);
+void check_valid_ga(int gi, int vi, int tl,
                     const std::function<std::string()> &msg);
 
 } // namespace CarpetX
