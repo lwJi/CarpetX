@@ -1,0 +1,4 @@
+# Parameter definitions for thorn TestPersistentGroups
+
+# None: the stamp unit is derived from CarpetX::max_num_levels, which is read
+# by name (CCTK_ParameterGet)

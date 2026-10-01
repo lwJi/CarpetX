@@ -492,6 +492,14 @@ std::array<int, dim> get_group_fluxes(const int gi) {
   return fluxes;
 }
 
+// See subcycling.hxx for the contract. The bounds check is what makes an
+// empty vector (ODESolvers inactive) mean "nothing is integrated".
+bool group_is_integrated(const int gi) {
+  assert(gi >= 0 && gi < CCTK_NumGroups());
+  const std::vector<bool> &integrated = ghext->rk_integrated_group;
+  return gi < int(integrated.size()) && integrated.at(gi);
+}
+
 // See subcycling.hxx for the contract. The conditions are ordered so that
 // the fluxes= tag is parsed only for integrated grid functions: its asserts
 // (malformed tag) then fire on no group whose register allocation would not
@@ -499,8 +507,7 @@ std::array<int, dim> get_group_fluxes(const int gi) {
 bool group_has_flux_register(const int gi) {
   assert(gi >= 0 && gi < CCTK_NumGroups());
   return ghext->do_reflux && CCTK_GroupTypeI(gi) == CCTK_GF &&
-         gi < int(ghext->rk_integrated_group.size()) &&
-         ghext->rk_integrated_group.at(gi) && get_group_fluxes(gi)[0] >= 0;
+         group_is_integrated(gi) && get_group_fluxes(gi)[0] >= 0;
 }
 
 // See driver.hxx for the contract. With do_reflux set, the only way a
@@ -519,9 +526,8 @@ void warn_inert_flux_tags() {
   if (!ghext->do_reflux) {
     // Every fluxes= tag is inert; say so once if one would have taken effect
     for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      if (CCTK_GroupTypeI(gi) == CCTK_GF &&
-          gi < int(ghext->rk_integrated_group.size()) &&
-          ghext->rk_integrated_group.at(gi) && get_group_fluxes(gi)[0] >= 0) {
+      if (CCTK_GroupTypeI(gi) == CCTK_GF && group_is_integrated(gi) &&
+          get_group_fluxes(gi)[0] >= 0) {
         CCTK_INFO("Grid functions integrated by ODESolvers carry fluxes= "
                   "tags, but refluxing at coarse-fine boundaries is off; set "
                   "CarpetX::do_reflux = yes to enable it");

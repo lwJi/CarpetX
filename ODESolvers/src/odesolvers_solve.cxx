@@ -30,6 +30,27 @@ extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
         CCTK_GroupTypeI(gi) == CCTK_GF && get_group_rhs(gi) >= 0;
 }
 
+// Reject at PARAMCHECK any group we integrate that is not evolved
+// (evolve="no", or checkpoint="no" without an evolve tag). Regrid keeps no
+// timelevel of a non-evolved, non-checkpointed group and fills a non-evolved
+// checkpointed one only best effort, so the state would be lost or left
+// invalid; under subcycling the dense-output fill of the coarse-fine ghosts
+// also assumes an evolved group. Unconditional: with or without subcycling,
+// on any number of levels. Runs after WRAGH, where ODESolvers_InitConstants
+// publishes rk_integrated_group, so CarpetX::group_is_integrated is final.
+extern "C" void ODESolvers_CheckEvolved(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckEvolved;
+
+  for (int gi = 0; gi < CCTK_NumGroups(); ++gi)
+    if (CarpetX::group_is_integrated(gi) && !CarpetX::get_group_evolve_flag(gi))
+      CCTK_VERROR("Group \"%s\" is integrated by ODESolvers (rhs= tag) but "
+                  "not evolved (evolve=\"no\", or checkpoint=\"no\" without "
+                  "an evolve tag). Regrid would drop or not refill its state. "
+                  "Remove evolve=\"no\" / checkpoint=\"no\", or set "
+                  "evolve=\"yes\".",
+                  CCTK_FullGroupName(gi));
+}
+
 extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve;
   DECLARE_CCTK_PARAMETERS;

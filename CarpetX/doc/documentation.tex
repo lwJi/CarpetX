@@ -274,6 +274,8 @@ the \texttt{rhs="right\_hand\_side"} tag indicates that the group named \texttt{
   } "A group of variables representing the PDE system state"
 \end{lstlisting}
 
+A group with an \texttt{rhs} tag is \emph{integrated}: \texttt{ODESolvers} advances it in time. Under subcycling (\texttt{CarpetX::use\_subcycling = yes}), the ghost zones of a refined level at its boundary with the next coarser level (coarse-fine ghosts) have exactly one owner during evolution. For an integrated group, \texttt{ODESolvers} fills them after every Runge--Kutta stage from the coarse level's dense output, and a \texttt{SYNC} only exchanges ghosts between boxes of the same level. For every other group, evolved or not, each \texttt{SYNC} prolongates them from the coarse level and marks them valid. If such a group has two or more timelevels and the fine level is behind the coarse one, the coarse data are interpolated in time between the coarse level's current and previous timelevels. With a single timelevel, the coarse data are used as they currently stand, without interpolation in time; a group that needs time-accurate coarse-fine ghosts declares two timelevels.
+
 \subsubsection{\texttt{dependents}}
 
 Indicates that the groups of variables contained on this tag must be marked as invalid if there are any changes to the group being declared. For example, in
@@ -349,6 +351,28 @@ As an example, we present an excerpt of a parameter file for a simulation that e
   IO::recover_dir             = "../checkpoints"
   IO::abort_on_io_errors      = yes
 \end{lstlisting}
+
+\subsubsection{\texttt{evolve}}
+
+Marks a group as evolved, i.e.\ its current timelevel is recomputed every time step, as opposed to a group that is only computed occasionally and must persist in between (for example the previous value of a quantity kept for a time derivative in an analysis routine). The values are \texttt{"yes"} and \texttt{"no"}. If the tag is absent, it takes the value of the \texttt{checkpoint} tag, which itself defaults to \texttt{"yes"}. An untagged group is therefore evolved, checkpointed and restricted. The tag controls two things:
+%
+\begin{itemize}
+\item \emph{Timelevel cycling.} At the start of each step, an evolved group with several timelevels has its current timelevel marked invalid, so it must be written again; with a single timelevel it must be valid everywhere. A non-evolved group with several timelevels has its current timelevel seeded from the previous one.
+\item \emph{Regridding.} When a level is created or changed, an evolved group keeps all but its oldest timelevel and requires valid coarse data to fill them. A non-evolved, checkpointed group keeps all its timelevels and is filled where valid data exist. A non-evolved group that is not checkpointed is not carried over; it must be recomputed.
+\end{itemize}
+%
+The tag does not decide whether coarse-fine ghosts are filled under subcycling; that depends on the \texttt{rhs} tag (see above). \texttt{ODESolvers} rejects at startup a group with an \texttt{rhs} tag that is not evolved, since regridding would not carry its state; such a group must not set \texttt{evolve="no"}, nor \texttt{checkpoint="no"} without \texttt{evolve="yes"}. For example, a persistent, checkpointed group that an analysis routine updates only occasionally is declared as
+%
+\begin{lstlisting}[language=bash]
+  CCTK_<type> previous_value TAGS='checkpoint="yes" evolve="no" restrict="no"'
+  {
+    ...
+  } "A group of variables kept from one analysis step to the next"
+\end{lstlisting}
+
+\subsubsection{\texttt{restrict}}
+
+Marks a group to be restricted, i.e.\ after each time step, its values on a coarse level are replaced by the values from the next finer level where they overlap. The values are \texttt{"yes"} and \texttt{"no"}. If the tag is absent, it takes the value of the \texttt{checkpoint} tag. Under subcycling, a restricted group also has its coarse-fine ghosts prolongated again from the freshly restricted coarse data whenever a fine level has caught up in time with its parent. A group whose fine and coarse values must stay independent, for example because each level stores its own diagnostic, sets \texttt{restrict="no"}.
 
 \subsection{\texttt{parity}}
 The \texttt{parity} tag controls a tensor's reflection symmetries about the \texttt{x}, \texttt{y} and \texttt{z} axes. There are 3 parities for each tensor component, representing the symmetries about the 3 spatial axes.

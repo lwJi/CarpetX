@@ -1,0 +1,7 @@
+# Configuration definitions for thorn TestPersistentGroups
+
+REQUIRES Loop
+
+OPTIONAL MPI
+{
+}
