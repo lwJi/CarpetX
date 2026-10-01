@@ -54,6 +54,32 @@ SCHEDULE GROUP TestPersistentGroups_CheckGroup AT postregrid
 
 
 
+# Recovery: checkpoints carry the interior only, so restore the ghosts with a
+# SYNC (as MHD_Diagnostics::vels_old and TestSubcycleStepping do), restart the
+# running total (it is not checkpointed), and check that the recovered stamps
+# are intact
+
+SCHEDULE TestPersistentGroups_Sync AT post_recover_variables
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: persist_default
+  SYNC: persist_noevolve
+} "Restore the ghosts of the tested groups, which checkpoints do not carry"
+
+SCHEDULE TestPersistentGroups_Zero AT post_recover_variables AFTER TestPersistentGroups_Sync
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: stale_count
+} "Reset the running total of stale points"
+
+SCHEDULE GROUP TestPersistentGroups_CheckGroup AT post_recover_variables AFTER (TestPersistentGroups_Sync, TestPersistentGroups_Zero)
+{
+} "Count stale points in the tested groups"
+
+
+
 # The check pass
 
 SCHEDULE TestPersistentGroups_ZeroStep IN TestPersistentGroups_CheckGroup

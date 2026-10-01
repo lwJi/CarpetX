@@ -1,12 +1,20 @@
-# Persistent (checkpointed, not integrated) groups under RK4 subcycling with
-# a moving refined box (TestSubcyclingMC2/test/gaussian_moving.par physics).
+# Checkpoint half of a checkpoint/recover pair on the moving.par setup (see
+# there): persistent (checkpointed, not integrated) groups under RK4
+# subcycling with a moving refined box.
 #
-# TestPersistentGroups stamps persist_default (default tags, so evolved by
-# default) and persist_noevolve (checkpoint="yes" evolve="no") with the
-# level's time on the interior at every step, SYNCs them, and counts every
-# point that holds neither the level's own stamp nor, on a coarse-fine ghost,
-# the parent's stamp. stale_count is the rank-summed running total; the
-# correct value is 0 for both groups in every row.
+# The box is regridded at iterations 4, 8 and 12 (regrid_every = 4; the
+# levels are aligned there). The checkpoint is taken at iteration 6, after the
+# first regrid and with the refined levels out of step with level 0 (times 8,
+# 6 and 6 finest steps on levels 0, 1 and 2), so it carries RK source bands
+# for the integrated state and only interior data for the tested groups.
+# recover-moving.par continues from it through the regrids at 8 and 12.
+#
+# (Not iteration 5, where level 2 is also behind level 1: the first step after
+# recovering there runs ANALYSIS on levels 1 and 2 only, and the SYNC of the
+# non-checkpointed TestSubcyclingMC2::error on level 1 prolongates from level
+# 0's, which nothing has computed since the recovery.)
+#
+# The correct value of stale_count is 0 for both groups in every row.
 
 ActiveThorns = "
     BoxInBox
@@ -17,7 +25,7 @@ ActiveThorns = "
     TestSubcyclingMC2
 "
 
-$out_every = 8
+$out_every = 6
 $nlevels = 3
 $ncells = 32
 
@@ -73,7 +81,7 @@ BoxInBox::num_levels_1 = $nlevels
 BoxInBox::radius_1 = [ -1.0, 1.0, 0.5 ]
 
 Cactus::terminate = "iteration"
-Cactus::cctk_itlast = 16
+Cactus::cctk_itlast = 6
 
 ODESolvers::method = "RK4"
 
@@ -89,3 +97,9 @@ CarpetX::out_tsv_vars = "
     TestPersistentGroups::persist_default
     TestPersistentGroups::persist_noevolve
 "
+
+CarpetX::checkpoint_method = "openpmd"
+IO::checkpoint_dir = $parfile + "/checkpoints"
+IO::checkpoint_ID = no
+IO::checkpoint_every = 6
+IO::checkpoint_on_terminate = no

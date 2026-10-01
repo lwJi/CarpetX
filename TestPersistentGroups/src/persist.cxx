@@ -72,6 +72,9 @@ extern "C" void TestPersistentGroups_Write(CCTK_ARGUMENTS) {
   write_stamp(cctkGH);
 }
 
+// Empty: the SYNC in the schedule restores the ghosts after recovery
+extern "C" void TestPersistentGroups_Sync(CCTK_ARGUMENTS) {}
+
 extern "C" void TestPersistentGroups_Zero(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestPersistentGroups_Zero;
 

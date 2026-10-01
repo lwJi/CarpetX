@@ -12,3 +12,9 @@ subcycling, for a default-tagged group (evolved by default) and for a
 checkpoint="yes" evolve="no" group. Each group holds a time stamp written on
 the interior every step; a check counts the points that hold neither the
 level's own stamp nor, on coarse-fine ghosts, the parent level's stamp.
+
+The tests run on top of TestSubcyclingMC2's RK4 evolution with a moving
+refined box (regridded every 4 iterations): moving.par uninterrupted, and
+checkpoint-moving.par / recover-moving.par as a checkpoint/recover pair with
+a mid-cycle checkpoint between two regrids. After recovery the tested groups
+are SYNCed and checked before evolution continues.
