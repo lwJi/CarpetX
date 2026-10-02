@@ -1180,6 +1180,9 @@ static void Restrict_impl(const cGH *cctkGH, int level,
         // Don't restrict the regridding error
         if (gi == gi_regrid_error)
           continue;
+        // Don't restrict groups tagged restrict="no", not even during a SYNC
+        if (!groupdata.allow_restrict)
+          continue;
 
         // If there is more than one time level, then we don't restrict the
         // oldest.
