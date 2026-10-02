@@ -121,6 +121,29 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
   }
 }
 
+// Whether SyncGroupsByDirISubcycling leaves this level's coarse-fine ghosts of
+// this group to the time integrator. During evolution the integrator owns the
+// coarse-fine ghosts of the groups it integrates: FillRKBoundary refills them
+// from the parent's dense output after each RK stage, and ODESolvers marks them
+// valid. Every other group -- evolved or not -- gets them by prolongation in
+// the sync.
+static bool integrated_subiter(int gi,
+                               const GHExt::PatchData::LevelData &leveldata) {
+  return group_is_integrated(gi) && leveldata.iteration > 0;
+}
+
+// Appended to the coarse-level precondition error of SyncGroupsByDirISubcycling
+// when the coarse data have not been touched since recovery
+static std::string recovery_hint(int coarse_level) {
+  std::ostringstream buf;
+  buf << "Level " << coarse_level
+      << " has not recomputed this group since recovery. A group tagged "
+         "checkpoint=\"no\" that is SYNCed under subcycling must be "
+         "recomputed on all levels at POST_RECOVER_VARIABLES (see the CarpetX "
+         "documentation, \"checkpoint\" tag).";
+  return buf.str();
+}
+
 static std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -535,6 +558,45 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
   static const bool have_multipatch_boundaries =
       CCTK_IsFunctionAliased("MultiPatch_Interpolate");
 
+  // Check preconditions: a level that prolongates its coarse-fine ghosts reads
+  // the interior of the next coarser level at every synced time level, whether
+  // or not that level is in the active window. (Coarse tl=1 as the time-blend
+  // partner of tl=0 is optional; see old_valid below.)
+  for (const int gi : groups) {
+    active_levels->loop_serially([&](const auto &restrict leveldata) {
+      if (leveldata.level == 0 || integrated_subiter(gi, leveldata))
+        return;
+
+      const auto &restrict groupdata = *leveldata.groupdata.at(gi);
+      assert(!groupdata.mfab.empty());
+      const auto &restrict coarsegroupdata =
+          *ghext->patchdata.at(leveldata.patch)
+               .leveldata.at(leveldata.level - 1)
+               .groupdata.at(gi);
+      assert(!coarsegroupdata.mfab.empty());
+      assert(coarsegroupdata.numvars == groupdata.numvars);
+
+      const int ntls = groupdata.mfab.size();
+      const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
+      for (int tl = 0; tl < sync_tl; ++tl) {
+        for (int vi = 0; vi < groupdata.numvars; ++vi) {
+          error_if_invalid(
+              coarsegroupdata, vi, tl, make_valid_int(),
+              []() {
+                return "SyncGroupsByDirISubcycling on coarse level before "
+                       "prolongation";
+              },
+              [&coarsegroupdata, tl, vi]() {
+                return coarsegroupdata.valid.at(tl).at(vi).why_interior() ==
+                               recovering_reason
+                           ? recovery_hint(coarsegroupdata.level)
+                           : std::string();
+              });
+        }
+      } // for tl
+    });
+  } // for gi
+
   // We need to loop over groups, patches, and levels in a definite
   // order so that AMReX's communication pattern does not get
   // confused. Therefore all the loops here are serial. The only
@@ -577,14 +639,7 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
         assert(!coarsegroupdata.mfab.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
-        // During evolution the time integrator owns the coarse-fine ghosts of
-        // the groups it integrates: FillRKBoundary refills them from the
-        // parent's dense output after each RK stage, and ODESolvers marks
-        // them valid. Every other group -- evolved or not -- gets them here.
-        const bool integrated_subiter =
-            group_is_integrated(gi) && leveldata.iteration > 0;
-
-        if (integrated_subiter) {
+        if (integrated_subiter(gi, leveldata)) {
           // Copy from adjacent boxes on same level only; FillRKBoundary owns
           // the coarse-fine ghosts
           for (int tl = 0; tl < sync_tl; ++tl) {
@@ -670,14 +725,11 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
-      // Must match the branch above: the ghosts of an integrated group are
-      // marked valid by the integrator after FillRKBoundary, not here.
-      const bool integrated_subiter =
-          group_is_integrated(gi) && leveldata.iteration > 0;
-
       for (int tl = 0; tl < sync_tl0; ++tl) {
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          if (!integrated_subiter) {
+          // The ghosts of an integrated group are marked valid by the
+          // integrator after FillRKBoundary, not here.
+          if (!integrated_subiter(gi, leveldata)) {
             groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
               return "SyncGroupsByDirISubcycling after syncing: "
                      "Mark ghost zones as valid";

@@ -274,7 +274,7 @@ the \texttt{rhs="right\_hand\_side"} tag indicates that the group named \texttt{
   } "A group of variables representing the PDE system state"
 \end{lstlisting}
 
-A group with an \texttt{rhs} tag is \emph{integrated}: \texttt{ODESolvers} advances it in time. Under subcycling (\texttt{CarpetX::use\_subcycling = yes}), the ghost zones of a refined level at its boundary with the next coarser level (coarse-fine ghosts) have exactly one owner during evolution. For an integrated group, \texttt{ODESolvers} fills them after every Runge--Kutta stage from the coarse level's dense output, and a \texttt{SYNC} only exchanges ghosts between boxes of the same level. For every other group, evolved or not, each \texttt{SYNC} prolongates them from the coarse level and marks them valid. If such a group has two or more timelevels and the fine level is behind the coarse one, the coarse data are interpolated in time between the coarse level's current and previous timelevels. With a single timelevel, the coarse data are used as they currently stand, without interpolation in time; a group that needs time-accurate coarse-fine ghosts declares two timelevels.
+A group with an \texttt{rhs} tag is \emph{integrated}: \texttt{ODESolvers} advances it in time. Under subcycling (\texttt{CarpetX::use\_subcycling = yes}), the ghost zones of a refined level at its boundary with the next coarser level (coarse-fine ghosts) have exactly one owner during evolution. For an integrated group, \texttt{ODESolvers} fills them after every Runge--Kutta stage from the coarse level's dense output, and a \texttt{SYNC} only exchanges ghosts between boxes of the same level. For every other group, evolved or not, each \texttt{SYNC} prolongates them from the coarse level and marks them valid. If such a group has two or more timelevels and the fine level is behind the coarse one, the coarse data are interpolated in time between the coarse level's current and previous timelevels. With a single timelevel, the coarse data are used as they currently stand, without interpolation in time; a group that needs time-accurate coarse-fine ghosts declares two timelevels. Such a \texttt{SYNC} requires the coarse level to be valid, which after a recovery puts a requirement on groups that are not checkpointed; see the \texttt{checkpoint} tag (Sec.~\ref{sec:tags_checkpoint}).
 
 \subsubsection{\texttt{dependents}}
 
@@ -290,6 +290,7 @@ Indicates that the groups of variables contained on this tag must be marked as i
 the tag \texttt{dependents="child1 child2"} indicates that \texttt{parent\_group} has two dependent groups, \texttt{child1} and \texttt{child2}. Whenever \CarpetX\space writes to variables in \texttt{parent\_group}, variables in \texttt{child1} and \texttt{child2} are marked as invalid and cannot be read from unless written to again.
 
 \subsubsection{\texttt{checkpoint}}
+\label{sec:tags_checkpoint}
 
 Indicates that a variable group must be saved as a simulation checkpoint. \Cactus\space and \CarpetX\space can then later recover the saved checkpoint variables and restore the simulation state to continue evolution from there. Usually, only state vectors are checkpointed (See Chap. A3 of the \Cactus user manual for further details). For example, in
 %
@@ -355,6 +356,38 @@ As an example, we present an excerpt of a parameter file for a simulation that e
   IO::recover_dir             = "../checkpoints"
   IO::abort_on_io_errors      = yes
 \end{lstlisting}
+
+\emph{Groups that are not checkpointed, under subcycling.} After a recovery, every group tagged \texttt{checkpoint="no"} is invalid on every level until a routine computes it again. Without subcycling this needs no care: the first step after the restart runs on all levels, and each routine recomputes its groups before they are read. Under subcycling (\texttt{CarpetX::use\_subcycling = yes}) a checkpoint can be written while the fine levels are behind the coarse ones, and the first step after the restart may then run on the fine levels only. A \texttt{SYNC} there prolongates the coarse-fine ghosts of every group that is not integrated (see the \texttt{rhs} tag) from the next coarser level, even though that level is not stepped, and nothing has computed its copy of a non-checkpointed group since the recovery. \CarpetX\space checks this: such a \texttt{SYNC} aborts with ``\texttt{SyncGroupsByDirISubcycling on coarse level before prolongation}'', naming the coarse level and the grid function, rather than prolongating invalid data into the fine level's ghosts.
+
+A thorn that \texttt{SYNC}s a group under subcycling must therefore make that group valid on every level during \texttt{POST\_RECOVER\_VARIABLES}. This applies to every bin in which such a \texttt{SYNC} can run on the fine levels alone, e.g.\ \texttt{EVOL}, \texttt{POSTSTEP}, \texttt{ANALYSIS} or \texttt{CarpetX\_PreRestrict}:
+%
+\begin{itemize}
+\item A group that is derived from the checkpointed state, such as an error, a constraint, an energy or a flux, keeps \texttt{checkpoint="no"} and is recomputed at \texttt{POST\_RECOVER\_VARIABLES}, usually by scheduling the routine that computes it in that bin as well (see the example below).
+\item A group that holds history, i.e.\ a value saved at an earlier moment that cannot be recomputed from the current state, is checkpointed instead, as a persistent group with \texttt{checkpoint="yes" evolve="no" restrict="no"} (see the \texttt{evolve} tag). Like every checkpointed group, only its interior is read back, so the thorn re-\texttt{SYNC}s it at \texttt{POST\_RECOVER\_VARIABLES}.
+\item Nothing extra is needed for checkpointed groups that the thorn already re-\texttt{SYNC}s in that bin, for groups computed by routines scheduled in \texttt{ODESolvers\_PostStep} or \texttt{ODESolvers\_EstimateError} (\texttt{ODESolvers} schedules both groups at \texttt{POST\_RECOVER\_VARIABLES}), and for groups that are never \texttt{SYNC}ed (they are recomputed when their producer next runs).
+\end{itemize}
+%
+Routines in \texttt{RECOVER\_VARIABLES} and \texttt{POST\_RECOVER\_VARIABLES} see the same clocks as an uninterrupted run. Each bin is traversed once for each set of adjacent levels that share a recovered time, coarse to fine, and each traversal sets \texttt{cctk\_time} and \texttt{cctk\_timefac} (and hence \texttt{CCTK\_DELTA\_TIME}) to those of its levels, as during evolution; \texttt{cctk\_iteration} is the checkpointed iteration throughout. A \texttt{SYNC} on a level in this bin therefore finds the next coarser level already recomputed, and a recompute that compares with an analytic solution at \texttt{cctk\_time} produces the same values as an uninterrupted run. At the start of each traversal, \texttt{ODESolvers} refills the coarse-fine ghosts of the integrated state, so a recompute scheduled \texttt{AFTER ODESolvers\_PostStep} sees that state with valid ghosts and its post-step dependents recomputed. For example, a thorn that computes and \texttt{SYNC}s an error in \texttt{ANALYSIS} schedules the same routine a second time:
+%
+\begin{lstlisting}[language=bash]
+  SCHEDULE MyThorn_Error AT analysis
+  {
+    LANG: C
+    READS: state(interior)
+    WRITES: error(interior)
+    SYNC: error
+  } "Compute error"
+
+  SCHEDULE MyThorn_Error AT post_recover_variables AFTER ODESolvers_PostStep
+  {
+    LANG: C
+    READS: state(interior)
+    WRITES: error(interior)
+    SYNC: error
+  } "Recompute error after recovery"
+\end{lstlisting}
+%
+Without subcycling, \texttt{POST\_RECOVER\_VARIABLES} is traversed once over all levels, and the same schedule entry is harmless.
 
 \subsubsection{\texttt{evolve}}
 

@@ -690,7 +690,7 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
       patchdata.amrcore->SetDistributionMap(level, dm);
 
       patchdata.amrcore->SetupLevel(level, boxarray, dm,
-                                    []() { return "Recovering"; });
+                                    []() { return recovering_reason; });
 
       // Read per-level iteration if present (new checkpoint format)
       const std::string iter_num_attr =

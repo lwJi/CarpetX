@@ -106,6 +106,12 @@ template <> struct less<valid_t> {
 } // namespace std
 namespace CarpetX {
 
+// Reason given to every grid function when a level is rebuilt from a
+// checkpoint. It stays the interior's reason until something writes,
+// invalidates or marks the data, so it identifies groups that nothing has
+// recomputed since recovery.
+inline constexpr const char *recovering_reason = "Recovering";
+
 class why_valid_t {
   valid_t valid;
   std::function<std::string()> why_int, why_outer, why_ghosts;
@@ -121,6 +127,7 @@ public:
       : valid(val), why_int(why), why_outer(why), why_ghosts(why) {}
 
   const valid_t &get() const { return valid; }
+  std::string why_interior() const { return why_int(); }
 
   void set(const valid_t &which, const valid_t &val,
            const std::function<std::string()> &why) {
