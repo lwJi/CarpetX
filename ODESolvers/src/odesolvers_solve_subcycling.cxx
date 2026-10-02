@@ -402,10 +402,6 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling_Recovery;
   DECLARE_CCTK_PARAMETERS;
 
-  // Skip on fresh initialization; cctk_iteration > 0 only on recovery.
-  if (cctk_iteration <= 0)
-    return;
-
   if (verbose)
     CCTK_VINFO("Subcycling recovery: refilling refinement-boundary ghosts "
                "(spatial prolongation on time-aligned levels, dense output "

@@ -106,6 +106,82 @@ int WidenMinLevel(int initial_min_level, rat64 target_iteration) {
   }
   return min_level;
 }
+
+// The iteration of `level`, read from the first patch that has it (as the
+// evolve loop does per batch). Cross-patch agreement is enforced by
+// assert_consistent_iterations() at the next loop_* call.
+rat64 LevelIteration(const int level) {
+  for (const auto &patchdata : ghext->patchdata)
+    if (level < int(patchdata.leveldata.size()))
+      return patchdata.leveldata.at(level).iteration;
+  CCTK_VERROR("No patch has refinement level %d", level);
+  abort();
+}
+
+// Clock windows: the maximal runs [lo, hi) of adjacent levels that share an
+// iteration, coarse to fine. These are the groupings WidenMinLevel() produces
+// during evolution. Without subcycling every level shares one iteration, so
+// this is always {{0, N}}.
+std::vector<std::pair<int, int> > ClockWindows() {
+  std::vector<std::pair<int, int> > windows;
+  const int num_levels = ghext->num_levels();
+  int lo = 0;
+  while (lo < num_levels) {
+    const rat64 iteration = LevelIteration(lo);
+    int hi = lo + 1;
+    while (hi < num_levels && LevelIteration(hi) == iteration)
+      ++hi;
+    windows.emplace_back(lo, hi);
+    lo = hi;
+  }
+  return windows;
+}
+
+// Traverse the bin `where` once per clock window, coarse to fine. Within a
+// window cctk_timefac and cctk_time are set as the evolve loop sets them per
+// batch, so every routine sees its levels' clock. Both are restored
+// afterwards, so that the caller still sees the global (checkpointed) time.
+// cctk_iteration is left unchanged.
+void TraverseByClockWindows(cGH *restrict const cctkGH,
+                            const char *restrict const where) {
+  assert(!active_levels);
+  const CCTK_REAL saved_time = cctkGH->cctk_time;
+  const int saved_timefac = cctkGH->cctk_timefac;
+  for (const auto &[lo, hi] : ClockWindows()) {
+    active_levels = std::make_optional<active_levels_t>(lo, hi);
+    cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << lo) : 1;
+    if (ghext->use_subcycling)
+      cctkGH->cctk_time = cctkGH->cctk_delta_time * double(LevelIteration(lo));
+    CCTK_Traverse(cctkGH, where);
+    active_levels = std::optional<active_levels_t>();
+  }
+  cctkGH->cctk_time = saved_time;
+  cctkGH->cctk_timefac = saved_timefac;
+}
+
+// Install the per-level iterations read from a checkpoint, or the
+// synchronized-state formula for old checkpoints that do not store them.
+// Requires active_levels to cover all levels.
+void InstallRecoveredLevelIterations(cGH *restrict const cctkGH) {
+  assert(active_levels);
+  // Restore per-level iteration from checkpoint if available,
+  // otherwise fall back to the synchronized-state formula.
+  const int iteration_ratio = 1 << (ghext->num_levels() - 1);
+  active_levels->loop_serially([&](auto &restrict leveldata) {
+    const int patch = leveldata.patch;
+    const int level = leveldata.level;
+    if (patch < int(ghext->recovered_level_iterations.size()) &&
+        level < int(ghext->recovered_level_iterations.at(patch).size()) &&
+        ghext->recovered_level_iterations.at(patch).at(level).has_value()) {
+      leveldata.iteration =
+          ghext->recovered_level_iterations.at(patch).at(level).value();
+    } else {
+      // Backward compat: old checkpoint without per-level iteration
+      leveldata.iteration = rat64(cctkGH->cctk_iteration) / iteration_ratio;
+    }
+  });
+  ghext->recovered_level_iterations.clear();
+}
 } // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1183,32 +1259,11 @@ int Initialise(tFleshConfig *config) {
 
     // Recover
     RecoverGH(cctkGH);
-    CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
-    CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
 
-    // Restore per-level iteration from checkpoint if available,
-    // otherwise fall back to the synchronized-state formula.
-    const int iteration_ratio = 1 << (ghext->num_levels() - 1);
-    active_levels->loop_serially([&](auto &restrict leveldata) {
-      const int patch = leveldata.patch;
-      const int level = leveldata.level;
-      if (patch < int(ghext->recovered_level_iterations.size()) &&
-          level < int(ghext->recovered_level_iterations.at(patch).size()) &&
-          ghext->recovered_level_iterations.at(patch).at(level).has_value()) {
-        leveldata.iteration =
-            ghext->recovered_level_iterations.at(patch).at(level).value();
-      } else {
-        // Backward compat: old checkpoint without per-level iteration
-        leveldata.iteration = rat64(cctkGH->cctk_iteration) / iteration_ratio;
-      }
-    });
-    ghext->recovered_level_iterations.clear();
-
-    active_levels = std::optional<active_levels_t>();
-
-    // Enable regridding
-    for (auto &patchdata : ghext->patchdata)
-      patchdata.amrcore->cactus_is_initialized = true;
+    // Install the recovered per-level clocks and the time step size before
+    // the recover bins, so that every routine that runs after the data are
+    // read back sees its level's recovered clock.
+    InstallRecoveredLevelIterations(cctkGH);
 
     // Determine time step size
     if (CCTK_EQUALS(timestep_choice, "timestep")) {
@@ -1227,6 +1282,18 @@ int Initialise(tFleshConfig *config) {
     CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                cctkGH->cctk_iteration, double(cctkGH->cctk_time),
                double(cctkGH->cctk_delta_time));
+
+    // Run the recover bins once per clock window, coarse to fine, each
+    // window on its levels' recovered clock. A SYNC on level m in these bins
+    // then always finds level m-1 already done by an earlier window or by
+    // the same one.
+    active_levels = std::optional<active_levels_t>();
+    TraverseByClockWindows(cctkGH, "CCTK_RECOVER_VARIABLES");
+    TraverseByClockWindows(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
+
+    // Enable regridding
+    for (auto &patchdata : ghext->patchdata)
+      patchdata.amrcore->cactus_is_initialized = true;
 
   } else {
     // Set up initial conditions
