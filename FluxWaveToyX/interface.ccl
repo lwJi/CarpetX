@@ -93,8 +93,10 @@ CCTK_REAL error TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1   +1 +1 +1   -1
 # schedule.ccl): the energy density averaged over the state's full ghost
 # width, computed IN CarpetX_PreRestrict, i.e. before the driver refluxes
 # the coarse level and restricts. It is not a dependent of state: it is a
-# snapshot of what a pre-restrict reader sees, kept until output.
-CCTK_REAL prerestrict_energy TYPE=gf CENTERING={ccc} TAGS='checkpoint="no"'
+# snapshot of what a pre-restrict reader sees, kept until output. Being
+# history, it cannot be recomputed after recovery, so it is checkpointed as a
+# persistent group.
+CCTK_REAL prerestrict_energy TYPE=gf CENTERING={ccc} TAGS='checkpoint="yes" evolve="no" restrict="no"'
 {
   prerestrict_eps
 } "Energy density averaged over the ghost width, computed before restriction"

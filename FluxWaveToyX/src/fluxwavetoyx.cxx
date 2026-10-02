@@ -268,6 +268,10 @@ extern "C" void FluxWaveToyX_Boundaries(CCTK_ARGUMENTS) {
   // Do nothing
 }
 
+extern "C" void FluxWaveToyX_Sync(CCTK_ARGUMENTS) {
+  // Do nothing; the schedule's SYNC clause refills the ghosts
+}
+
 extern "C" void FluxWaveToyX_Constraints(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_Constraints;
 

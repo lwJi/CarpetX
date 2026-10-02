@@ -9,11 +9,6 @@
 # for the integrated state and only interior data for the tested groups.
 # recover-moving.par continues from it through the regrids at 8 and 12.
 #
-# (Not iteration 5, where level 2 is also behind level 1: the first step after
-# recovering there runs ANALYSIS on levels 1 and 2 only, and the SYNC of the
-# non-checkpointed TestSubcyclingMC2::error on level 1 prolongates from level
-# 0's, which nothing has computed since the recovery.)
-#
 # The correct value of stale_count is 0 for both groups in every row.
 
 ActiveThorns = "

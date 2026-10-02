@@ -488,7 +488,7 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
       patchdata.amrcore->SetDistributionMap(level, dm);
 
       patchdata.amrcore->SetupLevel(level, boxarray, dm,
-                                    []() { return "Recovering"; });
+                                    []() { return recovering_reason; });
 
       // Read per-level iteration if present (new checkpoint format)
       {
