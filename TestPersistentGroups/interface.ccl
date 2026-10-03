@@ -11,7 +11,8 @@ USES INCLUDE HEADER: loop.hxx
 # CCTK_REAL since CarpetX grid functions are real-valued). Neither is
 # integrated by ODESolvers, so both are persistent and behave identically.
 # persist_noevolve keeps a leftover evolve="no" tag, as
-# MHD_Diagnostics::vels_old does; the driver ignores it.
+# MHD_Diagnostics::vels_old does; the driver ignores it apart from a startup
+# warning, for which this group is the in-tree trigger.
 CCTK_REAL persist_default TYPE=GF TAGS='checkpoint="yes"' "Time stamp, persistent (checkpointed, not integrated)"
 CCTK_REAL persist_noevolve TYPE=GF TAGS='checkpoint="yes" evolve="no"' "Time stamp, persistent, with a leftover evolve tag"
 

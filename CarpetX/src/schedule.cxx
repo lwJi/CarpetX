@@ -1134,9 +1134,12 @@ int Initialise(tFleshConfig *config) {
   CCTK_Traverse(cctkGH, "CCTK_WRAGH");
   CCTK_Traverse(cctkGH, "CCTK_PARAMCHECK");
   CCTKi_FinaliseParamWarn();
-  // Needs rk_integrated_group from WRAGH; runs before the recover/new-grid
-  // split, so it warns once on fresh starts and on recovery alike
+  // These need rk_integrated_group from WRAGH; they run before the
+  // recover/new-grid split, so they warn once on fresh starts and on recovery
+  // alike
   warn_inert_flux_tags();
+  warn_ignored_evolve_tags();
+  warn_persistent_multi_tl_groups();
 
   active_levels = std::optional<active_levels_t>();
 

@@ -382,6 +382,15 @@ bool get_group_restrict_flag(const int gi) {
   }
 }
 
+// True iff group gi's tag table has the key, whatever its value. Unlike the
+// getters above it never asserts on a value, so it can report a tag the driver
+// no longer interprets. Tag tables are key-case-insensitive.
+static bool group_has_tag(const int gi, const char *const key) {
+  const int tags = CCTK_GroupTagsTableI(gi);
+  assert(tags >= 0);
+  return Util_TableQueryValueInfo(tags, nullptr, nullptr, key) > 0;
+}
+
 std::array<int, dim> get_group_indextype(const int gi) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -524,6 +533,52 @@ void warn_inert_flux_tags() {
                "not refluxed at coarse-fine boundaries (see "
                "CarpetX::do_reflux)",
                CCTK_FullGroupName(gi));
+  }
+}
+
+// See driver.hxx for the contract. The driver no longer reads the evolve tag
+// (a group is evolved exactly when it is integrated), so without this warning
+// a thorn relying on evolve="yes" or evolve="no" would change behaviour
+// silently: the flesh keeps unread tag keys without complaint. Every process
+// sees the same tags, so only the root warns.
+void warn_ignored_evolve_tags() {
+  if (CCTK_MyProc(nullptr) != 0)
+    return;
+  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+    if (!group_has_tag(gi, "evolve"))
+      continue;
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Group \"%s\" has an evolve= tag. The tag is ignored: a group "
+               "is evolved exactly when ODESolvers integrates it (it has an "
+               "rhs= tag). Remove the tag.",
+               CCTK_FullGroupName(gi));
+  }
+}
+
+// See driver.hxx for the contract. This is the one kind of group whose
+// results can differ from the former evolve-tag default (evolve defaulted to
+// checkpoint): its current timelevel used to be invalidated at each cycle
+// and is now seeded from the previous one, so a read before the owning thorn
+// rewrites it sees the lagged value instead of failing. A single timelevel is
+// never seeded or invalidated, hence the timelevel condition. Every process
+// sees the same tags, integrated set and timelevel counts, so only the root
+// warns.
+void warn_persistent_multi_tl_groups() {
+  if (CCTK_MyProc(nullptr) != 0)
+    return;
+  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+    if (CCTK_GroupTypeI(gi) != CCTK_GF || !get_group_checkpoint_flag(gi) ||
+        group_is_integrated(gi))
+      continue;
+    const int ntls = ghext->active_timelevels.at(gi);
+    if (ntls <= 1)
+      continue;
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Group \"%s\" is checkpointed, is not integrated by ODESolvers, "
+               "and has %d active timelevels. Its current timelevel is seeded "
+               "from the previous one at each step instead of being "
+               "invalidated.",
+               CCTK_FullGroupName(gi), ntls);
   }
 }
 
