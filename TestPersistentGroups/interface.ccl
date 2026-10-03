@@ -6,14 +6,14 @@ USES INCLUDE HEADER: loop.hxx
 
 
 
-# Two single-timelevel, checkpointed grid functions without an rhs= tag that
-# differ only in their evolve tag. Each holds a time stamp (an integer number
-# of finest-level steps, stored as a CCTK_REAL since CarpetX grid functions
-# are real-valued). persist_default defaults to evolve="yes" (evolve follows
-# checkpoint); persist_noevolve is persistent but not evolved, as
-# MHD_Diagnostics::vels_old.
-CCTK_REAL persist_default TYPE=GF TAGS='checkpoint="yes"' "Time stamp, default-tagged (evolved by default)"
-CCTK_REAL persist_noevolve TYPE=GF TAGS='checkpoint="yes" evolve="no"' "Time stamp, checkpointed but not evolved"
+# Two single-timelevel, checkpointed grid functions without an rhs= tag. Each
+# holds a time stamp (an integer number of finest-level steps, stored as a
+# CCTK_REAL since CarpetX grid functions are real-valued). Neither is
+# integrated by ODESolvers, so both are persistent and behave identically.
+# persist_noevolve keeps a leftover evolve="no" tag, as
+# MHD_Diagnostics::vels_old does; the driver ignores it.
+CCTK_REAL persist_default TYPE=GF TAGS='checkpoint="yes"' "Time stamp, persistent (checkpointed, not integrated)"
+CCTK_REAL persist_noevolve TYPE=GF TAGS='checkpoint="yes" evolve="no"' "Time stamp, persistent, with a leftover evolve tag"
 
 # Number of stale points found so far (rank-summed running total); this is
 # what the testsuite compares

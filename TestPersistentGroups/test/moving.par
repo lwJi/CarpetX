@@ -1,8 +1,9 @@
 # Persistent (checkpointed, not integrated) groups under RK4 subcycling with
 # a moving refined box (TestSubcyclingMC2/test/gaussian_moving.par physics).
 #
-# TestPersistentGroups stamps persist_default (default tags, so evolved by
-# default) and persist_noevolve (checkpoint="yes" evolve="no") with the
+# TestPersistentGroups stamps persist_default (checkpoint="yes") and
+# persist_noevolve (checkpoint="yes" plus a leftover evolve="no" that the
+# driver ignores; both groups are persistent and behave identically) with the
 # level's time on the interior at every step, SYNCs them, and counts every
 # point that holds neither the level's own stamp nor, on a coarse-fine ghost,
 # the parent's stamp. stale_count is the rank-summed running total; the

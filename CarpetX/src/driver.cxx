@@ -944,7 +944,6 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   firstvarindex = CCTK_FirstVarIndexI(gi);
   numvars = group.numvars;
   do_checkpoint = get_group_checkpoint_flag(gi);
-  do_evolve = get_group_evolve_flag(gi);
   do_restrict = get_group_restrict_flag(gi);
   indextype = get_group_indextype(gi);
   nghostzones = get_group_nghostzones(gi);
@@ -1366,7 +1365,6 @@ void SetupGlobals() {
     arraygroupdata.firstvarindex = CCTK_FirstVarIndexI(gi);
     arraygroupdata.numvars = group.numvars;
     arraygroupdata.do_checkpoint = get_group_checkpoint_flag(gi);
-    arraygroupdata.do_evolve = get_group_evolve_flag(gi);
     arraygroupdata.do_restrict = get_group_restrict_flag(gi);
 
     CCTK_INT const *const *const sz = CCTK_GroupSizesI(gi);
@@ -1509,11 +1507,12 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 static int
 regrid_prolongate_tls(const GHExt::PatchData::LevelData::GroupData &groupdata) {
   const int ntls = groupdata.mfab.size();
-  // Evolved state: all but the oldest time level (ntls == 1: that one),
+  // Integrated state: all but the oldest time level (ntls == 1: that one),
   // since CycleTimelevels invalidates the oldest anyway.
-  return groupdata.do_evolve ? (ntls > 1 ? ntls - 1 : ntls)
+  return group_is_integrated(groupdata.groupindex)
+             ? (ntls > 1 ? ntls - 1 : ntls)
          : groupdata.do_checkpoint
-             ? ntls // persistent non-evolved state: all TLs
+             ? ntls // persistent non-integrated state: all TLs
              : 0;   // recomputable scratch: nothing
 }
 
@@ -1563,6 +1562,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
     assert(coarsegroupdata.numvars == groupdata.numvars);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
+    const bool integrated = group_is_integrated(gi);
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
@@ -1573,7 +1573,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
       for (int vi = 0; vi < groupdata.numvars; ++vi) {
         // Time levels with tl < prolongate_tl are overwritten below after
         // prolongation; these reasons persist only for the others
-        if (groupdata.do_evolve)
+        if (integrated)
           groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
             return "MakeNewLevelFromCoarse: oldest time level is not "
                    "prolongated at regrid";
@@ -1581,20 +1581,20 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
         else
           groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
             return "MakeNewLevelFromCoarse: not prolongated because variable "
-                   "is not evolved";
+                   "is not integrated";
           });
       }
 
       if (tl < prolongate_tl) {
         bool do_fill = true;
-        if (groupdata.do_evolve) {
+        if (integrated) {
           // Expect coarse grid data to be valid
           for (int vi = 0; vi < groupdata.numvars; ++vi)
             error_if_invalid(coarsegroupdata, vi, tl, make_valid_all(), []() {
               return "MakeNewLevelFromCoarse before prolongation";
             });
         } else {
-          // Checkpointed non-evolved state: transport best-effort, only
+          // Checkpointed non-integrated state: transport best-effort, only
           // when the coarse source is fully valid
           for (int vi = 0; vi < groupdata.numvars; ++vi)
             do_fill &= coarsegroupdata.valid.at(tl).at(vi).get().valid_all();
@@ -1688,6 +1688,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
     assert(coarsegroupdata.numvars == groupdata.numvars);
 
+    const bool integrated = group_is_integrated(gi);
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
@@ -1695,9 +1696,9 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
       for (int vi = 0; vi < groupdata.numvars; ++vi) {
         poison_invalid_gf(active_levels, gi, vi, tl);
 
-        // Checkpointed non-evolved groups are transported best-effort;
-        // only evolved groups require valid sources here
-        if (groupdata.do_evolve && tl < prolongate_tl) {
+        // Checkpointed non-integrated groups are transported best-effort;
+        // only integrated groups require valid sources here
+        if (integrated && tl < prolongate_tl) {
           error_if_invalid(coarsegroupdata, vi, tl, make_valid_all(),
                            []() { return "RemakeLevel before prolongation"; });
           error_if_invalid(groupdata, vi, tl, make_valid_all(),
@@ -1749,16 +1750,17 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                                  : valid_t();
     assert(outer_valid == make_valid_outer());
 
+    const bool integrated = group_is_integrated(gi);
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
     for (int tl = 0; tl < ntls; ++tl) {
       if (tl < prolongate_tl) {
-        // Checkpointed non-evolved state: transport best-effort, only when
+        // Checkpointed non-integrated state: transport best-effort, only when
         // both the coarse and the old fine sources are fully valid
         // (oldgroupdata.valid still carries the pre-swap flags)
         bool do_fill = true;
-        if (!groupdata.do_evolve)
+        if (!integrated)
           for (int vi = 0; vi < groupdata.numvars; ++vi)
             do_fill &= coarsegroupdata.valid.at(tl).at(vi).get().valid_all() &&
                        oldgroupdata.valid.at(tl).at(vi).get().valid_all();
@@ -1974,7 +1976,8 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::EndSeq;
   yaml << YAML::Key << "do_checkpoint" << YAML::Value
        << commongroupdata.do_checkpoint;
-  yaml << YAML::Key << "do_evolve" << YAML::Value << commongroupdata.do_evolve;
+  yaml << YAML::Key << "integrated" << YAML::Value
+       << (ghext && group_is_integrated(commongroupdata.groupindex));
   yaml << YAML::Key << "do_restrict" << YAML::Value
        << commongroupdata.do_restrict;
   yaml << YAML::Key << "active_timelevels" << YAML::Value

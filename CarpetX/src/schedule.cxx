@@ -1552,6 +1552,9 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       const int ntls0 = groupdata0.mfab.size();
       if (ntls0 == 0)
         continue;
+      // Integrated by the time integrator (ODESolvers rhs= tag); final since
+      // WRAGH, so it is the same on every level
+      const bool integrated = group_is_integrated(gi);
 
       assert(active_levels);
       active_levels->loop_serially([&](auto &restrict leveldata) {
@@ -1564,8 +1567,8 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
                  groupdata.mfab.end());
           rotate(groupdata.valid.begin(), groupdata.valid.end() - 1,
                  groupdata.valid.end());
-          if (groupdata.do_evolve) {
-            // Evolved state: the integrator must write a fresh current time
+          if (integrated) {
+            // Integrated state: the integrator must write a fresh current time
             // level, so invalidate it (the trailing poison_invalid_gf then
             // fills it with NaN).
             for (int vi = 0; vi < groupdata.numvars; ++vi)
@@ -1573,7 +1576,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
                 return "CycletimeLevels (invalidate current time level)";
               });
           } else {
-            // Non-evolved multi-timelevel group: tl=1 holds the genuine
+            // Non-integrated multi-timelevel group: tl=1 holds the genuine
             // previous-step state. Seed tl=0 with it so RHS reads before the
             // owning thorn's refill see a valid (lagged) value. tl=1 is left
             // untouched for the subcycling prolongation blend. Both timelevels
@@ -1606,8 +1609,8 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
           }
         }
         // All time levels (except the current) must be valid everywhere for
-        // checkpointed groups
-        if (groupdata.do_evolve) {
+        // integrated groups
+        if (integrated) {
           for (int tl = (ntls == 1 ? 0 : 1); tl < ntls; ++tl) {
             // it is only possible to sync time-level zero
             if (tl == 0 && presync_only) {
@@ -1623,7 +1626,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
         }
       });
       for (int vi = 0; vi < groupdata0.numvars; ++vi) {
-        if (ntls0 > 1 && groupdata0.do_evolve)
+        if (ntls0 > 1 && integrated)
           poison_invalid_gf(*active_levels, gi, vi, 0);
         for (int tl = 0; tl < ntls0; ++tl)
           check_valid_gf(*active_levels, gi, vi, tl,
