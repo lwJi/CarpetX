@@ -153,7 +153,6 @@ struct GHExt {
     int numvars;
 
     bool do_checkpoint; // whether to checkpoint
-    bool do_evolve;     // whether this is an evolved state variable
     bool do_restrict;   // whether to restrict
 
     std::vector<std::vector<why_valid_t> > valid; // [time level][var index]
@@ -623,9 +622,29 @@ extern std::unique_ptr<GHExt> ghext;
 // fires once per run, fresh start or recovery.
 void warn_inert_flux_tags();
 
-// Group tag "evolve"; absent -> the "checkpoint" tag (absent -> yes). Reads
-// only the tags table, so valid from PARAMCHECK on. Defined in driver.cxx.
-bool get_group_evolve_flag(int gi);
+// Print one CCTK_WARN_ALERT for each group, of any type, whose tag table has
+// an evolve key, whatever its value: the driver no longer reads that tag, and
+// a grid function is evolved exactly when it is integrated
+// (group_is_integrated, subcycling.hxx). Reads only the tag tables and never
+// asserts on the tag's value. Warns on the root process only. Called once by
+// Initialise, next to warn_inert_flux_tags, so it fires once per run, fresh
+// start or recovery.
+void warn_ignored_evolve_tags();
+
+// Print one CCTK_WARN_ALERT for each grid-function group that is checkpointed
+// (get_group_checkpoint_flag), not integrated (group_is_integrated) and has
+// more than one active timelevel. Such a group is persistent: CycleTimelevels
+// seeds its current timelevel from the previous one instead of invalidating
+// it. That is the one case whose results can differ from the former evolve
+// tag's default. Warns on the root process only. Called once by Initialise,
+// next to warn_inert_flux_tags (it needs ghext->rk_integrated_group from WRAGH
+// and ghext->active_timelevels, frozen after ScheduleGHInit), so it fires
+// once per run, fresh start or recovery.
+void warn_persistent_multi_tl_groups();
+
+// Group tag "checkpoint"; absent -> yes. Reads only the tags table, so valid
+// from PARAMCHECK on. Defined in driver.cxx.
+bool get_group_checkpoint_flag(int gi);
 
 // True iff every level of every patch sits at the same subcycling iteration,
 // i.e. the checkpoint is time-aligned. Always true without subcycling. When

@@ -382,26 +382,13 @@ bool get_group_restrict_flag(const int gi) {
   }
 }
 
-bool get_group_evolve_flag(const int gi) {
-  int tags = CCTK_GroupTagsTableI(gi);
+// True iff group gi's tag table has the key, whatever its value. Unlike the
+// getters above it never asserts on a value, so it can report a tag the driver
+// no longer interprets. Tag tables are key-case-insensitive.
+static bool group_has_tag(const int gi, const char *const key) {
+  const int tags = CCTK_GroupTagsTableI(gi);
   assert(tags >= 0);
-  char buf[100];
-  int iret = Util_TableGetString(tags, sizeof buf, buf, "evolve");
-  if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
-    // Default to checkpoint flag value when not explicitly set
-    return get_group_checkpoint_flag(gi);
-  } else if (iret >= 0) {
-    std::string str(buf);
-    for (auto &c : str)
-      c = tolower(c);
-    if (str == "yes")
-      return true;
-    if (str == "no")
-      return false;
-    assert(0);
-  } else {
-    assert(0);
-  }
+  return Util_TableQueryValueInfo(tags, nullptr, nullptr, key) > 0;
 }
 
 std::array<int, dim> get_group_indextype(const int gi) {
@@ -546,6 +533,52 @@ void warn_inert_flux_tags() {
                "not refluxed at coarse-fine boundaries (see "
                "CarpetX::do_reflux)",
                CCTK_FullGroupName(gi));
+  }
+}
+
+// See driver.hxx for the contract. The driver no longer reads the evolve tag
+// (a group is evolved exactly when it is integrated), so without this warning
+// a thorn relying on evolve="yes" or evolve="no" would change behaviour
+// silently: the flesh keeps unread tag keys without complaint. Every process
+// sees the same tags, so only the root warns.
+void warn_ignored_evolve_tags() {
+  if (CCTK_MyProc(nullptr) != 0)
+    return;
+  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+    if (!group_has_tag(gi, "evolve"))
+      continue;
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Group \"%s\" has an evolve= tag. The tag is ignored: a group "
+               "is evolved exactly when ODESolvers integrates it (it has an "
+               "rhs= tag). Remove the tag.",
+               CCTK_FullGroupName(gi));
+  }
+}
+
+// See driver.hxx for the contract. This is the one kind of group whose
+// results can differ from the former evolve-tag default (evolve defaulted to
+// checkpoint): its current timelevel used to be invalidated at each cycle
+// and is now seeded from the previous one, so a read before the owning thorn
+// rewrites it sees the lagged value instead of failing. A single timelevel is
+// never seeded or invalidated, hence the timelevel condition. Every process
+// sees the same tags, integrated set and timelevel counts, so only the root
+// warns.
+void warn_persistent_multi_tl_groups() {
+  if (CCTK_MyProc(nullptr) != 0)
+    return;
+  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+    if (CCTK_GroupTypeI(gi) != CCTK_GF || !get_group_checkpoint_flag(gi) ||
+        group_is_integrated(gi))
+      continue;
+    const int ntls = ghext->active_timelevels.at(gi);
+    if (ntls <= 1)
+      continue;
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Group \"%s\" is checkpointed, is not integrated by ODESolvers, "
+               "and has %d active timelevels. Its current timelevel is seeded "
+               "from the previous one at each step instead of being "
+               "invalidated.",
+               CCTK_FullGroupName(gi), ntls);
   }
 }
 
@@ -944,7 +977,6 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   firstvarindex = CCTK_FirstVarIndexI(gi);
   numvars = group.numvars;
   do_checkpoint = get_group_checkpoint_flag(gi);
-  do_evolve = get_group_evolve_flag(gi);
   do_restrict = get_group_restrict_flag(gi);
   indextype = get_group_indextype(gi);
   nghostzones = get_group_nghostzones(gi);
@@ -1366,7 +1398,6 @@ void SetupGlobals() {
     arraygroupdata.firstvarindex = CCTK_FirstVarIndexI(gi);
     arraygroupdata.numvars = group.numvars;
     arraygroupdata.do_checkpoint = get_group_checkpoint_flag(gi);
-    arraygroupdata.do_evolve = get_group_evolve_flag(gi);
     arraygroupdata.do_restrict = get_group_restrict_flag(gi);
 
     CCTK_INT const *const *const sz = CCTK_GroupSizesI(gi);
@@ -1509,11 +1540,12 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 static int
 regrid_prolongate_tls(const GHExt::PatchData::LevelData::GroupData &groupdata) {
   const int ntls = groupdata.mfab.size();
-  // Evolved state: all but the oldest time level (ntls == 1: that one),
+  // Integrated state: all but the oldest time level (ntls == 1: that one),
   // since CycleTimelevels invalidates the oldest anyway.
-  return groupdata.do_evolve ? (ntls > 1 ? ntls - 1 : ntls)
+  return group_is_integrated(groupdata.groupindex)
+             ? (ntls > 1 ? ntls - 1 : ntls)
          : groupdata.do_checkpoint
-             ? ntls // persistent non-evolved state: all TLs
+             ? ntls // persistent non-integrated state: all TLs
              : 0;   // recomputable scratch: nothing
 }
 
@@ -1563,6 +1595,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
     assert(coarsegroupdata.numvars == groupdata.numvars);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
+    const bool integrated = group_is_integrated(gi);
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
@@ -1573,7 +1606,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
       for (int vi = 0; vi < groupdata.numvars; ++vi) {
         // Time levels with tl < prolongate_tl are overwritten below after
         // prolongation; these reasons persist only for the others
-        if (groupdata.do_evolve)
+        if (integrated)
           groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
             return "MakeNewLevelFromCoarse: oldest time level is not "
                    "prolongated at regrid";
@@ -1581,20 +1614,20 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
         else
           groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
             return "MakeNewLevelFromCoarse: not prolongated because variable "
-                   "is not evolved";
+                   "is not integrated";
           });
       }
 
       if (tl < prolongate_tl) {
         bool do_fill = true;
-        if (groupdata.do_evolve) {
+        if (integrated) {
           // Expect coarse grid data to be valid
           for (int vi = 0; vi < groupdata.numvars; ++vi)
             error_if_invalid(coarsegroupdata, vi, tl, make_valid_all(), []() {
               return "MakeNewLevelFromCoarse before prolongation";
             });
         } else {
-          // Checkpointed non-evolved state: transport best-effort, only
+          // Checkpointed non-integrated state: transport best-effort, only
           // when the coarse source is fully valid
           for (int vi = 0; vi < groupdata.numvars; ++vi)
             do_fill &= coarsegroupdata.valid.at(tl).at(vi).get().valid_all();
@@ -1688,6 +1721,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
     assert(coarsegroupdata.numvars == groupdata.numvars);
 
+    const bool integrated = group_is_integrated(gi);
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
@@ -1695,9 +1729,9 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
       for (int vi = 0; vi < groupdata.numvars; ++vi) {
         poison_invalid_gf(active_levels, gi, vi, tl);
 
-        // Checkpointed non-evolved groups are transported best-effort;
-        // only evolved groups require valid sources here
-        if (groupdata.do_evolve && tl < prolongate_tl) {
+        // Checkpointed non-integrated groups are transported best-effort;
+        // only integrated groups require valid sources here
+        if (integrated && tl < prolongate_tl) {
           error_if_invalid(coarsegroupdata, vi, tl, make_valid_all(),
                            []() { return "RemakeLevel before prolongation"; });
           error_if_invalid(groupdata, vi, tl, make_valid_all(),
@@ -1749,16 +1783,17 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                                  : valid_t();
     assert(outer_valid == make_valid_outer());
 
+    const bool integrated = group_is_integrated(gi);
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
     for (int tl = 0; tl < ntls; ++tl) {
       if (tl < prolongate_tl) {
-        // Checkpointed non-evolved state: transport best-effort, only when
+        // Checkpointed non-integrated state: transport best-effort, only when
         // both the coarse and the old fine sources are fully valid
         // (oldgroupdata.valid still carries the pre-swap flags)
         bool do_fill = true;
-        if (!groupdata.do_evolve)
+        if (!integrated)
           for (int vi = 0; vi < groupdata.numvars; ++vi)
             do_fill &= coarsegroupdata.valid.at(tl).at(vi).get().valid_all() &&
                        oldgroupdata.valid.at(tl).at(vi).get().valid_all();
@@ -1974,7 +2009,8 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::EndSeq;
   yaml << YAML::Key << "do_checkpoint" << YAML::Value
        << commongroupdata.do_checkpoint;
-  yaml << YAML::Key << "do_evolve" << YAML::Value << commongroupdata.do_evolve;
+  yaml << YAML::Key << "integrated" << YAML::Value
+       << (ghext && group_is_integrated(commongroupdata.groupindex));
   yaml << YAML::Key << "do_restrict" << YAML::Value
        << commongroupdata.do_restrict;
   yaml << YAML::Key << "active_timelevels" << YAML::Value
