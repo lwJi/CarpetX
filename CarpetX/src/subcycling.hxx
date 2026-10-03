@@ -74,7 +74,7 @@ void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
 // integrated"; SyncGroupsByDirISubcycling (which skips the refined-level
 // coarse-fine ghosts of exactly these groups during evolution),
 // FillRKBoundary, EnsureRKBuffers, StoreRKOldState, group_has_flux_register,
-// warn_inert_flux_tags, ODESolvers_CheckEvolved, regrid
+// warn_inert_flux_tags, ODESolvers_CheckCheckpointed, regrid
 // (regrid_prolongate_tls, MakeNewLevelFromCoarse, RemakeLevel: an integrated
 // group carries all but its oldest timelevel and requires valid sources),
 // CycleTimelevels (an integrated group's current timelevel is invalidated, or

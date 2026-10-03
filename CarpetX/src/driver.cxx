@@ -382,28 +382,6 @@ bool get_group_restrict_flag(const int gi) {
   }
 }
 
-bool get_group_evolve_flag(const int gi) {
-  int tags = CCTK_GroupTagsTableI(gi);
-  assert(tags >= 0);
-  char buf[100];
-  int iret = Util_TableGetString(tags, sizeof buf, buf, "evolve");
-  if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
-    // Default to checkpoint flag value when not explicitly set
-    return get_group_checkpoint_flag(gi);
-  } else if (iret >= 0) {
-    std::string str(buf);
-    for (auto &c : str)
-      c = tolower(c);
-    if (str == "yes")
-      return true;
-    if (str == "no")
-      return false;
-    assert(0);
-  } else {
-    assert(0);
-  }
-}
-
 std::array<int, dim> get_group_indextype(const int gi) {
   DECLARE_CCTK_PARAMETERS;
 

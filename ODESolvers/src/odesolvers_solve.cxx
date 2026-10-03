@@ -30,24 +30,27 @@ extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
         CCTK_GroupTypeI(gi) == CCTK_GF && get_group_rhs(gi) >= 0;
 }
 
-// Reject at PARAMCHECK any group we integrate that is not evolved
-// (evolve="no", or checkpoint="no" without an evolve tag). Regrid keeps no
-// timelevel of a non-evolved, non-checkpointed group and fills a non-evolved
-// checkpointed one only best effort, so the state would be lost or left
-// invalid; under subcycling the dense-output fill of the coarse-fine ghosts
-// also assumes an evolved group. Unconditional: with or without subcycling,
-// on any number of levels. Runs after WRAGH, where ODESolvers_InitConstants
-// publishes rk_integrated_group, so CarpetX::group_is_integrated is final.
-extern "C" void ODESolvers_CheckEvolved(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckEvolved;
+// Reject at PARAMCHECK any group we integrate that is not checkpointed
+// (checkpoint="no"). Its time history is ours and cannot be recomputed by
+// any thorn. Under subcycling, a refined level also holds its parent's
+// in-progress RK step for the group in source bands (and, with refluxing, in
+// a flux register); a mid-cycle checkpoint writes these only together with
+// the group's data, i.e. only for checkpointed groups, so recovery would fill
+// the coarse-fine ghosts from uninitialized bands. Unconditional: with or
+// without subcycling, on any number of levels. Runs after WRAGH, where
+// ODESolvers_InitConstants publishes rk_integrated_group, so
+// CarpetX::group_is_integrated is final.
+extern "C" void ODESolvers_CheckCheckpointed(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckCheckpointed;
 
   for (int gi = 0; gi < CCTK_NumGroups(); ++gi)
-    if (CarpetX::group_is_integrated(gi) && !CarpetX::get_group_evolve_flag(gi))
+    if (CarpetX::group_is_integrated(gi) &&
+        !CarpetX::get_group_checkpoint_flag(gi))
       CCTK_VERROR("Group \"%s\" is integrated by ODESolvers (rhs= tag) but "
-                  "not evolved (evolve=\"no\", or checkpoint=\"no\" without "
-                  "an evolve tag). Regrid would drop or not refill its state. "
-                  "Remove evolve=\"no\" / checkpoint=\"no\", or set "
-                  "evolve=\"yes\".",
+                  "has checkpoint=\"no\". Integrated groups must be "
+                  "checkpointed: their state cannot be recomputed, and under "
+                  "subcycling their source bands are checkpointed only with "
+                  "the group. Remove checkpoint=\"no\".",
                   CCTK_FullGroupName(gi));
 }
 

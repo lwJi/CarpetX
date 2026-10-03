@@ -283,6 +283,8 @@ A group with an \texttt{rhs} tag is \emph{integrated}: \texttt{ODESolvers} advan
 \item \emph{Regridding.} When a level is created or changed, an integrated group keeps all but its oldest timelevel (a single timelevel is kept). The coarse data, and the old data on a changed level, must be valid everywhere for those timelevels; otherwise this is an error.
 \end{itemize}
 %
+An integrated group must be checkpointed (see the \texttt{checkpoint} tag below); \texttt{checkpoint="no"} on it is an error at startup.
+
 A group without an \texttt{rhs} tag is not integrated, and neither is any group when \texttt{ODESolvers} is not active. Such groups persist from one step to the next; see the \texttt{checkpoint} tag below.
 
 \subsubsection{\texttt{dependents}}
