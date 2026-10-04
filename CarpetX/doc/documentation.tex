@@ -276,6 +276,8 @@ the \texttt{rhs="right\_hand\_side"} tag indicates that the group named \texttt{
 
 A group with an \texttt{rhs} tag is \emph{integrated}: \texttt{ODESolvers} advances it in time. Under subcycling (\texttt{CarpetX::use\_subcycling = yes}), the ghost zones of a refined level at its boundary with the next coarser level (coarse-fine ghosts) have exactly one owner during evolution. For an integrated group, \texttt{ODESolvers} fills them after every Runge--Kutta stage from the coarse level's dense output, and a \texttt{SYNC} only exchanges ghosts between boxes of the same level. For every other group, evolved or not, each \texttt{SYNC} prolongates them from the coarse level and marks them valid. If such a group has two or more timelevels and the fine level is behind the coarse one, the coarse data are interpolated in time between the coarse level's current and previous timelevels. With a single timelevel, the coarse data are used as they currently stand, without interpolation in time; a group that needs time-accurate coarse-fine ghosts declares two timelevels.
 
+An integrated group must be both checkpointed and evolved, and \texttt{ODESolvers} checks this at startup. A group with an \texttt{rhs} tag that sets \texttt{checkpoint="no"} is rejected, whatever its \texttt{evolve} tag, since its state could not be recovered from a checkpoint (see \texttt{checkpoint} below). A group with an \texttt{rhs} tag that sets \texttt{evolve="no"} is rejected as well, since regridding would not reliably refill its state (see \texttt{evolve} below). The defaults of both tags satisfy these requirements.
+
 \subsubsection{\texttt{dependents}}
 
 Indicates that the groups of variables contained on this tag must be marked as invalid if there are any changes to the group being declared. For example, in
@@ -306,6 +308,8 @@ Indicates that a variable group must be saved as a simulation checkpoint. \Cactu
 \end{lstlisting}
 %
 the simulation state, represented by the \texttt{state\_vector} group is checkpointed, while the \texttt{right\_hand\_side} group is not.
+
+Integrated state must be checkpointed. A checkpoint omits every group tagged \texttt{checkpoint="no"}, and for a group integrated by \texttt{ODESolvers} (one with an \texttt{rhs} tag) under subcycling it also omits the Runge--Kutta source bands kept for that group, so recovery could not restore its state. \texttt{ODESolvers} therefore rejects at startup a group with an \texttt{rhs} tag that sets \texttt{checkpoint="no"}, whatever its \texttt{evolve} tag. This check does not depend on whether the run writes or reads checkpoints.
 
 The parameters \texttt{CarpetX::checkpoint\_method} and \texttt{CarpetX::recover\_method} control \CarpetX's behavior during variable checkpointing and recovery, respectively. Both parameters accept the same keyword values, described in Tab.~\ref{tab:checkpoint_recovery}
 
@@ -365,7 +369,7 @@ Marks a group as evolved, i.e.\ its current timelevel is recomputed every time s
 \item \emph{Regridding.} When a level is created or changed, an evolved group keeps all but its oldest timelevel and requires valid coarse data to fill them. A non-evolved, checkpointed group keeps all its timelevels and is filled where valid data exist. A non-evolved group that is not checkpointed is not carried over; it must be recomputed.
 \end{itemize}
 %
-The tag does not decide whether coarse-fine ghosts are filled under subcycling; that depends on the \texttt{rhs} tag (see above). \texttt{ODESolvers} rejects at startup a group with an \texttt{rhs} tag that is not evolved, since regridding would not carry its state; such a group must not set \texttt{evolve="no"}, nor \texttt{checkpoint="no"} without \texttt{evolve="yes"}. For example, a persistent, checkpointed group that an analysis routine updates only occasionally is declared as
+The tag does not decide whether coarse-fine ghosts are filled under subcycling; that depends on the \texttt{rhs} tag (see above). \texttt{ODESolvers} rejects at startup a group with an \texttt{rhs} tag that sets \texttt{evolve="no"}, since regridding would not reliably refill its state. Such a group must not set \texttt{checkpoint="no"} either, not even together with \texttt{evolve="yes"}, since integrated state must be checkpointed (see \texttt{checkpoint} above). For example, a persistent, checkpointed group that an analysis routine updates only occasionally is declared as
 %
 \begin{lstlisting}[language=bash]
   CCTK_<type> previous_value TAGS='checkpoint="yes" evolve="no" restrict="no"'

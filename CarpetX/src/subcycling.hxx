@@ -74,8 +74,8 @@ void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
 // integrated"; SyncGroupsByDirISubcycling (which skips the refined-level
 // coarse-fine ghosts of exactly these groups during evolution),
 // FillRKBoundary, EnsureRKBuffers, StoreRKOldState, group_has_flux_register,
-// warn_inert_flux_tags and ODESolvers_CheckEvolved call it. Uses only ghext
-// and no grid structure, so it is valid from PARAMCHECK on, before any level
+// warn_inert_flux_tags and ODESolvers_CheckTags call it. Uses only ghext and
+// no grid structure, so it is valid from PARAMCHECK on, before any level
 // exists. Defined in driver.cxx.
 bool group_is_integrated(int gi);
 
