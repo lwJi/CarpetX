@@ -1,2 +1,2 @@
-# 1:iteration	2:time	3:stale_default	4:stale_noevolve
-6	9.3750000000000000e-02	0	0
+# 1:iteration	2:time	3:stale_default	4:stale_noevolve	5:stale_history
+6	9.3750000000000000e-02	0	0	0

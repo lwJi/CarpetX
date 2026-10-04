@@ -5,9 +5,12 @@
 #
 # At POST_RECOVER_VARIABLES TestPersistentGroups SYNCs the tested groups
 # (checkpoints carry their interior only), restarts the running total, and
-# checks that the recovered stamps are intact. The rows at iterations 8 and 16
-# hold the same stamps as moving.par's. The correct value of stale_count is 0
-# for both groups in every row.
+# checks that the recovered stamps are intact, including level 0's genuine
+# persist_history pair (8, 0). The SYNC does not cover the past timelevel of
+# persist_history, which stays valid on the interior only until the level's
+# next step (see check_past_after_regrid below). The rows at iterations 8 and
+# 16 hold the same stamps as moving.par's. The correct value of stale_count is
+# 0 for all three groups in every row.
 
 ActiveThorns = "
     BoxInBox
@@ -78,6 +81,12 @@ Cactus::cctk_itlast = 16
 
 ODESolvers::method = "RK4"
 
+# Level 0 does not step between the recovery (iteration 6) and the regrid at
+# iteration 8, so the past timelevel of persist_history on level 0 is still
+# the recovered one, valid on the interior only. The regrid therefore drops
+# the past timelevel on the refined levels, and the POSTREGRID check skips it.
+TestPersistentGroups::check_past_after_regrid = no
+
 IO::out_dir = $parfile
 IO::out_every = $out_every
 IO::out_fileinfo = "axis labels"
@@ -90,6 +99,7 @@ CarpetX::out_tsv_vars = "
     TestPersistentGroups::stale_count
     TestPersistentGroups::persist_default
     TestPersistentGroups::persist_noevolve
+    TestPersistentGroups::persist_history
 "
 
 IO::checkpoint_dir = $parfile

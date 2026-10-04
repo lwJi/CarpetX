@@ -1,18 +1,29 @@
 # Schedule definitions for thorn TestPersistentGroups
 
-STORAGE: persist_default persist_noevolve stale_count stale_step
+STORAGE: persist_default persist_noevolve persist_history[2] stale_count stale_step
 
 
 
-# Initial data: stamp 0 everywhere, start the running total, check
+# Initial data: stamp 0 everywhere (persist_history: 0 on the current and
+# -P on the past timelevel, so that the first update is distinguishable from a
+# seeded copy), start the running total, check.
+#
+# The past timelevel of persist_history is written everywhere, since SYNC does
+# not cover the oldest timelevel: the initial regrid that creates the next
+# level carries it over only from a coarse level on which it is valid
+# everywhere, and POSTREGRID (which checks it) runs before INITIAL on the new
+# level.
 
 SCHEDULE TestPersistentGroups_Init AT initial
 {
   LANG: C
   WRITES: persist_default(interior)
   WRITES: persist_noevolve(interior)
+  WRITES: persist_history(interior)
+  WRITES: persist_history_p(everywhere)
   SYNC: persist_default
   SYNC: persist_noevolve
+  SYNC: persist_history
 } "Stamp the tested groups with the initial time"
 
 SCHEDULE TestPersistentGroups_Zero AT initial AFTER TestPersistentGroups_Init
@@ -29,35 +40,90 @@ SCHEDULE GROUP TestPersistentGroups_CheckGroup AT initial AFTER (TestPersistentG
 
 
 # Evolution: after the integrated state has been advanced, stamp the level's
-# new time on the interior, SYNC, and check every point including the ghosts
+# new time on the interior, SYNC, and check every point including the ghosts.
+# persist_history is stamped only on update steps; on the other steps Write
+# leaves the current timelevel as CycleTimelevels seeded it. Write READS it so
+# that poison_undefined_values does not poison the interior that it keeps.
 
 SCHEDULE TestPersistentGroups_Write AT evol AFTER (ODESolvers_Solve, ODESolvers_Solve_Subcycling)
 {
   LANG: C
+  READS: persist_history(interior)
   WRITES: persist_default(interior)
   WRITES: persist_noevolve(interior)
+  WRITES: persist_history(interior)
   SYNC: persist_default
   SYNC: persist_noevolve
+  SYNC: persist_history
 } "Stamp the tested groups with the level's current time"
 
 SCHEDULE GROUP TestPersistentGroups_CheckGroup AT evol AFTER TestPersistentGroups_Write
 {
 } "Count stale points in the tested groups"
 
+# During evolution the past timelevel of persist_history must also be valid
+# everywhere (CycleTimelevels rotated the SYNCed current timelevel into it);
+# the READS clause makes CallFunction check that
 
-
-# Regridding: the stamps must survive (levels are time-aligned at a regrid)
-
-SCHEDULE GROUP TestPersistentGroups_CheckGroup AT postregrid
+SCHEDULE TestPersistentGroups_CheckPast AT evol AFTER TestPersistentGroups_CheckGroup
 {
-} "Count stale points in the tested groups"
+  LANG: C
+  READS: persist_history_p(everywhere)
+} "Require the past timelevel of persist_history to be valid everywhere"
+
+
+
+# Regridding: the stamps must survive (levels are time-aligned at a regrid),
+# and so must the past timelevel of persist_history, unless a regrid follows
+# a recovery before level 0 steps again (see check_past_after_regrid)
+
+if (check_past_after_regrid)
+{
+  SCHEDULE GROUP TestPersistentGroups_CheckGroup AT postregrid
+  {
+  } "Count stale points in the tested groups"
+}
+else
+{
+  SCHEDULE GROUP TestPersistentGroups_CheckCurrentGroup AT postregrid
+  {
+  } "Count stale points in the tested groups, without the past timelevel of persist_history"
+
+  # The check pass without the past timelevel of persist_history
+
+  SCHEDULE TestPersistentGroups_ZeroStep IN TestPersistentGroups_CheckCurrentGroup
+  {
+    LANG: C
+    OPTIONS: global
+    WRITES: stale_step
+  } "Reset the per-pass stale counts"
+
+  SCHEDULE TestPersistentGroups_CheckCurrent IN TestPersistentGroups_CheckCurrentGroup AFTER TestPersistentGroups_ZeroStep
+  {
+    LANG: C
+    READS: persist_default(everywhere)
+    READS: persist_noevolve(everywhere)
+    READS: persist_history(everywhere)
+  } "Count points that hold neither the level's nor the parent's stamp, without the past timelevel of persist_history"
+
+  SCHEDULE TestPersistentGroups_Reduce IN TestPersistentGroups_CheckCurrentGroup AFTER TestPersistentGroups_CheckCurrent
+  {
+    LANG: C
+    OPTIONS: global
+    READS: stale_count
+    WRITES: stale_count
+    WRITES: stale_step
+  } "Sum the per-pass stale counts over ranks, warn, and add them to the running total"
+}
 
 
 
 # Recovery: checkpoints carry the interior only, so restore the ghosts with a
 # SYNC (as MHD_Diagnostics::vels_old and TestSubcycleStepping do), restart the
 # running total (it is not checkpointed), and check that the recovered stamps
-# are intact
+# are intact. The SYNC does not cover the past timelevel of persist_history,
+# which stays valid on the interior only until the level's next
+# CycleTimelevels.
 
 SCHEDULE TestPersistentGroups_Sync AT post_recover_variables
 {
@@ -65,6 +131,7 @@ SCHEDULE TestPersistentGroups_Sync AT post_recover_variables
   OPTIONS: global
   SYNC: persist_default
   SYNC: persist_noevolve
+  SYNC: persist_history
 } "Restore the ghosts of the tested groups, which checkpoints do not carry"
 
 SCHEDULE TestPersistentGroups_Zero AT post_recover_variables AFTER TestPersistentGroups_Sync
@@ -94,6 +161,8 @@ SCHEDULE TestPersistentGroups_Check IN TestPersistentGroups_CheckGroup AFTER Tes
   LANG: C
   READS: persist_default(everywhere)
   READS: persist_noevolve(everywhere)
+  READS: persist_history(everywhere)
+  READS: persist_history_p(interior)
 } "Count points that hold neither the level's nor the parent's stamp"
 
 SCHEDULE TestPersistentGroups_Reduce IN TestPersistentGroups_CheckGroup AFTER TestPersistentGroups_Check
@@ -104,3 +173,4 @@ SCHEDULE TestPersistentGroups_Reduce IN TestPersistentGroups_CheckGroup AFTER Te
   WRITES: stale_count
   WRITES: stale_step
 } "Sum the per-pass stale counts over ranks, warn, and add them to the running total"
+

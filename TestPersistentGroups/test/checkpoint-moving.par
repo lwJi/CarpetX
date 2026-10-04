@@ -9,12 +9,17 @@
 # for the integrated state and only interior data for the tested groups.
 # recover-moving.par continues from it through the regrids at 8 and 12.
 #
+# persist_history is updated every P = 8 finest steps (see moving.par). At the
+# checkpoint level 0 has just been updated at time 8 and holds the genuine
+# pair (8, 0), so recovery must restore its past timelevel; levels 1 and 2
+# (time 6) hold (0, 0).
+#
 # (Not iteration 5, where level 2 is also behind level 1: the first step after
 # recovering there runs ANALYSIS on levels 1 and 2 only, and the SYNC of the
 # non-checkpointed TestSubcyclingMC2::error on level 1 prolongates from level
 # 0's, which nothing has computed since the recovery.)
 #
-# The correct value of stale_count is 0 for both groups in every row.
+# The correct value of stale_count is 0 for all three groups in every row.
 
 ActiveThorns = "
     BoxInBox
@@ -96,6 +101,7 @@ CarpetX::out_tsv_vars = "
     TestPersistentGroups::stale_count
     TestPersistentGroups::persist_default
     TestPersistentGroups::persist_noevolve
+    TestPersistentGroups::persist_history
 "
 
 CarpetX::checkpoint_method = "openpmd"

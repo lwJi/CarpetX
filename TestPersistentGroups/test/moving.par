@@ -5,8 +5,18 @@
 # default) and persist_noevolve (checkpoint="yes" evolve="no") with the
 # level's time on the interior at every step, SYNCs them, and counts every
 # point that holds neither the level's own stamp nor, on a coarse-fine ghost,
-# the parent's stamp. stale_count is the rank-summed running total; the
-# correct value is 0 for both groups in every row.
+# the parent's stamp.
+#
+# persist_history (two timelevels, checkpoint="yes" evolve="no") is stamped
+# only every P = 2 * 4 = 8 finest steps (twice level 0's step), at times when
+# all levels are aligned; in between, cycling seeds its current timelevel from
+# the past one. The check compares both timelevels with the pair expected at
+# the level's time: (8, 0) right after the update at time 8, (8, 8) until the
+# next update, (16, 8) at the end. The regrid at iteration 8 thus carries a
+# genuine past timelevel on every level.
+#
+# stale_count is the rank-summed running total; the correct value is 0 for
+# all three groups in every row.
 
 ActiveThorns = "
     BoxInBox
@@ -88,4 +98,5 @@ CarpetX::out_tsv_vars = "
     TestPersistentGroups::stale_count
     TestPersistentGroups::persist_default
     TestPersistentGroups::persist_noevolve
+    TestPersistentGroups::persist_history
 "

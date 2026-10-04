@@ -13,8 +13,30 @@ checkpoint="yes" evolve="no" group. Each group holds a time stamp written on
 the interior every step; a check counts the points that hold neither the
 level's own stamp nor, on coarse-fine ghosts, the parent level's stamp.
 
+A third group, persist_history, has two timelevels and is declared
+persistent (checkpoint="yes" evolve="no"). It is updated only occasionally,
+every P = 2 * (level 0's step) finest-level steps, at times when all levels
+are aligned; in between, CycleTimelevels seeds its current timelevel from
+the past one. Its (tl0, tl1) pair is checked against values computed from
+the level's time: tl0 is the time of the last update, and tl1 is the update
+before that right after an update (and at initial), a seeded copy of tl0
+otherwise. This tells a genuine past timelevel from a copy of the current
+one, through cycling, moving regrids, and checkpoint/recovery. It is the
+case MHD_Diagnostics::vels_old handles by hand with a single timelevel and a
+reset at POSTREGRID. Validity is checked through the READS clauses: tl0
+everywhere and tl1 on the interior at every check, and tl1 everywhere during
+evolution.
+
 The tests run on top of TestSubcyclingMC2's RK4 evolution with a moving
 refined box (regridded every 4 iterations): moving.par uninterrupted, and
 checkpoint-moving.par / recover-moving.par as a checkpoint/recover pair with
 a mid-cycle checkpoint between two regrids. After recovery the tested groups
 are SYNCed and checked before evolution continues.
+
+Checkpoints carry the interior only, and SYNC does not cover the oldest
+timelevel, so after recovery the past timelevel of persist_history is valid
+on the interior only until the level's next step. A regrid before that step
+drops it, on that level and on the finer levels prolongated from it. In
+recover-moving.par level 0 does not step between the recovery and the next
+regrid, so check_past_after_regrid = no skips the past timelevel in that
+regrid's check.

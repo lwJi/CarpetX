@@ -15,12 +15,25 @@ USES INCLUDE HEADER: loop.hxx
 CCTK_REAL persist_default TYPE=GF TAGS='checkpoint="yes"' "Time stamp, default-tagged (evolved by default)"
 CCTK_REAL persist_noevolve TYPE=GF TAGS='checkpoint="yes" evolve="no"' "Time stamp, checkpointed but not evolved"
 
+# A two-timelevel, checkpointed grid function without an rhs= tag, declared
+# persistent (evolve="no"), that is updated only occasionally: it is stamped
+# with the time s (in finest-level steps) only when s is a multiple of
+# P = 2 * (level 0's step), a time at which all levels are aligned. In
+# between, CycleTimelevels seeds the current timelevel from the previous one.
+# The expected pair (tl0, tl1) follows from s alone: tl0 = floor(s/P)*P, and
+# tl1 = tl0 - P right after an update (and at initial), tl1 = tl0 otherwise.
+# Unlike persist_noevolve this group has a genuine past timelevel that
+# cycling, regridding and recovery must keep: the case
+# MHD_Diagnostics::vels_old handles by hand with a single timelevel.
+CCTK_REAL persist_history TYPE=GF TIMELEVELS=2 TAGS='checkpoint="yes" evolve="no"' "Time stamp of the last update, checkpointed, not evolved, two timelevels"
+
 # Number of stale points found so far (rank-summed running total); this is
 # what the testsuite compares
 CCTK_INT stale_count TYPE=scalar TAGS='checkpoint="no"'
 {
   stale_default
   stale_noevolve
+  stale_history
 } "Running total of stale points per tested group"
 
 # Number of stale points found by the current check pass (rank-summed)
@@ -28,4 +41,5 @@ CCTK_INT stale_step TYPE=scalar TAGS='checkpoint="no"'
 {
   stale_step_default
   stale_step_noevolve
+  stale_step_history
 } "Stale points per tested group in the current check pass"

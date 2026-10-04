@@ -1,4 +1,8 @@
 # Parameter definitions for thorn TestPersistentGroups
 
-# None: the stamp unit is derived from CarpetX::max_num_levels, which is read
-# by name (CCTK_ParameterGet)
+# The stamp unit is derived from CarpetX::max_num_levels, which is read by
+# name (CCTK_ParameterGet)
+
+BOOLEAN check_past_after_regrid "Check the past timelevel of persist_history at POSTREGRID. Turn off where a regrid follows a recovery before level 0 steps again: the recovered past timelevel is valid on the interior only (SYNC does not cover the oldest timelevel), and a regrid carries a non-evolved timelevel only from a coarse level on which it is valid everywhere, so the regrid drops it on the refined levels." STEERABLE=recover
+{
+} yes
