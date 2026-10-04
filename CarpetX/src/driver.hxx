@@ -623,6 +623,10 @@ extern std::unique_ptr<GHExt> ghext;
 // fires once per run, fresh start or recovery.
 void warn_inert_flux_tags();
 
+// Group tag "checkpoint"; absent -> yes. Reads only the tags table, so valid
+// from PARAMCHECK on. Defined in driver.cxx.
+bool get_group_checkpoint_flag(int gi);
+
 // Group tag "evolve"; absent -> the "checkpoint" tag (absent -> yes). Reads
 // only the tags table, so valid from PARAMCHECK on. Defined in driver.cxx.
 bool get_group_evolve_flag(int gi);
