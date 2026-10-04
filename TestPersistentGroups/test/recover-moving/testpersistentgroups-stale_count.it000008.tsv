@@ -1,2 +1,2 @@
-# 1:iteration	2:time	3:stale_default	4:stale_noevolve
-8	1.2500000000000000e-01	0	0
+# 1:iteration	2:time	3:stale_default	4:stale_noevolve	5:stale_nosync	6:stale_multitl	7:stale_integ	8:stale_seed
+8	1.2500000000000000e-01	0	0	0	0	0	0

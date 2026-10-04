@@ -16,12 +16,33 @@ USES INCLUDE HEADER: loop.hxx
 CCTK_REAL persist_default TYPE=GF TAGS='checkpoint="yes"' "Time stamp, persistent (checkpointed, not integrated)"
 CCTK_REAL persist_noevolve TYPE=GF TAGS='checkpoint="yes" evolve="no"' "Time stamp, persistent, with a leftover evolve tag"
 
+# A persistent time stamp written on the interior only and never SYNCed, so
+# its ghosts are never valid. Regrid must still carry it over: the fill reads
+# the sources' interiors only.
+CCTK_REAL persist_nosync TYPE=GF TAGS='checkpoint="yes"' "Time stamp, persistent, interior only"
+
+# A persistent time stamp with two timelevels. At each cycle its current
+# timelevel's interior is seeded from the previous one, and its ghosts are
+# left invalid (poisoned) until the next SYNC.
+CCTK_REAL persist_multitl TYPE=GF TIMELEVELS=2 TAGS='checkpoint="yes"' "Time stamp, persistent, two timelevels"
+
+# Integrated state with checkpoint="no". The driver ignores the tag apart
+# from a startup warning naming the group (this group is the in-tree trigger):
+# integrated groups are always checkpointed, so the state must survive
+# recovery. Its right-hand side is zero, so the state keeps its initial value.
+CCTK_REAL integ_nochkpt TYPE=GF TAGS='rhs="integ_nochkpt_rhs" checkpoint="no"' "Constant integrated state"
+CCTK_REAL integ_nochkpt_rhs TYPE=GF TAGS='checkpoint="no"' "Right-hand side of integ_nochkpt (zero)"
+
 # Number of stale points found so far (rank-summed running total); this is
 # what the testsuite compares
 CCTK_INT stale_count TYPE=scalar TAGS='checkpoint="no"'
 {
   stale_default
   stale_noevolve
+  stale_nosync
+  stale_multitl
+  stale_integ
+  stale_seed
 } "Running total of stale points per tested group"
 
 # Number of stale points found by the current check pass (rank-summed)
@@ -29,4 +50,8 @@ CCTK_INT stale_step TYPE=scalar TAGS='checkpoint="no"'
 {
   stale_step_default
   stale_step_noevolve
+  stale_step_nosync
+  stale_step_multitl
+  stale_step_integ
+  stale_step_seed
 } "Stale points per tested group in the current check pass"

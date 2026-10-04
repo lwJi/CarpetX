@@ -1,19 +1,27 @@
 # Schedule definitions for thorn TestPersistentGroups
 
-STORAGE: persist_default persist_noevolve stale_count stale_step
+STORAGE: persist_default persist_noevolve persist_nosync persist_multitl[2]
+STORAGE: integ_nochkpt integ_nochkpt_rhs
+STORAGE: stale_count stale_step
 
 
 
-# Initial data: stamp 0 everywhere, start the running total, check
+# Initial data: stamp 0 everywhere, set the integrated state, start the
+# running total, check
 
 SCHEDULE TestPersistentGroups_Init AT initial
 {
   LANG: C
   WRITES: persist_default(interior)
   WRITES: persist_noevolve(interior)
+  WRITES: persist_nosync(interior)
+  WRITES: persist_multitl(interior)
+  WRITES: integ_nochkpt(interior)
   SYNC: persist_default
   SYNC: persist_noevolve
-} "Stamp the tested groups with the initial time"
+  SYNC: persist_multitl
+  SYNC: integ_nochkpt
+} "Stamp the tested groups with the initial time and set the integrated state"
 
 SCHEDULE TestPersistentGroups_Zero AT initial AFTER TestPersistentGroups_Init
 {
@@ -28,16 +36,45 @@ SCHEDULE GROUP TestPersistentGroups_CheckGroup AT initial AFTER (TestPersistentG
 
 
 
-# Evolution: after the integrated state has been advanced, stamp the level's
-# new time on the interior, SYNC, and check every point including the ghosts
+# Evolution: the integrated state has a zero right-hand side
+
+SCHEDULE TestPersistentGroups_RHS IN ODESolvers_RHS
+{
+  LANG: C
+  WRITES: integ_nochkpt_rhs(interior)
+} "Set the right-hand side of the integrated state to zero"
+
+SCHEDULE TestPersistentGroups_SyncState IN ODESolvers_PostStep
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: integ_nochkpt
+} "Synchronize the integrated state"
+
+# Before anything writes the current timelevel, check how it was seeded from
+# the previous one
+
+SCHEDULE TestPersistentGroups_CheckSeed AT prestep
+{
+  LANG: C
+  READS: persist_multitl(interior)
+  READS: persist_multitl_p(interior)
+} "Count seeded points that differ from the previous timelevel, and ghosts that are not poisoned"
+
+# After the integrated state has been advanced, stamp the level's new time on
+# the interior, SYNC (except persist_nosync), and check every point including
+# the ghosts
 
 SCHEDULE TestPersistentGroups_Write AT evol AFTER (ODESolvers_Solve, ODESolvers_Solve_Subcycling)
 {
   LANG: C
   WRITES: persist_default(interior)
   WRITES: persist_noevolve(interior)
+  WRITES: persist_nosync(interior)
+  WRITES: persist_multitl(interior)
   SYNC: persist_default
   SYNC: persist_noevolve
+  SYNC: persist_multitl
 } "Stamp the tested groups with the level's current time"
 
 SCHEDULE GROUP TestPersistentGroups_CheckGroup AT evol AFTER TestPersistentGroups_Write
@@ -57,7 +94,7 @@ SCHEDULE GROUP TestPersistentGroups_CheckGroup AT postregrid
 # Recovery: checkpoints carry the interior only, so restore the ghosts with a
 # SYNC (as MHD_Diagnostics::vels_old and TestSubcycleStepping do), restart the
 # running total (it is not checkpointed), and check that the recovered stamps
-# are intact
+# and the integrated state are intact
 
 SCHEDULE TestPersistentGroups_Sync AT post_recover_variables
 {
@@ -65,6 +102,8 @@ SCHEDULE TestPersistentGroups_Sync AT post_recover_variables
   OPTIONS: global
   SYNC: persist_default
   SYNC: persist_noevolve
+  SYNC: persist_multitl
+  SYNC: integ_nochkpt
 } "Restore the ghosts of the tested groups, which checkpoints do not carry"
 
 SCHEDULE TestPersistentGroups_Zero AT post_recover_variables AFTER TestPersistentGroups_Sync
@@ -94,7 +133,10 @@ SCHEDULE TestPersistentGroups_Check IN TestPersistentGroups_CheckGroup AFTER Tes
   LANG: C
   READS: persist_default(everywhere)
   READS: persist_noevolve(everywhere)
-} "Count points that hold neither the level's nor the parent's stamp"
+  READS: persist_nosync(interior)
+  READS: persist_multitl(everywhere)
+  READS: integ_nochkpt(interior)
+} "Count points that hold neither the level's nor the parent's stamp, and integrated state that changed"
 
 SCHEDULE TestPersistentGroups_Reduce IN TestPersistentGroups_CheckGroup AFTER TestPersistentGroups_Check
 {

@@ -14,7 +14,7 @@
 # non-checkpointed TestSubcyclingMC2::error on level 1 prolongates from level
 # 0's, which nothing has computed since the recovery.)
 #
-# The correct value of stale_count is 0 for both groups in every row.
+# The correct value of stale_count is 0 for every group in every row.
 
 ActiveThorns = "
     BoxInBox

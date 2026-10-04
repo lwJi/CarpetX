@@ -7,8 +7,12 @@
 # are persistent and behave identically) with the level's time on the
 # interior at every step, SYNCs them, and counts every point that holds
 # neither the level's own stamp nor, on a coarse-fine ghost, the parent's
-# stamp. stale_count is the rank-summed running total; the correct value is
-# 0 for both groups in every row.
+# stamp. It also checks persist_nosync (stamped on the interior, never
+# SYNCed: regrid must carry it over), persist_multitl (two timelevels; at
+# PRESTEP its current timelevel must hold the previous one's interior and
+# poisoned ghosts), and integ_nochkpt (integrated, checkpoint="no", zero RHS:
+# it must keep its initial value). stale_count is the rank-summed running
+# total; the correct value is 0 for every group in every row.
 
 ActiveThorns = "
     BoxInBox

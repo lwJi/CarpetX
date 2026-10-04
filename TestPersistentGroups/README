@@ -17,6 +17,21 @@ time stamp written on the interior every step; a check counts the points
 that hold neither the level's own stamp nor, on coarse-fine ghosts, the
 parent level's stamp.
 
+Three more groups test how the driver treats persistent and integrated
+state:
+
+- persist_nosync is stamped on the interior and never SYNCed, so its ghosts
+  are never valid. Regrid must still carry it over, since the fill reads only
+  the sources' interiors; its interior is checked.
+- persist_multitl has two timelevels. At PRESTEP, right after the timelevels
+  are cycled, its current timelevel must hold the previous one's interior,
+  and its ghosts must be invalid (checked through their poison), so that the
+  next SYNC rebuilds them instead of keeping last step's values.
+- integ_nochkpt is integrated by ODESolvers with a zero right-hand side and
+  carries checkpoint="no". The driver ignores that tag apart from a startup
+  warning naming the group: integrated groups are always checkpointed. The
+  state must keep its initial value, including after recovery.
+
 The tests run on top of TestSubcyclingMC2's RK4 evolution with a moving
 refined box (regridded every 4 iterations): moving.par uninterrupted, and
 checkpoint-moving.par / recover-moving.par as a checkpoint/recover pair with
