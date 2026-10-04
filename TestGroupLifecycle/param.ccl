@@ -1,0 +1,5 @@
+# Parameter definitions for thorn TestGroupLifecycle
+
+BOOLEAN premature_read "Skip the current-timelevel update to exercise the validity guard"
+{
+} yes

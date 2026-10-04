@@ -15,6 +15,12 @@ USES INCLUDE HEADER: loop.hxx
 CCTK_REAL persist_default TYPE=GF TAGS='checkpoint="yes"' "Time stamp, default-tagged (evolved by default)"
 CCTK_REAL persist_noevolve TYPE=GF TAGS='checkpoint="yes" evolve="no"' "Time stamp, checkpointed but not evolved"
 
+# Opt-in history regression. Updates happen only at common coarse-step
+# boundaries, so both timelevels agree across levels whenever we regrid.
+CCTK_REAL persistent_history TYPE=GF TIMELEVELS=2 TAGS='checkpoint="yes" evolve="no" restrict="no"' "Occasionally updated diagnostic with persistent history"
+
+CCTK_INT history_checks TYPE=scalar TAGS='checkpoint="no"' "Successful history checks: seed=1, update=2, regrid=4, recovery=8"
+
 # Number of stale points found so far (rank-summed running total); this is
 # what the testsuite compares
 CCTK_INT stale_count TYPE=scalar TAGS='checkpoint="no"'

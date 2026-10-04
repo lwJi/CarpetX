@@ -1,4 +1,11 @@
 # Parameter definitions for thorn TestPersistentGroups
 
-# None: the stamp unit is derived from CarpetX::max_num_levels, which is read
-# by name (CCTK_ParameterGet)
+# The stamp unit is derived from CarpetX::max_num_levels, read by name.
+
+BOOLEAN test_history "Exercise persistent, checkpointed two-timelevel data"
+{
+} no
+
+BOOLEAN history_expect_recovery "Require the history recovery check to run" STEERABLE=recover
+{
+} no

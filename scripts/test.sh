@@ -66,5 +66,14 @@ for test_dir in "${ONEPROC_DIR}" "${TWOPROC_DIR}"; do
         exit 1
     fi
 done
+
+# Expected failures need diagnostic checks rather than numerical references.
+for lifecycle_nprocs in 1 2; do
+    OMP_NUM_THREADS=$((2 / lifecycle_nprocs)) \
+    python3 "$CARPETXSPACE/scripts/test-group-lifecycle.py" \
+        "$WORKSPACE/Cactus/exe/cactus_sim" \
+        --nprocs "$lifecycle_nprocs" \
+        --output-dir "$WORKSPACE/Cactus/TEST/group-lifecycle-$lifecycle_nprocs"
+done
 echo 'SUCCESS'
 exit 0

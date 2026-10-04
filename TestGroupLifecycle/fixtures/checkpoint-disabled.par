@@ -1,0 +1,17 @@
+# Must fail at PARAMCHECK despite the explicit evolve="yes" override.
+ActiveThorns = "CarpetX IOUtil ODESolvers TestGroupLifecycle"
+
+Cactus::cctk_itlast = 0
+Cactus::presync_mode = "mixed-error"
+
+CarpetX::ncells_x = 8
+CarpetX::ncells_y = 8
+CarpetX::ncells_z = 8
+CarpetX::blocking_factor_x = 1
+CarpetX::blocking_factor_y = 1
+CarpetX::blocking_factor_z = 1
+CarpetX::max_num_levels = 1
+
+IO::out_dir = $parfile
+IO::parfile_write = no
+CarpetX::out_metadata = no

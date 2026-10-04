@@ -1,0 +1,37 @@
+TestGroupLifecycle exercises startup and timelevel validity errors, together
+with a passing control. It is not a physics thorn and must not be activated
+in production runs: its uncheckpointed_state group is deliberately invalid
+when ODESolvers is active.
+
+The fixtures are outside test/ because Cactus RunTest treats an abort as a
+test failure and does not provide an expected-diagnostic assertion. Run:
+
+  python3 scripts/test-group-lifecycle.py /path/to/cactus_sim --nprocs 1
+  python3 scripts/test-group-lifecycle.py /path/to/cactus_sim --nprocs 2
+
+The executable must include CarpetX, IOUtil, ODESolvers, this thorn, and the
+TestPersistentGroups moving-history tests with their physics dependencies.
+The runner accepts --launcher 'mpiexec optional-flags', --output-dir DIR,
+and --timeout SECONDS. It prints and retains the log directory on success
+and failure. No numerical reference files are needed.
+
+updated-read.par is the passing control. With ODESolvers inactive, a
+checkpointed, nonintegrated group with two timelevels and evolve="yes" is
+initialized, cycled, rewritten, and read successfully at its current
+timelevel. The runner requires both zero exit status and the read marker.
+
+premature-read.par uses the same setup but skips the rewrite. It must abort
+in the driver's READS check for TestGroupLifecycle::evolved at timelevel 0,
+with CycleTimelevels' invalidation reason. This protects evolve semantics
+independently of integration ownership. A successful exit, a timeout, a
+different failure, or reaching the read routine body fails the test.
+
+checkpoint-disabled.par activates ODESolvers. Its rhs-tagged state declares
+checkpoint="no" and evolve="yes", bypassing the older evolved-state check.
+It must abort at startup with the checkpoint diagnostic naming that group.
+
+The runner also executes TestPersistentGroups/par/history-{moving,checkpoint,
+recover}.par in order, with fresh checkpoint files produced during the run.
+Those fixtures require successful numerical checks for both persistent
+timelevels through cycling, moving-grid regridding, and checkpoint recovery.
+Their completion masks must be 7, 7, and 15, respectively.

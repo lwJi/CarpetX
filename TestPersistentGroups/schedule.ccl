@@ -2,6 +2,82 @@
 
 STORAGE: persist_default persist_noevolve stale_count stale_step
 
+if (test_history) {
+  STORAGE: persistent_history[2] history_checks
+
+  SCHEDULE TestPersistentGroups_HistoryZero AT initial
+  {
+    LANG: C
+    OPTIONS: global
+    WRITES: history_checks
+  } "Reset successful history checks"
+
+  SCHEDULE TestPersistentGroups_HistoryInit AT initial AFTER TestPersistentGroups_Init
+  {
+    LANG: C
+    WRITES: persistent_history(everywhere)
+    WRITES: persistent_history_p(everywhere)
+  } "Initialize both timelevels of the persistent diagnostic"
+
+  SCHEDULE TestPersistentGroups_HistoryRead AT evol BEFORE TestPersistentGroups_Write
+  {
+    LANG: C
+    READS: persist_default(interior)
+    READS: persistent_history(everywhere)
+    READS: persistent_history_p(everywhere)
+  } "Check the seeded current timelevel before the diagnostic is updated"
+
+  SCHEDULE TestPersistentGroups_HistoryUpdate AT evol AFTER TestPersistentGroups_Write
+  {
+    LANG: C
+    READS: persist_default(interior)
+    READS: persistent_history(everywhere)
+    READS: persistent_history_p(everywhere)
+    WRITES: persistent_history(everywhere)
+  } "Occasionally update the diagnostic and check that its history is untouched"
+
+  SCHEDULE TestPersistentGroups_HistoryRegrid AT postregrid
+  {
+    LANG: C
+    READS: persist_default(interior)
+    READS: persistent_history(everywhere)
+    READS: persistent_history_p(everywhere)
+  } "Check both timelevels before any postregrid rewrite"
+
+  SCHEDULE TestPersistentGroups_HistoryZero AT post_recover_variables
+  {
+    LANG: C
+    OPTIONS: global
+    WRITES: history_checks
+  } "Reset successful history checks after recovery"
+
+  SCHEDULE TestPersistentGroups_HistoryRecover AT post_recover_variables AFTER TestPersistentGroups_HistoryZero
+  {
+    LANG: C
+    READS: persist_default(interior)
+    READS: persistent_history(interior)
+    READS: persistent_history_p(interior)
+    # The interiors are checked and retained; restoring the omitted points
+    # makes both complete timelevels valid on return.
+    WRITES: persistent_history(everywhere)
+    WRITES: persistent_history_p(everywhere)
+  } "Check recovered history interiors and restore only their omitted ghosts"
+
+  SCHEDULE TestPersistentGroups_HistorySummary AT analysis
+  {
+    LANG: C
+    OPTIONS: global
+    WRITES: history_checks
+  } "Publish the successful history checks"
+
+  SCHEDULE TestPersistentGroups_HistoryDone AT terminate
+  {
+    LANG: C
+    OPTIONS: global
+    READS: history_checks
+  } "Require cycling, updates, moving regrid, and requested recovery coverage"
+}
+
 
 
 # Initial data: stamp 0 everywhere, start the running total, check

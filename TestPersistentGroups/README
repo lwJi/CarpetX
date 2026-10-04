@@ -18,3 +18,24 @@ refined box (regridded every 4 iterations): moving.par uninterrupted, and
 checkpoint-moving.par / recover-moving.par as a checkpoint/recover pair with
 a mid-cycle checkpoint between two regrids. After recovery the tested groups
 are SYNCed and checked before evolution continues.
+
+The opt-in test_history parameter adds a distinct, checkpointed two-timelevel
+diagnostic with evolve="no" and restrict="no". It is updated only every other
+coarse step. Before each update, both timelevels must contain the previous
+value: this tests current-timelevel seeding. After an update, the old timelevel
+must remain unchanged. Both timelevels are checked again after moving regrids
+and immediately after checkpoint recovery. Recovery checks the stored interiors
+before restoring the ghosts omitted by openPMD; no recovered interior is
+rewritten. The field is constant in space, and updates occur at common coarse
+step boundaries, so the expected history is unambiguous at every regrid.
+
+Run these checks with scripts/test-group-lifecycle.py EXECUTABLE --nprocs 1
+(or --nprocs 2). The runner substitutes temporary output/checkpoint directories
+in par/history-moving.par, par/history-checkpoint.par and
+par/history-recover.par, then runs an uninterrupted evolution and a fresh
+checkpoint/recover pair. No checked-in checkpoint files are needed. Every
+mismatch is fatal. history_checks records successful cycling (1), an actual
+update (2), an evolution-time regrid (4), and recovery (8); termination requires
+the relevant bits, so a skipped test phase cannot silently pass. The original
+single-timelevel controls and reference outputs remain unchanged when
+test_history is disabled.

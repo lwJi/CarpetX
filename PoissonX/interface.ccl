@@ -17,7 +17,9 @@ USES INCLUDE HEADER: vect.hxx
 
 CCTK_REAL need_initial_guess TYPE=scalar TAGS='checkpoint="no"' "Do we need to set up an initial guess?"
 
-CCTK_REAL sol TYPE=gf TAGS='res="res"' "Solution"
+# PDESolvers solves at initial; retain the solution between solves and use it
+# as the initial guess when another refinement level is initialized.
+CCTK_REAL sol TYPE=gf TAGS='res="res" evolve="no"' "Solution"
 CCTK_REAL res TYPE=gf TAGS='checkpoint="no"' "Residual"
 
 CCTK_REAL src TYPE=gf TAGS='checkpoint="no"' "Source"

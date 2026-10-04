@@ -171,6 +171,7 @@ CarpetX/TestArrayGroup
 CarpetX/TestBoundaries
 CarpetX/TestBoxInBox
 CarpetX/TestDerivs
+CarpetX/TestGroupLifecycle
 CarpetX/TestInterpolate
 CarpetX/TestLoopX
 CarpetX/TestNorms

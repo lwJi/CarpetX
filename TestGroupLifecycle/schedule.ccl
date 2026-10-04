@@ -1,0 +1,22 @@
+STORAGE: uncheckpointed_state rhs evolved[2] probe
+
+SCHEDULE TestGroupLifecycle_Init AT initial
+{
+  LANG: C
+  WRITES: uncheckpointed_state(everywhere) evolved(everywhere)
+} "Initialize every evolved current timelevel before cycling"
+
+if (!premature_read) {
+  SCHEDULE TestGroupLifecycle_Update AT evol
+  {
+    LANG: C
+    WRITES: evolved(everywhere)
+  } "Write the current timelevel in the passing control"
+}
+
+SCHEDULE TestGroupLifecycle_ReadCurrent AT evol AFTER TestGroupLifecycle_Update
+{
+  LANG: C
+  READS: evolved(interior)
+  WRITES: probe(interior)
+} "Read the current timelevel, requiring the driver's validity check"

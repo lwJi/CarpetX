@@ -1,0 +1,14 @@
+# Interface definitions for lifecycle validation fixtures
+
+IMPLEMENTS: TestGroupLifecycle
+
+USES INCLUDE HEADER: loop.hxx
+
+# With ODESolvers active this must be rejected even though evolve="yes".
+CCTK_REAL uncheckpointed_state TYPE=gf TAGS='rhs="rhs" checkpoint="no" evolve="yes"' "Integrated state excluded from checkpoints"
+CCTK_REAL rhs TYPE=gf TAGS='checkpoint="no"' "Unused RHS for startup validation"
+
+# With ODESolvers inactive the driver must still invalidate the current TL
+# on cycling: evolve controls this independently of RHS ownership.
+CCTK_REAL evolved TYPE=gf TIMELEVELS=2 TAGS='checkpoint="yes" evolve="yes"' "Explicitly evolved nonintegrated state"
+CCTK_REAL probe TYPE=gf TAGS='checkpoint="no"' "Copy of the current state for the read fixture"

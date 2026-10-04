@@ -21,6 +21,15 @@ if ! (
 fi
 
 if [ -f "$summary" ] && grep -Eq 'Number failed *-> *0' "$summary"; then
+  lifecycle_repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  for lifecycle_nprocs in 1 2; do
+    if ! python3 "$lifecycle_repo_dir/scripts/test-group-lifecycle.py" \
+      "$CACTUSX/exe/cactus_carpetx" --nprocs "$lifecycle_nprocs" \
+      --output-dir "$CACTUSX/TEST/carpetx/TestGroupLifecycle/negative-$lifecycle_nprocs"; then
+      echo "✗ group lifecycle checks failed" >&2
+      exit 1
+    fi
+  done
   echo "✓ test"
   exit 0
 fi
