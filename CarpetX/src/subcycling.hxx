@@ -74,12 +74,11 @@ void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
 // integrated"; SyncGroupsByDirISubcycling (which skips the refined-level
 // coarse-fine ghosts of exactly these groups during evolution),
 // FillRKBoundary, EnsureRKBuffers, StoreRKOldState, group_has_flux_register,
-// warn_inert_flux_tags, ODESolvers_CheckCheckpointed, regrid
-// (regrid_prolongate_tls, MakeNewLevelFromCoarse, RemakeLevel: an integrated
-// group carries all but its oldest timelevel and requires valid sources),
+// warn_inert_flux_tags, warn_ignored_tags, get_group_checkpoint_flag (an
+// integrated group is always checkpointed), regrid_prolongate_tls (an
+// integrated group carries all but its oldest timelevel),
 // CycleTimelevels (an integrated group's current timelevel is invalidated, or
-// must be valid with one timelevel), warn_persistent_multi_tl_groups and the
-// group metadata dump call it. Uses only ghext and no grid structure, so it is
+// must be valid with one timelevel) and the group metadata dump call it. Uses only ghext and no grid structure, so it is
 // valid from PARAMCHECK on, before any level exists. Defined in driver.cxx.
 bool group_is_integrated(int gi);
 

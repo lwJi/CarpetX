@@ -622,28 +622,21 @@ extern std::unique_ptr<GHExt> ghext;
 // fires once per run, fresh start or recovery.
 void warn_inert_flux_tags();
 
-// Print one CCTK_WARN_ALERT for each group, of any type, whose tag table has
-// an evolve key, whatever its value: the driver no longer reads that tag, and
-// a grid function is evolved exactly when it is integrated
-// (group_is_integrated, subcycling.hxx). Reads only the tag tables and never
-// asserts on the tag's value. Warns on the root process only. Called once by
-// Initialise, next to warn_inert_flux_tags, so it fires once per run, fresh
-// start or recovery.
-void warn_ignored_evolve_tags();
+// Print one CCTK_WARN_ALERT for each group tag the driver ignores: an evolve
+// key on any group, whatever its value (the driver no longer reads that tag; a
+// grid function is evolved exactly when it is integrated, group_is_integrated
+// in subcycling.hxx), and checkpoint="no" on an integrated group (overridden,
+// see get_group_checkpoint_flag). Never asserts on the evolve tag's value.
+// Warns on the root process only. Called once by Initialise, next to
+// warn_inert_flux_tags (it needs ghext->rk_integrated_group from WRAGH), so it
+// fires once per run, fresh start or recovery.
+void warn_ignored_tags();
 
-// Print one CCTK_WARN_ALERT for each grid-function group that is checkpointed
-// (get_group_checkpoint_flag), not integrated (group_is_integrated) and has
-// more than one active timelevel. Such a group is persistent: CycleTimelevels
-// seeds its current timelevel from the previous one instead of invalidating
-// it. That is the one case whose results can differ from the former evolve
-// tag's default. Warns on the root process only. Called once by Initialise,
-// next to warn_inert_flux_tags (it needs ghext->rk_integrated_group from WRAGH
-// and ghext->active_timelevels, frozen after ScheduleGHInit), so it fires
-// once per run, fresh start or recovery.
-void warn_persistent_multi_tl_groups();
-
-// Group tag "checkpoint"; absent -> yes. Reads only the tags table, so valid
-// from PARAMCHECK on. Defined in driver.cxx.
+// Whether group gi is checkpointed: its "checkpoint" tag (absent -> yes), or
+// true if it is integrated (group_is_integrated), whose state cannot be
+// recomputed. Checkpointed groups are exactly the persistent ones that regrid
+// carries over. For a grid function the value is final from WRAGH on, when
+// ODESolvers publishes the integrated groups. Defined in driver.cxx.
 bool get_group_checkpoint_flag(int gi);
 
 // True iff every level of every patch sits at the same subcycling iteration,

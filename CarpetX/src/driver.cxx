@@ -339,7 +339,9 @@ std::array<std::array<boundary_t, dim>, 2> get_group_boundaries(const int gi) {
   return boundaries;
 }
 
-bool get_group_checkpoint_flag(const int gi) {
+// The group's checkpoint tag as declared; absent -> yes. See
+// get_group_checkpoint_flag for the value the driver acts on.
+static bool get_group_checkpoint_tag(const int gi) {
   int tags = CCTK_GroupTagsTableI(gi);
   assert(tags >= 0);
   char buf[100];
@@ -358,6 +360,13 @@ bool get_group_checkpoint_flag(const int gi) {
   } else {
     assert(0);
   }
+}
+
+// See driver.hxx for the contract. Integrated state cannot be recomputed, so
+// it is always checkpointed, whatever its tag (warn_ignored_tags reports a
+// checkpoint="no" on it).
+bool get_group_checkpoint_flag(const int gi) {
+  return get_group_checkpoint_tag(gi) || group_is_integrated(gi);
 }
 
 bool get_group_restrict_flag(const int gi) {
@@ -537,48 +546,28 @@ void warn_inert_flux_tags() {
 }
 
 // See driver.hxx for the contract. The driver no longer reads the evolve tag
-// (a group is evolved exactly when it is integrated), so without this warning
-// a thorn relying on evolve="yes" or evolve="no" would change behaviour
-// silently: the flesh keeps unread tag keys without complaint. Every process
-// sees the same tags, so only the root warns.
-void warn_ignored_evolve_tags() {
+// (a group is evolved exactly when it is integrated) and overrides
+// checkpoint="no" on an integrated group, so without this warning a thorn
+// relying on either tag would change behaviour silently: the flesh keeps
+// unread tag keys without complaint. Every process sees the same tags and
+// integrated set, so only the root warns.
+void warn_ignored_tags() {
   if (CCTK_MyProc(nullptr) != 0)
     return;
   for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-    if (!group_has_tag(gi, "evolve"))
-      continue;
-    CCTK_VWARN(CCTK_WARN_ALERT,
-               "Group \"%s\" has an evolve= tag. The tag is ignored: a group "
-               "is evolved exactly when ODESolvers integrates it (it has an "
-               "rhs= tag). Remove the tag.",
-               CCTK_FullGroupName(gi));
-  }
-}
-
-// See driver.hxx for the contract. This is the one kind of group whose
-// results can differ from the former evolve-tag default (evolve defaulted to
-// checkpoint): its current timelevel used to be invalidated at each cycle
-// and is now seeded from the previous one, so a read before the owning thorn
-// rewrites it sees the lagged value instead of failing. A single timelevel is
-// never seeded or invalidated, hence the timelevel condition. Every process
-// sees the same tags, integrated set and timelevel counts, so only the root
-// warns.
-void warn_persistent_multi_tl_groups() {
-  if (CCTK_MyProc(nullptr) != 0)
-    return;
-  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-    if (CCTK_GroupTypeI(gi) != CCTK_GF || !get_group_checkpoint_flag(gi) ||
-        group_is_integrated(gi))
-      continue;
-    const int ntls = ghext->active_timelevels.at(gi);
-    if (ntls <= 1)
-      continue;
-    CCTK_VWARN(CCTK_WARN_ALERT,
-               "Group \"%s\" is checkpointed, is not integrated by ODESolvers, "
-               "and has %d active timelevels. Its current timelevel is seeded "
-               "from the previous one at each step instead of being "
-               "invalidated.",
-               CCTK_FullGroupName(gi), ntls);
+    if (group_has_tag(gi, "evolve"))
+      CCTK_VWARN(CCTK_WARN_ALERT,
+                 "Group \"%s\" has an evolve= tag. The tag is ignored: a "
+                 "group is evolved exactly when ODESolvers integrates it (it "
+                 "has an rhs= tag). Remove the tag.",
+                 CCTK_FullGroupName(gi));
+    if (group_is_integrated(gi) && !get_group_checkpoint_tag(gi))
+      CCTK_VWARN(CCTK_WARN_ALERT,
+                 "Group \"%s\" is integrated by ODESolvers (rhs= tag) and has "
+                 "checkpoint=\"no\". The tag is ignored: integrated groups "
+                 "are always checkpointed, since their state cannot be "
+                 "recomputed. Remove the tag.",
+                 CCTK_FullGroupName(gi));
   }
 }
 
@@ -1536,7 +1525,11 @@ void CactusAmrCore::MakeNewLevelFromScratch(
     CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d done.", patch, level);
 }
 
-// How many time levels are transported onto a new/remade level at regrid time
+// How many time levels are transported onto a new/remade level at regrid time.
+// Checkpointed groups (integrated ones included) are persistent and
+// transported; other groups are recomputable scratch. Transport enforces no validity: each
+// variable is filled where its sources are valid and is left invalid (with a
+// reason) otherwise, and the validity checks report it where it is read.
 static int
 regrid_prolongate_tls(const GHExt::PatchData::LevelData::GroupData &groupdata) {
   const int ntls = groupdata.mfab.size();
@@ -1595,7 +1588,6 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
     assert(coarsegroupdata.numvars == groupdata.numvars);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
-    const bool integrated = group_is_integrated(gi);
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
@@ -1603,36 +1595,22 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
     for (int tl = 0; tl < ntls; ++tl) {
       why_valid_t why([]() { return "MakeNewLevelFromCoarse"; });
       groupdata.valid.at(tl).resize(groupdata.numvars, why);
-      for (int vi = 0; vi < groupdata.numvars; ++vi) {
+      for (int vi = 0; vi < groupdata.numvars; ++vi)
         // Time levels with tl < prolongate_tl are overwritten below after
-        // prolongation; these reasons persist only for the others
-        if (integrated)
-          groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
-            return "MakeNewLevelFromCoarse: oldest time level is not "
-                   "prolongated at regrid";
-          });
-        else
-          groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
-            return "MakeNewLevelFromCoarse: not prolongated because variable "
-                   "is not integrated";
-          });
-      }
+        // prolongation; this reason persists only for the others
+        groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
+          return "MakeNewLevelFromCoarse: time level is not prolongated at "
+                 "regrid";
+        });
 
       if (tl < prolongate_tl) {
-        bool do_fill = true;
-        if (integrated) {
-          // Expect coarse grid data to be valid
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
-            error_if_invalid(coarsegroupdata, vi, tl, make_valid_all(), []() {
-              return "MakeNewLevelFromCoarse before prolongation";
-            });
-        } else {
-          // Checkpointed non-integrated state: transport best-effort, only
-          // when the coarse source is fully valid
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
-            do_fill &= coarsegroupdata.valid.at(tl).at(vi).get().valid_all();
-        }
-        if (do_fill) {
+        // FillPatch_NewLevel reads only the coarse interior and rebuilds
+        // ghosts and outer boundaries itself, so a variable is prolongated
+        // exactly when its coarse interior is valid
+        std::vector<bool> fill(groupdata.numvars);
+        for (int vi = 0; vi < groupdata.numvars; ++vi)
+          fill.at(vi) = coarsegroupdata.valid.at(tl).at(vi).get().valid_int;
+        if (std::find(fill.begin(), fill.end(), true) != fill.end()) {
           for (int vi = 0; vi < groupdata.numvars; ++vi)
             check_valid_gf(active_coarse_levels, gi, vi, tl, []() {
               return "MakeNewLevelFromCoarse before prolongation";
@@ -1645,31 +1623,28 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
               groupdata.all_faces_have_symmetries_or_boundaries()
                   ? make_valid_outer()
                   : valid_t();
-          for (int vi = 0; vi < groupdata.numvars; ++vi) {
-            groupdata.valid.at(tl).at(vi).set_all(
-                make_valid_int() | make_valid_ghosts() | outer_valid,
-                []() { return "MakeNewLevelFromCoarse after prolongation"; });
-            // This cannot be called because it would access the data
-            // with old metadata
-            // check_valid_gf(active_levels, gi, vi, tl, []() {
-            //   return "MakeNewLevelFromCoarse after prolongation";
-            // });
-          }
-        } else {
-          // Data already poisoned by SetupLevel
           for (int vi = 0; vi < groupdata.numvars; ++vi)
-            groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
-              return "MakeNewLevelFromCoarse: not prolongated because source "
-                     "was invalid at regrid time";
-            });
+            if (fill.at(vi))
+              groupdata.valid.at(tl).at(vi).set_all(
+                  make_valid_int() | make_valid_ghosts() | outer_valid,
+                  []() { return "MakeNewLevelFromCoarse after prolongation"; });
         }
+        for (int vi = 0; vi < groupdata.numvars; ++vi)
+          if (!fill.at(vi))
+            groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
+              return "MakeNewLevelFromCoarse: not prolongated because the "
+                     "coarse interior was invalid at regrid time";
+            });
       }
 
-      // Already poisoned by SetupLevel
-      for (int vi = 0; vi < groupdata.numvars; ++vi)
+      // SetupLevel poisoned the level, but the prolongation above also
+      // overwrites variables that it leaves invalid
+      for (int vi = 0; vi < groupdata.numvars; ++vi) {
+        poison_invalid_gf(active_levels, gi, vi, tl);
         check_valid_gf(active_levels, gi, vi, tl, []() {
           return "MakeNewLevelFromCoarse after prolongation";
         });
+      }
     } // for tl
 
   } // for gi
@@ -1721,22 +1696,11 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
     assert(coarsegroupdata.numvars == groupdata.numvars);
 
-    const bool integrated = group_is_integrated(gi);
     const int ntls = groupdata.mfab.size();
-    const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
     for (int tl = 0; tl < ntls; ++tl) {
       for (int vi = 0; vi < groupdata.numvars; ++vi) {
         poison_invalid_gf(active_levels, gi, vi, tl);
-
-        // Checkpointed non-integrated groups are transported best-effort;
-        // only integrated groups require valid sources here
-        if (integrated && tl < prolongate_tl) {
-          error_if_invalid(coarsegroupdata, vi, tl, make_valid_all(),
-                           []() { return "RemakeLevel before prolongation"; });
-          error_if_invalid(groupdata, vi, tl, make_valid_all(),
-                           []() { return "RemakeLevel before prolongation"; });
-        }
         check_valid_gf(active_coarse_levels, gi, vi, tl,
                        []() { return "RemakeLevel before prolongation"; });
         check_valid_gf(active_levels, gi, vi, tl,
@@ -1783,22 +1747,21 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                                  : valid_t();
     assert(outer_valid == make_valid_outer());
 
-    const bool integrated = group_is_integrated(gi);
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
     for (int tl = 0; tl < ntls; ++tl) {
       if (tl < prolongate_tl) {
-        // Checkpointed non-integrated state: transport best-effort, only when
-        // both the coarse and the old fine sources are fully valid
+        // FillPatch_RemakeLevel reads only the interiors of the coarse and
+        // the old fine level and rebuilds ghosts and outer boundaries itself,
+        // so a variable is filled exactly when both interiors are valid
         // (oldgroupdata.valid still carries the pre-swap flags)
-        bool do_fill = true;
-        if (!integrated)
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
-            do_fill &= coarsegroupdata.valid.at(tl).at(vi).get().valid_all() &&
-                       oldgroupdata.valid.at(tl).at(vi).get().valid_all();
+        std::vector<bool> fill(groupdata.numvars);
+        for (int vi = 0; vi < groupdata.numvars; ++vi)
+          fill.at(vi) = coarsegroupdata.valid.at(tl).at(vi).get().valid_int &&
+                        oldgroupdata.valid.at(tl).at(vi).get().valid_int;
 
-        if (do_fill) {
+        if (std::find(fill.begin(), fill.end(), true) != fill.end())
           // Copy from same level and/or prolongate from next coarser level
           FillPatch_RemakeLevel(
               groupdata, coarsegroupdata, *groupdata.mfab.at(tl),
@@ -1806,19 +1769,18 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
               patchdata.amrcore->Geom(level - 1),
               patchdata.amrcore->Geom(level), interpolator, groupdata.bcrecs);
 
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
+        // A variable left invalid keeps this reason, and the data is
+        // poisoned below
+        for (int vi = 0; vi < groupdata.numvars; ++vi)
+          if (fill.at(vi))
             groupdata.valid.at(tl).at(vi) = why_valid_t(
                 make_valid_int() | make_valid_ghosts() | outer_valid,
                 []() { return "RemakeLevel after prolongation"; });
-        } else {
-          // Leave the constructor-default invalid state; the data is
-          // poisoned below
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
+          else
             groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
-              return "RemakeLevel: not prolongated because source was "
-                     "invalid at regrid time";
+              return "RemakeLevel: not prolongated because the coarse or old "
+                     "fine interior was invalid at regrid time";
             });
-        }
       }
 
       for (int vi = 0; vi < groupdata.numvars; ++vi) {
@@ -1997,7 +1959,7 @@ operator<<(std::ostream &os,
 
 YAML::Emitter &operator<<(YAML::Emitter &yaml,
                           const GHExt::CommonGroupData &commongroupdata) {
-  yaml << YAML::LocalTag("commongroupdata-1.0.0");
+  yaml << YAML::LocalTag("commongroupdata-2.0.0");
   yaml << YAML::BeginMap;
   yaml << YAML::Key << "groupname" << YAML::Value
        << CCTK_FullGroupName(commongroupdata.groupindex);

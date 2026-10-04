@@ -1138,8 +1138,7 @@ int Initialise(tFleshConfig *config) {
   // recover/new-grid split, so they warn once on fresh starts and on recovery
   // alike
   warn_inert_flux_tags();
-  warn_ignored_evolve_tags();
-  warn_persistent_multi_tl_groups();
+  warn_ignored_tags();
 
   active_levels = std::optional<active_levels_t>();
 
@@ -1580,19 +1579,22 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
               });
           } else {
             // Non-integrated multi-timelevel group: tl=1 holds the genuine
-            // previous-step state. Seed tl=0 with it so RHS reads before the
+            // previous-step state. Seed tl=0 with it so reads before the
             // owning thorn's refill see a valid (lagged) value. tl=1 is left
             // untouched for the subcycling prolongation blend. Both timelevels
             // share BoxArray/DistributionMap, so an in-place Copy (not
-            // ParallelCopy) over interior + ghost cells is valid.
+            // ParallelCopy) is valid. Only the interior is seeded: writing
+            // the interior does not invalidate the ghosts and outer boundary,
+            // so seeded ones would stay marked valid with last step's values
+            // and a presync would skip them. Left invalid (and poisoned
+            // below), they are rebuilt from the interior on demand.
             amrex::MultiFab::Copy(*groupdata.mfab.at(0), *groupdata.mfab.at(1),
-                                  0, 0, groupdata.numvars,
-                                  groupdata.mfab.at(0)->nGrowVect());
+                                  0, 0, groupdata.numvars, amrex::IntVect(0));
             for (int vi = 0; vi < groupdata.numvars; ++vi)
               groupdata.valid.at(0).at(vi).set_all(
-                  groupdata.valid.at(1).at(vi).get(), []() {
-                    return "CycleTimelevels (seed current time level from old "
-                           "time level)";
+                  groupdata.valid.at(1).at(vi).get() & make_valid_int(), []() {
+                    return "CycleTimelevels (seed current time level's "
+                           "interior from old time level)";
                   });
           }
           // enter_local_mode caches mfab pointers into local_cctkGH->data;
@@ -1629,7 +1631,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
         }
       });
       for (int vi = 0; vi < groupdata0.numvars; ++vi) {
-        if (ntls0 > 1 && integrated)
+        if (ntls0 > 1)
           poison_invalid_gf(*active_levels, gi, vi, 0);
         for (int tl = 0; tl < ntls0; ++tl)
           check_valid_gf(*active_levels, gi, vi, tl,

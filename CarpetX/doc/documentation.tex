@@ -280,10 +280,10 @@ A group with an \texttt{rhs} tag is \emph{integrated}: \texttt{ODESolvers} advan
 %
 \begin{itemize}
 \item \emph{Timelevel cycling.} At the start of each step, an integrated group with several timelevels has its current timelevel marked invalid, so it must be written again. With a single timelevel it must be valid everywhere; under \texttt{Cactus::presync\_mode = "presync-only"} it is synchronized once instead.
-\item \emph{Regridding.} When a level is created or changed, an integrated group keeps all but its oldest timelevel (a single timelevel is kept). The coarse data, and the old data on a changed level, must be valid everywhere for those timelevels; otherwise this is an error.
+\item \emph{Regridding.} When a level is created or changed, an integrated group keeps all but its oldest timelevel (a single timelevel is kept). Each variable is filled where the coarse data, and the old data on a changed level, have a valid interior; ghost zones and outer boundaries are rebuilt. A variable without valid source data is left invalid, and the next read of it reports the regrid as the reason. For an integrated group that read is at the latest the next timelevel cycling.
 \end{itemize}
 %
-An integrated group must be checkpointed (see the \texttt{checkpoint} tag below); \texttt{checkpoint="no"} on it is an error at startup.
+An integrated group is always checkpointed (see the \texttt{checkpoint} tag below), since its state cannot be recomputed; a \texttt{checkpoint="no"} tag on it is ignored with a warning at startup.
 
 A group without an \texttt{rhs} tag is not integrated, and neither is any group when \texttt{ODESolvers} is not active. Such groups persist from one step to the next; see the \texttt{checkpoint} tag below.
 
@@ -316,13 +316,13 @@ Indicates that a variable group must be saved as a simulation checkpoint. \Cactu
   } "A group of real variables describing the simulation RHS"
 \end{lstlisting}
 %
-the simulation state, represented by the \texttt{state\_vector} group is checkpointed, while the \texttt{right\_hand\_side} group is not. The values are \texttt{"yes"} and \texttt{"no"}. If the tag is absent, it defaults to \texttt{"yes"}.
+the simulation state, represented by the \texttt{state\_vector} group is checkpointed, while the \texttt{right\_hand\_side} group is not. The values are \texttt{"yes"} and \texttt{"no"}. If the tag is absent, it defaults to \texttt{"yes"}. An integrated group is checkpointed even with \texttt{checkpoint="no"}.
 
 A group that is not integrated (see the \texttt{rhs} tag above) persists between the times it is written, for example the previous value of a quantity kept for a time derivative in an analysis routine:
 %
 \begin{itemize}
-\item \emph{Timelevel cycling.} At the start of each step, such a group with several timelevels has its current timelevel seeded from the previous one. With a single timelevel it is left as it is.
-\item \emph{Regridding.} When a level is created or changed, a checkpointed group keeps all its timelevels and is filled where the coarse data, and the old data on a changed level, are valid everywhere; a timelevel without valid data is left invalid. A group that is not checkpointed is not carried over; it must be recomputed.
+\item \emph{Timelevel cycling.} At the start of each step, such a group with several timelevels has the interior of its current timelevel seeded from the previous one; its ghost zones and outer boundary are left invalid, so they are rebuilt from the interior (by a \texttt{SYNC}) when needed. With a single timelevel it is left as it is.
+\item \emph{Regridding.} When a level is created or changed, a checkpointed group keeps all its timelevels. Each variable is filled as for an integrated group: where the source data have a valid interior, and left invalid otherwise. A group that is not checkpointed is not carried over; it must be recomputed.
 \end{itemize}
 %
 For example, a persistent, checkpointed group that an analysis routine updates only occasionally is declared as
@@ -385,7 +385,7 @@ As an example, we present an excerpt of a parameter file for a simulation that e
 
 \subsubsection{\texttt{restrict}}
 
-Marks a group to be restricted, i.e.\ after each time step, its values on a coarse level are replaced by the values from the next finer level where they overlap. The values are \texttt{"yes"} and \texttt{"no"}. If the tag is absent, it takes the value of the \texttt{checkpoint} tag. Under subcycling, a restricted group also has its coarse-fine ghosts prolongated again from the freshly restricted coarse data whenever a fine level has caught up in time with its parent. A group whose fine and coarse values must stay independent, for example because each level stores its own diagnostic, sets \texttt{restrict="no"}.
+Marks a group to be restricted, i.e.\ after each time step, its values on a coarse level are replaced by the values from the next finer level where they overlap. The values are \texttt{"yes"} and \texttt{"no"}. If the tag is absent, the group is restricted exactly when it is checkpointed, which every integrated group is (see the \texttt{checkpoint} tag). Under subcycling, a restricted group also has its coarse-fine ghosts prolongated again from the freshly restricted coarse data whenever a fine level has caught up in time with its parent. A group whose fine and coarse values must stay independent, for example because each level stores its own diagnostic, sets \texttt{restrict="no"}.
 
 \subsection{\texttt{parity}}
 The \texttt{parity} tag controls a tensor's reflection symmetries about the \texttt{x}, \texttt{y} and \texttt{z} axes. There are 3 parities for each tensor component, representing the symmetries about the 3 spatial axes.
