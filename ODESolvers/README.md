@@ -11,6 +11,17 @@
 Solve systems of coupled ordinary differential equations
 
 
+## Tag requirements
+
+A group with an `rhs=` tag is integrated by ODESolvers. ODESolvers checks its tags at startup (`CCTK_PARAMCHECK`) and aborts with an error naming the group if they are not allowed:
+
+- It must be checkpointed, i.e. it must not set `checkpoint="no"`, whatever its `evolve` tag. A checkpoint would omit its state and, under subcycling, its Runge-Kutta source bands, so recovery could not restore it. Enforced by `ODESolvers_CheckCheckpointed`, which runs first.
+- It must be evolved, i.e. it must not set `evolve="no"`. Regrid would not reliably refill its state. Enforced by `ODESolvers_CheckEvolved`.
+- Under subcycling (`CarpetX::use_subcycling = yes`) it must also have a single timelevel. Enforced by `ODESolvers_CheckTimelevels`.
+
+The default tags (no `checkpoint` or `evolve` tag) satisfy the first two rules.
+
+
 ## Subcycling
 
 Add the following parameters to your parameter file
