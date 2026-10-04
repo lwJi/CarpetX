@@ -629,6 +629,8 @@ bool get_group_checkpoint_flag(int gi);
 
 // Group tag "evolve"; absent -> the "checkpoint" tag (absent -> yes). Reads
 // only the tags table, so valid from PARAMCHECK on. Defined in driver.cxx.
+// evolve="no" declares a persistent group (its last value stays usable between
+// updates) independently of the "rhs" tag; see group_is_integrated.
 bool get_group_evolve_flag(int gi);
 
 // True iff every level of every patch sits at the same subcycling iteration,

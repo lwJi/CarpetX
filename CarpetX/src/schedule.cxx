@@ -1606,7 +1606,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
           }
         }
         // All time levels (except the current) must be valid everywhere for
-        // checkpointed groups
+        // evolved groups
         if (groupdata.do_evolve) {
           for (int tl = (ntls == 1 ? 0 : 1); tl < ntls; ++tl) {
             // it is only possible to sync time-level zero

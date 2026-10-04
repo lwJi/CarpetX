@@ -17,7 +17,12 @@ USES INCLUDE HEADER: vect.hxx
 
 CCTK_REAL need_initial_guess TYPE=scalar TAGS='checkpoint="no"' "Do we need to set up an initial guess?"
 
-CCTK_REAL sol TYPE=gf TAGS='res="res"' "Solution"
+# The solution is written by the solve at initial (PoissonX_Init,
+# PoissonX_Boundaries and the PDESolvers residual/Jacobian iterations) and kept
+# unchanged afterwards; nothing recomputes it during evolution. Its last value
+# stays in use: persistent, hence evolve="no". Regridding fills it best-effort
+# from valid data instead of requiring valid sources.
+CCTK_REAL sol TYPE=gf TAGS='res="res" evolve="no"' "Solution"
 CCTK_REAL res TYPE=gf TAGS='checkpoint="no"' "Residual"
 
 CCTK_REAL src TYPE=gf TAGS='checkpoint="no"' "Source"

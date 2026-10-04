@@ -13,21 +13,30 @@ USES INCLUDE HEADER: vect.hxx
 
 PUBLIC:
 
-CCTK_REAL active[3] TYPE=scalar "Whether this region is active"
+# Box description. BoxInBox_Init sets it at initial. Afterwards only mover
+# thorns change it, each on its own cadence (e.g. TestBoxInBox, MovingBoxToy,
+# PunctureTracker, MoveGrids, VolumeIntegrals), and runs without a mover keep
+# the initial value. BoxInBox_Setup uses whatever value is current, so the
+# last value stays in use between updates: persistent, hence evolve="no".
+# (Arrays and scalars are cycled independently of evolve, and regridding
+# transports grid functions only, so this changes no runtime behaviour; it
+# declares the lifetime, visible as do_evolve in the metadata output.)
 
-CCTK_REAL num_levels[3] TYPE=scalar "Number of refinement levels"
+CCTK_REAL active[3] TYPE=scalar TAGS='evolve="no"' "Whether this region is active"
 
-CCTK_REAL positions[3] TYPE=scalar
+CCTK_REAL num_levels[3] TYPE=scalar TAGS='evolve="no"' "Number of refinement levels"
+
+CCTK_REAL positions[3] TYPE=scalar TAGS='evolve="no"'
 {
   position_x position_y position_z
 } "Positions of refined regions"
 
-CCTK_REAL radii[3] TYPE=array DIM=1 SIZE=30 DISTRIB=constant
+CCTK_REAL radii[3] TYPE=array DIM=1 SIZE=30 DISTRIB=constant TAGS='evolve="no"'
 {
   radius
 } "Radii of refined regions for each level"
 
-CCTK_REAL radiixyz[3] TYPE=array DIM=1 SIZE=30 DISTRIB=constant
+CCTK_REAL radiixyz[3] TYPE=array DIM=1 SIZE=30 DISTRIB=constant TAGS='evolve="no"'
 {
   radius_x radius_y radius_z
 } "Radii of refined regions for each level"
