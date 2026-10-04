@@ -1136,6 +1136,59 @@ std::vector<clause_t> decode_clauses(const cFunctionData *restrict attribute,
   return result;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+// Recovery writers: for each grid function group and variable, whether a
+// routine in a bin that runs on recovery writes its tl=0 interior. Under
+// subcycling only BASEGRID (which runs again before the data are read back),
+// RECOVER_VARIABLES and POST_RECOVER_VARIABLES qualify. INITIAL and
+// POSTINITIAL do not: they run on recovery only in non-strict mode, and then
+// produce values for the initial time.
+namespace {
+std::vector<std::vector<bool> > recovery_writers; // [gi][vi]
+
+// Called by the flesh in place of CallFunction. It only records the routine's
+// WRITES clauses, and reports the routine's SYNC as done so that the flesh
+// skips it.
+int CollectRecoveryWrites(void *function, cFunctionData *attribute,
+                          void *data) {
+  for (const auto &wr : decode_clauses(attribute, rdwr_t::write))
+    if (wr.tl == 0 && wr.valid.valid_int && CCTK_GroupTypeI(wr.gi) == CCTK_GF)
+      recovery_writers.at(wr.gi).at(wr.vi) = true;
+  constexpr int didsync = 1;
+  return didsync;
+}
+} // namespace
+
+bool collecting_recovery_writers = false;
+
+// Walk the bins that run on recovery without calling their routines. The
+// flesh's traversal still evaluates IF and WHILE conditions, switches
+// schedule STORAGE on and off again (a no-op once the registry is frozen),
+// and issues the SYNC of a schedule group on exit; SyncGroupsByDirISubcycling
+// ignores it while collecting_recovery_writers is set. No trigger is
+// evaluated: triggers apply only in ANALYSIS, which is not walked.
+void CollectRecoveryWriters(cGH *restrict const cctkGH) {
+  const int numgroups = CCTK_NumGroups();
+  recovery_writers.assign(numgroups, {});
+  for (int gi = 0; gi < numgroups; ++gi)
+    if (CCTK_GroupTypeI(gi) == CCTK_GF)
+      recovery_writers.at(gi).assign(CCTK_NumVarsInGroupI(gi), false);
+  assert(!collecting_recovery_writers);
+  collecting_recovery_writers = true;
+  // A bin with nothing scheduled in it is reported as not found; that is fine
+  for (const char *const where : {"CCTK_BASEGRID", "CCTK_RECOVER_VARIABLES",
+                                  "CCTK_POST_RECOVER_VARIABLES"})
+    CCTK_ScheduleTraverse(where, cctkGH, CollectRecoveryWrites);
+  collecting_recovery_writers = false;
+}
+
+bool group_recomputed_on_recovery(const int gi) {
+  const std::vector<bool> &written = recovery_writers.at(gi);
+  return !written.empty() &&
+         std::all_of(written.begin(), written.end(), [](bool b) { return b; });
+}
+
 CCTK_REAL get_coarse_mindx() {
   CCTK_REAL mindx = std::numeric_limits<CCTK_REAL>::infinity();
   for (const auto &patchdata : ghext->patchdata) {
@@ -1213,6 +1266,10 @@ int Initialise(tFleshConfig *config) {
   // Needs rk_integrated_group from WRAGH; runs before the recover/new-grid
   // split, so it warns once on fresh starts and on recovery alike
   warn_inert_flux_tags();
+  // Before any level exists, so that the first SYNC of the run can already
+  // ask whether a group is recomputed on recovery
+  if (ghext->use_subcycling)
+    CollectRecoveryWriters(cctkGH);
 
   active_levels = std::optional<active_levels_t>();
 

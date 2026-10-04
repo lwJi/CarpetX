@@ -144,6 +144,50 @@ static std::string recovery_hint(int coarse_level) {
   return buf.str();
 }
 
+// Called when SyncGroupsByDirISubcycling prolongates the coarse-fine ghosts
+// of the coarsest active level from the next coarser level, which is not
+// active. After a restart from a checkpoint taken while the fine levels were
+// behind the coarse ones, such a SYNC can run before the coarser level has
+// recomputed the group, so the coarse interior must come from the checkpoint
+// or from a routine that runs on recovery; otherwise the precondition check
+// in SyncGroupsByDirISubcycling aborts the restart. Warn at the first such
+// SYNC of a group, in the run that writes the checkpoints, so that this is
+// not first discovered on a restart. Every process sees the same SYNCs, so
+// only the root warns.
+static void warn_if_not_recoverable(const cGH *cctkGH, const int gi,
+                                    const int level, const bool checkpointed) {
+  DECLARE_CCTK_PARAMETERS;
+
+  static std::vector<bool> checked;
+  if (checked.empty())
+    checked.resize(CCTK_NumGroups(), false);
+  if (checked.at(gi))
+    return;
+  checked.at(gi) = true;
+
+  const bool writes_checkpoints =
+      !CCTK_EQUALS(checkpoint_method, "error") &&
+      (checkpoint_every > 0 || checkpoint_every_walltime_hours > 0 ||
+       checkpoint_on_terminate);
+  if (!writes_checkpoints || checkpointed || group_recomputed_on_recovery(gi))
+    return;
+  if (CCTK_MyProc(nullptr) != 0)
+    return;
+
+  CCTK_VWARN(CCTK_WARN_ALERT,
+             "Group \"%s\" was SYNCed on refinement level %d at iteration %d "
+             "while level %d was not active, so its ghosts were prolongated "
+             "from what level %d last computed. The group is not "
+             "checkpointed, and no routine in BASEGRID, RECOVER_VARIABLES or "
+             "POST_RECOVER_VARIABLES writes its interior, so a restart from a "
+             "checkpoint taken while the fine levels are behind the coarse "
+             "ones will abort at such a SYNC. Recompute the group at "
+             "POST_RECOVER_VARIABLES, or checkpoint it if it holds history "
+             "(see the CarpetX documentation, \"checkpoint\" tag).",
+             CCTK_FullGroupName(gi), level, cctkGH->cctk_iteration, level - 1,
+             level - 1);
+}
+
 static std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -540,6 +584,11 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
                                const int *groups0, const int *directions) {
   DECLARE_CCTK_PARAMETERS;
 
+  // The SYNC of a schedule group, issued by the flesh while
+  // CollectRecoveryWriters walks the schedule before any level exists
+  if (collecting_recovery_writers)
+    return numgroups;
+
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 
   mark_sync_active marked;
@@ -569,6 +618,9 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
 
       const auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
+      if (leveldata.level == active_levels->min_level)
+        warn_if_not_recoverable(cctkGH, gi, leveldata.level,
+                                groupdata.do_checkpoint);
       const auto &restrict coarsegroupdata =
           *ghext->patchdata.at(leveldata.patch)
                .leveldata.at(leveldata.level - 1)

@@ -259,6 +259,17 @@ void leave_local_mode(cGH *restrict cctkGH,
 
 void synchronize();
 
+// Record which grid function variables a routine in BASEGRID,
+// RECOVER_VARIABLES or POST_RECOVER_VARIABLES writes (tl=0 interior), without
+// calling any routine. Called once by Initialise under subcycling. Defined in
+// schedule.cxx.
+void CollectRecoveryWriters(cGH *restrict cctkGH);
+// Set while CollectRecoveryWriters walks the schedule
+extern bool collecting_recovery_writers;
+// Whether every variable of grid function group `gi` is written by a routine
+// that runs on recovery, as recorded by CollectRecoveryWriters
+bool group_recomputed_on_recovery(int gi);
+
 // These functions are defined in valid.cxx. These prototypes should
 // be moved to valid.hxx. Unfortunately, they depend on GHExt, which is declared
 // in driver.hxx, which includes valid.hxx. Declaring the prorotypes here avoids
