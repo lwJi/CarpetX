@@ -60,3 +60,17 @@ SCHEDULE CarpetX_Shutdown AT shutdown AS Driver_Shutdown
 SCHEDULE GROUP CarpetX_PreRestrict
 {
 } "Traversed over the time-aligned level window before the driver refluxes and restricts"
+
+# Traversed by the driver, never scheduled into a bin. Thorns may schedule
+# routines IN this group; with nothing scheduled the traversal is empty.
+# Only on recovery, after RECOVER_VARIABLES and POST_RECOVER_VARIABLES and
+# after the per-level iterations and the time step are installed, the driver
+# traverses it once per clock window (maximal run of adjacent levels that
+# share an iteration), coarse to fine. Inside a window, active_levels,
+# cctk_time and cctk_timefac are those evolution's ANALYSIS last saw for these
+# levels; cctk_iteration is the checkpointed iteration. A group that is not
+# restored from the checkpoint and is SYNCed under subcycling must have its
+# producer scheduled here (see the CarpetX documentation, "checkpoint" tag).
+SCHEDULE GROUP CarpetX_RecomputeAfterRecovery
+{
+} "Recompute non-checkpointed groups after recovery; traversed by the driver once per clock window, never scheduled into a bin"

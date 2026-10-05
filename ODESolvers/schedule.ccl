@@ -20,9 +20,16 @@ if(use_subcycling) {
 
   # Refill refinement-boundary ghosts of the evolved state so they match
   # what a normal-step trajectory would have produced at the same point.
-  # Scheduled at CCTK_CPINITIAL, which fires on both fresh init and
-  # recovery; the body early-returns when cctk_iteration <= 0.
-  SCHEDULE ODESolvers_Solve_Subcycling_Recovery AT CCTK_CPINITIAL
+  # CarpetX traverses CarpetX_RecomputeAfterRecovery only on recovery, once
+  # per clock window, coarse to fine, with each window on its levels'
+  # recovered clock, so this runs once per window and together the windows
+  # reach every level. After recovery the coarse-fine ghosts of the
+  # integrated state are owned here: with the recovered clocks installed, a
+  # SYNC of the integrated state only exchanges same-level ghosts. It runs
+  # before ODESolvers_PostStep in the same group, as calcys_rmbnd precedes
+  # calcpoststep in an RK stage, so that the state's dependents and the
+  # thorns' recomputes read valid state everywhere.
+  SCHEDULE ODESolvers_Solve_Subcycling_Recovery IN CarpetX_RecomputeAfterRecovery
   {
     LANG: C
     OPTIONS: level
@@ -216,6 +223,14 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
   SCHEDULE GROUP ODESolvers_EstimateError AT post_recover_variables AFTER (ODESolvers_PostStep, ODESolvers_RHS)
   {
   } "Estimate discretization error (for regridding)"
+
+  # Recompute the state's post-step dependents per clock window after the
+  # recovery ghost refill (subcycling only; otherwise the group runs once over
+  # all levels). Thorns schedule their own recomputes of non-checkpointed
+  # groups IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_PostStep.
+  SCHEDULE GROUP ODESolvers_PostStep IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_Solve_Subcycling_Recovery
+  {
+  } "Apply boundary conditions to state vector, and project if necessary"
 
 # Regridding
 

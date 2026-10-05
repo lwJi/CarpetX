@@ -92,19 +92,75 @@ amrex::Orientation orient(int d, int f) {
 int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
                        const int *requested_tls, int *status, const bool inc);
 
-// Reads only patch 0; cross-patch agreement is enforced by
+// The representative level data of `level`: that of the first patch that has
+// this level. Every caller that asks "which levels share a clock" reads
+// iterations through here. Cross-patch agreement is enforced by
 // assert_consistent_iterations() at the next loop_* call.
+const GHExt::PatchData::LevelData &RepresentativeLevel(const int level) {
+  for (const auto &patchdata : ghext->patchdata)
+    if (level < int(patchdata.leveldata.size()))
+      return patchdata.leveldata.at(level);
+  CCTK_VERROR("No patch has refinement level %d", level);
+  abort();
+}
+
+// Widen [initial_min_level, ...) to every coarser level that shares
+// target_iteration, stopping at the first one that does not.
 int WidenMinLevel(int initial_min_level, rat64 target_iteration) {
   int min_level = initial_min_level;
   for (int level = min_level - 1; level >= 0; --level) {
-    const rat64 coarse_iteration =
-        ghext->patchdata.at(0).leveldata.at(level).iteration;
-    if (coarse_iteration == target_iteration)
+    if (RepresentativeLevel(level).iteration == target_iteration)
       min_level = level;
     else
       break;
   }
   return min_level;
+}
+
+// Clock windows: the maximal runs [lo, hi) of adjacent levels that share an
+// iteration, coarse to fine. Built by applying WidenMinLevel() repeatedly from
+// the finest level, so each window is the one on which evolution last ran
+// ANALYSIS for these levels. Without subcycling every level shares one
+// iteration, so this is always {{0, N}}.
+std::vector<std::pair<int, int> > ClockWindows() {
+  std::vector<std::pair<int, int> > windows;
+  for (int hi = ghext->num_levels(), lo; hi > 0; hi = lo) {
+    lo = WidenMinLevel(hi - 1, RepresentativeLevel(hi - 1).iteration);
+    windows.emplace_back(lo, hi);
+  }
+  std::reverse(windows.begin(), windows.end());
+  return windows;
+}
+
+// The time factor of the evolve batch that starts at batch_min_level: what
+// PRESTEP ... ANALYSIS see in Evolve for that batch.
+int BatchTimefac(const int batch_min_level) {
+  return ghext->use_subcycling ? 1 << batch_min_level : 1;
+}
+
+// Traverse CarpetX_RecomputeAfterRecovery once per clock window, coarse to
+// fine, so that a coarse level is recomputed before any finer level
+// prolongates from it. Within a window, active_levels, cctk_time and
+// cctk_timefac are those evolution's ANALYSIS last saw for these levels. The
+// global cctk_time and cctk_timefac are restored afterwards; cctk_iteration is
+// left unchanged (checkpointed).
+void TraverseRecomputeAfterRecovery(cGH *restrict const cctkGH) {
+  assert(!active_levels);
+  const CCTK_REAL saved_time = cctkGH->cctk_time;
+  const int saved_timefac = cctkGH->cctk_timefac;
+  for (const auto &[lo, hi] : ClockWindows()) {
+    active_levels = std::make_optional<active_levels_t>(lo, hi);
+    // Under subcycling every level above 0 is its own batch, so the batch
+    // that last ran this window's ANALYSIS in Evolve starts at hi - 1
+    cctkGH->cctk_timefac = BatchTimefac(hi - 1);
+    if (ghext->use_subcycling)
+      cctkGH->cctk_time =
+          cctkGH->cctk_delta_time * double(RepresentativeLevel(lo).iteration);
+    CCTK_Traverse(cctkGH, "CarpetX_RecomputeAfterRecovery");
+    active_levels = std::optional<active_levels_t>();
+  }
+  cctkGH->cctk_time = saved_time;
+  cctkGH->cctk_timefac = saved_timefac;
 }
 } // namespace
 
@@ -1206,10 +1262,6 @@ int Initialise(tFleshConfig *config) {
 
     active_levels = std::optional<active_levels_t>();
 
-    // Enable regridding
-    for (auto &patchdata : ghext->patchdata)
-      patchdata.amrcore->cactus_is_initialized = true;
-
     // Determine time step size
     if (CCTK_EQUALS(timestep_choice, "timestep")) {
       cctkGH->cctk_delta_time = timestep;
@@ -1227,6 +1279,16 @@ int Initialise(tFleshConfig *config) {
     CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                cctkGH->cctk_iteration, double(cctkGH->cctk_time),
                double(cctkGH->cctk_delta_time));
+
+    // Recompute groups that are not restored from the checkpoint, once per
+    // clock window, now that the per-level iterations and the time step are
+    // known
+    TraverseRecomputeAfterRecovery(cctkGH);
+
+    // Enable regridding only after the recompute group, so that the clock
+    // windows cannot change while it runs
+    for (auto &patchdata : ghext->patchdata)
+      patchdata.amrcore->cactus_is_initialized = true;
 
   } else {
     // Set up initial conditions
@@ -1436,8 +1498,7 @@ int Initialise(tFleshConfig *config) {
   // Widen from the finest level so the range matches the one under which
   // a checkpoint was written (recovery under subcycling).
   const int max_level = ghext->num_levels();
-  const rat64 finest_iteration =
-      ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
+  const rat64 finest_iteration = RepresentativeLevel(max_level - 1).iteration;
   const int min_level = WidenMinLevel(max_level - 1, finest_iteration);
   active_levels = std::make_optional<active_levels_t>(min_level, max_level);
 
@@ -1858,18 +1919,9 @@ int Evolve(tFleshConfig *config) {
 
       // Skip this batch of levels if it is not active at the current
       // iteration
-      rat64 level_iteration = -1;
-      rat64 level_delta_iteration = -1;
-      for (const auto &patchdata : ghext->patchdata) {
-        if (min_level < int(patchdata.leveldata.size())) {
-          level_iteration = patchdata.leveldata.at(min_level).iteration;
-          level_delta_iteration =
-              patchdata.leveldata.at(min_level).delta_iteration;
-          break;
-        }
-      }
-      assert(level_iteration != -1);
-      assert(level_delta_iteration != -1);
+      rat64 level_iteration = RepresentativeLevel(min_level).iteration;
+      const rat64 level_delta_iteration =
+          RepresentativeLevel(min_level).delta_iteration;
       // Skip those evolved coarse levels while evolving the fine levels to
       // catch up
       if (level_iteration > iteration)
@@ -1889,7 +1941,7 @@ int Evolve(tFleshConfig *config) {
 
       CycleTimelevels(cctkGH);
 
-      cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
+      cctkGH->cctk_timefac = BatchTimefac(min_level);
       cctkGH->cctk_time =
           ghext->use_subcycling
               ? cctkGH->cctk_delta_time * double(level_iteration)
@@ -2051,8 +2103,7 @@ int Shutdown(tFleshConfig *config) {
   // full iteration; under subcycling, that includes coarser time-aligned
   // levels.
   const int max_level = ghext->num_levels();
-  const rat64 finest_iteration =
-      ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
+  const rat64 finest_iteration = RepresentativeLevel(max_level - 1).iteration;
   const int min_level = WidenMinLevel(max_level - 1, finest_iteration);
   active_levels = std::make_optional<active_levels_t>(min_level, max_level);
 
