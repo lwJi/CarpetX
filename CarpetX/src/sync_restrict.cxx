@@ -121,20 +121,6 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
   }
 }
 
-// Appended to the coarse-level precondition error of SyncGroupsByDirISubcycling
-// while the coarse level has not been advanced since recovery: that is when a
-// group that nothing recomputed after recovery can be prolongated from
-static std::string recovery_hint(int coarse_level) {
-  std::ostringstream buf;
-  buf << "Level " << coarse_level
-      << " has not been evolved since this run was recovered. A group that is "
-         "not restored from the checkpoint and is SYNCed under subcycling must "
-         "be recomputed after recovery: schedule its producer IN "
-         "CarpetX_RecomputeAfterRecovery (CarpetX documentation, "
-         "\"checkpoint\" tag).";
-  return buf.str();
-}
-
 static std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -621,12 +607,11 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
                   coarsegroupdata, vi, tl, make_valid_int(),
                   []() {
                     return "SyncGroupsByDirISubcycling on coarse level before "
-                           "prolongation";
-                  },
-                  [&coarseleveldata]() {
-                    return coarseleveldata.awaiting_first_step_after_recovery
-                               ? recovery_hint(coarseleveldata.level)
-                               : std::string();
+                           "prolongation (if the interior is invalid because "
+                           "of \"Recovering\", the group is not restored from "
+                           "the checkpoint and must be recomputed IN "
+                           "CarpetX_RecomputeAfterRecovery; see the CarpetX "
+                           "documentation, \"checkpoint\" tag)";
                   });
             }
           } // for tl
