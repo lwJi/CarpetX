@@ -1509,7 +1509,17 @@ int Initialise(tFleshConfig *config) {
   // finest level traversed; mirrors the assignment in the evolve loop.
   cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
 
-  if (max_level - min_level < 2) {
+  if (config->recovered) {
+    // The checkpoint was written after restriction, so the recovered state is
+    // already restricted. Re-running CarpetX_PreRestrict, the restriction and
+    // POSTRESTRICT would change nothing in the state and only repeat their
+    // side effects (e.g. overwrite checkpointed pre-restrict snapshots).
+    if (verbose)
+#pragma omp critical
+      CCTK_VINFO("Skipping restriction at iteration %d: recovered from a "
+                 "checkpoint written after restriction",
+                 cctkGH->cctk_iteration);
+  } else if (max_level - min_level < 2) {
     // Only the finest level is at the current time: nothing to restrict
     if (verbose)
 #pragma omp critical
