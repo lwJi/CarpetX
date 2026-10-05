@@ -384,15 +384,6 @@ struct GHExt {
       // Iteration and time at which this cycle level is valid
       rat64 iteration, delta_iteration;
 
-      // Whether this level was recovered from a checkpoint and has not been
-      // advanced since. Set by the recovery branch of Initialise when it
-      // installs the recovered level iterations; cleared by Evolve the first
-      // time it advances this level. Read by SyncGroupsByDirISubcycling to
-      // add a recovery hint when it finds this level invalid before
-      // prolongating from it. False on fresh starts and for levels created
-      // by regridding.
-      bool awaiting_first_step_after_recovery = false;
-
       // Fabamrex::ArrayBase object holding a cell-centred BoxArray for
       // iterating over grid functions. This stores the grid structure
       // and its distribution over all processes, but holds no data.
