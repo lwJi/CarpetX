@@ -45,3 +45,16 @@ SCHEDULE TestSubcyclingCC_Error AT analysis
   WRITES: error(interior)
   SYNC: error
 } "Calculate error in scalar wave state"
+
+# error is not checkpointed and is SYNCed under subcycling. Recompute it on
+# every level after recovery: a checkpoint can land while the fine levels are
+# behind the coarse ones, and the first post-recovery ANALYSIS may then run on
+# fine levels only, whose SYNC prolongates error from a coarse level that has
+# not run ANALYSIS yet.
+SCHEDULE TestSubcyclingCC_Error IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(interior)
+  WRITES: error(interior)
+  SYNC: error
+} "Recompute error after recovery"

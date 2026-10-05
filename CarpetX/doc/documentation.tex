@@ -402,6 +402,20 @@ A recompute that compares with an analytic solution at \texttt{cctk\_time} there
 
 The standard recovery bins \texttt{RECOVER\_VARIABLES} and \texttt{POST\_RECOVER\_VARIABLES} are unaffected: they are traversed once, over all levels, right after the checkpoint is read and before the per-level clocks are restored. A group recomputed there over all levels at once is valid on every level, so it keeps working. Such a recompute does not see the per-level time, though, nor the coarse-fine ghosts that \texttt{ODESolvers} refills from dense output, so a time-dependent recompute there can be subtly wrong on coarse levels; moving it into \texttt{CarpetX\_RecomputeAfterRecovery} is recommended.
 
+A thorn that breaks this rule is stopped at the \texttt{SYNC} that would prolongate the invalid data, not later with NaNs blamed on the fine level. Under subcycling, before a \texttt{SYNC} prolongates the coarse-fine ghosts of a group that is not integrated into level $\ell > 0$, \CarpetX\space checks that the interior of level $\ell-1$ is valid. This is a hard error whatever \texttt{CarpetX::poison\_undefined\_values} is set to, like the check of a routine's \texttt{READS} clause: prolongating invalid data into ghosts and then marking them valid is exactly what the check exists to prevent. The error names the coarse level. While that level has not been evolved since the run was recovered, which is when a missing recompute shows up, the error also carries a hint, e.g.
+%
+\begin{lstlisting}[language=bash]
+  ERROR: SyncGroupsByDirISubcycling on coarse level before prolongation:
+    Grid function "TESTSUBCYCLINGMC2::u_err" is invalid on patch 0,
+    refinement level 0, time level 0; required: ..., found: ...
+    Level 0 has not been evolved since this run was recovered. A group that
+    is not restored from the checkpoint and is SYNCed under subcycling must
+    be recomputed after recovery: schedule its producer IN
+    CarpetX_RecomputeAfterRecovery (CarpetX documentation, "checkpoint" tag).
+\end{lstlisting}
+%
+The hint is phrased as a condition: a coarse group that is invalid for some other reason before its level is first evolved after a restart gets it too.
+
 \subsubsection{\texttt{evolve}}
 
 Marks a group as evolved, i.e.\ its current timelevel is recomputed every time step, as opposed to a group that is only computed occasionally and must persist in between (for example the previous value of a quantity kept for a time derivative in an analysis routine). The values are \texttt{"yes"} and \texttt{"no"}. If the tag is absent, it takes the value of the \texttt{checkpoint} tag, which itself defaults to \texttt{"yes"}. An untagged group is therefore evolved, checkpointed and restricted. The tag controls two things:

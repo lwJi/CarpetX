@@ -68,3 +68,24 @@ SCHEDULE TestSubcyclingMixedProlong_Error_hi AT analysis
   WRITES: error_hi(interior)
   SYNC: error_hi
 } "Calculate error in scalar wave state (wide prolongation stencil)"
+
+# error_lo and error_hi are not checkpointed and are SYNCed under subcycling.
+# Recompute them on every level after recovery: a checkpoint can land while the
+# fine levels are behind the coarse ones, and the first post-recovery ANALYSIS
+# may then run on fine levels only, whose SYNC prolongates the errors from a
+# coarse level that has not run ANALYSIS yet.
+SCHEDULE TestSubcyclingMixedProlong_Error_lo IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state_lo(interior)
+  WRITES: error_lo(interior)
+  SYNC: error_lo
+} "Recompute error after recovery (narrow prolongation stencil)"
+
+SCHEDULE TestSubcyclingMixedProlong_Error_hi IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state_hi(interior)
+  WRITES: error_hi(interior)
+  SYNC: error_hi
+} "Recompute error after recovery (wide prolongation stencil)"

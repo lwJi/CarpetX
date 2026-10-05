@@ -121,6 +121,20 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
   }
 }
 
+// Appended to the coarse-level precondition error of SyncGroupsByDirISubcycling
+// while the coarse level has not been advanced since recovery: that is when a
+// group that nothing recomputed after recovery can be prolongated from
+static std::string recovery_hint(int coarse_level) {
+  std::ostringstream buf;
+  buf << "Level " << coarse_level
+      << " has not been evolved since this run was recovered. A group that is "
+         "not restored from the checkpoint and is SYNCed under subcycling must "
+         "be recomputed after recovery: schedule its producer IN "
+         "CarpetX_RecomputeAfterRecovery (CarpetX documentation, "
+         "\"checkpoint\" tag).";
+  return buf.str();
+}
+
 static std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -595,6 +609,28 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
             });
           } // for tl
         } else {
+          // Precondition: prolongation reads the interior of the next coarser
+          // level at every synced time level, whether or not that level is in
+          // the active window. (Coarse tl=1 as the time-blend partner of tl=0
+          // is optional; see old_valid below.) This is a hard error whatever
+          // poison_undefined_values is: prolongating invalid data and then
+          // marking the ghosts valid is what it exists to prevent.
+          for (int tl = 0; tl < sync_tl; ++tl) {
+            for (int vi = 0; vi < groupdata.numvars; ++vi) {
+              error_if_invalid(
+                  coarsegroupdata, vi, tl, make_valid_int(),
+                  []() {
+                    return "SyncGroupsByDirISubcycling on coarse level before "
+                           "prolongation";
+                  },
+                  [&coarseleveldata]() {
+                    return coarseleveldata.awaiting_first_step_after_recovery
+                               ? recovery_hint(coarseleveldata.level)
+                               : std::string();
+                  });
+            }
+          } // for tl
+
           // Copy from adjacent boxes on same level, and interpolate
           // from next coarser level
           amrex::Interpolater *const interpolator = groupdata.interpolator;

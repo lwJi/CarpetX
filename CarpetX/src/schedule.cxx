@@ -1257,6 +1257,9 @@ int Initialise(tFleshConfig *config) {
         // Backward compat: old checkpoint without per-level iteration
         leveldata.iteration = rat64(cctkGH->cctk_iteration) / iteration_ratio;
       }
+      // Until Evolve first advances this level, SyncGroupsByDirISubcycling
+      // adds a recovery hint when it finds this level invalid
+      leveldata.awaiting_first_step_after_recovery = true;
     });
     ghext->recovered_level_iterations.clear();
 
@@ -1935,6 +1938,7 @@ int Evolve(tFleshConfig *config) {
       level_iteration += level_delta_iteration;
       active_levels->loop_serially([&](auto &restrict leveldata) {
         leveldata.iteration += leveldata.delta_iteration;
+        leveldata.awaiting_first_step_after_recovery = false;
         assert(level_iteration == leveldata.iteration);
         assert(level_delta_iteration == leveldata.delta_iteration);
       });
