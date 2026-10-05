@@ -224,13 +224,19 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
   {
   } "Estimate discretization error (for regridding)"
 
-  # Recompute the state's post-step dependents per clock window after the
-  # recovery ghost refill (subcycling only; otherwise the group runs once over
-  # all levels). Thorns schedule their own recomputes of non-checkpointed
-  # groups IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_PostStep.
-  SCHEDULE GROUP ODESolvers_PostStep IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_Solve_Subcycling_Recovery
-  {
-  } "Apply boundary conditions to state vector, and project if necessary"
+  # Under subcycling, recompute the state's post-step dependents per clock
+  # window after the recovery ghost refill. Without subcycling there is no
+  # refill, and the ODESolvers_PostStep at post_recover_variables above has
+  # already left the state and its dependents valid on all levels, so the
+  # group does not repeat it. Thorns schedule their own recomputes of
+  # non-checkpointed groups IN CarpetX_RecomputeAfterRecovery AFTER
+  # ODESolvers_PostStep; without subcycling that AFTER names no item in the
+  # group, and Cactus ignores it.
+  if(use_subcycling) {
+    SCHEDULE GROUP ODESolvers_PostStep IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_Solve_Subcycling_Recovery
+    {
+    } "Apply boundary conditions to state vector, and project if necessary"
+  }
 
 # Regridding
 
