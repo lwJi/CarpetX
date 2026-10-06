@@ -22,6 +22,23 @@ A group with an `rhs=` tag is integrated by ODESolvers. ODESolvers checks its ta
 The default tags (no `checkpoint` or `evolve` tag) satisfy the first two rules.
 
 
+## SYNC rule under subcycling
+
+Under subcycling (`CarpetX::use_subcycling = yes`), `CarpetX_PreRestrict` and `CCTK_POSTRESTRICT` run over windows whose lowest level may be behind its parent, so a `SYNC` there of a group that ODESolvers does not integrate prolongates the group's refinement-boundary ghosts from the parent level's current data. On recovery, CarpetX replays these bins for the finest clock group only, so the parent's value of a non-checkpointed group may not have been recomputed. CarpetX therefore rejects a routine reached in `CarpetX_PreRestrict` or `CCTK_POSTRESTRICT` whose `SYNC:` clause names a grid function group that is neither integrated (`rhs=` tag) nor checkpointed.
+
+- The bin is the one CarpetX is traversing, so the rule also applies to routines in schedule groups nested in it. A routine scheduled `IN ODESolvers_PostStep` is checked when it is reached through `ODESolvers_PostStep AT postrestrict`, but not when it is called from inside a Runge-Kutta stage.
+- Only grid function groups are checked; grid scalars and arrays have no refinement-boundary ghosts.
+- Without subcycling, nothing is checked.
+
+CarpetX checks a routine's `SYNC:` clause the first time it calls the routine in one of these bins, before the routine runs, and aborts if the clause names a rejected group. The message names the routine, the bin (for a nested schedule group, as `<group>, reached from <bin>`), every rejected group by its full name, and the fix, for example:
+
+```
+Under subcycling, FluxWaveToyX::FluxWaveToyX_PreRestrictEnergy (scheduled in CarpetX_PreRestrict) SYNCs the non-checkpointed group FLUXWAVETOYX::PRERESTRICT_ENERGY. Routines in CarpetX_PreRestrict and CCTK_POSTRESTRICT may SYNC only integrated or checkpointed groups: after a restart, a non-checkpointed group's value on the parent level may not have been recomputed. Checkpoint the group, or write it without a SYNC.
+```
+
+To write such a group without a `SYNC`, the routine writes it on the interior and drops the `SYNC:` clause. Its ghost zones stay invalid, and CarpetX's 1D TSV output omits every point in a region where the group is not valid.
+
+
 ## Subcycling
 
 Add the following parameters to your parameter file
