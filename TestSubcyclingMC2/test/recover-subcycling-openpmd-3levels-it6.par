@@ -77,6 +77,10 @@ IO::out_fileinfo = "axis labels"
 IO::parfile_write = no
 
 CarpetX::out_metadata = no
+# At it 6 the levels are on two clocks, and level 0 last stepped at it 5.
+# Output the recovered iteration, so that analysis_clock shows the iteration
+# and time at which recovery replayed level 0's ANALYSIS.
+CarpetX::out_initial_data = yes
 
 CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state
@@ -84,8 +88,11 @@ CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::analysis_clock
 "
 
-CarpetX::checkpoint_method = "openpmd"
-IO::checkpoint_dir = $parfile + "/checkpoints"
+IO::checkpoint_dir = $parfile
 IO::checkpoint_ID = no
-IO::checkpoint_every = 1
+IO::checkpoint_every = 0
 IO::checkpoint_on_terminate = no
+
+CarpetX::recover_method = "openpmd"
+IO::recover_dir = "../../../arrangements/CarpetX/TestSubcyclingMC2/test/checkpoints-subcycling-openpmd-3levels-it6"
+IO::recover = "autoprobe"

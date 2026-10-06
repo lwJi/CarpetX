@@ -125,6 +125,25 @@ std::vector<std::pair<int, int> > ClockGroups() {
   return groups;
 }
 
+// The iteration (cctk_iteration) in which `level` stepped last, given the
+// current iteration. Under subcycling the finest level steps in every
+// iteration, by its delta_iteration, and `level` stepped in the iteration that
+// began with the finest level at `level`'s clock before that step. This
+// assumes that the finest level's delta_iteration has not changed since, i.e.
+// that no regrid added a finer level in between.
+int LastStepIteration(const int level, const int current_iteration) {
+  const auto &leveldatas = ghext->patchdata.at(0).leveldata;
+  const auto &finest = leveldatas.at(ghext->num_levels() - 1);
+  const auto &leveldata = leveldatas.at(level);
+  const rat64 steps_since =
+      (finest.iteration - (leveldata.iteration - leveldata.delta_iteration)) /
+      finest.delta_iteration;
+  assert(steps_since.den == 1 && steps_since.num >= 1);
+  const int iteration = current_iteration + 1 - int(steps_since.num);
+  assert(iteration >= 0 && iteration <= current_iteration);
+  return iteration;
+}
+
 // Restrict over the current (time-aligned) window: CarpetX_PreRestrict, then
 // restrict fine to coarse (skipping the finest level), then
 // ProlongateRestrictedGFs and CCTK_POSTRESTRICT. Skipped if the window spans
@@ -1299,20 +1318,24 @@ int Initialise(tFleshConfig *config) {
     // Replay the recovery bins and the end-of-step bins once per clock group
     // (maximal run of adjacent levels sharing one clock), coarse to fine. In
     // the uninterrupted run, each level's last POSTSTEP and ANALYSIS ran over
-    // exactly its clock group, at that group's time; this reproduces it.
-    // ODESolvers rebuilds the coarse-fine ghosts of integrated state at
-    // RECOVER_VARIABLES, so they are valid before POST_RECOVER_VARIABLES.
-    // Without subcycling there is a single group spanning all levels, the
-    // time quantities keep their checkpoint values, and ANALYSIS is skipped.
+    // exactly its clock group, at that group's iteration and time; this
+    // reproduces it. ODESolvers rebuilds the coarse-fine ghosts of integrated
+    // state at RECOVER_VARIABLES, so they are valid before
+    // POST_RECOVER_VARIABLES. Without subcycling there is a single group
+    // spanning all levels, the time quantities keep their checkpoint values,
+    // and ANALYSIS is skipped.
+    const int checkpoint_iteration = cctkGH->cctk_iteration;
     const auto clock_groups = ClockGroups();
     for (const auto &[lo, hi] : clock_groups) {
       assert(!active_levels);
       active_levels = std::make_optional<active_levels_t>(lo, hi);
 
       if (ghext->use_subcycling) {
-        // The time and time factor the evolve loop gave this group's
-        // end-of-step bins: those of the group's finest level, which stepped
-        // last, at the group's clock
+        // The iteration, time and time factor the evolve loop gave this
+        // group's end-of-step bins: those of the iteration in which the
+        // group's finest level stepped last, at the group's clock
+        cctkGH->cctk_iteration =
+            LastStepIteration(hi - 1, checkpoint_iteration);
         const rat64 group_iteration =
             ghext->patchdata.at(0).leveldata.at(lo).iteration;
         cctkGH->cctk_timefac = 1 << (hi - 1);
@@ -1334,6 +1357,8 @@ int Initialise(tFleshConfig *config) {
       if (hi < ghext->num_levels())
         active_levels = std::optional<active_levels_t>();
     }
+    // The finest group stepped last, at the checkpoint's iteration
+    assert(cctkGH->cctk_iteration == checkpoint_iteration);
 
     // Checkpoint (once, over the finest group), output
     assert(active_levels);

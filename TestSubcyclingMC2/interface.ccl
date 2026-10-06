@@ -31,5 +31,11 @@ CCTK_REAL error TYPE=gf TAGS='checkpoint="no"'
   rho_err
 } "Error in scalar wave state vector"
 
+CCTK_REAL analysis_clock TYPE=gf TAGS='checkpoint="no"'
+{
+  analysis_iteration
+  analysis_time
+} "Iteration and time of the last ANALYSIS on each level"
+
 
 
