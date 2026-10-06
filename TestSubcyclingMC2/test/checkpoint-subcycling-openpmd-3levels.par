@@ -1,8 +1,21 @@
+# Checkpoint half of a checkpoint/recover pair on a 3-level setup, with the
+# checkpoint taken at a time-aligned iteration: at iteration 4 all three levels
+# are at 4 finest steps, so the checkpointed pass restricted over the window
+# [0,3) and traversed CCTK_POSTRESTRICT there. This half is also the
+# uninterrupted run: it continues through the recover half's last iteration,
+# and the recover half's reference files are copies of this half's.
+#
+# TestSubcycleStepping adds three checkpointed canaries: iteration,
+# postrestrict and prerestrict hold the iteration and level at which each level
+# last ran EVOL, CCTK_POSTRESTRICT and CarpetX_PreRestrict. They pin the level
+# window of the restriction block on every iteration.
+
 ActiveThorns = "
     BoxInBox
     CarpetX
     IOUtil
     ODESolvers
+    TestSubcycleStepping
     TestSubcyclingMC2
 "
 
@@ -81,6 +94,9 @@ CarpetX::out_metadata = no
 CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state
     TestSubcyclingMC2::error
+    TestSubcycleStepping::iteration
+    TestSubcycleStepping::postrestrict
+    TestSubcycleStepping::prerestrict
 "
 
 CarpetX::checkpoint_method = "openpmd"

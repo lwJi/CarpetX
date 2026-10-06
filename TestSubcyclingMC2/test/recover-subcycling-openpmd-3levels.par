@@ -1,8 +1,22 @@
+# Recover half of a checkpoint/recover pair on a 3-level setup (see
+# checkpoint-subcycling-openpmd-3levels.par): recovers the checkpoint taken at
+# the time-aligned iteration 4 and continues to iteration 6.
+#
+# The end of initialisation runs what the checkpointed pass ran after its
+# restriction: CCTK_POSTRESTRICT over the window [0,3), then POSTSTEP and
+# output. It does not re-run CarpetX_PreRestrict, the restriction or the
+# prolongation of restricted grid functions, since the recovered state is
+# already restricted. The recovered iteration is written (out_initial_data),
+# and every file matches the uninterrupted run, TestSubcycleStepping's
+# canaries included: a recovery that stamped prerestrict, or that traversed
+# POSTRESTRICT over a different window, would change them.
+
 ActiveThorns = "
     BoxInBox
     CarpetX
     IOUtil
     ODESolvers
+    TestSubcycleStepping
     TestSubcyclingMC2
 "
 
@@ -77,11 +91,14 @@ IO::out_fileinfo = "axis labels"
 IO::parfile_write = no
 
 CarpetX::out_metadata = no
-CarpetX::out_initial_data = no
+CarpetX::out_initial_data = yes
 
 CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state
     TestSubcyclingMC2::error
+    TestSubcycleStepping::iteration
+    TestSubcycleStepping::postrestrict
+    TestSubcycleStepping::prerestrict
 "
 
 IO::checkpoint_dir = $parfile

@@ -7,7 +7,10 @@
 # each with its levels' recovered time. There ODESolvers refills the state's
 # coarse-fine ghosts and TestSubcyclingMC2 recomputes error, so the first step
 # after recovering, which runs ANALYSIS on levels 1 and 2 only, finds level 0's
-# error valid. The output matches an uninterrupted run of the same setup.
+# error valid. The end of initialisation runs over the finest clock window,
+# level 2 alone, so it traverses neither the restriction nor POSTRESTRICT. The
+# recovered iteration is written (out_initial_data), and every file matches the
+# uninterrupted run of the checkpoint half.
 
 ActiveThorns = "
     BoxInBox
@@ -88,7 +91,7 @@ IO::out_fileinfo = "axis labels"
 IO::parfile_write = no
 
 CarpetX::out_metadata = no
-CarpetX::out_initial_data = no
+CarpetX::out_initial_data = yes
 
 CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state

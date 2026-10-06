@@ -10,6 +10,12 @@ ActiveThorns = "
 # TestSubcycleStepping adds checkpointed grid functions that ODESolvers does
 # not integrate. They own no subcycling source bands, so recovering the
 # mid-cycle checkpoint must neither build nor expect bands for them.
+#
+# The checkpoint was taken at iteration 3, where level 1 is ahead of level 0:
+# the checkpointed pass did not restrict, so the end of initialisation must
+# not traverse CCTK_POSTRESTRICT either. The recovered iteration is written
+# (out_initial_data), and every file matches the uninterrupted run, the
+# postrestrict and prerestrict canaries included.
 
 $out_every = 1
 $nlevels = 2
@@ -82,12 +88,14 @@ IO::out_fileinfo = "axis labels"
 IO::parfile_write = no
 
 CarpetX::out_metadata = no
-CarpetX::out_initial_data = no
+CarpetX::out_initial_data = yes
 
 CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state
     TestSubcyclingMC2::error
     TestSubcycleStepping::iteration
+    TestSubcycleStepping::postrestrict
+    TestSubcycleStepping::prerestrict
 "
 
 IO::checkpoint_dir = $parfile
