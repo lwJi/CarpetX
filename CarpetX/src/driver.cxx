@@ -2364,11 +2364,19 @@ int ScheduleTraverseGH(cGH *restrict cctkGH, const char *where) {
     CCTK_VINFO("ScheduleTraverseGH iteration %d %s", cctkGH->cctk_iteration,
                where);
 
+  // Record the bin for CallFunction's SYNC check. Schedule groups called
+  // dynamically (CarpetX_CallScheduleGroup) do not pass through here and so
+  // inherit the enclosing bin.
+  const std::optional<current_bin_t> saved_bin = current_bin;
+  current_bin = current_bin_t{where, classify_bin(where)};
+
   int ierr = CCTK_ScheduleTraverse(where, cctkGH, CallFunction);
   //   if (ierr == 2)
   // #pragma omp critical
   //       CCTK_VINFO("Schedule item \"%s\" not found", where);
   assert(ierr == 0 || ierr == 2);
+
+  current_bin = saved_bin;
 
   return 0; // unused
 }

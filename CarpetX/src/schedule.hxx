@@ -12,6 +12,7 @@
 #include <cassert>
 #include <functional>
 #include <optional>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -115,6 +116,31 @@ public:
 // The levels CallFunction should traverse
 // TODO: Move this into ghext
 extern std::optional<active_levels_t> active_levels;
+
+// Which groups a routine may SYNC, depending on the schedule bin CarpetX is
+// traversing. Under subcycling, CarpetX_PreRestrict and CCTK_POSTRESTRICT run
+// over windows whose lowest level may be behind its parent, so a SYNC there
+// prolongates from the parent's current data. A recovery replays these bins
+// for the finest clock group only, so the parent's value of a group that is
+// neither integrated nor checkpointed may not have been recomputed. Without
+// subcycling every bin is `any`.
+enum class sync_rule_t {
+  any,                        // other bins, or no subcycling
+  integrated_or_checkpointed, // CarpetX_PreRestrict, CCTK_POSTRESTRICT
+};
+
+// The bin CarpetX is currently traversing (set by ScheduleTraverseGH, saved
+// and restored around nested traversals). Schedule groups called dynamically
+// via CarpetX_CallScheduleGroup inherit the enclosing bin. Empty outside any
+// traversal.
+struct current_bin_t {
+  std::string name;
+  sync_rule_t rule;
+};
+extern std::optional<current_bin_t> current_bin;
+
+// Classify a bin name; returns `any` unless CarpetX::use_subcycling is set
+sync_rule_t classify_bin(const char *where);
 
 ////////////////////////////////////////////////////////////////////////////////
 

@@ -41,6 +41,8 @@ static inline int omp_in_parallel() { return 0; }
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <unordered_set>
@@ -83,6 +85,19 @@ double gettime() {
 
 // Used to pass active levels from AMReX's regridding functions
 std::optional<active_levels_t> active_levels;
+
+// The bin ScheduleTraverseGH is traversing
+std::optional<current_bin_t> current_bin;
+
+sync_rule_t classify_bin(const char *const where) {
+  DECLARE_CCTK_PARAMETERS;
+  if (!use_subcycling)
+    return sync_rule_t::any;
+  if (CCTK_Equals(where, "CarpetX_PreRestrict") ||
+      CCTK_Equals(where, "CCTK_POSTRESTRICT"))
+    return sync_rule_t::integrated_or_checkpointed;
+  return sync_rule_t::any;
+}
 
 namespace {
 // Convert a (direction, face) pair to an AMReX Orientation
@@ -2252,6 +2267,61 @@ static void check_storage_clauses(const cFunctionData *restrict attribute) {
                 offender_count, offender_count == 1 ? "" : "s");
 }
 
+// Under subcycling, reject SYNC clauses that are unsafe in the bin being
+// traversed (see sync_rule_t). Collects every offending group of the routine,
+// then aborts once via CCTK_VERROR with a message that says how to fix it.
+static void check_sync_clauses(const cFunctionData *restrict attribute,
+                               const current_bin_t &bin) {
+  if (bin.rule == sync_rule_t::any)
+    return;
+
+  std::vector<int> offenders;
+  for (int n = 0; n < attribute->n_SyncGroups; ++n) {
+    const int gi = attribute->SyncGroups[n];
+    // Only grid functions have coarse-fine ghosts; the subcycling SYNC skips
+    // every other group type
+    if (CCTK_GroupTypeI(gi) != CCTK_GF)
+      continue;
+    if (group_is_integrated(gi) || get_group_checkpoint_flag(gi))
+      continue;
+    offenders.push_back(gi);
+  }
+  if (offenders.empty())
+    return;
+
+  const bool plural = offenders.size() > 1;
+  std::string groupnames;
+  for (std::size_t n = 0; n < offenders.size(); ++n) {
+    if (n > 0)
+      groupnames += n + 1 == offenders.size() ? " and " : ", ";
+    const char *const groupname = CCTK_FullGroupName(offenders.at(n));
+    groupnames += groupname ? groupname : "<unknown>";
+  }
+
+  // Name the bin; also name the schedule group the routine is registered in
+  // when it is reached through a nested group (e.g. ODESolvers_PostStep)
+  std::string scheduled_in = bin.name;
+  if (!CCTK_Equals(attribute->where, bin.name.c_str()))
+    scheduled_in = std::string(attribute->where) + ", reached from " + bin.name;
+
+  switch (bin.rule) {
+  case sync_rule_t::integrated_or_checkpointed:
+    CCTK_VERROR(
+        "Under subcycling, %s::%s (scheduled in %s) SYNCs the "
+        "non-checkpointed group%s %s. Routines in CarpetX_PreRestrict and "
+        "CCTK_POSTRESTRICT may SYNC only integrated or checkpointed groups: "
+        "after a restart, a non-checkpointed group's value on the parent "
+        "level may not have been recomputed. Checkpoint the group%s, or "
+        "write %s without a SYNC.",
+        attribute->thorn, attribute->routine, scheduled_in.c_str(),
+        plural ? "s" : "", groupnames.c_str(), plural ? "s" : "",
+        plural ? "them" : "it");
+    break;
+  case sync_rule_t::any:
+    break;
+  }
+}
+
 // Call a scheduled function
 int CallFunction(void *function, cFunctionData *restrict attribute,
                  void *data) {
@@ -2296,6 +2366,23 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     }
     if (needs_check)
       check_storage_clauses(attribute);
+  }
+
+  // Check the SYNC clause against the bin being traversed, once per routine
+  // and rule. The check runs before the routine, so a violation aborts before
+  // the flesh's exit hook performs the SYNC.
+  if (current_bin && current_bin->rule != sync_rule_t::any) {
+    static std::set<std::pair<const cFunctionData *, sync_rule_t> >
+        sync_checked;
+    const std::pair<const cFunctionData *, sync_rule_t> key{attribute,
+                                                            current_bin->rule};
+    bool needs_check;
+#pragma omp critical(CarpetX_CallFunction)
+    {
+      needs_check = sync_checked.insert(key).second;
+    }
+    if (needs_check)
+      check_sync_clauses(attribute, *current_bin);
   }
 
   if (CCTK_EQUALS(presync_mode, "presync-only")) {
