@@ -45,6 +45,38 @@ struct mark_sync_active {
   ~mark_sync_active() { sync_active = false; }
 };
 
+namespace {
+
+// Precondition of every SYNC that prolongates: filling the coarse-fine ghosts
+// of a level reads the interior of the next coarser level at every synced
+// time level, whether or not that coarser level is in the active window.
+// `coarsegroupdata` is the group on that coarser level and `sync_tl` the
+// number of time levels the caller syncs. Coarse tl=1 is only the optional
+// time-blend partner of tl=0 (see old_valid in SyncGroupsByDirISubcycling)
+// when sync_tl == 1; for sync_tl >= 2 it is itself a synced level and is
+// required here. This is a hard error whatever poison_undefined_values is:
+// prolongating invalid data and then marking the ghosts valid is what it
+// exists to prevent. Both SYNC entry points call it with their own name, so
+// the diagnostic does not depend on which one the run installed.
+void CheckCoarseInteriorBeforeProlongation(
+    const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
+    const int sync_tl, const char *const caller) {
+  for (int tl = 0; tl < sync_tl; ++tl) {
+    for (int vi = 0; vi < coarsegroupdata.numvars; ++vi) {
+      error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), [caller]() {
+        return std::string(caller) +
+               " on coarse level before prolongation (if the interior is "
+               "invalid because of \"Recovering\", the group is not restored "
+               "from the checkpoint and must be recomputed IN "
+               "CarpetX_RecomputeAfterRecovery; see the CarpetX "
+               "documentation, \"checkpoint\" tag)";
+      });
+    }
+  } // for tl
+}
+
+} // namespace
+
 static void sync_log_groups(const char *label, int numgroups,
                             const int *groups0) {
   DECLARE_CCTK_PARAMETERS;
@@ -338,13 +370,8 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
         assert(!coarsegroupdata.mfab.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
-        for (int tl = 0; tl < sync_tl0; ++tl) {
-          for (int vi = 0; vi < groupdata.numvars; ++vi) {
-            error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), []() {
-              return "SyncGroupsByDirI on coarse level before prolongation";
-            });
-          }
-        } // for tl
+        CheckCoarseInteriorBeforeProlongation(coarsegroupdata, sync_tl0,
+                                              "SyncGroupsByDirI");
 
       } // if leveldata.level > 0
 
@@ -595,26 +622,10 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
             });
           } // for tl
         } else {
-          // Precondition: prolongation reads the interior of the next coarser
-          // level at every synced time level, whether or not that level is in
-          // the active window. (Coarse tl=1 as the time-blend partner of tl=0
-          // is optional; see old_valid below.) This is a hard error whatever
-          // poison_undefined_values is: prolongating invalid data and then
-          // marking the ghosts valid is what it exists to prevent.
-          for (int tl = 0; tl < sync_tl; ++tl) {
-            for (int vi = 0; vi < groupdata.numvars; ++vi) {
-              error_if_invalid(
-                  coarsegroupdata, vi, tl, make_valid_int(),
-                  []() {
-                    return "SyncGroupsByDirISubcycling on coarse level before "
-                           "prolongation (if the interior is invalid because "
-                           "of \"Recovering\", the group is not restored from "
-                           "the checkpoint and must be recomputed IN "
-                           "CarpetX_RecomputeAfterRecovery; see the CarpetX "
-                           "documentation, \"checkpoint\" tag)";
-                  });
-            }
-          } // for tl
+          // Precondition: the coarse interior is valid at every synced time
+          // level; see CheckCoarseInteriorBeforeProlongation
+          CheckCoarseInteriorBeforeProlongation(coarsegroupdata, sync_tl,
+                                                "SyncGroupsByDirISubcycling");
 
           // Copy from adjacent boxes on same level, and interpolate
           // from next coarser level

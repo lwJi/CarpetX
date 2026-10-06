@@ -71,6 +71,19 @@ SCHEDULE GROUP CarpetX_PreRestrict
 # levels; cctk_iteration is the checkpointed iteration. A group that is not
 # restored from the checkpoint and is SYNCed under subcycling must have its
 # producer scheduled here (see the CarpetX documentation, "checkpoint" tag).
+# Otherwise the first SYNC that would prolongate it from a level nothing has
+# recomputed stops with the "on coarse level before prolongation" error,
+# with or without subcycling.
+# Under subcycling ODESolvers runs its ghost refill, ODESolvers_PostStep and
+# ODESolvers_EstimateError here and not at POST_RECOVER_VARIABLES; without
+# subcycling it schedules nothing here and runs them there. A thorn's entry
+# IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_PostStep is ordered
+# correctly in both modes.
+# After the last window the driver ends initialisation as the evolution step
+# that wrote the checkpoint ended: it does not re-run CarpetX_PreRestrict,
+# the restriction or the prolongation of the restricted grid functions, but
+# it traverses POSTRESTRICT over the finest clock window when that window
+# spans at least two levels and restrict_during_sync is off.
 SCHEDULE GROUP CarpetX_RecomputeAfterRecovery
 {
 } "Recompute non-checkpointed groups after recovery; traversed by the driver once per clock window, never scheduled into a bin"
