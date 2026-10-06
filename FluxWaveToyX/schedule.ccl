@@ -107,5 +107,4 @@ SCHEDULE FluxWaveToyX_PreRestrictEnergy IN CarpetX_PreRestrict
   LANG: C
   READS: state(everywhere)
   WRITES: prerestrict_energy(interior)
-  SYNC: prerestrict_energy
 } "Average the energy density over the ghost width before restriction"
