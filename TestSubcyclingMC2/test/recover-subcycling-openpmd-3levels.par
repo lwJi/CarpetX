@@ -3,8 +3,24 @@ ActiveThorns = "
     CarpetX
     IOUtil
     ODESolvers
+    TestSubcycleStepping
     TestSubcyclingMC2
 "
+
+# Recover half of the aligned 3-level recover pair: restarts from the
+# iteration-4 checkpoint of checkpoint-subcycling-openpmd-3levels.par, where
+# all three levels share a clock (finest clock window [0,3)), and runs to
+# iteration 6.
+#
+# The pair asserts that recovery is transparent: the recovered iteration 4 is
+# output (out_initial_data = yes), and every reference file in
+# recover-subcycling-openpmd-3levels/ is a byte-for-byte copy of the file of
+# the same name in checkpoint-subcycling-openpmd-3levels/, the uninterrupted
+# run. It pins the end of initialisation after recovery: CCTK_POSTRESTRICT is
+# traversed over the finest clock window (the log shows "Stamping postrestrict
+# at iteration 4"), while CarpetX_PreRestrict and the restriction are not
+# repeated, so the TestSubcycleStepping canaries keep the values the
+# uninterrupted run has at iteration 4.
 
 $out_every = 1
 $nlevels = 3
@@ -77,11 +93,14 @@ IO::out_fileinfo = "axis labels"
 IO::parfile_write = no
 
 CarpetX::out_metadata = no
-CarpetX::out_initial_data = no
+CarpetX::out_initial_data = yes
 
 CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state
     TestSubcyclingMC2::error
+    TestSubcycleStepping::iteration
+    TestSubcycleStepping::postrestrict
+    TestSubcycleStepping::prerestrict
 "
 
 IO::checkpoint_dir = $parfile

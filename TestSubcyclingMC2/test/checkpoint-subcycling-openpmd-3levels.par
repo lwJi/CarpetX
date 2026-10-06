@@ -3,8 +3,20 @@ ActiveThorns = "
     CarpetX
     IOUtil
     ODESolvers
+    TestSubcycleStepping
     TestSubcyclingMC2
 "
+
+# Checkpoint half of the aligned 3-level recover pair, and the uninterrupted
+# run that recover-subcycling-openpmd-3levels.par is compared against. The
+# checkpoint is written at iteration 4, where all three levels share a clock,
+# so the finest clock window is [0,3). The run continues to iteration 6, the
+# recover half's last iteration.
+#
+# TestSubcycleStepping adds the canaries: `iteration` (a checkpointed grid
+# function that ODESolvers does not integrate), and `postrestrict` and
+# `prerestrict`, which record the levels and the time at which
+# CCTK_POSTRESTRICT and CarpetX_PreRestrict were last traversed.
 
 $out_every = 1
 $nlevels = 3
@@ -81,6 +93,9 @@ CarpetX::out_metadata = no
 CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state
     TestSubcyclingMC2::error
+    TestSubcycleStepping::iteration
+    TestSubcycleStepping::postrestrict
+    TestSubcycleStepping::prerestrict
 "
 
 CarpetX::checkpoint_method = "openpmd"

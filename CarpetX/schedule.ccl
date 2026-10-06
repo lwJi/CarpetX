@@ -71,6 +71,11 @@ SCHEDULE GROUP CarpetX_PreRestrict
 # levels; cctk_iteration is the checkpointed iteration. A group that is not
 # restored from the checkpoint and is SYNCed under subcycling must have its
 # producer scheduled here (see the CarpetX documentation, "checkpoint" tag).
+# Afterwards the end of initialisation traverses POSTRESTRICT (when the finest
+# clock window spans two or more levels), POSTSTEP, CPINITIAL and output over
+# the finest clock window with that window's cctk_timefac, as the evolution
+# pass that wrote the checkpoint did; only CarpetX_PreRestrict, the reflux, the
+# restriction and the prolongation of the restricted groups are not repeated.
 SCHEDULE GROUP CarpetX_RecomputeAfterRecovery
 {
 } "Recompute non-checkpointed groups after recovery; traversed by the driver once per clock window, never scheduled into a bin"
