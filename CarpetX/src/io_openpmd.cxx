@@ -1,6 +1,7 @@
 #include "io_openpmd.hxx"
 
 #include "driver.hxx"
+#include "io.hxx"
 #include "io_meta.hxx"
 #include "io_slice.hxx"
 #include "timer.hxx"
@@ -365,6 +366,20 @@ struct carpetx_openpmd_t {
   };
 
   ////////////////////////////////////////////////////////////////////////////////
+
+  // The path of one iteration as it is on disk, for error messages. With
+  // file-based iteration encoding the series is opened by a pattern whose
+  // `%08T` stands for the iteration number.
+  static std::string make_iteration_path(const std::string &series_path,
+                                         const int iteration) {
+    const std::string pattern = "%08T";
+    const std::size_t pos = series_path.find(pattern);
+    if (pos == std::string::npos)
+      return series_path;
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%08d", iteration);
+    return std::string(series_path).replace(pos, pattern.size(), buf);
+  }
 
   // Allowed characters are only [A-Za-z_]
   // The optional `band` tag namespaces subcycling source-band meshes apart
@@ -937,7 +952,11 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                 make_meshname(gi, leveldata.patch, leveldata.level, tl);
             if (io_verbose)
               CCTK_VINFO("Reading mesh %s...", meshname.c_str());
-            assert(read_iter->meshes.count(meshname));
+            if (!read_iter->meshes.count(meshname))
+              error_missing_checkpoint_group(
+                  cctkGH, gi,
+                  make_iteration_path(*filename, cctkGH->cctk_iteration),
+                  meshname);
             const openPMD::Mesh &mesh = read_iter->meshes.at(meshname);
             // TODO: The openPMD standard says to add an attribute
             // `refinementRatio`, which is a vector of integers
@@ -1260,7 +1279,10 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         // Read mesh
 
         const std::string meshname = make_meshname(gi, -1, -1);
-        assert(read_iter->meshes.count(meshname));
+        if (!read_iter->meshes.count(meshname))
+          error_missing_checkpoint_group(
+              cctkGH, gi,
+              make_iteration_path(*filename, cctkGH->cctk_iteration), meshname);
         const openPMD::Mesh &mesh = read_iter->meshes.at(meshname);
         // TODO: The openPMD standard says to add an attribute
         // `refinementRatio`, which is a vector of integers

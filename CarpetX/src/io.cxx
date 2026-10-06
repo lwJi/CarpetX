@@ -109,6 +109,35 @@ void check_silo_no_multi_tl(const std::vector<bool> &group_mask,
 
 ////////////////////////////////////////////////////////////////////////////////
 
+void error_missing_checkpoint_group(const cGH *const cctkGH,
+                                    const int groupindex,
+                                    const std::string &checkpoint_path,
+                                    const std::string &dataset) {
+  // `InputOpenPMD` and `InputSilo` serve both `RecoverGH` and `InputGH`, and
+  // the two never run in the same simulation: `Initialise` calls the former
+  // only when the flesh recovered and the latter only when it did not.
+  const ioGH *const iogh =
+      static_cast<const ioGH *>(CCTK_GHExtension(cctkGH, "IO"));
+  const bool recovering = iogh && iogh->recovered;
+  if (!recovering)
+    CCTK_VERROR("Input file \"%s\" (iteration %d) has no data for group %s: "
+                "dataset \"%s\" is missing. Check that the file holds every "
+                "group listed in CarpetX::filereader_ID_vars.",
+                checkpoint_path.c_str(), cctkGH->cctk_iteration,
+                CCTK_FullGroupName(groupindex), dataset.c_str());
+  CCTK_VERROR(
+      "Checkpoint \"%s\" (iteration %d) has no data for group %s, which is "
+      "tagged checkpoint=\"yes\": dataset \"%s\" is missing. The checkpoint "
+      "was written before this group was checkpointed, usually because the "
+      "group's checkpoint tag has changed since. Restart from a checkpoint "
+      "written with the current thorns, or tag the group checkpoint=\"no\" "
+      "and recompute it IN CarpetX_RecomputeAfterRecovery.",
+      checkpoint_path.c_str(), cctkGH->cctk_iteration,
+      CCTK_FullGroupName(groupindex), dataset.c_str());
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 // Recovering
 
 int recover_iteration = -1;
