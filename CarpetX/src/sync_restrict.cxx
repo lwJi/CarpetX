@@ -121,6 +121,31 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
   }
 }
 
+// Precondition shared by both SYNC entry points: prolongation onto a level
+// reads the interior of the next coarser level at every synced time level
+// (`tl < sync_tl`), whether or not that coarse level is in the active window.
+// Coarse tl=1 is only the optional time-blend partner of tl=0 when
+// `sync_tl == 1`; for `sync_tl >= 2` it is itself a synced time level and
+// required here. This is a hard error whatever poison_undefined_values is:
+// prolongating invalid data and then marking the ghosts valid is what it
+// exists to prevent. `caller` names the entry point in the message.
+static void CheckCoarseInteriorBeforeProlongation(
+    const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
+    const int sync_tl, const char *const caller) {
+  for (int tl = 0; tl < sync_tl; ++tl) {
+    for (int vi = 0; vi < coarsegroupdata.numvars; ++vi) {
+      error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), [caller]() {
+        return std::string(caller) +
+               " on coarse level before prolongation (if the interior is "
+               "invalid because of \"Recovering\", the group is not restored "
+               "from the checkpoint and must be recomputed IN "
+               "CarpetX_RecomputeAfterRecovery; see the CarpetX "
+               "documentation, \"checkpoint\" tag)";
+      });
+    }
+  } // for tl
+}
+
 static std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -338,13 +363,8 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
         assert(!coarsegroupdata.mfab.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
-        for (int tl = 0; tl < sync_tl0; ++tl) {
-          for (int vi = 0; vi < groupdata.numvars; ++vi) {
-            error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), []() {
-              return "SyncGroupsByDirI on coarse level before prolongation";
-            });
-          }
-        } // for tl
+        CheckCoarseInteriorBeforeProlongation(coarsegroupdata, sync_tl0,
+                                              "SyncGroupsByDirI");
 
       } // if leveldata.level > 0
 
@@ -595,26 +615,11 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
             });
           } // for tl
         } else {
-          // Precondition: prolongation reads the interior of the next coarser
-          // level at every synced time level, whether or not that level is in
-          // the active window. (Coarse tl=1 as the time-blend partner of tl=0
-          // is optional; see old_valid below.) This is a hard error whatever
-          // poison_undefined_values is: prolongating invalid data and then
-          // marking the ghosts valid is what it exists to prevent.
-          for (int tl = 0; tl < sync_tl; ++tl) {
-            for (int vi = 0; vi < groupdata.numvars; ++vi) {
-              error_if_invalid(
-                  coarsegroupdata, vi, tl, make_valid_int(),
-                  []() {
-                    return "SyncGroupsByDirISubcycling on coarse level before "
-                           "prolongation (if the interior is invalid because "
-                           "of \"Recovering\", the group is not restored from "
-                           "the checkpoint and must be recomputed IN "
-                           "CarpetX_RecomputeAfterRecovery; see the CarpetX "
-                           "documentation, \"checkpoint\" tag)";
-                  });
-            }
-          } // for tl
+          // Precondition on the coarse interior: see
+          // CheckCoarseInteriorBeforeProlongation. Coarse tl=1 as the optional
+          // time-blend partner of tl=0 is old_valid below.
+          CheckCoarseInteriorBeforeProlongation(coarsegroupdata, sync_tl,
+                                                "SyncGroupsByDirISubcycling");
 
           // Copy from adjacent boxes on same level, and interpolate
           // from next coarser level
