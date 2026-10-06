@@ -403,7 +403,10 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling_Recovery;
   DECLARE_CCTK_PARAMETERS;
 
-  if (verbose)
+  // CarpetX traverses this routine once per clock window, coarse to fine;
+  // announce the refill in the coarsest window only, i.e. once per recovery
+  assert(CarpetX::active_levels);
+  if (verbose && CarpetX::active_levels->min_level == 0)
     CCTK_VINFO("Subcycling recovery: refilling refinement-boundary ghosts "
                "(spatial prolongation on time-aligned levels, dense output "
                "from the level's restored source bands otherwise)");

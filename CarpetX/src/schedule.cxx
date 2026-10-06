@@ -145,6 +145,8 @@ int BatchTimefac(const int batch_min_level) {
 // global cctk_time and cctk_timefac are restored afterwards; cctk_iteration is
 // left unchanged (checkpointed).
 void TraverseRecomputeAfterRecovery(cGH *restrict const cctkGH) {
+  DECLARE_CCTK_PARAMETERS;
+
   assert(!active_levels);
   const CCTK_REAL saved_time = cctkGH->cctk_time;
   const int saved_timefac = cctkGH->cctk_timefac;
@@ -156,6 +158,11 @@ void TraverseRecomputeAfterRecovery(cGH *restrict const cctkGH) {
     if (ghext->use_subcycling)
       cctkGH->cctk_time =
           cctkGH->cctk_delta_time * double(RepresentativeLevel(lo).iteration);
+    if (verbose)
+      CCTK_VINFO("CarpetX_RecomputeAfterRecovery: levels [%d,%d) iteration %d "
+                 "time %g timefac %d",
+                 lo, hi, cctkGH->cctk_iteration, double(cctkGH->cctk_time),
+                 cctkGH->cctk_timefac);
     CCTK_Traverse(cctkGH, "CarpetX_RecomputeAfterRecovery");
     active_levels = std::optional<active_levels_t>();
   }
