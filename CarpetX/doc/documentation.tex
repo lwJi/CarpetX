@@ -415,6 +415,23 @@ The standard recovery bins \texttt{RECOVER\_VARIABLES} and \texttt{POST\_RECOVER
 
 A thorn that breaks this rule is stopped at the \texttt{SYNC} that would prolongate the invalid data, not later with NaNs blamed on the fine level. Under subcycling, before a \texttt{SYNC} prolongates the coarse-fine ghosts of a group that is not integrated into level $\ell > 0$, \CarpetX\space checks that the interior of level $\ell-1$ is valid. This is a hard error whatever \texttt{CarpetX::poison\_undefined\_values} is set to, like the check of a routine's \texttt{READS} clause: prolongating invalid data into ghosts and then marking them valid is exactly what the check exists to prevent. The error names the coarse level. If it reports the interior invalid because of \texttt{Recovering}, nothing has computed the group on that level since the recovery, i.e.\ a recompute in \texttt{CarpetX\_RecomputeAfterRecovery} is missing.
 
+\emph{A checkpoint that lacks a checkpointed group.} Recovery reads every group that is checkpointed (\texttt{checkpoint="yes"}, which is also the default) and has storage, and it requires each of them to be present in the checkpoint. Nothing is recovered silently: if the checkpoint has no data for such a group, both the \texttt{openpmd} and the \texttt{silo} reader stop at the first missing group with an error that names the checkpoint file, the iteration, the group and the dataset that was looked up, for example
+%
+\begin{lstlisting}
+Checkpoint "<recover_dir>/checkpoint.chkpt.it00000007.bp5" (iteration 7)
+has no data for group FLUXWAVETOYX::PRERESTRICT_ENERGY, which is
+checkpointed (checkpoint="yes", the default): dataset
+"fluxwavetoyx_prerestrict_energy_patch00_lev00" is missing. The checkpoint
+was written before this group was checkpointed, typically because the
+group's checkpoint tag changed since, or it is incomplete. Restart from a
+checkpoint written with the current thorns, or tag the group
+checkpoint="no" and recompute it IN CarpetX_RecomputeAfterRecovery.
+\end{lstlisting}
+%
+The usual cause is that the group's \texttt{checkpoint} tag changed after the checkpoint was written, so that the file predates the group being checkpointed; a truncated checkpoint gives the same error. There are two ways out. Either restart from a checkpoint written with the current thorns, or, if the group can be derived from the recovered state, tag it \texttt{checkpoint="no"} and recompute it in \texttt{CarpetX\_RecomputeAfterRecovery} as described above. The second way is not open to a group that holds history, which has to be checkpointed; for such a group an older checkpoint cannot be used.
+
+The test thorn \texttt{FluxWaveToyX} is the example in this repository. Its group \texttt{prerestrict\_energy} is a snapshot taken before restriction and cannot be recomputed after a recovery, so it became \texttt{checkpoint="yes"} together with the introduction of \texttt{CarpetX\_RecomputeAfterRecovery}. \texttt{FluxWaveToyX} checkpoints written before that change do not contain the group and cannot be recovered: an attempt ends with the error above.
+
 \subsubsection{\texttt{evolve}}
 
 Marks a group as evolved, i.e.\ its current timelevel is recomputed every time step, as opposed to a group that is only computed occasionally and must persist in between (for example the previous value of a quantity kept for a time derivative in an analysis routine). The values are \texttt{"yes"} and \texttt{"no"}. If the tag is absent, it takes the value of the \texttt{checkpoint} tag, which itself defaults to \texttt{"yes"}. An untagged group is therefore evolved, checkpointed and restricted. The tag controls two things:

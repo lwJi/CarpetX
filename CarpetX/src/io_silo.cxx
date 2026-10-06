@@ -1,6 +1,7 @@
 #include "io_silo.hxx"
 
 #include "driver.hxx"
+#include "io.hxx"
 #include "io_meta.hxx"
 #include "mpi_types.hxx"
 #include "timer.hxx"
@@ -590,10 +591,11 @@ void InputSilo(const cGH *restrict const cctkGH,
   // Read data
   {
     DB::ptr<DBfile> file;
+    std::string filename; // set on I/O processes only, named in errors
     if (read_file) {
       const std::string subdirname =
           make_subdirname(input_file, cctk_iteration);
-      const std::string filename =
+      filename =
           input_dir + "/" + subdirname + "/" +
           make_filename(input_file, cctk_iteration, myproc / ioproc_every);
       // We could use DB_UNKNOWN instead of DB_HDF5
@@ -856,7 +858,8 @@ void InputSilo(const cGH *restrict const cctkGH,
 
                 const DB::ptr<DBquadvar> quadvar =
                     DB::make(DBGetQuadvar(file.get(), varname.c_str()));
-                assert(quadvar);
+                if (!quadvar)
+                  error_missing_checkpoint_group(cctkGH, gi, filename, varname);
 
                 assert(quadvar->ndims == ndims);
                 assert(ndims <= 3);

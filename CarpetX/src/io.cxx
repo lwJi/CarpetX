@@ -39,6 +39,12 @@ namespace CarpetX {
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace {
+// True while `RecoverGH` drives a reader. `InputOpenPMD` and `InputSilo` also
+// serve the file reader (`InputGH`), where the input groups are the user's
+// choice, not the checkpointed ones; `error_missing_checkpoint_group` words
+// its message accordingly. Set and cleared on the main thread only.
+bool reading_checkpoint = false;
+
 std::vector<bool> find_groups(const char *const method,
                               const char *const out_vars) {
   DECLARE_CCTK_PARAMETERS;
@@ -185,6 +191,34 @@ void RecoverGridStructure(cGH *restrict cctkGH) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+void error_missing_checkpoint_group(const cGH *restrict cctkGH,
+                                    const int groupindex,
+                                    const std::string &checkpoint_path,
+                                    const std::string &dataset) {
+  if (!reading_checkpoint)
+    CCTK_VERROR(
+        "Input file \"%s\" (iteration %d) has no data for group %s: dataset "
+        "\"%s\" is missing. The group was selected for input via "
+        "CarpetX::filereader_ID_vars, but the file does not contain it. "
+        "Remove the group from CarpetX::filereader_ID_vars, or read a file "
+        "that contains it.",
+        checkpoint_path.c_str(), cctkGH->cctk_iteration,
+        CCTK_FullGroupName(groupindex), dataset.c_str());
+
+  CCTK_VERROR(
+      "Checkpoint \"%s\" (iteration %d) has no data for group %s, which is "
+      "checkpointed (checkpoint=\"yes\", the default): dataset \"%s\" is "
+      "missing. The checkpoint was written before this group was "
+      "checkpointed, typically because the group's checkpoint tag changed "
+      "since, or it is incomplete. Restart from a checkpoint written with "
+      "the current thorns, or tag the group checkpoint=\"no\" and recompute "
+      "it IN CarpetX_RecomputeAfterRecovery.",
+      checkpoint_path.c_str(), cctkGH->cctk_iteration,
+      CCTK_FullGroupName(groupindex), dataset.c_str());
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 void RecoverGH(const cGH *restrict cctkGH) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
@@ -245,6 +279,11 @@ void RecoverGH(const cGH *restrict cctkGH) {
       }
   }
 
+  // Every group in `group_enabled` is checkpointed and has storage, so a
+  // reader that finds no dataset for one reports an unusable checkpoint
+  // (`error_missing_checkpoint_group`).
+  reading_checkpoint = true;
+
   if (CCTK_EQUALS(recover_method, "openpmd")) {
 
 #ifdef HAVE_CAPABILITY_openPMD_api
@@ -269,6 +308,8 @@ void RecoverGH(const cGH *restrict cctkGH) {
   } else {
     CCTK_ERROR("unknown value for paramater CarpetX::recover_method");
   }
+
+  reading_checkpoint = false;
 
   // Increment epoch
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
