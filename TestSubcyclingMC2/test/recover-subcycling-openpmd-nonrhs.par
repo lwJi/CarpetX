@@ -10,6 +10,15 @@ ActiveThorns = "
 # TestSubcycleStepping adds checkpointed grid functions that ODESolvers does
 # not integrate. They own no subcycling source bands, so recovering the
 # mid-cycle checkpoint must neither build nor expect bands for them.
+# `postrestrict` and `prerestrict` record the levels and the time at which
+# CCTK_POSTRESTRICT and CarpetX_PreRestrict were last traversed.
+#
+# Recover half of a recover pair: restarts from the iteration-3 checkpoint of
+# checkpoint-subcycling-openpmd-nonrhs.par, the uninterrupted run, and runs to
+# iteration 6. The pair asserts that recovery is transparent: the recovered
+# iteration 3 is output (out_initial_data = yes), and every reference file in
+# recover-subcycling-openpmd-nonrhs/ is a byte-for-byte copy of the file of
+# the same name in checkpoint-subcycling-openpmd-nonrhs/.
 
 $out_every = 1
 $nlevels = 2
@@ -82,12 +91,14 @@ IO::out_fileinfo = "axis labels"
 IO::parfile_write = no
 
 CarpetX::out_metadata = no
-CarpetX::out_initial_data = no
+CarpetX::out_initial_data = yes
 
 CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state
     TestSubcyclingMC2::error
     TestSubcycleStepping::iteration
+    TestSubcycleStepping::postrestrict
+    TestSubcycleStepping::prerestrict
 "
 
 IO::checkpoint_dir = $parfile

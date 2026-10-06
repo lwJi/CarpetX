@@ -17,6 +17,12 @@ ActiveThorns = "
 # does: every output of this run is bit-identical to standing_subcycling's
 # at the shared iterations, and the masked sums of ft, fx, fy, fz stay
 # constant to round-off across the recovery point.
+#
+# The uninterrupted run is standing_subcycling.par, and every reference file
+# in recover_subcycling/ is a byte-for-byte copy of standing_subcycling's (the
+# norms file: of its rows from iteration 7 on). The recovered iteration 7 is
+# output (out_initial_data = yes); it is off the TSV cadence, so it shows only
+# as a row of the norms file.
 
 Cactus::cctk_show_schedule = no
 Cactus::presync_mode = "mixed-error"
@@ -83,7 +89,7 @@ IO::parfile_write = no
 
 CarpetX::out_metadata = no
 CarpetX::out_performance = no
-CarpetX::out_initial_data = no
+CarpetX::out_initial_data = yes
 
 CarpetX::out_norm_vars = "FluxWaveToyX::state"
 CarpetX::out_norm_omit_unstable = yes

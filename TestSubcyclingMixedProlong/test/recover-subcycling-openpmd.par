@@ -6,6 +6,13 @@ ActiveThorns = "
     TestSubcyclingMixedProlong
 "
 
+# Recover half of a recover pair: restarts from the iteration-3 checkpoint of
+# checkpoint-subcycling-openpmd.par, the uninterrupted run, and runs to
+# iteration 6. The pair asserts that recovery is transparent: the recovered
+# iteration 3 is output (out_initial_data = yes), and every reference file in
+# recover-subcycling-openpmd/ is a byte-for-byte copy of the file of the same
+# name in checkpoint-subcycling-openpmd/.
+
 $out_every = 1
 $nlevels = 2
 $ncells = 32
@@ -78,7 +85,7 @@ IO::out_fileinfo = "axis labels"
 IO::parfile_write = no
 
 CarpetX::out_metadata = no
-CarpetX::out_initial_data = no
+CarpetX::out_initial_data = yes
 
 CarpetX::out_tsv_vars = "
     TestSubcyclingMixedProlong::state_lo

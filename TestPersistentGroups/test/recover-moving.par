@@ -8,6 +8,11 @@
 # checks that the recovered stamps are intact. The rows at iterations 8 and 16
 # hold the same stamps as moving.par's. The correct value of stale_count is 0
 # for both groups in every row.
+#
+# The uninterrupted run is moving.par, and every reference file in
+# recover-moving/ is a byte-for-byte copy of the file of the same name in
+# moving/. The recovered iteration 6 is output (out_initial_data = yes) but is
+# off the output cadence (8), so it adds no reference file.
 
 ActiveThorns = "
     BoxInBox
@@ -84,7 +89,7 @@ IO::out_fileinfo = "axis labels"
 IO::parfile_write = no
 
 CarpetX::out_metadata = no
-CarpetX::out_initial_data = no
+CarpetX::out_initial_data = yes
 
 CarpetX::out_tsv_vars = "
     TestPersistentGroups::stale_count

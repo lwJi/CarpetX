@@ -6,6 +6,11 @@ ActiveThorns = "
     TestSubcyclingMC2
 "
 
+# Checkpoint half of a recover pair, and the uninterrupted run that
+# recover-openpmd.par is compared against: the checkpoint is written at
+# iteration 3, and the run continues to iteration 6, the recover half's last
+# iteration.
+
 $out_every = 1
 $nlevels = 2
 $ncells = 32
@@ -67,7 +72,7 @@ BoxInBox::radius_1 = [ -1.0, 1.0 ]
 
 Cactus::terminate = "iteration"
 #Cactus::cctk_final_time = 2.0
-Cactus::cctk_itlast = 4
+Cactus::cctk_itlast = 6
 
 ODESolvers::method = "RK4"
 #ODESolvers::verbose = yes
