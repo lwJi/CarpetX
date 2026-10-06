@@ -1,3 +1,14 @@
+# Recover half of a checkpoint/recover pair under subcycling with per-group (mixed) prolongation and RK4 (see
+# checkpoint-subcycling-openpmd.par): recovers at iteration 3 and continues
+# to iteration 6.
+#
+# The checkpoint was taken at iteration 3, where level 1 is ahead of level 0.
+# Under subcycling ODESolvers_PostStep and ODESolvers_EstimateError run after
+# the recovery only in CarpetX_RecomputeAfterRecovery, once per clock window
+# with that window's levels and clock, after the coarse-fine ghost refill. The
+# recovered iteration is written (out_initial_data), and every file matches
+# the uninterrupted run.
+
 ActiveThorns = "
     BoxInBox
     CarpetX
@@ -78,7 +89,7 @@ IO::out_fileinfo = "axis labels"
 IO::parfile_write = no
 
 CarpetX::out_metadata = no
-CarpetX::out_initial_data = no
+CarpetX::out_initial_data = yes
 
 CarpetX::out_tsv_vars = "
     TestSubcyclingMixedProlong::state_lo

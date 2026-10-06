@@ -82,11 +82,18 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 #     INITIAL
 #     POSTINITIAL
 #     POSTPOSTINITIAL
-#   (disabled) [restrict]
-#   (disabled) POSTRESTRICT
+#   On recovery, instead of INITIAL .. POSTPOSTINITIAL:
+#     RECOVER_VARIABLES
+#     POST_RECOVER_VARIABLES            (once, over all levels)
+#     CarpetX_RecomputeAfterRecovery    (once per clock window, coarse to fine)
+#   [when restrict_during_sync = no and >= 2 levels are time-aligned:]
+#     CarpetX_PreRestrict  (not on recovery)
+#     [restrict]    (not on recovery; fine to coarse, then prolongate
+#                    restricted GFs; no reflux)
+#     POSTRESTRICT  (also on recovery, over the finest clock window)
 #   POSTSTEP
 #   CPINITIAL
-#   ANALYSIS
+#   ANALYSIS        (not on recovery)
 #   OutputGH
 #
 # Time evolution loop:
@@ -212,30 +219,52 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 
 # Recovering
 
-  SCHEDULE GROUP ODESolvers_PostStep AT post_recover_variables
-  {
-  } "Apply boundary conditions to state vector, and project if necessary"
-
-  # SCHEDULE GROUP ODESolvers_RHS AT post_recover_variables AFTER ODESolvers_PostStep
-  # {
-  # } "Evaluate RHS for of state vector everywhere on the grid"
-
-  SCHEDULE GROUP ODESolvers_EstimateError AT post_recover_variables AFTER (ODESolvers_PostStep, ODESolvers_RHS)
-  {
-  } "Estimate discretization error (for regridding)"
-
-  # Under subcycling, recompute the state's post-step dependents per clock
-  # window after the recovery ghost refill. Without subcycling there is no
-  # refill, and the ODESolvers_PostStep at post_recover_variables above has
-  # already left the state and its dependents valid on all levels, so the
-  # group does not repeat it. Thorns schedule their own recomputes of
-  # non-checkpointed groups IN CarpetX_RecomputeAfterRecovery AFTER
-  # ODESolvers_PostStep; without subcycling that AFTER names no item in the
-  # group, and Cactus ignores it.
+  # After a recovery ODESolvers_PostStep and ODESolvers_EstimateError run in
+  # exactly one place, chosen by use_subcycling.
+  #
+  # Under subcycling they run IN CarpetX_RecomputeAfterRecovery, which CarpetX
+  # traverses once per clock window, coarse to fine, with that window's levels
+  # and clock, after ODESolvers_Solve_Subcycling_Recovery has refilled the
+  # coarse-fine ghosts of the integrated state. They are not scheduled AT
+  # post_recover_variables: that bin is traversed once over all levels, before
+  # the per-level clocks are restored and before the refill, so a PostStep
+  # there would see the wrong time on the coarse levels and stale coarse-fine
+  # ghosts. A routine scheduled AT post_recover_variables AFTER
+  # ODESolvers_PostStep is therefore not ordered against anything under
+  # subcycling; it belongs IN CarpetX_RecomputeAfterRecovery AFTER
+  # ODESolvers_PostStep.
+  #
+  # Without subcycling all levels share one clock and there is no refill:
+  # both groups run AT post_recover_variables, over all levels, and leave the
+  # state and its dependents valid everywhere, so the recompute group does not
+  # repeat them. Thorns schedule their own recomputes of non-checkpointed
+  # groups IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_PostStep in both
+  # modes; without subcycling that AFTER names no item in the group, and
+  # Cactus ignores it.
   if(use_subcycling) {
+
     SCHEDULE GROUP ODESolvers_PostStep IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_Solve_Subcycling_Recovery
     {
     } "Apply boundary conditions to state vector, and project if necessary"
+
+    SCHEDULE GROUP ODESolvers_EstimateError IN CarpetX_RecomputeAfterRecovery AFTER ODESolvers_PostStep
+    {
+    } "Estimate discretization error (for regridding)"
+
+  } else {
+
+    SCHEDULE GROUP ODESolvers_PostStep AT post_recover_variables
+    {
+    } "Apply boundary conditions to state vector, and project if necessary"
+
+    # SCHEDULE GROUP ODESolvers_RHS AT post_recover_variables AFTER ODESolvers_PostStep
+    # {
+    # } "Evaluate RHS for of state vector everywhere on the grid"
+
+    SCHEDULE GROUP ODESolvers_EstimateError AT post_recover_variables AFTER (ODESolvers_PostStep, ODESolvers_RHS)
+    {
+    } "Estimate discretization error (for regridding)"
+
   }
 
 # Regridding

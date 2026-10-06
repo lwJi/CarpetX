@@ -1,3 +1,12 @@
+# Recover half of a checkpoint/recover pair without subcycling (the control of the subcycling pairs) (see
+# checkpoint-openpmd.par): recovers at iteration 3 and continues
+# to iteration 6.
+#
+# Without subcycling all levels share one clock at every iteration, and ODESolvers_PostStep and
+# ODESolvers_EstimateError run AT post_recover_variables over all levels,
+# not in CarpetX_RecomputeAfterRecovery. The recovered iteration is written
+# (out_initial_data), and every file matches the uninterrupted run.
+
 ActiveThorns = "
     BoxInBox
     CarpetX
@@ -78,7 +87,7 @@ IO::out_fileinfo = "axis labels"
 IO::parfile_write = no
 
 CarpetX::out_metadata = no
-CarpetX::out_initial_data = no
+CarpetX::out_initial_data = yes
 
 CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state
