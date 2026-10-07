@@ -32,3 +32,14 @@ SCHEDULE TestODESolvers2_Error AT analysis
   WRITES: error(interior) order(interior)
   SYNC: error order
 } "Calculate error in state vector"
+
+# error and order are not checkpointed, and a level that lags its parent SYNCs
+# them from the parent: recompute them after a restart, once the state's
+# ghosts are refilled
+SCHEDULE TestODESolvers2_Error AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(interior)
+  WRITES: error(interior) order(interior)
+  SYNC: error order
+} "Calculate error in state vector"
