@@ -95,6 +95,65 @@ SCHEDULE FluxWaveToyX_Mass AT analysis
   SYNC: mass mass_flux_x mass_flux_y mass_flux_z
 } "Calculate the conserved density and its fluxes for output"
 
+# The diagnostics above are not checkpointed, and a level that lags its parent
+# SYNCs them from the parent: recompute them after a restart, once the state's
+# ghosts are refilled
+SCHEDULE FluxWaveToyX_Fluxes AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: flux_x(interior)
+  WRITES: flux_y(interior)
+  WRITES: flux_z(interior)
+  SYNC: flux_x flux_y flux_z
+} "Calculate scalar wave fluxes for output"
+
+SCHEDULE FluxWaveToyX_RHS AT post_recover_variables AFTER (ODESolvers_PostStep, FluxWaveToyX_Fluxes)
+{
+  LANG: C
+  READS: state(interior)
+  READS: flux_x(interior)
+  READS: flux_y(interior)
+  READS: flux_z(interior)
+  WRITES: rhs(interior)
+  SYNC: rhs
+} "Calculate scalar wave RHS for output"
+
+SCHEDULE FluxWaveToyX_Constraints AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: cons(interior)
+  SYNC: cons
+} "Calculate scalar wave constraints"
+
+SCHEDULE FluxWaveToyX_Energy AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: energy(interior)
+  SYNC: energy
+} "Calculate scalar wave energy density"
+
+SCHEDULE FluxWaveToyX_Error AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(interior)
+  WRITES: error(interior)
+  SYNC: error
+} "Calculate error in scalar wave state"
+
+SCHEDULE FluxWaveToyX_Mass AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: mass(interior)
+  WRITES: mass_flux_x(interior)
+  WRITES: mass_flux_y(interior)
+  WRITES: mass_flux_z(interior)
+  SYNC: mass mass_flux_x mass_flux_y mass_flux_z
+} "Calculate the conserved density and its fluxes for output"
+
 # Fixture for the order of CarpetX_PreRestrict and the driver's reflux: when
 # CarpetX_PreRestrict is traversed, the coarse level is not yet refluxed,
 # and its ghosts agree with its interior. The average reaches across the
