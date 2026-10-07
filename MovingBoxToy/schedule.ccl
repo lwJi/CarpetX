@@ -13,3 +13,12 @@ SCHEDULE MovingBoxToy_MoveBoxes AT poststep BEFORE EstimateError
   READS: BoxInBox::positions
   WRITES: BoxInBox::positions
 } "Update box positions"
+
+# After a restart, each level's error estimate must see the box positions at
+# that level's own time, as at the end of its last step
+SCHEDULE MovingBoxToy_MoveBoxes AT post_recover_variables BEFORE EstimateError
+{
+  LANG: C
+  READS: BoxInBox::positions
+  WRITES: BoxInBox::positions
+} "Update box positions"
