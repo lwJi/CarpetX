@@ -41,3 +41,35 @@ driver's CarpetX_PreRestrict group, which CarpetX traverses before the
 reflux and the restriction, over the same widened level range as
 CCTK_POSTRESTRICT. Its stamps must therefore match "postrestrict" on every
 pass; a difference means the hook and the restriction have drifted apart.
+
+"tail_context" (checkpoint="no") holds on each level the context of the last
+CCTK_POSTSTEP traversal whose window covered the level: tail_iteration,
+tail_time and tail_timefac are that traversal's cctk_iteration, cctk_time and
+cctk_timefac. It is stamped everywhere, so it needs no SYNC, and after a
+restart it is also stamped in CCTK_POST_RECOVER_VARIABLES. Under subcycling a
+POSTSTEP window is the level just evolved, widened down to every coarser
+level that shares its clock, and it sees the evolved level's context:
+cctk_time = cctk_delta_time * that level's clock and cctk_timefac = 2^(that
+level). With 3 levels (test/subcycle_3levels.par, where cctk_delta_time = 1)
+the stamps (iteration, time, timefac) after each pass of the first coarse
+step are:
+
+  pass 1: windows [0,1) [1,2) [2,3)   L0 (1,1,1)  L1 (1,1/2,2)  L2 (1,1/4,4)
+  pass 2: window  [1,3)               L0 (1,1,1)  L1 (2,1/2,4)  L2 (2,1/2,4)
+  pass 3: windows [0,2) [2,3)         L0 (3,1,2)  L1 (3,1,2)    L2 (3,3/4,4)
+  pass 4: window  [0,3)               L0 (4,1,4)  L1 (4,1,4)    L2 (4,1,4)
+
+The second coarse step repeats this with iterations 5 to 8 and times larger
+by 1. Initialization stamps every level with (0,0,1). A level keeps its
+stamp until a later window covers it, e.g. level 0 keeps iteration 1
+through pass 2.
+
+"recovery_counts" (grid scalars, checkpoint="no") count the traversals of
+CCTK_POST_RECOVER_VARIABLES (count_post_recover), CCTK_POSTSTEP
+(count_poststep), CCTK_ANALYSIS (count_analysis), CarpetX_PreRestrict
+(count_prerestrict) and CCTK_POSTRESTRICT (count_postrestrict) during
+recovery. CCTK_RECOVER_VARIABLES zeroes them and turns counting on, and
+CCTK_CPINITIAL turns it off, so the first output after a restart shows which
+bins recovery ran. A fresh start zeroes them at CCTK_INITIAL with counting
+off, so they stay 0. The recover test
+TestSubcyclingMC2/test/recover-subcycling-openpmd-nonrhs.par outputs them.
