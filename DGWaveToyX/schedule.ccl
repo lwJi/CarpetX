@@ -51,3 +51,26 @@ SCHEDULE DGWaveToyX_Error IN ODESolvers_Analysis
   WRITES: u_error(everywhere)
   WRITES: f_error(everywhere)
 } "Calculate error of wave equation"
+
+# The SYNCed diagnostics above are not checkpointed, and a level that lags its
+# parent SYNCs them from the parent: recompute them after a restart, once the
+# state's ghosts are refilled. They are scheduled here directly, not by
+# scheduling ODESolvers_Analysis, which would change that group for every
+# thorn. DGWaveToyX_Error does not SYNC, so no other level reads it.
+SCHEDULE DGWaveToyX_RHS AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: u(everywhere)
+  READS: f(everywhere)
+  WRITES: u_rhs(interior)
+  WRITES: f_rhs(interior)
+  SYNC: u_rhs f_rhs
+} "Calculate RHS of wave equation for output"
+
+SCHEDULE DGWaveToyX_Energy AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: f(interior)
+  WRITES: eps(interior)
+  SYNC: eps
+} "Calculate energy of wave equation"
