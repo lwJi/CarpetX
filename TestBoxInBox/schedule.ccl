@@ -31,3 +31,21 @@ SCHEDULE TestBoxInBox_Update AT poststep BEFORE EstimateError
   WRITES: BoxInBox::radii
   WRITES: BoxInBox::radiixyz
 } "Update grid structure"
+
+# After a restart, each level's error estimate must see the grid structure of
+# that level's own iteration, as at the end of its last step
+SCHEDULE TestBoxInBox_Update AT post_recover_variables BEFORE EstimateError
+{
+  LANG: C
+  OPTIONS: global
+  READS: BoxInBox::active
+  READS: BoxInBox::num_levels
+  READS: BoxInBox::positions
+  READS: BoxInBox::radii
+  READS: BoxInBox::radiixyz
+  WRITES: BoxInBox::active
+  WRITES: BoxInBox::num_levels
+  WRITES: BoxInBox::positions
+  WRITES: BoxInBox::radii
+  WRITES: BoxInBox::radiixyz
+} "Update grid structure"
