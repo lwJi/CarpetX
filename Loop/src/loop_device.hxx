@@ -169,7 +169,8 @@ public:
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
-  loop_mixpn_device(const vect<int, dim> &group_nghostzones, const int ord, const F &f) const {
+  loop_mixpn_device(const vect<int, dim> &group_nghostzones, const int ord,
+                    const F &f) const {
     vect<int, dim> bnd_min, bnd_max;
     boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
     vect<int, dim> imin_int, imax_int;
@@ -320,12 +321,12 @@ public:
   // Loop over the outermost n points (ghost OR boundary; there is no bbox
   // filter) of cell centered grid function directions
   // while ignoring outer faces in vertex centered directions, i.e. over
-  // the exact complement of loop_imix_allmn_device(ord). 
+  // the exact complement of loop_imix_allmn_device(ord).
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
-  loop_imix_outer_n_device(const vect<int, dim> &group_nghostzones, const int ord,
-                      const F &f) const {
+  loop_imix_outer_n_device(const vect<int, dim> &group_nghostzones,
+                           const int ord, const F &f) const {
     vect<int, dim> bnd_min, bnd_max;
     boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
     vect<int, dim> all_min, all_max, int_min, int_max;
@@ -341,8 +342,9 @@ public:
           for (int ni = -1; ni <= +1; ++ni) {
             if ((ni == 0) + (nj == 0) + (nk == 0) == rank) {
 
-              const int n_vc_bd = (ni != 0 && !facetype[0]) + (nj != 0 && !facetype[1])
-                                  + (nk != 0 && !facetype[2]);
+              const int n_vc_bd = (ni != 0 && !facetype[0]) +
+                                  (nj != 0 && !facetype[1]) +
+                                  (nk != 0 && !facetype[2]);
               if (dim - n_vc_bd == rank) {
                 continue;
               } else {
@@ -746,8 +748,7 @@ public:
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
-  loop_outer_device(const vect<int, dim> &group_nghostzones,
-                     const F &f) const {
+  loop_outer_device(const vect<int, dim> &group_nghostzones, const F &f) const {
     vect<int, dim> bnd_min, bnd_max;
     boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
     vect<int, dim> all_min, all_max, int_min, int_max;
