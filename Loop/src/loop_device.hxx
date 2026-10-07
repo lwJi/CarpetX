@@ -225,6 +225,28 @@ public:
     loop_allmn_device<CI, CJ, CK, VS, N, NT>(group_nghostzones, 1, f);
   }
 
+  // Loop over all points in vertex-centered directions, and all - n points in
+  // cell-centered directions.
+  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
+            int NT = AMREX_GPU_MAX_THREADS, typename F>
+  inline CCTK_KERNEL void
+  loop_imix_allmn_device(const vect<int, dim> &group_nghostzones, const int ord,
+                         const F &f) const {
+    vect<int, dim> bnd_min, bnd_max;
+    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
+    vect<int, dim> imin_all, imax_all;
+    box_all<CI, CJ, CK>(group_nghostzones, imin_all, imax_all);
+
+    constexpr vect<int, dim> facetype{CI, CJ, CK};
+
+    vect<int, dim> imin, imax;
+    for (int d = 0; d < dim; ++d) {
+      imin[d] = facetype[d] ? imin_all[d] + ord : imin_all[d];
+      imax[d] = facetype[d] ? imax_all[d] - ord : imax_all[d];
+    }
+    loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
+  }
+
   // Loop over the outermost n points (ghost OR boundary; there is no bbox
   // filter) of the grid function component in every direction, i.e. over
   // the exact complement of loop_allmn_device(ord) within
@@ -286,6 +308,71 @@ public:
 
               loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin,
                                                      imax, f);
+            } // if rank
+          }
+        }
+      }
+    } // for rank
+  }
+
+  // Loop over the outermost n points (ghost OR boundary; there is no bbox
+  // filter) of cell centered grid function directions
+  // while ignoring outer faces in vertex centered directions, i.e. over
+  // the exact complement of loop_imix_allmn_device(ord). 
+  template <int CI, int CJ, int CK, int VS = 1, int N = 1,
+            int NT = AMREX_GPU_MAX_THREADS, typename F>
+  inline CCTK_KERNEL void
+  loop_imix_outer_n_device(const vect<int, dim> &group_nghostzones, const int ord,
+                      const F &f) const {
+    vect<int, dim> bnd_min, bnd_max;
+    boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
+    vect<int, dim> all_min, all_max, int_min, int_max;
+    domain_boxes<CI, CJ, CK>(group_nghostzones, all_min, all_max, int_min,
+                             int_max);
+
+    constexpr vect<int, dim> facetype{CI, CJ, CK};
+
+    for (int rank = dim - 1; rank >= 0; --rank) {
+
+      for (int nk = -1; nk <= +1; ++nk) {
+        for (int nj = -1; nj <= +1; ++nj) {
+          for (int ni = -1; ni <= +1; ++ni) {
+            if ((ni == 0) + (nj == 0) + (nk == 0) == rank) {
+
+              if (rank == 2 && ((ni == 0 && !facetype[0]) ||
+                  (nj == 0 && !facetype[1]) ||
+                  (nk == 0 && !facetype[2]))) {
+                continue;
+              } else {
+                const vect<int, dim> inormal{ni, nj, nk};
+
+                vect<int, dim> imin, imax;
+                for (int d = 0; d < dim; ++d) {
+                  switch (inormal[d]) {
+                  case -1: // lower band
+                    imin[d] = all_min[d];
+                    imax[d] = all_min[d] + ord;
+                    break;
+                  case 0: // tangential: the allmn box, not just the interior
+                    imin[d] = all_min[d] + ord;
+                    imax[d] = all_max[d] - ord;
+                    break;
+                  case +1: // upper band
+                    imin[d] = all_max[d] - ord;
+                    imax[d] = all_max[d];
+                    break;
+                  default:
+                    assert(0);
+                  }
+
+                  using std::min, std::max;
+                  imin[d] = max(tmin[d], imin[d]);
+                  imax[d] = min(tmax[d], imax[d]);
+                }
+
+                loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin,
+                                                       imax, f);
+              }
             } // if rank
           }
         }
