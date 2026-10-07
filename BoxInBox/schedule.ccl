@@ -34,3 +34,16 @@ SCHEDULE BoxInBox_Setup AS EstimateError AT poststep
   READS: radiixyz
   WRITES: CarpetXRegrid::regrid_error(interior)
 } "Estimate error"
+
+# The next regrid reads regrid_error, which is not checkpointed: recompute it
+# after a restart, as at the end of every step
+SCHEDULE BoxInBox_Setup AS EstimateError AT post_recover_variables
+{
+  LANG: C
+  READS: active
+  READS: num_levels
+  READS: positions
+  READS: radii
+  READS: radiixyz
+  WRITES: CarpetXRegrid::regrid_error(interior)
+} "Estimate error"
