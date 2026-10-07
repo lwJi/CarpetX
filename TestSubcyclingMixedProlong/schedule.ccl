@@ -68,3 +68,22 @@ SCHEDULE TestSubcyclingMixedProlong_Error_hi AT analysis
   WRITES: error_hi(interior)
   SYNC: error_hi
 } "Calculate error in scalar wave state (wide prolongation stencil)"
+
+# error_lo and error_hi are not checkpointed, and a level that lags its parent
+# SYNCs them from the parent: recompute them after a restart, once the state's
+# ghosts are refilled
+SCHEDULE TestSubcyclingMixedProlong_Error_lo AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state_lo(interior)
+  WRITES: error_lo(interior)
+  SYNC: error_lo
+} "Calculate error in scalar wave state (narrow prolongation stencil)"
+
+SCHEDULE TestSubcyclingMixedProlong_Error_hi AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state_hi(interior)
+  WRITES: error_hi(interior)
+  SYNC: error_hi
+} "Calculate error in scalar wave state (wide prolongation stencil)"
