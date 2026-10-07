@@ -97,3 +97,66 @@ SCHEDULE StaggeredWaveToyX_Error AT analysis
   SYNC: fyerror
   SYNC: fzerror
 } "Calculate error in scalar wave state"
+
+# The diagnostics above are not checkpointed, and a level that lags its parent
+# SYNCs them from the parent: recompute them after a restart, once the state's
+# ghosts are refilled
+SCHEDULE StaggeredWaveToyX_RHS AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: ustate(everywhere)
+  READS: fxstate(everywhere)
+  READS: fystate(everywhere)
+  READS: fzstate(everywhere)
+  WRITES: urhs(interior)
+  WRITES: fxrhs(interior)
+  WRITES: fyrhs(interior)
+  WRITES: fzrhs(interior)
+  # Sync for test output
+  SYNC: urhs
+  SYNC: fxrhs
+  SYNC: fyrhs
+  SYNC: fzrhs
+} "Calculate scalar wave RHS for output"
+
+SCHEDULE StaggeredWaveToyX_Constraints AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: fxstate(interior)
+  READS: fystate(interior)
+  READS: fzstate(interior)
+  WRITES: curlfx(interior)
+  WRITES: curlfy(interior)
+  WRITES: curlfz(interior)
+  SYNC: curlfx
+  SYNC: curlfy
+  SYNC: curlfz
+} "Calculate scalar wave constraints"
+
+SCHEDULE StaggeredWaveToyX_Energy AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: ustate(interior)
+  READS: fxstate(interior)
+  READS: fystate(interior)
+  READS: fzstate(interior)
+  WRITES: energy(interior)
+  SYNC: energy
+} "Calculate scalar wave energy density"
+
+SCHEDULE StaggeredWaveToyX_Error AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: ustate(interior)
+  READS: fxstate(interior)
+  READS: fystate(interior)
+  READS: fzstate(interior)
+  WRITES: uerror(interior)
+  WRITES: fxerror(interior)
+  WRITES: fyerror(interior)
+  WRITES: fzerror(interior)
+  SYNC: uerror
+  SYNC: fxerror
+  SYNC: fyerror
+  SYNC: fzerror
+} "Calculate error in scalar wave state"
