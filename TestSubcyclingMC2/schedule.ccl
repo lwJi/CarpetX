@@ -17,6 +17,15 @@ SCHEDULE TestSubcyclingMC2_MoveBox AT poststep BEFORE EstimateError
   WRITES: BoxInBox::positions
 } "Move the refined box along a linear drift from the origin"
 
+# After a restart, each level's error estimate must see the box position at
+# that level's own time, as at the end of its last step
+SCHEDULE TestSubcyclingMC2_MoveBox AT post_recover_variables BEFORE EstimateError
+{
+  LANG: C
+  READS: BoxInBox::positions
+  WRITES: BoxInBox::positions
+} "Move the refined box along a linear drift from the origin"
+
 SCHEDULE TestSubcyclingMC2_Initial AT initial
 {
   LANG: C
@@ -59,6 +68,17 @@ SCHEDULE TestSubcyclingMC2_RHS IN ODESolvers_RHS
 } "Calculate scalar wave RHS"
 
 SCHEDULE TestSubcyclingMC2_Error AT analysis
+{
+  LANG: C
+  READS: state(interior)
+  WRITES: error(interior)
+  SYNC: error
+} "Calculate error in scalar wave state"
+
+# error is not checkpointed, and a level that lags its parent SYNCs it from
+# the parent: recompute it after a restart, once the state's ghosts are
+# refilled
+SCHEDULE TestSubcyclingMC2_Error AT post_recover_variables AFTER ODESolvers_PostStep
 {
   LANG: C
   READS: state(interior)
