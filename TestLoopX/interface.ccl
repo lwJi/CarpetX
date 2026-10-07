@@ -16,3 +16,10 @@ CCTK_REAL testloop_gf_fz TYPE=gf CENTERING={CCV} "Test grid function lives on z-
 # extent)
 CCTK_REAL testloop_gf_n1 TYPE=gf CENTERING={VVV} "allm1 / allmn(1) / outer_n(1) markers"
 CCTK_REAL testloop_gf_n2 TYPE=gf CENTERING={CCC} "allmn(2) / outer_n(2) markers"
+
+# Marker functions for the loop_imix_allmn_device / loop_imix_outer_n_device /
+# partition test (face and edge centered)
+CCTK_REAL testloop_gf_m1 TYPE=gf CENTERING={VVV} 
+CCTK_REAL testloop_gf_m2 TYPE=gf CENTERING={CCC} 
+CCTK_REAL testloop_gf_m3 TYPE=gf CENTERING={VCC} 
+CCTK_REAL testloop_gf_m4 TYPE=gf CENTERING={CVV} 

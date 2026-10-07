@@ -13,10 +13,6 @@ void FillPatch_Sync(task_manager &tasks2,
                     const GHExt::PatchData::LevelData::GroupData &groupdata,
                     amrex::MultiFab &mfab, const amrex::Geometry &geom);
 
-void FillPatch_Sync_Override(task_manager &tasks2,
-                    const GHExt::PatchData::LevelData::GroupData &groupdata,
-                    amrex::MultiFab &mfab, const amrex::Geometry &geom);
-
 // Prolongate ghosts from coarse level, optionally with same-level sync.
 // When do_sync=true, also performs FillBoundary (same-level ghost exchange).
 // When do_sync=false, only performs coarse-to-fine interpolation.

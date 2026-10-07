@@ -234,15 +234,17 @@ public:
                          const F &f) const {
     vect<int, dim> bnd_min, bnd_max;
     boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
-    vect<int, dim> imin_all, imax_all;
-    box_all<CI, CJ, CK>(group_nghostzones, imin_all, imax_all);
+    vect<int, dim> all_min, all_max, int_min, int_max;
+    domain_boxes<CI, CJ, CK>(group_nghostzones, all_min, all_max, int_min,
+                             int_max);
 
     constexpr vect<int, dim> facetype{CI, CJ, CK};
 
+    using std::max, std::min;
     vect<int, dim> imin, imax;
     for (int d = 0; d < dim; ++d) {
-      imin[d] = facetype[d] ? imin_all[d] + ord : imin_all[d];
-      imax[d] = facetype[d] ? imax_all[d] - ord : imax_all[d];
+      imin[d] = max(facetype[d] ? all_min[d] + ord : all_min[d], tmin[d]);
+      imax[d] = min(facetype[d] ? all_max[d] - ord : all_max[d], tmax[d]);
     }
     loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
   }
@@ -339,9 +341,9 @@ public:
           for (int ni = -1; ni <= +1; ++ni) {
             if ((ni == 0) + (nj == 0) + (nk == 0) == rank) {
 
-              if (rank == 2 && ((ni == 0 && !facetype[0]) ||
-                  (nj == 0 && !facetype[1]) ||
-                  (nk == 0 && !facetype[2]))) {
+              const int n_vc_bd = (ni != 0 && !facetype[0]) + (nj != 0 && !facetype[1])
+                                  + (nk != 0 && !facetype[2]);
+              if (dim - n_vc_bd == rank) {
                 continue;
               } else {
                 const vect<int, dim> inormal{ni, nj, nk};
@@ -353,7 +355,7 @@ public:
                     imin[d] = all_min[d];
                     imax[d] = all_min[d] + ord;
                     break;
-                  case 0: // tangential: the allmn box, not just the interior
+                  case 0: // tangential: the allmn box
                     imin[d] = all_min[d] + ord;
                     imax[d] = all_max[d] - ord;
                     break;

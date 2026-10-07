@@ -48,10 +48,6 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
                               const int *groups, const int *directions,
                               int tl = -1);
 
-int SyncGroupsByDirIGhostOnly_Override(const cGH *restrict cctkGH, int numgroups,
-                              const int *groups, const int *directions,
-                              int tl = -1);
-
 int CallFunction(void *function, cFunctionData *attribute, void *data);
 
 int GroupStorageIncrease(const cGH *cctkGH, int n_groups, const int *groups,

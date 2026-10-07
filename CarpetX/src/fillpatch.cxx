@@ -40,18 +40,6 @@ void FillPatch_Sync(task_manager &tasks2,
   });
 }
 
-void FillPatch_Sync_Override(task_manager &tasks2,
-                    const GHExt::PatchData::LevelData::GroupData &groupdata,
-                    MultiFab &mfab, const Geometry &geom) {
-  assert(!groupdata.mfab.empty());
-  mfab.FillBoundaryAndSync_nowait(0, mfab.nComp(), mfab.nGrowVect(),
-                           geom.periodicity());
-  tasks2.submit_serially([&groupdata, &mfab]() {
-    mfab.FillBoundaryAndSync_finish();
-    groupdata.apply_boundary_conditions(mfab);
-  });
-}
-
 void FillPatch_Prolongate(
     task_manager &tasks2, task_manager &tasks3,
     const GHExt::PatchData::LevelData::GroupData &groupdata,
