@@ -234,6 +234,9 @@ extern "C" void SpacetimeWaveToyX_Evol2(CCTK_ARGUMENTS) {
       });
 }
 
+// Empty: the SYNC in the schedule restores the ghosts after recovery
+extern "C" void SpacetimeWaveToyX_Sync(CCTK_ARGUMENTS) {}
+
 extern "C" void SpacetimeWaveToyX_Constraints(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_SpacetimeWaveToyX_Constraints;
 
