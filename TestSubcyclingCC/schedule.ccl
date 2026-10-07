@@ -45,3 +45,14 @@ SCHEDULE TestSubcyclingCC_Error AT analysis
   WRITES: error(interior)
   SYNC: error
 } "Calculate error in scalar wave state"
+
+# error is not checkpointed, and a level that lags its parent SYNCs it from
+# the parent: recompute it after a restart, once the state's ghosts are
+# refilled
+SCHEDULE TestSubcyclingCC_Error AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(interior)
+  WRITES: error(interior)
+  SYNC: error
+} "Calculate error in scalar wave state"
