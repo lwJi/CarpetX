@@ -13,3 +13,11 @@ SCHEDULE ErrorEstimator_Estimate AS EstimateError AT poststep
   LANG: C
   WRITES: CarpetXRegrid::regrid_error(interior)
 } "Estimate error"
+
+# The next regrid reads regrid_error, which is not checkpointed: recompute it
+# after a restart, as at the end of every step
+SCHEDULE ErrorEstimator_Estimate AS EstimateError AT post_recover_variables
+{
+  LANG: C
+  WRITES: CarpetXRegrid::regrid_error(interior)
+} "Estimate error"
