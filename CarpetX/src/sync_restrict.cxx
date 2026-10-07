@@ -34,7 +34,9 @@ void Restrict(const cGH *cctkGH, int level, const std::vector<int> &groups);
 bool sync_active = false; // Catch recursive calls
 
 struct mark_sync_active {
-  mark_sync_active() {
+  mark_sync_active(const cGH *cctkGH, int numgroups, const int *groups) {
+    // Refuse any sync inside CCTK_POSTSTEP or CCTK_ANALYSIS under subcycling
+    check_sync_allowed(cctkGH, numgroups, groups);
     if (sync_active)
       CCTK_ERROR(
           "Recursive call to SyncGroupsByDirI. Maybe you are syncing grid "
@@ -155,7 +157,7 @@ SyncGroupsByDirIProlongateOnly_impl(const cGH *restrict cctkGH, int numgroups,
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 
-  mark_sync_active marked;
+  mark_sync_active marked(cctkGH, numgroups, groups0);
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -253,7 +255,7 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 
-  mark_sync_active marked;
+  mark_sync_active marked(cctkGH, numgroups, groups0);
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -519,7 +521,7 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 
-  mark_sync_active marked;
+  mark_sync_active marked(cctkGH, numgroups, groups0);
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -732,7 +734,7 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 
-  mark_sync_active marked;
+  mark_sync_active marked(cctkGH, numgroups, groups0);
 
   static Timer timer("Sync");
   Interval interval(timer);

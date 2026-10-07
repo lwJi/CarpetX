@@ -382,6 +382,16 @@ The tag does not decide whether coarse-fine ghosts are filled under subcycling; 
 
 Marks a group to be restricted, i.e.\ after each time step, its values on a coarse level are replaced by the values from the next finer level where they overlap. The values are \texttt{"yes"} and \texttt{"no"}. If the tag is absent, it takes the value of the \texttt{checkpoint} tag. Under subcycling, a restricted group also has its coarse-fine ghosts prolongated again from the freshly restricted coarse data whenever a fine level has caught up in time with its parent. A group whose fine and coarse values must stay independent, for example because each level stores its own diagnostic, sets \texttt{restrict="no"}.
 
+\subsection{Scheduling under subcycling}
+\label{sec:scheduling_subcycling}
+
+Under subcycling (\texttt{CarpetX::use\_subcycling = yes}), every refinement level advances on its own clock. After each step of a level, \CarpetX\space traverses the post-step bins once over that level and the coarser levels that have caught up with it in time. The coarsest level of such a window can lag its own parent, whose data then belong to a later time. The following rules make a restart from any checkpoint reproduce the uninterrupted run exactly.
+%
+\begin{enumerate}
+\item \emph{No sync in \texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS}.} A sync there would fill the coarse-fine ghosts of a lagging level with its parent's data from a later time. \CarpetX\space enforces this rule: it aborts the first time anything syncs while one of these bins is traversed, and the error names the routine, its location, and the group. This covers a \texttt{SYNC} clause on a scheduled function or on a schedule group, at any nesting depth, a sync called from a routine's code, and the presync of \texttt{Cactus::presync\_mode = "presync-only"} for a \texttt{READS} clause that needs ghosts. A diagnostic computed in these bins is computed on the interior only (\texttt{WRITES: <group>(interior)} without a \texttt{SYNC}), and routines in these bins read only the interior of such groups. Without subcycling the rule is not enforced.
+\item \emph{With three or more levels, a group synced in \texttt{CarpetX\_PreRestrict} or \texttt{CCTK\_POSTRESTRICT} must be checkpointed or integrated} (have an \texttt{rhs} tag). These bins also run on windows whose lowest level lags its parent, and a \texttt{SYNC} there fills that level's coarse-fine ghosts from the parent's copy of the group. For a checkpointed group, recovery restores that copy. For an integrated group, \texttt{ODESolvers} owns these ghosts. Any other group's copy is undefined after recovery. This rule is documented but not yet enforced.
+\end{enumerate}
+
 \subsection{\texttt{parity}}
 The \texttt{parity} tag controls a tensor's reflection symmetries about the \texttt{x}, \texttt{y} and \texttt{z} axes. There are 3 parities for each tensor component, representing the symmetries about the 3 spatial axes.
 

@@ -43,7 +43,6 @@ SCHEDULE FluxWaveToyX_Fluxes AT analysis
   WRITES: flux_x(interior)
   WRITES: flux_y(interior)
   WRITES: flux_z(interior)
-  SYNC: flux_x flux_y flux_z
 } "Calculate scalar wave fluxes for output"
 
 SCHEDULE FluxWaveToyX_RHS AT analysis AFTER FluxWaveToyX_Fluxes
@@ -54,7 +53,6 @@ SCHEDULE FluxWaveToyX_RHS AT analysis AFTER FluxWaveToyX_Fluxes
   READS: flux_y(interior)
   READS: flux_z(interior)
   WRITES: rhs(interior)
-  SYNC: rhs
 } "Calculate scalar wave RHS for output"
 
 SCHEDULE FluxWaveToyX_Constraints AT analysis
@@ -62,7 +60,6 @@ SCHEDULE FluxWaveToyX_Constraints AT analysis
   LANG: C
   READS: state(everywhere)
   WRITES: cons(interior)
-  SYNC: cons
 } "Calculate scalar wave constraints"
 
 SCHEDULE FluxWaveToyX_Energy AT analysis
@@ -70,7 +67,6 @@ SCHEDULE FluxWaveToyX_Energy AT analysis
   LANG: C
   READS: state(everywhere)
   WRITES: energy(interior)
-  SYNC: energy
 } "Calculate scalar wave energy density"
 
 SCHEDULE FluxWaveToyX_Error AT analysis
@@ -78,7 +74,6 @@ SCHEDULE FluxWaveToyX_Error AT analysis
   LANG: C
   READS: state(interior)
   WRITES: error(interior)
-  SYNC: error
 } "Calculate error in scalar wave state"
 
 # Fixture for the driver's flux-register bookkeeping: a flux-tagged group
@@ -92,7 +87,6 @@ SCHEDULE FluxWaveToyX_Mass AT analysis
   WRITES: mass_flux_x(interior)
   WRITES: mass_flux_y(interior)
   WRITES: mass_flux_z(interior)
-  SYNC: mass mass_flux_x mass_flux_y mass_flux_z
 } "Calculate the conserved density and its fluxes for output"
 
 # Fixture for the order of CarpetX_PreRestrict and the driver's reflux: when

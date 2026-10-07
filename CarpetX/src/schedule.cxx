@@ -84,6 +84,129 @@ double gettime() {
 // Used to pass active levels from AMReX's regridding functions
 std::optional<active_levels_t> active_levels;
 
+////////////////////////////////////////////////////////////////////////////////
+
+// No sync in CCTK_POSTSTEP and CCTK_ANALYSIS under subcycling
+
+namespace {
+// The bin whose traversal is inside a no_sync_scope_t, or nullptr
+const char *no_sync_bin = nullptr;
+
+// The scheduled function CallFunction is dispatching. It stays set for the
+// whole mode dispatch, including the per-tile calls in local mode. A routine
+// may traverse a schedule group from its own code (CallScheduleGroup), which
+// calls CallFunction again, so the outer value is saved and restored around
+// the dispatch, as the flesh does with its current_scheduled_function.
+const cFunctionData *running_function = nullptr;
+
+// The scheduled function CallFunction dispatched last. The flesh runs a
+// function's SYNC clause immediately after the function returns, before any
+// other item, so while that SYNC runs this names its owner. Opening a
+// no_sync_scope_t clears it.
+const cFunctionData *last_function = nullptr;
+
+constexpr const char *no_sync_rule =
+    "SYNCs in CCTK_POSTSTEP and CCTK_ANALYSIS are not allowed when "
+    "CarpetX::use_subcycling = yes: these bins run on levels that lag their "
+    "parent, so the SYNC would fill their ghosts with the parent's data from "
+    "a later time.";
+
+bool sync_forbidden() { return no_sync_bin && ghext->use_subcycling; }
+
+// "in BIN" for a function scheduled AT the bin, "in WHERE in BIN" for one
+// scheduled IN a schedule group. Only the immediate parent is known here.
+std::string no_sync_location(const cFunctionData *restrict const f) {
+  assert(no_sync_bin);
+  std::ostringstream buf;
+  buf << "in ";
+  if (!CCTK_Equals(f->where, no_sync_bin))
+    buf << f->where << " in ";
+  buf << no_sync_bin;
+  return buf.str();
+}
+
+std::string full_group_name(const int gi) {
+  const char *const name = CCTK_FullGroupName(gi);
+  return name ? name : "<unknown>";
+}
+
+// "group A" or "groups A, B"
+std::string group_list(const int numgroups, const int *restrict const groups) {
+  std::ostringstream buf;
+  buf << (numgroups == 1 ? "group " : "groups ");
+  for (int n = 0; n < numgroups; ++n) {
+    if (n > 0)
+      buf << ", ";
+    buf << full_group_name(groups[n]);
+  }
+  return buf.str();
+}
+
+// The presync of CallFunction (Cactus::presync_mode = "presync-only") checks
+// here before it syncs, so that the message names the READS clause that
+// needed the ghosts. Variable `vi` of group `gi`, timelevel `tl`.
+void check_presync_allowed(const cFunctionData *restrict const attribute,
+                           const int gi, const int vi, const int tl) {
+  if (!sync_forbidden())
+    return;
+  const char *const varname0 = CCTK_FullVarName(CCTK_FirstVarIndexI(gi) + vi);
+  std::string varname = varname0 ? varname0 : "<unknown>";
+  for (int n = 0; n < tl; ++n)
+    varname += "_p";
+  // Only the "everywhere" region includes the ghosts, so only such a READS
+  // clause can make the presync sync a group
+  CCTK_VERROR("%s::%s (%s) READS: %s(everywhere), so CarpetX would SYNC "
+              "group %s before calling it (Cactus::presync_mode = "
+              "\"presync-only\"). %s Read the interior only.",
+              attribute->thorn, attribute->routine,
+              no_sync_location(attribute).c_str(), varname.c_str(),
+              full_group_name(gi).c_str(), no_sync_rule);
+}
+} // namespace
+
+no_sync_scope_t::no_sync_scope_t(const char *const bin)
+    : outer_bin(no_sync_bin), outer_last_function(last_function) {
+  assert(bin);
+  no_sync_bin = bin;
+  last_function = nullptr;
+}
+
+no_sync_scope_t::~no_sync_scope_t() {
+  no_sync_bin = outer_bin;
+  last_function = outer_last_function;
+}
+
+void check_sync_allowed(const cGH *const /*cctkGH*/, const int numgroups,
+                        const int *const groups) {
+  if (!sync_forbidden())
+    return;
+
+  // Classify the trigger from CallFunction's two records alone:
+  // - The flesh runs a function's SYNC clause right after the function
+  //   returns, and the first sync in the scope aborts here. So if the
+  //   function called last has a SYNC clause, this is that clause.
+  // - Otherwise, if a function is running, its code called the sync.
+  // - Otherwise the sync is a schedule group's SYNC clause, run when the
+  //   traversal leaves the group, i.e. after its last member returned.
+  const std::string groupnames = group_list(numgroups, groups);
+  std::ostringstream buf;
+  if (last_function && last_function->n_SyncGroups > 0)
+    buf << last_function->thorn << "::" << last_function->routine << " ("
+        << no_sync_location(last_function) << ") SYNCs " << groupnames;
+  else if (running_function)
+    buf << running_function->thorn << "::" << running_function->routine << " ("
+        << no_sync_location(running_function) << ") called a sync of "
+        << groupnames;
+  else if (last_function)
+    buf << "a schedule group containing " << last_function->thorn
+        << "::" << last_function->routine << " ("
+        << no_sync_location(last_function) << ") SYNCs " << groupnames;
+  else
+    buf << "a schedule group in " << no_sync_bin << " SYNCs " << groupnames;
+
+  CCTK_VERROR("%s. %s Remove the SYNC.", buf.str().c_str(), no_sync_rule);
+}
+
 namespace {
 // Convert a (direction, face) pair to an AMReX Orientation
 amrex::Orientation orient(int d, int f) {
@@ -1468,9 +1591,13 @@ int Initialise(tFleshConfig *config) {
   }
 
   // Checkpoint, analysis, output
-  CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+  {
+    const no_sync_scope_t no_sync("CCTK_POSTSTEP");
+    CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+  }
   CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
   if (!config->recovered) {
+    const no_sync_scope_t no_sync("CCTK_ANALYSIS");
     CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
   }
   if (out_initial_data) {
@@ -1942,8 +2069,14 @@ int Evolve(tFleshConfig *config) {
         }
       }
 
-      CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
-      CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+      {
+        const no_sync_scope_t no_sync("CCTK_POSTSTEP");
+        CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+      }
+      {
+        const no_sync_scope_t no_sync("CCTK_ANALYSIS");
+        CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+      }
     } // for min_level, max_level
 
     CCTK_Traverse(cctkGH, "CCTK_CHECKPOINT");
@@ -2181,6 +2314,8 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     const std::vector<clause_t> &reads =
         decode_clauses(attribute, rdwr_t::read);
     std::set<int> sync_set;
+    // The first READS clause that needs a presync, for the error message
+    const clause_t *first_presync_read = nullptr;
     for (const auto &rd : reads) {
       if (CCTK_GroupTypeI(rd.gi) == CCTK_GF) {
 
@@ -2188,12 +2323,18 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
           const auto &restrict groupdata = *leveldata.groupdata.at(rd.gi);
           const valid_t &need = rd.valid;
           valid_t have = groupdata.valid.at(rd.tl).at(rd.vi).get();
-          if (need.valid_ghosts && !have.valid_ghosts && have.valid_int)
+          if (need.valid_ghosts && !have.valid_ghosts && have.valid_int) {
             sync_set.insert(rd.gi);
+            if (!first_presync_read)
+              first_presync_read = &rd;
+          }
         });
       }
     }
     if (!sync_set.empty()) {
+      assert(first_presync_read);
+      check_presync_allowed(attribute, first_presync_read->gi,
+                            first_presync_read->vi, first_presync_read->tl);
       std::vector<int> sync_vec(sync_set.begin(), sync_set.end());
       SyncGroupsByDirI(cctkGH, sync_vec.size(), sync_vec.data(), nullptr);
     }
@@ -2339,6 +2480,12 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     checksums = calculate_checksums(gfs);
   }
 
+  // Record the running function, to name it if its code syncs inside a
+  // no_sync_scope_t (see check_sync_allowed). Save and restore the outer
+  // value, since the function may traverse a schedule group itself.
+  const cFunctionData *const outer_running_function = running_function;
+  running_function = attribute;
+
   const mode_t mode = decode_mode(attribute);
   switch (mode) {
   case mode_t::local:
@@ -2363,6 +2510,10 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   default:
     assert(0);
   }
+
+  running_function = outer_running_function;
+  // The flesh runs this function's SYNC clause right after we return
+  last_function = attribute;
 
   // Check checksums
   if (poison_undefined_values)
