@@ -46,3 +46,31 @@ SCHEDULE VGFWaveToyX_Error at analysis
   WRITES: error(interior)
   SYNC: error
 } "Calculate error in scalar wave state"
+
+# The diagnostics above are not checkpointed, and a level that lags its parent
+# SYNCs them from the parent: recompute them after a restart, once the state's
+# ghosts are refilled
+SCHEDULE VGFWaveToyX_RHS AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: rhs(interior)
+  # Sync for test output
+  SYNC: rhs
+} "Calculate scalar wave RHS (so that it can be output)"
+
+SCHEDULE VGFWaveToyX_Energy AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: energy(interior)
+  SYNC: energy
+} "Calculate scalar wave energy density"
+
+SCHEDULE VGFWaveToyX_Error AT post_recover_variables AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(interior)
+  WRITES: error(interior)
+  SYNC: error
+} "Calculate error in scalar wave state"
