@@ -1,6 +1,6 @@
 # Schedule definitions for thorn TestSubcycleStepping
 
-STORAGE: iteration postrestrict prerestrict
+STORAGE: iteration postrestrict prerestrict tail_context recovery_counts
 
 schedule TestSubcycleStepping_Init AT INITIAL
 {
@@ -42,3 +42,91 @@ schedule TestSubcycleStepping_Sync AT post_recover_variables
   SYNC: postrestrict
   SYNC: prerestrict
 } "restore the ghost zones, which checkpoints do not carry"
+
+
+
+# tail_context: each level records the context of the last end-of-step window
+# (CCTK_POSTSTEP) that covered it, and after a restart the context of the
+# CCTK_POST_RECOVER_VARIABLES traversal that covered it
+
+schedule TestSubcycleStepping_StampTail AT poststep
+{
+  LANG: C
+  WRITES: tail_context(everywhere)
+} "stamp the levels of an end-of-step window with its context"
+
+schedule TestSubcycleStepping_StampTail AT post_recover_variables
+{
+  LANG: C
+  WRITES: tail_context(everywhere)
+} "stamp the levels of a recovery traversal with its context"
+
+
+
+# recovery_counts: count the traversals of each bin from
+# CCTK_RECOVER_VARIABLES until CCTK_CPINITIAL, so that the first output after
+# a restart shows which bins recovery ran. A fresh start zeroes the counts
+# with counting off, so that they stay 0. One routine per bin, since a routine
+# cannot tell which bin calls it.
+
+schedule TestSubcycleStepping_ResetCounts AT initial
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: recovery_counts
+} "zero the recovery counts, with counting off"
+
+schedule TestSubcycleStepping_StartCounting AT recover_variables
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: recovery_counts
+} "zero the recovery counts and start counting"
+
+schedule TestSubcycleStepping_StopCounting AT cpinitial
+{
+  LANG: C
+  OPTIONS: global
+  READS: recovery_counts
+  WRITES: recovery_counts
+} "stop counting, freezing the counts of what recovery ran"
+
+schedule TestSubcycleStepping_CountPostRecover AT post_recover_variables
+{
+  LANG: C
+  OPTIONS: global
+  READS: recovery_counts
+  WRITES: recovery_counts
+} "count traversals of CCTK_POST_RECOVER_VARIABLES"
+
+schedule TestSubcycleStepping_CountPostStep AT poststep
+{
+  LANG: C
+  OPTIONS: global
+  READS: recovery_counts
+  WRITES: recovery_counts
+} "count traversals of CCTK_POSTSTEP"
+
+schedule TestSubcycleStepping_CountAnalysis AT analysis
+{
+  LANG: C
+  OPTIONS: global
+  READS: recovery_counts
+  WRITES: recovery_counts
+} "count traversals of CCTK_ANALYSIS"
+
+schedule TestSubcycleStepping_CountPreRestrict IN CarpetX_PreRestrict
+{
+  LANG: C
+  OPTIONS: global
+  READS: recovery_counts
+  WRITES: recovery_counts
+} "count traversals of CarpetX_PreRestrict"
+
+schedule TestSubcycleStepping_CountPostRestrict AT postrestrict
+{
+  LANG: C
+  OPTIONS: global
+  READS: recovery_counts
+  WRITES: recovery_counts
+} "count traversals of CCTK_POSTRESTRICT"
