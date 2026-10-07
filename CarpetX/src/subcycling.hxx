@@ -56,15 +56,32 @@ void StoreRKStage(int patch, int level, const std::vector<int> &var_groups,
 // the parent step (0 or 1/2), possibly plus 1/2 for the virtual
 // end-of-substep evaluation. Ghost validity is left to the caller.
 //
+// Called only for group_is_integrated groups (asserted). These are exactly the
+// groups whose refined-level coarse-fine ghosts the subcycling SYNC
+// (SyncGroupsByDirISubcycling) skips during evolution: this function owns
+// them. Every other group gets them prolongated by the SYNC.
+//
 // Never allocates. Precondition: StoreRKOldState on the parent level, or the
 // RecoverGH pre-pass, ran since this level was made; they allocate the bands
 // and the work buffers. A null band then means an empty coarse-fine footprint.
 void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
                     int tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
+// True iff group gi is advanced by the time integrator, i.e. listed in
+// ghext->rk_integrated_group, which ODESolvers publishes at WRAGH (the grid
+// functions with an rhs= tag). An empty vector, as when ODESolvers is not
+// active, means nothing is integrated. This is the one definition of "gi is
+// integrated"; SyncGroupsByDirISubcycling (which skips the refined-level
+// coarse-fine ghosts of exactly these groups during evolution),
+// FillRKBoundary, EnsureRKBuffers, StoreRKOldState, group_has_flux_register,
+// warn_inert_flux_tags and ODESolvers_CheckTags call it. Uses only ghext and
+// no grid structure, so it is valid from PARAMCHECK on, before any level
+// exists. Defined in driver.cxx.
+bool group_is_integrated(int gi);
+
 // True iff group gi gets a flux register on every level > 0: a grid function
 // with a non-empty fluxes= tag, integrated by ODESolvers
-// (ghext->rk_integrated_group, published at WRAGH), with CarpetX::do_reflux.
+// (group_is_integrated), with CarpetX::do_reflux.
 // This is the one definition of "gi is refluxed"; the GroupData constructor
 // (register allocation), ODESolvers_CheckMethod and the startup warning
 // about inert fluxes= tags (warn_inert_flux_tags, driver.hxx) call it. Uses

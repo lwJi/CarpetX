@@ -50,6 +50,12 @@ SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
   OPTIONS: global
 } "Reject ODE methods the subcycling solver does not implement, and implicit methods when a flux register would need feeding"
 
+SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
+{
+  LANG: C
+  OPTIONS: global
+} "Reject integrated (rhs=) groups that are not checkpointed or not evolved"
+
 
 
 # CarpetX scheduled groups:

@@ -623,6 +623,14 @@ extern std::unique_ptr<GHExt> ghext;
 // fires once per run, fresh start or recovery.
 void warn_inert_flux_tags();
 
+// Group tag "checkpoint"; absent -> yes. Reads only the tags table, so valid
+// from PARAMCHECK on. Defined in driver.cxx.
+bool get_group_checkpoint_flag(int gi);
+
+// Group tag "evolve"; absent -> the "checkpoint" tag (absent -> yes). Reads
+// only the tags table, so valid from PARAMCHECK on. Defined in driver.cxx.
+bool get_group_evolve_flag(int gi);
+
 // True iff every level of every patch sits at the same subcycling iteration,
 // i.e. the checkpoint is time-aligned. Always true without subcycling. When
 // false, the coarse source bands hold the in-progress coarse step (u(t_n) and

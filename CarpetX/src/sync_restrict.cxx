@@ -101,9 +101,6 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
       const auto &leveldata0 = patchdata0.leveldata.at(0);
       const auto &groupdata0 = *leveldata0.groupdata.at(gi);
       assert(!groupdata0.mfab.empty());
-      const nan_handling_t nan_handling = groupdata0.do_evolve
-                                              ? nan_handling_t::forbid_nans
-                                              : nan_handling_t::allow_nans;
       // We always sync all directions.
       // If there is more than one time level, then we don't sync the
       // oldest.
@@ -113,7 +110,7 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
 
       for (int tl = 0; tl < sync_tl0; ++tl)
         for (int vi = 0; vi < groupdata0.numvars; ++vi)
-          check_valid_gf(*active_levels, gi, vi, tl, nan_handling, [label]() {
+          check_valid_gf(*active_levels, gi, vi, tl, [label]() {
             return std::string(label) + " after syncing";
           });
 
@@ -321,9 +318,6 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
     const auto &leveldata0 = patchdata0.leveldata.at(0);
     const auto &groupdata0 = *leveldata0.groupdata.at(gi);
     assert(!groupdata0.mfab.empty());
-    const nan_handling_t nan_handling = groupdata0.do_evolve
-                                            ? nan_handling_t::forbid_nans
-                                            : nan_handling_t::allow_nans;
     // We always sync all directions.
     // If there is more than one time level, then we don't sync the
     // oldest.
@@ -372,11 +366,11 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
     active_fine_levels.min_level = max(active_fine_levels.min_level, 1);
     for (int tl = 0; tl < sync_tl0; ++tl) {
       for (int vi = 0; vi < groupdata0.numvars; ++vi) {
-        check_valid_gf(active_fine_levels, gi, vi, tl, nan_handling, []() {
+        check_valid_gf(active_fine_levels, gi, vi, tl, []() {
           return "SyncGroupsByDirI on coarse level before prolongation";
         });
         poison_invalid_gf(*active_levels, gi, vi, tl);
-        check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
+        check_valid_gf(*active_levels, gi, vi, tl,
                        []() { return "SyncGroupsByDirI before syncing"; });
       }
     } // for tl
@@ -475,9 +469,6 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
     const auto &leveldata0 = patchdata0.leveldata.at(0);
     const auto &groupdata0 = *leveldata0.groupdata.at(gi);
     assert(!groupdata0.mfab.empty());
-    const nan_handling_t nan_handling = groupdata0.do_evolve
-                                            ? nan_handling_t::forbid_nans
-                                            : nan_handling_t::allow_nans;
     // We always sync all directions.
     // If there is more than one time level, then we don't sync the
     // oldest.
@@ -509,7 +500,7 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
         poison_invalid_gf(*active_levels, gi, vi, tl);
         // TODO: Check after applying multi-patch boundaries
         if (!have_multipatch_boundaries)
-          check_valid_gf(*active_levels, gi, vi, tl, nan_handling,
+          check_valid_gf(*active_levels, gi, vi, tl,
                          []() { return "SyncGroupsByDirI after syncing"; });
       }
     } // for tl
@@ -586,11 +577,16 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
         assert(!coarsegroupdata.mfab.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
-        const bool evolving_subiter =
-            groupdata.do_evolve && leveldata.iteration > 0;
+        // During evolution the time integrator owns the coarse-fine ghosts of
+        // the groups it integrates: FillRKBoundary refills them from the
+        // parent's dense output after each RK stage, and ODESolvers marks
+        // them valid. Every other group -- evolved or not -- gets them here.
+        const bool integrated_subiter =
+            group_is_integrated(gi) && leveldata.iteration > 0;
 
-        if (evolving_subiter) {
-          // Copy from adjacent boxes on same level only
+        if (integrated_subiter) {
+          // Copy from adjacent boxes on same level only; FillRKBoundary owns
+          // the coarse-fine ghosts
           for (int tl = 0; tl < sync_tl; ++tl) {
             tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
               FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
@@ -603,12 +599,14 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
           // from next coarser level
           amrex::Interpolater *const interpolator = groupdata.interpolator;
 
-          // Time-blend gate: only a non-evolved group can reach this branch
-          // while misaligned in time with its parent. When the fine level is
-          // ahead of the coarse, blend coarse tl=0 (new) with coarse tl=1
-          // (old) into the coarse patch before interpolating. Mirrors AMReX
-          // beta=(time-t0)/(t1-t0): with t0 = t_new - cdt (old coarse time),
-          // t1 = t_new (new coarse time), time = t_fin (fine time).
+          // Time-blend gate: only a group the time integrator does not own
+          // (!group_is_integrated) can reach this branch while misaligned in
+          // time with its parent. When the fine level is ahead of the coarse,
+          // blend coarse tl=0 (new) with coarse tl=1 (old) into the coarse
+          // patch before interpolating. Mirrors AMReX beta=(time-t0)/(t1-t0):
+          // with t0 = t_new - cdt (old coarse time), t1 = t_new (new coarse
+          // time), time = t_fin (fine time). A single-timelevel group has no
+          // tl=1, so it gets coarse tl=0 as it currently stands.
           const bool aligned =
               (leveldata.iteration == coarseleveldata.iteration);
           const rat64 cdt = coarseleveldata.delta_iteration;
@@ -661,9 +659,6 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
     const auto &leveldata0 = patchdata0.leveldata.at(0);
     const auto &groupdata0 = *leveldata0.groupdata.at(gi);
     assert(!groupdata0.mfab.empty());
-    const nan_handling_t nan_handling = groupdata0.do_evolve
-                                            ? nan_handling_t::forbid_nans
-                                            : nan_handling_t::allow_nans;
     // We always sync all directions.
     // If there is more than one time level, then we don't sync the
     // oldest.
@@ -675,12 +670,14 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
-      const bool evolving_subiter =
-          groupdata.do_evolve && leveldata.iteration > 0;
+      // Must match the branch above: the ghosts of an integrated group are
+      // marked valid by the integrator after FillRKBoundary, not here.
+      const bool integrated_subiter =
+          group_is_integrated(gi) && leveldata.iteration > 0;
 
       for (int tl = 0; tl < sync_tl0; ++tl) {
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          if (!evolving_subiter) {
+          if (!integrated_subiter) {
             groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
               return "SyncGroupsByDirISubcycling after syncing: "
                      "Mark ghost zones as valid";
@@ -700,7 +697,7 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
         poison_invalid_gf(*active_levels, gi, vi, tl);
         // TODO: Check after applying multi-patch boundaries
         if (!have_multipatch_boundaries)
-          check_valid_gf(*active_levels, gi, vi, tl, nan_handling, []() {
+          check_valid_gf(*active_levels, gi, vi, tl, []() {
             return "SyncGroupsByDirISubcycling after syncing";
           });
       }
@@ -1181,11 +1178,8 @@ static void reflux_level(const cGH *cctkGH, const int level) {
     const active_levels_t coarse_level(level, level + 1, patch, patch + 1);
     for (const int gi : refluxed_groups) {
       const auto &groupdata = *leveldata.groupdata.at(gi);
-      const nan_handling_t nan_handling = groupdata.do_evolve
-                                              ? nan_handling_t::forbid_nans
-                                              : nan_handling_t::allow_nans;
       for (int vi = 0; vi < groupdata.numvars; ++vi)
-        check_valid_gf(coarse_level, gi, vi, tl, nan_handling, []() {
+        check_valid_gf(coarse_level, gi, vi, tl, []() {
           return "Reflux after refluxing: Coarse level data";
         });
     } // for gi
@@ -1249,9 +1243,6 @@ static void Restrict_impl(const cGH *cctkGH, int level,
         const auto &finegroupdata = *fineleveldata.groupdata.at(gi);
         assert(!finegroupdata.mfab.empty());
         const amrex::IntVect reffact{2, 2, 2};
-        const nan_handling_t nan_handling = groupdata.do_evolve
-                                                ? nan_handling_t::forbid_nans
-                                                : nan_handling_t::allow_nans;
 
         // Don't restrict the regridding error
         if (gi == gi_regrid_error)
@@ -1271,14 +1262,14 @@ static void Restrict_impl(const cGH *cctkGH, int level,
               return "Restrict on fine level before restricting";
             });
             poison_invalid_gf(active_fine_levels, gi, vi, tl);
-            check_valid_gf(active_fine_levels, gi, vi, tl, nan_handling, []() {
+            check_valid_gf(active_fine_levels, gi, vi, tl, []() {
               return "Restrict on fine level before restricting";
             });
             error_if_invalid(groupdata, vi, tl, make_valid_int(), []() {
               return "Restrict on coarse level before restricting";
             });
             poison_invalid_gf(active_levels, gi, vi, tl);
-            check_valid_gf(active_levels, gi, vi, tl, nan_handling, []() {
+            check_valid_gf(active_levels, gi, vi, tl, []() {
               return "Restrict on coarse level before restricting";
             });
           }
@@ -1325,7 +1316,7 @@ static void Restrict_impl(const cGH *cctkGH, int level,
                   make_valid_outer() | make_valid_ghosts(),
                   []() { return "Restrict"; });
               poison_invalid_gf(active_levels, gi, vi, tl);
-              check_valid_gf(active_levels, gi, vi, tl, nan_handling, []() {
+              check_valid_gf(active_levels, gi, vi, tl, []() {
                 return "Restrict on coarse level after restricting";
               });
             }

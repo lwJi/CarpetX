@@ -492,6 +492,14 @@ std::array<int, dim> get_group_fluxes(const int gi) {
   return fluxes;
 }
 
+// See subcycling.hxx for the contract. The bounds check is what makes an
+// empty vector (ODESolvers inactive) mean "nothing is integrated".
+bool group_is_integrated(const int gi) {
+  assert(gi >= 0 && gi < CCTK_NumGroups());
+  const std::vector<bool> &integrated = ghext->rk_integrated_group;
+  return gi < int(integrated.size()) && integrated.at(gi);
+}
+
 // See subcycling.hxx for the contract. The conditions are ordered so that
 // the fluxes= tag is parsed only for integrated grid functions: its asserts
 // (malformed tag) then fire on no group whose register allocation would not
@@ -499,8 +507,7 @@ std::array<int, dim> get_group_fluxes(const int gi) {
 bool group_has_flux_register(const int gi) {
   assert(gi >= 0 && gi < CCTK_NumGroups());
   return ghext->do_reflux && CCTK_GroupTypeI(gi) == CCTK_GF &&
-         gi < int(ghext->rk_integrated_group.size()) &&
-         ghext->rk_integrated_group.at(gi) && get_group_fluxes(gi)[0] >= 0;
+         group_is_integrated(gi) && get_group_fluxes(gi)[0] >= 0;
 }
 
 // See driver.hxx for the contract. With do_reflux set, the only way a
@@ -519,9 +526,8 @@ void warn_inert_flux_tags() {
   if (!ghext->do_reflux) {
     // Every fluxes= tag is inert; say so once if one would have taken effect
     for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      if (CCTK_GroupTypeI(gi) == CCTK_GF &&
-          gi < int(ghext->rk_integrated_group.size()) &&
-          ghext->rk_integrated_group.at(gi) && get_group_fluxes(gi)[0] >= 0) {
+      if (CCTK_GroupTypeI(gi) == CCTK_GF && group_is_integrated(gi) &&
+          get_group_fluxes(gi)[0] >= 0) {
         CCTK_INFO("Grid functions integrated by ODESolvers carry fluxes= "
                   "tags, but refluxing at coarse-fine boundaries is off; set "
                   "CarpetX::do_reflux = yes to enable it");
@@ -1392,9 +1398,6 @@ void SetupGlobals() {
     }
 
     // Allocate data
-    const nan_handling_t nan_handling = arraygroupdata.do_evolve
-                                            ? nan_handling_t::forbid_nans
-                                            : nan_handling_t::allow_nans;
     const int ntls = ghext->active_timelevels.at(gi);
     assert(ntls >= 0 and ntls <= group.numtimelevels);
     arraygroupdata.data.resize(ntls);
@@ -1416,8 +1419,7 @@ void SetupGlobals() {
         // TODO: make poison_invalid and check_invalid virtual members
         // of CommonGroupData
         poison_invalid_ga(gi, vi, tl);
-        check_valid_ga(gi, vi, tl, nan_handling,
-                       []() { return "SetupGlobals"; });
+        check_valid_ga(gi, vi, tl, []() { return "SetupGlobals"; });
       }
     }
   }
@@ -1563,9 +1565,6 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
-    const nan_handling_t nan_handling = groupdata.do_evolve
-                                            ? nan_handling_t::forbid_nans
-                                            : nan_handling_t::allow_nans;
 
     groupdata.valid.resize(ntls);
     for (int tl = 0; tl < ntls; ++tl) {
@@ -1602,9 +1601,9 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
         }
         if (do_fill) {
           for (int vi = 0; vi < groupdata.numvars; ++vi)
-            check_valid_gf(
-                active_coarse_levels, gi, vi, tl, nan_handling,
-                []() { return "MakeNewLevelFromCoarse before prolongation"; });
+            check_valid_gf(active_coarse_levels, gi, vi, tl, []() {
+              return "MakeNewLevelFromCoarse before prolongation";
+            });
           FillPatch_NewLevel(
               groupdata, coarsegroupdata, *groupdata.mfab.at(tl),
               *coarsegroupdata.mfab.at(tl), patchdata.amrcore->Geom(level - 1),
@@ -1619,7 +1618,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
                 []() { return "MakeNewLevelFromCoarse after prolongation"; });
             // This cannot be called because it would access the data
             // with old metadata
-            // check_valid_gf(active_levels, gi, vi, tl, nan_handling, []() {
+            // check_valid_gf(active_levels, gi, vi, tl, []() {
             //   return "MakeNewLevelFromCoarse after prolongation";
             // });
           }
@@ -1635,7 +1634,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 
       // Already poisoned by SetupLevel
       for (int vi = 0; vi < groupdata.numvars; ++vi)
-        check_valid_gf(active_levels, gi, vi, tl, nan_handling, []() {
+        check_valid_gf(active_levels, gi, vi, tl, []() {
           return "MakeNewLevelFromCoarse after prolongation";
         });
     } // for tl
@@ -1691,9 +1690,6 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
 
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
-    const nan_handling_t nan_handling = groupdata.do_evolve
-                                            ? nan_handling_t::forbid_nans
-                                            : nan_handling_t::allow_nans;
 
     for (int tl = 0; tl < ntls; ++tl) {
       for (int vi = 0; vi < groupdata.numvars; ++vi) {
@@ -1707,9 +1703,9 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
           error_if_invalid(groupdata, vi, tl, make_valid_all(),
                            []() { return "RemakeLevel before prolongation"; });
         }
-        check_valid_gf(active_coarse_levels, gi, vi, tl, nan_handling,
+        check_valid_gf(active_coarse_levels, gi, vi, tl,
                        []() { return "RemakeLevel before prolongation"; });
-        check_valid_gf(active_levels, gi, vi, tl, nan_handling,
+        check_valid_gf(active_levels, gi, vi, tl,
                        []() { return "RemakeLevel before prolongation"; });
       } // for vi
     } // for tl
@@ -1753,10 +1749,6 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                                  : valid_t();
     assert(outer_valid == make_valid_outer());
 
-    const nan_handling_t nan_handling = groupdata.do_evolve
-                                            ? nan_handling_t::forbid_nans
-                                            : nan_handling_t::allow_nans;
-
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
@@ -1796,7 +1788,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
 
       for (int vi = 0; vi < groupdata.numvars; ++vi) {
         poison_invalid_gf(active_levels, gi, vi, tl);
-        check_valid_gf(active_levels, gi, vi, tl, nan_handling,
+        check_valid_gf(active_levels, gi, vi, tl,
                        []() { return "RemakeLevel after prolongation"; });
       }
     } // for tl
