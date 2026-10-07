@@ -1,35 +1,25 @@
-# Checkpoint half of a checkpoint/recover pair on the moving.par setup (see
-# there): persistent (checkpointed, not integrated) groups under RK4
-# subcycling with a moving refined box.
-#
-# The box is regridded at iterations 4, 8 and 12 (regrid_every = 4; the
-# levels are aligned there). The checkpoint is taken at iteration 6, after the
-# first regrid and with the refined levels out of step with level 0 (times 8,
-# 6 and 6 finest steps on levels 0, 1 and 2), so it carries RK source bands
-# for the integrated state and only interior data for the tested groups.
-# recover-moving.par continues from it through the regrids at 8 and 12.
-#
-# The correct value of stale_count is 0 for both groups in every row.
+# Checkpoint half of a checkpoint/recover pair on the -3levels setup (see
+# checkpoint-subcycling-openpmd-3levels.par). The checkpoint is taken at
+# iteration 5, where the three levels are on three different clocks (times
+# 8, 6 and 5 finest steps on levels 0, 1 and 2), so it carries the RK source
+# bands of levels 1 and 2.
+# recover-subcycling-openpmd-3clocks.par continues from it to iteration 8,
+# where the levels are aligned again.
 
 ActiveThorns = "
     BoxInBox
     CarpetX
     IOUtil
     ODESolvers
-    TestPersistentGroups
     TestSubcyclingMC2
 "
 
-$out_every = 6
+$out_every = 1
 $nlevels = 3
 $ncells = 32
 
 TestSubcyclingMC2::initial_condition = "Gaussian"
 TestSubcyclingMC2::gaussian_width = 0.17677669529 # sqrt(2)*W = 0.25
-
-# Drift the refined box along +x so that level-1 (and level-2) grids change at
-# each regrid
-TestSubcyclingMC2::box_velocity_x = 2.0
 
 CarpetX::use_subcycling = yes
 CarpetX::restrict_during_sync = no
@@ -58,16 +48,23 @@ Driver::periodic_y = yes
 Driver::periodic_z = yes
 
 CarpetX::max_num_levels = $nlevels
-Driver::regrid_every = 4
+Driver::regrid_every = 128
 Driver::regrid_error_threshold = 0.9
 
 CarpetX::prolongation_type = "ddf"
+#CarpetX::prolongation_order = 5
 CarpetX::ghost_size = 3
 CarpetX::dtfac = 0.25
 
 CarpetX::blocking_factor_x = 2
 CarpetX::blocking_factor_y = 2
 CarpetX::blocking_factor_z = 2
+#CarpetX::max_grid_size_x = 10000000
+#CarpetX::max_grid_size_y = 10000000
+#CarpetX::max_grid_size_z = 10000000
+#CarpetX::max_tile_size_x = 10000000
+#CarpetX::max_tile_size_y = 10000000
+#CarpetX::max_tile_size_z = 10000000
 
 BoxInBox::num_regions = 1
 # Region 1
@@ -76,9 +73,11 @@ BoxInBox::num_levels_1 = $nlevels
 BoxInBox::radius_1 = [ -1.0, 1.0, 0.5 ]
 
 Cactus::terminate = "iteration"
-Cactus::cctk_itlast = 6
+#Cactus::cctk_final_time = 2.0
+Cactus::cctk_itlast = 8
 
 ODESolvers::method = "RK4"
+#ODESolvers::verbose = yes
 
 IO::out_dir = $parfile
 IO::out_every = $out_every
@@ -88,13 +87,12 @@ IO::parfile_write = no
 CarpetX::out_metadata = no
 
 CarpetX::out_tsv_vars = "
-    TestPersistentGroups::stale_count
-    TestPersistentGroups::persist_default
-    TestPersistentGroups::persist_noevolve
+    TestSubcyclingMC2::state
+    TestSubcyclingMC2::error
 "
 
 CarpetX::checkpoint_method = "openpmd"
 IO::checkpoint_dir = $parfile + "/checkpoints"
 IO::checkpoint_ID = no
-IO::checkpoint_every = 6
+IO::checkpoint_every = 5
 IO::checkpoint_on_terminate = no

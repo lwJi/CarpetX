@@ -229,6 +229,61 @@ int WidenMinLevel(int initial_min_level, rat64 target_iteration) {
   }
   return min_level;
 }
+
+// Levels grouped by shared leveldata.iteration (clock sets), as
+// [min_level, max_level), coarse to fine. A coarser level is never behind a
+// finer one, so every set is a contiguous range of levels, and the finest set
+// is the window WidenMinLevel forms from the finest level. Like
+// WidenMinLevel, this reads patch 0 only.
+std::vector<std::pair<int, int> > ClockSets() {
+  std::vector<std::pair<int, int> > sets;
+  for (int max_level = ghext->num_levels(); max_level > 0;) {
+    const rat64 iteration =
+        ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
+    const int min_level = WidenMinLevel(max_level - 1, iteration);
+    sets.emplace_back(min_level, max_level);
+    max_level = min_level;
+  }
+  std::reverse(sets.begin(), sets.end());
+  return sets;
+}
+
+// The restriction after a step that completes the window [min_level,
+// max_level), which ends at the finest level and spans two or more levels.
+// The current active_levels must be that window.
+void RestrictWindow(cGH *restrict const cctkGH, const int min_level,
+                    const int max_level, const bool reflux) {
+  assert(active_levels);
+  assert(active_levels->min_level == min_level &&
+         active_levels->max_level == max_level);
+  assert(max_level == ghext->num_levels() && max_level - min_level >= 2);
+
+  // Pre-restriction hook, traversed over the window before the reflux and
+  // the restriction below, so that it sees the state and its dependents as
+  // the last RK stage's ODESolvers_PostStep left them, consistent everywhere
+  CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
+  // Flux-register correction (reflux) of every time-aligned level pair in
+  // the window, finest pair first, so that each pair is corrected exactly
+  // once per coarse step and before the fine state is restricted onto the
+  // corrected coarse cells. The window is the alignment test: with three
+  // levels, [1,3) refluxes the pair (1,2) only, and the later [0,3) refluxes
+  // (1,2) and then (0,1). Like the restriction, it changes only coarse
+  // interior cells; the ODESolvers_PostStep at POSTRESTRICT below repairs the
+  // ghosts and the dependents of both (subcycling.hxx). Evolve asks for it
+  // only under subcycling: without it every step completes every pair, and
+  // ODESolvers_Solve applies the registers itself at its final stage, before
+  // the ODESolvers_PostStep that repairs what the correction invalidated.
+  if (reflux)
+    Reflux(cctkGH, min_level, max_level);
+  // Restrict
+  active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
+    if (leveldata.level < ghext->num_levels() - 1)
+      Restrict(cctkGH, leveldata.level);
+  });
+  // Prolongation
+  ProlongateRestrictedGFs(cctkGH);
+  CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+}
 } // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1556,50 +1611,93 @@ int Initialise(tFleshConfig *config) {
   CCTK_VINFO("Initialized %d levels", ghext->num_levels());
 
   assert(!active_levels);
-  // Widen from the finest level so the range matches the one under which
-  // a checkpoint was written (recovery under subcycling).
-  const int max_level = ghext->num_levels();
-  const rat64 finest_iteration =
-      ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
-  const int min_level = WidenMinLevel(max_level - 1, finest_iteration);
-  active_levels = std::make_optional<active_levels_t>(min_level, max_level);
+  if (config->recovered && ghext->use_subcycling) {
+    // Recovery under subcycling. The checkpoint may have been written while
+    // the levels were on several clocks. Finish the checkpointed step on
+    // every clock set, coarse to fine, as the Evolve batches that stepped
+    // them would have: restriction for the finest set (if it spans two or
+    // more levels), then POSTSTEP, CPINITIAL and ANALYSIS. Each set sees the
+    // time variables Evolve gave it. Afterwards every level has run these
+    // bins at its own time, so ODESolvers has rebuilt the refinement-boundary
+    // ghosts of every level that lags its parent, and every level has
+    // recomputed its non-checkpointed diagnostics before the first output.
+    // (Initialise rejects restrict_during_sync together with subcycling.)
+    assert(!restrict_during_sync);
+    for (const auto &[min_level, max_level] : ClockSets()) {
+      active_levels = std::make_optional<active_levels_t>(min_level, max_level);
 
-  // After widening active_levels from min_level, sync cctk_timefac with the
-  // finest level traversed; mirrors the assignment in the evolve loop.
-  cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
+      // As in Evolve: cctk_timefac from the set's finest level (the batch
+      // level before widening), cctk_time from the set's clock. After the
+      // finest set, cctk_time is the value the checkpoint stored.
+      const rat64 set_iteration =
+          ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
+      cctkGH->cctk_timefac = 1 << (max_level - 1);
+      cctkGH->cctk_time = cctkGH->cctk_delta_time * double(set_iteration);
 
-  if (max_level - min_level < 2) {
-    // Only the finest level is at the current time: nothing to restrict
-    if (verbose)
+      if (max_level == ghext->num_levels()) {
+        if (max_level - min_level < 2) {
+          // Only the finest level is at the current time: nothing to restrict
+          if (verbose)
 #pragma omp critical
-      CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
-                 "at the current time",
-                 cctkGH->cctk_iteration, min_level);
-  } else if (!restrict_during_sync) {
-    assert(active_levels);
-    // Pre-restriction hook, traversed over the widened time-aligned window
-    // immediately before the restriction below
-    CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
-    // Restrict
-    active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
-      if (leveldata.level < ghext->num_levels() - 1)
-        Restrict(cctkGH, leveldata.level);
-    });
-    // Prolongation
-    ProlongateRestrictedGFs(cctkGH);
-    CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+            CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
+                       "at the current time",
+                       cctkGH->cctk_iteration, min_level);
+        } else {
+          RestrictWindow(cctkGH, min_level, max_level, /*reflux=*/false);
+        }
+      }
+
+      // Checkpoint, analysis
+      {
+        const no_sync_scope_t no_sync("CCTK_POSTSTEP");
+        CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+      }
+      CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
+      {
+        const no_sync_scope_t no_sync("CCTK_ANALYSIS");
+        CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+      }
+    }
+    // active_levels is left at the finest set for the output below
+
+  } else {
+    // Fresh start (every level is at clock 0), or recovery without
+    // subcycling (all levels share one clock): a single window from the
+    // finest level
+    const int max_level = ghext->num_levels();
+    const rat64 finest_iteration =
+        ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
+    const int min_level = WidenMinLevel(max_level - 1, finest_iteration);
+    active_levels = std::make_optional<active_levels_t>(min_level, max_level);
+
+    // After widening active_levels from min_level, sync cctk_timefac with the
+    // finest level traversed; mirrors the assignment in the evolve loop.
+    cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
+
+    if (max_level - min_level < 2) {
+      // Only the finest level is at the current time: nothing to restrict
+      if (verbose)
+#pragma omp critical
+        CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
+                   "at the current time",
+                   cctkGH->cctk_iteration, min_level);
+    } else if (!restrict_during_sync) {
+      RestrictWindow(cctkGH, min_level, max_level, /*reflux=*/false);
+    }
+
+    // Checkpoint, analysis
+    {
+      const no_sync_scope_t no_sync("CCTK_POSTSTEP");
+      CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+    }
+    CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
+    if (!config->recovered) {
+      const no_sync_scope_t no_sync("CCTK_ANALYSIS");
+      CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+    }
   }
 
-  // Checkpoint, analysis, output
-  {
-    const no_sync_scope_t no_sync("CCTK_POSTSTEP");
-    CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
-  }
-  CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
-  if (!config->recovered) {
-    const no_sync_scope_t no_sync("CCTK_ANALYSIS");
-    CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
-  }
+  // Output
   if (out_initial_data) {
     CCTK_OutputGH(cctkGH);
   }
@@ -2039,33 +2137,10 @@ int Evolve(tFleshConfig *config) {
                        "at the current time",
                        cctkGH->cctk_iteration, min_level);
         } else if (!restrict_during_sync) {
-          // Pre-restriction hook, traversed over the widened time-aligned
-          // window before the reflux and the restriction below, so that it
-          // sees the state and its dependents as the last RK stage's
-          // ODESolvers_PostStep left them, consistent everywhere
-          CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
-          // Flux-register correction (reflux) of every time-aligned level
-          // pair in the widened window, finest pair first, so that each pair
-          // is corrected exactly once per coarse step and before the fine
-          // state is restricted onto the corrected coarse cells. The window
-          // is the alignment test: with three levels, [1,3) refluxes the pair
-          // (1,2) only, and the later [0,3) refluxes (1,2) and then (0,1).
-          // Like the restriction, it changes only coarse interior cells; the
-          // ODESolvers_PostStep at POSTRESTRICT below repairs the ghosts and
-          // the dependents of both (subcycling.hxx). Only under subcycling:
-          // without it every step completes every pair, and ODESolvers_Solve
-          // applies the registers itself at its final stage, before the
-          // ODESolvers_PostStep that repairs what the correction invalidated.
-          if (ghext->use_subcycling)
-            Reflux(cctkGH, min_level, max_level);
-          // Restrict
-          active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
-            if (leveldata.level < ghext->num_levels() - 1)
-              Restrict(cctkGH, leveldata.level);
-          });
-          // Prolongation
-          ProlongateRestrictedGFs(cctkGH);
-          CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+          // Pre-restriction hook, reflux (only under subcycling), restriction
+          // and POSTRESTRICT over the widened time-aligned window
+          RestrictWindow(cctkGH, min_level, max_level,
+                         /*reflux=*/ghext->use_subcycling);
         }
       }
 

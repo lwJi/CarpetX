@@ -414,8 +414,6 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   static Timer timer("ODESolvers::Solve_Subcycling_Recovery");
   Interval interval(timer);
 
-  const CCTK_REAL dt = CCTK_DELTA_TIME;
-
   auto setup = collect_solve_setup();
   auto &var = setup.var;
   auto &var_groups = setup.var_groups;
@@ -449,10 +447,14 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
       if (leveldata.iteration == prev_leveldata.iteration)
         return;
       // Mirror the previous fine substep's calcys_rmbnd at the virtual
-      // end-of-step: base offset 0.0 plus the +0.5 give xsi = 0.5, stage0 = 1,
-      // dtc = dt*2 (the parent's step).
+      // end-of-step: base offset 0.0 plus the +0.5 give xsi = 0.5, stage0 = 1.
+      // dtc is the parent's step, taken from the parent's clock increment.
+      // It does not depend on cctk_timefac, which the driver sets from the
+      // finest level of the clock set it traverses.
+      const CCTK_REAL dtc =
+          cctk_delta_time * double(prev_leveldata.delta_iteration);
       CarpetX::FillRKBoundary(leveldata.patch, level, var_groups, /*tl=*/0,
-                              /*stage=*/1, /*xsi=*/0.5, dt * 2);
+                              /*stage=*/1, /*xsi=*/0.5, dtc);
     });
     synchronize();
     var.set_valid(make_valid_all());
