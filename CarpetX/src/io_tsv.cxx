@@ -11,9 +11,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <locale>
 #include <memory>
 #include <regex>
 #include <set>
@@ -89,6 +91,20 @@ static out_header_t get_out_header() {
   CCTK_ERROR("Internal error");
 }
 
+// Write every NaN as "nan". glibc writes a NaN with its sign bit set, such as
+// the poison value, as "-nan", but macOS writes "nan". The testsuite compares
+// lines containing a NaN textually, so the spelling must not depend on the
+// platform.
+class nan_num_put : public std::num_put<char> {
+protected:
+  iter_type do_put(iter_type out, std::ios_base &str, char_type fill,
+                   double val) const override {
+    // Drop the sign of a NaN
+    return std::num_put<char>::do_put(out, str, fill,
+                                      std::isnan(val) ? std::fabs(val) : val);
+  }
+};
+
 void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
                  int gi, const std::vector<std::string> &varnames,
                  const out_fileinfo_t out_fileinfo,
@@ -102,6 +118,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
   // https://stackoverflow.com/a/30968371
   file << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1)
        << std::scientific;
+  file.imbue(std::locale(file.getloc(), new nan_num_put));
 
   // Output header
   switch (out_header) {
@@ -264,6 +281,7 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
   // https://stackoverflow.com/a/30968371
   file << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1)
        << std::scientific;
+  file.imbue(std::locale(file.getloc(), new nan_num_put));
 
   if (file.tellp() == 0) {
     // Output header if the file is empty, i.e. the first time we write to this
@@ -364,6 +382,7 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
   // https://stackoverflow.com/a/30968371
   file << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1)
        << std::scientific;
+  file.imbue(std::locale(file.getloc(), new nan_num_put));
 
   if (file.tellp() == 0) {
     // Output header if the file is empty, i.e. the first time we write to this
@@ -644,6 +663,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
     // https://stackoverflow.com/a/30968371
     file << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1)
          << std::scientific;
+    file.imbue(std::locale(file.getloc(), new nan_num_put));
 
     if (file.tellp() == 0) {
       // Output header if the file is empty, i.e. the first time we write to
