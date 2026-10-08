@@ -2,6 +2,7 @@
 
 STORAGE: testloop_gf testloop_gf_fx testloop_gf_fy testloop_gf_fz
 STORAGE: testloop_gf_n1 testloop_gf_n2
+STORAGE: testloop_gf_m1 testloop_gf_m2 testloop_gf_m3 testloop_gf_m4 
 
 SCHEDULE TestLoopX_Init AT initial
 {
@@ -54,4 +55,22 @@ SCHEDULE TestLoopX_OuterN_Check AT initial AFTER TestLoopX_OuterN
   LANG: C
   READS: testloop_gf_n1(everywhere)
   READS: testloop_gf_n2(everywhere)
+} "Abort if any point of the marker functions was visited by neither or by both primitives"
+
+SCHEDULE TestLoopX_iMix AT initial
+{
+  LANG: C
+  WRITES: testloop_gf_m1(everywhere)
+  WRITES: testloop_gf_m2(everywhere)
+  WRITES: testloop_gf_m3(everywhere)
+  WRITES: testloop_gf_m4(everywhere)
+} "Accumulate markers with loop_imix_allmn_device and loop_imix_outer_n_device"
+
+SCHEDULE TestLoopX_iMix_Check AT initial AFTER TestLoopX_iMix
+{
+  LANG: C
+  READS: testloop_gf_m1(everywhere)
+  READS: testloop_gf_m2(everywhere)
+  READS: testloop_gf_m3(everywhere)
+  READS: testloop_gf_m4(everywhere)
 } "Abort if any point of the marker functions was visited by neither or by both primitives"
