@@ -53,7 +53,18 @@ SCHEDULE SpacetimeWaveToyX_Evol2 AT evol AFTER SpacetimeWaveToyX_Evol1
   SYNC: ftstate
 } "Evolve scalar wave, part 2"
 
-SCHEDULE SpacetimeWaveToyX_Constraints AT analysis
+# The diagnostics in this group are not checkpointed, and a level that lags
+# its parent SYNCs them from the parent: compute them at the end of each step,
+# and again after a restart, once the state's ghosts are refilled
+SCHEDULE GROUP SpacetimeWaveToyX_Diagnostics AT analysis
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE GROUP SpacetimeWaveToyX_Diagnostics AT post_recover_variables AFTER SpacetimeWaveToyX_Sync
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE SpacetimeWaveToyX_Constraints IN SpacetimeWaveToyX_Diagnostics
 {
   LANG: C
   READS: fxstate(interior)
@@ -67,7 +78,7 @@ SCHEDULE SpacetimeWaveToyX_Constraints AT analysis
   SYNC: curlfz
 } "Calculate scalar wave constraints"
  
-SCHEDULE SpacetimeWaveToyX_Energy AT analysis
+SCHEDULE SpacetimeWaveToyX_Energy IN SpacetimeWaveToyX_Diagnostics
 {
   LANG: C
   READS: ftstate(everywhere)
@@ -78,7 +89,7 @@ SCHEDULE SpacetimeWaveToyX_Energy AT analysis
   SYNC: energy
 } "Calculate scalar wave energy density"
 
-SCHEDULE SpacetimeWaveToyX_Error AT analysis
+SCHEDULE SpacetimeWaveToyX_Error IN SpacetimeWaveToyX_Diagnostics
 {
   LANG: C
   READS: ustate(interior)
@@ -100,8 +111,7 @@ SCHEDULE SpacetimeWaveToyX_Error AT analysis
 
 # Recovery. Checkpoints carry the interior only, so restore the state's ghosts
 # with a SYNC; the evolution reads only the interior, but the energy reads the
-# ghosts. The diagnostics above are not checkpointed, and a level that lags
-# its parent SYNCs them from the parent: recompute them after a restart.
+# ghosts.
 SCHEDULE SpacetimeWaveToyX_Sync AT post_recover_variables
 {
   LANG: C
@@ -112,48 +122,3 @@ SCHEDULE SpacetimeWaveToyX_Sync AT post_recover_variables
   SYNC: fystate
   SYNC: fzstate
 } "Restore the ghosts of the state, which checkpoints do not carry"
-
-SCHEDULE SpacetimeWaveToyX_Constraints AT post_recover_variables AFTER SpacetimeWaveToyX_Sync
-{
-  LANG: C
-  READS: fxstate(interior)
-  READS: fystate(interior)
-  READS: fzstate(interior)
-  WRITES: curlfx(interior)
-  WRITES: curlfy(interior)
-  WRITES: curlfz(interior)
-  SYNC: curlfx
-  SYNC: curlfy
-  SYNC: curlfz
-} "Calculate scalar wave constraints"
-
-SCHEDULE SpacetimeWaveToyX_Energy AT post_recover_variables AFTER SpacetimeWaveToyX_Sync
-{
-  LANG: C
-  READS: ftstate(everywhere)
-  READS: fxstate(everywhere)
-  READS: fystate(everywhere)
-  READS: fzstate(everywhere)
-  WRITES: energy(interior)
-  SYNC: energy
-} "Calculate scalar wave energy density"
-
-SCHEDULE SpacetimeWaveToyX_Error AT post_recover_variables AFTER SpacetimeWaveToyX_Sync
-{
-  LANG: C
-  READS: ustate(interior)
-  READS: ftstate(interior)
-  READS: fxstate(interior)
-  READS: fystate(interior)
-  READS: fzstate(interior)
-  WRITES: uerror(interior)
-  WRITES: fterror(interior)
-  WRITES: fxerror(interior)
-  WRITES: fyerror(interior)
-  WRITES: fzerror(interior)
-  SYNC: uerror
-  SYNC: fterror
-  SYNC: fxerror
-  SYNC: fyerror
-  SYNC: fzerror
-} "Calculate error in scalar wave state"
