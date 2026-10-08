@@ -828,12 +828,16 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     is_subcycling_level = false; // unused
     iteration = 0;
     delta_iteration = 1;
+    last_tail_iteration = 0;
   } else {
     // We are creating a new refined level
     auto &coarseleveldata = ghext->patchdata.at(patch).leveldata.at(level - 1);
     is_subcycling_level = ghext->use_subcycling;
     iteration = coarseleveldata.iteration;
     delta_iteration = coarseleveldata.delta_iteration / timereffact;
+    // A level that a regrid creates or remakes shares its parent's clock, and
+    // so the parent's last end-of-step window
+    last_tail_iteration = coarseleveldata.last_tail_iteration;
   }
 
   const amrex::IntVect nghostzones = {
@@ -1067,15 +1071,15 @@ bool all_levels_synchronized() {
 bool recovered_level_needs_rk_bands(const int patch, const int level) {
   if (!ghext->use_subcycling)
     return false;
-  const auto &iterations = ghext->recovered_level_iterations;
-  if (patch < 0 || patch >= int(iterations.size()))
+  const auto &recovered = ghext->recovered_levels;
+  if (patch < 0 || patch >= int(recovered.size()))
     return false;
-  const auto &level_iterations = iterations.at(patch);
+  const auto &levels = recovered.at(patch);
   const int child = level + 1;
-  if (level < 0 || child >= int(level_iterations.size()))
+  if (level < 0 || child >= int(levels.size()))
     return false; // finest level: no children to fill
-  const std::optional<rat64> &self = level_iterations.at(level);
-  const std::optional<rat64> &child_iteration = level_iterations.at(child);
+  const std::optional<rat64> &self = levels.at(level).iteration;
+  const std::optional<rat64> &child_iteration = levels.at(child).iteration;
   if (!self || !child_iteration)
     return false; // old checkpoint without per-level iteration: time-aligned
   // Under 2:1 time refinement the child is either aligned with this level or
@@ -1087,13 +1091,13 @@ bool recovered_level_needs_rk_bands(const int patch, const int level) {
 bool recovered_flux_register_is_live(const int patch, const int level) {
   if (!ghext->use_subcycling)
     return false;
-  const auto &iterations = ghext->recovered_level_iterations;
-  if (patch < 0 || patch >= int(iterations.size()))
+  const auto &recovered = ghext->recovered_levels;
+  if (patch < 0 || patch >= int(recovered.size()))
     return false;
-  const auto &level_iterations = iterations.at(patch);
-  if (level < 0 || level + 1 >= int(level_iterations.size()))
+  const auto &levels = recovered.at(patch);
+  if (level < 0 || level + 1 >= int(levels.size()))
     return false; // finest level: no register below it
-  const std::optional<rat64> &self = level_iterations.at(level);
+  const std::optional<rat64> &self = levels.at(level).iteration;
   if (!self)
     return false; // old checkpoint without per-level iteration: time-aligned
   // The pair (level, level + 1) is refluxed once every level from `level`
@@ -1101,8 +1105,8 @@ bool recovered_flux_register_is_live(const int patch, const int level) {
   // register is live while any finer level is still behind this one. The
   // pair (level, level + 1) may itself be aligned with the register complete
   // but unapplied.
-  for (int finer = level + 1; finer < int(level_iterations.size()); ++finer) {
-    const std::optional<rat64> &finer_iteration = level_iterations.at(finer);
+  for (int finer = level + 1; finer < int(levels.size()); ++finer) {
+    const std::optional<rat64> &finer_iteration = levels.at(finer).iteration;
     if (finer_iteration && *finer_iteration < *self)
       return true;
   }
