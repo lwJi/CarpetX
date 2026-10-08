@@ -1755,10 +1755,18 @@ A run recovered from a checkpoint (see the \texttt{checkpoint} tag in Sec.~\ref{
 
 {\raggedright\emph{Anything that a later step or another level reads must be either checkpointed or recomputed in \texttt{CCTK\_POST\_RECOVER\_VARIABLES}.}\par}
 
-Recovery traverses \texttt{CCTK\_POST\_RECOVER\_VARIABLES} once per clock group, from coarse to fine. Each traversal covers the group's levels and sees the \texttt{cctk\_iteration}, \texttt{cctk\_time} and \texttt{cctk\_timefac} with which these levels last ran their end of step (\texttt{CCTK\_POSTSTEP}, \texttt{CCTK\_ANALYSIS}) during evolution. No coarser level has changed since then, so a level-mode or local-mode routine recomputes exactly what it computed during evolution. Usually a thorn complies by adding an \texttt{AT post\_recover\_variables} entry next to its existing \texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS} entry, with the same ordering clauses. For example, \texttt{TestSubcyclingMC2} computes a diagnostic that is not checkpointed and that a finer level reads through a \texttt{SYNC}:
+Recovery traverses \texttt{CCTK\_POST\_RECOVER\_VARIABLES} once per clock group, from coarse to fine. Each traversal covers the group's levels and sees the \texttt{cctk\_iteration}, \texttt{cctk\_time} and \texttt{cctk\_timefac} with which these levels last ran their end of step (\texttt{CCTK\_POSTSTEP}, \texttt{CCTK\_ANALYSIS}) during evolution. No coarser level has changed since then, so a level-mode or local-mode routine recomputes exactly what it computed during evolution. Usually a thorn complies by scheduling these routines in a schedule group, and scheduling that group both in its existing bin (\texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS}) and in \texttt{CCTK\_POST\_RECOVER\_VARIABLES}, so that the two cannot drift apart. For example, \texttt{WaveToyX} computes diagnostics that are not checkpointed and that a finer level reads through a \texttt{SYNC}:
 %
 \begin{lstlisting}[language=bash]
-  SCHEDULE TestSubcyclingMC2_Error AT analysis
+  SCHEDULE GROUP WaveToyX_Diagnostics AT analysis
+  {
+  } "Calculate scalar wave diagnostics"
+
+  SCHEDULE GROUP WaveToyX_Diagnostics AT post_recover_variables AFTER ODESolvers_PostStep
+  {
+  } "Calculate scalar wave diagnostics"
+
+  SCHEDULE WaveToyX_Error IN WaveToyX_Diagnostics
   {
     LANG: C
     READS: state(interior)
@@ -1766,14 +1774,10 @@ Recovery traverses \texttt{CCTK\_POST\_RECOVER\_VARIABLES} once per clock group,
     SYNC: error
   } "Calculate error in scalar wave state"
 
-  SCHEDULE TestSubcyclingMC2_Error AT post_recover_variables AFTER ODESolvers_PostStep
-  {
-    LANG: C
-    READS: state(interior)
-    WRITES: error(interior)
-    SYNC: error
-  } "Calculate error in scalar wave state"
+  # WaveToyX_RHS and WaveToyX_Energy likewise
 \end{lstlisting}
+%
+A thorn with a single such routine may instead schedule it a second time, \texttt{AT post\_recover\_variables}, with the same ordering clauses, as \texttt{TestSubcyclingMC2} does for its error. A routine that other routines in the bin are ordered against by name, such as one scheduled \texttt{AS EstimateError}, is scheduled directly in each bin in this way, since an ordering clause in a bin cannot name a routine inside a schedule group.
 %
 Three clauses make the rule precise:
 %
