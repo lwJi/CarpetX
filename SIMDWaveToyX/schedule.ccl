@@ -22,7 +22,18 @@ SCHEDULE SIMDWaveToyX_RHS IN ODESolvers_RHS
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-SCHEDULE SIMDWaveToyX_RHS AT analysis
+# The diagnostics in this group are not checkpointed, and a level that lags
+# its parent SYNCs them from the parent: compute them at the end of each step,
+# and again after a restart, once the state's ghosts are refilled
+SCHEDULE GROUP SIMDWaveToyX_Diagnostics AT analysis
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE GROUP SIMDWaveToyX_Diagnostics AT post_recover_variables AFTER ODESolvers_PostStep
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE SIMDWaveToyX_RHS IN SIMDWaveToyX_Diagnostics
 {
   LANG: C
   READS: state(everywhere)
@@ -30,7 +41,7 @@ SCHEDULE SIMDWaveToyX_RHS AT analysis
   SYNC: rhs
 } "Calculate scalar wave RHS for output"
 
-SCHEDULE SIMDWaveToyX_Energy AT analysis
+SCHEDULE SIMDWaveToyX_Energy IN SIMDWaveToyX_Diagnostics
 {
   LANG: C
   READS: state(everywhere)
@@ -38,34 +49,7 @@ SCHEDULE SIMDWaveToyX_Energy AT analysis
   SYNC: energy
 } "Calculate scalar wave energy density"
 
-SCHEDULE SIMDWaveToyX_Error AT analysis
-{
-  LANG: C
-  READS: state(interior)
-  WRITES: error(interior)
-  SYNC: error
-} "Calculate error in scalar wave state"
-
-# The diagnostics above are not checkpointed, and a level that lags its parent
-# SYNCs them from the parent: recompute them after a restart, once the state's
-# ghosts are refilled
-SCHEDULE SIMDWaveToyX_RHS AT post_recover_variables AFTER ODESolvers_PostStep
-{
-  LANG: C
-  READS: state(everywhere)
-  WRITES: rhs(interior)
-  SYNC: rhs
-} "Calculate scalar wave RHS for output"
-
-SCHEDULE SIMDWaveToyX_Energy AT post_recover_variables AFTER ODESolvers_PostStep
-{
-  LANG: C
-  READS: state(everywhere)
-  WRITES: energy(interior)
-  SYNC: energy
-} "Calculate scalar wave energy density"
-
-SCHEDULE SIMDWaveToyX_Error AT post_recover_variables AFTER ODESolvers_PostStep
+SCHEDULE SIMDWaveToyX_Error IN SIMDWaveToyX_Diagnostics
 {
   LANG: C
   READS: state(interior)
