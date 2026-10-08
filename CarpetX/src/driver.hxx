@@ -562,10 +562,16 @@ struct GHExt {
   bool use_subcycling = false;
 
   // This run was started from a checkpoint. Set once, at the start of
-  // Initialise's recovery branch, and true for the rest of the run. The flesh
-  // offers no query for this (config->recovered is only Initialise's
-  // argument); error messages read it to state the recovery rule.
+  // RecoverFromCheckpoint, and true for the rest of the run. The flesh offers
+  // no query for this (config->recovered is only Initialise's argument);
+  // error messages read it to state the recovery rule.
   bool recovered = false;
+
+  // RecomputePerClockGroup is traversing CCTK_POST_RECOVER_VARIABLES, once
+  // per clock group. Set only inside that loop. Levels outside the window may
+  // then be at other times, so error messages read it to explain that a
+  // result read across levels must be checkpointed.
+  bool in_recovery_traversal = false;
 
   // CarpetX::do_reflux, cached in InitGH next to use_subcycling. Read from
   // here rather than through DECLARE_CCTK_PARAMETERS in the GroupData

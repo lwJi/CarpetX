@@ -144,7 +144,8 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
     return "  This run was recovered and group " + coarsegroupdata.groupname +
            " is not checkpointed.\n"
            "  Groups read by another level must be checkpointed or "
-           "recomputed in CCTK_POST_RECOVER_VARIABLES.\n";
+           "recomputed in CCTK_POST_RECOVER_VARIABLES.\n"
+           "  See \"Recovery\" in the CarpetX documentation.\n";
   };
 
   for (const int tl : tls)
