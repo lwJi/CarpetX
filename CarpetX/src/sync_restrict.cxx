@@ -559,45 +559,6 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
   static const bool have_multipatch_boundaries =
       CCTK_IsFunctionAliased("MultiPatch_Interpolate");
 
-  // Check preconditions, before any fill is posted: every parent timelevel
-  // that the prolongation below reads must have a valid interior. That is
-  // each synced timelevel, plus the parent's tl=1 that the time blend reads
-  // when this level lags its parent. This holds in every run and has no
-  // opt-out; without it an invalid parent is caught only by the poison scan
-  // after the sync, on the child, and not at all without poisoning.
-  for (const int gi : groups) {
-    active_levels->loop_serially([&](const auto &restrict leveldata) {
-      if (leveldata.level == 0)
-        return;
-      // Must match the fill branch below: an integrated group in a
-      // sub-iteration does not read its parent here (FillRKBoundary owns its
-      // coarse-fine ghosts)
-      const bool integrated_subiter =
-          group_is_integrated(gi) && leveldata.iteration > 0;
-      if (integrated_subiter)
-        return;
-
-      const auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
-      const int ntls = groupdata.mfab.size();
-      const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
-      std::vector<int> tls;
-      for (int tl = 0; tl < sync_tl; ++tl)
-        tls.push_back(tl);
-
-      const auto &restrict coarseleveldata =
-          ghext->patchdata.at(leveldata.patch)
-              .leveldata.at(leveldata.level - 1);
-      const bool aligned = leveldata.iteration == coarseleveldata.iteration;
-      if (!aligned && ntls >= 2 && sync_tl < 2)
-        tls.push_back(1); // the time blend's old timelevel
-
-      error_if_parent_invalid(
-          leveldata, gi, tls,
-          "SyncGroupsByDirISubcycling on coarse level before prolongation");
-    });
-  } // for gi
-
   // We need to loop over groups, patches, and levels in a definite
   // order so that AMReX's communication pattern does not get
   // confused. Therefore all the loops here are serial. The only
@@ -672,23 +633,30 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
           // tl=1, so it gets coarse tl=0 as it currently stands.
           const bool aligned =
               (leveldata.iteration == coarseleveldata.iteration);
+          const bool blend = !aligned && coarsegroupdata.mfab.size() >= 2;
           const rat64 cdt = coarseleveldata.delta_iteration;
           const rat64 t_new = coarseleveldata.iteration;
           const rat64 t_fin = leveldata.iteration;
           const CCTK_REAL w_new = CCTK_REAL((t_fin - t_new + cdt) / cdt);
 
-          // The blend needs a valid old coarse snapshot (tl=1). When this
-          // level lags its parent, the precondition pass above has already
-          // required it.
-          bool old_valid = coarsegroupdata.mfab.size() >= 2;
-          if (old_valid)
-            for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
-              old_valid = old_valid &&
-                          coarsegroupdata.valid.at(1).at(vi).get().valid_int;
+          // Every parent timelevel that the prolongation reads must have a
+          // valid interior: each synced timelevel, plus tl=1 when blending.
+          // The fills are only queued here, so this runs before any of them.
+          // It holds in every run and has no opt-out; without it an invalid
+          // parent is caught only by the poison scan after the sync, on the
+          // child, and not at all without poisoning.
+          std::vector<int> tls;
+          for (int tl = 0; tl < sync_tl; ++tl)
+            tls.push_back(tl);
+          if (blend && sync_tl < 2)
+            tls.push_back(1); // the blend's old timelevel
+          error_if_parent_invalid(
+              leveldata, gi, tls,
+              "SyncGroupsByDirISubcycling on coarse level before prolongation");
 
           for (int tl = 0; tl < sync_tl; ++tl) {
             // Only tl=0 is the "new" coarse snapshot whose old partner is tl=1.
-            const bool do_blend = !aligned && old_valid && tl == 0;
+            const bool do_blend = blend && tl == 0;
             const amrex::MultiFab *const cmfab_old =
                 do_blend ? coarsegroupdata.mfab.at(1).get() : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
