@@ -36,7 +36,18 @@ SCHEDULE FluxWaveToyX_RHS IN ODESolvers_RHS AFTER FluxWaveToyX_Fluxes
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-SCHEDULE FluxWaveToyX_Fluxes AT analysis
+# The diagnostics in this group are not checkpointed, and a level that lags
+# its parent SYNCs them from the parent: compute them at the end of each step,
+# and again after a restart, once the state's ghosts are refilled
+SCHEDULE GROUP FluxWaveToyX_Diagnostics AT analysis
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE GROUP FluxWaveToyX_Diagnostics AT post_recover_variables AFTER ODESolvers_PostStep
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE FluxWaveToyX_Fluxes IN FluxWaveToyX_Diagnostics
 {
   LANG: C
   READS: state(everywhere)
@@ -46,7 +57,7 @@ SCHEDULE FluxWaveToyX_Fluxes AT analysis
   SYNC: flux_x flux_y flux_z
 } "Calculate scalar wave fluxes for output"
 
-SCHEDULE FluxWaveToyX_RHS AT analysis AFTER FluxWaveToyX_Fluxes
+SCHEDULE FluxWaveToyX_RHS IN FluxWaveToyX_Diagnostics AFTER FluxWaveToyX_Fluxes
 {
   LANG: C
   READS: state(interior)
@@ -57,7 +68,7 @@ SCHEDULE FluxWaveToyX_RHS AT analysis AFTER FluxWaveToyX_Fluxes
   SYNC: rhs
 } "Calculate scalar wave RHS for output"
 
-SCHEDULE FluxWaveToyX_Constraints AT analysis
+SCHEDULE FluxWaveToyX_Constraints IN FluxWaveToyX_Diagnostics
 {
   LANG: C
   READS: state(everywhere)
@@ -65,7 +76,7 @@ SCHEDULE FluxWaveToyX_Constraints AT analysis
   SYNC: cons
 } "Calculate scalar wave constraints"
 
-SCHEDULE FluxWaveToyX_Energy AT analysis
+SCHEDULE FluxWaveToyX_Energy IN FluxWaveToyX_Diagnostics
 {
   LANG: C
   READS: state(everywhere)
@@ -73,7 +84,7 @@ SCHEDULE FluxWaveToyX_Energy AT analysis
   SYNC: energy
 } "Calculate scalar wave energy density"
 
-SCHEDULE FluxWaveToyX_Error AT analysis
+SCHEDULE FluxWaveToyX_Error IN FluxWaveToyX_Diagnostics
 {
   LANG: C
   READS: state(interior)
@@ -84,66 +95,7 @@ SCHEDULE FluxWaveToyX_Error AT analysis
 # Fixture for the driver's flux-register bookkeeping: a flux-tagged group
 # that is not integrated by ODESolvers, whose fluxes exist only after
 # analysis (see interface.ccl).
-SCHEDULE FluxWaveToyX_Mass AT analysis
-{
-  LANG: C
-  READS: state(everywhere)
-  WRITES: mass(interior)
-  WRITES: mass_flux_x(interior)
-  WRITES: mass_flux_y(interior)
-  WRITES: mass_flux_z(interior)
-  SYNC: mass mass_flux_x mass_flux_y mass_flux_z
-} "Calculate the conserved density and its fluxes for output"
-
-# The diagnostics above are not checkpointed, and a level that lags its parent
-# SYNCs them from the parent: recompute them after a restart, once the state's
-# ghosts are refilled
-SCHEDULE FluxWaveToyX_Fluxes AT post_recover_variables AFTER ODESolvers_PostStep
-{
-  LANG: C
-  READS: state(everywhere)
-  WRITES: flux_x(interior)
-  WRITES: flux_y(interior)
-  WRITES: flux_z(interior)
-  SYNC: flux_x flux_y flux_z
-} "Calculate scalar wave fluxes for output"
-
-SCHEDULE FluxWaveToyX_RHS AT post_recover_variables AFTER (ODESolvers_PostStep, FluxWaveToyX_Fluxes)
-{
-  LANG: C
-  READS: state(interior)
-  READS: flux_x(interior)
-  READS: flux_y(interior)
-  READS: flux_z(interior)
-  WRITES: rhs(interior)
-  SYNC: rhs
-} "Calculate scalar wave RHS for output"
-
-SCHEDULE FluxWaveToyX_Constraints AT post_recover_variables AFTER ODESolvers_PostStep
-{
-  LANG: C
-  READS: state(everywhere)
-  WRITES: cons(interior)
-  SYNC: cons
-} "Calculate scalar wave constraints"
-
-SCHEDULE FluxWaveToyX_Energy AT post_recover_variables AFTER ODESolvers_PostStep
-{
-  LANG: C
-  READS: state(everywhere)
-  WRITES: energy(interior)
-  SYNC: energy
-} "Calculate scalar wave energy density"
-
-SCHEDULE FluxWaveToyX_Error AT post_recover_variables AFTER ODESolvers_PostStep
-{
-  LANG: C
-  READS: state(interior)
-  WRITES: error(interior)
-  SYNC: error
-} "Calculate error in scalar wave state"
-
-SCHEDULE FluxWaveToyX_Mass AT post_recover_variables AFTER ODESolvers_PostStep
+SCHEDULE FluxWaveToyX_Mass IN FluxWaveToyX_Diagnostics
 {
   LANG: C
   READS: state(everywhere)
