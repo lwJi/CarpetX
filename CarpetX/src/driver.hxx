@@ -554,6 +554,12 @@ struct GHExt {
 
   bool use_subcycling = false;
 
+  // This run was started from a checkpoint. Set once, at the start of
+  // Initialise's recovery branch, and true for the rest of the run. The flesh
+  // offers no query for this (config->recovered is only Initialise's
+  // argument); error messages read it to state the recovery rule.
+  bool recovered = false;
+
   // CarpetX::do_reflux, cached in InitGH next to use_subcycling. Read from
   // here rather than through DECLARE_CCTK_PARAMETERS in the GroupData
   // constructor, where the parameter block would shadow the do_restrict

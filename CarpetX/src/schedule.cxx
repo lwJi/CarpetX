@@ -1165,6 +1165,8 @@ int Initialise(tFleshConfig *config) {
 #pragma omp critical
     CCTK_VINFO("Recovering from checkpoint...");
 
+    ghext->recovered = true;
+
     RecoverGridStructure(cctkGH);
 
     assert(!active_levels);
