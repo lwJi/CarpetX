@@ -384,6 +384,13 @@ struct GHExt {
       // Iteration and time at which this cycle level is valid
       rat64 iteration, delta_iteration;
 
+      // cctk_iteration of the last end-of-step window (POSTSTEP, ANALYSIS)
+      // that covered this level: set by Evolve after each such window, 0 on
+      // a fresh start, the parent's value when a regrid creates or remakes
+      // the level, and the checkpointed value on recovery. Checkpoints
+      // carry it next to the level's clock.
+      int last_tail_iteration;
+
       // Fabamrex::ArrayBase object holding a cell-centred BoxArray for
       // iterating over grid functions. This stores the grid structure
       // and its distribution over all processes, but holds no data.
@@ -579,9 +586,15 @@ struct GHExt {
   // and when recovery rebuilds the bands. Empty means none.
   std::vector<bool> rk_integrated_group; // [group index]
 
-  // Per-level iteration values read from checkpoint; consumed by recovery fixup
-  // in schedule.cxx. Indexed [patch][level]. Empty outside of recovery window.
-  std::vector<std::vector<std::optional<rat64> > > recovered_level_iterations;
+  // Per-level metadata read from a checkpoint, consumed when recovery restores
+  // the level clocks in schedule.cxx. Either value is absent when the
+  // checkpoint predates it.
+  struct recovered_level_t {
+    std::optional<rat64> iteration;         // iteration_num / iteration_den
+    std::optional<int> last_tail_iteration; // last_tail_iteration
+  };
+  // Indexed [patch][level]. Empty outside of the recovery window.
+  std::vector<std::vector<recovered_level_t> > recovered_levels;
 
   int num_patches() const { return patchdata.size(); }
   int num_levels(const int patch) const {
@@ -645,10 +658,10 @@ bool all_levels_synchronized();
 
 // True when (patch, level) is a coarse level ahead of one of its children in
 // the checkpoint being recovered, so its evolved groups must carry olds/kss_*.
-// Reads ghext->recovered_level_iterations; a missing entry (checkpoint without
-// iteration_num/den) means time-aligned, hence false. Always false without
-// subcycling and on the finest level. Only meaningful during RecoverGH, while
-// the recovered iterations are still populated.
+// Reads the iterations in ghext->recovered_levels; a missing entry (checkpoint
+// without iteration_num/den) means time-aligned, hence false. Always false
+// without subcycling and on the finest level. Only meaningful during
+// RecoverGH, while the recovered levels are still populated.
 bool recovered_level_needs_rk_bands(int patch, int level);
 
 // True when the flux register of the pair (level, level + 1) is live in the
