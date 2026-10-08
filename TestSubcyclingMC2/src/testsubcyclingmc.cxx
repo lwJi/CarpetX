@@ -103,6 +103,28 @@ extern "C" void TestSubcyclingMC2_MoveBox(CCTK_ARGUMENTS) {
   position_z[0] = box_velocity_z * cctk_time;
 }
 
+extern "C" void TestSubcyclingMC2_AddLevel(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_AddLevel;
+  DECLARE_CCTK_PARAMETERS;
+
+  // Strict no-op by default: do not touch BoxInBox::num_levels, so every
+  // existing test is byte-for-byte unchanged.
+  if (add_level_at_iteration < 0)
+    return;
+
+  // BoxInBox::num_levels_1, read by name since it is private to BoxInBox
+  int type;
+  const void *const ptr = CCTK_ParameterGet("num_levels_1", "BoxInBox", &type);
+  assert(ptr);
+  assert(type == PARAMETER_INT);
+  const CCTK_INT num_levels_1 = *static_cast<const CCTK_INT *>(ptr);
+
+  // A function of cctk_iteration alone, so that recomputing it after a
+  // restart in each clock group's context gives what that group's error
+  // estimate saw at the end of its last step
+  num_levels[0] = num_levels_1 + (cctk_iteration >= add_level_at_iteration);
+}
+
 extern "C" void TestSubcyclingMC2_RHS(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_RHS;
   DECLARE_CCTK_PARAMETERS;

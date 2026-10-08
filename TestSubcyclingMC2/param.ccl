@@ -56,3 +56,9 @@ CCTK_REAL box_velocity_z "z-velocity of the refined box (linear drift anchored a
   *:* :: ""
 } 0.0
 
+CCTK_INT add_level_at_iteration "From this iteration on, refined region 0 asks for one more refinement level than BoxInBox::num_levels_1"
+{
+  -1 :: "never"
+  0:* :: ""
+} -1
+
