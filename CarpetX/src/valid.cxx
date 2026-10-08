@@ -100,16 +100,18 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml, const why_valid_t &why) {
 // Ensure grid functions are valid
 void error_if_invalid(const GHExt::PatchData::LevelData::GroupData &groupdata,
                       int vi, int tl, const valid_t &required,
-                      const std::function<std::string()> &msg) {
+                      const std::function<std::string()> &msg,
+                      const std::function<std::string()> &hint) {
   assert(!groupdata.mfab.empty());
   const valid_t &have = groupdata.valid.at(tl).at(vi).get();
   if (CCTK_BUILTIN_EXPECT((required & ~have).valid_any(), false))
     CCTK_VERROR("%s: Grid function \"%s\" is invalid on patch %d, refinement "
-                "level %d, time level %d; required: %s, found: %s",
+                "level %d, time level %d; required: %s, found: %s%s",
                 msg().c_str(), CCTK_FullVarName(groupdata.firstvarindex + vi),
                 groupdata.patch, groupdata.level, tl,
                 required.explanation().c_str(),
-                groupdata.valid.at(tl).at(vi).explanation().c_str());
+                groupdata.valid.at(tl).at(vi).explanation().c_str(),
+                hint ? hint().c_str() : "");
 }
 void warn_if_invalid(const GHExt::PatchData::LevelData::GroupData &groupdata,
                      int vi, int tl, const valid_t &required,
