@@ -102,8 +102,6 @@ SCHEDULE SpacetimeWaveToyX_Error AT analysis
 # with a SYNC; the evolution reads only the interior, but the energy reads the
 # ghosts. The diagnostics above are not checkpointed, and a level that lags
 # its parent SYNCs them from the parent: recompute them after a restart.
-# SpacetimeWaveToyX_Error is not recomputed here yet: it uses
-# cctk_delta_time, which recovery sets only after CCTK_POST_RECOVER_VARIABLES.
 SCHEDULE SpacetimeWaveToyX_Sync AT post_recover_variables
 {
   LANG: C
@@ -139,3 +137,23 @@ SCHEDULE SpacetimeWaveToyX_Energy AT post_recover_variables AFTER SpacetimeWaveT
   WRITES: energy(interior)
   SYNC: energy
 } "Calculate scalar wave energy density"
+
+SCHEDULE SpacetimeWaveToyX_Error AT post_recover_variables AFTER SpacetimeWaveToyX_Sync
+{
+  LANG: C
+  READS: ustate(interior)
+  READS: ftstate(interior)
+  READS: fxstate(interior)
+  READS: fystate(interior)
+  READS: fzstate(interior)
+  WRITES: uerror(interior)
+  WRITES: fterror(interior)
+  WRITES: fxerror(interior)
+  WRITES: fyerror(interior)
+  WRITES: fzerror(interior)
+  SYNC: uerror
+  SYNC: fterror
+  SYNC: fxerror
+  SYNC: fyerror
+  SYNC: fzerror
+} "Calculate error in scalar wave state"
