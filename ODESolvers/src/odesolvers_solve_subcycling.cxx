@@ -410,7 +410,8 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
     // No calcys_rmbnd(1) here: refinement-boundary ghosts are kept aligned by
     // subcycling-aware POSTRESTRICT SYNCs. The post-recovery case is handled
-    // by ODESolvers_Solve_Subcycling_Recovery at CCTK_CPINITIAL.
+    // by ODESolvers_Solve_Subcycling_Recovery at
+    // CCTK_POST_RECOVER_VARIABLES.
 
   } else if (CCTK_EQUALS(method, "SSPRK3")) {
 
@@ -479,10 +480,6 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling_Recovery;
   DECLARE_CCTK_PARAMETERS;
 
-  // Skip on fresh initialization; cctk_iteration > 0 only on recovery.
-  if (cctk_iteration <= 0)
-    return;
-
   if (verbose)
     CCTK_VINFO("Subcycling recovery: refilling refinement-boundary ghosts "
                "(spatial prolongation on time-aligned levels, dense output "
@@ -500,12 +497,17 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   // Refill each recovered fine level's refinement-boundary (cf) ghosts the
   // way the uninterrupted run last wrote them, at the virtual end of the
   // level's last substep (calcys_rmbnd) or in a later restriction window,
-  // with the same function evolution uses. A level aligned with its parent
-  // gets the parent's tl=0 prolongated in space. A level that lags its parent
-  // is mid-cycle: its restored source bands hold the parent's in-progress
-  // coarse step, and dense output from them reconstructs its cf-ghosts. The
+  // with the same function evolution uses. Recovery traverses
+  // CCTK_POST_RECOVER_VARIABLES once per clock group, and this routine runs
+  // first in each traversal, so the window is one clock group. Its levels
+  // other than its coarsest are aligned with their parents and get the
+  // parent's tl=0 prolongated in space. Its coarsest level, unless it is level
+  // 0, lags its parent: it is mid-cycle, its restored source bands hold the
+  // parent's in-progress coarse step, and dense output from them, with the
+  // parent's step taken from the clocks, reconstructs its cf-ghosts. The
   // checkpoint reader has already refused a mid-cycle checkpoint that lacks
-  // those bands.
+  // those bands. The ODESolvers_PostStep SYNC that follows then only
+  // exchanges ghosts between boxes of the same level.
   if (var_groups.size() > 0) {
     var.check_valid(make_valid_int(),
                     "ODESolvers_Solve_Subcycling_Recovery requires the tl=0 "
