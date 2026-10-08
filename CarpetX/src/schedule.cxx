@@ -1329,7 +1329,10 @@ struct recovery_traversal_scope {
 static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
   const recovery_traversal_scope scope;
 
-  for (const auto &[min_level, max_level] : ClockGroups()) {
+  // Bind inside the body: nvcc's cudafe++ misplaces a #pragma that follows a
+  // range-for with structured bindings, which breaks the omp critical below
+  for (const auto &group : ClockGroups()) {
+    const auto &[min_level, max_level] = group;
     const auto &finest = ghext->patchdata.at(0).leveldata.at(max_level - 1);
 
     assert(!active_levels);
