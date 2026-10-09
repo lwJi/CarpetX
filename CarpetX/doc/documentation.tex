@@ -1880,19 +1880,7 @@ Grid scalars that a finer clock group overwrites cannot be checked. A thorn that
 
 \subsection{Checkpoints written before per-level end-of-step iterations}
 
-A checkpoint records, for every level, its clock and the iteration of its last end of step: the \texttt{openPMD} iteration attributes \texttt{iteration\_num}, \texttt{iteration\_den} and \texttt{last\_tail\_iteration}, with a per-level suffix, or the \texttt{Silo} metafile variables of the same names in the \texttt{CarpetX} directory, one per patch and level. It holds no other extra data: no ghost zones, and no groups beyond those tagged \texttt{checkpoint}. Checkpoints written before the end-of-step iteration was recorded are recovered according to how many clocks they hold (Tab.~\ref{tab:old_checkpoints}).
-
-\begin{table}[ht]
-  \centering
-  \begin{tabularx}{\textwidth}{lX}
-  Clocks in the checkpoint & Behavior \\ \hline\hline
-  One (aligned, or no subcycling) & Recovers exactly; every level gets the checkpoint iteration. \\
-  Two & The missing iterations are derived from the clocks, and a warning is printed. \\
-  Three or more & Refused. These never recovered correctly (\href{https://github.com/lwJi/CarpetX/issues/151}{GitHub issue lwJi/CarpetX\#151}). Recover from a checkpoint with at most two distinct level clocks. \\ \hline\hline
-  \end{tabularx}
-  \caption{Recovery from checkpoints that do not record each level's last end-of-step iteration.}
-  \label{tab:old_checkpoints}
-\end{table}
+A checkpoint records, for every level, its clock and the iteration of its last end of step: the \texttt{openPMD} iteration attributes \texttt{iteration\_num}, \texttt{iteration\_den} and \texttt{last\_tail\_iteration}, with a per-level suffix, or the \texttt{Silo} metafile variables of the same names in the \texttt{CarpetX} directory, one per patch and level. It holds no other extra data: no ghost zones, and no groups beyond those tagged \texttt{checkpoint}. Checkpoints written before the end-of-step iteration was recorded get it from the level clocks: the finest clock group gets the checkpoint iteration, and every coarser group the iteration in which its finest level last stepped. When every level shares one clock (an aligned checkpoint, or no subcycling), this is exact. With two or more clocks it assumes that no regrid has changed the number of levels since the coarsest clock group last stepped, and recovery prints a warning.
 
 \subsection{Silo checkpoints}
 
