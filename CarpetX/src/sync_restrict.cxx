@@ -155,38 +155,9 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
           [label]() { return std::string(label); }, hint);
 }
 
-static std::vector<int> collect_restrictable_groups() {
-  const int numgroups = CCTK_NumGroups();
-  std::vector<int> groups;
-  groups.reserve(numgroups);
-  const auto &patchdata0 = ghext->patchdata.at(0);
-  const auto &leveldata0 = patchdata0.leveldata.at(0);
-  for (const auto &groupdataptr : leveldata0.groupdata) {
-    // Only grid functions
-    if (groupdataptr) {
-      auto &restrict groupdata = *groupdataptr;
-      // Only grid functions with storage
-      if (groupdata.mfab.empty())
-        continue;
-      // Only grid functions with restriction enabled
-      if (groupdata.do_restrict)
-        groups.push_back(groupdata.groupindex);
-    }
-  }
-  return groups;
-}
-
-// The groups whose coarse-fine ghosts ProlongateRestrictedGFs refills on the
-// time-aligned levels of a restricted window: every restricted group, and
-// under subcycling every group the time integrator advances, restricted or
-// not. An integrated group's aligned levels got these ghosts last from the
-// integrator's dense output at the end of the parent's step, which recovery
-// could repeat only from RK source bands that a time-aligned checkpoint does
-// not carry. Refilled here from the parent's tl=0, which for an unrestricted
-// group is the parent's final state up to round-off, they depend on the
-// checkpointed state alone, and ODESolvers_Solve_Subcycling_Recovery
-// prolongates them the same way.
-static std::vector<int> collect_reprolongated_groups() {
+// The grid functions with storage whose GroupData satisfies `pred`
+template <typename Pred>
+static std::vector<int> collect_groups(const Pred &pred) {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
   groups.reserve(numgroups);
@@ -195,12 +166,39 @@ static std::vector<int> collect_reprolongated_groups() {
     // Only grid functions with storage
     if (!groupdataptr || groupdataptr->mfab.empty())
       continue;
-    const int gi = groupdataptr->groupindex;
-    if (groupdataptr->do_restrict ||
-        (ghext->use_subcycling && group_is_integrated(gi)))
-      groups.push_back(gi);
+    if (pred(*groupdataptr))
+      groups.push_back(groupdataptr->groupindex);
   }
   return groups;
+}
+
+// The grid functions with restriction enabled
+static std::vector<int> collect_restrictable_groups() {
+  return collect_groups(
+      [](const GHExt::PatchData::LevelData::GroupData &groupdata) {
+        return groupdata.do_restrict;
+      });
+}
+
+// The groups whose coarse-fine ghosts ProlongateRestrictedGFs refills on the
+// time-aligned levels of a restricted window: every restricted group, and
+// under subcycling every group the time integrator advances, restricted or
+// not. An integrated group's aligned levels got these ghosts last from the
+// integrator's dense output at the end of the parent's step, which recovery
+// could repeat only from RK source bands that a time-aligned checkpoint does
+// not carry. Refilled here from the parent's tl=0, they depend on the
+// checkpointed state alone, and ODESolvers_Solve_Subcycling_Recovery
+// prolongates them the same way. The dense output was the parent's RK update;
+// tl=0 is that update after ODESolvers_PostStep (and reflux, if the group has
+// a flux register), so where those change the state the refill differs from
+// it by more than round-off.
+static std::vector<int> collect_reprolongated_groups() {
+  return collect_groups(
+      [](const GHExt::PatchData::LevelData::GroupData &groupdata) {
+        return groupdata.do_restrict ||
+               (ghext->use_subcycling &&
+                group_is_integrated(groupdata.groupindex));
+      });
 }
 
 // =======================================================================
