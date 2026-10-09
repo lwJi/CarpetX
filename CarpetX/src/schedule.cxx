@@ -1154,14 +1154,13 @@ static void SetStepTime(cGH *restrict const cctkGH, const int level,
 
 // Restore every level's clock and last_tail_iteration from the metadata that
 // the checkpoint reader left in ghext->recovered_levels, then drop it.
-// Checkpoints that predate last_tail_iteration are handled by the number of
-// clock groups they hold:
-//   1:    every level gets the checkpoint iteration;
-//   2:    the finest group gets the checkpoint iteration, and the coarser
-//         group's value is derived from the clocks, with a warning;
-//   >= 3: refused. These never recovered correctly (GitHub issue #151).
-// Logs the restored clocks and the number of clock groups whatever
-// CarpetX::verbose is set to.
+// Checkpoints that predate last_tail_iteration get it from the clocks: the
+// finest group gets the checkpoint iteration, and every coarser group the
+// iteration in which its finest level last stepped (LastStepIteration). With
+// one clock group this is exact; with more it assumes that no regrid has
+// changed the number of levels since the coarsest group last stepped, so
+// recovery warns. Logs the restored clocks and the number of clock groups
+// whatever CarpetX::verbose is set to.
 static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
   const int checkpoint_iteration = cctkGH->cctk_iteration;
 
@@ -1204,13 +1203,6 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
 
   if (!have_last_tail_iterations) {
     // Old checkpoint without last_tail_iteration
-    if (num_groups >= 3)
-      CCTK_VERROR("Checkpoint at iteration %d predates per-level end-of-step "
-                  "iterations and holds %d distinct level clocks (%s); it "
-                  "cannot be recovered exactly (see GitHub issue #151 and "
-                  "\"Recovery\" in the CarpetX documentation). Recover from a "
-                  "checkpoint with at most two distinct level clocks.",
-                  checkpoint_iteration, num_groups, clocks.c_str());
     for (const auto &[min_level, max_level] : clock_groups) {
       // The finest group stepped last, at the checkpoint iteration
       const int last_tail_iteration =
@@ -1222,12 +1214,14 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
           if (leveldata.level >= min_level && leveldata.level < max_level)
             leveldata.last_tail_iteration = last_tail_iteration;
     }
-    if (num_groups == 2 && CCTK_MyProc(nullptr) == 0)
+    if (num_groups >= 2 && CCTK_MyProc(nullptr) == 0)
       CCTK_VWARN(CCTK_WARN_ALERT,
                  "Checkpoint at iteration %d predates per-level end-of-step "
-                 "iterations; derived them from the two level clocks (see "
+                 "iterations; derived them from the %d distinct level clocks "
+                 "(%s), assuming that no regrid has changed the number of "
+                 "levels since the coarsest clock group last stepped (see "
                  "\"Recovery\" in the CarpetX documentation).",
-                 checkpoint_iteration);
+                 checkpoint_iteration, num_groups, clocks.c_str());
   }
 
   // The levels of a clock group last ran their end of step in one window,
