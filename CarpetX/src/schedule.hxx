@@ -116,6 +116,28 @@ public:
 // TODO: Move this into ghext
 extern std::optional<active_levels_t> active_levels;
 
+// Under subcycling, nothing may sync while CCTK_POSTSTEP or CCTK_ANALYSIS is
+// traversed: these bins also run on levels that lag their parent, and a sync
+// would fill their ghosts with the parent's data from a later time. The
+// driver opens this scope around every traversal of these two bins. It
+// records the bin and clears the record of the function called last, and
+// restores both on exit. Without subcycling the scope has no effect.
+struct no_sync_scope_t {
+  explicit no_sync_scope_t(const char *bin);
+  ~no_sync_scope_t();
+  no_sync_scope_t(const no_sync_scope_t &) = delete;
+  no_sync_scope_t &operator=(const no_sync_scope_t &) = delete;
+
+private:
+  const char *outer_bin;
+  const cFunctionData *outer_last_function;
+};
+
+// Abort with an error naming the culprit if a no-sync scope is open and
+// CarpetX::use_subcycling is set. Every sync entry point calls this before
+// it does anything.
+void check_sync_allowed(const cGH *cctkGH, int numgroups, const int *groups);
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // Like an MFIter, but does not support iteration, instead it can be copied

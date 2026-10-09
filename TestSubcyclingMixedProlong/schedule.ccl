@@ -58,7 +58,6 @@ SCHEDULE TestSubcyclingMixedProlong_Error_lo AT analysis
   LANG: C
   READS: state_lo(interior)
   WRITES: error_lo(interior)
-  SYNC: error_lo
 } "Calculate error in scalar wave state (narrow prolongation stencil)"
 
 SCHEDULE TestSubcyclingMixedProlong_Error_hi AT analysis
@@ -66,5 +65,4 @@ SCHEDULE TestSubcyclingMixedProlong_Error_hi AT analysis
   LANG: C
   READS: state_hi(interior)
   WRITES: error_hi(interior)
-  SYNC: error_hi
 } "Calculate error in scalar wave state (wide prolongation stencil)"

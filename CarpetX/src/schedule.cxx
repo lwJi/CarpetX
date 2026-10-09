@@ -84,6 +84,129 @@ double gettime() {
 // Used to pass active levels from AMReX's regridding functions
 std::optional<active_levels_t> active_levels;
 
+////////////////////////////////////////////////////////////////////////////////
+
+// No sync in CCTK_POSTSTEP and CCTK_ANALYSIS under subcycling
+
+namespace {
+// The bin whose traversal is inside a no_sync_scope_t, or nullptr
+const char *no_sync_bin = nullptr;
+
+// The scheduled function CallFunction is dispatching. It stays set for the
+// whole mode dispatch, including the per-tile calls in local mode. A routine
+// may traverse a schedule group from its own code (CallScheduleGroup), which
+// calls CallFunction again, so the outer value is saved and restored around
+// the dispatch, as the flesh does with its current_scheduled_function.
+const cFunctionData *running_function = nullptr;
+
+// The scheduled function CallFunction dispatched last. The flesh runs a
+// function's SYNC clause immediately after the function returns, before any
+// other item, so while that SYNC runs this names its owner. Opening a
+// no_sync_scope_t clears it.
+const cFunctionData *last_function = nullptr;
+
+constexpr const char *no_sync_rule =
+    "SYNCs in CCTK_POSTSTEP and CCTK_ANALYSIS are not allowed when "
+    "CarpetX::use_subcycling = yes: these bins run on levels that lag their "
+    "parent, so the SYNC would fill their ghosts with the parent's data from "
+    "a later time.";
+
+bool sync_forbidden() { return no_sync_bin && ghext->use_subcycling; }
+
+// "in BIN" for a function scheduled AT the bin, "in WHERE in BIN" for one
+// scheduled IN a schedule group. Only the immediate parent is known here.
+std::string no_sync_location(const cFunctionData *restrict const f) {
+  assert(no_sync_bin);
+  std::ostringstream buf;
+  buf << "in ";
+  if (!CCTK_Equals(f->where, no_sync_bin))
+    buf << f->where << " in ";
+  buf << no_sync_bin;
+  return buf.str();
+}
+
+std::string full_group_name(const int gi) {
+  const char *const name = CCTK_FullGroupName(gi);
+  return name ? name : "<unknown>";
+}
+
+// "group A" or "groups A, B"
+std::string group_list(const int numgroups, const int *restrict const groups) {
+  std::ostringstream buf;
+  buf << (numgroups == 1 ? "group " : "groups ");
+  for (int n = 0; n < numgroups; ++n) {
+    if (n > 0)
+      buf << ", ";
+    buf << full_group_name(groups[n]);
+  }
+  return buf.str();
+}
+
+// The presync of CallFunction (Cactus::presync_mode = "presync-only") checks
+// here before it syncs, so that the message names the READS clause that
+// needed the ghosts. Variable `vi` of group `gi`, timelevel `tl`.
+void check_presync_allowed(const cFunctionData *restrict const attribute,
+                           const int gi, const int vi, const int tl) {
+  if (!sync_forbidden())
+    return;
+  const char *const varname0 = CCTK_FullVarName(CCTK_FirstVarIndexI(gi) + vi);
+  std::string varname = varname0 ? varname0 : "<unknown>";
+  for (int n = 0; n < tl; ++n)
+    varname += "_p";
+  // Only the "everywhere" region includes the ghosts, so only such a READS
+  // clause can make the presync sync a group
+  CCTK_VERROR("%s::%s (%s) READS: %s(everywhere), so CarpetX would SYNC "
+              "group %s before calling it (Cactus::presync_mode = "
+              "\"presync-only\"). %s Read the interior only.",
+              attribute->thorn, attribute->routine,
+              no_sync_location(attribute).c_str(), varname.c_str(),
+              full_group_name(gi).c_str(), no_sync_rule);
+}
+} // namespace
+
+no_sync_scope_t::no_sync_scope_t(const char *const bin)
+    : outer_bin(no_sync_bin), outer_last_function(last_function) {
+  assert(bin);
+  no_sync_bin = bin;
+  last_function = nullptr;
+}
+
+no_sync_scope_t::~no_sync_scope_t() {
+  no_sync_bin = outer_bin;
+  last_function = outer_last_function;
+}
+
+void check_sync_allowed(const cGH *const /*cctkGH*/, const int numgroups,
+                        const int *const groups) {
+  if (!sync_forbidden())
+    return;
+
+  // Classify the trigger from CallFunction's two records alone:
+  // - The flesh runs a function's SYNC clause right after the function
+  //   returns, and the first sync in the scope aborts here. So if the
+  //   function called last has a SYNC clause, this is that clause.
+  // - Otherwise, if a function is running, its code called the sync.
+  // - Otherwise the sync is a schedule group's SYNC clause, run when the
+  //   traversal leaves the group, i.e. after its last member returned.
+  const std::string groupnames = group_list(numgroups, groups);
+  std::ostringstream buf;
+  if (last_function && last_function->n_SyncGroups > 0)
+    buf << last_function->thorn << "::" << last_function->routine << " ("
+        << no_sync_location(last_function) << ") SYNCs " << groupnames;
+  else if (running_function)
+    buf << running_function->thorn << "::" << running_function->routine << " ("
+        << no_sync_location(running_function) << ") called a sync of "
+        << groupnames;
+  else if (last_function)
+    buf << "a schedule group containing " << last_function->thorn
+        << "::" << last_function->routine << " ("
+        << no_sync_location(last_function) << ") SYNCs " << groupnames;
+  else
+    buf << "a schedule group in " << no_sync_bin << " SYNCs " << groupnames;
+
+  CCTK_VERROR("%s. %s Remove the SYNC.", buf.str().c_str(), no_sync_rule);
+}
+
 namespace {
 // Convert a (direction, face) pair to an AMReX Orientation
 amrex::Orientation orient(int d, int f) {
@@ -105,6 +228,61 @@ int WidenMinLevel(int initial_min_level, rat64 target_iteration) {
       break;
   }
   return min_level;
+}
+
+// Levels grouped by shared leveldata.iteration (clock sets), as
+// [min_level, max_level), coarse to fine. A coarser level is never behind a
+// finer one, so every set is a contiguous range of levels, and the finest set
+// is the window WidenMinLevel forms from the finest level. Like
+// WidenMinLevel, this reads patch 0 only.
+std::vector<std::pair<int, int> > ClockSets() {
+  std::vector<std::pair<int, int> > sets;
+  for (int max_level = ghext->num_levels(); max_level > 0;) {
+    const rat64 iteration =
+        ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
+    const int min_level = WidenMinLevel(max_level - 1, iteration);
+    sets.emplace_back(min_level, max_level);
+    max_level = min_level;
+  }
+  std::reverse(sets.begin(), sets.end());
+  return sets;
+}
+
+// The restriction after a step that completes the window [min_level,
+// max_level), which ends at the finest level and spans two or more levels.
+// The current active_levels must be that window.
+void RestrictWindow(cGH *restrict const cctkGH, const int min_level,
+                    const int max_level, const bool reflux) {
+  assert(active_levels);
+  assert(active_levels->min_level == min_level &&
+         active_levels->max_level == max_level);
+  assert(max_level == ghext->num_levels() && max_level - min_level >= 2);
+
+  // Pre-restriction hook, traversed over the window before the reflux and
+  // the restriction below, so that it sees the state and its dependents as
+  // the last RK stage's ODESolvers_PostStep left them, consistent everywhere
+  CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
+  // Flux-register correction (reflux) of every time-aligned level pair in
+  // the window, finest pair first, so that each pair is corrected exactly
+  // once per coarse step and before the fine state is restricted onto the
+  // corrected coarse cells. The window is the alignment test: with three
+  // levels, [1,3) refluxes the pair (1,2) only, and the later [0,3) refluxes
+  // (1,2) and then (0,1). Like the restriction, it changes only coarse
+  // interior cells; the ODESolvers_PostStep at POSTRESTRICT below repairs the
+  // ghosts and the dependents of both (subcycling.hxx). Evolve asks for it
+  // only under subcycling: without it every step completes every pair, and
+  // ODESolvers_Solve applies the registers itself at its final stage, before
+  // the ODESolvers_PostStep that repairs what the correction invalidated.
+  if (reflux)
+    Reflux(cctkGH, min_level, max_level);
+  // Restrict
+  active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
+    if (leveldata.level < ghext->num_levels() - 1)
+      Restrict(cctkGH, leveldata.level);
+  });
+  // Prolongation
+  ProlongateRestrictedGFs(cctkGH);
+  CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
 }
 } // namespace
 
@@ -1433,46 +1611,93 @@ int Initialise(tFleshConfig *config) {
   CCTK_VINFO("Initialized %d levels", ghext->num_levels());
 
   assert(!active_levels);
-  // Widen from the finest level so the range matches the one under which
-  // a checkpoint was written (recovery under subcycling).
-  const int max_level = ghext->num_levels();
-  const rat64 finest_iteration =
-      ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
-  const int min_level = WidenMinLevel(max_level - 1, finest_iteration);
-  active_levels = std::make_optional<active_levels_t>(min_level, max_level);
+  if (config->recovered && ghext->use_subcycling) {
+    // Recovery under subcycling. The checkpoint may have been written while
+    // the levels were on several clocks. Finish the checkpointed step on
+    // every clock set, coarse to fine, as the Evolve batches that stepped
+    // them would have: restriction for the finest set (if it spans two or
+    // more levels), then POSTSTEP, CPINITIAL and ANALYSIS. Each set sees the
+    // time variables Evolve gave it. Afterwards every level has run these
+    // bins at its own time, so ODESolvers has rebuilt the refinement-boundary
+    // ghosts of every level that lags its parent, and every level has
+    // recomputed its non-checkpointed diagnostics before the first output.
+    // (Initialise rejects restrict_during_sync together with subcycling.)
+    assert(!restrict_during_sync);
+    for (const auto &[min_level, max_level] : ClockSets()) {
+      active_levels = std::make_optional<active_levels_t>(min_level, max_level);
 
-  // After widening active_levels from min_level, sync cctk_timefac with the
-  // finest level traversed; mirrors the assignment in the evolve loop.
-  cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
+      // As in Evolve: cctk_timefac from the set's finest level (the batch
+      // level before widening), cctk_time from the set's clock. After the
+      // finest set, cctk_time is the value the checkpoint stored.
+      const rat64 set_iteration =
+          ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
+      cctkGH->cctk_timefac = 1 << (max_level - 1);
+      cctkGH->cctk_time = cctkGH->cctk_delta_time * double(set_iteration);
 
-  if (max_level - min_level < 2) {
-    // Only the finest level is at the current time: nothing to restrict
-    if (verbose)
+      if (max_level == ghext->num_levels()) {
+        if (max_level - min_level < 2) {
+          // Only the finest level is at the current time: nothing to restrict
+          if (verbose)
 #pragma omp critical
-      CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
-                 "at the current time",
-                 cctkGH->cctk_iteration, min_level);
-  } else if (!restrict_during_sync) {
-    assert(active_levels);
-    // Pre-restriction hook, traversed over the widened time-aligned window
-    // immediately before the restriction below
-    CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
-    // Restrict
-    active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
-      if (leveldata.level < ghext->num_levels() - 1)
-        Restrict(cctkGH, leveldata.level);
-    });
-    // Prolongation
-    ProlongateRestrictedGFs(cctkGH);
-    CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+            CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
+                       "at the current time",
+                       cctkGH->cctk_iteration, min_level);
+        } else {
+          RestrictWindow(cctkGH, min_level, max_level, /*reflux=*/false);
+        }
+      }
+
+      // Checkpoint, analysis
+      {
+        const no_sync_scope_t no_sync("CCTK_POSTSTEP");
+        CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+      }
+      CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
+      {
+        const no_sync_scope_t no_sync("CCTK_ANALYSIS");
+        CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+      }
+    }
+    // active_levels is left at the finest set for the output below
+
+  } else {
+    // Fresh start (every level is at clock 0), or recovery without
+    // subcycling (all levels share one clock): a single window from the
+    // finest level
+    const int max_level = ghext->num_levels();
+    const rat64 finest_iteration =
+        ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
+    const int min_level = WidenMinLevel(max_level - 1, finest_iteration);
+    active_levels = std::make_optional<active_levels_t>(min_level, max_level);
+
+    // After widening active_levels from min_level, sync cctk_timefac with the
+    // finest level traversed; mirrors the assignment in the evolve loop.
+    cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
+
+    if (max_level - min_level < 2) {
+      // Only the finest level is at the current time: nothing to restrict
+      if (verbose)
+#pragma omp critical
+        CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
+                   "at the current time",
+                   cctkGH->cctk_iteration, min_level);
+    } else if (!restrict_during_sync) {
+      RestrictWindow(cctkGH, min_level, max_level, /*reflux=*/false);
+    }
+
+    // Checkpoint, analysis
+    {
+      const no_sync_scope_t no_sync("CCTK_POSTSTEP");
+      CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+    }
+    CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
+    if (!config->recovered) {
+      const no_sync_scope_t no_sync("CCTK_ANALYSIS");
+      CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+    }
   }
 
-  // Checkpoint, analysis, output
-  CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
-  CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
-  if (!config->recovered) {
-    CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
-  }
+  // Output
   if (out_initial_data) {
     CCTK_OutputGH(cctkGH);
   }
@@ -1912,38 +2137,21 @@ int Evolve(tFleshConfig *config) {
                        "at the current time",
                        cctkGH->cctk_iteration, min_level);
         } else if (!restrict_during_sync) {
-          // Pre-restriction hook, traversed over the widened time-aligned
-          // window before the reflux and the restriction below, so that it
-          // sees the state and its dependents as the last RK stage's
-          // ODESolvers_PostStep left them, consistent everywhere
-          CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
-          // Flux-register correction (reflux) of every time-aligned level
-          // pair in the widened window, finest pair first, so that each pair
-          // is corrected exactly once per coarse step and before the fine
-          // state is restricted onto the corrected coarse cells. The window
-          // is the alignment test: with three levels, [1,3) refluxes the pair
-          // (1,2) only, and the later [0,3) refluxes (1,2) and then (0,1).
-          // Like the restriction, it changes only coarse interior cells; the
-          // ODESolvers_PostStep at POSTRESTRICT below repairs the ghosts and
-          // the dependents of both (subcycling.hxx). Only under subcycling:
-          // without it every step completes every pair, and ODESolvers_Solve
-          // applies the registers itself at its final stage, before the
-          // ODESolvers_PostStep that repairs what the correction invalidated.
-          if (ghext->use_subcycling)
-            Reflux(cctkGH, min_level, max_level);
-          // Restrict
-          active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
-            if (leveldata.level < ghext->num_levels() - 1)
-              Restrict(cctkGH, leveldata.level);
-          });
-          // Prolongation
-          ProlongateRestrictedGFs(cctkGH);
-          CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+          // Pre-restriction hook, reflux (only under subcycling), restriction
+          // and POSTRESTRICT over the widened time-aligned window
+          RestrictWindow(cctkGH, min_level, max_level,
+                         /*reflux=*/ghext->use_subcycling);
         }
       }
 
-      CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
-      CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+      {
+        const no_sync_scope_t no_sync("CCTK_POSTSTEP");
+        CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+      }
+      {
+        const no_sync_scope_t no_sync("CCTK_ANALYSIS");
+        CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+      }
     } // for min_level, max_level
 
     CCTK_Traverse(cctkGH, "CCTK_CHECKPOINT");
@@ -2181,6 +2389,8 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     const std::vector<clause_t> &reads =
         decode_clauses(attribute, rdwr_t::read);
     std::set<int> sync_set;
+    // The first READS clause that needs a presync, for the error message
+    const clause_t *first_presync_read = nullptr;
     for (const auto &rd : reads) {
       if (CCTK_GroupTypeI(rd.gi) == CCTK_GF) {
 
@@ -2188,12 +2398,18 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
           const auto &restrict groupdata = *leveldata.groupdata.at(rd.gi);
           const valid_t &need = rd.valid;
           valid_t have = groupdata.valid.at(rd.tl).at(rd.vi).get();
-          if (need.valid_ghosts && !have.valid_ghosts && have.valid_int)
+          if (need.valid_ghosts && !have.valid_ghosts && have.valid_int) {
             sync_set.insert(rd.gi);
+            if (!first_presync_read)
+              first_presync_read = &rd;
+          }
         });
       }
     }
     if (!sync_set.empty()) {
+      assert(first_presync_read);
+      check_presync_allowed(attribute, first_presync_read->gi,
+                            first_presync_read->vi, first_presync_read->tl);
       std::vector<int> sync_vec(sync_set.begin(), sync_set.end());
       SyncGroupsByDirI(cctkGH, sync_vec.size(), sync_vec.data(), nullptr);
     }
@@ -2339,6 +2555,12 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     checksums = calculate_checksums(gfs);
   }
 
+  // Record the running function, to name it if its code syncs inside a
+  // no_sync_scope_t (see check_sync_allowed). Save and restore the outer
+  // value, since the function may traverse a schedule group itself.
+  const cFunctionData *const outer_running_function = running_function;
+  running_function = attribute;
+
   const mode_t mode = decode_mode(attribute);
   switch (mode) {
   case mode_t::local:
@@ -2363,6 +2585,10 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   default:
     assert(0);
   }
+
+  running_function = outer_running_function;
+  // The flesh runs this function's SYNC clause right after we return
+  last_function = attribute;
 
   // Check checksums
   if (poison_undefined_values)

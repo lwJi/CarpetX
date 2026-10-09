@@ -63,5 +63,4 @@ SCHEDULE TestSubcyclingMC2_Error AT analysis
   LANG: C
   READS: state(interior)
   WRITES: error(interior)
-  SYNC: error
 } "Calculate error in scalar wave state"
