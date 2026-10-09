@@ -82,11 +82,51 @@ jobs:
       - name: Log the triggering commit
         run: echo ${{github.event.client_payload.trigger}}
 
+      # The option lists call the C and C++ compilers through ccache, which keeps
+      # compiled objects in $GITHUB_WORKSPACE/.ccache. That directory is restored
+      # here and saved after the build under a new key per run. The restore takes
+      # the newest entry saved by the same configuration on this branch, or else
+      # on `dev`, the default branch, which every run may read.
+      - name: Restore ccache
+        id: restore-ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-${{matrix.accelerator}}-${{matrix.real-precision}}-${{matrix.mode}}-${{github.run_id}}-${{github.run_attempt}}
+          restore-keys: ccache-${{matrix.accelerator}}-${{matrix.real-precision}}-${{matrix.mode}}-
+
+      # The images do not ship ccache
+      - name: Set up ccache
+        run: |
+          command -v ccache >/dev/null || {
+            apt-get update -q
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends ccache
+          }
+          export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
+          echo "CCACHE_DIR=$CCACHE_DIR" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=2G" >> "$GITHUB_ENV"
+          ccache --version | head -n 1
+          ccache --zero-stats
+
       - name: Download Cactus
         run: /bin/bash $GITHUB_WORKSPACE/scripts/download.sh
 
       - name: Build Cactus
         run: /bin/bash $GITHUB_WORKSPACE/scripts/build.sh
+
+      # Also after a failed build, so that the next run starts from what did
+      # compile, and before the tests, so that a run cancelled during them still
+      # keeps its objects
+      - name: Show ccache statistics
+        if: ${{!cancelled()}}
+        run: ccache --show-stats --verbose
+
+      - name: Save ccache
+        if: ${{!cancelled()}}
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ${{steps.restore-ccache.outputs.cache-primary-key}}
 
       - name: Test Cactus
         # We cannot run on accelerators. Single precision output is not accurate enough. Debug builds run too slowly.
