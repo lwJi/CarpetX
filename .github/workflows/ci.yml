@@ -15,7 +15,9 @@ on:
   # Pull requests, including those from forks. Those never trigger `push` in
   # this repository, so this is their only source of CI.
   pull_request:
-  # Allow running this workflow manually from the Actions tab
+  # Allow running this workflow manually from the Actions tab, or with
+  # `gh workflow run ci.yml --ref <branch>`. Only a manual run or a push builds
+  # the full matrix (see `strategy` below).
   workflow_dispatch:
 
 # Supersede an in-flight run when a newer commit arrives for the same branch.
@@ -37,17 +39,37 @@ concurrency:
 jobs:
   # This workflow contains a single job
   download-build-test:
+    # Pull requests build four configurations: the one that runs the testsuite,
+    # a cpu debug build to compile the code behind CCTK_DEBUG, one CUDA build to
+    # catch nvcc-only errors (for example c9d9bcc), and the ROCm build to catch
+    # hipcc-only errors. Pushes, which happen only to the long-lived branches,
+    # and manual runs build all seven. A push to `dev` thus saves a ccache entry
+    # for every configuration, which every run may read. GitHub disabled
+    # Actions on this fork for its usage in October 2026, when every push built
+    # all seven (about 2.4 runner-hours, 70% of it in the build-only GPU jobs).
+    #
+    # The full list has no rocm debug (uses too much memory?), no rocm real32,
+    # and no real32 optimize.
+    #
+    # The block scalar folds into one line, so the value is a single `${{ }}`
+    # expression and evaluates to an array rather than a string.
     strategy:
       matrix:
-        accelerator: [cpu, cuda, rocm]
-        real-precision: [real32, real64]
-        mode: [debug, optimize]
-        exclude:
-          - {accelerator: rocm, real-precision: real32}
-          - {accelerator: oneapi, real-precision: real32}
-          - {accelerator: oneapi, mode: debug} # uses too much disk space?
-          - {accelerator: rocm, mode: debug} # uses too much memory?
-          - {real-precision: real32, mode: optimize}
+        include: >-
+          ${{ fromJSON(github.event_name == 'pull_request' && '[
+          {"accelerator": "cpu", "real-precision": "real64", "mode": "debug"},
+          {"accelerator": "cpu", "real-precision": "real64", "mode": "optimize"},
+          {"accelerator": "cuda", "real-precision": "real64", "mode": "debug"},
+          {"accelerator": "rocm", "real-precision": "real64", "mode": "optimize"}
+          ]' || '[
+          {"accelerator": "cpu", "real-precision": "real32", "mode": "debug"},
+          {"accelerator": "cpu", "real-precision": "real64", "mode": "debug"},
+          {"accelerator": "cpu", "real-precision": "real64", "mode": "optimize"},
+          {"accelerator": "cuda", "real-precision": "real32", "mode": "debug"},
+          {"accelerator": "cuda", "real-precision": "real64", "mode": "debug"},
+          {"accelerator": "cuda", "real-precision": "real64", "mode": "optimize"},
+          {"accelerator": "rocm", "real-precision": "real64", "mode": "optimize"}
+          ]') }}
     env:
       ACCELERATOR: ${{matrix.accelerator}}
       REAL_PRECISION: ${{matrix.real-precision}}
@@ -65,11 +87,51 @@ jobs:
       - name: Log the triggering commit
         run: echo ${{github.event.client_payload.trigger}}
 
+      # The option lists call the C and C++ compilers through ccache, which keeps
+      # compiled objects in $GITHUB_WORKSPACE/.ccache. That directory is restored
+      # here and saved after the build under a new key per run. The restore takes
+      # the newest entry saved by the same configuration on this branch, or else
+      # on `dev`, the default branch, which every run may read.
+      - name: Restore ccache
+        id: restore-ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-${{matrix.accelerator}}-${{matrix.real-precision}}-${{matrix.mode}}-${{github.run_id}}-${{github.run_attempt}}
+          restore-keys: ccache-${{matrix.accelerator}}-${{matrix.real-precision}}-${{matrix.mode}}-
+
+      # The images do not ship ccache
+      - name: Set up ccache
+        run: |
+          command -v ccache >/dev/null || {
+            apt-get update -q
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends ccache
+          }
+          export CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
+          echo "CCACHE_DIR=$CCACHE_DIR" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=2G" >> "$GITHUB_ENV"
+          ccache --version | head -n 1
+          ccache --zero-stats
+
       - name: Download Cactus
         run: /bin/bash $GITHUB_WORKSPACE/scripts/download.sh
 
       - name: Build Cactus
         run: /bin/bash $GITHUB_WORKSPACE/scripts/build.sh
+
+      # Also after a failed build, so that the next run starts from what did
+      # compile, and before the tests, so that a run cancelled during them still
+      # keeps its objects
+      - name: Show ccache statistics
+        if: ${{!cancelled()}}
+        run: ccache --show-stats --verbose
+
+      - name: Save ccache
+        if: ${{!cancelled()}}
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ${{steps.restore-ccache.outputs.cache-primary-key}}
 
       - name: Test Cactus
         # We cannot run on accelerators. Single precision output is not accurate enough. Debug builds run too slowly.
