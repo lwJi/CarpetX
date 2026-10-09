@@ -690,7 +690,8 @@ void InputSilo(const cGH *restrict const cctkGH,
       file_has_freg = global_has[1] != 0;
 
       // A mid-cycle checkpoint must carry the coarse source bands for every
-      // coarse level that is ahead of its child; a file without any band data
+      // coarse level that is ahead of a finer level (see
+      // recovered_level_needs_rk_bands); a file without any band data
       // there was written by the derivative-band scheme or is incomplete.
       // Every rank evaluates the same predicate on replicated data (recovered
       // iterations, band geometry), so the abort is collective and the

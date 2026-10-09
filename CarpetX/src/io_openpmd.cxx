@@ -1119,8 +1119,9 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           // MultiFabs sharing the level's idomain frame. A time-aligned
           // checkpoint carries no bands, so a missing mesh leaves the rebuilt
           // band untouched; a mid-cycle checkpoint must carry them for every
-          // coarse level that is ahead of its child, so there a missing mesh
-          // (old derivative-band format, or a truncated file) is refused.
+          // coarse level that is ahead of a finer level (see
+          // recovered_level_needs_rk_bands), so there a missing mesh (old
+          // derivative-band format, or a truncated file) is refused.
           // Likewise the child's flux register must be present wherever it is
           // live (see recovered_flux_register_is_live).
           {
