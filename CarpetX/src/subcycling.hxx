@@ -94,13 +94,14 @@ bool group_has_flux_register(int gi);
 // and at least one other. The driver then restricts the window and refills
 // the coarse-fine ghosts of every window level aligned with its parent by
 // spatial prolongation from the restricted parent (ProlongateRestrictedGFs,
-// for the groups with restriction enabled), after the integrator's
-// end-of-step fill. Any other window keeps the integrator's fill until a
-// later window that holds it is restricted. This is the one definition of
-// "the window is restricted"; the restriction blocks of Initialise and Evolve
-// call it. During recovery the window is a clock group, the window in which
-// its levels last ran their end of step (ClockGroups), so it tells which of
-// the two fills last wrote those ghosts. Defined in schedule.cxx.
+// for every restricted group and every group the integrator advances), after
+// the integrator's end-of-step fill. Any other window keeps the integrator's
+// fill until a later window that holds it is restricted. This is the one
+// definition of "the window is restricted"; the restriction blocks of
+// Initialise and Evolve call it. During recovery the window is a clock group,
+// the window in which its levels last ran their end of step (ClockGroups), so
+// it tells which of the two fills last wrote those ghosts. Defined in
+// schedule.cxx.
 bool window_is_restricted(int min_level, int max_level);
 
 // Allocate (lazily, idempotently) the cached flux geometry of (patch,

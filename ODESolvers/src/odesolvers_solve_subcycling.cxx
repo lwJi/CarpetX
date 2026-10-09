@@ -477,9 +477,11 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   //  - or, on an aligned level of a window the driver restricted at that end
   //    of step (CarpetX::window_is_restricted: the finest clock group), after
   //    that by spatial prolongation from the restricted parent
-  //    (ProlongateRestrictedGFs) for the groups the driver restricts. The
-  //    parent's tl=0 still holds that state, and
-  //    SyncGroupsByDirIProlongateOnlyAligned repeats the prolongation.
+  //    (ProlongateRestrictedGFs), for every evolved group, restricted or not.
+  //    The parent's tl=0 still holds that state, and
+  //    SyncGroupsByDirIProlongateOnlyAligned repeats the prolongation. These
+  //    are exactly the levels that need no bands: a time-aligned checkpoint
+  //    carries none.
   // The ODESolvers_PostStep SYNC that follows then only exchanges ghosts
   // between boxes of the same level.
   if (var_groups.size() > 0) {
@@ -489,30 +491,20 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
 
     const bool restricted = CarpetX::window_is_restricted(
         active_levels->min_level, active_levels->max_level);
-    // Restriction is a group property, the same on every level
-    const auto &leveldata0 = CarpetX::ghext->patchdata.at(0).leveldata.at(0);
-    std::vector<int> prolongated_groups, dense_groups;
-    for (const int gi : var_groups) {
-      const bool prolongated =
-          restricted && leveldata0.groupdata.at(gi)->do_restrict;
-      (prolongated ? prolongated_groups : dense_groups).push_back(gi);
-    }
 
     // Skips level 0 and every level that lags its parent
-    if (!prolongated_groups.empty())
+    if (restricted)
       CarpetX::SyncGroupsByDirIProlongateOnlyAligned(
-          cctkGH, prolongated_groups.size(), prolongated_groups.data(), nullptr,
-          /*tl=*/0);
+          cctkGH, var_groups.size(), var_groups.data(), nullptr, /*tl=*/0);
 
     const int virtual_end = CarpetX::ghext->num_rk_stages + 1;
     active_levels->loop_coarse_to_fine([&](const auto &leveldata) {
       if (leveldata.level == 0)
         return;
-      // An aligned level's prolongated groups were refilled above
-      fill_rk_boundary(cctkGH, leveldata,
-                       aligned_with_parent(leveldata) ? dense_groups
-                                                      : var_groups,
-                       virtual_end);
+      // Prolongated in space above
+      if (restricted && aligned_with_parent(leveldata))
+        return;
+      fill_rk_boundary(cctkGH, leveldata, var_groups, virtual_end);
     });
     synchronize();
     var.set_valid(make_valid_all());
