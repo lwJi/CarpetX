@@ -63,7 +63,9 @@ struct dense_output_point_t {
 // fine step later, at xsi + 1/2, with the pure-U (stage 1) combination, which
 // is what the next substep needs at its stage 1. For an aligned level that is
 // the end of the parent's step, xsi = 1, where the polynomial is the parent's
-// final state up to round-off.
+// RK update. The parent's tl=0 is that update after ODESolvers_PostStep, and
+// after reflux and restriction once its window is restricted, so where those
+// change the state the two differ by more than round-off.
 dense_output_point_t dense_output_point(const LevelData &leveldata,
                                         const int stage) {
   const int virtual_end = CarpetX::ghext->num_rk_stages + 1;
