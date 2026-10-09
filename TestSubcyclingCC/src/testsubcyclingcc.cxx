@@ -76,6 +76,8 @@ extern "C" void TestSubcyclingCC_Initial(CCTK_ARGUMENTS) {
       [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         gaussian(amplitude, gaussian_width, cctk_time, p.x, p.y, p.z, u(p.I),
                  rho(p.I));
+        gaussian(amplitude, gaussian_width, cctk_time, p.x, p.y, p.z,
+                 u_norestrict(p.I), rho_norestrict(p.I));
       });
 }
 
@@ -89,6 +91,12 @@ extern "C" void TestSubcyclingCC_RHS(CCTK_ARGUMENTS) {
         u_rhs(p.I) = rho(p.I) + epsdiss * diss(u, p);
         rho_rhs(p.I) = deriv2(u, p, 0) + deriv2(u, p, 1) + deriv2(u, p, 2) +
                        epsdiss * diss(rho, p);
+        // The same equation for the unrestricted copy
+        u_norestrict_rhs(p.I) =
+            rho_norestrict(p.I) + epsdiss * diss(u_norestrict, p);
+        rho_norestrict_rhs(p.I) =
+            deriv2(u_norestrict, p, 0) + deriv2(u_norestrict, p, 1) +
+            deriv2(u_norestrict, p, 2) + epsdiss * diss(rho_norestrict, p);
       });
 }
 

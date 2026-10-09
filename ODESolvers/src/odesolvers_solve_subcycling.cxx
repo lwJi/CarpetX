@@ -2,7 +2,7 @@
 #include "solve.hxx"
 
 // Driver primitives for the state-based refinement-boundary fill
-// (StoreRKOldState, StoreRKStage, FillRKBoundary).
+// (StoreRKOldState, StoreRKStage, FillRKBoundary, window_is_restricted).
 // TODO: Don't include files from other thorns; create a proper interface.
 #include "../../CarpetX/src/subcycling.hxx"
 
@@ -59,58 +59,40 @@ struct dense_output_point_t {
 
 // During the first substep (lagging the parent) the stages are evaluated at
 // xsi = 0, during the second (aligned) at xsi = 1/2. At the virtual
-// end-of-substep stage (num_rk_stages + 1) the polynomial is evaluated at
-// xsi = 1/2 with the pure-U (stage 1) combination, which is what the next
-// substep needs at its stage 1. Only a level that lags its parent takes its
-// virtual end-of-step fill from dense output. An aligned level has reached
-// its parent's time, and fill_end_of_step_ghosts prolongates the parent's
-// final state into its ghosts instead.
+// end-of-substep stage (num_rk_stages + 1) the polynomial is evaluated half a
+// fine step later, at xsi + 1/2, with the pure-U (stage 1) combination, which
+// is what the next substep needs at its stage 1. For an aligned level that is
+// the end of the parent's step, xsi = 1, where the polynomial is the parent's
+// RK update. The parent's tl=0 is that update after ODESolvers_PostStep, and
+// after reflux and restriction once its window is restricted, so where those
+// change the state the two differ by more than round-off.
 dense_output_point_t dense_output_point(const LevelData &leveldata,
                                         const int stage) {
   const int virtual_end = CarpetX::ghext->num_rk_stages + 1;
   assert(stage >= 1 && stage <= virtual_end);
-  const bool aligned = aligned_with_parent(leveldata);
-  if (stage == virtual_end) {
-    assert(!aligned);
-    return {0.5, 1};
-  }
-  return {aligned ? 0.5 : 0.0, stage};
+  const CCTK_REAL xsi = aligned_with_parent(leveldata) ? 0.5 : 0.0;
+  if (stage == virtual_end)
+    return {xsi + 0.5, 1};
+  return {xsi, stage};
 }
 
-// Refill the refinement-boundary (coarse-fine) ghosts of var(tl=0) on every
-// level > 0 of the window as the virtual end of that level's last step left
-// them. Evolution (calcys_rmbnd at the virtual end-of-step) and recovery
-// (ODESolvers_Solve_Subcycling_Recovery) both call this function, so recovery
-// reproduces these ghosts by construction:
-//  - A level aligned with its parent has reached the parent's time, whose
-//    state the parent's tl=0 holds. Its ghosts are prolongated from that
-//    state in space only (SyncGroupsByDirIProlongateOnlyAligned), as
-//    restriction windows (ProlongateRestrictedGFs) also do.
-//  - A level that lags its parent is in the middle of the parent's step. Its
-//    ghosts come from dense output on its own source bands (the parent's
-//    in-progress step) at the end of its substep, with the parent's step.
+// Fill the refinement-boundary (coarse-fine) ghosts of var(tl=0) of `groups`
+// on a level > 0 for the given stage of its current substep: the driver
+// evaluates the dense-output polynomial on the level's own source bands (the
+// parent's old state + k-stages) at dense_output_point and prolongates that
+// single coarse state in space, with the parent's step as dtc. The bands are
+// all it reads, so even at the end of the parent's step it needs neither the
+// parent's tl=0 nor the communication of a spatial prolongation from it.
+// Evolution (calcys_rmbnd) calls it at every stage, the virtual end-of-step
+// included, and recovery (ODESolvers_Solve_Subcycling_Recovery) at the
+// virtual end-of-step, so recovery reproduces that fill by construction.
 // Validity is left to the caller.
-void fill_end_of_step_ghosts(const cGH *cctkGH,
-                             const std::vector<int> &var_groups) {
-  if (var_groups.empty())
-    return;
-
-  // Skips level 0 and every level that lags its parent
-  CarpetX::SyncGroupsByDirIProlongateOnlyAligned(
-      cctkGH, var_groups.size(), var_groups.data(), nullptr, /*tl=*/0);
-
-  const int virtual_end = CarpetX::ghext->num_rk_stages + 1;
-  CarpetX::active_levels->loop_coarse_to_fine([&](const auto &leveldata) {
-    if (leveldata.level == 0)
-      return;
-    // Prolongated in space above
-    if (aligned_with_parent(leveldata))
-      return;
-    const auto [xsi, stage0] = dense_output_point(leveldata, virtual_end);
-    CarpetX::FillRKBoundary(leveldata.patch, leveldata.level, var_groups,
-                            /*tl=*/0, stage0, xsi,
-                            parent_step(cctkGH, leveldata));
-  });
+void fill_rk_boundary(const cGH *cctkGH, const LevelData &leveldata,
+                      const std::vector<int> &groups, const int stage) {
+  const auto [xsi, stage0] = dense_output_point(leveldata, stage);
+  CarpetX::FillRKBoundary(leveldata.patch, leveldata.level, groups,
+                          /*tl=*/0, stage0, xsi,
+                          parent_step(cctkGH, leveldata));
 }
 
 // Collect evolved groups into statecomp_t bundles. The old-state anchor is now
@@ -282,36 +264,22 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
   };
   // Fill the refinement-boundary ghosts of var(tl=0) on every fine level for
-  // the given stage: the driver evaluates the dense-output polynomial on the
-  // level's own source bands (the parent's old state + k-stages) at
-  // (stage0, xsi) and prolongates that single coarse state in space, with
-  // the parent's step as dtc. The virtual end-of-step (num_rk_stages + 1) is
-  // filled by fill_end_of_step_ghosts instead, which recovery calls as well:
-  // there an aligned level gets the parent's final state prolongated in
-  // space, which dense output at xsi = 1 equals mathematically but rounds
-  // differently.
-  const int virtual_end = CarpetX::ghext->num_rk_stages + 1;
+  // the given stage, the virtual end-of-step (num_rk_stages + 1) included,
+  // by dense output from the level's own source bands (fill_rk_boundary).
   const auto calcys_rmbnd = [&](const int stage) {
     if (verbose)
       CCTK_VINFO(
           "Fill refinement boundary ghost zones using Ys for stage #%d at t=%g",
           stage, double(cctkGH->cctk_time));
 
-    if (stage == virtual_end) {
-      fill_end_of_step_ghosts(cctkGH, var_groups);
-    } else {
-      active_levels->loop_coarse_to_fine([&](auto &leveldata) {
-        if (leveldata.level == 0)
-          return;
-        const auto [xsi, stage0] = dense_output_point(leveldata, stage);
-        const CCTK_REAL dtc = parent_step(cctkGH, leveldata);
-        // In an evolution batch the window is this one level, so the
-        // parent's step is also twice this level's dt
-        assert(dtc == dt * 2);
-        CarpetX::FillRKBoundary(leveldata.patch, leveldata.level, var_groups,
-                                /*tl=*/0, stage0, xsi, dtc);
-      });
-    }
+    active_levels->loop_coarse_to_fine([&](auto &leveldata) {
+      if (leveldata.level == 0)
+        return;
+      // In an evolution batch the window is this one level, so the parent's
+      // step is also twice this level's dt
+      assert(parent_step(cctkGH, leveldata) == dt * 2);
+      fill_rk_boundary(cctkGH, leveldata, var_groups, stage);
+    });
     synchronize();
     var.set_valid(make_valid_all());
   };
@@ -482,8 +450,9 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
 
   if (verbose)
     CCTK_VINFO("Subcycling recovery: refilling refinement-boundary ghosts "
-               "(spatial prolongation on time-aligned levels, dense output "
-               "from the level's restored source bands otherwise)");
+               "(spatial prolongation on time-aligned levels of a restricted "
+               "window, dense output from the level's restored source bands "
+               "otherwise)");
 
   static Timer timer("ODESolvers::Solve_Subcycling_Recovery");
   Interval interval(timer);
@@ -495,24 +464,50 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
     return;
 
   // Refill each recovered fine level's refinement-boundary (cf) ghosts the
-  // way the uninterrupted run last wrote them, at the virtual end of the
-  // level's last substep (calcys_rmbnd) or in a later restriction window,
-  // with the same function evolution uses. Recovery traverses
+  // way the uninterrupted run last wrote them. Recovery traverses
   // CCTK_POST_RECOVER_VARIABLES once per clock group, and this routine runs
-  // first in each traversal, so the window is one clock group. Its levels
-  // other than its coarsest are aligned with their parents and get the
-  // parent's tl=0 prolongated in space. Its coarsest level, unless it is level
-  // 0, lags its parent: it is mid-cycle, its restored source bands hold the
-  // parent's in-progress coarse step, and dense output from them, with the
-  // parent's step taken from the clocks, reconstructs its cf-ghosts. The
-  // checkpoint reader has already refused a mid-cycle checkpoint that lacks
-  // those bands. The ODESolvers_PostStep SYNC that follows then only
-  // exchanges ghosts between boxes of the same level.
+  // first in each traversal, so the window is one clock group, the window in
+  // which its levels last ran their end of step. Its levels other than its
+  // coarsest are aligned with their parents. Its coarsest level, unless it is
+  // level 0, lags its parent: it is mid-cycle. The ghosts were last written
+  //  - at the virtual end of the level's last substep (calcys_rmbnd) by dense
+  //    output from its source bands, which hold the parent's last step. The
+  //    checkpoint restored them; its reader has already refused a mid-cycle
+  //    checkpoint that lacks bands still needed here. fill_rk_boundary at the
+  //    same point, with the parent's step taken from the clocks, reproduces
+  //    these ghosts;
+  //  - or, on an aligned level of a window the driver restricted at that end
+  //    of step (CarpetX::window_is_restricted: the finest clock group), after
+  //    that by spatial prolongation from the restricted parent
+  //    (ProlongateRestrictedGFs), for every evolved group, restricted or not.
+  //    The parent's tl=0 still holds that state, and
+  //    SyncGroupsByDirIProlongateOnlyAligned repeats the prolongation. These
+  //    are exactly the levels that need no bands: a time-aligned checkpoint
+  //    carries none.
+  // The ODESolvers_PostStep SYNC that follows then only exchanges ghosts
+  // between boxes of the same level.
   if (var_groups.size() > 0) {
     var.check_valid(make_valid_int(),
                     "ODESolvers_Solve_Subcycling_Recovery requires the tl=0 "
                     "interior to be populated by checkpoint recovery");
-    fill_end_of_step_ghosts(cctkGH, var_groups);
+
+    const bool restricted = CarpetX::window_is_restricted(
+        active_levels->min_level, active_levels->max_level);
+
+    // Skips level 0 and every level that lags its parent
+    if (restricted)
+      CarpetX::SyncGroupsByDirIProlongateOnlyAligned(
+          cctkGH, var_groups.size(), var_groups.data(), nullptr, /*tl=*/0);
+
+    const int virtual_end = CarpetX::ghext->num_rk_stages + 1;
+    active_levels->loop_coarse_to_fine([&](const auto &leveldata) {
+      if (leveldata.level == 0)
+        return;
+      // Prolongated in space above
+      if (restricted && aligned_with_parent(leveldata))
+        return;
+      fill_rk_boundary(cctkGH, leveldata, var_groups, virtual_end);
+    });
     synchronize();
     var.set_valid(make_valid_all());
   }

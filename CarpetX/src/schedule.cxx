@@ -158,6 +158,12 @@ std::string format_clock(const rat64 &clock) {
 }
 } // namespace
 
+// See subcycling.hxx
+bool window_is_restricted(const int min_level, const int max_level) {
+  assert(min_level >= 0 && min_level < max_level);
+  return max_level == ghext->num_levels() && max_level - min_level >= 2;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
@@ -1688,7 +1694,7 @@ int Initialise(tFleshConfig *config) {
 
   cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
 
-  if (max_level - min_level < 2) {
+  if (!window_is_restricted(min_level, max_level)) {
     // Only the finest level is at the current time: nothing to restrict
     if (verbose)
 #pragma omp critical
@@ -2144,7 +2150,7 @@ int Evolve(tFleshConfig *config) {
       active_levels = std::make_optional<active_levels_t>(min_level, max_level);
 
       if (max_level == ghext->num_levels()) {
-        if (max_level - min_level < 2) {
+        if (!window_is_restricted(min_level, max_level)) {
           // Only the finest level is at the current time: nothing to restrict
           if (verbose)
 #pragma omp critical

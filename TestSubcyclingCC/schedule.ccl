@@ -1,41 +1,41 @@
 # Schedule definitions for thorn TestSubcyclingCC
 
-STORAGE: state rhs error
+STORAGE: state rhs error state_norestrict rhs_norestrict
 
 
 SCHEDULE TestSubcyclingCC_Initial AT initial
 {
   LANG: C
-  WRITES: state(interior)
-  SYNC: state
+  WRITES: state(interior) state_norestrict(interior)
+  SYNC: state state_norestrict
 } "Initialize scalar wave state"
 
 SCHEDULE TestSubcyclingCC_Sync AT postregrid
 {
   LANG: C
   OPTIONS: global
-  SYNC: state
+  SYNC: state state_norestrict
 } "Synchronize"
 
 SCHEDULE TestSubcyclingCC_Sync AT post_recover_variables
 {
   LANG: C
   OPTIONS: global
-  SYNC: state
+  SYNC: state state_norestrict
 } "Synchronize"
 
 SCHEDULE TestSubcyclingCC_Sync IN ODESolvers_PostStep
 {
   LANG: C
   OPTIONS: global
-  SYNC: state
+  SYNC: state state_norestrict
 } "Synchronize"
 
 SCHEDULE TestSubcyclingCC_RHS IN ODESolvers_RHS
 {
   LANG: C
-  READS: state(everywhere)
-  WRITES: rhs(interior)
+  READS: state(everywhere) state_norestrict(everywhere)
+  WRITES: rhs(interior) rhs_norestrict(interior)
 } "Calculate scalar wave RHS"
 
 SCHEDULE TestSubcyclingCC_Error AT analysis
