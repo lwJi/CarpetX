@@ -474,6 +474,13 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
 
       const int tl = 0;
 
+      // Output only the regions in which every variable of the group is
+      // valid. Diagnostics computed on the interior without a SYNC have
+      // invalid ghosts and boundaries, which may hold poison or stale values.
+      valid_t group_valid(true);
+      for (int vi = 0; vi < groupdata.numvars; ++vi)
+        group_valid &= groupdata.valid.at(tl).at(vi).get();
+
       // Convert a (direction, face) pair to an AMReX Orientation
       const auto orient = [&](int d, int f) {
         return amrex::Orientation(d, amrex::Orientation::Side(f));
@@ -524,6 +531,36 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
         const vect<int, dim> intmin = varmin + !bbox[0] * nghosts;
         const vect<int, dim> intmax = varmax - !bbox[1] * nghosts;
 
+        // Validity regions, classified as for `where_t` in Loop (and thus for
+        // poisoning): a point outside the valid box lies in the outer boundary
+        // if it is beyond a domain face (of any symmetry), else in the ghosts
+        const vect<int, dim> vbxmin = {vbx.smallEnd(0), vbx.smallEnd(1),
+                                       vbx.smallEnd(2)};
+        // vbxmax is exclusive
+        const vect<int, dim> vbxmax = {vbx.bigEnd(0) + 1, vbx.bigEnd(1) + 1,
+                                       vbx.bigEnd(2) + 1};
+        vect<vect<bool, dim>, 2> atdomain;
+        for (int d = 0; d < dim; ++d)
+          for (int f = 0; f < 2; ++f)
+            atdomain[f][d] =
+                vbx[orient(d, f)] == domain[orient(d, f)] +
+                                         (groupdata.indextype[d] == 0 && f == 1);
+        const auto point_is_valid = [&](const vect<int, dim> &I) {
+          bool outside = false, beyond_domain = false;
+          for (int d = 0; d < dim; ++d) {
+            if (I[d] < vbxmin[d]) {
+              outside = true;
+              beyond_domain |= atdomain[0][d];
+            } else if (I[d] >= vbxmax[d]) {
+              outside = true;
+              beyond_domain |= atdomain[1][d];
+            }
+          }
+          return !outside        ? group_valid.valid_int
+                 : beyond_domain ? group_valid.valid_outer
+                                 : group_valid.valid_ghosts;
+        };
+
         bool output_something = true;
         vect<int, dim> imin, imax;
         for (int d = 0; d < dim; ++d) {
@@ -546,6 +583,8 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
             for (int j = imin[1]; j < imax[1]; ++j) {
               for (int i = imin[0]; i < imax[0]; ++i) {
                 const vect<int, dim> I{i, j, k};
+                if (!point_is_valid(I))
+                  continue;
                 const auto old_size = data.size();
                 data.push_back(patchdata.patch);
                 data.push_back(leveldata.level);

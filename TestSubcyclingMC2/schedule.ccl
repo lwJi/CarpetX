@@ -1,6 +1,6 @@
 # Schedule definitions for thorn TestSubcyclingMC2
 
-STORAGE: state[timelevels] rhs error
+STORAGE: state[timelevels] rhs error analysis_clock
 
 
 SCHEDULE TestSubcyclingMC2_MoveBox AT postinitial BEFORE EstimateError
@@ -65,3 +65,11 @@ SCHEDULE TestSubcyclingMC2_Error AT analysis
   WRITES: error(interior)
   SYNC: error
 } "Calculate error in scalar wave state"
+
+# Fixture for subcycling recovery: on restart, CarpetX replays each level's
+# last ANALYSIS at the iteration and time the uninterrupted run gave it
+SCHEDULE TestSubcyclingMC2_AnalysisClock AT analysis
+{
+  LANG: C
+  WRITES: analysis_clock(everywhere)
+} "Record the iteration and time of the last ANALYSIS"

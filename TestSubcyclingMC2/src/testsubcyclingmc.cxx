@@ -219,4 +219,17 @@ extern "C" void TestSubcyclingMC2_Error(CCTK_ARGUMENTS) {
   }
 }
 
+extern "C" void TestSubcyclingMC2_AnalysisClock(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_AnalysisClock;
+
+  const CCTK_REAL iteration = cctk_iteration;
+  const CCTK_REAL time = cctk_time;
+  grid.loop_all_device<0, 0, 0>(
+      grid.nghostzones,
+      [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        analysis_iteration(p.I) = iteration;
+        analysis_time(p.I) = time;
+      });
+}
+
 } // namespace TestSubcyclingMC2

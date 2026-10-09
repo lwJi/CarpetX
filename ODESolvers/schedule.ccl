@@ -20,9 +20,11 @@ if(use_subcycling) {
 
   # Refill refinement-boundary ghosts of the evolved state so they match
   # what a normal-step trajectory would have produced at the same point.
-  # Scheduled at CCTK_CPINITIAL, which fires on both fresh init and
-  # recovery; the body early-returns when cctk_iteration <= 0.
-  SCHEDULE ODESolvers_Solve_Subcycling_Recovery AT CCTK_CPINITIAL
+  # Scheduled at CCTK_RECOVER_VARIABLES, which CarpetX traverses only on
+  # recovery, once per clock group (run of adjacent levels sharing one
+  # clock) with the levels' real clocks, ahead of ODESolvers_PostStep at
+  # CCTK_POST_RECOVER_VARIABLES.
+  SCHEDULE ODESolvers_Solve_Subcycling_Recovery AT CCTK_RECOVER_VARIABLES
   {
     LANG: C
     OPTIONS: level
@@ -80,6 +82,20 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 #   POSTSTEP
 #   CPINITIAL
 #   ANALYSIS
+#   OutputGH
+#
+# Recovery (instead of the initialization above):
+#   BASEGRID
+#   [read checkpoint, restore the per-level clocks]
+#   For each clock group (run of adjacent levels sharing one clock), coarse
+#   to fine; a single group spanning all levels without subcycling:
+#     RECOVER_VARIABLES  (ODESolvers_Solve_Subcycling_Recovery runs here)
+#     POST_RECOVER_VARIABLES
+#     [finest group, >= 2 levels:] CarpetX_PreRestrict, [restrict],
+#                                  POSTRESTRICT
+#     POSTSTEP
+#     ANALYSIS           (under subcycling only)
+#   CPINITIAL       (once, over the finest group)
 #   OutputGH
 #
 # Time evolution loop:
