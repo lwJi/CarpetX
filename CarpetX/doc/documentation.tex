@@ -1860,7 +1860,7 @@ Recovery never runs \texttt{CarpetX\_PreRestrict}, the reflux, the restriction, 
 
 \CarpetX\space does not audit thorn schedules. Instead, the two reads that can break the rule abort where they happen.
 
-\emph{A level reads a parent value that nobody recomputed.} Under subcycling, before a \texttt{SYNC} prolongates a group from a parent level into a finer level's ghost zones, it checks that the parent's interior is valid in every timelevel the prolongation reads, including the previous timelevel that interpolation in time reads when the finer level lags its parent. (The \texttt{SYNC} of an evolved group whose coarse-fine ghosts \texttt{ODESolvers} fills does not prolongate, and is not checked.) This check runs in every subcycling run, recovered or not, whatever \texttt{CarpetX::poison\_undefined\_values} is set to, and it cannot be turned off. The error names the variable, the parent level and the timelevel. When the run was recovered and the group is not checkpointed, it also states the rule:
+\emph{A level reads a parent value that nobody recomputed.} Under subcycling, before a \texttt{SYNC} prolongates a group from a parent level into a finer level's ghost zones, it checks that the parent's interior is valid in every timelevel the prolongation reads, including the previous timelevel that interpolation in time reads when the finer level lags its parent. (The \texttt{SYNC} of an evolved group whose coarse-fine ghosts \texttt{ODESolvers} fills does not prolongate, and is not checked.) This check runs in every subcycling run, recovered or not, whatever \texttt{CarpetX::poison\_undefined\_values} is set to, and it cannot be turned off. The error names the variable, the parent level and the timelevel. When the run was recovered, the group is not checkpointed, and the parent level has not yet run its end of step since recovery, it also states the rule:
 %
 \begin{lstlisting}[language=bash,numbers=none]
 SyncGroupsByDirISubcycling on coarse level before prolongation: Grid function "TESTSUBCYCLINGMC2::u_err" is invalid on patch 0, refinement level 0, time level 0; required:
@@ -1873,6 +1873,8 @@ SyncGroupsByDirISubcycling on coarse level before prolongation: Grid function "T
   Groups read by another level must be checkpointed or recomputed in CCTK_POST_RECOVER_VARIABLES.
   See "Recovery" in the CarpetX documentation.
 \end{lstlisting}
+%
+When the invalid timelevel is a previous one, the second line instead says that past timelevels read by another level must be checkpointed, with \texttt{openPMD}, since recomputation in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} restores only the current timelevel (the third clause of the rule).
 
 \emph{A routine reads across levels during a mid-cycle recovery.} An interpolation that uses levels at different times aborts, during evolution as during recovery. Inside a traversal of \texttt{CCTK\_POST\_RECOVER\_VARIABLES}, the message adds that the run is recovering from a mid-cycle checkpoint and that such results must be checkpointed. At a checkpoint where every level shares one clock, the same routine runs normally.
 
