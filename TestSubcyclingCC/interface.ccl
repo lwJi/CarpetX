@@ -26,21 +26,3 @@ CCTK_REAL error TYPE=gf CENTERING={ccc} TAGS='checkpoint="no"'
   u_err
   rho_err
 } "Error in scalar wave state vector"
-
-# A copy of the state that the driver does not restrict, like AsterX's gauge
-# register IG: a group the time integrator advances with restrict="no". Under
-# subcycling the driver refills its coarse-fine ghosts on the time-aligned
-# levels of a restricted window as it does for a restricted group, so that
-# recovery from a time-aligned checkpoint, which carries no RK source bands,
-# can rebuild them (test/recover-subcycling-openpmd-norestrict.par).
-CCTK_REAL state_norestrict TYPE=gf CENTERING={ccc} TAGS='rhs="rhs_norestrict" restrict="no"'
-{
-  u_norestrict
-  rho_norestrict
-} "Unrestricted copy of the scalar wave state vector (cell centred)"
-
-CCTK_REAL rhs_norestrict TYPE=gf CENTERING={ccc} TAGS='checkpoint="no"'
-{
-  u_norestrict_rhs
-  rho_norestrict_rhs
-} "RHS of the unrestricted copy of the scalar wave state vector"
