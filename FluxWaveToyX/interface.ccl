@@ -94,7 +94,13 @@ CCTK_REAL error TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1   +1 +1 +1   -1
 # width, computed IN CarpetX_PreRestrict, i.e. before the driver refluxes
 # the coarse level and restricts. It is not a dependent of state: it is a
 # snapshot of what a pre-restrict reader sees, kept until output.
-CCTK_REAL prerestrict_energy TYPE=gf CENTERING={ccc} TAGS='checkpoint="no"'
+#
+# It is checkpointed: it cannot be recomputed after a restart (it exists only
+# inside CarpetX_PreRestrict), and a level that lags its parent SYNCs it from
+# the parent. The evolve and restrict tags keep what a non-checkpointed group
+# defaults to: a regrid does not require it to be valid (it is first computed
+# after the initial regrid), and restriction does not overwrite it.
+CCTK_REAL prerestrict_energy TYPE=gf CENTERING={ccc} TAGS='checkpoint="yes" evolve="no" restrict="no"'
 {
   prerestrict_eps
 } "Energy density averaged over the ghost width, computed before restriction"
