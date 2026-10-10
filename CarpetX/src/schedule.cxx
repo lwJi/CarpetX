@@ -108,6 +108,12 @@ int WidenMinLevel(int initial_min_level, rat64 target_iteration) {
 }
 } // namespace
 
+// See subcycling.hxx
+bool window_is_restricted(const int min_level, const int max_level) {
+  assert(min_level >= 0 && min_level < max_level);
+  return max_level == ghext->num_levels() && max_level - min_level >= 2;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
@@ -1085,6 +1091,24 @@ CCTK_REAL get_finest_mindx() {
   return mindx;
 }
 
+// Determine time step size: the coarse level's under subcycling, else the
+// finest level's
+static void SetDeltaTime(cGH *restrict const cctkGH) {
+  DECLARE_CCTK_PARAMETERS;
+  if (CCTK_EQUALS(timestep_choice, "timestep")) {
+    cctkGH->cctk_delta_time = timestep;
+  } else if (CCTK_EQUALS(timestep_choice, "dtfac")) {
+    cctkGH->cctk_delta_time =
+        dtfac *
+        (ghext->use_subcycling ? get_coarse_mindx() : get_finest_mindx());
+  } else {
+    CCTK_ERROR("Unexpected value for 'CarpetX::timestep_choice'");
+    abort();
+  }
+  using std::isfinite;
+  assert(isfinite(cctkGH->cctk_delta_time));
+}
+
 // Schedule initialisation
 int Initialise(tFleshConfig *config) {
   DECLARE_CCTK_PARAMETERS;
@@ -1210,19 +1234,7 @@ int Initialise(tFleshConfig *config) {
     for (auto &patchdata : ghext->patchdata)
       patchdata.amrcore->cactus_is_initialized = true;
 
-    // Determine time step size
-    if (CCTK_EQUALS(timestep_choice, "timestep")) {
-      cctkGH->cctk_delta_time = timestep;
-    } else if (CCTK_EQUALS(timestep_choice, "dtfac")) {
-      cctkGH->cctk_delta_time =
-          dtfac *
-          (ghext->use_subcycling ? get_coarse_mindx() : get_finest_mindx());
-    } else {
-      CCTK_ERROR("Unexpected value for 'CarpetX::timestep_choice'");
-      abort();
-    }
-    using std::isfinite;
-    assert(isfinite(cctkGH->cctk_delta_time));
+    SetDeltaTime(cctkGH);
 #pragma omp critical
     CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                cctkGH->cctk_iteration, double(cctkGH->cctk_time),
@@ -1242,19 +1254,7 @@ int Initialise(tFleshConfig *config) {
       for (const auto &patchdata : ghext->patchdata)
         patchdata.amrcore->MakeNewGrids(time);
 
-      // Determine time step size
-      if (CCTK_EQUALS(timestep_choice, "timestep")) {
-        cctkGH->cctk_delta_time = timestep;
-      } else if (CCTK_EQUALS(timestep_choice, "dtfac")) {
-        cctkGH->cctk_delta_time =
-            dtfac *
-            (ghext->use_subcycling ? get_coarse_mindx() : get_finest_mindx());
-      } else {
-        CCTK_ERROR("Unexpected value for 'CarpetX::timestep_choice'");
-        abort();
-      }
-      using std::isfinite;
-      assert(isfinite(cctkGH->cctk_delta_time));
+      SetDeltaTime(cctkGH);
 #pragma omp critical
       CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                  cctkGH->cctk_iteration, double(cctkGH->cctk_time),
@@ -1398,19 +1398,7 @@ int Initialise(tFleshConfig *config) {
         did_modify_any_level = last_modified_level >= first_modified_level;
 
         if (did_modify_any_level) {
-          // Determine time step size
-          if (CCTK_EQUALS(timestep_choice, "timestep")) {
-            cctkGH->cctk_delta_time = timestep;
-          } else if (CCTK_EQUALS(timestep_choice, "dtfac")) {
-            cctkGH->cctk_delta_time =
-                dtfac * (ghext->use_subcycling ? get_coarse_mindx()
-                                               : get_finest_mindx());
-          } else {
-            CCTK_ERROR("Unexpected value for 'CarpetX::timestep_choice'");
-            abort();
-          }
-          using std::isfinite;
-          assert(isfinite(cctkGH->cctk_delta_time));
+          SetDeltaTime(cctkGH);
 #pragma omp critical
           CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                      cctkGH->cctk_iteration, double(cctkGH->cctk_time),
@@ -1445,7 +1433,7 @@ int Initialise(tFleshConfig *config) {
   // finest level traversed; mirrors the assignment in the evolve loop.
   cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
 
-  if (max_level - min_level < 2) {
+  if (!window_is_restricted(min_level, max_level)) {
     // Only the finest level is at the current time: nothing to restrict
     if (verbose)
 #pragma omp critical
@@ -1803,19 +1791,7 @@ int Evolve(tFleshConfig *config) {
           last_modified_level >= first_modified_level;
 
       if (did_modify_any_level) {
-        // Determine time step size
-        if (CCTK_EQUALS(timestep_choice, "timestep")) {
-          cctkGH->cctk_delta_time = timestep;
-        } else if (CCTK_EQUALS(timestep_choice, "dtfac")) {
-          cctkGH->cctk_delta_time =
-              dtfac *
-              (ghext->use_subcycling ? get_coarse_mindx() : get_finest_mindx());
-        } else {
-          CCTK_ERROR("Unexpected value for 'CarpetX::timestep_choice'");
-          abort();
-        }
-        using std::isfinite;
-        assert(isfinite(cctkGH->cctk_delta_time));
+        SetDeltaTime(cctkGH);
 #pragma omp critical
         CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                    cctkGH->cctk_iteration, double(cctkGH->cctk_time),
@@ -1904,7 +1880,7 @@ int Evolve(tFleshConfig *config) {
       active_levels = std::make_optional<active_levels_t>(min_level, max_level);
 
       if (max_level == ghext->num_levels()) {
-        if (max_level - min_level < 2) {
+        if (!window_is_restricted(min_level, max_level)) {
           // Only the finest level is at the current time: nothing to restrict
           if (verbose)
 #pragma omp critical
