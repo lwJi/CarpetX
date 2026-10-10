@@ -427,7 +427,7 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
     nlevels.resize(npatches);
   MPI_Bcast(nlevels.data(), npatches, MPI_INT, metafile_ioproc, mpi_comm);
 
-  ghext->recovered_level_iterations.resize(ghext->num_patches());
+  ghext->recovered_levels.resize(ghext->num_patches());
 
   // Read FabArrayBase (component positions and shapes)
   for (int patch = 0; patch < npatches; ++patch) {
@@ -436,7 +436,7 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
     CCTK_VINFO("  Found %d levels on patch %d", nlevels.at(patch), patch);
     auto &patchdata = ghext->patchdata.at(patch);
     patchdata.amrcore->SetFinestLevel(nlevels.at(patch) - 1);
-    ghext->recovered_level_iterations.at(patch).resize(nlevels.at(patch));
+    ghext->recovered_levels.at(patch).resize(nlevels.at(patch));
 
     for (int level = 0; level < nlevels.at(patch); ++level) {
       CCTK_VINFO("  Reading level %d...", level);
@@ -518,7 +518,7 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
         if (have_iteration) {
           MPI_Bcast(&iter_num, 1, MPI_LONG_LONG, metafile_ioproc, mpi_comm);
           MPI_Bcast(&iter_den, 1, MPI_LONG_LONG, metafile_ioproc, mpi_comm);
-          ghext->recovered_level_iterations.at(patch).at(level) =
+          ghext->recovered_levels.at(patch).at(level).iteration =
               rat64(iter_num, iter_den);
         }
         // else: old checkpoint without per-level iteration — leave as nullopt

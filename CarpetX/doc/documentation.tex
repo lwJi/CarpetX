@@ -1756,6 +1756,16 @@ As an example, to  have performance measurements output for a simulation every 2
 \end{lstlisting}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Recovery}
+\label{sec:recovery}
+
+A run recovered from a checkpoint (see the \texttt{checkpoint} tag in Sec.~\ref{sec:tags}) continues the run that wrote the checkpoint. Under subcycling (\texttt{CarpetX::use\_subcycling = yes}) every refinement level has its own clock, and a checkpoint may be written at any iteration, including one in the middle of a coarse step, where the levels sit at several different times. A \emph{clock group} is a run of adjacent levels that share a clock. With three levels, for example, a checkpoint written at iteration 5 holds three clock groups (the levels are at 2, $3/2$ and $5/4$ coarse steps), and one written at iteration 4 holds one.
+
+\subsection{Checkpoints written before per-level end-of-step iterations}
+
+A checkpoint records, for every level, its clock and the iteration of its last end of step: the \texttt{openPMD} iteration attributes \texttt{iteration\_num}, \texttt{iteration\_den} and \texttt{last\_tail\_iteration}, with a per-level suffix, or the \texttt{Silo} metafile variables of the same names in the \texttt{CarpetX} directory, one per patch and level. It holds no other extra data: no ghost zones, and no groups beyond those tagged \texttt{checkpoint}. Checkpoints written before the end-of-step iteration was recorded get it from the level clocks: the finest clock group gets the checkpoint iteration, and every coarser group the iteration in which its finest level last stepped. When every level shares one clock (an aligned checkpoint, or no subcycling), this is exact. With two or more clocks it assumes that no regrid has changed the number of levels since the coarsest clock group last stepped, and recovery prints a warning.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Debugging}
 \label{sec:debugging}
 
