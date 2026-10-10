@@ -561,11 +561,14 @@ struct GHExt {
 
   bool use_subcycling = false;
 
-  // This run was started from a checkpoint. Set once, at the start of
-  // RecoverFromCheckpoint, and true for the rest of the run. The flesh offers
-  // no query for this (config->recovered is only Initialise's argument);
-  // error messages read it to state the recovery rule.
-  bool recovered = false;
+  // The iteration of the checkpoint this run was started from, or -1. Set
+  // once, by RecoverHierarchy as soon as RecoverGridStructure has read it.
+  // The flesh offers no query for this (config->recovered is only
+  // Initialise's argument). A level whose last_tail_iteration is not past it
+  // has not run its end of step since recovery, so it may still lack what the
+  // checkpoint does not hold; error messages about such a level state the
+  // recovery rule.
+  int recovered_iteration = -1;
 
   // RecomputePerClockGroup is traversing CCTK_POST_RECOVER_VARIABLES, once
   // per clock group. Set only inside that loop. Levels outside the window may

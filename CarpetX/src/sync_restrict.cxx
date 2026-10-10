@@ -124,8 +124,9 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
 // Abort unless the parent of `leveldata` has a valid interior for every
 // variable of group gi in every timelevel in `tls`, because a prolongation
 // into `leveldata` is about to read them. The message names the parent's
-// level and timelevel. When the run was recovered and gi is not
-// checkpointed, it ends with the recovery rule.
+// level and timelevel. When gi is not checkpointed and the parent has not run
+// its end of step since the run was recovered (GHExt::recovered_iteration), it
+// ends with the recovery rule for that timelevel.
 static void
 error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
                         const int gi, const std::vector<int> &tls,
@@ -138,21 +139,31 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
   assert(!coarsegroupdata.mfab.empty());
   assert(coarsegroupdata.numvars == groupdata.numvars);
 
-  const auto hint = [&coarsegroupdata]() -> std::string {
-    if (!ghext->recovered || coarsegroupdata.do_checkpoint)
-      return "";
-    return "  This run was recovered and group " + coarsegroupdata.groupname +
-           " is not checkpointed.\n"
-           "  Groups read by another level must be checkpointed or "
-           "recomputed in CCTK_POST_RECOVER_VARIABLES.\n"
-           "  See \"Recovery\" in the CarpetX documentation.\n";
-  };
+  const bool recovering =
+      ghext->recovered_iteration >= 0 &&
+      coarseleveldata.last_tail_iteration <= ghext->recovered_iteration;
 
-  for (const int tl : tls)
+  for (const int tl : tls) {
+    const auto hint = [&coarsegroupdata, tl, recovering]() -> std::string {
+      if (!recovering || coarsegroupdata.do_checkpoint)
+        return "";
+      // Recomputation in CCTK_POST_RECOVER_VARIABLES restores only the
+      // current timelevel
+      const std::string rule =
+          tl == 0 ? "  Groups read by another level must be checkpointed or "
+                    "recomputed in CCTK_POST_RECOVER_VARIABLES.\n"
+                  : "  Past timelevels read by another level must be "
+                    "checkpointed, with openPMD; recomputation in "
+                    "CCTK_POST_RECOVER_VARIABLES does not restore them.\n";
+      return "  This run was recovered and group " + coarsegroupdata.groupname +
+             " is not checkpointed.\n" + rule +
+             "  See \"Recovery\" in the CarpetX documentation.\n";
+    };
     for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
       error_if_invalid(
           coarsegroupdata, vi, tl, make_valid_int(),
           [label]() { return std::string(label); }, hint);
+  }
 }
 
 // The grid functions with storage whose GroupData satisfies `pred`
