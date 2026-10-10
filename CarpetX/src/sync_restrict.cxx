@@ -122,15 +122,14 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
 }
 
 // Abort unless the parent of `leveldata` has a valid interior for every
-// variable of group gi in every timelevel in `tls`, because a prolongation
-// into `leveldata` is about to read them. The message names the parent's
-// level and timelevel. When gi is not checkpointed and the parent has not run
-// its end of step since the run was recovered (GHExt::recovered_iteration), it
-// ends with the recovery rule for that timelevel.
+// variable of group gi in timelevels 0 to ntls-1, because a prolongation into
+// `leveldata` is about to read them. The message names the parent's level and
+// timelevel. When gi is not checkpointed and the parent has not run its end
+// of step since the run was recovered (GHExt::recovered_iteration), it ends
+// with the recovery rule for that timelevel.
 static void
 error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
-                        const int gi, const std::vector<int> &tls,
-                        const char *const label) {
+                        const int gi, const int ntls, const char *const label) {
   assert(leveldata.level > 0);
   const auto &restrict groupdata = *leveldata.groupdata.at(gi);
   const auto &restrict coarseleveldata =
@@ -138,13 +137,18 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
   const auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
   assert(!coarsegroupdata.mfab.empty());
   assert(coarsegroupdata.numvars == groupdata.numvars);
+  assert(ntls <= int(coarsegroupdata.mfab.size()));
 
   const bool recovering =
       ghext->recovered_iteration >= 0 &&
       coarseleveldata.last_tail_iteration <= ghext->recovered_iteration;
 
-  for (const int tl : tls) {
-    const auto hint = [&coarsegroupdata, tl, recovering]() -> std::string {
+  const std::function<std::string()> msg = [label]() {
+    return std::string(label);
+  };
+  for (int tl = 0; tl < ntls; ++tl) {
+    const std::function<std::string()> hint = [&coarsegroupdata, tl,
+                                               recovering]() -> std::string {
       if (!recovering || coarsegroupdata.do_checkpoint)
         return "";
       // Recomputation in CCTK_POST_RECOVER_VARIABLES restores only the
@@ -160,9 +164,7 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
              "  See \"Recovery\" in the CarpetX documentation.\n";
     };
     for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
-      error_if_invalid(
-          coarsegroupdata, vi, tl, make_valid_int(),
-          [label]() { return std::string(label); }, hint);
+      error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), msg, hint);
   }
 }
 
@@ -399,14 +401,10 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
-      if (leveldata.level > 0) {
-        std::vector<int> tls;
-        for (int tl = 0; tl < sync_tl0; ++tl)
-          tls.push_back(tl);
+      if (leveldata.level > 0)
         error_if_parent_invalid(
-            leveldata, gi, tls,
+            leveldata, gi, sync_tl0,
             "SyncGroupsByDirI on coarse level before prolongation");
-      } // if leveldata.level > 0
 
       for (int tl = 0; tl < sync_tl0; ++tl) {
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
@@ -681,13 +679,9 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
           // It holds in every run and has no opt-out; without it an invalid
           // parent is caught only by the poison scan after the sync, on the
           // child, and not at all without poisoning.
-          std::vector<int> tls;
-          for (int tl = 0; tl < sync_tl; ++tl)
-            tls.push_back(tl);
-          if (blend && sync_tl < 2)
-            tls.push_back(1); // the blend's old timelevel
+          using std::max;
           error_if_parent_invalid(
-              leveldata, gi, tls,
+              leveldata, gi, blend ? max(sync_tl, 2) : sync_tl,
               "SyncGroupsByDirISubcycling on coarse level before prolongation");
 
           for (int tl = 0; tl < sync_tl; ++tl) {

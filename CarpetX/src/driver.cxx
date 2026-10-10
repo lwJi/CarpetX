@@ -1068,13 +1068,20 @@ bool all_levels_synchronized() {
   return true;
 }
 
-// True when some level finer than (patch, level) is behind it in the
-// checkpoint being recovered, i.e. the window that holds `level` and the
-// finest level has not been restricted at `level`'s clock yet: that happens
-// once every level from `level` down to the finest is time-aligned (see the
-// evolve loop and window_is_restricted). A missing entry (checkpoint without
-// iteration_num/den) means time-aligned.
-static bool recovered_finer_level_is_behind(const int patch, const int level) {
+// Some level finer than (patch, level) is behind it, i.e. the window that
+// holds `level` and the finest level has not been restricted at `level`'s
+// clock yet: that happens once every level from `level` down to the finest is
+// time-aligned (see the evolve loop and window_is_restricted). The bands hold
+// this level's last step, which the child reads until that restriction. Under
+// 2:1 time refinement the child is either half a coarse step behind this
+// level, and its next substep reads the bands, or aligned with it, and
+// recovery reads them for the child's end-of-step ghosts (ODESolvers fills
+// those by dense output from the bands until that restriction overwrites them
+// by spatial prolongation from the restricted parent). The pair (level,
+// level + 1) is refluxed right before that restriction, so its flux register
+// is live until then; the pair may itself be aligned with the register
+// complete but unapplied.
+bool recovered_finer_level_is_behind(const int patch, const int level) {
   if (!ghext->use_subcycling)
     return false;
   const auto &recovered = ghext->recovered_levels;
@@ -1092,24 +1099,6 @@ static bool recovered_finer_level_is_behind(const int patch, const int level) {
       return true;
   }
   return false;
-}
-
-bool recovered_level_needs_rk_bands(const int patch, const int level) {
-  // The bands hold this level's last step, which the child reads until the
-  // window that holds this level and the finest level is restricted. Under
-  // 2:1 time refinement the child is either half a coarse step behind this
-  // level, and its next substep reads the bands, or aligned with it, and
-  // recovery reads them for the child's end-of-step ghosts (ODESolvers fills
-  // those by dense output from the bands until that restriction overwrites
-  // them by spatial prolongation from the restricted parent).
-  return recovered_finer_level_is_behind(patch, level);
-}
-
-bool recovered_flux_register_is_live(const int patch, const int level) {
-  // The pair (level, level + 1) is refluxed right before that restriction,
-  // so the register is live until then. The pair (level, level + 1) may
-  // itself be aligned with the register complete but unapplied.
-  return recovered_finer_level_is_behind(patch, level);
 }
 
 std::string subcycling_band_tag(const band_kind kind, const int stage) {
