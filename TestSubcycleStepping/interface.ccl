@@ -6,3 +6,20 @@ USES INCLUDE HEADER: loop.hxx
 CCTK_REAL iteration TYPE=GF CENTERING={VVV} TAGS="checkpoint='yes'" "subcycling and prolongation test"
 CCTK_REAL postrestrict TYPE=GF CENTERING={VVV} TAGS='checkpoint="yes" restrict="no"' "levels that saw CCTK_POSTRESTRICT"
 CCTK_REAL prerestrict TYPE=GF CENTERING={VVV} TAGS='checkpoint="yes" restrict="no"' "levels that saw CarpetX_PreRestrict"
+
+# The context (cctk_iteration, cctk_time, cctk_timefac) of the last
+# CCTK_POSTSTEP or CCTK_POST_RECOVER_VARIABLES traversal whose window covered
+# the level, stamped everywhere. No other level reads it, so it needs neither
+# a SYNC nor a checkpoint.
+CCTK_REAL tail_context TYPE=GF CENTERING={VVV} TAGS='checkpoint="no"'
+{
+  tail_iteration tail_time tail_timefac
+} "context of the last end-of-step or recovery traversal that covered each level"
+
+# Number of traversals of the bins a recovery might run, counted from
+# CCTK_RECOVER_VARIABLES until CCTK_CPINITIAL ("counting" is 1 in between and
+# 0 otherwise)
+CCTK_INT recovery_counts TYPE=SCALAR TAGS='checkpoint="no"'
+{
+  count_post_recover count_poststep count_analysis count_prerestrict count_postrestrict counting
+} "traversals of each bin during recovery"
