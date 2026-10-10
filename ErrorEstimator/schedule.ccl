@@ -2,13 +2,23 @@
 
 
 
-SCHEDULE ErrorEstimator_Estimate AS EstimateError AT postinitial
+# The next regrid reads regrid_error, which is not checkpointed: estimate it
+# after initial data, at the end of every step, and again after a restart.
+# The group carries the alias EstimateError, so that other thorns can order
+# their box updates before it in each bin.
+SCHEDULE GROUP ErrorEstimator_EstimateError AS EstimateError AT postinitial
 {
-  LANG: C
-  WRITES: CarpetXRegrid::regrid_error(interior)
 } "Estimate error"
 
-SCHEDULE ErrorEstimator_Estimate AS EstimateError AT poststep
+SCHEDULE GROUP ErrorEstimator_EstimateError AS EstimateError AT poststep
+{
+} "Estimate error"
+
+SCHEDULE GROUP ErrorEstimator_EstimateError AS EstimateError AT post_recover_variables
+{
+} "Estimate error"
+
+SCHEDULE ErrorEstimator_Estimate IN ErrorEstimator_EstimateError
 {
   LANG: C
   WRITES: CarpetXRegrid::regrid_error(interior)
