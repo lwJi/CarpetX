@@ -1,22 +1,22 @@
 # Schedule definitions for thorn TestBoxInBox
 
-SCHEDULE TestBoxInBox_Update AT postinitial BEFORE EstimateError
+# Each level's error estimate must see the grid structure of that level's own
+# iteration: update it before every error estimate, including the one after a
+# restart, which recomputes each level's estimate as at the end of its last
+# step
+SCHEDULE GROUP TestBoxInBox_UpdateBoxes AT postinitial BEFORE EstimateError
 {
-  LANG: C
-  OPTIONS: global
-  READS: BoxInBox::active
-  READS: BoxInBox::num_levels
-  READS: BoxInBox::positions
-  READS: BoxInBox::radii
-  READS: BoxInBox::radiixyz
-  WRITES: BoxInBox::active
-  WRITES: BoxInBox::num_levels
-  WRITES: BoxInBox::positions
-  WRITES: BoxInBox::radii
-  WRITES: BoxInBox::radiixyz
 } "Update initial grid structure"
 
-SCHEDULE TestBoxInBox_Update AT poststep BEFORE EstimateError
+SCHEDULE GROUP TestBoxInBox_UpdateBoxes AT poststep BEFORE EstimateError
+{
+} "Update grid structure"
+
+SCHEDULE GROUP TestBoxInBox_UpdateBoxes AT post_recover_variables BEFORE EstimateError
+{
+} "Update grid structure"
+
+SCHEDULE TestBoxInBox_Update IN TestBoxInBox_UpdateBoxes
 {
   LANG: C
   OPTIONS: global
