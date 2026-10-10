@@ -98,8 +98,10 @@ bool group_has_flux_register(int gi);
 // other window keeps the integrator's fill until a later window that holds it
 // is restricted, and an integrated group with restriction disabled keeps it
 // in every window. This is the one definition of "the window is restricted";
-// the restriction blocks of Initialise and Evolve call it. Defined in
-// schedule.cxx.
+// the restriction blocks of Initialise and Evolve call it. During recovery the
+// window is a clock group, the window in which its levels last ran their end
+// of step (ClockGroups), so it tells which of the two fills last wrote the
+// restricted groups' ghosts. Defined in schedule.cxx.
 bool window_is_restricted(int min_level, int max_level);
 
 // Allocate (lazily, idempotently) the cached flux geometry of (patch,
