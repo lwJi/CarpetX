@@ -650,20 +650,19 @@ bool get_group_evolve_flag(int gi);
 // the stage derivatives) that must be serialized.
 bool all_levels_synchronized();
 
-// True when (patch, level) is a coarse level ahead of one of its children in
-// the checkpoint being recovered, so its evolved groups must carry olds/kss_*.
+// True when (patch, level) is a coarse level ahead of some finer level in the
+// checkpoint being recovered, so the checkpoint must carry its source bands:
+// - its evolved groups' olds/kss_*, which the child reads during its next
+//   substep if it is behind this level, and at recovery for its end-of-step
+//   ghosts if it is aligned with it but a finer level is behind;
+// - the freg_* bands of the pair (level, level + 1), whose flux register is
+//   live: level `level` has begun a coarse step whose reflux has not yet been
+//   applied.
 // Reads the iterations in ghext->recovered_levels; a missing entry
 // (checkpoint without iteration_num/den) means time-aligned, hence false.
 // Always false without subcycling and on the finest level. Only meaningful
 // during RecoverGH, while the recovered levels are still populated.
-bool recovered_level_needs_rk_bands(int patch, int level);
-
-// True when the flux register of the pair (level, level + 1) is live in the
-// checkpoint being recovered: level `level` has begun a coarse step whose
-// reflux has not yet been applied, i.e. some finer level is behind it, so the
-// checkpoint must carry its freg_* bands. Same preconditions as
-// recovered_level_needs_rk_bands.
-bool recovered_flux_register_is_live(int patch, int level);
+bool recovered_finer_level_is_behind(int patch, int level);
 
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
 // ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)
