@@ -1,3 +1,8 @@
+# Old-format compatibility test: the frozen checkpoint predates per-level
+# end-of-step iterations (last_tail_iteration). Its levels are on two
+# clocks, so recovery derives the missing values from the clocks and warns.
+# See "Recovery" in the CarpetX documentation.
+
 ActiveThorns = "
     BoxInBox
     CarpetX
