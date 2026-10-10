@@ -53,7 +53,18 @@ SCHEDULE SpacetimeWaveToyX_Evol2 AT evol AFTER SpacetimeWaveToyX_Evol1
   SYNC: ftstate
 } "Evolve scalar wave, part 2"
 
-SCHEDULE SpacetimeWaveToyX_Constraints AT analysis
+# The diagnostics in this group are not checkpointed, and a level that lags
+# its parent SYNCs them from the parent: compute them at the end of each step,
+# and again after a restart, once the state's ghosts are refilled
+SCHEDULE GROUP SpacetimeWaveToyX_Diagnostics AT analysis
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE GROUP SpacetimeWaveToyX_Diagnostics AT post_recover_variables AFTER SpacetimeWaveToyX_Sync
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE SpacetimeWaveToyX_Constraints IN SpacetimeWaveToyX_Diagnostics
 {
   LANG: C
   READS: fxstate(interior)
@@ -67,7 +78,7 @@ SCHEDULE SpacetimeWaveToyX_Constraints AT analysis
   SYNC: curlfz
 } "Calculate scalar wave constraints"
  
-SCHEDULE SpacetimeWaveToyX_Energy AT analysis
+SCHEDULE SpacetimeWaveToyX_Energy IN SpacetimeWaveToyX_Diagnostics
 {
   LANG: C
   READS: ftstate(everywhere)
@@ -78,7 +89,7 @@ SCHEDULE SpacetimeWaveToyX_Energy AT analysis
   SYNC: energy
 } "Calculate scalar wave energy density"
 
-SCHEDULE SpacetimeWaveToyX_Error AT analysis
+SCHEDULE SpacetimeWaveToyX_Error IN SpacetimeWaveToyX_Diagnostics
 {
   LANG: C
   READS: ustate(interior)
@@ -97,3 +108,17 @@ SCHEDULE SpacetimeWaveToyX_Error AT analysis
   SYNC: fyerror
   SYNC: fzerror
 } "Calculate error in scalar wave state"
+
+# Recovery. Checkpoints carry the interior only, so restore the state's ghosts
+# with a SYNC; the evolution reads only the interior, but the energy reads the
+# ghosts.
+SCHEDULE SpacetimeWaveToyX_Sync AT post_recover_variables
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: ustate
+  SYNC: ftstate
+  SYNC: fxstate
+  SYNC: fystate
+  SYNC: fzstate
+} "Restore the ghosts of the state, which checkpoints do not carry"

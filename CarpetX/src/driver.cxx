@@ -828,12 +828,16 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     is_subcycling_level = false; // unused
     iteration = 0;
     delta_iteration = 1;
+    last_tail_iteration = 0;
   } else {
     // We are creating a new refined level
     auto &coarseleveldata = ghext->patchdata.at(patch).leveldata.at(level - 1);
     is_subcycling_level = ghext->use_subcycling;
     iteration = coarseleveldata.iteration;
     delta_iteration = coarseleveldata.delta_iteration / timereffact;
+    // A level that a regrid creates or remakes shares its parent's clock, and
+    // so the parent's last end-of-step window
+    last_tail_iteration = coarseleveldata.last_tail_iteration;
   }
 
   const amrex::IntVect nghostzones = {
@@ -1064,45 +1068,33 @@ bool all_levels_synchronized() {
   return true;
 }
 
-bool recovered_level_needs_rk_bands(const int patch, const int level) {
+// Some level finer than (patch, level) is behind it, i.e. the window that
+// holds `level` and the finest level has not been restricted at `level`'s
+// clock yet: that happens once every level from `level` down to the finest is
+// time-aligned (see the evolve loop and window_is_restricted). The bands hold
+// this level's last step, which the child reads until that restriction. Under
+// 2:1 time refinement the child is either half a coarse step behind this
+// level, and its next substep reads the bands, or aligned with it, and
+// recovery reads them for the child's end-of-step ghosts (ODESolvers refills
+// those by dense output from the bands until that restriction, and after it
+// by spatial prolongation from the restricted parent, as the restriction did
+// for the restricted groups). The pair (level, level + 1) is refluxed right
+// before that restriction, so its flux register is live until then; the pair
+// may itself be aligned with the register complete but unapplied.
+bool recovered_finer_level_is_behind(const int patch, const int level) {
   if (!ghext->use_subcycling)
     return false;
-  const auto &iterations = ghext->recovered_level_iterations;
-  if (patch < 0 || patch >= int(iterations.size()))
+  const auto &recovered = ghext->recovered_levels;
+  if (patch < 0 || patch >= int(recovered.size()))
     return false;
-  const auto &level_iterations = iterations.at(patch);
-  const int child = level + 1;
-  if (level < 0 || child >= int(level_iterations.size()))
-    return false; // finest level: no children to fill
-  const std::optional<rat64> &self = level_iterations.at(level);
-  const std::optional<rat64> &child_iteration = level_iterations.at(child);
-  if (!self || !child_iteration)
-    return false; // old checkpoint without per-level iteration: time-aligned
-  // Under 2:1 time refinement the child is either aligned with this level or
-  // half a coarse step behind it; only in the latter case does the child's
-  // next substep read this level's in-progress step from the bands.
-  return *child_iteration < *self;
-}
-
-bool recovered_flux_register_is_live(const int patch, const int level) {
-  if (!ghext->use_subcycling)
-    return false;
-  const auto &iterations = ghext->recovered_level_iterations;
-  if (patch < 0 || patch >= int(iterations.size()))
-    return false;
-  const auto &level_iterations = iterations.at(patch);
-  if (level < 0 || level + 1 >= int(level_iterations.size()))
-    return false; // finest level: no register below it
-  const std::optional<rat64> &self = level_iterations.at(level);
+  const auto &levels = recovered.at(patch);
+  if (level < 0 || level + 1 >= int(levels.size()))
+    return false; // finest level: nothing finer
+  const std::optional<rat64> &self = levels.at(level).iteration;
   if (!self)
     return false; // old checkpoint without per-level iteration: time-aligned
-  // The pair (level, level + 1) is refluxed once every level from `level`
-  // down to the finest is time-aligned (see the evolve loop), so the
-  // register is live while any finer level is still behind this one. The
-  // pair (level, level + 1) may itself be aligned with the register complete
-  // but unapplied.
-  for (int finer = level + 1; finer < int(level_iterations.size()); ++finer) {
-    const std::optional<rat64> &finer_iteration = level_iterations.at(finer);
+  for (int finer = level + 1; finer < int(levels.size()); ++finer) {
+    const std::optional<rat64> &finer_iteration = levels.at(finer).iteration;
     if (finer_iteration && *finer_iteration < *self)
       return true;
   }

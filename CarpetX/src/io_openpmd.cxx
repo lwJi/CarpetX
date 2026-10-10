@@ -625,7 +625,7 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
                          .get<std::vector<std::string> >();
   }
 
-  ghext->recovered_level_iterations.resize(ghext->num_patches());
+  ghext->recovered_levels.resize(ghext->num_patches());
 
   for (auto &patchdata : ghext->patchdata) {
     const int patch = patchdata.patch;
@@ -654,7 +654,7 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
     assert(ndims == 3);
     assert(nlevels > 0);
     patchdata.amrcore->SetFinestLevel(nlevels - 1);
-    ghext->recovered_level_iterations.at(patch).resize(nlevels);
+    ghext->recovered_levels.at(patch).resize(nlevels);
 
     for (int level = 0; level < nlevels; ++level) {
       const std::vector<std::int64_t> chunk_infos =
@@ -692,6 +692,8 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
       patchdata.amrcore->SetupLevel(level, boxarray, dm,
                                     []() { return "Recovering"; });
 
+      auto &recovered = ghext->recovered_levels.at(patch).at(level);
+
       // Read per-level iteration if present (new checkpoint format)
       const std::string iter_num_attr =
           "iteration_num" + level_suffixes.at(level);
@@ -703,9 +705,17 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
             read_iter->getAttribute(iter_num_attr).get<std::int64_t>();
         const auto den =
             read_iter->getAttribute(iter_den_attr).get<std::int64_t>();
-        ghext->recovered_level_iterations.at(patch).at(level) = rat64(num, den);
+        recovered.iteration = rat64(num, den);
       }
       // else: old checkpoint without per-level iteration — leave as nullopt
+
+      // Read the per-level last end-of-step iteration if present
+      const std::string last_tail_attr =
+          "last_tail_iteration" + level_suffixes.at(level);
+      if (read_iter->containsAttribute(last_tail_attr))
+        recovered.last_tail_iteration =
+            int(read_iter->getAttribute(last_tail_attr).get<std::int64_t>());
+      // else: checkpoint predates it — leave as nullopt
     } // for level
   } // for patch
 }
@@ -1109,14 +1119,12 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           // MultiFabs sharing the level's idomain frame. A time-aligned
           // checkpoint carries no bands, so a missing mesh leaves the rebuilt
           // band untouched; a mid-cycle checkpoint must carry them for every
-          // coarse level that is ahead of its child, so there a missing mesh
-          // (old derivative-band format, or a truncated file) is refused.
-          // Likewise the child's flux register must be present wherever it is
-          // live (see recovered_flux_register_is_live).
+          // coarse level that is ahead of a finer level, and likewise the
+          // child's flux register, which is live there (see
+          // recovered_finer_level_is_behind), so there a missing mesh (old
+          // derivative-band format, or a truncated file) is refused.
           {
-            const bool need_rk_bands = recovered_level_needs_rk_bands(
-                leveldata.patch, leveldata.level);
-            const bool need_freg_bands = recovered_flux_register_is_live(
+            const bool need_bands = recovered_finer_level_is_behind(
                 leveldata.patch, leveldata.level);
             const auto read_band = [&](amrex::MultiFab *const band,
                                        const band_kind kind, const int stage) {
@@ -1134,8 +1142,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                 // adopts the checkpoint's, allocating no register when that is
                 // "no". What arrives here is a checkpoint written before
                 // flux-register checkpointing existed, or a truncated one.
-                if (kind == band_kind::flux_register ? need_freg_bands
-                                                     : need_rk_bands)
+                if (need_bands)
                   CCTK_VERROR(
                       "Mid-cycle checkpoint lacks %s: mesh \"%s\" (band %s) "
                       "for group %s on patch %d level %d is missing. The "
@@ -1666,6 +1673,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         write_iter.setAttribute(
             "iteration_den" + level_suffixes.at(level),
             static_cast<std::int64_t>(leveldata.iteration.den));
+        // Write the per-level last end-of-step iteration
+        write_iter.setAttribute(
+            "last_tail_iteration" + level_suffixes.at(level),
+            static_cast<std::int64_t>(leveldata.last_tail_iteration));
       }
     }
   } // if !slice

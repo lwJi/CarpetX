@@ -54,10 +54,20 @@ SCHEDULE GROUP TestPersistentGroups_CheckGroup AT postregrid
 
 
 
-# Recovery: checkpoints carry the interior only, so restore the ghosts with a
-# SYNC (as MHD_Diagnostics::vels_old and TestSubcycleStepping do), restart the
-# running total (it is not checkpointed), and check that the recovered stamps
-# are intact
+# Recovery: restart the running total (it is not checkpointed) once, in
+# CCTK_RECOVER_VARIABLES, which runs exactly once. Checkpoints carry the
+# interior only, so restore the ghosts with a SYNC (as
+# MHD_Diagnostics::vels_old and TestSubcycleStepping do), and check that the
+# recovered stamps are intact. Every traversal of CCTK_POST_RECOVER_VARIABLES
+# adds its stale points to the running total, so the total covers every level
+# however many traversals recovery makes.
+
+SCHEDULE TestPersistentGroups_Zero AT recover_variables
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: stale_count
+} "Reset the running total of stale points"
 
 SCHEDULE TestPersistentGroups_Sync AT post_recover_variables
 {
@@ -67,14 +77,7 @@ SCHEDULE TestPersistentGroups_Sync AT post_recover_variables
   SYNC: persist_noevolve
 } "Restore the ghosts of the tested groups, which checkpoints do not carry"
 
-SCHEDULE TestPersistentGroups_Zero AT post_recover_variables AFTER TestPersistentGroups_Sync
-{
-  LANG: C
-  OPTIONS: global
-  WRITES: stale_count
-} "Reset the running total of stale points"
-
-SCHEDULE GROUP TestPersistentGroups_CheckGroup AT post_recover_variables AFTER (TestPersistentGroups_Sync, TestPersistentGroups_Zero)
+SCHEDULE GROUP TestPersistentGroups_CheckGroup AT post_recover_variables AFTER TestPersistentGroups_Sync
 {
 } "Count stale points in the tested groups"
 

@@ -89,6 +89,21 @@ bool group_is_integrated(int gi);
 // from PARAMCHECK on, before any level exists. Defined in driver.cxx.
 bool group_has_flux_register(int gi);
 
+// True iff the driver restricts the window [min_level, max_level) of
+// time-aligned levels at its end of step: the window holds the finest level
+// and at least one other. The driver then restricts the window and refills
+// the coarse-fine ghosts of every window level aligned with its parent by
+// spatial prolongation from the restricted parent (ProlongateRestrictedGFs,
+// for every restricted group), after the integrator's end-of-step fill. Any
+// other window keeps the integrator's fill until a later window that holds it
+// is restricted, and an integrated group with restriction disabled keeps it
+// in every window. This is the one definition of "the window is restricted";
+// the restriction blocks of Initialise and Evolve call it. During recovery the
+// window is a clock group, the window in which its levels last ran their end
+// of step (ClockGroups), so it tells which of the two fills last wrote the
+// restricted groups' ghosts. Defined in schedule.cxx.
+bool window_is_restricted(int min_level, int max_level);
+
 // Allocate (lazily, idempotently) the cached flux geometry of (patch,
 // level): LevelData::face_area[0..dim) and LevelData::cell_volume, filled
 // with the level's constant face areas and cell volume by

@@ -36,7 +36,18 @@ SCHEDULE WaveToyX_RHS IN ODESolvers_RHS
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-SCHEDULE WaveToyX_RHS AT analysis
+# The diagnostics in this group are not checkpointed, and a level that lags
+# its parent SYNCs them from the parent: compute them at the end of each step,
+# and again after a restart, once the state's ghosts are refilled
+SCHEDULE GROUP WaveToyX_Diagnostics AT analysis
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE GROUP WaveToyX_Diagnostics AT post_recover_variables AFTER ODESolvers_PostStep
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE WaveToyX_RHS IN WaveToyX_Diagnostics
 {
   LANG: C
   READS: state(everywhere)
@@ -45,7 +56,7 @@ SCHEDULE WaveToyX_RHS AT analysis
   SYNC: rhs
 } "Calculate scalar wave RHS (so that it can be output)"
 
-SCHEDULE WaveToyX_Energy at analysis
+SCHEDULE WaveToyX_Energy IN WaveToyX_Diagnostics
 {
   LANG: C
   READS: state(everywhere)
@@ -53,7 +64,7 @@ SCHEDULE WaveToyX_Energy at analysis
   SYNC: energy
 } "Calculate scalar wave energy density"
 
-SCHEDULE WaveToyX_Error at analysis
+SCHEDULE WaveToyX_Error IN WaveToyX_Diagnostics
 {
   LANG: C
   READS: state(interior)
