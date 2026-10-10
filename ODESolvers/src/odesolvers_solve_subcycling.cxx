@@ -479,11 +479,14 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   //  - or, on an aligned level of a window the driver restricted at that end
   //    of step (CarpetX::window_is_restricted: the finest clock group), after
   //    that by spatial prolongation from the restricted parent
-  //    (ProlongateRestrictedGFs), for every evolved group, restricted or not.
-  //    The parent's tl=0 still holds that state, and
-  //    SyncGroupsByDirIProlongateOnlyAligned repeats the prolongation. These
-  //    are exactly the levels that need no bands: a time-aligned checkpoint
-  //    carries none.
+  //    (ProlongateRestrictedGFs), for every restricted group. The parent's
+  //    tl=0 still holds that state, and SyncGroupsByDirIProlongateOnlyAligned
+  //    repeats the prolongation. These are exactly the levels that need no
+  //    bands: a time-aligned checkpoint carries none. An evolved group with
+  //    restriction disabled kept the dense output there, which recovery
+  //    cannot repeat without bands, so it is prolongated the same way. Its
+  //    ghosts then differ from the uninterrupted run's at round-off, or by
+  //    what the parent's ODESolvers_PostStep (and reflux) changed in it.
   // The ODESolvers_PostStep SYNC that follows then only exchanges ghosts
   // between boxes of the same level.
   if (var_groups.size() > 0) {

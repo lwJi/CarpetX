@@ -1075,12 +1075,12 @@ bool all_levels_synchronized() {
 // this level's last step, which the child reads until that restriction. Under
 // 2:1 time refinement the child is either half a coarse step behind this
 // level, and its next substep reads the bands, or aligned with it, and
-// recovery reads them for the child's end-of-step ghosts (ODESolvers fills
-// those by dense output from the bands until that restriction overwrites them
-// by spatial prolongation from the restricted parent). The pair (level,
-// level + 1) is refluxed right before that restriction, so its flux register
-// is live until then; the pair may itself be aligned with the register
-// complete but unapplied.
+// recovery reads them for the child's end-of-step ghosts (ODESolvers refills
+// those by dense output from the bands until that restriction, and after it
+// by spatial prolongation from the restricted parent, as the restriction did
+// for the restricted groups). The pair (level, level + 1) is refluxed right
+// before that restriction, so its flux register is live until then; the pair
+// may itself be aligned with the register complete but unapplied.
 bool recovered_finer_level_is_behind(const int patch, const int level) {
   if (!ghext->use_subcycling)
     return false;
