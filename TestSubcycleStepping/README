@@ -81,6 +81,13 @@ The recover tests in TestSubcyclingMC2/test,
 recover-subcycling-openpmd-3clocks.par and -4clocks.par, output such stamps
 after restarts from iterations 5 and 9; their references equal the
 uninterrupted run's (checkpoint-subcycling-openpmd-3clocks and -4clocks).
+recover-subcycling-openpmd-addlevel.par does the same after a restart from
+iteration 6, right after a regrid added a fourth level (clocks 2, 3/2, 3/2,
+11/8): level 0 last stepped in iteration 5, before level 3 existed, so its
+traversal [0,1) sees iteration 5, where the clocks alone would give 4.
+recover-subcycling-silo-3clocks.par repeats the 3-clock restart from a Silo
+checkpoint, in relaxed recovery mode; its references equal those of
+recover-subcycling-openpmd-3clocks.
 
 "recovery_counts" (grid scalars, checkpoint="no") count the traversals of
 CCTK_POST_RECOVER_VARIABLES (count_post_recover), CCTK_POSTSTEP
@@ -93,4 +100,5 @@ the other counts are 0, since recovery does not rerun end-of-step bins. A
 fresh start zeroes them at CCTK_INITIAL with counting off, so they stay 0.
 The recover tests in TestSubcyclingMC2/test output them:
 recover-subcycling-openpmd-nonrhs.par (two clock groups), -3clocks.par
-(three) and -4clocks.par (four).
+(three), -4clocks.par (four), -addlevel.par (three) and
+recover-subcycling-silo-3clocks.par (three).
