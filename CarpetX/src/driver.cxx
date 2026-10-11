@@ -510,6 +510,14 @@ bool group_has_flux_register(const int gi) {
          group_is_integrated(gi) && get_group_fluxes(gi)[0] >= 0;
 }
 
+// See subcycling.hxx for the contract. get_group_restrict_flag reads the same
+// tag as GroupData::do_restrict, which collect_restrictable_groups (and with it
+// ProlongateRestrictedGFs) tests, but needs no grid structure.
+bool group_keeps_dense_output(const int gi) {
+  assert(gi >= 0 && gi < CCTK_NumGroups());
+  return group_is_integrated(gi) && !get_group_restrict_flag(gi);
+}
+
 // See driver.hxx for the contract. With do_reflux set, the only way a
 // flux-tagged grid function fails group_has_flux_register is not being
 // integrated by ODESolvers, hence the wording. Parsing the fluxes= tag of
@@ -1077,10 +1085,12 @@ bool all_levels_synchronized() {
 // level, and its next substep reads the bands, or aligned with it, and
 // recovery reads them for the child's end-of-step ghosts (ODESolvers refills
 // those by dense output from the bands until that restriction, and after it
-// by spatial prolongation from the restricted parent, as the restriction did
-// for the restricted groups). The pair (level, level + 1) is refluxed right
-// before that restriction, so its flux register is live until then; the pair
-// may itself be aligned with the register complete but unapplied.
+// by spatial prolongation from the restricted parent for the restricted
+// groups, as the restriction did; recovered_bands_needed covers the groups
+// with restriction disabled, which keep the dense output after it too). The
+// pair (level, level + 1) is refluxed right before that restriction, so its
+// flux register is live until then; the pair may itself be aligned with the
+// register complete but unapplied.
 bool recovered_finer_level_is_behind(const int patch, const int level) {
   if (!ghext->use_subcycling)
     return false;
@@ -1099,6 +1109,31 @@ bool recovered_finer_level_is_behind(const int patch, const int level) {
       return true;
   }
   return false;
+}
+
+// The source bands of a group that keeps the dense output
+// (group_keeps_dense_output) are live whatever the clocks are: the restriction
+// never overwrites the child's coarse-fine ghosts, so they stay the last dense
+// output from the bands, and recovery replays it from them once the level has
+// stepped. Before the first step the initial SYNC prolongated every group
+// there, and recovery repeats that without bands. A checkpoint without
+// per-level iteration is time-aligned, and RestoreLevelClocks gives every
+// level a clock that is positive iff the checkpoint iteration is.
+bool recovered_bands_needed(const int patch, const int level, const int gi) {
+  if (recovered_finer_level_is_behind(patch, level))
+    return true;
+  if (!ghext->use_subcycling || !group_keeps_dense_output(gi))
+    return false;
+  const auto &recovered = ghext->recovered_levels;
+  if (patch < 0 || patch >= int(recovered.size()))
+    return false;
+  const auto &levels = recovered.at(patch);
+  if (level < 0 || level + 1 >= int(levels.size()))
+    return false; // finest level: no child reads its bands
+  const std::optional<rat64> &self = levels.at(level).iteration;
+  if (!self)
+    return ghext->recovered_iteration > 0;
+  return *self > 0;
 }
 
 std::string subcycling_band_tag(const band_kind kind, const int stage) {

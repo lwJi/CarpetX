@@ -676,8 +676,24 @@ bool all_levels_synchronized();
 // Reads the iterations in ghext->recovered_levels; a missing entry
 // (checkpoint without iteration_num/den) means time-aligned, hence false.
 // Always false without subcycling and on the finest level. Only meaningful
-// during RecoverGH, while the recovered levels are still populated.
+// during RecoverGH, while the recovered levels are still populated. The
+// readers require the freg_* bands exactly here, and the source bands where
+// recovered_bands_needed holds, which extends this predicate to the groups
+// that keep the dense output.
 bool recovered_finer_level_is_behind(int patch, int level);
+
+// True when recovery reads the source bands (olds, kss_*) of group gi that
+// (patch, level) filled for its child, so the checkpoint must carry them:
+// some finer level is behind `level` (recovered_finer_level_is_behind), or gi
+// keeps the dense output (group_keeps_dense_output, subcycling.hxx) and
+// `level` has stepped (recovered clock > 0). Such a group's child-level
+// coarse-fine ghosts are never overwritten by the restriction, so ODESolvers'
+// recovery replays the dense output from these bands whatever the clocks are,
+// a time-aligned checkpoint included. A missing iteration entry means the
+// clock RestoreLevelClocks gives it, which is positive iff the checkpoint
+// iteration is. Always false on the finest level. Only meaningful during
+// RecoverGH, while the recovered levels are still populated.
+bool recovered_bands_needed(int patch, int level, int gi);
 
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
 // ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)

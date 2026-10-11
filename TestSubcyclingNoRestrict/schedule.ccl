@@ -1,0 +1,76 @@
+# Schedule definitions for thorn TestSubcyclingNoRestrict
+
+STORAGE: state state_nr rhs rhs_nr error
+
+
+SCHEDULE TestSubcyclingNoRestrict_Initial AT initial
+{
+  LANG: C
+  WRITES: state(interior) state_nr(interior)
+  SYNC: state state_nr
+} "Initialize both scalar wave state vectors"
+
+SCHEDULE TestSubcyclingNoRestrict_Sync AT postregrid
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: state state_nr
+} "Synchronize"
+
+SCHEDULE TestSubcyclingNoRestrict_Sync AT post_recover_variables
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: state state_nr
+} "Synchronize"
+
+# The solver marks the state valid everywhere after each refinement-boundary
+# fill, on level 0 too, whose ghosts only this SYNC fills; the floor below
+# reads the state, so its input check would see their poison without it
+SCHEDULE TestSubcyclingNoRestrict_Sync IN ODESolvers_PostStep BEFORE TestSubcyclingNoRestrict_Floor
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: state state_nr
+} "Synchronize"
+
+# An idempotent projection of the state with restriction disabled, which
+# changes the parent's tl=0 away from the dense output its child's coarse-fine
+# ghosts keep (see README). It runs in the solver after every RK stage, at
+# POSTRESTRICT, and once more per clock group at post_recover_variables, so it
+# must give the same result when applied twice. Only the interior is written:
+# the coarse-fine ghosts stay what the integrator filled, and the SYNC
+# exchanges the same-level ghosts.
+SCHEDULE TestSubcyclingNoRestrict_Floor IN ODESolvers_PostStep
+{
+  LANG: C
+  READS: state_nr(interior)
+  WRITES: state_nr(interior)
+  SYNC: state_nr
+} "Apply a floor to u_nr"
+
+SCHEDULE TestSubcyclingNoRestrict_RHS IN ODESolvers_RHS
+{
+  LANG: C
+  READS: state(everywhere) state_nr(everywhere)
+  WRITES: rhs(interior) rhs_nr(interior)
+} "Calculate the RHS of both scalar wave state vectors"
+
+# error is not checkpointed, and a level that lags its parent SYNCs it from
+# the parent: compute it at the end of each step, and again after a restart,
+# once the state's ghosts are refilled
+SCHEDULE GROUP TestSubcyclingNoRestrict_Diagnostics AT analysis
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE GROUP TestSubcyclingNoRestrict_Diagnostics AT post_recover_variables AFTER ODESolvers_PostStep
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE TestSubcyclingNoRestrict_Error IN TestSubcyclingNoRestrict_Diagnostics
+{
+  LANG: C
+  READS: state(interior)
+  WRITES: error(interior)
+  SYNC: error
+} "Calculate error in the restricted scalar wave state"

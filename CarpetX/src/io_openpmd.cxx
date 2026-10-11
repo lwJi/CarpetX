@@ -1116,16 +1116,23 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           } // for tl
 
           // Subcycling coarse source bands (see OutputOpenPMD): zero-ghost
-          // MultiFabs sharing the level's idomain frame. A time-aligned
-          // checkpoint carries no bands, so a missing mesh leaves the rebuilt
-          // band untouched; a mid-cycle checkpoint must carry them for every
-          // coarse level that is ahead of a finer level, and likewise the
-          // child's flux register, which is live there (see
-          // recovered_finer_level_is_behind), so there a missing mesh (old
-          // derivative-band format, or a truncated file) is refused.
+          // MultiFabs sharing the level's idomain frame. A band that recovery
+          // does not read may be missing, which leaves the rebuilt band
+          // untouched. The checkpoint must carry the source bands (kss_*,
+          // olds) wherever recovery reads them (recovered_bands_needed): on
+          // every coarse level that is ahead of a finer level, and, for a
+          // group that keeps the dense output (restrict="no"), on every level
+          // that has stepped, mid-cycle or time-aligned. It must carry the
+          // child's flux register wherever that is live, on every coarse level
+          // ahead of a finer level (recovered_finer_level_is_behind). There a
+          // missing mesh (old derivative-band format, a version that did not
+          // write these bands, or a truncated file) is refused.
           {
-            const bool need_bands = recovered_finer_level_is_behind(
+            const bool finer_behind = recovered_finer_level_is_behind(
                 leveldata.patch, leveldata.level);
+            const bool need_source =
+                recovered_bands_needed(leveldata.patch, leveldata.level, gi);
+            const bool need_freg = finer_behind;
             const auto read_band = [&](amrex::MultiFab *const band,
                                        const band_kind kind, const int stage) {
               if (!band || band->empty())
@@ -1135,6 +1142,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               const std::string meshname = make_meshname(
                   gi, leveldata.patch, leveldata.level, 0, band_tag);
               if (!read_iter->meshes.count(meshname)) {
+                const bool is_freg = kind == band_kind::flux_register;
                 // A do_reflux mismatch cannot reach this error: the parameter
                 // is STEERABLE = NEVER and the flesh restores it from the
                 // checkpoint before any mesh is read, so a differing par-file
@@ -1142,21 +1150,30 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                 // adopts the checkpoint's, allocating no register when that is
                 // "no". What arrives here is a checkpoint written before
                 // flux-register checkpointing existed, or a truncated one.
-                if (need_bands)
+                if (is_freg ? need_freg : need_source)
                   CCTK_VERROR(
-                      "Mid-cycle checkpoint lacks %s: mesh \"%s\" (band %s) "
-                      "for group %s on patch %d level %d is missing. The "
-                      "checkpoint was written by %s or is incomplete. "
-                      "Restart from a time-aligned checkpoint.",
-                      kind == band_kind::flux_register ? "flux-register data"
-                                                       : "coarse RK step data",
+                      "Checkpoint lacks %s: mesh \"%s\" (band %s) for group "
+                      "%s on patch %d level %d is missing. %s",
+                      is_freg ? "flux-register data" : "coarse RK step data",
                       meshname.c_str(), band_tag.c_str(),
                       CCTK_FullGroupName(gi), leveldata.patch, leveldata.level,
-                      kind == band_kind::flux_register
-                          ? "a version without flux-register checkpointing"
-                          : "the derivative-band scheme");
-                return; // not needed: time-aligned, or a register the
-                        // parent resets before its next reflux
+                      is_freg ? "The checkpoint was written by a version "
+                                "without flux-register checkpointing or is "
+                                "incomplete. Restart from a time-aligned "
+                                "checkpoint."
+                      : finer_behind
+                          ? "The checkpoint was written by the derivative-band "
+                            "scheme or is incomplete. Restart from a "
+                            "time-aligned checkpoint."
+                          : "The group is evolved with restriction disabled "
+                            "(restrict=\"no\"), so recovery replays its "
+                            "coarse-fine ghosts from these bands on every "
+                            "level that has stepped. The checkpoint was "
+                            "written without them (by a version that saves "
+                            "them only at mid-cycle iterations) or is "
+                            "incomplete.");
+                return; // not needed: never read by recovery, or a register
+                        // the parent resets before its next reflux
               }
               if (io_verbose)
                 CCTK_VINFO("Reading band mesh %s...", meshname.c_str());

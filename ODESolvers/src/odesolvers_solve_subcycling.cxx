@@ -450,9 +450,9 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
 
   if (verbose)
     CCTK_VINFO("Subcycling recovery: refilling refinement-boundary ghosts "
-               "(spatial prolongation on time-aligned levels of a restricted "
-               "window, dense output from the level's restored source bands "
-               "otherwise)");
+               "(spatial prolongation of the restricted groups on time-aligned "
+               "levels of a restricted window, dense output from the level's "
+               "restored source bands otherwise)");
 
   static Timer timer("ODESolvers::Solve_Subcycling_Recovery");
   Interval interval(timer);
@@ -464,29 +464,35 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
     return;
 
   // Refill each recovered fine level's refinement-boundary (cf) ghosts the
-  // way the uninterrupted run last wrote them. Recovery traverses
+  // way the uninterrupted run last wrote them, i.e. each group with the
+  // operator that last wrote it. Recovery traverses
   // CCTK_POST_RECOVER_VARIABLES once per clock group, and this routine runs
   // first in each traversal, so the window is one clock group, the window in
-  // which its levels last ran their end of step. Its levels other than its
-  // coarsest are aligned with their parents. Its coarsest level, unless it is
-  // level 0, lags its parent: it is mid-cycle. The ghosts were last written
+  // which its levels last ran their end of step. Its levels share one clock.
+  // Its levels other than its coarsest are aligned with their parents. Its
+  // coarsest level, unless it is level 0, lags its parent: it is mid-cycle.
+  // The ghosts were last written
   //  - at the virtual end of the level's last substep (calcys_rmbnd) by dense
   //    output from its source bands, which hold the parent's last step. The
-  //    checkpoint restored them; its reader has already refused a mid-cycle
-  //    checkpoint that lacks bands still needed here. fill_rk_boundary at the
-  //    same point, with the parent's step taken from the clocks, reproduces
-  //    these ghosts;
+  //    checkpoint restored them; its reader has already refused a checkpoint
+  //    that lacks bands still needed here (CarpetX::recovered_bands_needed).
+  //    fill_rk_boundary at the same point, with the parent's step taken from
+  //    the clocks, reproduces these ghosts;
   //  - or, on an aligned level of a window the driver restricted at that end
   //    of step (CarpetX::window_is_restricted: the finest clock group), after
   //    that by spatial prolongation from the restricted parent
-  //    (ProlongateRestrictedGFs), for every restricted group. The parent's
-  //    tl=0 still holds that state, and SyncGroupsByDirIProlongateOnlyAligned
-  //    repeats the prolongation. These are exactly the levels that need no
-  //    bands: a time-aligned checkpoint carries none. An evolved group with
-  //    restriction disabled kept the dense output there, which recovery
-  //    cannot repeat without bands, so it is prolongated the same way. Its
-  //    ghosts then differ from the uninterrupted run's at round-off, or by
-  //    what the parent's ODESolvers_PostStep (and reflux) changed in it.
+  //    (ProlongateRestrictedGFs), for every restricted group
+  //    (prolong_groups). The parent's tl=0 still holds that state, and
+  //    SyncGroupsByDirIProlongateOnlyAligned repeats the prolongation. These
+  //    groups need no bands there, and a time-aligned checkpoint need not
+  //    carry them. An evolved group with restriction disabled
+  //    (CarpetX::group_keeps_dense_output, dense_groups) is skipped by that
+  //    prolongation and kept the dense output there, so recovery replays it
+  //    from the bands, which every checkpoint must then carry;
+  //  - or, before the window's first step (clock 0), by the initial SYNC,
+  //    which prolongated every group from the parent. The dense_groups are
+  //    then prolongated with the restricted groups, as there are no bands
+  //    yet. A clock group shares one clock, so this is one window-wide test.
   // The ODESolvers_PostStep SYNC that follows then only exchanges ghosts
   // between boxes of the same level.
   if (var_groups.size() > 0) {
@@ -494,21 +500,44 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
                     "ODESolvers_Solve_Subcycling_Recovery requires the tl=0 "
                     "interior to be populated by checkpoint recovery");
 
+    std::vector<int> prolong_groups, dense_groups;
+    for (const int gi : var_groups)
+      (CarpetX::group_keeps_dense_output(gi) ? dense_groups : prolong_groups)
+          .push_back(gi);
+
     const bool restricted = CarpetX::window_is_restricted(
         active_levels->min_level, active_levels->max_level);
 
+    // Whether the window's levels have stepped: they share one clock
+    const auto &window_clock = CarpetX::ghext->patchdata.at(0)
+                                   .leveldata.at(active_levels->min_level)
+                                   .iteration;
+    active_levels->loop_serially([&](const auto &leveldata) {
+      assert(leveldata.iteration == window_clock);
+    });
+    const bool window_stepped = window_clock > 0;
+
     // Skips level 0 and every level that lags its parent
-    if (restricted)
-      CarpetX::SyncGroupsByDirIProlongateOnlyAligned(
-          cctkGH, var_groups.size(), var_groups.data(), nullptr, /*tl=*/0);
+    if (restricted) {
+      std::vector<int> groups = prolong_groups;
+      if (!window_stepped)
+        groups.insert(groups.end(), dense_groups.begin(), dense_groups.end());
+      if (!groups.empty())
+        CarpetX::SyncGroupsByDirIProlongateOnlyAligned(
+            cctkGH, groups.size(), groups.data(), nullptr, /*tl=*/0);
+    }
 
     const int virtual_end = CarpetX::ghext->num_rk_stages + 1;
     active_levels->loop_coarse_to_fine([&](const auto &leveldata) {
       if (leveldata.level == 0)
         return;
-      // Prolongated in space above
-      if (restricted && aligned_with_parent(leveldata))
+      if (restricted && aligned_with_parent(leveldata)) {
+        // The restricted groups were prolongated in space above, and so were
+        // the dense_groups if the level has not stepped yet
+        if (leveldata.iteration > 0 && !dense_groups.empty())
+          fill_rk_boundary(cctkGH, leveldata, dense_groups, virtual_end);
         return;
+      }
       fill_rk_boundary(cctkGH, leveldata, var_groups, virtual_end);
     });
     synchronize();

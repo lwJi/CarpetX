@@ -1,0 +1,48 @@
+# Interface definition for thorn TestSubcyclingNoRestrict
+
+IMPLEMENTS: TestSubcyclingNoRestrict
+
+INHERITS: BoxInBox
+
+USES INCLUDE HEADER: loop_device.hxx
+USES INCLUDE HEADER: vect.hxx
+USES INCLUDE HEADER: vec.hxx
+USES INCLUDE HEADER: mat.hxx
+
+USES INCLUDE HEADER: derivs.hxx
+
+
+
+# Restricted: the driver overwrites its coarse-fine ghosts on time-aligned
+# levels of a restricted window by spatial prolongation
+CCTK_REAL state TYPE=gf TAGS='rhs="rhs" dependents="error"'
+{
+  u
+  rho
+} "Scalar wave state vector"
+
+# Restriction disabled: its coarse-fine ghosts keep the integrator's dense
+# output in every window
+CCTK_REAL state_nr TYPE=gf TAGS='rhs="rhs_nr" restrict="no"'
+{
+  u_nr
+  rho_nr
+} "Scalar wave state vector with restriction disabled and a floor on u_nr"
+
+CCTK_REAL rhs TYPE=gf TAGS='checkpoint="no"'
+{
+  u_rhs
+  rho_rhs
+} "RHS of scalar wave state vector"
+
+CCTK_REAL rhs_nr TYPE=gf TAGS='checkpoint="no"'
+{
+  u_nr_rhs
+  rho_nr_rhs
+} "RHS of scalar wave state vector with restriction disabled"
+
+CCTK_REAL error TYPE=gf TAGS='checkpoint="no"'
+{
+  u_err
+  rho_err
+} "Error in scalar wave state vector"

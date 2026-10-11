@@ -89,6 +89,17 @@ bool group_is_integrated(int gi);
 // from PARAMCHECK on, before any level exists. Defined in driver.cxx.
 bool group_has_flux_register(int gi);
 
+// True iff group gi is integrated (group_is_integrated) with restriction
+// disabled (restrict="no"): the driver never overwrites its coarse-fine
+// ghosts after the integrator's end-of-step fill (ProlongateRestrictedGFs
+// skips it), so its child-level source bands stay live until the parent steps
+// again. This is the one definition of "gi keeps the dense output"; the
+// checkpoint readers (through recovered_bands_needed, driver.hxx) and
+// ODESolvers' recovery call it. Uses only tag tables and ghext, and no grid
+// structure, so it is valid from PARAMCHECK on, before any level exists.
+// Defined in driver.cxx.
+bool group_keeps_dense_output(int gi);
+
 // True iff the driver restricts the window [min_level, max_level) of
 // time-aligned levels at its end of step: the window holds the finest level
 // and at least one other. The driver then restricts the window and refills
@@ -96,12 +107,15 @@ bool group_has_flux_register(int gi);
 // spatial prolongation from the restricted parent (ProlongateRestrictedGFs,
 // for every restricted group), after the integrator's end-of-step fill. Any
 // other window keeps the integrator's fill until a later window that holds it
-// is restricted, and an integrated group with restriction disabled keeps it
-// in every window. This is the one definition of "the window is restricted";
-// the restriction blocks of Initialise and Evolve call it. During recovery the
-// window is a clock group, the window in which its levels last ran their end
-// of step (ClockGroups), so it tells which of the two fills last wrote the
-// restricted groups' ghosts. Defined in schedule.cxx.
+// is restricted, and an integrated group with restriction disabled
+// (group_keeps_dense_output) keeps it in every window. This is the one
+// definition of "the window is restricted"; the restriction blocks of
+// Initialise and Evolve call it. During recovery the window is a clock group,
+// the window in which its levels last ran their end of step (ClockGroups), so
+// it tells which of the two fills last wrote the restricted groups' ghosts:
+// recovery repeats the prolongation for those, and replays the dense output
+// from the restored source bands for a group with restriction disabled.
+// Defined in schedule.cxx.
 bool window_is_restricted(int min_level, int max_level);
 
 // Allocate (lazily, idempotently) the cached flux geometry of (patch,

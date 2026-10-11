@@ -1,0 +1,53 @@
+Cactus Code Thorn TestSubcyclingNoRestrict
+Author(s)    : Liwei Ji <jiliwei.phys@gmail.com>
+Maintainer(s): Liwei Ji <jiliwei.phys@gmail.com>
+Licence      : LGPL
+--------------------------------------------------------------------------
+
+1. Purpose
+
+Regression test for checkpoint recovery under subcycling of an evolved
+group with restriction disabled (restrict="no").
+
+Under subcycling, ODESolvers fills the coarse-fine ghosts of every evolved
+group on a refined level by dense output from the level's source bands
+(the parent's old state and RK stage derivatives), at every stage and at a
+virtual end of each substep. When the driver restricts a time-aligned
+window that holds the finest level, ProlongateRestrictedGFs overwrites
+these ghosts on the levels aligned with their parents, by spatial
+prolongation from the restricted parent, but only for groups with
+restriction enabled. A group with restrict="no" keeps the dense output.
+Recovery must therefore replay the dense output for such a group from the
+checkpointed bands, rather than prolongate it from the parent's
+checkpointed state.
+
+This thorn is a trimmed copy of TestSubcyclingMC2 (scalar wave equation,
+Gaussian initial data, fourth-order centred Laplacian, ODESolvers RK4,
+three refinement levels) without the moving box or the added level. It
+evolves the same wave twice:
+
+  state    {u, rho}         restricted; error compares it with the
+                            analytic solution
+  state_nr {u_nr, rho_nr}   restrict="no"; ODESolvers_PostStep applies
+                            u_nr = max(u_nr, u_floor) in the interior
+
+The floor makes the parent's tl=0 differ from the dense output its child's
+coarse-fine ghosts keep: with a negative amplitude u decreases from zero,
+and once it reaches the floor every RK update pushes it below again, so the
+floor clips it at every step, also on the coarse cells under the finest
+level's coarse-fine ghosts. Prolongating state_nr from the parent at
+recovery then differs from the uninterrupted run by far more than the
+testsuite tolerance. The floor is idempotent, because ODESolvers_PostStep
+also runs at POSTRESTRICT and once more per clock group at
+post_recover_variables.
+
+2. Tests
+
+  test/checkpoint-openpmd-midcycle.par
+      3 levels, checkpoint at iteration 6, where the clocks are 2, 3/2
+      and 3/2 coarse steps: the finest clock group [1,3) is restricted
+      and level 2 is aligned with level 1. Runs on to iteration 8 as the
+      uninterrupted baseline.
+  test/recover-openpmd-midcycle.par
+      Recovers that checkpoint and runs to iteration 8; its output must
+      equal the baseline's bit for bit.

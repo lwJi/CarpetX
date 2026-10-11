@@ -689,21 +689,24 @@ void InputSilo(const cGH *restrict const cctkGH,
       file_has_bands = global_has[0] != 0;
       file_has_freg = global_has[1] != 0;
 
-      // A mid-cycle checkpoint must carry the coarse source bands for every
-      // coarse level that is ahead of a finer level (see
-      // recovered_finer_level_is_behind); a file without any band data
-      // there was written by the derivative-band scheme or is incomplete.
-      // Every rank evaluates the same predicate on replicated data (recovered
-      // iterations, band geometry), so the abort is collective and the
-      // per-component MPI protocol below stays symmetric.
+      // The checkpoint must carry the coarse source bands wherever recovery
+      // reads them (recovered_bands_needed): for every coarse level that is
+      // ahead of a finer level, and, for a group that keeps the dense output
+      // (restrict="no"), for every level that has stepped. A file without
+      // any band data there was written by the derivative-band scheme or
+      // without these bands, or is incomplete. Every rank evaluates the same
+      // predicate on replicated data (recovered iterations, tags, band
+      // geometry), so the abort is collective and the per-component MPI
+      // protocol below stays symmetric.
       if (!file_has_bands) {
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
-            if (!recovered_finer_level_is_behind(patchdata.patch,
-                                                 leveldata.level))
-              continue;
+            const bool finer_behind = recovered_finer_level_is_behind(
+                patchdata.patch, leveldata.level);
             for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
               if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
+                continue;
+              if (!recovered_bands_needed(patchdata.patch, leveldata.level, gi))
                 continue;
               const auto &groupdata = *leveldata.groupdata.at(gi);
               if (groupdata.mfab.empty())
@@ -713,13 +716,21 @@ void InputSilo(const cGH *restrict const cctkGH,
               if (!band || band->empty())
                 continue; // not evolved, or an empty coarse-fine footprint
               CCTK_VERROR(
-                  "Mid-cycle checkpoint lacks coarse RK step data (bands %s, "
-                  "%s..) for group %s on patch %d level %d. The checkpoint "
-                  "was written by the derivative-band scheme or is "
-                  "incomplete. Restart from a time-aligned checkpoint.",
+                  "Checkpoint lacks coarse RK step data (bands %s, %s..) for "
+                  "group %s on patch %d level %d. %s",
                   subcycling_band_tag(band_kind::old_source).c_str(),
                   subcycling_band_tag(band_kind::ks_source, 0).c_str(),
-                  CCTK_FullGroupName(gi), patchdata.patch, leveldata.level);
+                  CCTK_FullGroupName(gi), patchdata.patch, leveldata.level,
+                  finer_behind
+                      ? "The checkpoint was written by the derivative-band "
+                        "scheme or is incomplete. Restart from a time-aligned "
+                        "checkpoint."
+                      : "The group is evolved with restriction disabled "
+                        "(restrict=\"no\"), so recovery replays its "
+                        "coarse-fine ghosts from these bands on every level "
+                        "that has stepped. The checkpoint was written without "
+                        "them (by a version that saves them only at mid-cycle "
+                        "iterations) or is incomplete.");
             }
           }
         }
