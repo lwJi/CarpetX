@@ -13,18 +13,23 @@ SCHEDULE BoxInBox_Init AT initial
   WRITES: radiixyz
 } "Initialize"
 
-SCHEDULE BoxInBox_Setup AS EstimateError AT postinitial
+# The next regrid reads regrid_error, which is not checkpointed: estimate it
+# after initial data, at the end of every step, and again after a restart.
+# The group carries the alias EstimateError, so that other thorns can order
+# their box updates before it in each bin.
+SCHEDULE GROUP BoxInBox_EstimateError AS EstimateError AT postinitial
 {
-  LANG: C
-  READS: active
-  READS: num_levels
-  READS: positions
-  READS: radii
-  READS: radiixyz
-  WRITES: CarpetXRegrid::regrid_error(interior)
 } "Estimate error"
 
-SCHEDULE BoxInBox_Setup AS EstimateError AT poststep
+SCHEDULE GROUP BoxInBox_EstimateError AS EstimateError AT poststep
+{
+} "Estimate error"
+
+SCHEDULE GROUP BoxInBox_EstimateError AS EstimateError AT post_recover_variables
+{
+} "Estimate error"
+
+SCHEDULE BoxInBox_Setup IN BoxInBox_EstimateError
 {
   LANG: C
   READS: active

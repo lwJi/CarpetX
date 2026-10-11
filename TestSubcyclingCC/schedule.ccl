@@ -38,7 +38,18 @@ SCHEDULE TestSubcyclingCC_RHS IN ODESolvers_RHS
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-SCHEDULE TestSubcyclingCC_Error AT analysis
+# error is not checkpointed, and a level that lags its parent SYNCs it from
+# the parent: compute it at the end of each step, and again after a restart,
+# once the state's ghosts are refilled
+SCHEDULE GROUP TestSubcyclingCC_Diagnostics AT analysis
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE GROUP TestSubcyclingCC_Diagnostics AT post_recover_variables AFTER ODESolvers_PostStep
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE TestSubcyclingCC_Error IN TestSubcyclingCC_Diagnostics
 {
   LANG: C
   READS: state(interior)

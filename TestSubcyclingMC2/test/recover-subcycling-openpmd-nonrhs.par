@@ -88,6 +88,7 @@ CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state
     TestSubcyclingMC2::error
     TestSubcycleStepping::iteration
+    TestSubcycleStepping::recovery_counts
 "
 
 IO::checkpoint_dir = $parfile
