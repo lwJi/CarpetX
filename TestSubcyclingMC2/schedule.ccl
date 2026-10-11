@@ -26,6 +26,25 @@ SCHEDULE TestSubcyclingMC2_MoveBox IN TestSubcyclingMC2_UpdateBoxes
   WRITES: BoxInBox::positions
 } "Move the refined box along a linear drift from the origin"
 
+# The next regrid reads num_levels: after a restart, each level's error
+# estimate must see the value of that level's own iteration, as at the end of
+# its last step
+SCHEDULE GROUP TestSubcyclingMC2_UpdateLevels AT poststep BEFORE EstimateError
+{
+} "Ask for one more refinement level from add_level_at_iteration on"
+
+SCHEDULE GROUP TestSubcyclingMC2_UpdateLevels AT post_recover_variables BEFORE EstimateError
+{
+} "Ask for one more refinement level from add_level_at_iteration on"
+
+SCHEDULE TestSubcyclingMC2_AddLevel IN TestSubcyclingMC2_UpdateLevels
+{
+  LANG: C
+  OPTIONS: global
+  READS: BoxInBox::num_levels
+  WRITES: BoxInBox::num_levels
+} "Ask for one more refinement level from add_level_at_iteration on"
+
 SCHEDULE TestSubcyclingMC2_Initial AT initial
 {
   LANG: C

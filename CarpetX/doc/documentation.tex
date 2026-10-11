@@ -1898,6 +1898,16 @@ Grid scalars that a finer clock group overwrites cannot be checked. A thorn that
 
 A checkpoint records, for every level, its clock and the iteration of its last end of step: the \texttt{openPMD} iteration attributes \texttt{iteration\_num}, \texttt{iteration\_den} and \texttt{last\_tail\_iteration}, with a per-level suffix, or the \texttt{Silo} metafile variables of the same names in the \texttt{CarpetX} directory, one per patch and level. It holds no other extra data: no ghost zones, and no groups beyond those tagged \texttt{checkpoint}. Checkpoints written before the end-of-step iteration was recorded get it from the level clocks: the finest clock group gets the checkpoint iteration, and every coarser group the iteration in which its finest level last stepped. When every level shares one clock (an aligned checkpoint, or no subcycling), this is exact. With two or more clocks it assumes that no regrid has changed the number of levels since the coarsest clock group last stepped, and recovery prints a warning.
 
+\subsection{Silo checkpoints}
+
+\texttt{openPMD} is the checkpoint format that the testsuite verifies. \texttt{Silo} checkpoints carry the same per-level metadata and are recovered with the same sequence, but they have three limits:
+%
+\begin{itemize}
+\item A \texttt{Silo} checkpoint can be recovered only on the number of processes it was written with. It stores neither how the boxes were distributed nor which file holds which box, and \texttt{CarpetX::rechop\_on\_recovery} supports only \texttt{openPMD}.
+\item \texttt{Silo} checkpoints only groups with one timelevel; checkpointing or recovering a group with more timelevels is an error. A group whose previous timelevel another level reads (the third clause of the rule) therefore needs \texttt{openPMD}.
+\item \texttt{Silo} does not checkpoint grid scalars and grid arrays. After a strict recovery they are still invalid, and the first routine that reads one aborts, so strict recovery from a \texttt{Silo} checkpoint fails for any run that needs them. For example, \texttt{BoxInBox} reads its checkpointed grid scalars (\texttt{positions}, \texttt{num\_levels}, \ldots) when it estimates the error in \texttt{CCTK\_POST\_RECOVER\_VARIABLES}. The testsuite's \texttt{Silo} recover test therefore runs with \texttt{Cactus::recovery\_mode = "relaxed"}: the \texttt{CCTK\_INITIAL} bin, traversed before the checkpoint is read, rebuilds the \texttt{BoxInBox} scalars from parameters, which is correct there because the box does not move.
+\end{itemize}
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Debugging}
 \label{sec:debugging}

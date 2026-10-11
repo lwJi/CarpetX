@@ -1,0 +1,124 @@
+# Recover half of the Silo checkpoint/recover pair (see
+# checkpoint-subcycling-silo-3clocks.par): the openPMD 3-clock recover test
+# (see recover-subcycling-openpmd-3clocks.par) with a Silo checkpoint. It
+# recovers the frozen checkpoint written at iteration 5, where the three
+# levels are on three different clocks, and continues to iteration 8. The
+# checkpoint records each level's last end-of-step iteration, so recovery
+# traverses CCTK_POST_RECOVER_VARIABLES once per clock group, each time with
+# the context in which that group last ran its end of step; without it, a
+# three-clock checkpoint would be refused.
+#
+# For iterations 6 to 8 the output must match the openPMD 3-clock recover
+# test's. The checkpoint is written on 1 rank, and Silo can only be recovered
+# on the rank count the checkpoint was written with, so test.ccl runs this
+# pair on 1 rank.
+#
+# This test recovers in relaxed mode (Cactus::recovery_mode below). Silo
+# checkpoints do not carry grid scalars or grid arrays (the "TODO: Output grid
+# arrays" and "TODO: read grid arrays" in CarpetX/src/io_silo.cxx), so after a
+# strict recovery BoxInBox's scalars are still invalid and the first routine
+# that reads them aborts. Relaxed mode traverses CCTK_INITIAL first, and works
+# here only because BoxInBox_Init rebuilds those scalars from parameters, and
+# the box does not move. A strict-mode version of this test waits on Silo
+# checkpointing grid scalars and arrays.
+
+ActiveThorns = "
+    BoxInBox
+    CarpetX
+    IOUtil
+    ODESolvers
+    TestSubcycleStepping
+    TestSubcyclingMC2
+"
+
+$out_every = 1
+$nlevels = 3
+$ncells = 32
+
+TestSubcyclingMC2::initial_condition = "Gaussian"
+TestSubcyclingMC2::gaussian_width = 0.17677669529 # sqrt(2)*W = 0.25
+
+CarpetX::use_subcycling = yes
+CarpetX::restrict_during_sync = no
+
+CarpetX::poison_undefined_values = yes
+CarpetX::verbose = no
+
+Cactus::cctk_show_schedule = yes
+Cactus::presync_mode = "mixed-error"
+
+CarpetX::xmin = -4.0
+CarpetX::ymin = -4.0
+CarpetX::zmin = -4.0
+
+CarpetX::xmax = +4.0
+CarpetX::ymax = +4.0
+CarpetX::zmax = +4.0
+
+CarpetX::ncells_x = $ncells
+CarpetX::ncells_y = $ncells
+CarpetX::ncells_z = $ncells
+
+Driver::periodic = "yes"
+Driver::periodic_x = yes
+Driver::periodic_y = yes
+Driver::periodic_z = yes
+
+CarpetX::max_num_levels = $nlevels
+Driver::regrid_every = 128
+Driver::regrid_error_threshold = 0.9
+
+CarpetX::prolongation_type = "ddf"
+#CarpetX::prolongation_order = 5
+CarpetX::ghost_size = 3
+CarpetX::dtfac = 0.25
+
+CarpetX::blocking_factor_x = 2
+CarpetX::blocking_factor_y = 2
+CarpetX::blocking_factor_z = 2
+#CarpetX::max_grid_size_x = 10000000
+#CarpetX::max_grid_size_y = 10000000
+#CarpetX::max_grid_size_z = 10000000
+#CarpetX::max_tile_size_x = 10000000
+#CarpetX::max_tile_size_y = 10000000
+#CarpetX::max_tile_size_z = 10000000
+
+BoxInBox::num_regions = 1
+# Region 1
+BoxInBox::shape_1 = "cube"
+BoxInBox::num_levels_1 = $nlevels
+BoxInBox::radius_1 = [ -1.0, 1.0, 0.5 ]
+
+Cactus::terminate = "iteration"
+#Cactus::cctk_final_time = 2.0
+Cactus::cctk_itlast = 8
+
+ODESolvers::method = "RK4"
+#ODESolvers::verbose = yes
+
+IO::out_dir = $parfile
+IO::out_every = $out_every
+IO::out_fileinfo = "axis labels"
+IO::parfile_write = no
+
+CarpetX::out_metadata = no
+CarpetX::out_initial_data = no
+
+CarpetX::out_tsv_vars = "
+    TestSubcyclingMC2::state
+    TestSubcyclingMC2::error
+    TestSubcycleStepping::tail_context
+    TestSubcycleStepping::recovery_counts
+"
+
+IO::checkpoint_dir = $parfile
+IO::checkpoint_ID = no
+IO::checkpoint_every = 0
+IO::checkpoint_on_terminate = no
+
+CarpetX::recover_method = "silo"
+IO::recover_dir = "../../../arrangements/CarpetX/TestSubcyclingMC2/test/checkpoints-subcycling-silo-3clocks"
+IO::recover = "autoprobe"
+
+# Silo checkpoints do not carry grid scalars (see above)
+Cactus::recovery_mode = "relaxed"

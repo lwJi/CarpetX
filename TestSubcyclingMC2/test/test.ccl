@@ -1,0 +1,14 @@
+# Silo checkpoints can only be recovered on the rank count they were written
+# with. The frozen Silo checkpoint was written on 1 rank, so the Silo pair
+# runs on 1 rank (its checkpoint half too, so that it stays the uninterrupted
+# baseline of the recover half).
+
+TEST checkpoint-subcycling-silo-3clocks
+{
+  NPROCS 1
+}
+
+TEST recover-subcycling-silo-3clocks
+{
+  NPROCS 1
+}
