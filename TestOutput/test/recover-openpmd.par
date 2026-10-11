@@ -1,3 +1,8 @@
+# Old-format compatibility test: the frozen checkpoint predates per-level
+# end-of-step iterations (last_tail_iteration). Its levels share one clock,
+# so recovery gives every level the checkpoint iteration and loses nothing.
+# See "Recovery" in the CarpetX documentation.
+
 ActiveThorns = "
     CarpetX
     IOUtil
