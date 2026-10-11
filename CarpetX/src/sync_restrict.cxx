@@ -121,6 +121,29 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
   }
 }
 
+// Abort unless the parent of `leveldata` has a valid interior for every
+// variable of group gi in timelevel tl, because a prolongation into
+// `leveldata` is about to read it. The message names the parent's level and
+// timelevel.
+static void
+error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
+                        const int gi, const int tl, const char *const label) {
+  assert(leveldata.level > 0);
+  const auto &restrict groupdata = *leveldata.groupdata.at(gi);
+  const auto &restrict coarseleveldata =
+      ghext->patchdata.at(leveldata.patch).leveldata.at(leveldata.level - 1);
+  const auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
+  assert(!coarsegroupdata.mfab.empty());
+  assert(coarsegroupdata.numvars == groupdata.numvars);
+  assert(tl >= 0 && tl < int(coarsegroupdata.mfab.size()));
+
+  const std::function<std::string()> msg = [label]() {
+    return std::string(label);
+  };
+  for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
+    error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), msg);
+}
+
 static std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -329,24 +352,11 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
-      if (leveldata.level > 0) {
-
-        const int level = leveldata.level;
-        const auto &restrict coarseleveldata =
-            ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
-        auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-        assert(!coarsegroupdata.mfab.empty());
-        assert(coarsegroupdata.numvars == groupdata.numvars);
-
-        for (int tl = 0; tl < sync_tl0; ++tl) {
-          for (int vi = 0; vi < groupdata.numvars; ++vi) {
-            error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), []() {
-              return "SyncGroupsByDirI on coarse level before prolongation";
-            });
-          }
-        } // for tl
-
-      } // if leveldata.level > 0
+      if (leveldata.level > 0)
+        for (int tl = 0; tl < sync_tl0; ++tl)
+          error_if_parent_invalid(
+              leveldata, gi, tl,
+              "SyncGroupsByDirI on coarse level before prolongation");
 
       for (int tl = 0; tl < sync_tl0; ++tl) {
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
@@ -609,21 +619,27 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
           // tl=1, so it gets coarse tl=0 as it currently stands.
           const bool aligned =
               (leveldata.iteration == coarseleveldata.iteration);
+          const bool blend = !aligned && coarsegroupdata.mfab.size() >= 2;
           const rat64 cdt = coarseleveldata.delta_iteration;
           const rat64 t_new = coarseleveldata.iteration;
           const rat64 t_fin = leveldata.iteration;
           const CCTK_REAL w_new = CCTK_REAL((t_fin - t_new + cdt) / cdt);
 
-          // The blend needs a valid old coarse snapshot (tl=1).
-          bool old_valid = coarsegroupdata.mfab.size() >= 2;
-          if (old_valid)
-            for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
-              old_valid = old_valid &&
-                          coarsegroupdata.valid.at(1).at(vi).get().valid_int;
+          // Each fill below first checks that every parent timelevel it reads
+          // has a valid interior. The fills are only queued here, so the
+          // checks run before any of them. They hold in every run and have no
+          // opt-out; without them an invalid parent is caught only by the
+          // poison scan after the sync, on the child, and not at all without
+          // poisoning.
+          const char *const label =
+              "SyncGroupsByDirISubcycling on coarse level before prolongation";
 
           for (int tl = 0; tl < sync_tl; ++tl) {
             // Only tl=0 is the "new" coarse snapshot whose old partner is tl=1.
-            const bool do_blend = !aligned && old_valid && tl == 0;
+            const bool do_blend = blend && tl == 0;
+            error_if_parent_invalid(leveldata, gi, tl, label);
+            if (do_blend)
+              error_if_parent_invalid(leveldata, gi, 1, label);
             const amrex::MultiFab *const cmfab_old =
                 do_blend ? coarsegroupdata.mfab.at(1).get() : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
