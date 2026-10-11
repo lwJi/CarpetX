@@ -1,0 +1,111 @@
+# Checkpoint half of a checkpoint/recover pair with four levels, otherwise
+# the setup of checkpoint-subcycling-openpmd-3clocks.par. The checkpoint is
+# taken at iteration 9, where the four levels are on four different clocks
+# (2, 3/2, 5/4 and 9/8 coarse steps), so it carries the RK source bands of
+# levels 1, 2 and 3 and each level's last end-of-step iteration (9 on every
+# level). The run continues to iteration 16, where the levels are aligned
+# again, as the uninterrupted baseline for
+# recover-subcycling-openpmd-4clocks.par.
+#
+# TestSubcycleStepping stamps tail_context, the context of the last
+# end-of-step window that covered each level. recovery_counts stays 0 on a
+# fresh start.
+#
+# Output is written every half coarse step (4 iterations), which keeps the
+# reference small and still shares iterations 12 (mid-cycle) and 16 (aligned)
+# with the recover run. The recover par sets IO::out_every itself, so this
+# value does not carry over through the checkpoint.
+
+ActiveThorns = "
+    BoxInBox
+    CarpetX
+    IOUtil
+    ODESolvers
+    TestSubcycleStepping
+    TestSubcyclingMC2
+"
+
+$out_every = 4
+$nlevels = 4
+$ncells = 32
+
+TestSubcyclingMC2::initial_condition = "Gaussian"
+TestSubcyclingMC2::gaussian_width = 0.17677669529 # sqrt(2)*W = 0.25
+
+CarpetX::use_subcycling = yes
+CarpetX::restrict_during_sync = no
+
+CarpetX::poison_undefined_values = yes
+CarpetX::verbose = no
+
+Cactus::cctk_show_schedule = yes
+Cactus::presync_mode = "mixed-error"
+
+CarpetX::xmin = -4.0
+CarpetX::ymin = -4.0
+CarpetX::zmin = -4.0
+
+CarpetX::xmax = +4.0
+CarpetX::ymax = +4.0
+CarpetX::zmax = +4.0
+
+CarpetX::ncells_x = $ncells
+CarpetX::ncells_y = $ncells
+CarpetX::ncells_z = $ncells
+
+Driver::periodic = "yes"
+Driver::periodic_x = yes
+Driver::periodic_y = yes
+Driver::periodic_z = yes
+
+CarpetX::max_num_levels = $nlevels
+Driver::regrid_every = 128
+Driver::regrid_error_threshold = 0.9
+
+CarpetX::prolongation_type = "ddf"
+#CarpetX::prolongation_order = 5
+CarpetX::ghost_size = 3
+CarpetX::dtfac = 0.25
+
+CarpetX::blocking_factor_x = 2
+CarpetX::blocking_factor_y = 2
+CarpetX::blocking_factor_z = 2
+#CarpetX::max_grid_size_x = 10000000
+#CarpetX::max_grid_size_y = 10000000
+#CarpetX::max_grid_size_z = 10000000
+#CarpetX::max_tile_size_x = 10000000
+#CarpetX::max_tile_size_y = 10000000
+#CarpetX::max_tile_size_z = 10000000
+
+BoxInBox::num_regions = 1
+# Region 1
+BoxInBox::shape_1 = "cube"
+BoxInBox::num_levels_1 = $nlevels
+BoxInBox::radius_1 = [ -1.0, 1.0, 0.5, 0.25 ]
+
+Cactus::terminate = "iteration"
+#Cactus::cctk_final_time = 2.0
+Cactus::cctk_itlast = 16
+
+ODESolvers::method = "RK4"
+#ODESolvers::verbose = yes
+
+IO::out_dir = $parfile
+IO::out_every = $out_every
+IO::out_fileinfo = "axis labels"
+IO::parfile_write = no
+
+CarpetX::out_metadata = no
+
+CarpetX::out_tsv_vars = "
+    TestSubcyclingMC2::state
+    TestSubcyclingMC2::error
+    TestSubcycleStepping::tail_context
+    TestSubcycleStepping::recovery_counts
+"
+
+CarpetX::checkpoint_method = "openpmd"
+IO::checkpoint_dir = $parfile + "/checkpoints"
+IO::checkpoint_ID = no
+IO::checkpoint_every = 9
+IO::checkpoint_on_terminate = no

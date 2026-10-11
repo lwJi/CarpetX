@@ -264,9 +264,12 @@ void synchronize();
 // in driver.hxx, which includes valid.hxx. Declaring the prorotypes here avoids
 // that circular reference. This should be fixed.
 
+// `hint`, if set, is printed after the found validity, e.g. to state a rule
+// that the caller knows was broken.
 void error_if_invalid(const GHExt::PatchData::LevelData::GroupData &grouppdata,
                       int vi, int tl, const valid_t &required,
-                      const std::function<std::string()> &msg);
+                      const std::function<std::string()> &msg,
+                      const std::function<std::string()> &hint = nullptr);
 void warn_if_invalid(const GHExt::PatchData::LevelData::GroupData &grouppdata,
                      int vi, int tl, const valid_t &required,
                      const std::function<std::string()> &msg);

@@ -19,10 +19,10 @@ if(use_subcycling) {
   } "Solve ODEs with subcycling"
 
   # Refill refinement-boundary ghosts of the evolved state so they match
-  # what a normal-step trajectory would have produced at the same point.
-  # Scheduled at CCTK_CPINITIAL, which fires on both fresh init and
-  # recovery; the body early-returns when cctk_iteration <= 0.
-  SCHEDULE ODESolvers_Solve_Subcycling_Recovery AT CCTK_CPINITIAL
+  # what the uninterrupted run's last end of step left there. Recovery
+  # traverses CCTK_POST_RECOVER_VARIABLES once per clock group, so this
+  # refills each group's levels, before anything reads them.
+  SCHEDULE ODESolvers_Solve_Subcycling_Recovery AT CCTK_POST_RECOVER_VARIABLES BEFORE ODESolvers_PostStep
   {
     LANG: C
     OPTIONS: level
@@ -102,6 +102,20 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 #   ANALYSIS        (per level batch under subcycling)
 #   CHECKPOINT      (once, after all batches)
 #   OutputGH        (once, after all batches)
+#
+# Recovery (instead of Initialization):
+#   [read grid structure]
+#   BASEGRID
+#   (relaxed recovery_mode only) INITIAL, POSTINITIAL, POSTPOSTINITIAL
+#   [read checkpoint]
+#   RECOVER_VARIABLES       (once, all levels, level clocks still 0)
+#   [restore level clocks]
+#   POST_RECOVER_VARIABLES  (once per clock group, coarse to fine, with the
+#                            group's context; under subcycling the evolved
+#                            state's ghosts are refilled first)
+#   CPINITIAL
+#   OutputGH
+#   (no restriction, POSTRESTRICT, POSTSTEP or ANALYSIS)
 #
 # Shutdown:
 #   TERMINATE
