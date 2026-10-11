@@ -9,10 +9,11 @@
 # and continues through the regrids at iterations 8 and 12.
 #
 # At RECOVER_VARIABLES TestPersistentGroups restarts the running total. At
-# POST_RECOVER_VARIABLES it SYNCs the tested groups (checkpoints carry their
-# interior only) and checks that the recovered stamps are intact. The rows at
-# iterations 8 and 16 hold the same stamps as moving.par's. The correct value
-# of stale_count is 0 for both groups in every row.
+# POST_RECOVER_VARIABLES, once per clock group, it SYNCs the tested groups
+# (checkpoints carry their interior only) and checks that the recovered
+# stamps are intact. The rows at iterations 8 and 16 hold the same stamps as
+# moving.par's. The correct value of stale_count is 0 for both groups in
+# every row.
 
 ActiveThorns = "
     BoxInBox

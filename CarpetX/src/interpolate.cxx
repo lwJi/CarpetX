@@ -886,14 +886,24 @@ void CarpetX::InterpolationSetup::Interpolate(
     // min > max: nothing was interpolated, so no time alignment is required.
     if (min_iteration_used <= max_iteration_used &&
         min_iteration_used != max_iteration_used) {
+      // Inside a recovery traversal the levels differ in time only because
+      // the checkpoint was written mid-cycle
+      const char *const recovery_hint =
+          ghext->in_recovery_traversal
+              ? " This run is recovering from a mid-cycle checkpoint, where "
+                "levels are at different times. Results that read across "
+                "levels cannot be recomputed in "
+                "CCTK_POST_RECOVER_VARIABLES; checkpoint them instead (see "
+                "\"Recovery\" in the CarpetX documentation)."
+              : "";
       CCTK_VERROR("Interpolation in time required when interpolating %s at "
                   "iteration %d: points used refinement levels at subcycling "
                   "iterations %g through %g. Schedule interpolation only when "
                   "all levels are time-aligned (e.g. every "
-                  "2^(max_num_levels-1) iterations).",
+                  "2^(max_num_levels-1) iterations).%s",
                   nvars > 0 ? CCTK_FullVarName(varinds[0]) : "no variable",
                   cctkGH->cctk_iteration, min_iteration_used,
-                  max_iteration_used);
+                  max_iteration_used, recovery_hint);
     }
   }
 

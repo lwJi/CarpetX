@@ -1159,6 +1159,23 @@ static void SetDeltaTime(cGH *restrict const cctkGH) {
   assert(isfinite(cctkGH->cctk_delta_time));
 }
 
+// The time that a window sees once `level` has stepped to `clock` (in coarse
+// steps). Evolve sets it for each batch before CCTK_PRESTEP, and recovery for
+// each clock group before CCTK_POST_RECOVER_VARIABLES, with `level` the
+// group's finest level, so the two cannot drift apart. cctk_iteration is not
+// a function of the clock, so each caller sets it itself. Without subcycling
+// cctk_time is not one either (Evolve accumulates it, recovery keeps the
+// checkpointed value), so only cctk_timefac is set.
+static void SetStepTime(cGH *restrict const cctkGH, const int level,
+                        const rat64 clock) {
+  if (ghext->use_subcycling) {
+    cctkGH->cctk_timefac = 1 << level;
+    cctkGH->cctk_time = cctkGH->cctk_delta_time * double(clock);
+  } else {
+    cctkGH->cctk_timefac = 1;
+  }
+}
+
 // Restore every level's clock and last_tail_iteration from the metadata that
 // the checkpoint reader left in ghext->recovered_levels, then drop it.
 // Checkpoints that predate last_tail_iteration get it from the clocks: every
@@ -1260,6 +1277,141 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
                 checkpoint_iteration, finest_last_tail_iteration);
 }
 
+// Rebuild the hierarchy and its state from the checkpoint: the grid
+// structure, CCTK_BASEGRID (and the initial-data bins in relaxed recovery
+// mode), the checkpointed data and CCTK_RECOVER_VARIABLES. These run exactly
+// once, over every level, while every level clock is still 0 and
+// cctk_delta_time is not set. Then restore the level clocks and last
+// end-of-step iterations, enable regridding and compute cctk_delta_time, which
+// the per-group recomputation needs.
+static void RecoverHierarchy(cGH *restrict const cctkGH) {
+  RecoverGridStructure(cctkGH);
+  // RecoverGridStructure has set cctk_iteration to the checkpoint's
+  ghext->recovered_iteration = cctkGH->cctk_iteration;
+
+  assert(!active_levels);
+  active_levels = std::make_optional<active_levels_t>();
+
+  CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
+
+  const char *recovery_mode = *static_cast<const char *const *>(
+      CCTK_ParameterGet("recovery_mode", "Cactus", nullptr));
+  if (!CCTK_Equals(recovery_mode, "strict")) {
+    // Set up initial conditions
+    CCTK_Traverse(cctkGH, "CCTK_INITIAL");
+    CCTK_Traverse(cctkGH, "CCTK_POSTINITIAL");
+    CCTK_Traverse(cctkGH, "CCTK_POSTPOSTINITIAL");
+  }
+
+  // Recover
+  RecoverGH(cctkGH);
+  CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
+
+  active_levels = std::optional<active_levels_t>();
+
+  // Restore the per-level clocks and last end-of-step iterations
+  RestoreLevelClocks(cctkGH);
+
+  // Enable regridding
+  for (auto &patchdata : ghext->patchdata)
+    patchdata.amrcore->cactus_is_initialized = true;
+
+  SetDeltaTime(cctkGH);
+}
+
+namespace {
+// Marks the per-group traversals of CCTK_POST_RECOVER_VARIABLES
+// (GHExt::in_recovery_traversal) for error messages, like mark_sync_active
+struct recovery_traversal_scope {
+  recovery_traversal_scope() {
+    assert(!ghext->in_recovery_traversal);
+    ghext->in_recovery_traversal = true;
+  }
+  ~recovery_traversal_scope() { ghext->in_recovery_traversal = false; }
+  recovery_traversal_scope(const recovery_traversal_scope &) = delete;
+  recovery_traversal_scope &
+  operator=(const recovery_traversal_scope &) = delete;
+};
+} // namespace
+
+// Traverse CCTK_POST_RECOVER_VARIABLES once per clock group, coarse to fine.
+// Each traversal sees the group's levels in the context of their last end of
+// step during evolution: cctk_iteration is the group's last_tail_iteration,
+// and cctk_time and cctk_timefac are what Evolve set when the group's finest
+// level last stepped (SetStepTime). No coarser level has changed since then,
+// so a level-mode routine recomputes what it computed during evolution, and
+// global-mode routines run once per group, as once per window during
+// evolution. Logs one line per group and a closing note whatever
+// CarpetX::verbose is set to.
+static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
+  const recovery_traversal_scope scope;
+
+  // Bind inside the body: nvcc's cudafe++ misplaces a #pragma that follows a
+  // range-for with structured bindings, which breaks the omp critical below
+  for (const auto &group : ClockGroups()) {
+    const auto &[min_level, max_level] = group;
+    const auto &finest = ghext->patchdata.at(0).leveldata.at(max_level - 1);
+
+    assert(!active_levels);
+    active_levels = std::make_optional<active_levels_t>(min_level, max_level);
+
+    cctkGH->cctk_iteration = finest.last_tail_iteration;
+    SetStepTime(cctkGH, max_level - 1, finest.iteration);
+
+#pragma omp critical
+    CCTK_VINFO("POST_RECOVER_VARIABLES on levels [%d,%d): iteration %d, "
+               "time %g, timefac %d",
+               min_level, max_level, cctkGH->cctk_iteration,
+               double(cctkGH->cctk_time), cctkGH->cctk_timefac);
+
+    CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
+
+    active_levels = std::optional<active_levels_t>();
+  }
+
+#pragma omp critical
+  CCTK_VINFO("Recovery does not rerun restriction, POSTSTEP or ANALYSIS (see "
+             "\"Recovery\" in the CarpetX documentation)");
+}
+
+// Recover from a checkpoint: rebuild the hierarchy and its state
+// (RecoverHierarchy), recompute what the checkpoint does not hold once per
+// clock group (RecomputePerClockGroup), then traverse CCTK_CPINITIAL and
+// write the initial output once, in the finest group's window. Recovery never
+// runs CarpetX_PreRestrict, restriction, CCTK_POSTRESTRICT, CCTK_POSTSTEP or
+// CCTK_ANALYSIS, with or without subcycling: the checkpoint was written after
+// all of them. See "Recovery" in the CarpetX documentation.
+static void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
+  DECLARE_CCTK_PARAMETERS;
+
+#pragma omp critical
+  CCTK_VINFO("Recovering from checkpoint...");
+
+  RecoverHierarchy(cctkGH);
+
+  RecomputePerClockGroup(cctkGH);
+
+  // RestoreLevelClocks checked that the finest group's last end-of-step
+  // iteration is the checkpoint's, so the group loop has left the finest
+  // group's context set
+  assert(cctkGH->cctk_iteration == ghext->recovered_iteration);
+
+#pragma omp critical
+  CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
+             cctkGH->cctk_iteration, double(cctkGH->cctk_time),
+             double(cctkGH->cctk_delta_time));
+
+  const auto [min_level, max_level] = ClockGroups().back();
+  assert(!active_levels);
+  active_levels = std::make_optional<active_levels_t>(min_level, max_level);
+
+  CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
+  if (out_initial_data)
+    CCTK_OutputGH(cctkGH);
+
+  active_levels = std::optional<active_levels_t>();
+}
+
 // Schedule initialisation
 int Initialise(tFleshConfig *config) {
   DECLARE_CCTK_PARAMETERS;
@@ -1336,45 +1488,9 @@ int Initialise(tFleshConfig *config) {
   }
 
   if (config->recovered) {
-    // Recover
-#pragma omp critical
-    CCTK_VINFO("Recovering from checkpoint...");
-
-    RecoverGridStructure(cctkGH);
-
-    assert(!active_levels);
-    active_levels = std::make_optional<active_levels_t>();
-
-    CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
-
-    const char *recovery_mode = *static_cast<const char *const *>(
-        CCTK_ParameterGet("recovery_mode", "Cactus", nullptr));
-    if (!CCTK_Equals(recovery_mode, "strict")) {
-      // Set up initial conditions
-      CCTK_Traverse(cctkGH, "CCTK_INITIAL");
-      CCTK_Traverse(cctkGH, "CCTK_POSTINITIAL");
-      CCTK_Traverse(cctkGH, "CCTK_POSTPOSTINITIAL");
-    }
-
-    // Recover
-    RecoverGH(cctkGH);
-    CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
-    CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
-
-    active_levels = std::optional<active_levels_t>();
-
-    // Restore the per-level clocks and last end-of-step iterations
-    RestoreLevelClocks(cctkGH);
-
-    // Enable regridding
-    for (auto &patchdata : ghext->patchdata)
-      patchdata.amrcore->cactus_is_initialized = true;
-
-    SetDeltaTime(cctkGH);
-#pragma omp critical
-    CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
-               cctkGH->cctk_iteration, double(cctkGH->cctk_time),
-               double(cctkGH->cctk_delta_time));
+    // Recovery runs its own sequence and skips the fresh-start tail below
+    RecoverFromCheckpoint(cctkGH);
+    return 0;
 
   } else {
     // Set up initial conditions
@@ -1557,16 +1673,12 @@ int Initialise(tFleshConfig *config) {
   CCTK_VINFO("Initialized %d levels", ghext->num_levels());
 
   assert(!active_levels);
-  // Widen from the finest level so the range matches the one under which
-  // a checkpoint was written (recovery under subcycling).
   const int max_level = ghext->num_levels();
   const rat64 finest_iteration =
       ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
   const int min_level = WidenMinLevel(max_level - 1, finest_iteration);
   active_levels = std::make_optional<active_levels_t>(min_level, max_level);
 
-  // After widening active_levels from min_level, sync cctk_timefac with the
-  // finest level traversed; mirrors the assignment in the evolve loop.
   cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
 
   if (!window_is_restricted(min_level, max_level)) {
@@ -1594,9 +1706,7 @@ int Initialise(tFleshConfig *config) {
   // Checkpoint, analysis, output
   CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
   CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
-  if (!config->recovered) {
-    CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
-  }
+  CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
   if (out_initial_data) {
     CCTK_OutputGH(cctkGH);
   }
@@ -2001,11 +2111,10 @@ int Evolve(tFleshConfig *config) {
 
       CycleTimelevels(cctkGH);
 
-      cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
-      cctkGH->cctk_time =
-          ghext->use_subcycling
-              ? cctkGH->cctk_delta_time * double(level_iteration)
-              : cctkGH->cctk_time + cctkGH->cctk_delta_time;
+      // Without subcycling cctk_time accumulates; SetStepTime leaves it alone
+      if (!ghext->use_subcycling)
+        cctkGH->cctk_time += cctkGH->cctk_delta_time;
+      SetStepTime(cctkGH, min_level, level_iteration);
 
       CCTK_Traverse(cctkGH, "CCTK_PRESTEP");
       CCTK_Traverse(cctkGH, "CCTK_EVOL");

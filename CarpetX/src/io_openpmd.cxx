@@ -1119,14 +1119,12 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           // MultiFabs sharing the level's idomain frame. A time-aligned
           // checkpoint carries no bands, so a missing mesh leaves the rebuilt
           // band untouched; a mid-cycle checkpoint must carry them for every
-          // coarse level that is ahead of its child, so there a missing mesh
-          // (old derivative-band format, or a truncated file) is refused.
-          // Likewise the child's flux register must be present wherever it is
-          // live (see recovered_flux_register_is_live).
+          // coarse level that is ahead of a finer level, and likewise the
+          // child's flux register, which is live there (see
+          // recovered_finer_level_is_behind), so there a missing mesh (old
+          // derivative-band format, or a truncated file) is refused.
           {
-            const bool need_rk_bands = recovered_level_needs_rk_bands(
-                leveldata.patch, leveldata.level);
-            const bool need_freg_bands = recovered_flux_register_is_live(
+            const bool need_bands = recovered_finer_level_is_behind(
                 leveldata.patch, leveldata.level);
             const auto read_band = [&](amrex::MultiFab *const band,
                                        const band_kind kind, const int stage) {
@@ -1144,8 +1142,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                 // adopts the checkpoint's, allocating no register when that is
                 // "no". What arrives here is a checkpoint written before
                 // flux-register checkpointing existed, or a truncated one.
-                if (kind == band_kind::flux_register ? need_freg_bands
-                                                     : need_rk_bands)
+                if (need_bands)
                   CCTK_VERROR(
                       "Mid-cycle checkpoint lacks %s: mesh \"%s\" (band %s) "
                       "for group %s on patch %d level %d is missing. The "
