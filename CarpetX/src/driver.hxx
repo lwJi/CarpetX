@@ -695,7 +695,9 @@ bool recovered_finer_level_is_behind(int patch, int level);
 // RecoverGH, while the recovered levels are still populated.
 bool recovered_bands_needed(int patch, int level, int gi);
 
-// Subcycling source-band kinds serialized at unsynchronized checkpoints:
+// Subcycling source-band kinds serialized at unsynchronized checkpoints (and,
+// for ks_source and old_source of a group that keeps the dense output, at
+// synchronized ones too; see group_keeps_dense_output in subcycling.hxx):
 // ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)
 // snapshot, flux_register the six face FabSets of the child's flux register
 // (GroupData::freg), each a zero-ghost MultiFab in the parent's index space

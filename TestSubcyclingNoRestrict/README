@@ -60,3 +60,13 @@ post_recover_variables.
   test/recover-openpmd-aligned.par
       Recovers that checkpoint and runs to iteration 6; its output must
       equal the baseline's bit for bit.
+  test/checkpoint-silo-aligned.par
+      The time-aligned pair above with Silo checkpoints. The file holds
+      source bands for state_nr only, so the Silo reader must tell the
+      groups apart: it reads state_nr's bands and skips state's. Runs on
+      1 rank (test.ccl), since a Silo checkpoint can only be recovered on
+      the rank count it was written with.
+  test/recover-silo-aligned.par
+      Recovers that checkpoint (in relaxed mode, since Silo checkpoints
+      do not carry BoxInBox's grid scalars) and runs to iteration 6; its
+      output must equal the baseline's bit for bit.

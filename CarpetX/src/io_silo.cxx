@@ -3,6 +3,7 @@
 #include "driver.hxx"
 #include "io_meta.hxx"
 #include "mpi_types.hxx"
+#include "subcycling.hxx"
 #include "timer.hxx"
 
 #include <tuple.hxx>
@@ -629,31 +630,38 @@ void InputSilo(const cGH *restrict const cctkGH,
       assert(file);
     }
 
-    // Bands are written all-or-nothing (only at unsynchronized checkpoints), so
-    // detect their presence once with global flags. This keeps the band read
-    // symmetric with the regular read; a per-variable file probe inside the
-    // loop would desync the band owner's MPI_Recv. The source bands (kss_*,
-    // olds) and the flux-register bands (freg_*) are probed separately: a
+    // The source bands (kss_*, olds) are written per group: for every group at
+    // an unsynchronized checkpoint, and at a synchronized one only for the
+    // groups that keep the dense output (group_keeps_dense_output,
+    // restrict="no"). Within a group they are all-or-nothing, so detect their
+    // presence once per group with flags OR-reduced across ranks. This keeps
+    // the band read symmetric with the regular read; a per-variable file probe
+    // inside the loop would desync the band owner's MPI_Recv. The flux-register
+    // bands (freg_*) are written only at unsynchronized checkpoints, for every
+    // group that has a register, and are probed with one file-wide flag: a
     // mid-cycle checkpoint written before flux registers were checkpointed
-    // carries the former but not the latter.
-    bool file_has_bands = false;
+    // carries the source bands but not these.
+    const int numgroups = CCTK_NumGroups();
+    std::vector<int> file_has_source_bands(numgroups, 0);
     bool file_has_freg = false;
     if (ghext->use_subcycling) {
-      int local_has[2] = {0, 0}; // [0]: kss_*/olds, [1]: freg_*
+      // [gi]: kss_*/olds of group gi, [numgroups]: freg_* of any group
+      std::vector<int> local_has(numgroups + 1, 0);
       if (read_file) {
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
-            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-              if (local_has[0] && local_has[1])
-                break;
+            for (int gi = 0; gi < numgroups; ++gi) {
               if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
+                continue;
+              if (local_has.at(gi) && local_has.at(numgroups))
                 continue;
               const auto &groupdata = *leveldata.groupdata.at(gi);
               if (groupdata.mfab.empty())
                 continue;
               const auto probe = [&](const amrex::MultiFab *const band,
                                      const band_kind kind, const int stage) {
-                int &found = local_has[kind == band_kind::flux_register];
+                int &found = local_has.at(
+                    kind == band_kind::flux_register ? numgroups : gi);
                 if (found || !band || band->empty())
                   return;
                 const std::string band_tag = subcycling_band_tag(kind, stage);
@@ -684,54 +692,57 @@ void InputSilo(const cGH *restrict const cctkGH,
           }
         }
       }
-      int global_has[2] = {0, 0};
-      MPI_Allreduce(local_has, global_has, 2, MPI_INT, MPI_MAX, mpi_comm);
-      file_has_bands = global_has[0] != 0;
-      file_has_freg = global_has[1] != 0;
+      std::vector<int> global_has(numgroups + 1, 0);
+      MPI_Allreduce(local_has.data(), global_has.data(), numgroups + 1, MPI_INT,
+                    MPI_MAX, mpi_comm);
+      for (int gi = 0; gi < numgroups; ++gi)
+        file_has_source_bands.at(gi) = global_has.at(gi);
+      file_has_freg = global_has.at(numgroups) != 0;
 
       // The checkpoint must carry the coarse source bands wherever recovery
       // reads them (recovered_bands_needed): for every coarse level that is
       // ahead of a finer level, and, for a group that keeps the dense output
-      // (restrict="no"), for every level that has stepped. A file without
-      // any band data there was written by the derivative-band scheme or
-      // without these bands, or is incomplete. Every rank evaluates the same
-      // predicate on replicated data (recovered iterations, tags, band
-      // geometry), so the abort is collective and the per-component MPI
-      // protocol below stays symmetric.
-      if (!file_has_bands) {
-        for (const auto &patchdata : ghext->patchdata) {
-          for (const auto &leveldata : patchdata.leveldata) {
-            const bool finer_behind = recovered_finer_level_is_behind(
-                patchdata.patch, leveldata.level);
-            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-              if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
-                continue;
-              if (!recovered_bands_needed(patchdata.patch, leveldata.level, gi))
-                continue;
-              const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.mfab.empty())
-                continue;
-              const amrex::MultiFab *const band = rk_source_band(
-                  patchdata.patch, leveldata.level, gi, band_kind::old_source);
-              if (!band || band->empty())
-                continue; // not evolved, or an empty coarse-fine footprint
-              CCTK_VERROR(
-                  "Checkpoint lacks coarse RK step data (bands %s, %s..) for "
-                  "group %s on patch %d level %d. %s",
-                  subcycling_band_tag(band_kind::old_source).c_str(),
-                  subcycling_band_tag(band_kind::ks_source, 0).c_str(),
-                  CCTK_FullGroupName(gi), patchdata.patch, leveldata.level,
-                  finer_behind
-                      ? "The checkpoint was written by the derivative-band "
-                        "scheme or is incomplete. Restart from a time-aligned "
-                        "checkpoint."
-                      : "The group is evolved with restriction disabled "
-                        "(restrict=\"no\"), so recovery replays its "
-                        "coarse-fine ghosts from these bands on every level "
-                        "that has stepped. The checkpoint was written without "
-                        "them (by a version that saves them only at mid-cycle "
-                        "iterations) or is incomplete.");
-            }
+      // (restrict="no"), for every level that has stepped, mid-cycle or
+      // time-aligned. A file without the group's band data there was written
+      // by the derivative-band scheme or without these bands, or is
+      // incomplete. Every rank evaluates the same predicate on replicated data
+      // (recovered iterations, tags, band geometry, the reduced presence
+      // flags), so the abort is collective and the per-component MPI protocol
+      // below stays symmetric.
+      for (const auto &patchdata : ghext->patchdata) {
+        for (const auto &leveldata : patchdata.leveldata) {
+          const bool finer_behind =
+              recovered_finer_level_is_behind(patchdata.patch, leveldata.level);
+          for (int gi = 0; gi < numgroups; ++gi) {
+            if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
+              continue;
+            if (file_has_source_bands.at(gi))
+              continue;
+            if (!recovered_bands_needed(patchdata.patch, leveldata.level, gi))
+              continue;
+            const auto &groupdata = *leveldata.groupdata.at(gi);
+            if (groupdata.mfab.empty())
+              continue;
+            const amrex::MultiFab *const band = rk_source_band(
+                patchdata.patch, leveldata.level, gi, band_kind::old_source);
+            if (!band || band->empty())
+              continue; // not evolved, or an empty coarse-fine footprint
+            CCTK_VERROR(
+                "Checkpoint lacks coarse RK step data (bands %s, %s..) for "
+                "group %s on patch %d level %d. %s",
+                subcycling_band_tag(band_kind::old_source).c_str(),
+                subcycling_band_tag(band_kind::ks_source, 0).c_str(),
+                CCTK_FullGroupName(gi), patchdata.patch, leveldata.level,
+                finer_behind
+                    ? "The checkpoint was written by the derivative-band "
+                      "scheme or is incomplete. Restart from a time-aligned "
+                      "checkpoint."
+                    : "The group is evolved with restriction disabled "
+                      "(restrict=\"no\"), so recovery replays its "
+                      "coarse-fine ghosts from these bands on every level "
+                      "that has stepped. The checkpoint was written without "
+                      "them (by a version that saves them only at mid-cycle "
+                      "iterations) or is incomplete.");
           }
         }
       }
@@ -941,10 +952,14 @@ void InputSilo(const cGH *restrict const cctkGH,
 
           // Subcycling coarse source bands: zero-ghost MultiFabs with their
           // own DistributionMap, each read in its own component loop mirroring
-          // the Phase 1 write (reversed MPI). When file_has_bands, every
-          // rebuilt non-empty source band is present in full, and likewise
-          // every flux-register band when file_has_freg.
-          if (file_has_bands || file_has_freg) {
+          // the write (reversed MPI). When file_has_source_bands[gi], every
+          // rebuilt non-empty source band of this group is present in full,
+          // and likewise every flux-register band when file_has_freg. A
+          // time-aligned checkpoint carries the source bands of the groups
+          // that keep the dense output only; the other groups' rebuilt bands
+          // stay untouched, and recovery does not read them.
+          const bool group_has_source_bands = file_has_source_bands.at(gi);
+          if (group_has_source_bands || file_has_freg) {
             const int centering = [&]() {
               const int rank = indextype.cellCentered(0) +
                                indextype.cellCentered(1) +
@@ -1047,7 +1062,7 @@ void InputSilo(const cGH *restrict const cctkGH,
               } // for band component
             };
 
-            if (file_has_bands) {
+            if (group_has_source_bands) {
               for (int s = 0; s < max_num_rk_stages; ++s)
                 read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                          band_kind::ks_source, s),
@@ -1067,7 +1082,7 @@ void InputSilo(const cGH *restrict const cctkGH,
                 read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                          band_kind::flux_register, f),
                           band_kind::flux_register, f);
-          } // if file_has_bands || file_has_freg
+          } // if group_has_source_bands || file_has_freg
 
         } // for gi
       } // for leveldata
@@ -1136,10 +1151,15 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
   constexpr int ndims = dim;
 
-  // At an unsynchronized subcycling checkpoint the coarse source bands hold
-  // the in-progress coarse step (u(t_n) and the stage derivatives), which
-  // exists nowhere else and must be serialized. Otherwise the on-disk format
-  // is unchanged.
+  // The coarse source bands hold the coarse level's last step (u(t_n) and the
+  // stage derivatives), which exists nowhere else, and recovery reads them
+  // wherever it replays the dense output (recovered_bands_needed). At an
+  // unsynchronized subcycling checkpoint every band is serialized, the child's
+  // partially accumulated flux register included. At a synchronized one only
+  // the source bands of the groups that keep the dense output
+  // (group_keeps_dense_output, restrict="no") are, since their children's
+  // coarse-fine ghosts were never overwritten by the restriction; for every
+  // other group the on-disk format is unchanged.
   const bool write_bands = !all_levels_synchronized();
 
   // 2D slice output maps a physical coord to an index via (coord - x0)/dx,
@@ -1559,9 +1579,12 @@ void OutputSilo(const cGH *restrict const cctkGH,
           // level's index space with their own DistributionMap, so each gets
           // its own component loop. Geometry is rebuilt on recovery; we
           // serialize only the data, namespaced by a band tag. Present on
-          // every level with children. 2D slice output covers only the main
-          // grid data, so bands are skipped entirely when slicing.
-          if (write_bands && !slice) {
+          // every level with children: all bands when the levels are
+          // unsynchronized, and the source bands (kss_*, olds) of a group that
+          // keeps the dense output at every iteration (see write_bands above).
+          // 2D slice output covers only the main grid data, so bands are
+          // skipped entirely when slicing.
+          if ((write_bands || group_keeps_dense_output(gi)) && !slice) {
             const int centering = [&]() {
               const int rank = indextype.cellCentered(0) +
                                indextype.cellCentered(1) +
@@ -1746,11 +1769,15 @@ void OutputSilo(const cGH *restrict const cctkGH,
             // nodal in their own direction. They are serialized like the
             // bands above, as thickness-1 slabs with the group's (zone)
             // centering; the mesh is hidden and only the data round-trips.
-            for (int f = 0; f < 2 * dim; ++f)
-              write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                        band_kind::flux_register, f),
-                         band_kind::flux_register, f);
-          } // if write_bands
+            // Only mid-cycle: at a synchronized iteration the last window's
+            // reflux has applied it, and the parent's next step zeroes it
+            // (AccumulateFluxes, subcycling.hxx) before adding to it.
+            if (write_bands)
+              for (int f = 0; f < 2 * dim; ++f)
+                write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                          band_kind::flux_register, f),
+                           band_kind::flux_register, f);
+          } // if write_bands || group_keeps_dense_output
 
         } // for gi
       } // for leveldata
