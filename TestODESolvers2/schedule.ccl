@@ -25,18 +25,18 @@ SCHEDULE TestODESolvers2_Boundary IN ODESolvers_PostStep
   SYNC: state
 } "Apply boundary conditions to state vector"
 
-SCHEDULE TestODESolvers2_Error AT analysis
-{
-  LANG: C
-  READS: state(interior)
-  WRITES: error(interior) order(interior)
-  SYNC: error order
-} "Calculate error in state vector"
-
 # error and order are not checkpointed, and a level that lags its parent SYNCs
-# them from the parent: recompute them after a restart, once the state's
-# ghosts are refilled
-SCHEDULE TestODESolvers2_Error AT post_recover_variables AFTER ODESolvers_PostStep
+# them from the parent: compute them at the end of each step, and again after
+# a restart, once the state's ghosts are refilled
+SCHEDULE GROUP TestODESolvers2_Diagnostics AT analysis
+{
+} "Calculate diagnostics of state vector"
+
+SCHEDULE GROUP TestODESolvers2_Diagnostics AT post_recover_variables AFTER ODESolvers_PostStep
+{
+} "Calculate diagnostics of state vector"
+
+SCHEDULE TestODESolvers2_Error IN TestODESolvers2_Diagnostics
 {
   LANG: C
   READS: state(interior)
