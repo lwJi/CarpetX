@@ -3,6 +3,7 @@
 #include "driver.hxx"
 #include "io_meta.hxx"
 #include "io_slice.hxx"
+#include "subcycling.hxx"
 #include "timer.hxx"
 
 #include <div.hxx>
@@ -1116,17 +1117,20 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           } // for tl
 
           // Subcycling coarse source bands (see OutputOpenPMD): zero-ghost
-          // MultiFabs sharing the level's idomain frame. A band that recovery
-          // does not read may be missing, which leaves the rebuilt band
-          // untouched. The checkpoint must carry the source bands (kss_*,
-          // olds) wherever recovery reads them (recovered_bands_needed): on
-          // every coarse level that is ahead of a finer level, and, for a
-          // group that keeps the dense output (restrict="no"), on every level
-          // that has stepped, mid-cycle or time-aligned. It must carry the
-          // child's flux register wherever that is live, on every coarse level
-          // ahead of a finer level (recovered_finer_level_is_behind). There a
-          // missing mesh (old derivative-band format, a version that did not
-          // write these bands, or a truncated file) is refused.
+          // MultiFabs sharing the level's idomain frame. The writer emits
+          // every band at a mid-cycle checkpoint, and the source bands of a
+          // group that keeps the dense output at a time-aligned one too. A
+          // band that recovery does not read may be missing, which leaves the
+          // rebuilt band untouched. The checkpoint must carry the source bands
+          // (kss_*, olds) wherever recovery reads them
+          // (recovered_bands_needed): on every coarse level that is ahead of a
+          // finer level, and, for a group that keeps the dense output
+          // (restrict="no"), on every level that has stepped, mid-cycle or
+          // time-aligned. It must carry the child's flux register wherever that
+          // is live, on every coarse level ahead of a finer level
+          // (recovered_finer_level_is_behind). There a missing mesh (old
+          // derivative-band format, a version that did not write these bands,
+          // or a truncated file) is refused.
           {
             const bool finer_behind = recovered_finer_level_is_behind(
                 leveldata.patch, leveldata.level);
@@ -1619,10 +1623,15 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
   const int myproc = CCTK_MyProc(cctkGH);
   const int ioproc = 0;
 
-  // At an unsynchronized subcycling checkpoint the coarse source bands hold
-  // the in-progress coarse step (u(t_n) and the stage derivatives), which
-  // exists nowhere else and must be serialized. Otherwise the on-disk format
-  // is unchanged.
+  // The coarse source bands hold the coarse level's last step (u(t_n) and the
+  // stage derivatives), which exists nowhere else, and recovery reads them
+  // wherever it replays the dense output (recovered_bands_needed). At an
+  // unsynchronized subcycling checkpoint every band is serialized, the child's
+  // partially accumulated flux register included. At a synchronized one only
+  // the source bands of the groups that keep the dense output
+  // (group_keeps_dense_output, restrict="no") are, since their children's
+  // coarse-fine ghosts were never overwritten by the restriction; for every
+  // other group the on-disk format is unchanged.
   const bool write_bands = !all_levels_synchronized();
 
   // Iteration attributes are set on EVERY rank (all inputs are replicated):
@@ -1978,9 +1987,12 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
           // level's index space, so they share the level's idomain frame and
           // dataset extent and write a sparse subset of chunks. Geometry is
           // rebuilt on recovery; we serialize only the data, namespaced by a
-          // band tag. Present on every level with children. 2D slices emit
-          // only the main grid data; bands remain 3D-only.
-          if (write_bands && !slice) {
+          // band tag. Present on every level with children: all bands when
+          // the levels are unsynchronized, and the source bands (kss_*, olds)
+          // of a group that keeps the dense output at every iteration (see
+          // write_bands above). 2D slices emit only the main grid data; bands
+          // remain 3D-only.
+          if ((write_bands || group_keeps_dense_output(gi)) && !slice) {
             const auto write_band = [&](const amrex::MultiFab *const band,
                                         const band_kind kind, const int stage) {
               if (!band || band->empty())
@@ -2070,12 +2082,16 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             // The child's flux register (partially accumulated mid-cycle):
             // six zero-ghost face MultiFabs in this level's index space,
             // nodal in their own direction. idomain is vertex-framed, so a
-            // face plane on the domain boundary still fits the dataset.
-            for (int f = 0; f < 2 * dim; ++f)
-              write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                        band_kind::flux_register, f),
-                         band_kind::flux_register, f);
-          } // if write_bands
+            // face plane on the domain boundary still fits the dataset. Only
+            // mid-cycle: at a synchronized iteration the last window's reflux
+            // has applied it, and the parent's next step zeroes it
+            // (AccumulateFluxes, subcycling.hxx) before adding to it.
+            if (write_bands)
+              for (int f = 0; f < 2 * dim; ++f)
+                write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                                          band_kind::flux_register, f),
+                           band_kind::flux_register, f);
+          } // if write_bands || group_keeps_dense_output
         }
       } // for gi
 

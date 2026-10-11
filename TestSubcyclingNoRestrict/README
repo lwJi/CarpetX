@@ -51,3 +51,12 @@ post_recover_variables.
   test/recover-openpmd-midcycle.par
       Recovers that checkpoint and runs to iteration 8; its output must
       equal the baseline's bit for bit.
+  test/checkpoint-openpmd-aligned.par
+      3 levels, checkpoint at iteration 4, where all levels are at 1
+      coarse step: the single clock group [0,3) is restricted and levels
+      1 and 2 are aligned with their parents. The time-aligned checkpoint
+      carries the source bands of state_nr only. Runs on to iteration 6
+      as the uninterrupted baseline.
+  test/recover-openpmd-aligned.par
+      Recovers that checkpoint and runs to iteration 6; its output must
+      equal the baseline's bit for bit.
