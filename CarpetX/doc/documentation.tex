@@ -368,7 +368,7 @@ Marks a group as evolved, i.e.\ its current timelevel is recomputed every time s
 %
 \begin{itemize}
 \item \emph{Timelevel cycling.} At the start of each step, an evolved group with several timelevels has its current timelevel marked invalid, so it must be written again; with a single timelevel it must be valid everywhere. A non-evolved group with several timelevels has its current timelevel seeded from the previous one.
-\item \emph{Regridding.} When a level is created or changed, an evolved group keeps all but its oldest timelevel and requires valid coarse data to fill them. A non-evolved, checkpointed group keeps all its timelevels and is filled where valid data exist. A non-evolved group that is not checkpointed is not carried over; it must be recomputed.
+\item \emph{Regridding.} When a level is created or changed, an evolved group keeps all but its oldest timelevel and requires valid coarse data to fill them. A non-evolved, checkpointed group keeps all its timelevels and is filled where valid data exist. A non-evolved group that is not checkpointed is not carried over: its current timelevel must be recomputed, and its past timelevels are lost, since no routine can recompute them (see Sec.~\ref{sec:recovery}).
 \end{itemize}
 %
 The tag does not decide whether coarse-fine ghosts are filled under subcycling; that depends on the \texttt{rhs} tag (see above). \texttt{ODESolvers} rejects at startup a group with an \texttt{rhs} tag that sets \texttt{evolve="no"}, since regridding would not reliably refill its state. Such a group must not set \texttt{checkpoint="no"} either, not even together with \texttt{evolve="yes"}, since integrated state must be checkpointed (see \texttt{checkpoint} above). For example, a persistent, checkpointed group that an analysis routine updates only occasionally is declared as
@@ -1798,7 +1798,7 @@ Three clauses make the rule precise:
 \begin{itemize}
 \item \emph{Grid scalars that a finer clock group overwrites} during evolution are recomputed in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} from each group's context. For example, \texttt{BoxInBox::positions} is checkpointed, but a moving-box thorn sets it from \texttt{cctk\_time} in every end-of-step window, so the checkpoint holds the finest group's value, and each group's error estimate needs its own.
 \item \emph{Results that read across levels}, such as interpolations and reductions, are checkpointed. They cannot be recomputed after a restart, because the finer levels have moved on. A cross-level read in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} works only when every level it touches shares a clock; at a mid-cycle checkpoint it aborts (see below).
-\item \emph{Past timelevels that another level reads} are checkpointed, with \texttt{openPMD}. A \texttt{SYNC} on a level that lags its parent interpolates in time between the parent's current and previous timelevels, and only checkpointed groups written with \texttt{openPMD} keep their previous timelevels across a restart.
+\item \emph{Past timelevels that another level reads} are checkpointed, with \texttt{openPMD}. A \texttt{SYNC} on a level that lags its parent interpolates in time between the parent's current and previous timelevels, and only checkpointed groups written with \texttt{openPMD} keep their previous timelevels across a restart. No routine can recompute a past timelevel, and a regrid that remakes a level does not keep the past timelevels of a non-evolved group that is not checkpointed either, so this clause holds in runs that are never recovered as well.
 \end{itemize}
 
 \subsection{The two recovery bins}
@@ -1874,7 +1874,7 @@ Recovery never runs \texttt{CarpetX\_PreRestrict}, the reflux, the restriction, 
 
 \CarpetX\space does not audit thorn schedules. Instead, the two reads that can break the rule abort where they happen.
 
-\emph{A level reads a parent value that nobody recomputed.} Under subcycling, before a \texttt{SYNC} prolongates a group from a parent level into a finer level's ghost zones, it checks that the parent's interior is valid in every timelevel the prolongation reads, including the previous timelevel that interpolation in time reads when the finer level lags its parent. (The \texttt{SYNC} of an evolved group whose coarse-fine ghosts \texttt{ODESolvers} fills does not prolongate, and is not checked.) This check runs in every subcycling run, recovered or not, whatever \texttt{CarpetX::poison\_undefined\_values} is set to, and it cannot be turned off. The error names the variable, the parent level and the timelevel. When the run was recovered, the group is not checkpointed, and the parent level has not yet run its end of step since recovery, it also states the rule:
+\emph{A level reads a parent value that nobody recomputed.} Under subcycling, before a \texttt{SYNC} prolongates a group from a parent level into a finer level's ghost zones, it checks that the parent's interior is valid in every timelevel the prolongation reads, including the previous timelevel that interpolation in time reads when the finer level lags its parent. (The \texttt{SYNC} of an evolved group whose coarse-fine ghosts \texttt{ODESolvers} fills does not prolongate, and is not checked.) This check runs in every subcycling run, recovered or not, whatever \texttt{CarpetX::poison\_undefined\_values} is set to, and it cannot be turned off. The error names the variable, the parent level and the timelevel. When the group is not checkpointed, it also states the rule that was broken. For the current timelevel it does so only when the run was recovered and the parent level has not yet run its end of step since recovery:
 %
 \begin{lstlisting}[language=bash,numbers=none]
 SyncGroupsByDirISubcycling on coarse level before prolongation: Grid function "TESTSUBCYCLINGMC2::u_err" is invalid on patch 0, refinement level 0, time level 0; required:
@@ -1888,7 +1888,7 @@ SyncGroupsByDirISubcycling on coarse level before prolongation: Grid function "T
   See "Recovery" in the CarpetX documentation.
 \end{lstlisting}
 %
-When the invalid timelevel is a previous one, the second line instead says that past timelevels read by another level must be checkpointed, with \texttt{openPMD}, since recomputation in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} restores only the current timelevel (the third clause of the rule).
+When the invalid timelevel is a previous one, the message instead says that a recovery, or a regrid that remakes the parent level, can lose the group's past timelevels, which no routine can recompute, and that past timelevels read by another level must be checkpointed (the third clause of the rule). It says so whether or not the run was recovered, since a regrid loses them as well.
 
 \emph{A routine reads across levels during a mid-cycle recovery.} An interpolation that uses levels at different times aborts, during evolution as during recovery. Inside a traversal of \texttt{CCTK\_POST\_RECOVER\_VARIABLES}, the message adds that the run is recovering from a mid-cycle checkpoint and that such results must be checkpointed. At a checkpoint where every level shares one clock, the same routine runs normally.
 
