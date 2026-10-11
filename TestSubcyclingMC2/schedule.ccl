@@ -3,41 +3,41 @@
 STORAGE: state[timelevels] rhs error
 
 
-SCHEDULE TestSubcyclingMC2_MoveBox AT postinitial BEFORE EstimateError
+# Each level's error estimate must see the box position at that level's own
+# time: move the box before every error estimate, including the one after a
+# restart, which recomputes each level's estimate as at the end of its last
+# step
+SCHEDULE GROUP TestSubcyclingMC2_UpdateBoxes AT postinitial BEFORE EstimateError
+{
+} "Move the refined box along a linear drift from the origin"
+
+SCHEDULE GROUP TestSubcyclingMC2_UpdateBoxes AT poststep BEFORE EstimateError
+{
+} "Move the refined box along a linear drift from the origin"
+
+SCHEDULE GROUP TestSubcyclingMC2_UpdateBoxes AT post_recover_variables BEFORE EstimateError
+{
+} "Move the refined box along a linear drift from the origin"
+
+SCHEDULE TestSubcyclingMC2_MoveBox IN TestSubcyclingMC2_UpdateBoxes
 {
   LANG: C
   READS: BoxInBox::positions
   WRITES: BoxInBox::positions
 } "Move the refined box along a linear drift from the origin"
-
-SCHEDULE TestSubcyclingMC2_MoveBox AT poststep BEFORE EstimateError
-{
-  LANG: C
-  READS: BoxInBox::positions
-  WRITES: BoxInBox::positions
-} "Move the refined box along a linear drift from the origin"
-
-# After a restart, each level's error estimate must see the box position at
-# that level's own time, as at the end of its last step
-SCHEDULE TestSubcyclingMC2_MoveBox AT post_recover_variables BEFORE EstimateError
-{
-  LANG: C
-  READS: BoxInBox::positions
-  WRITES: BoxInBox::positions
-} "Move the refined box along a linear drift from the origin"
-
-SCHEDULE TestSubcyclingMC2_AddLevel AT poststep BEFORE EstimateError
-{
-  LANG: C
-  OPTIONS: global
-  READS: BoxInBox::num_levels
-  WRITES: BoxInBox::num_levels
-} "Ask for one more refinement level from add_level_at_iteration on"
 
 # The next regrid reads num_levels: after a restart, each level's error
 # estimate must see the value of that level's own iteration, as at the end of
 # its last step
-SCHEDULE TestSubcyclingMC2_AddLevel AT post_recover_variables BEFORE EstimateError
+SCHEDULE GROUP TestSubcyclingMC2_UpdateLevels AT poststep BEFORE EstimateError
+{
+} "Ask for one more refinement level from add_level_at_iteration on"
+
+SCHEDULE GROUP TestSubcyclingMC2_UpdateLevels AT post_recover_variables BEFORE EstimateError
+{
+} "Ask for one more refinement level from add_level_at_iteration on"
+
+SCHEDULE TestSubcyclingMC2_AddLevel IN TestSubcyclingMC2_UpdateLevels
 {
   LANG: C
   OPTIONS: global
@@ -86,18 +86,18 @@ SCHEDULE TestSubcyclingMC2_RHS IN ODESolvers_RHS
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-SCHEDULE TestSubcyclingMC2_Error AT analysis
-{
-  LANG: C
-  READS: state(interior)
-  WRITES: error(interior)
-  SYNC: error
-} "Calculate error in scalar wave state"
-
 # error is not checkpointed, and a level that lags its parent SYNCs it from
-# the parent: recompute it after a restart, once the state's ghosts are
-# refilled
-SCHEDULE TestSubcyclingMC2_Error AT post_recover_variables AFTER ODESolvers_PostStep
+# the parent: compute it at the end of each step, and again after a restart,
+# once the state's ghosts are refilled
+SCHEDULE GROUP TestSubcyclingMC2_Diagnostics AT analysis
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE GROUP TestSubcyclingMC2_Diagnostics AT post_recover_variables AFTER ODESolvers_PostStep
+{
+} "Calculate scalar wave diagnostics"
+
+SCHEDULE TestSubcyclingMC2_Error IN TestSubcyclingMC2_Diagnostics
 {
   LANG: C
   READS: state(interior)

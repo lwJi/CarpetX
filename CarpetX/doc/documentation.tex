@@ -950,14 +950,23 @@ Finally, in the \texttt{schedule.ccl} file we schedule the routine that will act
 \begin{lstlisting}
   # Schedule definitions for thorn MovingBoxToy
 
-  SCHEDULE MovingBoxToy_MoveBoxes AT postinitial BEFORE EstimateError
+  # Each level's error estimate must see the box positions at that level's own
+  # time: move the boxes before every error estimate, including the one after a
+  # restart, which recomputes each level's estimate as at the end of its last
+  # step
+  SCHEDULE GROUP MovingBoxToy_UpdateBoxes AT postinitial BEFORE EstimateError
   {
-    LANG: C
-    READS: BoxInBox::positions
-    WRITES: BoxInBox::positions
   } "Update box positions"
 
-  SCHEDULE MovingBoxToy_MoveBoxes AT poststep BEFORE EstimateError
+  SCHEDULE GROUP MovingBoxToy_UpdateBoxes AT poststep BEFORE EstimateError
+  {
+  } "Update box positions"
+
+  SCHEDULE GROUP MovingBoxToy_UpdateBoxes AT post_recover_variables BEFORE EstimateError
+  {
+  } "Update box positions"
+
+  SCHEDULE MovingBoxToy_MoveBoxes IN MovingBoxToy_UpdateBoxes
   {
     LANG: C
     READS: BoxInBox::positions
@@ -965,7 +974,7 @@ Finally, in the \texttt{schedule.ccl} file we schedule the routine that will act
   } "Update box positions"
 \end{lstlisting}
 
-Note that the routine is scheduled with \texttt{AT poststep BEFORE EstimateError}. This is important, since it is in the \texttt{EstimateError} bin that \CarpetX's AMR error grid function (see Sec.~\ref{sec:advanced_amr}) will be updated thus any changes to box data should be scheduled before that.
+Note that the routine runs in a schedule group that is scheduled \texttt{BEFORE EstimateError}. This is important, since it is in \texttt{EstimateError} that \CarpetX's AMR error grid function (see Sec.~\ref{sec:advanced_amr}) will be updated thus any changes to box data should be scheduled before that. The group is scheduled in every bin that estimates the error, including \texttt{post\_recover\_variables}, so that the routine's clauses are written once.
 
 Finally, the \texttt{C++} routine \texttt{MovingBoxToy\_MoveBoxes} that will actually update the boxes positions reads
 %
@@ -1027,17 +1036,22 @@ Note that \CarpetX\space \textbf{does not} provide a ``standardized'' regrid err
 }
 \end{lstlisting}
 
-Once defined, \texttt{EstimateError} should be scheduled in both the \texttt{postinitial} and \texttt{poststep} bins. The \texttt{poststep} bin gets called right after a new state vector has been calculated, and is thus the proper place to analyze it. The \texttt{postinitial} scheduling is also necessary for computing the initial refinement after initial conditions have been set up. A thorn making use of the \texttt{regrid\_error} AMR mechanism should then add the following to its \texttt{schedule.ccl} file:
+Once defined, \texttt{EstimateError} should be scheduled in the \texttt{postinitial}, \texttt{poststep} and \texttt{post\_recover\_variables} bins. The \texttt{poststep} bin gets called right after a new state vector has been calculated, and is thus the proper place to analyze it. The \texttt{postinitial} scheduling is also necessary for computing the initial refinement after initial conditions have been set up. Since \texttt{regrid\_error} is not checkpointed, the \texttt{post\_recover\_variables} scheduling recomputes it after a restart, before the next regrid reads it. Scheduling the routine in a schedule group, and that group in the three bins, writes the routine's clauses once. The group carries the alias \texttt{EstimateError}, so that thorns that move boxes can schedule their updates \texttt{BEFORE EstimateError}. A thorn making use of the \texttt{regrid\_error} AMR mechanism should then add the following to its \texttt{schedule.ccl} file:
 
 \begin{lstlisting}[language=bash]
-  SCHEDULE EstimateError AT postinitial
+  SCHEDULE GROUP MyThorn_EstimateError AS EstimateError AT postinitial
   {
-    LANG: C
-    READS: state(everywhere)
-    WRITES: CarpetXRegrid::regrid_error(interior)
   } "Estimate error for regridding"
-  
-  SCHEDULE EstimateError AT poststep
+
+  SCHEDULE GROUP MyThorn_EstimateError AS EstimateError AT poststep
+  {
+  } "Estimate error for regridding"
+
+  SCHEDULE GROUP MyThorn_EstimateError AS EstimateError AT post_recover_variables
+  {
+  } "Estimate error for regridding"
+
+  SCHEDULE EstimateError IN MyThorn_EstimateError
   {
     LANG: C
     READS: state(everywhere)
@@ -1777,7 +1791,7 @@ Recovery traverses \texttt{CCTK\_POST\_RECOVER\_VARIABLES} once per clock group,
   # WaveToyX_RHS and WaveToyX_Energy likewise
 \end{lstlisting}
 %
-A thorn with a single such routine may instead schedule it a second time, \texttt{AT post\_recover\_variables}, with the same ordering clauses, as \texttt{TestSubcyclingMC2} does for its error. A routine that other routines in the bin are ordered against by name, such as one scheduled \texttt{AS EstimateError}, is scheduled directly in each bin in this way, since an ordering clause in a bin cannot name a routine inside a schedule group.
+A thorn with a single such routine uses a group as well, as \texttt{TestSubcyclingMC2} does for its error, so that the routine's clauses are written once. When other routines in a bin are ordered against the routine by name, the group carries that name instead: \texttt{BoxInBox} schedules \texttt{GROUP BoxInBox\_EstimateError AS EstimateError} in each bin, with \texttt{BoxInBox\_Setup} inside it, so that a thorn that moves the boxes can schedule its own group \texttt{BEFORE EstimateError} in each bin.
 %
 Three clauses make the rule precise:
 %

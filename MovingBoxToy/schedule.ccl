@@ -1,22 +1,22 @@
 # Schedule definitions for thorn MovingBoxToy
 
-SCHEDULE MovingBoxToy_MoveBoxes AT postinitial BEFORE EstimateError
+# Each level's error estimate must see the box positions at that level's own
+# time: move the boxes before every error estimate, including the one after a
+# restart, which recomputes each level's estimate as at the end of its last
+# step
+SCHEDULE GROUP MovingBoxToy_UpdateBoxes AT postinitial BEFORE EstimateError
 {
-  LANG: C
-  READS: BoxInBox::positions
-  WRITES: BoxInBox::positions
 } "Update box positions"
 
-SCHEDULE MovingBoxToy_MoveBoxes AT poststep BEFORE EstimateError
+SCHEDULE GROUP MovingBoxToy_UpdateBoxes AT poststep BEFORE EstimateError
 {
-  LANG: C
-  READS: BoxInBox::positions
-  WRITES: BoxInBox::positions
 } "Update box positions"
 
-# After a restart, each level's error estimate must see the box positions at
-# that level's own time, as at the end of its last step
-SCHEDULE MovingBoxToy_MoveBoxes AT post_recover_variables BEFORE EstimateError
+SCHEDULE GROUP MovingBoxToy_UpdateBoxes AT post_recover_variables BEFORE EstimateError
+{
+} "Update box positions"
+
+SCHEDULE MovingBoxToy_MoveBoxes IN MovingBoxToy_UpdateBoxes
 {
   LANG: C
   READS: BoxInBox::positions
