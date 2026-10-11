@@ -122,14 +122,15 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
 }
 
 // Abort unless the parent of `leveldata` has a valid interior for every
-// variable of group gi in timelevels 0 to ntls-1, because a prolongation into
-// `leveldata` is about to read them. The message names the parent's level and
-// timelevel. When gi is not checkpointed and the parent has not run its end
-// of step since the run was recovered (GHExt::recovered_iteration), it ends
-// with the recovery rule for that timelevel.
+// variable of group gi in timelevel tl, because a prolongation into
+// `leveldata` is about to read it. The message names the parent's level and
+// timelevel. When gi is not checkpointed, it ends with the rule that was
+// broken: for a past timelevel always, and for the current timelevel only
+// while the parent has not run its end of step since the run was recovered
+// (GHExt::recovered_iteration).
 static void
 error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
-                        const int gi, const int ntls, const char *const label) {
+                        const int gi, const int tl, const char *const label) {
   assert(leveldata.level > 0);
   const auto &restrict groupdata = *leveldata.groupdata.at(gi);
   const auto &restrict coarseleveldata =
@@ -137,7 +138,7 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
   const auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
   assert(!coarsegroupdata.mfab.empty());
   assert(coarsegroupdata.numvars == groupdata.numvars);
-  assert(ntls <= int(coarsegroupdata.mfab.size()));
+  assert(tl >= 0 && tl < int(coarsegroupdata.mfab.size()));
 
   const bool recovering =
       ghext->recovered_iteration >= 0 &&
@@ -146,26 +147,34 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
   const std::function<std::string()> msg = [label]() {
     return std::string(label);
   };
-  for (int tl = 0; tl < ntls; ++tl) {
-    const std::function<std::string()> hint = [&coarsegroupdata, tl,
-                                               recovering]() -> std::string {
-      if (!recovering || coarsegroupdata.do_checkpoint)
-        return "";
-      // Recomputation in CCTK_POST_RECOVER_VARIABLES restores only the
-      // current timelevel
-      const std::string rule =
-          tl == 0 ? "  Groups read by another level must be checkpointed or "
-                    "recomputed in CCTK_POST_RECOVER_VARIABLES.\n"
-                  : "  Past timelevels read by another level must be "
-                    "checkpointed, with openPMD; recomputation in "
-                    "CCTK_POST_RECOVER_VARIABLES does not restore them.\n";
+  const std::function<std::string()> hint = [&coarsegroupdata, tl,
+                                             recovering]() -> std::string {
+    if (coarsegroupdata.do_checkpoint)
+      return "";
+    const std::string see =
+        "  See \"Recovery\" in the CarpetX documentation.\n";
+    // A past timelevel that another level reads must be checkpointed,
+    // whatever invalidated it this time: no routine can recompute it, and
+    // only a checkpoint carries it across a recovery or a regrid
+    if (tl > 0)
+      return "  Group " + coarsegroupdata.groupname +
+             " is not checkpointed, so a recovery, or a regrid that remakes "
+             "its level, can lose its past timelevels, which no routine can "
+             "recompute.\n"
+             "  Past timelevels read by another level must be checkpointed.\n" +
+             see;
+    // Outside recovery the driver cannot tell why a current timelevel is
+    // invalid (a missing routine, a missing POSTREGRID recomputation)
+    if (recovering)
       return "  This run was recovered and group " + coarsegroupdata.groupname +
-             " is not checkpointed.\n" + rule +
-             "  See \"Recovery\" in the CarpetX documentation.\n";
-    };
-    for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
-      error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), msg, hint);
-  }
+             " is not checkpointed.\n"
+             "  Groups read by another level must be checkpointed or "
+             "recomputed in CCTK_POST_RECOVER_VARIABLES.\n" +
+             see;
+    return "";
+  };
+  for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
+    error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), msg, hint);
 }
 
 static std::vector<int> collect_restrictable_groups() {
@@ -377,9 +386,10 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
       assert(!groupdata.mfab.empty());
 
       if (leveldata.level > 0)
-        error_if_parent_invalid(
-            leveldata, gi, sync_tl0,
-            "SyncGroupsByDirI on coarse level before prolongation");
+        for (int tl = 0; tl < sync_tl0; ++tl)
+          error_if_parent_invalid(
+              leveldata, gi, tl,
+              "SyncGroupsByDirI on coarse level before prolongation");
 
       for (int tl = 0; tl < sync_tl0; ++tl) {
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
@@ -648,20 +658,21 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
           const rat64 t_fin = leveldata.iteration;
           const CCTK_REAL w_new = CCTK_REAL((t_fin - t_new + cdt) / cdt);
 
-          // Every parent timelevel that the prolongation reads must have a
-          // valid interior: each synced timelevel, plus tl=1 when blending.
-          // The fills are only queued here, so this runs before any of them.
-          // It holds in every run and has no opt-out; without it an invalid
-          // parent is caught only by the poison scan after the sync, on the
-          // child, and not at all without poisoning.
-          using std::max;
-          error_if_parent_invalid(
-              leveldata, gi, blend ? max(sync_tl, 2) : sync_tl,
-              "SyncGroupsByDirISubcycling on coarse level before prolongation");
+          // Each fill below first checks that every parent timelevel it reads
+          // has a valid interior. The fills are only queued here, so the
+          // checks run before any of them. They hold in every run and have no
+          // opt-out; without them an invalid parent is caught only by the
+          // poison scan after the sync, on the child, and not at all without
+          // poisoning.
+          const char *const label =
+              "SyncGroupsByDirISubcycling on coarse level before prolongation";
 
           for (int tl = 0; tl < sync_tl; ++tl) {
             // Only tl=0 is the "new" coarse snapshot whose old partner is tl=1.
             const bool do_blend = blend && tl == 0;
+            error_if_parent_invalid(leveldata, gi, tl, label);
+            if (do_blend)
+              error_if_parent_invalid(leveldata, gi, 1, label);
             const amrex::MultiFab *const cmfab_old =
                 do_blend ? coarsegroupdata.mfab.at(1).get() : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
