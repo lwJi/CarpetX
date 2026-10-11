@@ -1178,10 +1178,10 @@ static void SetStepTime(cGH *restrict const cctkGH, const int level,
 
 // Restore every level's clock and last_tail_iteration from the metadata that
 // the checkpoint reader left in ghext->recovered_levels, then drop it.
-// Checkpoints that predate last_tail_iteration get it from the clocks: the
-// finest group gets the checkpoint iteration, and every coarser group the
-// iteration in which its finest level last stepped (LastStepIteration). With
-// one clock group this is exact; with more it assumes that no regrid has
+// Checkpoints that predate last_tail_iteration get it from the clocks: every
+// group gets the iteration in which its finest level last stepped
+// (LastStepIteration), which for the finest group is the checkpoint iteration.
+// With one clock group this is exact; with more it assumes that no regrid has
 // changed the number of levels since the coarsest group last stepped, so
 // recovery warns. Aborts if the restored iterations are inconsistent with the
 // clock groups or the checkpoint iteration, before anything runs in their
@@ -1230,11 +1230,9 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
   if (!have_last_tail_iterations) {
     // Old checkpoint without last_tail_iteration
     for (const auto &[min_level, max_level] : clock_groups) {
-      // The finest group stepped last, at the checkpoint iteration
+      // For the finest group this is the checkpoint iteration
       const int last_tail_iteration =
-          max_level == ghext->num_levels()
-              ? checkpoint_iteration
-              : LastStepIteration(max_level - 1, checkpoint_iteration);
+          LastStepIteration(max_level - 1, checkpoint_iteration);
       for (auto &patchdata : ghext->patchdata)
         for (auto &leveldata : patchdata.leveldata)
           if (leveldata.level >= min_level && leveldata.level < max_level)
