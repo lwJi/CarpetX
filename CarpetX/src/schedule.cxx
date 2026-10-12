@@ -1160,9 +1160,12 @@ static void SetDeltaTime(cGH *restrict const cctkGH) {
 }
 
 // The time that a window sees once `level` has stepped to `clock` (in coarse
-// steps). Evolve sets it for each batch before CCTK_PRESTEP, and recovery for
+// steps). Evolve sets it for each batch before CCTK_PRESTEP, recovery for
 // each clock group before CCTK_POST_RECOVER_VARIABLES, with `level` the
-// group's finest level, so the two cannot drift apart. cctk_iteration is not
+// group's finest level, and the fresh-start tail of Initialise for its window
+// before the end-of-step bins, with `level` the finest level, so the three
+// cannot drift apart: recovery from an initial checkpoint (one clock group,
+// every clock 0) sees what the fresh run saw. cctk_iteration is not
 // a function of the clock, so each caller sets it itself. Without subcycling
 // cctk_time is not one either (Evolve accumulates it, recovery keeps the
 // checkpointed value), so only cctk_timefac is set.
@@ -1379,8 +1382,11 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
 // clock group (RecomputePerClockGroup), then traverse CCTK_CPINITIAL and
 // write the initial output once, in the finest group's window. Recovery never
 // runs CarpetX_PreRestrict, restriction, CCTK_POSTRESTRICT, CCTK_POSTSTEP or
-// CCTK_ANALYSIS, with or without subcycling: the checkpoint was written after
-// all of them. See "Recovery" in the CarpetX documentation.
+// CCTK_ANALYSIS, with or without subcycling. A CCTK_CHECKPOINT or
+// CCTK_TERMINATE checkpoint was written after all of them; an initial-data
+// checkpoint (CCTK_CPINITIAL) after POSTSTEP but before ANALYSIS. Results
+// recomputed in CCTK_POST_RECOVER_VARIABLES are reproduced either way. See
+// "Recovery" in the CarpetX documentation.
 static void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -1676,10 +1682,10 @@ int Initialise(tFleshConfig *config) {
   const int max_level = ghext->num_levels();
   const rat64 finest_iteration =
       ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
+  // As in Evolve: set the finest level's context, then widen the window
+  SetStepTime(cctkGH, max_level - 1, finest_iteration);
   const int min_level = WidenMinLevel(max_level - 1, finest_iteration);
   active_levels = std::make_optional<active_levels_t>(min_level, max_level);
-
-  cctkGH->cctk_timefac = ghext->use_subcycling ? (1 << min_level) : 1;
 
   if (!window_is_restricted(min_level, max_level)) {
     // Only the finest level is at the current time: nothing to restrict

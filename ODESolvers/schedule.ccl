@@ -75,10 +75,13 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 #     INITIAL
 #     POSTINITIAL
 #     POSTPOSTINITIAL
-#   (disabled) [restrict]
-#   (disabled) POSTRESTRICT
+#   [when restrict_during_sync = no and >= 2 levels (all time-aligned here):]
+#     CarpetX_PreRestrict
+#     [restrict]    (fine to coarse, then prolongate restricted and, under
+#                    subcycling, integrated GFs)
+#     POSTRESTRICT
 #   POSTSTEP
-#   CPINITIAL
+#   CPINITIAL       (an initial checkpoint is written here, before ANALYSIS)
 #   ANALYSIS
 #   OutputGH
 #

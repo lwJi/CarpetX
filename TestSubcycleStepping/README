@@ -60,9 +60,10 @@ step are:
   pass 4: window  [0,3)               L0 (4,1,4)  L1 (4,1,4)    L2 (4,1,4)
 
 The second coarse step repeats this with iterations 5 to 8 and times larger
-by 1. Initialization stamps every level with (0,0,1). A level keeps its
-stamp until a later window covers it, e.g. level 0 keeps iteration 1
-through pass 2.
+by 1. Initialization runs CCTK_POSTSTEP once over every level, with the
+finest level's context as at every aligned pass, so it stamps every level
+with (0,0,4). A level keeps its stamp until a later window covers it, e.g.
+level 0 keeps iteration 1 through pass 2.
 
 After a restart, recovery traverses CCTK_POST_RECOVER_VARIABLES once per
 clock group (a run of adjacent levels that share a clock), coarse to fine.
@@ -87,7 +88,11 @@ iteration 6, right after a regrid added a fourth level (clocks 2, 3/2, 3/2,
 traversal [0,1) sees iteration 5, where the clocks alone would give 4.
 recover-subcycling-silo-3clocks.par repeats the 3-clock restart from a Silo
 checkpoint, in relaxed recovery mode; its references equal those of
-recover-subcycling-openpmd-3clocks.
+recover-subcycling-openpmd-3clocks. recover-subcycling-openpmd-iteration0.par
+restarts from the initial checkpoint (IO::checkpoint_ID), where every clock
+is 0: one traversal [0,3) (0,0,4), the initialization stamp, and its
+references, iteration 0 included, equal the uninterrupted run's
+(checkpoint-subcycling-openpmd-iteration0) except for recovery_counts.
 
 "recovery_counts" (grid scalars, checkpoint="no") count the traversals of
 CCTK_POST_RECOVER_VARIABLES (count_post_recover), CCTK_POSTSTEP
@@ -100,5 +105,5 @@ the other counts are 0, since recovery does not rerun end-of-step bins. A
 fresh start zeroes them at CCTK_INITIAL with counting off, so they stay 0.
 The recover tests in TestSubcyclingMC2/test output them:
 recover-subcycling-openpmd-nonrhs.par (two clock groups), -3clocks.par
-(three), -4clocks.par (four), -addlevel.par (three) and
-recover-subcycling-silo-3clocks.par (three).
+(three), -4clocks.par (four), -addlevel.par (three), -iteration0.par (one)
+and recover-subcycling-silo-3clocks.par (three).
