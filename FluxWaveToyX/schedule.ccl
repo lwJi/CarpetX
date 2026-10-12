@@ -120,3 +120,17 @@ SCHEDULE FluxWaveToyX_PreRestrictEnergy IN CarpetX_PreRestrict
   WRITES: prerestrict_energy(interior)
   SYNC: prerestrict_energy
 } "Average the energy density over the ghost width before restriction"
+
+# prerestrict_energy is checkpointed (see interface.ccl), and a checkpoint
+# can be written before CarpetX_PreRestrict is ever traversed: at CPINITIAL
+# on a single level, or with restrict_during_sync = yes. Compute it from the
+# initial data too, once ODESolvers has filled the state's ghosts, so that
+# it is defined whenever it is checkpointed. Where the initial
+# CarpetX_PreRestrict runs, it overwrites this value before any output.
+SCHEDULE FluxWaveToyX_PreRestrictEnergy AT postinitial AFTER ODESolvers_PostStep
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: prerestrict_energy(interior)
+  SYNC: prerestrict_energy
+} "Average the energy density over the ghost width of the initial data"
