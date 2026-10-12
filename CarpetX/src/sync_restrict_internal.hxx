@@ -11,7 +11,7 @@ namespace CarpetX {
 // The reflux, Reflux(cctkGH, min_level, max_level), is declared in
 // subcycling.hxx, which exports it to ODESolvers as well.
 void Restrict(const cGH *cctkGH, int level);
-void ProlongateRestrictedGFs(const cGH *cctkGH);
+void ProlongateAfterRestriction(const cGH *cctkGH);
 
 } // namespace CarpetX
 

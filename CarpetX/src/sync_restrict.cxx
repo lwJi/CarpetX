@@ -841,8 +841,36 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
   return numgroups; // number of groups synchronized
 }
 
-void ProlongateRestrictedGFs(const cGH *cctkGH) {
-  const std::vector<int> groups = collect_restrictable_groups();
+// Right after the end-of-step restriction, refill the coarse-fine ghosts of
+// every active level aligned with its parent by spatial prolongation from the
+// restricted parent. The groups are those whose ghosts there are not yet a
+// prolongation of the parent's current state:
+//  - every restricted group, since the restriction changed the parent;
+//  - under subcycling, every integrated group, restricted or not, since
+//    ODESolvers left its ghosts there at the dense output (the parent's RK
+//    update before its ODESolvers_PostStep) to save communication. Refilling
+//    them gives every evolved group the same last fill, the parent's final
+//    state, which is what recovery repeats. Restrict still skips
+//    restrict="no" groups, so their coarse interiors are never overwritten.
+void ProlongateAfterRestriction(const cGH *cctkGH) {
+  const int numgroups = CCTK_NumGroups();
+  std::vector<int> groups;
+  groups.reserve(numgroups);
+  const auto &patchdata0 = ghext->patchdata.at(0);
+  const auto &leveldata0 = patchdata0.leveldata.at(0);
+  for (const auto &groupdataptr : leveldata0.groupdata) {
+    // Only grid functions
+    if (groupdataptr) {
+      auto &restrict groupdata = *groupdataptr;
+      // Only grid functions with storage
+      if (groupdata.mfab.empty())
+        continue;
+      const int gi = groupdata.groupindex;
+      if (groupdata.do_restrict ||
+          (ghext->use_subcycling && group_is_integrated(gi)))
+        groups.push_back(gi);
+    }
+  }
   SyncGroupsByDirIProlongateOnly_impl(cctkGH, groups.size(), groups.data(),
                                       nullptr, true);
 }
@@ -1051,12 +1079,11 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
           for (amrex::FabSetIter fsi(scratch); fsi.isValid(); ++fsi) {
             const amrex::Box &bx = fsi.validbox();
             const auto sfab = scratch.array(fsi);
-            amrex::ParallelFor(bx, numvars,
-                               [=] AMREX_GPU_DEVICE(int i, int j, int k,
-                                                    int n) noexcept {
-                                 sfab(i, j, k, n) =
-                                     sfab(i, j, k, n) * mult * area_d;
-                               });
+            amrex::ParallelFor(
+                bx, numvars,
+                [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
+                  sfab(i, j, k, n) = sfab(i, j, k, n) * mult * area_d;
+                });
           }
           // The local `reg += scratch` of identical layouts, the same add
           // CrseInit(ADD) performs
