@@ -1,0 +1,3 @@
+# Configuration definitions for thorn TestSubcyclingNoRestrict
+
+REQUIRES Arith Derivs Loop

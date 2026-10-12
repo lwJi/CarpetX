@@ -94,7 +94,8 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 #   [when restrict_during_sync = no and >= 2 levels are time-aligned:]
 #     CarpetX_PreRestrict  (sees the state before the reflux)
 #     [reflux]      (subcycling: finest pair first, once per coarse step)
-#     [restrict]    (fine to coarse, then prolongate restricted GFs)
+#     [restrict]    (fine to coarse, then prolongate restricted and, under
+#                    subcycling, integrated GFs)
 #     POSTRESTRICT  (ODESolvers_PostStep runs here; under subcycling its
 #                    SYNC repairs the ghosts after the reflux and the
 #                    restriction, and it recomputes the dependents)

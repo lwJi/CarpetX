@@ -376,10 +376,15 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcys_rmbnd(5); // refinement boundary only
     calcpoststep();
 
-    // No calcys_rmbnd(1) here: refinement-boundary ghosts are kept aligned by
-    // subcycling-aware POSTRESTRICT SYNCs. The post-recovery case is handled
-    // by ODESolvers_Solve_Subcycling_Recovery at
-    // CCTK_POST_RECOVER_VARIABLES.
+    // No calcys_rmbnd(1) here: stage 1 of the next substep reads the
+    // refinement-boundary ghosts as they stand, and the subcycling SYNC
+    // leaves them alone. After a lagging substep they hold the virtual
+    // end-of-step fill, which is that stage's dense output. After an aligned
+    // substep the driver refills them for every evolved group before the
+    // parent's next step, when it restricts a window that holds the level, by
+    // spatial prolongation from the restricted parent
+    // (ProlongateAfterRestriction). The post-recovery case is handled by
+    // ODESolvers_Solve_Subcycling_Recovery at CCTK_POST_RECOVER_VARIABLES.
 
   } else if (CCTK_EQUALS(method, "SSPRK3")) {
 
@@ -479,14 +484,11 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   //  - or, on an aligned level of a window the driver restricted at that end
   //    of step (CarpetX::window_is_restricted: the finest clock group), after
   //    that by spatial prolongation from the restricted parent
-  //    (ProlongateRestrictedGFs), for every restricted group. The parent's
-  //    tl=0 still holds that state, and SyncGroupsByDirIProlongateOnlyAligned
-  //    repeats the prolongation. These are exactly the levels that need no
-  //    bands: a time-aligned checkpoint carries none. An evolved group with
-  //    restriction disabled kept the dense output there, which recovery
-  //    cannot repeat without bands, so it is prolongated the same way. Its
-  //    ghosts then differ from the uninterrupted run's at round-off, or by
-  //    what the parent's ODESolvers_PostStep (and reflux) changed in it.
+  //    (ProlongateAfterRestriction), for every evolved group, restricted or
+  //    not. The parent's tl=0 still holds that state, and
+  //    SyncGroupsByDirIProlongateOnlyAligned repeats the prolongation. These
+  //    are exactly the levels that need no bands: a time-aligned checkpoint
+  //    carries none.
   // The ODESolvers_PostStep SYNC that follows then only exchanges ghosts
   // between boxes of the same level.
   if (var_groups.size() > 0) {
