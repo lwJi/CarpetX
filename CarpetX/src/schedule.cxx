@@ -1382,8 +1382,11 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
 // clock group (RecomputePerClockGroup), then traverse CCTK_CPINITIAL and
 // write the initial output once, in the finest group's window. Recovery never
 // runs CarpetX_PreRestrict, restriction, CCTK_POSTRESTRICT, CCTK_POSTSTEP or
-// CCTK_ANALYSIS, with or without subcycling: the checkpoint was written after
-// all of them. See "Recovery" in the CarpetX documentation.
+// CCTK_ANALYSIS, with or without subcycling. A CCTK_CHECKPOINT or
+// CCTK_TERMINATE checkpoint was written after all of them; an initial-data
+// checkpoint (CCTK_CPINITIAL) after POSTSTEP but before ANALYSIS. Results
+// recomputed in CCTK_POST_RECOVER_VARIABLES are reproduced either way. See
+// "Recovery" in the CarpetX documentation.
 static void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
