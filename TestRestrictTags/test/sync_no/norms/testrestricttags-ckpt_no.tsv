@@ -1,0 +1,2 @@
+# 1:iteration	2:time	3:testrestricttags::ckpt_no.min	4:testrestricttags::ckpt_no.max	5:testrestricttags::ckpt_no.sum	6:testrestricttags::ckpt_no.avg	7:testrestricttags::ckpt_no.stddev	8:testrestricttags::ckpt_no.volume	9:testrestricttags::ckpt_no.L1norm	10:testrestricttags::ckpt_no.L2norm	11:testrestricttags::ckpt_no.maxabs
+0	0.0000000000000000e+00	1.0000000000000000e+00	2.0000000000000000e+00	9.0000000000000000e+00	1.1250000000000000e+00	3.3071891388307384e-01	8.0000000000000000e+00	1.1250000000000000e+00	1.1726039399558574e+00	2.0000000000000000e+00

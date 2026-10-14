@@ -179,6 +179,7 @@ CarpetX/TestODESolvers2
 CarpetX/TestOutput
 CarpetX/TestPersistentGroups
 CarpetX/TestProlongate
+CarpetX/TestRestrictTags
 CarpetX/TestStorageKeyword
 CarpetX/TestSubcycleStepping
 CarpetX/TestSubcyclingCC

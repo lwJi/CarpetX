@@ -1,0 +1,54 @@
+# Schedule definitions for thorn TestRestrictTags
+
+STORAGE: untagged ckpt_no nr nr_ckpt_no ry_ckpt_no nr_explicit
+
+SCHEDULE TestRestrictTags_Init AT initial
+{
+  LANG: C
+  WRITES: untagged(interior)
+  WRITES: ckpt_no(interior)
+  WRITES: nr(interior)
+  WRITES: nr_ckpt_no(interior)
+  WRITES: ry_ckpt_no(interior)
+  WRITES: nr_explicit(interior)
+} "Write coarse_value on level 0 and fine_value on level 1"
+
+# The contract AsterX's gauge register relies on: an explicit call restricts
+# a group tagged restrict="no"
+SCHEDULE TestRestrictTags_RestrictExplicit AT postinitial
+{
+  LANG: C
+  OPTIONS: global
+  READS: nr_explicit(interior)
+  WRITES: nr_explicit(interior)
+} "Restrict nr_explicit through CarpetX's exported window RestrictNoPoison"
+
+# With CarpetX::restrict_during_sync = yes, this SYNC also restricts
+SCHEDULE TestRestrictTags_Sync AT postinitial AFTER TestRestrictTags_RestrictExplicit
+{
+  LANG: C
+  OPTIONS: global
+  SYNC: untagged
+  SYNC: ckpt_no
+  SYNC: nr
+  SYNC: nr_ckpt_no
+  SYNC: ry_ckpt_no
+  SYNC: nr_explicit
+} "Fill the ghosts of all six groups"
+
+# CCTK_ANALYSIS follows the end-of-step restriction of the initial data. The
+# groups that every parameter file expects restricted are read on the
+# interior only: the check reads no ghost of a restricted group, and with
+# restrict_during_sync = no the end-of-step restriction leaves the coarse
+# ghosts of untagged and ry_ckpt_no invalid. The others are read everywhere,
+# so that CarpetX checks that their ghosts are valid.
+SCHEDULE TestRestrictTags_Check AT analysis
+{
+  LANG: C
+  READS: untagged(interior)
+  READS: ckpt_no(everywhere)
+  READS: nr(everywhere)
+  READS: nr_ckpt_no(everywhere)
+  READS: ry_ckpt_no(interior)
+  READS: nr_explicit(interior)
+} "Check which coarse interiors hold fine_value, and the ghosts of the groups that do not"

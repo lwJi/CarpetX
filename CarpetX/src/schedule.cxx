@@ -1699,11 +1699,14 @@ int Initialise(tFleshConfig *config) {
     // Pre-restriction hook, traversed over the widened time-aligned window
     // immediately before the restriction below
     CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
-    // Restrict
-    active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
-      if (leveldata.level < ghext->num_levels() - 1)
-        Restrict(cctkGH, leveldata.level);
-    });
+    // Restrict the groups the restrict tag selects, every level pair of the
+    // window, which ends at the finest level
+    assert(do_restrict);
+    const std::vector<int> groups = collect_restrictable_groups();
+    if (ghext->use_subcycling)
+      RestrictNoPoison(cctkGH, min_level, max_level, groups);
+    else
+      Restrict(cctkGH, min_level, max_level, groups);
     // Prolongation
     ProlongateAfterRestriction(cctkGH);
     CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
@@ -2158,11 +2161,14 @@ int Evolve(tFleshConfig *config) {
           // ODESolvers_PostStep that repairs what the correction invalidated.
           if (ghext->use_subcycling)
             Reflux(cctkGH, min_level, max_level);
-          // Restrict
-          active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
-            if (leveldata.level < ghext->num_levels() - 1)
-              Restrict(cctkGH, leveldata.level);
-          });
+          // Restrict the groups the restrict tag selects, the same level
+          // pairs as the reflux
+          assert(do_restrict);
+          const std::vector<int> groups = collect_restrictable_groups();
+          if (ghext->use_subcycling)
+            RestrictNoPoison(cctkGH, min_level, max_level, groups);
+          else
+            Restrict(cctkGH, min_level, max_level, groups);
           // Prolongation
           ProlongateAfterRestriction(cctkGH);
           CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");

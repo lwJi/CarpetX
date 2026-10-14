@@ -13,6 +13,7 @@
 #include <AMReX_FluxRegister.H>
 #include <AMReX_MultiFabUtil.H>
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <memory>
@@ -21,11 +22,10 @@
 
 namespace CarpetX {
 
-// Forward declaration for the 3-arg Restrict wrapper, defined later in this
-// TU. SyncGroupsByDirI's restrict_during_sync branch calls it, but to keep
-// the top-down order (helpers → Sync* → Reflux → Restrict*) the definition
-// appears below.
-void Restrict(const cGH *cctkGH, int level, const std::vector<int> &groups);
+// SyncGroupsByDirI's restrict_during_sync branch calls the window operation
+// Restrict(cctkGH, min_level, max_level, groups), which
+// sync_restrict_internal.hxx declares. To keep the top-down order (helpers →
+// selectors → Sync* → Reflux → Restrict*) its definition appears below.
 
 // =======================================================================
 // Sync helpers
@@ -177,7 +177,22 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
     error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), msg, hint);
 }
 
-static std::vector<int> collect_restrictable_groups() {
+// =======================================================================
+// Restriction group selectors
+// =======================================================================
+
+// Each driver path that restricts chooses its groups with one of these
+// selectors, and they are the only code that selects groups by the
+// per-group restriction flags. The operations below (Restrict,
+// RestrictNoPoison) apply no group rule: they restrict exactly the list they
+// are given, so that an explicit call restricts a group even when its tags
+// keep the driver away from it. The selectors read the flags on patch 0,
+// level 0; every patch and level carries the same ones.
+
+// The groups the end-of-step restriction restricts: those whose restrict
+// tag is "yes", where a missing restrict tag takes the value of the
+// checkpoint tag, and a missing checkpoint tag counts as "yes"
+std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
   groups.reserve(numgroups);
@@ -193,6 +208,31 @@ static std::vector<int> collect_restrictable_groups() {
       // Only grid functions with restriction enabled
       if (groupdata.do_restrict)
         groups.push_back(groupdata.groupindex);
+    }
+  }
+  return groups;
+}
+
+// The groups the end-of-step re-prolongation refills: every group the
+// end-of-step restriction restricts and, under subcycling, every integrated
+// group (see ProlongateAfterRestriction)
+static std::vector<int> reprolongate_groups() {
+  const int numgroups = CCTK_NumGroups();
+  std::vector<int> groups;
+  groups.reserve(numgroups);
+  const auto &patchdata0 = ghext->patchdata.at(0);
+  const auto &leveldata0 = patchdata0.leveldata.at(0);
+  for (const auto &groupdataptr : leveldata0.groupdata) {
+    // Only grid functions
+    if (groupdataptr) {
+      auto &restrict groupdata = *groupdataptr;
+      // Only grid functions with storage
+      if (groupdata.mfab.empty())
+        continue;
+      const int gi = groupdata.groupindex;
+      if (groupdata.do_restrict ||
+          (ghext->use_subcycling && group_is_integrated(gi)))
+        groups.push_back(gi);
     }
   }
   return groups;
@@ -355,10 +395,15 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
   }
 
   if (restrict_during_sync) {
-    active_levels->loop_fine_to_coarse([&](const auto &leveldata) {
-      if (leveldata.level < ghext->num_levels() - 1)
-        Restrict(cctkGH, leveldata.level, groups);
-    });
+    const int min_level = active_levels->min_level;
+    // Every level of the window from its child, including the window's top
+    // level from the next finer level, which lies outside the window after a
+    // regrid (BASEGRID/POSTREGRID SYNCs, whose window is the modified levels)
+    const int max_level =
+        std::min(active_levels->max_level + 1, ghext->num_levels());
+    // The do_restrict parameter governs only restriction the driver starts
+    assert(do_restrict || max_level - min_level < 2);
+    Restrict(cctkGH, min_level, max_level, groups);
     // FIXME: cannot call POSTRESTRICT since this could contain a SYNC leading
     // to an infinite loop. This means that outer boundaries will be left
     // invalid after an implicit restrict
@@ -852,25 +897,9 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
 //    them gives every evolved group the same last fill, the parent's final
 //    state, which is what recovery repeats. Restrict still skips
 //    restrict="no" groups, so their coarse interiors are never overwritten.
+// The selector reprolongate_groups applies this rule.
 void ProlongateAfterRestriction(const cGH *cctkGH) {
-  const int numgroups = CCTK_NumGroups();
-  std::vector<int> groups;
-  groups.reserve(numgroups);
-  const auto &patchdata0 = ghext->patchdata.at(0);
-  const auto &leveldata0 = patchdata0.leveldata.at(0);
-  for (const auto &groupdataptr : leveldata0.groupdata) {
-    // Only grid functions
-    if (groupdataptr) {
-      auto &restrict groupdata = *groupdataptr;
-      // Only grid functions with storage
-      if (groupdata.mfab.empty())
-        continue;
-      const int gi = groupdata.groupindex;
-      if (groupdata.do_restrict ||
-          (ghext->use_subcycling && group_is_integrated(gi)))
-        groups.push_back(gi);
-    }
-  }
+  const std::vector<int> groups = reprolongate_groups();
   SyncGroupsByDirIProlongateOnly_impl(cctkGH, groups.size(), groups.data(),
                                       nullptr, true);
 }
@@ -1217,13 +1246,16 @@ void Reflux(const cGH *cctkGH, const int min_level, const int max_level) {
 // Restrict
 // =======================================================================
 
-static void Restrict_impl(const cGH *cctkGH, int level,
-                          const std::vector<int> &groups,
-                          const bool do_validity_tracking) {
-  DECLARE_CCTK_PARAMETERS;
-
-  assert(do_restrict);
-
+// Restrict `groups` from level + 1 onto level on every patch that has
+// level + 1: the coarse interior points the fine level covers get the
+// restricted fine values, in every timelevel except the oldest (or in the
+// only one). Both interiors must be valid. With do_validity_tracking, the
+// coarse ghosts and outer boundary are then marked invalid; without it their
+// flags stay set over stale values, and the caller refreshes them. Reached
+// through Restrict and RestrictNoPoison below.
+static void restrict_level(const cGH *cctkGH, const int level,
+                           const std::vector<int> &groups,
+                           const bool do_validity_tracking) {
   static Timer timer("Restrict");
   Interval interval(timer);
 
@@ -1337,22 +1369,34 @@ static void Restrict_impl(const cGH *cctkGH, int level,
   } // for patchdata
 }
 
-void Restrict(const cGH *cctkGH, int level, const std::vector<int> &groups) {
-  Restrict_impl(cctkGH, level, groups, /*do_validity_tracking=*/true);
+// Restrict exactly `groups`: every level pair (level, level + 1) with both
+// levels in [min_level, max_level), finest pair first, each level once and
+// on every patch. Applies no group rule and reads no parameter; the callers
+// select the groups (see the selectors above). Marks the coarse ghosts and
+// outer boundaries invalid.
+void Restrict(const cGH *cctkGH, const int min_level, const int max_level,
+              const std::vector<int> &groups) {
+  assert(min_level >= 0 && max_level <= ghext->num_levels());
+  if (groups.empty())
+    return;
+  for (int level = max_level - 2; level >= min_level; --level)
+    restrict_level(cctkGH, level, groups, /*do_validity_tracking=*/true);
 }
 
-void RestrictNoPoison(const cGH *cctkGH, int level,
+// Like Restrict, but leaves the validity flags alone (see restrict_level)
+void RestrictNoPoison(const cGH *cctkGH, const int min_level,
+                      const int max_level, const std::vector<int> &groups) {
+  assert(min_level >= 0 && max_level <= ghext->num_levels());
+  if (groups.empty())
+    return;
+  for (int level = max_level - 2; level >= min_level; --level)
+    restrict_level(cctkGH, level, groups, /*do_validity_tracking=*/false);
+}
+
+// The single pair (level, level + 1); kept for AsterX
+void RestrictNoPoison(const cGH *cctkGH, const int level,
                       const std::vector<int> &groups) {
-  Restrict_impl(cctkGH, level, groups, /*do_validity_tracking=*/false);
-}
-
-void Restrict(const cGH *cctkGH, int level) {
-  const std::vector<int> groups = collect_restrictable_groups();
-  if (ghext->use_subcycling) {
-    RestrictNoPoison(cctkGH, level, groups);
-  } else {
-    Restrict(cctkGH, level, groups);
-  }
+  restrict_level(cctkGH, level, groups, /*do_validity_tracking=*/false);
 }
 
 } // namespace CarpetX

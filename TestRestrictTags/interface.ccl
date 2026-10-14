@@ -1,0 +1,28 @@
+# Interface definition for thorn TestRestrictTags
+
+IMPLEMENTS: TestRestrictTags
+
+USES INCLUDE HEADER: loop.hxx
+USES INCLUDE HEADER: schedule.hxx
+
+
+
+# One group per row of the restrict tag table in the README. CCTK_INITIAL
+# writes coarse_value on level 0 and fine_value on level 1 into every group,
+# and TestRestrictTags_Check reads at CCTK_ANALYSIS which coarse interiors
+# now hold fine_value.
+
+CCTK_REAL untagged TYPE=GF CENTERING={VVV} "no tags: restricted"
+
+CCTK_REAL ckpt_no TYPE=GF CENTERING={VVV} TAGS='checkpoint="no"' "not checkpointed, no restrict tag"
+
+CCTK_REAL nr TYPE=GF CENTERING={VVV} TAGS='restrict="no"' "restriction disabled"
+
+CCTK_REAL nr_ckpt_no TYPE=GF CENTERING={VVV} TAGS='checkpoint="no" restrict="no"' "not checkpointed, restriction disabled"
+
+CCTK_REAL ry_ckpt_no TYPE=GF CENTERING={VVV} TAGS='checkpoint="no" restrict="yes"' "not checkpointed, restriction enabled"
+
+# Tagged like nr, but TestRestrictTags_RestrictExplicit restricts it through
+# CarpetX's exported RestrictNoPoison at CCTK_POSTINITIAL, as AsterX restricts
+# its restrict="no" gauge register: the tag keeps only the driver away
+CCTK_REAL nr_explicit TYPE=GF CENTERING={VVV} TAGS='restrict="no"' "restriction disabled, restricted explicitly"

@@ -1,0 +1,2 @@
+# 1:iteration	2:time	3:testrestricttags::nr.min	4:testrestricttags::nr.max	5:testrestricttags::nr.sum	6:testrestricttags::nr.avg	7:testrestricttags::nr.stddev	8:testrestricttags::nr.volume	9:testrestricttags::nr.L1norm	10:testrestricttags::nr.L2norm	11:testrestricttags::nr.maxabs
+0	0.0000000000000000e+00	1.0000000000000000e+00	2.0000000000000000e+00	9.0000000000000000e+00	1.1250000000000000e+00	3.3071891388307384e-01	8.0000000000000000e+00	1.1250000000000000e+00	1.1726039399558574e+00	2.0000000000000000e+00
