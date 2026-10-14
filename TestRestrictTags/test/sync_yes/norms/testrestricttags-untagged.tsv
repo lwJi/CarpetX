@@ -1,0 +1,2 @@
+# 1:iteration	2:time	3:testrestricttags::untagged.min	4:testrestricttags::untagged.max	5:testrestricttags::untagged.sum	6:testrestricttags::untagged.avg	7:testrestricttags::untagged.stddev	8:testrestricttags::untagged.volume	9:testrestricttags::untagged.L1norm	10:testrestricttags::untagged.L2norm	11:testrestricttags::untagged.maxabs
+0	0.0000000000000000e+00	1.0000000000000000e+00	2.0000000000000000e+00	9.4238281250000000e+00	1.1779785156250000e+00	3.8249465826455881e-01	8.0000000000000000e+00	1.1779785156250000e+00	1.2385215165167700e+00	2.0000000000000000e+00

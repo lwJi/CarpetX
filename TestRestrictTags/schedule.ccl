@@ -23,7 +23,8 @@ SCHEDULE TestRestrictTags_RestrictExplicit AT postinitial
   WRITES: nr_explicit(interior)
 } "Restrict nr_explicit through CarpetX's exported window RestrictNoPoison"
 
-# With CarpetX::restrict_during_sync = yes, this SYNC also restricts
+# With CarpetX::restrict_during_sync = yes, this SYNC also restricts every
+# group except those tagged restrict="no"
 SCHEDULE TestRestrictTags_Sync AT postinitial AFTER TestRestrictTags_RestrictExplicit
 {
   LANG: C
@@ -36,12 +37,15 @@ SCHEDULE TestRestrictTags_Sync AT postinitial AFTER TestRestrictTags_RestrictExp
   SYNC: nr_explicit
 } "Fill the ghosts of all six groups"
 
-# CCTK_ANALYSIS follows the end-of-step restriction of the initial data. The
-# groups that every parameter file expects restricted are read on the
-# interior only: the check reads no ghost of a restricted group, and with
-# restrict_during_sync = no the end-of-step restriction leaves the coarse
-# ghosts of untagged and ry_ckpt_no invalid. The others are read everywhere,
-# so that CarpetX checks that their ghosts are valid.
+# CCTK_ANALYSIS follows the end-of-step restriction of the initial data (with
+# restrict_during_sync = no). The groups that every parameter file expects
+# restricted are read on the interior only: the check reads no ghost of a
+# restricted group, and with restrict_during_sync = no the end-of-step
+# restriction leaves the coarse ghosts of untagged and ry_ckpt_no invalid.
+# The others are read everywhere, so that CarpetX checks that their ghosts
+# are valid. That includes ckpt_no, which sync_yes.par expects restricted:
+# there the SYNC fills its ghosts after restricting it, and nothing
+# restricts it at the end of the step.
 SCHEDULE TestRestrictTags_Check AT analysis
 {
   LANG: C

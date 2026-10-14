@@ -24,8 +24,10 @@ namespace CarpetX {
 
 // SyncGroupsByDirI's restrict_during_sync branch calls the window operation
 // Restrict(cctkGH, min_level, max_level, groups), which
-// sync_restrict_internal.hxx declares. To keep the top-down order (helpers →
-// selectors → Sync* → Reflux → Restrict*) its definition appears below.
+// sync_restrict_internal.hxx declares, on the groups that the selector
+// sync_restrict_groups picks from the SYNC's list. To keep the top-down order
+// (helpers → selectors → Sync* → Reflux → Restrict*) the operation's
+// definition appears below.
 
 // =======================================================================
 // Sync helpers
@@ -183,11 +185,12 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
 
 // Each driver path that restricts chooses its groups with one of these
 // selectors, and they are the only code that selects groups by the
-// per-group restriction flags. The operations below (Restrict,
-// RestrictNoPoison) apply no group rule: they restrict exactly the list they
-// are given, so that an explicit call restricts a group even when its tags
-// keep the driver away from it. The selectors read the flags on patch 0,
-// level 0; every patch and level carries the same ones.
+// per-group restriction flags that the restrict tag sets (do_restrict,
+// restrict_on_sync). The operations below (Restrict, RestrictNoPoison) apply
+// no group rule: they restrict exactly the list they are given, so that an
+// explicit call restricts a group even when its tags keep the driver away
+// from it. The selectors read the flags on patch 0, level 0; every patch and
+// level carries the same ones.
 
 // The groups the end-of-step restriction restricts: those whose restrict
 // tag is "yes", where a missing restrict tag takes the value of the
@@ -236,6 +239,25 @@ static std::vector<int> reprolongate_groups() {
     }
   }
   return groups;
+}
+
+// The groups of a SYNC that its restriction (restrict_during_sync) restricts:
+// every group in `groups` except those tagged restrict="no". Unlike at the
+// end of a step, a group without a restrict tag is restricted whatever its
+// checkpoint tag. The SYNC still fills the ghosts of every group in `groups`.
+static std::vector<int> sync_restrict_groups(const std::vector<int> &groups) {
+  std::vector<int> restrict_groups;
+  restrict_groups.reserve(groups.size());
+  const auto &patchdata0 = ghext->patchdata.at(0);
+  const auto &leveldata0 = patchdata0.leveldata.at(0);
+  for (const int gi : groups) {
+    // The SYNC passes only grid functions with storage
+    const auto &groupdataptr = leveldata0.groupdata.at(gi);
+    assert(groupdataptr);
+    if (groupdataptr->restrict_on_sync)
+      restrict_groups.push_back(gi);
+  }
+  return restrict_groups;
 }
 
 // =======================================================================
@@ -403,7 +425,9 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
         std::min(active_levels->max_level + 1, ghext->num_levels());
     // The do_restrict parameter governs only restriction the driver starts
     assert(do_restrict || max_level - min_level < 2);
-    Restrict(cctkGH, min_level, max_level, groups);
+    // Restrict only the groups the restrict tag allows; the ghost fill below
+    // still covers all of `groups`
+    Restrict(cctkGH, min_level, max_level, sync_restrict_groups(groups));
     // FIXME: cannot call POSTRESTRICT since this could contain a SYNC leading
     // to an infinite loop. This means that outer boundaries will be left
     // invalid after an implicit restrict
@@ -895,8 +919,9 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
 //    ODESolvers left its ghosts there at the dense output (the parent's RK
 //    update before its ODESolvers_PostStep) to save communication. Refilling
 //    them gives every evolved group the same last fill, the parent's final
-//    state, which is what recovery repeats. Restrict still skips
-//    restrict="no" groups, so their coarse interiors are never overwritten.
+//    state, which is what recovery repeats. The callers of Restrict still
+//    leave restrict="no" groups out (see the selectors), so the driver never
+//    overwrites their coarse interiors.
 // The selector reprolongate_groups applies this rule.
 void ProlongateAfterRestriction(const cGH *cctkGH) {
   const std::vector<int> groups = reprolongate_groups();
