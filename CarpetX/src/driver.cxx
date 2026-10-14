@@ -360,14 +360,16 @@ bool get_group_checkpoint_flag(const int gi) {
   }
 }
 
-bool get_group_restrict_flag(const int gi) {
+// The restrict tag of a group, or nullopt if the group has none. The two
+// driver paths that restrict default it differently (do_restrict,
+// restrict_on_sync in CommonGroupData).
+std::optional<bool> get_group_restrict_tag(const int gi) {
   int tags = CCTK_GroupTagsTableI(gi);
   assert(tags >= 0);
   char buf[100];
   int iret = Util_TableGetString(tags, sizeof buf, buf, "restrict");
   if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
-    // Default to checkpoint flag value when not explicitly set
-    return get_group_checkpoint_flag(gi);
+    return std::nullopt;
   } else if (iret >= 0) {
     std::string str(buf);
     for (auto &c : str)
@@ -949,7 +951,9 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   numvars = group.numvars;
   do_checkpoint = get_group_checkpoint_flag(gi);
   do_evolve = get_group_evolve_flag(gi);
-  do_restrict = get_group_restrict_flag(gi);
+  const std::optional<bool> restrict_tag = get_group_restrict_tag(gi);
+  do_restrict = restrict_tag.value_or(do_checkpoint);
+  restrict_on_sync = restrict_tag.value_or(true);
   indextype = get_group_indextype(gi);
   nghostzones = get_group_nghostzones(gi);
 
@@ -1359,7 +1363,10 @@ void SetupGlobals() {
     arraygroupdata.numvars = group.numvars;
     arraygroupdata.do_checkpoint = get_group_checkpoint_flag(gi);
     arraygroupdata.do_evolve = get_group_evolve_flag(gi);
-    arraygroupdata.do_restrict = get_group_restrict_flag(gi);
+    const std::optional<bool> restrict_tag = get_group_restrict_tag(gi);
+    arraygroupdata.do_restrict =
+        restrict_tag.value_or(arraygroupdata.do_checkpoint);
+    arraygroupdata.restrict_on_sync = restrict_tag.value_or(true);
 
     CCTK_INT const *const *const sz = CCTK_GroupSizesI(gi);
     arraygroupdata.array_size = 1;
@@ -1969,6 +1976,8 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "do_evolve" << YAML::Value << commongroupdata.do_evolve;
   yaml << YAML::Key << "do_restrict" << YAML::Value
        << commongroupdata.do_restrict;
+  yaml << YAML::Key << "restrict_on_sync" << YAML::Value
+       << commongroupdata.restrict_on_sync;
   yaml << YAML::Key << "active_timelevels" << YAML::Value
        << (ghext ? ghext->active_timelevels.at(commongroupdata.groupindex)
                  : -1);

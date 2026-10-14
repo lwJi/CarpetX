@@ -1,0 +1,21 @@
+# Parameter definitions for thorn TestRestrictTags
+
+CCTK_REAL coarse_value "Value that CCTK_INITIAL writes into every group on level 0"
+{
+  *:* :: "must differ from fine_value"
+} 1.0
+
+CCTK_REAL fine_value "Value that CCTK_INITIAL writes into every group on level 1"
+{
+  *:* :: "must differ from coarse_value"
+} 2.0
+
+CCTK_REAL fine_box_radius "Half-width of the cube, centred at the origin, that level 1 covers exactly (vertex positions)"
+{
+  (0:* :: "must match the refined region of the parameter file; the check fails otherwise"
+} 0.5
+
+STRING restricted_groups "Groups whose coarse interior under level 1 must hold fine_value at CCTK_ANALYSIS; every other group must still hold coarse_value on all of level 0"
+{
+  ".*" :: "space-separated group names of this thorn, without the implementation prefix"
+} ""

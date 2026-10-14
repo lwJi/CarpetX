@@ -382,7 +382,16 @@ The tag does not decide whether coarse-fine ghosts are filled under subcycling; 
 
 \subsubsection{\texttt{restrict}}
 
-Marks a group to be restricted, i.e.\ after each time step, its values on a coarse level are replaced by the values from the next finer level where they overlap. The values are \texttt{"yes"} and \texttt{"no"}. If the tag is absent, it takes the value of the \texttt{checkpoint} tag. Under subcycling, whenever a fine level has caught up in time with its parent, a restricted group also has its coarse-fine ghosts prolongated again from the freshly restricted coarse data, and so has every evolved (\texttt{rhs}-tagged) group, restricted or not. A group whose fine and coarse values must stay independent, for example because each level stores its own diagnostic, sets \texttt{restrict="no"}; its coarse values are then never replaced by fine ones.
+Marks a group to be restricted, i.e.\ its values on a coarse level are replaced by the values from the next finer level where they overlap. The values are \texttt{"yes"} and \texttt{"no"}. When the driver restricts depends on the parameter \texttt{CarpetX::restrict\_during\_sync}, and so does the meaning of an absent tag:
+%
+\begin{itemize}
+\item \emph{After each time step} (\texttt{restrict\_during\_sync = no}). If the tag is absent, it takes the value of the \texttt{checkpoint} tag, so a group that only sets \texttt{checkpoint="no"} is not restricted. Under subcycling, which requires this setting, whenever a fine level has caught up in time with its parent, a restricted group also has its coarse-fine ghosts prolongated again from the freshly restricted coarse data, and so has every evolved (\texttt{rhs}-tagged) group, restricted or not.
+\item \emph{Whenever the group is synchronised} (\texttt{restrict\_during\_sync = yes}, the default). A \texttt{SYNC} restricts every group it synchronises, before it fills their ghosts, except the groups that set \texttt{restrict="no"}. If the tag is absent, the group is restricted whatever its \texttt{checkpoint} tag. The \texttt{SYNC} still fills the ghosts of every group it synchronises, restricted or not.
+\end{itemize}
+%
+A group whose fine and coarse values must stay independent, for example because each level stores its own diagnostic, sets \texttt{restrict="no"}; the driver then never replaces its coarse values by fine ones, with either setting.
+
+The tag governs only the restriction that the driver starts on its own. A thorn that includes \texttt{schedule.hxx} (\texttt{USES INCLUDE HEADER: schedule.hxx}) can restrict groups itself by calling \texttt{CarpetX::RestrictNoPoison}, which restricts exactly the groups it is given, whatever their tags, and leaves refreshing the coarse ghosts to the caller. A group can therefore set \texttt{restrict="no"} to keep the driver away from it and still be restricted by its own thorn when that thorn needs it.
 
 \subsection{\texttt{parity}}
 The \texttt{parity} tag controls a tensor's reflection symmetries about the \texttt{x}, \texttt{y} and \texttt{z} axes. There are 3 parities for each tensor component, representing the symmetries about the 3 spatial axes.
@@ -1085,7 +1094,7 @@ Prolongation refers to the interpolation of data on coarse grid into a finer gri
     Parameter                       & Type                  & Default value & Description                                             \\\hline\hline
     \texttt{prolongation\_order}    & Integer larger than 0 & 1             & Controls the order of the interpolation in prolongation \\
     \texttt{do\_restrict}           & Boolean               & yes           & Automatically restrict fine to coarse grid functions    \\
-    \texttt{restrict\_during\_sync} & Boolean               & yes           & Restrict fine to coarse grid functions when syncing     \\
+    \texttt{restrict\_during\_sync} & Boolean               & yes           & Restrict fine to coarse grid functions when syncing, except groups tagged \texttt{restrict="no"} \\
   \end{tabularx}
   \caption{Parameters controlling prolongation in \CarpetX.}
   \label{tab:other_prolongation_params}

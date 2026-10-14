@@ -154,7 +154,13 @@ struct GHExt {
 
     bool do_checkpoint; // whether to checkpoint
     bool do_evolve;     // whether this is an evolved state variable
-    bool do_restrict;   // whether to restrict
+    // whether the driver's end-of-step restriction restricts this group
+    // (restrict_during_sync = no): the "restrict" tag; if absent, the
+    // "checkpoint" tag
+    bool do_restrict;
+    // whether a SYNC restricts this group (restrict_during_sync = yes): the
+    // "restrict" tag; if absent, yes
+    bool restrict_on_sync;
 
     std::vector<std::vector<why_valid_t> > valid; // [time level][var index]
 

@@ -1,0 +1,68 @@
+Cactus Code Thorn TestRestrictTags
+Author(s)    : Liwei Ji <jiliwei.phys@gmail.com>
+Maintainer(s): Liwei Ji <jiliwei.phys@gmail.com>
+Licence      : LGPL
+--------------------------------------------------------------------------
+
+1. Purpose
+
+Regression test for which groups CarpetX restricts from fine to coarse,
+according to their checkpoint and restrict tags, and for the explicit
+restriction that a thorn can ask for through the exported RestrictNoPoison.
+
+The driver restricts at one of two points, which the parameter
+CarpetX::restrict_during_sync chooses, and the two read a missing restrict
+tag differently:
+  - restrict_during_sync = no: at the end of a step, a group whose
+    restrict tag is "yes"; without the tag, the group takes the value of
+    its checkpoint tag.
+  - restrict_during_sync = yes: when a SYNC fills a group's ghosts, every
+    group it SYNCs except those tagged restrict="no", whatever their
+    checkpoint tag (issue #183). The SYNC still fills the ghosts of all of
+    them.
+The tag governs only restriction that the driver starts on its own: an
+explicit RestrictNoPoison restricts exactly the groups it is given,
+whatever their tags. AsterX relies on this to restrict its restrict="no"
+gauge register.
+
+Two levels, no subcycling. CCTK_INITIAL writes coarse_value (1) on level 0
+and fine_value (2) on level 1 into six vertex-centred groups, one per row:
+
+  group        tags                              end of step   SYNC
+  untagged     none                              restricted    restricted
+  ckpt_no      checkpoint="no"                   kept          restricted
+  nr           restrict="no"                     kept          kept
+  nr_ckpt_no   checkpoint="no" restrict="no"     kept          kept
+  ry_ckpt_no   checkpoint="no" restrict="yes"    restricted    restricted
+  nr_explicit  restrict="no", restricted by      restricted    restricted
+               TestRestrictTags_RestrictExplicit
+
+At CCTK_POSTINITIAL, TestRestrictTags_RestrictExplicit calls the window
+form of RestrictNoPoison on nr_explicit, and TestRestrictTags_Sync then
+SYNCs all six groups. At CCTK_ANALYSIS, which follows the end-of-step
+restriction of the initial data (with restrict_during_sync = no; with
+yes the driver skips it), TestRestrictTags_Check aborts the run unless
+the coarse interior under level 1 holds fine_value for exactly the groups
+in restricted_groups, and coarse_value for every other group. For the
+groups not in restricted_groups it also checks the ghosts on both levels,
+which CarpetX must mark valid: coarse_value on level 0, and on level 1
+coarse_value outside the refined cube (prolongated from level 0) and
+fine_value inside it. The parameter fine_box_radius gives the cube; the
+check fails unless level 1 covers exactly this cube.
+
+The values are compared exactly. Restriction injects vertex values, and
+linear prolongation reproduces the constants exactly.
+
+2. Tests
+
+  test/sync_no.par
+      CarpetX::restrict_during_sync = no: the driver restricts only at
+      the end of the step, the "end of step" column above. Reintroducing
+      a tag check in the restriction operation itself fails this test on
+      nr_explicit.
+  test/sync_yes.par
+      CarpetX::restrict_during_sync = yes: the driver restricts only in
+      the CCTK_POSTINITIAL SYNC, the "SYNC" column above. A SYNC that
+      restricts the groups tagged restrict="no" (issue #183) fails this
+      test on nr and nr_ckpt_no; one that reads the checkpoint tag as at
+      the end of a step fails it on ckpt_no.
