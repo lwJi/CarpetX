@@ -25,14 +25,8 @@ int Shutdown(tFleshConfig *config);
 // Restrict exactly `groups` from fine to coarse, whatever their restrict
 // tags, without validity tracking: the coarse ghosts and outer boundaries
 // keep their validity flags over stale values, so the caller refreshes them.
-
-// One level pair (level, level + 1); kept for AsterX. New code uses the
-// window form below.
-void RestrictNoPoison(const cGH *cctkGH, int level,
-                      const std::vector<int> &groups);
 // Every level pair (level, level + 1) with both levels in [min_level,
-// max_level), finest pair first; see Restrict in sync_restrict.cxx. Unlike
-// the one-level form above, which takes a single coarse level.
+// max_level), finest pair first; see Restrict in sync_restrict.cxx.
 void RestrictNoPoison(const cGH *cctkGH, int min_level, int max_level,
                       const std::vector<int> &groups);
 

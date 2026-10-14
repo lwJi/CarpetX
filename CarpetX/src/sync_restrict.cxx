@@ -1418,10 +1418,4 @@ void RestrictNoPoison(const cGH *cctkGH, const int min_level,
     restrict_level(cctkGH, level, groups, /*do_validity_tracking=*/false);
 }
 
-// The single pair (level, level + 1); kept for AsterX
-void RestrictNoPoison(const cGH *cctkGH, const int level,
-                      const std::vector<int> &groups) {
-  restrict_level(cctkGH, level, groups, /*do_validity_tracking=*/false);
-}
-
 } // namespace CarpetX

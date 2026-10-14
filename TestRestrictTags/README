@@ -37,8 +37,8 @@ and fine_value (2) on level 1 into six vertex-centred groups, one per row:
   nr_explicit  restrict="no", restricted by      restricted    restricted
                TestRestrictTags_RestrictExplicit
 
-At CCTK_POSTINITIAL, TestRestrictTags_RestrictExplicit calls the window
-form of RestrictNoPoison on nr_explicit, and TestRestrictTags_Sync then
+At CCTK_POSTINITIAL, TestRestrictTags_RestrictExplicit calls
+RestrictNoPoison on nr_explicit, and TestRestrictTags_Sync then
 SYNCs all six groups. At CCTK_ANALYSIS, which follows the end-of-step
 restriction of the initial data (with restrict_during_sync = no; with
 yes the driver skips it), TestRestrictTags_Check aborts the run unless

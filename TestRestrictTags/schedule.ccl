@@ -21,7 +21,7 @@ SCHEDULE TestRestrictTags_RestrictExplicit AT postinitial
   OPTIONS: global
   READS: nr_explicit(interior)
   WRITES: nr_explicit(interior)
-} "Restrict nr_explicit through CarpetX's exported window RestrictNoPoison"
+} "Restrict nr_explicit through CarpetX's exported RestrictNoPoison"
 
 # With CarpetX::restrict_during_sync = yes, this SYNC also restricts every
 # group except those tagged restrict="no"
