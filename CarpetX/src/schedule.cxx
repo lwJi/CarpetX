@@ -579,12 +579,20 @@ void setup_cctkGH(cGH *restrict cctkGH) {
   assert(in_meta_mode(cctkGH));
 }
 
-// Update fields that carry state and change over time
+// Update fields that carry state and change over time. Under subcycling a
+// cached level, patch or local GH gets its own level's time refinement factor,
+// 2^level, as in Carpet's level mode, so that CCTK_DELTA_TIME is that level's
+// step in every window, also on the coarser levels a window was widened to.
+// The global GH, on which level-, global- and meta-mode routines run, keeps
+// sourceGH's factor, which SetStepTime set from the window's finest level.
 void update_cctkGH(cGH *const cctkGH, const cGH *const sourceGH) {
   if (cctkGH == sourceGH)
     return;
   cctkGH->cctk_iteration = sourceGH->cctk_iteration;
-  cctkGH->cctk_timefac = sourceGH->cctk_timefac;
+  cctkGH->cctk_timefac =
+      ghext->use_subcycling && cctkGH->cctk_level != undefined
+          ? 1 << cctkGH->cctk_level
+          : sourceGH->cctk_timefac;
   cctkGH->cctk_time = sourceGH->cctk_time;
   cctkGH->cctk_delta_time = sourceGH->cctk_delta_time;
   // for (int d = 0; d < dim; ++d)
@@ -1168,7 +1176,10 @@ static void SetDeltaTime(cGH *restrict const cctkGH) {
 // every clock 0) sees what the fresh run saw. cctk_iteration is not
 // a function of the clock, so each caller sets it itself. Without subcycling
 // cctk_time is not one either (Evolve accumulates it, recovery keeps the
-// checkpointed value), so only cctk_timefac is set.
+// checkpointed value), so only cctk_timefac is set. Under subcycling the
+// cctk_timefac set here, 2^level, is the one that level-, global- and
+// meta-mode routines see; a local-mode routine on a level of the window sees
+// that level's own (update_cctkGH).
 static void SetStepTime(cGH *restrict const cctkGH, const int level,
                         const rat64 clock) {
   if (ghext->use_subcycling) {

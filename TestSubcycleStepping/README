@@ -44,26 +44,28 @@ pass; a difference means the hook and the restriction have drifted apart.
 
 "tail_context" (checkpoint="no") holds on each level the context of the last
 CCTK_POSTSTEP traversal whose window covered the level: tail_iteration,
-tail_time and tail_timefac are that traversal's cctk_iteration, cctk_time and
-cctk_timefac. It is stamped everywhere, so it needs no SYNC, and after a
-restart it is also stamped in CCTK_POST_RECOVER_VARIABLES. Under subcycling a
-POSTSTEP window is the level just evolved, widened down to every coarser
-level that shares its clock, and it sees the evolved level's context:
-cctk_time = cctk_delta_time * that level's clock and cctk_timefac = 2^(that
-level). With 3 levels (test/subcycle_3levels.par, where cctk_delta_time = 1)
-the stamps (iteration, time, timefac) after each pass of the first coarse
-step are:
+tail_time and tail_timefac are the cctk_iteration, cctk_time and
+cctk_timefac that StampTail, a local-mode routine, saw on that level. It is
+stamped everywhere, so it needs no SYNC, and after a restart it is also
+stamped in CCTK_POST_RECOVER_VARIABLES. Under subcycling a POSTSTEP window
+is the level just evolved, widened down to every coarser level that shares
+its clock, and it sees the evolved level's cctk_iteration and cctk_time =
+cctk_delta_time * that level's clock. A local-mode routine sees its own
+level's cctk_timefac, 2^level, as in Carpet; only level-, global- and
+meta-mode routines see the evolved level's. With 3 levels
+(test/subcycle_3levels.par, where cctk_delta_time = 1) the stamps
+(iteration, time, timefac) after each pass of the first coarse step are:
 
   pass 1: windows [0,1) [1,2) [2,3)   L0 (1,1,1)  L1 (1,1/2,2)  L2 (1,1/4,4)
-  pass 2: window  [1,3)               L0 (1,1,1)  L1 (2,1/2,4)  L2 (2,1/2,4)
-  pass 3: windows [0,2) [2,3)         L0 (3,1,2)  L1 (3,1,2)    L2 (3,3/4,4)
-  pass 4: window  [0,3)               L0 (4,1,4)  L1 (4,1,4)    L2 (4,1,4)
+  pass 2: window  [1,3)               L0 (1,1,1)  L1 (2,1/2,2)  L2 (2,1/2,4)
+  pass 3: windows [0,2) [2,3)         L0 (3,1,1)  L1 (3,1,2)    L2 (3,3/4,4)
+  pass 4: window  [0,3)               L0 (4,1,1)  L1 (4,1,2)    L2 (4,1,4)
 
 The second coarse step repeats this with iterations 5 to 8 and times larger
 by 1. Initialization runs CCTK_POSTSTEP once over every level, with the
-finest level's context as at every aligned pass, so it stamps every level
-with (0,0,4). A level keeps its stamp until a later window covers it, e.g.
-level 0 keeps iteration 1 through pass 2.
+finest level's iteration and time as at every aligned pass, so it stamps
+level l with (0,0,2^l). A level keeps its stamp until a later window covers
+it, e.g. level 0 keeps iteration 1 through pass 2.
 
 After a restart, recovery traverses CCTK_POST_RECOVER_VARIABLES once per
 clock group (a run of adjacent levels that share a clock), coarse to fine.
@@ -71,7 +73,9 @@ Each traversal covers the group's levels and sees the context of the window
 in which they last ran CCTK_POSTSTEP, so after recovery every level holds
 the stamp the uninterrupted run holds after the checkpointed pass.
 Restarting the 3-level run from each pass of the second coarse step gives
-these traversals, each with its window and its (iteration, time, timefac):
+these traversals, each with its window and its (iteration, time, timefac),
+where timefac is the one the driver logs and level-, global- and meta-mode
+routines see; as during evolution, StampTail stamps level l with 2^l:
 
   from iteration 5 (clocks 2, 3/2, 5/4): [0,1) (5,2,1)  [1,2) (5,3/2,2)  [2,3) (5,5/4,4)
   from iteration 6 (clocks 2, 3/2, 3/2): [0,1) (5,2,1)  [1,3) (6,3/2,4)
@@ -88,9 +92,10 @@ iteration 6, right after a regrid added a fourth level (clocks 2, 3/2, 3/2,
 traversal [0,1) sees iteration 5, where the clocks alone would give 4.
 recover-subcycling-silo-3clocks.par repeats the 3-clock restart from a Silo
 checkpoint, in relaxed recovery mode; its references equal those of
-recover-subcycling-openpmd-3clocks. recover-subcycling-openpmd-iteration0.par
-restarts from the initial checkpoint (IO::checkpoint_ID), where every clock
-is 0: one traversal [0,3) (0,0,4), the initialization stamp, and its
+recover-subcycling-openpmd-3clocks.
+recover-subcycling-openpmd-iteration0.par restarts from the initial
+checkpoint (IO::checkpoint_ID), where every clock is 0: one traversal [0,3)
+(0,0,4), which reproduces the initialization stamps (0,0,2^l), and its
 references, iteration 0 included, equal the uninterrupted run's
 (checkpoint-subcycling-openpmd-iteration0) except for recovery_counts.
 
