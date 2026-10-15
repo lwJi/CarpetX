@@ -2,6 +2,7 @@
 
 STORAGE: iteration postrestrict prerestrict tail_context recovery_counts
 STORAGE: tail_count step_counts
+STORAGE: conditions loop_stamp if_stamp
 
 schedule TestSubcycleStepping_Init AT INITIAL
 {
@@ -132,6 +133,56 @@ schedule TestSubcycleStepping_CountAnalysisCalls AT analysis
   READS: step_counts
   WRITES: step_counts
 } "count the global-mode calls of CCTK_ANALYSIS in this iteration"
+
+
+
+# if_stamp, loop_stamp: end-of-step routines that run only conditionally.
+# Under subcycling, CarpetX finds its end-of-step groups by traversing
+# CCTK_POSTSTEP and CCTK_ANALYSIS at startup without calling any routine,
+# with every CCTK_INT grid scalar held at 0, so that it skips every routine
+# under a runtime IF and every WHILE loop. Neither group is therefore an
+# end-of-step group (the startup log lists the set), and a WHILE loop in
+# these bins does not stop the run. Between a level's step and its end of
+# step, both hold the values of its previous time, and output at an odd
+# iteration shows the if_stamp of the previous even one.
+
+schedule TestSubcycleStepping_SetStampNow AT poststep
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: stamp_now
+} "let StampIf run at even iterations only"
+
+schedule TestSubcycleStepping_StampIf AT poststep AFTER TestSubcycleStepping_SetStampNow IF TestSubcycleStepping::stamp_now
+{
+  LANG: C
+  WRITES: if_stamp(everywhere)
+} "stamp if_stamp under a runtime IF"
+
+schedule TestSubcycleStepping_StartLoop AT analysis BEFORE TestSubcycleStepping_Loop
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: loop_passes
+} "run the WHILE loop once"
+
+schedule GROUP TestSubcycleStepping_Loop AT analysis WHILE TestSubcycleStepping::loop_passes
+{
+} "a WHILE loop at the end of step"
+
+schedule TestSubcycleStepping_StampLoop IN TestSubcycleStepping_Loop
+{
+  LANG: C
+  WRITES: loop_stamp(everywhere)
+} "stamp loop_stamp inside the WHILE loop"
+
+schedule TestSubcycleStepping_CountLoopPass IN TestSubcycleStepping_Loop AFTER TestSubcycleStepping_StampLoop
+{
+  LANG: C
+  OPTIONS: global
+  READS: loop_passes
+  WRITES: loop_passes
+} "count down the WHILE loop's passes"
 
 
 

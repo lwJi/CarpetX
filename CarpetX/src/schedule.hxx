@@ -63,14 +63,18 @@ int CallFunction(void *function, cFunctionData *attribute, void *data);
 
 // Fill ghext->end_of_step_group from the READS and WRITES clauses of the
 // routines scheduled in CCTK_POSTSTEP and CCTK_ANALYSIS, in schedule order,
-// and log the set. Traverses the two bins without calling any routine, so a
-// routine under a runtime IF counts only if its condition holds at the call,
-// before initial data or recovery set the scalar: it holds the poison value
-// (nonzero) with poison_undefined_arrays, else uninitialised memory. One with
-// TRIGGERS counts only if its output is due. Aborts on a WHILE loop, which
-// the traversal could never leave. Call once, after the schedule is sorted
-// and the grid scalars have storage, before any level steps; only under
-// subcycling.
+// and log the set. Traverses the two bins without calling any routine, with
+// every CCTK_INT grid scalar (and the first element of every CCTK_INT grid
+// array) held at 0 and then restored, so that every runtime IF and WHILE
+// condition is false, whatever initial data, recovery or
+// poison_undefined_arrays would make it. The traversal thus skips every
+// routine under a runtime IF and every WHILE loop: such a routine does not
+// rewrite its groups at every end of step, so neither its WRITES nor its
+// READS count, and a group that only such routines write is never
+// invalidated. A routine with TRIGGERS counts only if its output is due at
+// startup. Aborts if the traversal reaches a routine twice in one bin. Call
+// once, after the schedule is sorted and the grid scalars have storage,
+// before any level steps; only under subcycling.
 void CollectEndOfStepGroups(cGH *cctkGH);
 
 // On the active levels, which have just stepped, invalidate the part of

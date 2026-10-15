@@ -33,6 +33,25 @@ CCTK_INT step_counts TYPE=SCALAR TAGS='checkpoint="no"'
   poststep_calls analysis_calls last_iteration
 } "global-mode calls of the end-of-step bins in the current iteration"
 
+# The conditions of the end-of-step routines that run only conditionally:
+# loop_passes is the WHILE condition of the schedule group
+# TestSubcycleStepping_Loop in CCTK_ANALYSIS, and stamp_now the runtime IF
+# condition of TestSubcycleStepping_StampIf in CCTK_POSTSTEP.
+CCTK_INT conditions TYPE=SCALAR TAGS='checkpoint="no"'
+{
+  loop_passes stamp_now
+} "conditions of the end-of-step routines that run only conditionally"
+
+# Stamped with cctk_iteration everywhere at the end of step, but only by
+# routines that run conditionally: loop_stamp inside a WHILE loop in
+# CCTK_ANALYSIS, whose body runs once per end of step, and if_stamp under a
+# runtime IF in CCTK_POSTSTEP that holds at even iterations. Neither is an
+# end-of-step group, so the driver never invalidates them when their level
+# steps. Two groups, so that each is excluded on its own. No other level
+# reads them.
+CCTK_REAL loop_stamp TYPE=GF CENTERING={VVV} TAGS='checkpoint="no"' "iteration of the last WHILE loop pass that covered each level"
+CCTK_REAL if_stamp TYPE=GF CENTERING={VVV} TAGS='checkpoint="no"' "iteration of the last end of step that covered each level with its IF condition true"
+
 # Written and SYNCed in CCTK_ANALYSIS, and then read everywhere there, only
 # with read_pending_probe = yes. A level that lags its parent gets invalid
 # ghosts from that SYNC, so reading them stops the run.

@@ -132,6 +132,23 @@ recover-subcycling-openpmd-nonrhs.par (two clock groups), -3clocks.par
 (three), -4clocks.par (four), -addlevel.par (three), -iteration0.par (one)
 and recover-subcycling-silo-3clocks.par (three).
 
+"loop_stamp" and "if_stamp" (checkpoint="no") are stamped with
+cctk_iteration everywhere at the end of step, but only by routines that run
+conditionally: StampLoop inside the WHILE loop TestSubcycleStepping_Loop in
+CCTK_ANALYSIS, whose condition loop_passes StartLoop sets to 1 and
+CountLoopPass counts down, so that its body runs once per end of step, and
+StampIf in CCTK_POSTSTEP under a runtime IF on stamp_now, which SetStampNow
+sets at even iterations only. Under subcycling, CarpetX finds its end-of-step
+groups at startup by traversing these bins without calling any routine, with
+every CCTK_INT grid scalar held at 0, so it skips both routines: neither
+group is an end-of-step group (the startup log line "End-of-step groups"
+lists the set), and the WHILE loop does not stop the run at startup. The
+driver never invalidates them, so between a level's step and its end of step
+both hold the values of its previous time. test/subcycle.par (2 levels)
+outputs them: loop_stamp is the iteration on every written level, and at odd
+iterations, where only level 1 is written, if_stamp is the previous even
+iteration.
+
 "pending_probe" (checkpoint="no") is written and SYNCed in CCTK_ANALYSIS
 and then read everywhere there, ghosts included, only with
 read_pending_probe = yes. With 3 levels, pass 1 steps every level, and only

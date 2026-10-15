@@ -150,6 +150,54 @@ void TestSubcycleStepping_CountAnalysisCalls(CCTK_ARGUMENTS)
 }
 
 extern "C"
+void TestSubcycleStepping_SetStampNow(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_SetStampNow;
+
+  *stamp_now = cctk_iteration % 2 == 0;
+}
+
+extern "C"
+void TestSubcycleStepping_StampIf(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_StampIf;
+
+  // Everywhere, like the tail stamp, so that it needs no SYNC
+  grid.loop_all<0,0,0>(grid.nghostzones, [=] CCTK_HOST(const Loop::PointDesc &pt) {
+    if_stamp(pt.I) = cctk_iteration;
+  });
+
+}
+
+extern "C"
+void TestSubcycleStepping_StartLoop(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_StartLoop;
+
+  *loop_passes = 1;
+}
+
+extern "C"
+void TestSubcycleStepping_StampLoop(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_StampLoop;
+
+  // Everywhere, like the tail stamp, so that it needs no SYNC
+  grid.loop_all<0,0,0>(grid.nghostzones, [=] CCTK_HOST(const Loop::PointDesc &pt) {
+    loop_stamp(pt.I) = cctk_iteration;
+  });
+
+}
+
+extern "C"
+void TestSubcycleStepping_CountLoopPass(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_CountLoopPass;
+
+  --*loop_passes;
+}
+
+extern "C"
 void TestSubcycleStepping_WriteProbe(CCTK_ARGUMENTS)
 {
   DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_WriteProbe;

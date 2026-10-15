@@ -1496,9 +1496,9 @@ int Initialise(tFleshConfig *config) {
   // Needs rk_integrated_group from WRAGH; runs before the recover/new-grid
   // split, so it warns once on fresh starts and on recovery alike
   warn_inert_flux_tags();
-  // Needs the sorted schedule and the grid scalars' storage (a runtime IF
-  // reads its scalar); before the recover/new-grid split, so that fresh
-  // starts and recovery find the same set
+  // Needs the sorted schedule and the grid scalars' storage (it holds the
+  // runtime IF and WHILE conditions at 0); before the recover/new-grid split,
+  // so that fresh starts and recovery find the same set
   if (ghext->use_subcycling)
     CollectEndOfStepGroups(cctkGH);
 
@@ -1962,22 +1962,77 @@ struct end_of_step_record_t {
 };
 end_of_step_record_t *end_of_step_record = nullptr;
 
+// While it lives, every value that the flesh can test for a runtime IF or
+// WHILE condition is 0, so that a schedule traversal skips every routine
+// under a runtime IF and every WHILE loop; the destructor restores the
+// previous values bit for bit. The flesh tests the CCTK_INT at
+// CCTK_VarDataPtr(cctkGH, 0, name), timelevel 0 of the named variable, which
+// for a grid array is its first element, and checks neither the group type
+// nor the variable type (CCTKi_ScheduleCallIf, CCTKi_ScheduleCallWhile in the
+// flesh's src/main/ScheduleInterface.c). This covers every CCTK_INT grid
+// scalar and grid array. Validity flags are left alone: only the flesh's
+// tests read these values while they are 0.
+class schedule_conditions_zero_t {
+  std::vector<std::pair<CCTK_INT *, CCTK_INT> > saved;
+
+public:
+  schedule_conditions_zero_t(const schedule_conditions_zero_t &) = delete;
+  schedule_conditions_zero_t &
+  operator=(const schedule_conditions_zero_t &) = delete;
+
+  explicit schedule_conditions_zero_t(const cGH *restrict const cctkGH) {
+    const int num_groups = CCTK_NumGroups();
+    for (int gi = 0; gi < num_groups; ++gi) {
+      cGroup group;
+      const int ierr = CCTK_GroupData(gi, &group);
+      assert(!ierr);
+      if ((group.grouptype != CCTK_SCALAR && group.grouptype != CCTK_ARRAY) ||
+          group.vartype != CCTK_VARIABLE_INT)
+        continue;
+      const auto &restrict arraygroupdata =
+          *ghext->globaldata.arraygroupdata.at(gi);
+      // Without storage or elements there is no value to test
+      if (arraygroupdata.data.empty() || arraygroupdata.array_size == 0)
+        continue;
+      for (int vi = 0; vi < arraygroupdata.numvars; ++vi) {
+        CCTK_INT *const ptr = static_cast<CCTK_INT *>(
+            cctkGH->data[arraygroupdata.firstvarindex + vi][0]);
+        // The pointer that enter_global_mode set
+        assert(ptr == arraygroupdata.data.at(0).data_at(
+                          vi * arraygroupdata.array_size));
+        saved.emplace_back(ptr, *ptr);
+        *ptr = 0;
+      }
+    }
+  }
+
+  ~schedule_conditions_zero_t() {
+    for (const auto &[ptr, value] : saved)
+      *ptr = value;
+  }
+};
+
 // CCTK_ScheduleTraverse callback of CollectEndOfStepGroups: record the
 // routine's clauses instead of calling it
 int RecordEndOfStepClauses(void *const function, cFunctionData *const attribute,
                            void *const data) {
   assert(end_of_step_record);
   end_of_step_record_t &record = *end_of_step_record;
-  // The collection calls no routine, so nothing changes a WHILE condition: a
-  // routine traversed twice in one bin sits in a loop that would never end
+  // The collection calls no routine, and it skips the WHILE loops whose
+  // condition schedule_conditions_zero_t holds at 0. A routine traversed
+  // twice in one bin sits in a schedule group scheduled twice there, or in a
+  // WHILE loop whose condition is not a CCTK_INT grid scalar, which would
+  // never end.
   if (!record.recorded.insert(attribute).second)
     CCTK_VERROR(
         "Collecting the end-of-step groups: %s::%s is traversed twice in %s. "
         "Under subcycling CarpetX finds the groups that the end of step "
         "recomputes by traversing CCTK_POSTSTEP and CCTK_ANALYSIS once at "
-        "startup without calling any routine, so these bins cannot hold a "
-        "WHILE loop, which would never end, nor a schedule group scheduled "
-        "twice",
+        "startup without calling any routine, with every CCTK_INT grid "
+        "scalar set to 0, so that it skips every routine under a runtime IF "
+        "and every WHILE loop. These bins therefore cannot hold a schedule "
+        "group scheduled twice, nor a WHILE loop whose condition is not a "
+        "CCTK_INT grid scalar, which would never end",
         attribute->thorn, attribute->routine, record.bin);
   // Reads first: a routine that reads and writes a group carries it
   for (const clause_t &rd : decode_clauses(attribute, rdwr_t::read))
@@ -2004,7 +2059,9 @@ int RecordEndOfStepClauses(void *const function, cFunctionData *const attribute,
 // and recomputes nothing; this also covers evolved state that an end-of-step
 // routine overwrites without reading it. A group read in the bins before
 // they write it carries a value from one end of step to the next, so the
-// next end of step would find it invalid.
+// next end of step would find it invalid. A routine that runs only
+// conditionally, under a runtime IF or inside a WHILE loop, is not recorded
+// at all: it does not rewrite its groups at every end of step.
 void CollectEndOfStepGroups(cGH *restrict const cctkGH) {
   static Timer timer("CollectEndOfStepGroups");
   Interval interval(timer);
@@ -2019,12 +2076,18 @@ void CollectEndOfStepGroups(cGH *restrict const cctkGH) {
 
   assert(!end_of_step_record);
   end_of_step_record = &record;
-  // In the order of a step
-  for (const char *const bin : {"CCTK_POSTSTEP", "CCTK_ANALYSIS"}) {
-    record.bin = bin;
-    record.recorded.clear();
-    const int ierr = CCTK_ScheduleTraverse(bin, cctkGH, RecordEndOfStepClauses);
-    assert(ierr == 0 || ierr == 2); // 2: nothing is scheduled in the bin
+  {
+    // Every runtime IF and WHILE condition is false, whatever initial data,
+    // recovery or poison_undefined_arrays would make it
+    const schedule_conditions_zero_t conditions_zero(cctkGH);
+    // In the order of a step
+    for (const char *const bin : {"CCTK_POSTSTEP", "CCTK_ANALYSIS"}) {
+      record.bin = bin;
+      record.recorded.clear();
+      const int ierr =
+          CCTK_ScheduleTraverse(bin, cctkGH, RecordEndOfStepClauses);
+      assert(ierr == 0 || ierr == 2); // 2: nothing is scheduled in the bin
+    }
   }
   end_of_step_record = nullptr;
 

@@ -606,9 +606,10 @@ struct GHExt {
   std::vector<bool> rk_integrated_group; // [group index]
 
   // Grid-function groups that the end of step (CCTK_POSTSTEP, CCTK_ANALYSIS)
-  // recomputes from scratch: its routines write the current timelevel of
-  // every variable, none reads it there before that, and the group is not
-  // checkpointed. When a level steps, what the end of step wrote describes
+  // recomputes from scratch: its routines that run at every end of step (not
+  // under a runtime IF nor in a WHILE loop) write the current timelevel of
+  // every variable, none of them reads it there before that, and the group is
+  // not checkpointed. When a level steps, what the end of step wrote describes
   // the level's previous time until its next end of step rewrites it, so
   // InvalidateEndOfStepResults (schedule.hxx) invalidates that part after
   // CCTK_EVOL, and recovery after the CCTK_POST_RECOVER_VARIABLES of every
