@@ -36,9 +36,13 @@ SCHEDULE FluxWaveToyX_RHS IN ODESolvers_RHS AFTER FluxWaveToyX_Fluxes
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-# The diagnostics in this group are not checkpointed, and a level that lags
-# its parent SYNCs them from the parent: compute them at the end of each step,
-# and again after a restart, once the state's ghosts are refilled
+# The diagnostics in this group are end-of-step data and are not
+# checkpointed: compute them at the end of each step, and again after a
+# restart, once the state's ghosts are refilled. Nothing at the end of step
+# may SYNC under subcycling, so none of them does: the pointwise error is
+# computed everywhere, from the state, whose ghosts are valid there, and the
+# stencil diagnostics (fluxes, RHS, constraints, energy, mass) are
+# interior-only, with their ghosts left invalid
 SCHEDULE GROUP FluxWaveToyX_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"
@@ -54,7 +58,6 @@ SCHEDULE FluxWaveToyX_Fluxes IN FluxWaveToyX_Diagnostics
   WRITES: flux_x(interior)
   WRITES: flux_y(interior)
   WRITES: flux_z(interior)
-  SYNC: flux_x flux_y flux_z
 } "Calculate scalar wave fluxes for output"
 
 SCHEDULE FluxWaveToyX_RHS IN FluxWaveToyX_Diagnostics AFTER FluxWaveToyX_Fluxes
@@ -65,7 +68,6 @@ SCHEDULE FluxWaveToyX_RHS IN FluxWaveToyX_Diagnostics AFTER FluxWaveToyX_Fluxes
   READS: flux_y(interior)
   READS: flux_z(interior)
   WRITES: rhs(interior)
-  SYNC: rhs
 } "Calculate scalar wave RHS for output"
 
 SCHEDULE FluxWaveToyX_Constraints IN FluxWaveToyX_Diagnostics
@@ -73,7 +75,6 @@ SCHEDULE FluxWaveToyX_Constraints IN FluxWaveToyX_Diagnostics
   LANG: C
   READS: state(everywhere)
   WRITES: cons(interior)
-  SYNC: cons
 } "Calculate scalar wave constraints"
 
 SCHEDULE FluxWaveToyX_Energy IN FluxWaveToyX_Diagnostics
@@ -81,15 +82,13 @@ SCHEDULE FluxWaveToyX_Energy IN FluxWaveToyX_Diagnostics
   LANG: C
   READS: state(everywhere)
   WRITES: energy(interior)
-  SYNC: energy
 } "Calculate scalar wave energy density"
 
 SCHEDULE FluxWaveToyX_Error IN FluxWaveToyX_Diagnostics
 {
   LANG: C
-  READS: state(interior)
-  WRITES: error(interior)
-  SYNC: error
+  READS: state(everywhere)
+  WRITES: error(everywhere)
 } "Calculate error in scalar wave state"
 
 # Fixture for the driver's flux-register bookkeeping: a flux-tagged group
@@ -103,7 +102,6 @@ SCHEDULE FluxWaveToyX_Mass IN FluxWaveToyX_Diagnostics
   WRITES: mass_flux_x(interior)
   WRITES: mass_flux_y(interior)
   WRITES: mass_flux_z(interior)
-  SYNC: mass mass_flux_x mass_flux_y mass_flux_z
 } "Calculate the conserved density and its fluxes for output"
 
 # Fixture for the order of CarpetX_PreRestrict and the driver's reflux: when

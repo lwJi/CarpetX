@@ -1,6 +1,7 @@
 #ifndef CARPETX_CARPETX_DRIVER_HXX
 #define CARPETX_CARPETX_DRIVER_HXX
 
+#include "end_of_step.hxx"
 #include "loop.hxx"
 #include "valid.hxx"
 
@@ -581,6 +582,12 @@ struct GHExt {
   // then be at other times, so error messages read it to explain that a
   // result read across levels must be checkpointed.
   bool in_recovery_traversal = false;
+
+  // The classified traversal in progress (end_of_step.hxx): its phase and the
+  // bin it traverses. Set only by TraverseClassified, and only under
+  // subcycling; (other, nullptr) everywhere else.
+  traversal_phase_t phase = traversal_phase_t::other;
+  const char *bin = nullptr;
 
   // CarpetX::do_reflux, cached in InitGH next to use_subcycling. Read from
   // here rather than through DECLARE_CCTK_PARAMETERS in the GroupData

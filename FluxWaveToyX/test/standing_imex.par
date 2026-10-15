@@ -51,6 +51,9 @@ CarpetX::out_norm_vars = "all"
 CarpetX::out_norm_omit_unstable = yes
 CarpetX::out_norm_omit_sumloc_for_backward_compatibility = yes
 
+# The stencil diagnostics (fluxes, RHS, energy) are interior-only, so their
+# ghost and outer boundary points are not output
+CarpetX::out_tsv_output_boundary_points = no
 CarpetX::out_tsv_vars = "
     FluxWaveToyX::state
     FluxWaveToyX::flux_x

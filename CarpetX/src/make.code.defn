@@ -30,6 +30,7 @@ SRCS =							\
 	boundaries_impl_pos_pos_neg.cxx			\
 	boundaries_impl_pos_pos_pos.cxx			\
 	driver.cxx					\
+	end_of_step.cxx					\
 	fillpatch.cxx					\
 	interpolate.cxx					\
 	io.cxx						\

@@ -1,5 +1,6 @@
 #include "schedule.hxx"
 #include "driver.hxx"
+#include "end_of_step.hxx"
 #include "fillpatch.hxx"
 #include "io.hxx"
 #include "loop.hxx"
@@ -1712,10 +1713,11 @@ int Initialise(tFleshConfig *config) {
     CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
   }
 
-  // Checkpoint, analysis, output
-  CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+  // Checkpoint, analysis, output. Under subcycling nothing in the end-of-step
+  // bins may SYNC (end_of_step.hxx); CCTK_CPINITIAL is not one of them.
+  TraverseClassified(cctkGH, "CCTK_POSTSTEP", traversal_phase_t::end_of_step);
   CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
-  CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+  TraverseClassified(cctkGH, "CCTK_ANALYSIS", traversal_phase_t::end_of_step);
   if (out_initial_data) {
     CCTK_OutputGH(cctkGH);
   }
@@ -2175,8 +2177,12 @@ int Evolve(tFleshConfig *config) {
         }
       }
 
-      CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
-      CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+      // Under subcycling nothing in the end-of-step bins may SYNC
+      // (end_of_step.hxx)
+      TraverseClassified(cctkGH, "CCTK_POSTSTEP",
+                         traversal_phase_t::end_of_step);
+      TraverseClassified(cctkGH, "CCTK_ANALYSIS",
+                         traversal_phase_t::end_of_step);
 
       // Every level of the widened window has now run its end of step at
       // this iteration; checkpoints record it for recovery
@@ -2416,6 +2422,15 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       check_storage_clauses(attribute);
   }
 
+  // Under subcycling nothing in the end-of-step bins may SYNC
+  // (end_of_step.hxx). The flesh would run a SYNC clause after the routine
+  // returns, when the routine can no longer be named, so reject it now.
+  if (ghext->phase == traversal_phase_t::end_of_step &&
+      attribute->n_SyncGroups > 0)
+    error_if_end_of_step_sync(
+        (end_of_step_subject(attribute) + " declares SYNC").c_str(),
+        attribute->n_SyncGroups, attribute->SyncGroups);
+
   if (CCTK_EQUALS(presync_mode, "presync-only")) {
     const std::vector<clause_t> &reads =
         decode_clauses(attribute, rdwr_t::read);
@@ -2434,6 +2449,14 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     }
     if (!sync_set.empty()) {
       std::vector<int> sync_vec(sync_set.begin(), sync_set.end());
+      if (ghext->phase == traversal_phase_t::end_of_step)
+        error_if_end_of_step_sync(
+            (end_of_step_subject(attribute) +
+             " READS ghosts that are invalid, which presync_mode = "
+             "\"presync-only\" would synchronize, but ghosts cannot be "
+             "synchronized at end of step")
+                .c_str(),
+            sync_vec.size(), sync_vec.data());
       SyncGroupsByDirI(cctkGH, sync_vec.size(), sync_vec.data(), nullptr);
     }
   }

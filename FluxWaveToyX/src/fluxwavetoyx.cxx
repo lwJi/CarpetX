@@ -382,7 +382,7 @@ extern "C" void FluxWaveToyX_Error(CCTK_ARGUMENTS) {
 
   if (CCTK_EQUALS(initial_condition, "standing wave")) {
 
-    grid.loop_int_device<1, 1, 1>(
+    grid.loop_all_device<1, 1, 1>(
         grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           CCTK_REAL u0, ft0, fx0, fy0, fz0;
@@ -398,7 +398,7 @@ extern "C" void FluxWaveToyX_Error(CCTK_ARGUMENTS) {
 
   } else if (CCTK_EQUALS(initial_condition, "Gaussian")) {
 
-    grid.loop_int_device<1, 1, 1>(
+    grid.loop_all_device<1, 1, 1>(
         grid.nghostzones,
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           CCTK_REAL u0, ft0, fx0, fy0, fz0;

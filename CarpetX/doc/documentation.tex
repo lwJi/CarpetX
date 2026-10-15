@@ -1767,6 +1767,55 @@ As an example, to  have performance measurements output for a simulation every 2
 \end{lstlisting}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{End of step under subcycling}
+\label{sec:end_of_step}
+
+The \emph{end of step} is the pair of bins \texttt{CCTK\_POSTSTEP} and \texttt{CCTK\_ANALYSIS}, which \CarpetX\space traverses after a step's restriction and \texttt{CCTK\_POSTRESTRICT}, and once after the initial data. Under subcycling (\texttt{CarpetX::use\_subcycling = yes}) end-of-step routines see the ghost zones as they stand and never cause them to be filled.
+
+\subsection{The rule}
+
+{\raggedright\emph{Under subcycling, nothing scheduled in \texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS} may synchronize.}\par}
+
+The rule covers every routine in these bins, whether scheduled \texttt{AT} the bin or in a schedule group placed there, and every way such a routine can cause a ghost synchronization. Each of them stops the run before the synchronization happens:
+%
+\begin{itemize}
+\item a \texttt{SYNC} clause of the routine, which the \Cactus\space flesh would otherwise run after the routine returns;
+\item an explicit \texttt{CCTK\_SyncGroup*} call in the routine's body, and a \texttt{SYNC} clause of a schedule group;
+\item a \texttt{READS} clause that needs ghosts that are invalid, which \CarpetX\space would otherwise synchronize before the call when \texttt{CarpetX::presync\_mode = "presync-only"}.
+\end{itemize}
+%
+Only synchronizations that would actually happen are errors: a routine that an \texttt{if} disables is not checked, and a \texttt{READS} clause whose ghosts are already valid is fine. The error names the bin, the routine (and the schedule group it sits in) and the groups, for example
+%
+\begin{lstlisting}[language=bash]
+ERROR: under subcycling, nothing scheduled in CCTK_ANALYSIS may SYNC.
+  Routine WaveToyX::WaveToyX_Energy (in group WaveToyX_Diagnostics) declares SYNC: WAVETOYX::ENERGY
+\end{lstlisting}
+%
+There is no override. Without subcycling the rule is not enforced, and \texttt{SYNC}s and presyncs in these bins run as they always have.
+
+\subsection{Writing end-of-step diagnostics}
+
+The evolved state's ghosts are valid at the end of step: \texttt{ODESolvers} leaves them valid after every substep, and the \texttt{SYNC} in \texttt{ODESolvers\_PostStep} at \texttt{CCTK\_POSTRESTRICT} repairs them after the reflux and the restriction. A diagnostic that \texttt{SYNC}ed its output only so that output files show valid ghost and outer boundary points does one of two things instead, depending on its kind:
+%
+\begin{itemize}
+\item A \emph{pointwise} diagnostic, which at each point reads only the state at that point (for example the error against an exact solution), is computed at every point. It declares \texttt{READS: state(everywhere)} and \texttt{WRITES: error(everywhere)}, loops with \texttt{grid.loop\_all\_device}, and has no \texttt{SYNC}. Its output is complete.
+\item A \emph{stencil} diagnostic, which reads neighbouring points (for example a right-hand side, a constraint, an energy density or a flux), keeps \texttt{WRITES: x(interior)} and drops its \texttt{SYNC}. Its ghost and outer boundary points stay invalid (poisoned when \texttt{CarpetX::poison\_undefined\_values} is set). A parameter file that writes such a diagnostic to TSV files sets \texttt{CarpetX::out\_tsv\_output\_boundary\_points = no}.
+\end{itemize}
+%
+For example, \texttt{TestSubcyclingMC2} computes its error as
+%
+\begin{lstlisting}[language=bash]
+  SCHEDULE TestSubcyclingMC2_Error IN TestSubcyclingMC2_Diagnostics
+  {
+    LANG: C
+    READS: state(everywhere)
+    WRITES: error(everywhere)
+  } "Calculate error in scalar wave state"
+\end{lstlisting}
+%
+and \texttt{FluxWaveToyX} computes its fluxes, right-hand side, constraints, energy and mass for output in the interior only. Both thorns also schedule these diagnostics in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} (Sec.~\ref{sec:recovery}), where the clause is the same, since a routine's clauses do not depend on the bin it runs in.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Recovery}
 \label{sec:recovery}
 

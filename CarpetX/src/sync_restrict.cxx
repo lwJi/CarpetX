@@ -1,5 +1,6 @@
 #include "schedule.hxx"
 #include "driver.hxx"
+#include "end_of_step.hxx"
 #include "fillpatch.hxx"
 #include "subcycling.hxx"
 #include "sync_restrict_internal.hxx"
@@ -628,6 +629,20 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
 int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
                                const int *groups0, const int *directions) {
   DECLARE_CCTK_PARAMETERS;
+
+  // Under subcycling nothing in the end-of-step bins may SYNC
+  // (end_of_step.hxx). CallFunction has already rejected routines' SYNC
+  // clauses and presyncs; what reaches this overload is an explicit sync call
+  // in a routine's body, or a schedule group's SYNC clause, which the flesh
+  // runs when no routine is current.
+  if (ghext->phase == traversal_phase_t::end_of_step) {
+    const cFunctionData *const current =
+        CCTK_ScheduleQueryCurrentFunction(cctkGH);
+    error_if_end_of_step_sync(
+        current ? (end_of_step_subject(current) + " requests a sync").c_str()
+                : "A schedule group's SYNC clause requests a sync",
+        numgroups, groups0);
+  }
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 

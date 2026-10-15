@@ -166,7 +166,7 @@ void error(const GridDescBaseDevice &grid, const CCTK_REAL time,
 
   if (CCTK_EQUALS(initial_condition, "standing wave")) {
 
-    grid.loop_int_device<0, 0, 0>(
+    grid.loop_all_device<0, 0, 0>(
         grid.nghostzones,
         [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           CCTK_REAL u0, rho0;
@@ -178,7 +178,7 @@ void error(const GridDescBaseDevice &grid, const CCTK_REAL time,
 
   } else if (CCTK_EQUALS(initial_condition, "Gaussian")) {
 
-    grid.loop_int_device<0, 0, 0>(
+    grid.loop_all_device<0, 0, 0>(
         grid.nghostzones,
         [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           CCTK_REAL u0, rho0;

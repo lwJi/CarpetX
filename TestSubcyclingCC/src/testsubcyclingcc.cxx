@@ -100,7 +100,7 @@ extern "C" void TestSubcyclingCC_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingCC_Error;
   DECLARE_CCTK_PARAMETERS;
 
-  grid.loop_int_device<1, 1, 1>(
+  grid.loop_all_device<1, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         CCTK_REAL u0, rho0;
