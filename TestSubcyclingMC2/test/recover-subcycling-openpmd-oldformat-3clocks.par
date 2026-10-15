@@ -3,15 +3,16 @@
 # on three clocks. CarpetX 877429fc (dev, which predates last_tail_iteration)
 # wrote it from the setup of checkpoint-subcycling-openpmd-4clocks.par at
 # iteration 3, where the four levels are at 1, 1/2, 1/2 and 3/8 coarse steps.
-# Recovery derives the missing values from the clocks and warns: level 0 last
-# ran its end of step at iteration 1, levels 1 to 3 at iteration 3.
+# Recovery derives the missing values from the clocks and warns: the last
+# window covered level 0 at iteration 1, levels 1 to 3 at iteration 3.
 #
 # For iterations 4 to 8, state must equal the uninterrupted run's bit for
 # bit, and error and tail_context must match it too (the uninterrupted run is
 # checkpoint-subcycling-openpmd-4clocks.par, which shares iterations 4 and 8
-# with this test). At iteration 4 level 0 still holds the derived context of
-# its recovery traversal (iteration 1, time cctk_delta_time, timefac 1); at
-# iteration 5 it joins level 1's end-of-step window. recovery_counts records
+# with this test), invalid entries included: level 0 is mid-step until
+# iteration 8, so recovery invalidates what its traversal (with the derived
+# context: iteration 1, time cctk_delta_time, timefac 1) computed, and error
+# and tail_context are invalid there at iteration 4. recovery_counts records
 # three POST_RECOVER_VARIABLES traversals, one per clock group, and no
 # POSTSTEP, ANALYSIS, CarpetX_PreRestrict or POSTRESTRICT.
 #

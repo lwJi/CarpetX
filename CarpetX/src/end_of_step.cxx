@@ -1,6 +1,8 @@
 #include "end_of_step.hxx"
 #include "driver.hxx"
+#include "schedule.hxx"
 #include "subcycling.hxx"
+#include "valid.hxx"
 
 #include <cctk.h>
 #include <cctk_Schedule.h>
@@ -163,6 +165,49 @@ bool is_end_of_step_result(const int gi) {
   assert(gi >= 0 && gi < CCTK_NumGroups());
   const std::vector<bool> &result = ghext->end_of_step_result;
   return gi < int(result.size()) && result.at(gi);
+}
+
+void InvalidateEndOfStepResults(const int min_level, const int max_level) {
+  if (!ghext->use_subcycling)
+    return;
+  assert(min_level >= 0 && min_level < max_level &&
+         max_level <= ghext->num_levels());
+  // One clock: a batch or a clock group (asserted by the loops)
+  const active_levels_t levels(min_level, max_level);
+  const int numgroups = CCTK_NumGroups();
+  for (int gi = 0; gi < numgroups; ++gi) {
+    if (!is_end_of_step_result(gi))
+      continue;
+    // Storage is the same on every level
+    const auto &groupdata0 =
+        *ghext->patchdata.at(0).leveldata.at(min_level).groupdata.at(gi);
+    if (groupdata0.mfab.empty())
+      continue;
+    const int ntls = groupdata0.mfab.size();
+    const int numvars = groupdata0.numvars;
+    // Like an INVALIDATES clause (CallFunction): the reason becomes the
+    // "why" of the usual invalid-input error, so that a routine that reads
+    // a mid-step result learns the rule from the message
+    levels.loop_serially([&](auto &restrict leveldata) {
+      auto &restrict groupdata = *leveldata.groupdata.at(gi);
+      assert(int(groupdata.mfab.size()) == ntls);
+      for (int tl = 0; tl < ntls; ++tl)
+        for (int vi = 0; vi < numvars; ++vi)
+          groupdata.valid.at(tl).at(vi).set_invalid(
+              make_valid_all(), [level = leveldata.level] {
+                return "Level " + std::to_string(level) +
+                       " is mid-step under subcycling: its end-of-step "
+                       "results (written in CCTK_POSTSTEP or CCTK_ANALYSIS) "
+                       "are invalid until its next end of step (see \"End "
+                       "of step under subcycling\" in the CarpetX "
+                       "documentation)";
+              });
+    });
+    // A no-op unless CarpetX::poison_undefined_values is set
+    for (int tl = 0; tl < ntls; ++tl)
+      for (int vi = 0; vi < numvars; ++vi)
+        poison_invalid_gf(levels, gi, vi, tl);
+  }
 }
 
 void check_walked(const cFunctionData *const attribute) {

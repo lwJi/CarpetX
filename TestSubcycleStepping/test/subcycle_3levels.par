@@ -55,5 +55,7 @@ CarpetX::out_tsv_vars = "
   TestSubcycleStepping::postrestrict
   TestSubcycleStepping::prerestrict
   TestSubcycleStepping::tail_context
+  TestSubcycleStepping::analysis_context
+  TestSubcycleStepping::step_counts
   CarpetXRegrid::regrid_error
 "

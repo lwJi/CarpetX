@@ -471,8 +471,8 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   // Refill each recovered fine level's refinement-boundary (cf) ghosts the
   // way the uninterrupted run last wrote them. Recovery traverses
   // CCTK_POST_RECOVER_VARIABLES once per clock group, and this routine runs
-  // first in each traversal, so the window is one clock group, the window in
-  // which its levels last ran their end of step. Its levels other than its
+  // first in each traversal, so the window is one clock group, the last
+  // window that covered its levels. Its levels other than its
   // coarsest are aligned with their parents. Its coarsest level, unless it is
   // level 0, lags its parent: it is mid-cycle. The ghosts were last written
   //  - at the virtual end of the level's last substep (calcys_rmbnd) by dense

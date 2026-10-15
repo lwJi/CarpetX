@@ -3,18 +3,52 @@
 
 // The end of step (CCTK_POSTSTEP, CCTK_ANALYSIS) under subcycling.
 //
-// The driver starts the end-of-step traversals itself: in Evolve, after each
-// batch's restriction block, and in Initialise, after the initial data (where
-// CCTK_CPINITIAL, which runs between the two, stays outside). Under subcycling
-// it traverses them through TraverseClassified, which records the bin being
-// traversed in GHExt::phase and GHExt::bin. The flesh passes the driver
-// neither the bin nor the schedule group a routine sits in (cFunctionData's
-// `where` is the immediate schedule.ccl parent), so this is the only way the
-// driver knows that a routine runs at end of step. Evolve traverses the
-// evolution part of each batch (CCTK_PRESTEP, CCTK_EVOL, CarpetX_PreRestrict,
-// CCTK_POSTRESTRICT) through TraverseClassified as well, with phase
-// `evolution`, so that check_walked covers every routine those bins reach,
-// including through CallScheduleGroup.
+// Once per iteration, on finalized data. Each Evolve iteration steps
+// single-level batches, coarse to fine, skipping levels that are ahead, and
+// ends with the batch that steps the finest level. Only that batch's window
+// (the finest level, widened down to every coarser level that now shares its
+// clock) holds levels whose step is complete: the driver restricts it (if it
+// holds another level), traverses CCTK_POSTRESTRICT, and then the end of
+// step, over that window. Every other batch steps a level that a finer level
+// has yet to catch up with, and runs no end of step. So every level is
+// covered by exactly one end-of-step window per step of its own (with three
+// levels: L0 once, L1 twice, L2 four times per coarse step), always after
+// the reflux and the restriction that complete that step, and an
+// unconditional global-mode routine runs once per cctk_iteration. The
+// routines see the iteration's cctk_iteration, the shared clock's cctk_time
+// and the finest level's cctk_timefac. Without subcycling the single batch
+// always holds the finest level, so the end of step runs as before.
+//
+// Mid-step levels. A level whose clock differs from the finest level's is
+// mid-step: it has stepped past its last end of step, and a finer level has
+// yet to catch up with it. Its end-of-step results (below) describe a state
+// that no longer exists, so they are invalid (and poisoned) from its EVOL
+// until its next end of step writes them: InvalidateEndOfStepResults, called
+// by Evolve on each batch right after its EVOL. A level's own PRESTEP and
+// EVOL still read the results of its last end of step, which describe the
+// state the step starts from. A routine that READS such a result on a
+// mid-step level gets the usual invalid-input error, whose reason states this
+// rule, and output shows the results as invalid. The mid-step levels are
+// always a coarse prefix of the hierarchy. Recovery reproduces this: it
+// traverses CCTK_POST_RECOVER_VARIABLES once per clock group, as before, and
+// then invalidates the end-of-step results of every group but the finest
+// (RecomputePerClockGroup), so a restarted run holds valid end-of-step
+// results on exactly the levels the uninterrupted run had finalized. A run
+// that stops with levels mid-step warns once, naming them
+// (WarnIfLevelsMidStep in schedule.cxx).
+//
+// The driver starts the end-of-step traversals itself: in Evolve, after the
+// finest batch's restriction block, and in Initialise, after the initial data
+// (where CCTK_CPINITIAL, which runs between the two, stays outside). Under
+// subcycling it traverses them through TraverseClassified, which records the
+// bin being traversed in GHExt::phase and GHExt::bin. The flesh passes the
+// driver neither the bin nor the schedule group a routine sits in
+// (cFunctionData's `where` is the immediate schedule.ccl parent), so this is
+// the only way the driver knows that a routine runs at end of step. Evolve
+// traverses the evolution part of each batch (CCTK_PRESTEP, CCTK_EVOL,
+// CarpetX_PreRestrict, CCTK_POSTRESTRICT) through TraverseClassified as well,
+// with phase `evolution`, so that check_walked covers every routine those
+// bins reach, including through CallScheduleGroup.
 //
 // The no-sync rule. Under subcycling nothing scheduled in CCTK_POSTSTEP or
 // CCTK_ANALYSIS, directly or through a schedule group placed there, may cause
@@ -108,6 +142,15 @@ void ClassifyEndOfStepResults();
 // Whether group gi is an end-of-step result. Always false without
 // subcycling.
 bool is_end_of_step_result(int gi);
+
+// Under subcycling, mark every timelevel and variable of every end-of-step
+// result invalid on levels [min_level, max_level), which share one clock, and
+// poison them (if CarpetX::poison_undefined_values is set), like an
+// INVALIDATES clause. The reason names the rule. Called by Evolve on each
+// batch after its EVOL, and by recovery on every clock group but the finest
+// after its CCTK_POST_RECOVER_VARIABLES traversal. Without subcycling it does
+// nothing.
+void InvalidateEndOfStepResults(int min_level, int max_level);
 
 // Abort unless the walk recorded `attribute`: either the routine sits in a
 // group that is traversed only through CallScheduleGroup and placed under no

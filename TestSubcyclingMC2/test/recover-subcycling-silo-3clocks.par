@@ -3,9 +3,9 @@
 # (see recover-subcycling-openpmd-3clocks.par) with a Silo checkpoint. It
 # recovers the frozen checkpoint written at iteration 5, where the three
 # levels are on three different clocks, and continues to iteration 8. The
-# checkpoint records each level's last end-of-step iteration, so recovery
+# checkpoint records each level's last window iteration, so recovery
 # traverses CCTK_POST_RECOVER_VARIABLES once per clock group, each time with
-# the context in which that group last ran its end of step; without it, a
+# the context of the last window that covered that group; without it, a
 # three-clock checkpoint would be refused.
 #
 # For iterations 6 to 8 the output must match the openPMD 3-clock recover

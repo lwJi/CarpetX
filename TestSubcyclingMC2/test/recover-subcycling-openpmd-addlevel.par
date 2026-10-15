@@ -3,15 +3,16 @@
 # written at iteration 6, right after a regrid added a fourth level partway
 # through a coarse step, and continues to iteration 8. The four levels are on
 # three clocks (2, 3/2, 3/2 and 11/8 coarse steps), and the checkpoint
-# records their last end-of-step iterations (5, 6, 6 and 6), so recovery
+# records their last window iterations (5, 6, 6 and 6), so recovery
 # traverses CCTK_POST_RECOVER_VARIABLES once per clock group with iterations
 # 5, 6 and 6. Deriving them from the clocks would give level 0 iteration 4,
 # since level 3 did not exist when level 0 last stepped.
 #
 # For iterations 7 and 8, state must equal the uninterrupted run's bit for
-# bit, and error and tail_context must match it too; at iteration 7 level 0
-# still holds the context of its recovery traversal (iteration 5, time
-# 2 * cctk_delta_time, timefac 1). recovery_counts records what recovery ran:
+# bit, and error and tail_context must match it too, invalid entries
+# included: level 0 is mid-step through iteration 8, so recovery invalidates
+# what its traversal (iteration 5, time 2 * cctk_delta_time, timefac 1)
+# computed, as in the uninterrupted run. recovery_counts records what recovery ran:
 # three POST_RECOVER_VARIABLES traversals, one per clock group, and no
 # POSTSTEP, ANALYSIS, CarpetX_PreRestrict or POSTRESTRICT.
 #

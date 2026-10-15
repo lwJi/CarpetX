@@ -19,7 +19,7 @@ if(use_subcycling) {
   } "Solve ODEs with subcycling"
 
   # Refill refinement-boundary ghosts of the evolved state so they match
-  # what the uninterrupted run's last end of step left there. Recovery
+  # what the uninterrupted run's last step left there. Recovery
   # traverses CCTK_POST_RECOVER_VARIABLES once per clock group, so this
   # refills each group's levels, before anything reads them.
   SCHEDULE ODESolvers_Solve_Subcycling_Recovery AT CCTK_POST_RECOVER_VARIABLES BEFORE ODESolvers_PostStep
@@ -90,20 +90,26 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 #     [regrid]
 #     BASEGRID (in driver)
 #     POSTREGRID (in driver)
-#   [cycle time levels]
-#   PRESTEP
-#   EVOL            (without subcycling: [reflux] inside ODESolvers_Solve,
+#   For each level batch (under subcycling one level, coarse to fine,
+#   skipping levels that are ahead):
+#     [cycle time levels]
+#     PRESTEP
+#     EVOL          (without subcycling: [reflux] inside ODESolvers_Solve,
 #                    before the final ODESolvers_PostStep)
-#   [when restrict_during_sync = no and >= 2 levels are time-aligned:]
-#     CarpetX_PreRestrict  (sees the state before the reflux)
-#     [reflux]      (subcycling: finest pair first, once per coarse step)
-#     [restrict]    (fine to coarse, then prolongate restricted and, under
+#     [under subcycling: the batch's end-of-step results become invalid
+#      until its next end of step]
+#     If the batch holds the finest level (always without subcycling):
+#       [when restrict_during_sync = no and >= 2 levels are time-aligned:]
+#         CarpetX_PreRestrict  (sees the state before the reflux)
+#         [reflux]  (subcycling: finest pair first, once per coarse step)
+#         [restrict] (fine to coarse, then prolongate restricted and, under
 #                    subcycling, integrated GFs)
-#     POSTRESTRICT  (ODESolvers_PostStep runs here; under subcycling its
+#         POSTRESTRICT (ODESolvers_PostStep runs here; under subcycling its
 #                    SYNC repairs the ghosts after the reflux and the
 #                    restriction, and it recomputes the dependents)
-#   POSTSTEP        (per level batch under subcycling; may not SYNC there)
-#   ANALYSIS        (per level batch under subcycling; may not SYNC there)
+#       POSTSTEP    (once per iteration, over the window of levels that the
+#                    iteration finalized; under subcycling: may not SYNC)
+#       ANALYSIS    (likewise)
 #   CHECKPOINT      (once, after all batches)
 #   OutputGH        (once, after all batches)
 #
@@ -116,7 +122,9 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 #   [restore level clocks]
 #   POST_RECOVER_VARIABLES  (once per clock group, coarse to fine, with the
 #                            group's context; under subcycling the evolved
-#                            state's ghosts are refilled first)
+#                            state's ghosts are refilled first, and the
+#                            end-of-step results of every group but the
+#                            finest are invalidated after it)
 #   CPINITIAL
 #   OutputGH
 #   (no restriction, POSTRESTRICT, POSTSTEP or ANALYSIS)

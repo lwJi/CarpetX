@@ -5,15 +5,15 @@
 # level, and the regrid at the start of iteration 6, which starts from level 2
 # (the only level at the minimum clock), adds level 3 at level 2's clock. The
 # checkpoint is taken at iteration 6, where the four levels are on three
-# clocks (2, 3/2, 3/2 and 11/8 coarse steps) and their last end-of-step
+# clocks (2, 3/2, 3/2 and 11/8 coarse steps) and their last window
 # iterations are 5, 6, 6 and 6. Deriving level 0's from the clocks would give
 # 4 instead of 5, since level 3 did not exist when level 0 last stepped. The
 # run continues to iteration 8 as the uninterrupted baseline for
 # recover-subcycling-openpmd-addlevel.par.
 #
 # TestSubcycleStepping stamps tail_context, the context of the last
-# end-of-step window that covered each level. recovery_counts stays 0 on a
-# fresh start.
+# end-of-step window that covered each level; like error, it is invalid on
+# mid-step levels. recovery_counts stays 0 on a fresh start.
 #
 # Output is written every iteration, since the recover run's only
 # iterations, 7 and 8, are both compared with this run. The recover par sets

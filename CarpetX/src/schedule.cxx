@@ -112,10 +112,12 @@ int WidenMinLevel(int initial_min_level, rat64 target_iteration) {
 
 // The clock groups, coarse to fine: maximal runs [min_level, max_level) of
 // adjacent levels that share one clock. Each is the window WidenMinLevel
-// produces from the group's finest level, i.e. the window in which the
-// group's levels last ran their end of step. Without subcycling every level
-// shares one clock, so there is a single group [0, num_levels). Reads only
-// patch 0, like WidenMinLevel.
+// produces from the group's finest level, i.e. the last window that covered
+// the group's levels (LevelData::last_window_iteration). Only the finest
+// group's levels are finalized; every coarser group is mid-step
+// (end_of_step.hxx). Without subcycling every level shares one clock, so
+// there is a single group [0, num_levels). Reads only patch 0, like
+// WidenMinLevel.
 std::vector<std::pair<int, int> > ClockGroups() {
   std::vector<std::pair<int, int> > groups;
   int max_level = ghext->num_levels();
@@ -135,7 +137,8 @@ std::vector<std::pair<int, int> > ClockGroups() {
 // delta_iteration, and `level` stepped in the iteration that began with the
 // finest level at `level`'s clock before that step. This assumes that no
 // regrid has changed the finest level's delta_iteration since then, so
-// recovery uses it only for checkpoints that predate last_tail_iteration.
+// recovery uses it only for checkpoints that predate last_window_iteration
+// (written as last_tail_iteration).
 int LastStepIteration(const int level, const int current_iteration) {
   const auto &leveldatas = ghext->patchdata.at(0).leveldata;
   const auto &finest = leveldatas.at(ghext->num_levels() - 1);
@@ -1180,9 +1183,9 @@ static void SetStepTime(cGH *restrict const cctkGH, const int level,
   }
 }
 
-// Restore every level's clock and last_tail_iteration from the metadata that
-// the checkpoint reader left in ghext->recovered_levels, then drop it.
-// Checkpoints that predate last_tail_iteration get it from the clocks: every
+// Restore every level's clock and last_window_iteration from the metadata
+// that the checkpoint reader left in ghext->recovered_levels, then drop it.
+// Checkpoints that predate it get it from the clocks: every
 // group gets the iteration in which its finest level last stepped
 // (LastStepIteration), which for the finest group is the checkpoint iteration.
 // With one clock group this is exact; with more it assumes that no regrid has
@@ -1197,7 +1200,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
   // Restore the per-level clocks from the checkpoint if available, otherwise
   // fall back to the synchronized-state formula
   const int iteration_ratio = 1 << (ghext->num_levels() - 1);
-  bool have_last_tail_iterations = true;
+  bool have_last_window_iterations = true;
   for (auto &patchdata : ghext->patchdata) {
     for (auto &leveldata : patchdata.leveldata) {
       const int patch = leveldata.patch;
@@ -1211,10 +1214,10 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
       else
         // Backward compat: old checkpoint without per-level iteration
         leveldata.iteration = rat64(checkpoint_iteration) / iteration_ratio;
-      if (recovered && recovered->last_tail_iteration)
-        leveldata.last_tail_iteration = *recovered->last_tail_iteration;
+      if (recovered && recovered->last_window_iteration)
+        leveldata.last_window_iteration = *recovered->last_window_iteration;
       else
-        have_last_tail_iterations = false;
+        have_last_window_iterations = false;
     }
   }
   ghext->recovered_levels.clear();
@@ -1231,16 +1234,16 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
   CCTK_VINFO("Level clocks (coarse steps): %s -> %d clock group%s",
              clocks.c_str(), num_groups, num_groups == 1 ? "" : "s");
 
-  if (!have_last_tail_iterations) {
+  if (!have_last_window_iterations) {
     // Old checkpoint without last_tail_iteration
     for (const auto &[min_level, max_level] : clock_groups) {
       // For the finest group this is the checkpoint iteration
-      const int last_tail_iteration =
+      const int last_window_iteration =
           LastStepIteration(max_level - 1, checkpoint_iteration);
       for (auto &patchdata : ghext->patchdata)
         for (auto &leveldata : patchdata.leveldata)
           if (leveldata.level >= min_level && leveldata.level < max_level)
-            leveldata.last_tail_iteration = last_tail_iteration;
+            leveldata.last_window_iteration = last_window_iteration;
     }
     if (num_groups >= 2 && CCTK_MyProc(nullptr) == 0)
       CCTK_VWARN(CCTK_WARN_ALERT,
@@ -1252,42 +1255,43 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
                  checkpoint_iteration, num_groups, clocks.c_str());
   }
 
-  // The levels of a clock group last ran their end of step in one window,
-  // the one in which the group's finest level last stepped
+  // The levels of a clock group were last covered by one window, the one in
+  // which the group's finest level last stepped
   for (const auto &[min_level, max_level] : clock_groups) {
-    const int group_last_tail_iteration =
-        ghext->patchdata.at(0).leveldata.at(max_level - 1).last_tail_iteration;
+    const int group_last_window_iteration = ghext->patchdata.at(0)
+                                                .leveldata.at(max_level - 1)
+                                                .last_window_iteration;
     for (const auto &patchdata : ghext->patchdata)
       for (const auto &leveldata : patchdata.leveldata)
         if (leveldata.level >= min_level && leveldata.level < max_level &&
-            leveldata.last_tail_iteration != group_last_tail_iteration)
+            leveldata.last_window_iteration != group_last_window_iteration)
           CCTK_VERROR("Checkpoint at iteration %d is inconsistent: patch %d "
-                      "level %d has last end-of-step iteration %d, but its "
+                      "level %d has last window iteration %d, but its "
                       "clock group [%d,%d) has %d",
                       checkpoint_iteration, leveldata.patch, leveldata.level,
-                      leveldata.last_tail_iteration, min_level, max_level,
-                      group_last_tail_iteration);
+                      leveldata.last_window_iteration, min_level, max_level,
+                      group_last_window_iteration);
   }
 
   // The finest level steps in every iteration, so the finest group's last
-  // end-of-step iteration is the checkpoint's
-  const int finest_last_tail_iteration =
+  // window iteration is the checkpoint's
+  const int finest_last_window_iteration =
       ghext->patchdata.at(0)
           .leveldata.at(ghext->num_levels() - 1)
-          .last_tail_iteration;
-  if (finest_last_tail_iteration != checkpoint_iteration)
+          .last_window_iteration;
+  if (finest_last_window_iteration != checkpoint_iteration)
     CCTK_VERROR("Checkpoint at iteration %d is inconsistent: its finest clock "
-                "group has last end-of-step iteration %d",
-                checkpoint_iteration, finest_last_tail_iteration);
+                "group has last window iteration %d",
+                checkpoint_iteration, finest_last_window_iteration);
 }
 
 // Rebuild the hierarchy and its state from the checkpoint: the grid
 // structure, CCTK_BASEGRID (and the initial-data bins in relaxed recovery
 // mode), the checkpointed data and CCTK_RECOVER_VARIABLES. These run exactly
 // once, over every level, while every level clock is still 0 and
-// cctk_delta_time is not set. Then restore the level clocks and last
-// end-of-step iterations, enable regridding and compute cctk_delta_time, which
-// the per-group recomputation needs.
+// cctk_delta_time is not set. Then restore the level clocks and last window
+// iterations, enable regridding and compute cctk_delta_time, which the
+// per-group recomputation needs.
 static void RecoverHierarchy(cGH *restrict const cctkGH) {
   RecoverGridStructure(cctkGH);
   // RecoverGridStructure has set cctk_iteration to the checkpoint's
@@ -1313,7 +1317,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
 
   active_levels = std::optional<active_levels_t>();
 
-  // Restore the per-level clocks and last end-of-step iterations
+  // Restore the per-level clocks and last window iterations
   RestoreLevelClocks(cctkGH);
 
   // Enable regridding
@@ -1339,14 +1343,17 @@ struct recovery_traversal_scope {
 } // namespace
 
 // Traverse CCTK_POST_RECOVER_VARIABLES once per clock group, coarse to fine.
-// Each traversal sees the group's levels in the context of their last end of
-// step during evolution: cctk_iteration is the group's last_tail_iteration,
-// and cctk_time and cctk_timefac are what Evolve set when the group's finest
-// level last stepped (SetStepTime). No coarser level has changed since then,
-// so a level-mode routine recomputes what it computed during evolution, and
-// global-mode routines run once per group, as once per window during
-// evolution. Logs one line per group and a closing note whatever
-// CarpetX::verbose is set to.
+// Each traversal sees the group's levels in the context of the last window
+// that covered them during evolution: cctk_iteration is the group's
+// last_window_iteration, and cctk_time and cctk_timefac are what Evolve set
+// when the group's finest level last stepped (SetStepTime). No coarser level
+// has changed since then, so a level-mode routine recomputes what it computed
+// during evolution, and global-mode routines run once per group. Every group
+// but the finest is mid-step, so under subcycling its end-of-step results
+// are then invalidated, as Evolve left them (end_of_step.hxx): the
+// traversal recomputes the state and what the state's evolution needs, but
+// the end-of-step results it computes there do not survive. Logs one line
+// per group and a closing note whatever CarpetX::verbose is set to.
 static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
   const recovery_traversal_scope scope;
 
@@ -1359,7 +1366,7 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
     assert(!active_levels);
     active_levels = std::make_optional<active_levels_t>(min_level, max_level);
 
-    cctkGH->cctk_iteration = finest.last_tail_iteration;
+    cctkGH->cctk_iteration = finest.last_window_iteration;
     SetStepTime(cctkGH, max_level - 1, finest.iteration);
 
 #pragma omp critical
@@ -1369,6 +1376,11 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
                double(cctkGH->cctk_time), cctkGH->cctk_timefac);
 
     CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
+
+    // A mid-step group holds no valid end-of-step results, in a restarted
+    // run as in the uninterrupted one
+    if (max_level < ghext->num_levels())
+      InvalidateEndOfStepResults(min_level, max_level);
 
     active_levels = std::optional<active_levels_t>();
   }
@@ -1386,8 +1398,10 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
 // CCTK_ANALYSIS, with or without subcycling. A CCTK_CHECKPOINT or
 // CCTK_TERMINATE checkpoint was written after all of them; an initial-data
 // checkpoint (CCTK_CPINITIAL) after POSTSTEP but before ANALYSIS. Results
-// recomputed in CCTK_POST_RECOVER_VARIABLES are reproduced either way. See
-// "Recovery" in the CarpetX documentation.
+// recomputed in CCTK_POST_RECOVER_VARIABLES are reproduced either way, and
+// under subcycling the end-of-step results stay valid only on the finest
+// clock group, as at the checkpoint. See "Recovery" in the CarpetX
+// documentation.
 static void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -1398,9 +1412,9 @@ static void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
 
   RecomputePerClockGroup(cctkGH);
 
-  // RestoreLevelClocks checked that the finest group's last end-of-step
-  // iteration is the checkpoint's, so the group loop has left the finest
-  // group's context set
+  // RestoreLevelClocks checked that the finest group's last window iteration
+  // is the checkpoint's, so the group loop has left the finest group's
+  // context set
   assert(cctkGH->cctk_iteration == ghext->recovered_iteration);
 
 #pragma omp critical
@@ -1777,6 +1791,44 @@ bool EvolutionIsDone(cGH *restrict const cctkGH) {
   return we_are_done;
 }
 
+// Under subcycling, warn once if the evolution has ended with levels
+// mid-step, i.e. with a clock that differs from the finest level's. Their
+// end-of-step results are invalid in the final output, in CCTK_TERMINATE and
+// in a final checkpoint (end_of_step.hxx). A mid-cycle stop is legitimate;
+// this only states its outcome. The mid-step levels are always a coarse
+// prefix [0, min_level) of the hierarchy, and the coarsest of them is the
+// furthest ahead, so the finest level reaches every mid-step clock after
+// (clock of level 0 - finest clock) / finest step more iterations, if no
+// regrid intervenes. Reads only patch 0, like ClockGroups.
+static void WarnIfLevelsMidStep(const cGH *restrict const cctkGH) {
+  if (!ghext->use_subcycling)
+    return;
+  const int min_level = ClockGroups().back().first;
+  if (min_level == 0)
+    return;
+  const auto &leveldatas = ghext->patchdata.at(0).leveldata;
+  const auto &finest = leveldatas.at(ghext->num_levels() - 1);
+  const rat64 remaining =
+      (leveldatas.at(0).iteration - finest.iteration) / finest.delta_iteration;
+  assert(remaining > 0);
+  const long long more_iterations =
+      (remaining.num + remaining.den - 1) / remaining.den;
+  std::ostringstream levels;
+  if (min_level == 1)
+    levels << "level 0";
+  else
+    levels << "levels 0-" << min_level - 1;
+  if (CCTK_MyProc(nullptr) == 0)
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Evolution ended at iteration %d with %s mid-step; %s "
+               "end-of-step results (CCTK_POSTSTEP, CCTK_ANALYSIS) are "
+               "invalid. %lld more iteration%s would finalize %s (see \"End "
+               "of step under subcycling\" in the CarpetX documentation).",
+               cctkGH->cctk_iteration, levels.str().c_str(),
+               min_level == 1 ? "its" : "their", more_iterations,
+               more_iterations == 1 ? "" : "s", min_level == 1 ? "it" : "them");
+}
+
 void CycleTimelevels(cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -2136,11 +2188,26 @@ int Evolve(tFleshConfig *config) {
       TraverseClassified(cctkGH, "CCTK_PRESTEP", traversal_phase_t::evolution);
       TraverseClassified(cctkGH, "CCTK_EVOL", traversal_phase_t::evolution);
 
+      // The batch's end-of-step results no longer describe its state: they
+      // stay invalid until its next end of step (only under subcycling)
+      InvalidateEndOfStepResults(min_level, max_level);
+
       // reset active_levels to include all levels that have caught up to the
       // current timestep
       min_level = WidenMinLevel(min_level, level_iteration);
       active_levels = std::make_optional<active_levels_t>(min_level, max_level);
 
+      // The widened window's levels now hold the state this iteration
+      // produced; checkpoints record it for recovery
+      active_levels->loop_serially([&](auto &restrict leveldata) {
+        leveldata.last_window_iteration = cctkGH->cctk_iteration;
+      });
+
+      // Only the batch that steps the finest level finalizes levels: its
+      // window is restricted (if it holds another level), and then runs the
+      // end of step. Every other batch steps a level that a finer level has
+      // yet to catch up with, so it runs neither. Without subcycling the
+      // single batch always holds the finest level.
       if (max_level == ghext->num_levels()) {
         if (!window_is_restricted(min_level, max_level)) {
           // Only the finest level is at the current time: nothing to restrict
@@ -2183,20 +2250,15 @@ int Evolve(tFleshConfig *config) {
           TraverseClassified(cctkGH, "CCTK_POSTRESTRICT",
                              traversal_phase_t::evolution);
         }
+
+        // The end of step, once per iteration, over the levels this
+        // iteration finalized. Under subcycling nothing in these bins may
+        // SYNC (end_of_step.hxx).
+        TraverseClassified(cctkGH, "CCTK_POSTSTEP",
+                           traversal_phase_t::end_of_step);
+        TraverseClassified(cctkGH, "CCTK_ANALYSIS",
+                           traversal_phase_t::end_of_step);
       }
-
-      // Under subcycling nothing in the end-of-step bins may SYNC
-      // (end_of_step.hxx)
-      TraverseClassified(cctkGH, "CCTK_POSTSTEP",
-                         traversal_phase_t::end_of_step);
-      TraverseClassified(cctkGH, "CCTK_ANALYSIS",
-                         traversal_phase_t::end_of_step);
-
-      // Every level of the widened window has now run its end of step at
-      // this iteration; checkpoints record it for recovery
-      active_levels->loop_serially([&](auto &restrict leveldata) {
-        leveldata.last_tail_iteration = cctkGH->cctk_iteration;
-      });
     } // for min_level, max_level
 
     CCTK_Traverse(cctkGH, "CCTK_CHECKPOINT");
@@ -2280,6 +2342,8 @@ int Evolve(tFleshConfig *config) {
     }
 
   } // main loop
+
+  WarnIfLevelsMidStep(cctkGH);
 
   if (out_performance && CCTK_MyProc(NULL) == 0)
     performance_file.close();

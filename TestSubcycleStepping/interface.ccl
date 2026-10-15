@@ -9,12 +9,30 @@ CCTK_REAL prerestrict TYPE=GF CENTERING={VVV} TAGS='checkpoint="yes" restrict="n
 
 # The context (cctk_iteration, cctk_time, cctk_timefac) of the last
 # CCTK_POSTSTEP or CCTK_POST_RECOVER_VARIABLES traversal whose window covered
-# the level, stamped everywhere. No other level reads it, so it needs neither
-# a SYNC nor a checkpoint.
+# the level, stamped everywhere, and the value of "postrestrict" it saw there
+# (a canary: it proves the traversal came after that iteration's
+# CCTK_POSTRESTRICT). No other level reads it, so it needs neither a SYNC nor
+# a checkpoint. It is an end-of-step result, so under subcycling it is
+# invalid on mid-step levels.
 CCTK_REAL tail_context TYPE=GF CENTERING={VVV} TAGS='checkpoint="no"'
 {
-  tail_iteration tail_time tail_timefac
+  tail_iteration tail_time tail_timefac tail_postrestrict
 } "context of the last end-of-step or recovery traversal that covered each level"
+
+# The CCTK_ANALYSIS twin of tail_context
+CCTK_REAL analysis_context TYPE=GF CENTERING={VVV} TAGS='checkpoint="no"'
+{
+  analysis_iteration analysis_postrestrict
+} "context of the last analysis or recovery traversal that covered each level"
+
+# Number of traversals of CCTK_POSTSTEP and CCTK_ANALYSIS, the initial-data
+# traversals included, since the start of the run or the restart. Not
+# checkpointed, so that checkpoints written before these counts existed still
+# recover; a restart zeroes them at CCTK_RECOVER_VARIABLES.
+CCTK_INT step_counts TYPE=SCALAR TAGS='checkpoint="no"'
+{
+  step_count_poststep step_count_analysis
+} "traversals of CCTK_POSTSTEP and CCTK_ANALYSIS"
 
 # Number of traversals of the bins a recovery might run, counted from
 # CCTK_RECOVER_VARIABLES until CCTK_CPINITIAL ("counting" is 1 in between and

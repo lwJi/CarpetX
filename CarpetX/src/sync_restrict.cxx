@@ -129,7 +129,7 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
 // `leveldata` is about to read it. The message names the parent's level and
 // timelevel. When gi is not checkpointed, it ends with the rule that was
 // broken: for a past timelevel always, and for the current timelevel only
-// while the parent has not run its end of step since the run was recovered
+// while the parent has not stepped since the run was recovered
 // (GHExt::recovered_iteration).
 static void
 error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
@@ -145,7 +145,7 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
 
   const bool recovering =
       ghext->recovered_iteration >= 0 &&
-      coarseleveldata.last_tail_iteration <= ghext->recovered_iteration;
+      coarseleveldata.last_window_iteration <= ghext->recovered_iteration;
 
   const std::function<std::string()> msg = [label]() {
     return std::string(label);

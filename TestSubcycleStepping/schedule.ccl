@@ -1,6 +1,7 @@
 # Schedule definitions for thorn TestSubcycleStepping
 
-STORAGE: iteration postrestrict prerestrict tail_context recovery_counts
+STORAGE: iteration postrestrict prerestrict tail_context analysis_context
+STORAGE: recovery_counts step_counts
 
 schedule TestSubcycleStepping_Init AT INITIAL
 {
@@ -47,19 +48,62 @@ schedule TestSubcycleStepping_Sync AT post_recover_variables
 
 # tail_context: each level records the context of the last end-of-step window
 # (CCTK_POSTSTEP) that covered it, and after a restart the context of the
-# CCTK_POST_RECOVER_VARIABLES traversal that covered it
+# CCTK_POST_RECOVER_VARIABLES traversal that covered it. analysis_context does
+# the same for CCTK_ANALYSIS. Both copy "postrestrict" as a canary, which
+# shows that the window came after that iteration's CCTK_POSTRESTRICT. Under
+# subcycling both are end-of-step results, so mid-step levels hold them as
+# invalid, during evolution and after a restart alike.
 
 schedule TestSubcycleStepping_StampTail AT poststep
 {
   LANG: C
+  READS: postrestrict(everywhere)
   WRITES: tail_context(everywhere)
 } "stamp the levels of an end-of-step window with its context"
 
-schedule TestSubcycleStepping_StampTail AT post_recover_variables
+schedule TestSubcycleStepping_StampTail AT post_recover_variables AFTER TestSubcycleStepping_Sync
 {
   LANG: C
+  READS: postrestrict(everywhere)
   WRITES: tail_context(everywhere)
 } "stamp the levels of a recovery traversal with its context"
+
+schedule TestSubcycleStepping_StampAnalysis AT analysis
+{
+  LANG: C
+  READS: postrestrict(everywhere)
+  WRITES: analysis_context(everywhere)
+} "stamp the levels of an analysis window with its context"
+
+schedule TestSubcycleStepping_StampAnalysis AT post_recover_variables AFTER TestSubcycleStepping_Sync
+{
+  LANG: C
+  READS: postrestrict(everywhere)
+  WRITES: analysis_context(everywhere)
+} "stamp the levels of a recovery traversal with its context"
+
+
+
+# step_counts: count every traversal of CCTK_POSTSTEP and CCTK_ANALYSIS. With
+# subcycling each runs once per cctk_iteration, plus once after the initial
+# data, so after iteration n of a fresh run both counts are n + 1. One routine
+# per bin, since a routine cannot tell which bin calls it.
+
+schedule TestSubcycleStepping_CountStepPostStep AT poststep
+{
+  LANG: C
+  OPTIONS: global
+  READS: step_counts
+  WRITES: step_counts
+} "count traversals of CCTK_POSTSTEP"
+
+schedule TestSubcycleStepping_CountStepAnalysis AT analysis
+{
+  LANG: C
+  OPTIONS: global
+  READS: step_counts
+  WRITES: step_counts
+} "count traversals of CCTK_ANALYSIS"
 
 
 
@@ -67,13 +111,14 @@ schedule TestSubcycleStepping_StampTail AT post_recover_variables
 # CCTK_RECOVER_VARIABLES until CCTK_CPINITIAL, so that the first output after
 # a restart shows which bins recovery ran. A fresh start zeroes the counts
 # with counting off, so that they stay 0. One routine per bin, since a routine
-# cannot tell which bin calls it.
+# cannot tell which bin calls it. Both also zero step_counts.
 
 schedule TestSubcycleStepping_ResetCounts AT initial
 {
   LANG: C
   OPTIONS: global
   WRITES: recovery_counts
+  WRITES: step_counts
 } "zero the recovery counts, with counting off"
 
 schedule TestSubcycleStepping_StartCounting AT recover_variables
@@ -81,6 +126,7 @@ schedule TestSubcycleStepping_StartCounting AT recover_variables
   LANG: C
   OPTIONS: global
   WRITES: recovery_counts
+  WRITES: step_counts
 } "zero the recovery counts and start counting"
 
 schedule TestSubcycleStepping_StopCounting AT cpinitial

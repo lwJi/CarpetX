@@ -73,13 +73,43 @@ void TestSubcycleStepping_StampTail(CCTK_ARGUMENTS)
   DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_StampTail;
 
   // Everywhere, so that the stamp needs no SYNC and output never shows a
-  // poisoned ghost
+  // poisoned ghost on a level it covers
   grid.loop_all<0,0,0>(grid.nghostzones, [=] CCTK_HOST(const Loop::PointDesc &pt) {
     tail_iteration(pt.I) = cctk_iteration;
     tail_time(pt.I) = cctk_time;
     tail_timefac(pt.I) = cctk_timefac;
+    tail_postrestrict(pt.I) = postrestrict(pt.I);
   });
 
+}
+
+extern "C"
+void TestSubcycleStepping_StampAnalysis(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_StampAnalysis;
+
+  // As TestSubcycleStepping_StampTail
+  grid.loop_all<0,0,0>(grid.nghostzones, [=] CCTK_HOST(const Loop::PointDesc &pt) {
+    analysis_iteration(pt.I) = cctk_iteration;
+    analysis_postrestrict(pt.I) = postrestrict(pt.I);
+  });
+
+}
+
+extern "C"
+void TestSubcycleStepping_CountStepPostStep(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_CountStepPostStep;
+
+  ++*step_count_poststep;
+}
+
+extern "C"
+void TestSubcycleStepping_CountStepAnalysis(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_CountStepAnalysis;
+
+  ++*step_count_analysis;
 }
 
 namespace {
@@ -93,6 +123,8 @@ void reset_counts(CCTK_ARGUMENTS, const CCTK_INT counting_on)
   *count_prerestrict = 0;
   *count_postrestrict = 0;
   *counting = counting_on;
+  *step_count_poststep = 0;
+  *step_count_analysis = 0;
 }
 } // namespace
 

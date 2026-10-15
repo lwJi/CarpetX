@@ -1770,7 +1770,59 @@ As an example, to  have performance measurements output for a simulation every 2
 \section{End of step under subcycling}
 \label{sec:end_of_step}
 
-The \emph{end of step} is the pair of bins \texttt{CCTK\_POSTSTEP} and \texttt{CCTK\_ANALYSIS}, which \CarpetX\space traverses after a step's restriction and \texttt{CCTK\_POSTRESTRICT}, and once after the initial data. Under subcycling (\texttt{CarpetX::use\_subcycling = yes}) end-of-step routines see the ghost zones as they stand and never cause them to be filled.
+The \emph{end of step} is the pair of bins \texttt{CCTK\_POSTSTEP} and \texttt{CCTK\_ANALYSIS}, which \CarpetX\space traverses after a step's restriction and \texttt{CCTK\_POSTRESTRICT}, and once after the initial data. Under subcycling (\texttt{CarpetX::use\_subcycling = yes}) every level runs its end of step exactly once per step of its own, on finalized data; the end-of-step results of a level that is in the middle of its step are invalid; and end-of-step routines see the ghost zones as they stand and never cause them to be filled. Without subcycling every iteration steps every level, and none of this changes anything.
+
+\subsection{When the end of step runs}
+
+Under subcycling each refinement level has its own clock, and level $l$ steps by $2^{-l}$ coarse steps. Every iteration (one \texttt{cctk\_iteration}) steps single levels, from coarse to fine, skipping the levels that are ahead, and ends with the finest level. After the finest level's step \CarpetX\space widens the window from the finest level down to every coarser level that now shares its clock. These levels have completed their step: \CarpetX\space restricts the window (if it holds another level), traverses \texttt{CCTK\_POSTRESTRICT}, and then \texttt{CCTK\_POSTSTEP} and \texttt{CCTK\_ANALYSIS} over the window. A level that a finer level has yet to catch up with runs no end of step. With three levels:
+%
+\begin{table}[ht]
+  \centering
+  \begin{tabular}{cccc}
+  Iteration & Levels stepped & Restriction & End-of-step window \\ \hline\hline
+  1 & 0, 1, 2 & none & 2 \\
+  2 & 2 & 2 $\to$ 1 & 1, 2 \\
+  3 & 1, 2 & none & 2 \\
+  4 & 2 & 2 $\to$ 1 $\to$ 0 & 0, 1, 2 \\ \hline\hline
+  \end{tabular}
+  \caption{End-of-step windows in one coarse step with three levels: level 0 is covered once, level 1 twice and level 2 four times, each time after the restriction that completes its step.}
+  \label{tab:end_of_step_windows}
+\end{table}
+%
+So each end-of-step bin runs once per iteration, and a global-mode routine there runs once per \texttt{cctk\_iteration}, as without subcycling. A routine sees the iteration's \texttt{cctk\_iteration}, \texttt{cctk\_time} of the window's shared clock (the finest level's time), and the finest level's \texttt{cctk\_timefac}.
+
+\subsection{End-of-step results}
+
+A grid function group is an \emph{end-of-step result} if a routine in \texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS} \texttt{WRITES} it and nothing in the evolution part of a step does: \texttt{CCTK\_PRESTEP}, \texttt{CCTK\_EVOL} (including the groups \texttt{ODESolvers} calls from there, \texttt{ODESolvers\_RHS} and \texttt{ODESolvers\_PostStep}), \texttt{CarpetX\_PreRestrict} and \texttt{CCTK\_POSTRESTRICT}. Groups that \texttt{ODESolvers} integrates (\texttt{rhs} tag) never count, nor do grid scalars and grid arrays, nor writes in any other bin. Diagnostics such as an error, an energy or a constraint, and \texttt{CarpetXRegrid::regrid\_error}, are end-of-step results; the evolved state is not, even where a thorn adjusts it in \texttt{CCTK\_POSTSTEP}. \CarpetX\space derives the set once at startup from the schedule's \texttt{WRITES} clauses, ignoring \texttt{if} and \texttt{while}, and prints it in one line:
+%
+\begin{lstlisting}[language=bash,numbers=none]
+INFO (CarpetX): Subcycling: end-of-step results (grid functions written in CCTK_POSTSTEP or CCTK_ANALYSIS, but not in the evolution part of a step): CARPETXREGRID::REGRID_ERROR, TESTSUBCYCLINGMC2::ERROR
+\end{lstlisting}
+%
+Thorns need no tag or change to get this behavior. A group that \texttt{ODESolvers} (or another solver) runs only through \texttt{CallScheduleGroup} must be placed under a bin for the schedule printout, as \texttt{ODESolvers\_CalledBySolve} places \texttt{ODESolvers\_RHS} and \texttt{ODESolvers\_PostStep} under \texttt{CCTK\_EVOL}; otherwise the run stops at its first call.
+
+A level is \emph{mid-step} when its clock differs from the finest level's: it has stepped past its last end of step, and a finer level has yet to catch up with it. Its end-of-step results describe a state that no longer exists, so they are invalid from its \texttt{CCTK\_EVOL} until its next end of step writes them. The level's own \texttt{CCTK\_PRESTEP} and \texttt{CCTK\_EVOL} still read the results of its last end of step, which describe the state the step starts from. After each iteration of the example above, the end-of-step results are
+%
+\begin{table}[ht]
+  \centering
+  \begin{tabular}{cccc}
+  After iteration & Level 0 & Level 1 & Level 2 \\ \hline\hline
+  1 & invalid & invalid & valid ($t = 1/4$) \\
+  2 & invalid & valid ($t = 1/2$) & valid ($t = 1/2$) \\
+  3 & invalid & invalid & valid ($t = 3/4$) \\
+  4 & valid ($t = 1$) & valid ($t = 1$) & valid ($t = 1$) \\ \hline\hline
+  \end{tabular}
+  \caption{Validity of the end-of-step results in one coarse step with three levels.}
+  \label{tab:end_of_step_validity}
+\end{table}
+%
+The mid-step levels are always the coarsest ones. A routine that \texttt{READS} an end-of-step result on a mid-step level gets the usual invalid-input error, whose reason states this rule. Output writes mid-step levels' end-of-step results as they are (poisoned when \texttt{CarpetX::poison\_undefined\_values} is set), and norm output, which skips a group whose level-0 interior is invalid, writes no row for them at an iteration where level 0 is mid-step. A regrid reads \texttt{regrid\_error} only on the levels the previous iteration finalized, so it is unaffected. A restarted run reproduces the same validity (Sec.~\ref{sec:recovery}).
+
+A run may stop with levels mid-step, for example when \texttt{Cactus::cctk\_itlast} is not a multiple of the coarse step. Their end-of-step results are then invalid in the final output, in \texttt{CCTK\_TERMINATE} and in a final checkpoint, and \CarpetX\space warns once:
+%
+\begin{lstlisting}[language=bash,numbers=none]
+WARNING[L1,P0] (CarpetX): Evolution ended at iteration 6 with level 0 mid-step; its end-of-step results (CCTK_POSTSTEP, CCTK_ANALYSIS) are invalid. 2 more iterations would finalize it (see "End of step under subcycling" in the CarpetX documentation).
+\end{lstlisting}
 
 \subsection{The rule}
 
@@ -1827,34 +1879,31 @@ A run recovered from a checkpoint (see the \texttt{checkpoint} tag in Sec.~\ref{
 
 {\raggedright\emph{Anything that a later step or another level reads must be either checkpointed or recomputed in \texttt{CCTK\_POST\_RECOVER\_VARIABLES}.}\par}
 
-Recovery traverses \texttt{CCTK\_POST\_RECOVER\_VARIABLES} once per clock group, from coarse to fine. Each traversal covers the group's levels and sees the \texttt{cctk\_iteration}, \texttt{cctk\_time} and \texttt{cctk\_timefac} with which these levels last ran their end of step (\texttt{CCTK\_POSTSTEP}, \texttt{CCTK\_ANALYSIS}) during evolution. No coarser level has changed since then, so a level-mode or local-mode routine recomputes exactly what it computed during evolution. Usually a thorn complies by scheduling these routines in a schedule group, and scheduling that group both in its existing bin (\texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS}) and in \texttt{CCTK\_POST\_RECOVER\_VARIABLES}, so that the two cannot drift apart. For example, \texttt{WaveToyX} computes diagnostics that are not checkpointed and that a finer level reads through a \texttt{SYNC}:
+Recovery traverses \texttt{CCTK\_POST\_RECOVER\_VARIABLES} once per clock group, from coarse to fine. Each traversal covers the group's levels and sees the \texttt{cctk\_iteration}, \texttt{cctk\_time} and \texttt{cctk\_timefac} of the last window that covered these levels during evolution, i.e.\ of the iteration in which their current state was produced. No coarser level has changed since then, so a level-mode or local-mode routine recomputes exactly what it computed during evolution. Usually a thorn complies by scheduling these routines in a schedule group, and scheduling that group both in its existing bin (\texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS}) and in \texttt{CCTK\_POST\_RECOVER\_VARIABLES}, so that the two cannot drift apart. For example, \texttt{TestSubcyclingMC2} computes an error that is not checkpointed:
 %
 \begin{lstlisting}[language=bash]
-  SCHEDULE GROUP WaveToyX_Diagnostics AT analysis
+  SCHEDULE GROUP TestSubcyclingMC2_Diagnostics AT analysis
   {
   } "Calculate scalar wave diagnostics"
 
-  SCHEDULE GROUP WaveToyX_Diagnostics AT post_recover_variables AFTER ODESolvers_PostStep
+  SCHEDULE GROUP TestSubcyclingMC2_Diagnostics AT post_recover_variables AFTER ODESolvers_PostStep
   {
   } "Calculate scalar wave diagnostics"
 
-  SCHEDULE WaveToyX_Error IN WaveToyX_Diagnostics
+  SCHEDULE TestSubcyclingMC2_Error IN TestSubcyclingMC2_Diagnostics
   {
     LANG: C
-    READS: state(interior)
-    WRITES: error(interior)
-    SYNC: error
+    READS: state(everywhere)
+    WRITES: error(everywhere)
   } "Calculate error in scalar wave state"
-
-  # WaveToyX_RHS and WaveToyX_Energy likewise
 \end{lstlisting}
 %
-A thorn with a single such routine uses a group as well, as \texttt{TestSubcyclingMC2} does for its error, so that the routine's clauses are written once. When other routines in a bin are ordered against the routine by name, the group carries that name instead: \texttt{BoxInBox} schedules \texttt{GROUP BoxInBox\_EstimateError AS EstimateError} in each bin, with \texttt{BoxInBox\_Setup} inside it, so that a thorn that moves the boxes can schedule its own group \texttt{BEFORE EstimateError} in each bin.
+A thorn with a single such routine uses a group as well, as \texttt{TestSubcyclingMC2} does here, so that the routine's clauses are written once. Under subcycling the error is an end-of-step result (Sec.~\ref{sec:end_of_step}). Only the finest clock group's levels had finished their step when the checkpoint was written; every coarser group is mid-step. So after each coarser group's traversal \CarpetX\space invalidates the end-of-step results on its levels, and a restarted run holds valid end-of-step results on exactly the levels on which the uninterrupted run holds them. The routines still run in every traversal, so that one group serves every bin. When other routines in a bin are ordered against the routine by name, the group carries that name instead: \texttt{BoxInBox} schedules \texttt{GROUP BoxInBox\_EstimateError AS EstimateError} in each bin, with \texttt{BoxInBox\_Setup} inside it, so that a thorn that moves the boxes can schedule its own group \texttt{BEFORE EstimateError} in each bin.
 %
 Three clauses make the rule precise:
 %
 \begin{itemize}
-\item \emph{Grid scalars that a finer clock group overwrites} during evolution are recomputed in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} from each group's context. For example, \texttt{BoxInBox::positions} is checkpointed, but a moving-box thorn sets it from \texttt{cctk\_time} in every end-of-step window, so the checkpoint holds the finest group's value, and each group's error estimate needs its own.
+\item \emph{Grid scalars that a finer clock group overwrites} during evolution are recomputed in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} from each group's context. For example, \texttt{BoxInBox::positions} is checkpointed, but a moving-box thorn sets it from \texttt{cctk\_time} in every end-of-step window, so the checkpoint holds the finest group's value. The finest group's traversal runs last, so it leaves the value that the next regrid reads.
 \item \emph{Results that read across levels}, such as interpolations and reductions, are checkpointed. They cannot be recomputed after a restart, because the finer levels have moved on. A cross-level read in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} works only when every level it touches shares a clock; at a mid-cycle checkpoint it aborts (see below).
 \item \emph{Past timelevels that another level reads} are checkpointed, with \texttt{openPMD}. A \texttt{SYNC} on a level that lags its parent interpolates in time between the parent's current and previous timelevels, and only checkpointed groups written with \texttt{openPMD} keep their previous timelevels across a restart. No routine can recompute a past timelevel, and a regrid that remakes a level does not keep the past timelevels of a non-evolved group that is not checkpointed either, so this clause holds in runs that are never recovered as well.
 \end{itemize}
@@ -1868,13 +1917,13 @@ Each of the two recovery bins has its own contract. A routine belongs in \texttt
   \begin{tabularx}{\textwidth}{lXX}
   Bin & Runs & What a routine sees \\ \hline\hline
   \texttt{CCTK\_RECOVER\_VARIABLES} & exactly once, before the level clocks are restored & every level; every level clock at 0; \texttt{cctk\_iteration} and \texttt{cctk\_time} from the checkpoint; \texttt{cctk\_timefac} = 1; \texttt{cctk\_delta\_time} not yet set \\ \hline
-  \texttt{CCTK\_POST\_RECOVER\_VARIABLES} & once per clock group, coarse to fine & the group's levels; the group's \texttt{cctk\_iteration}, \texttt{cctk\_time} and \texttt{cctk\_timefac}, as at its last end of step \\ \hline\hline
+  \texttt{CCTK\_POST\_RECOVER\_VARIABLES} & once per clock group, coarse to fine & the group's levels; the group's \texttt{cctk\_iteration}, \texttt{cctk\_time} and \texttt{cctk\_timefac}, as in the last window that covered them \\ \hline\hline
   \end{tabularx}
   \caption{The recovery bins. Use \texttt{CCTK\_RECOVER\_VARIABLES} for resets, imports and opening files, and \texttt{CCTK\_POST\_RECOVER\_VARIABLES} for recomputation.}
   \label{tab:recovery_bins}
 \end{table}
 
-Every routine in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} runs once per clock group, global-mode routines included, just as they run once per end-of-step window during evolution. The finest group runs last, so it is the last writer, as in evolution. A routine that accumulates (for example a sum over levels) must therefore reset its total in \texttt{CCTK\_RECOVER\_VARIABLES}, not in \texttt{CCTK\_POST\_RECOVER\_VARIABLES}.
+Every routine in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} runs once per clock group, global-mode routines included. The finest group runs last, so it is the last writer, as in evolution. A routine that accumulates (for example a sum over levels) must therefore reset its total in \texttt{CCTK\_RECOVER\_VARIABLES}, not in \texttt{CCTK\_POST\_RECOVER\_VARIABLES}.
 
 \subsection{The recovery sequence}
 
@@ -1883,8 +1932,8 @@ A recovered run does not traverse the initial-data bins (unless \texttt{Cactus::
 \begin{enumerate}
 \item Read the grid structure from the checkpoint and traverse \texttt{CCTK\_BASEGRID}. In relaxed recovery mode, also traverse \texttt{CCTK\_INITIAL}, \texttt{CCTK\_POSTINITIAL} and \texttt{CCTK\_POSTPOSTINITIAL}.
 \item Read the checkpointed data, and traverse \texttt{CCTK\_RECOVER\_VARIABLES} once.
-\item Restore each level's clock and the iteration of its last end of step, and compute \texttt{cctk\_delta\_time}.
-\item For each clock group, from coarse to fine: restrict the active levels to the group, set \texttt{cctk\_iteration} to the iteration of the group's last end of step, \texttt{cctk\_time} to \texttt{cctk\_delta\_time} times the group's clock and \texttt{cctk\_timefac} to $2^l$ for the group's finest level $l$, and traverse \texttt{CCTK\_POST\_RECOVER\_VARIABLES}.
+\item Restore each level's clock and the iteration of the last window that covered it, and compute \texttt{cctk\_delta\_time}.
+\item For each clock group, from coarse to fine: restrict the active levels to the group, set \texttt{cctk\_iteration} to the iteration of the group's last window, \texttt{cctk\_time} to \texttt{cctk\_delta\_time} times the group's clock and \texttt{cctk\_timefac} to $2^l$ for the group's finest level $l$, and traverse \texttt{CCTK\_POST\_RECOVER\_VARIABLES}. Under subcycling, if the group is not the finest, then invalidate the end-of-step results on its levels (Sec.~\ref{sec:end_of_step}).
 \item Traverse \texttt{CCTK\_CPINITIAL} once, and write the initial output if \texttt{CarpetX::out\_initial\_data} is set, over the finest group. Evolution then resumes at the next iteration.
 \end{enumerate}
 %
@@ -1892,7 +1941,7 @@ Without subcycling every level shares one clock, so step 4 runs once over all le
 
 A checkpoint of the initial data (\texttt{IO::checkpoint\_ID}) is written in \texttt{CCTK\_CPINITIAL} at iteration 0, where every level clock is 0. Its $N$ levels therefore form a single clock group, and step 4 runs once over all of them with \texttt{cctk\_iteration} = 0, \texttt{cctk\_time} = 0 and, under subcycling, \texttt{cctk\_timefac} = $2^{N-1}$. This is the context in which the fresh run traversed its end-of-step bins at iteration 0 (\texttt{CCTK\_POSTSTEP}, \texttt{CCTK\_CPINITIAL}, \texttt{CCTK\_ANALYSIS} and the initial output): those also cover all levels and see the finest level's \texttt{cctk\_timefac}, as the end-of-step bins do at every later iteration at which all levels are aligned.
 
-Under subcycling, \texttt{ODESolvers} refills the coarse-fine ghosts of the evolved (\texttt{rhs}-tagged) groups first in each traversal (\texttt{ODESolvers\_Solve\_Subcycling\_Recovery}, scheduled before \texttt{ODESolvers\_PostStep}), the way the group's last end of step filled them. Every level of the group other than level 0 is refilled by dense output from its restored Runge--Kutta source bands at the end of its last substep, as evolution filled them then. The exception is the finest group, which the driver restricted at its last end of step: its levels other than its coarsest are aligned with their parents, and the restriction refilled every evolved group's ghosts there, including those of a group with restriction disabled (\texttt{restrict="no"}), by spatial prolongation from the restricted parent, so recovery repeats that prolongation. These levels need no source bands, and a time-aligned checkpoint carries none. Checkpoints hold interiors only, so the \texttt{SYNC}s in \texttt{ODESolvers\_PostStep} and in thorns' recovery routines then fill the remaining ghosts.
+Under subcycling, \texttt{ODESolvers} refills the coarse-fine ghosts of the evolved (\texttt{rhs}-tagged) groups first in each traversal (\texttt{ODESolvers\_Solve\_Subcycling\_Recovery}, scheduled before \texttt{ODESolvers\_PostStep}), the way the group's last step filled them. Every level of the group other than level 0 is refilled by dense output from its restored Runge--Kutta source bands at the end of its last substep, as evolution filled them then. The exception is the finest group, which the driver restricted after its last step: its levels other than its coarsest are aligned with their parents, and the restriction refilled every evolved group's ghosts there, including those of a group with restriction disabled (\texttt{restrict="no"}), by spatial prolongation from the restricted parent, so recovery repeats that prolongation. These levels need no source bands, and a time-aligned checkpoint carries none. Checkpoints hold interiors only, so the \texttt{SYNC}s in \texttt{ODESolvers\_PostStep} and in thorns' recovery routines then fill the remaining ghosts.
 
 For example, with four levels and a checkpoint written at iteration 3 (the levels are at 1, $1/2$, $1/2$ and $3/8$ coarse steps), the three traversals see the following, with $\Delta t$ = \texttt{cctk\_delta\_time}:
 %
@@ -1904,7 +1953,7 @@ For example, with four levels and a checkpoint written at iteration 3 (the level
   2 & 1, 2 & $\Delta t/2$ & 3 & 4 \\
   3 & 3 & $3\Delta t/8$ & 3 & 8 \\ \hline\hline
   \end{tabular}
-  \caption{The context of each recovery traversal for four levels recovered at iteration 3. Each row matches the window in which these levels last ran their end of step during evolution.}
+  \caption{The context of each recovery traversal for four levels recovered at iteration 3. Each row matches the last window that covered these levels during evolution. Groups 1 and 2 are mid-step, so their end-of-step results are invalidated after their traversals.}
   \label{tab:recovery_example}
 \end{table}
 
@@ -1935,16 +1984,16 @@ Recovery never runs \texttt{CarpetX\_PreRestrict}, the reflux, the restriction, 
 
 \CarpetX\space does not audit thorn schedules. Instead, the two reads that can break the rule abort where they happen.
 
-\emph{A level reads a parent value that nobody recomputed.} Under subcycling, before a \texttt{SYNC} prolongates a group from a parent level into a finer level's ghost zones, it checks that the parent's interior is valid in every timelevel the prolongation reads, including the previous timelevel that interpolation in time reads when the finer level lags its parent. (The \texttt{SYNC} of an evolved group whose coarse-fine ghosts \texttt{ODESolvers} fills does not prolongate, and is not checked.) This check runs in every subcycling run, recovered or not, whatever \texttt{CarpetX::poison\_undefined\_values} is set to, and it cannot be turned off. The error names the variable, the parent level and the timelevel. When the group is not checkpointed, it also states the rule that was broken. For the current timelevel it does so only when the run was recovered and the parent level has not yet run its end of step since recovery:
+\emph{A level reads a parent value that nobody recomputed.} Under subcycling, before a \texttt{SYNC} prolongates a group from a parent level into a finer level's ghost zones, it checks that the parent's interior is valid in every timelevel the prolongation reads, including the previous timelevel that interpolation in time reads when the finer level lags its parent. (The \texttt{SYNC} of an evolved group whose coarse-fine ghosts \texttt{ODESolvers} fills does not prolongate, and is not checked.) This check runs in every subcycling run, recovered or not, whatever \texttt{CarpetX::poison\_undefined\_values} is set to, and it cannot be turned off. The error names the variable, the parent level and the timelevel. When the group is not checkpointed, it also states the rule that was broken. For the current timelevel it does so only when the run was recovered and the parent level has not yet stepped since recovery. For example, for a hypothetical group \texttt{MYTHORN::AUX} that a thorn computes during evolution, does not checkpoint, does not recompute after a restart, and \texttt{SYNC}s on a finer level:
 %
 \begin{lstlisting}[language=bash,numbers=none]
-SyncGroupsByDirISubcycling on coarse level before prolongation: Grid function "TESTSUBCYCLINGMC2::u_err" is invalid on patch 0, refinement level 0, time level 0; required:
+SyncGroupsByDirISubcycling on coarse level before prolongation: Grid function "MYTHORN::aux" is invalid on patch 0, refinement level 0, time level 0; required:
   The interior is valid.
   ...
 , found:
   The interior is invalid because: Recovering.
   ...
-  This run was recovered and group TESTSUBCYCLINGMC2::ERROR is not checkpointed.
+  This run was recovered and group MYTHORN::AUX is not checkpointed.
   Groups read by another level must be checkpointed or recomputed in CCTK_POST_RECOVER_VARIABLES.
   See "Recovery" in the CarpetX documentation.
 \end{lstlisting}
@@ -1955,9 +2004,9 @@ When the invalid timelevel is a previous one, the message instead says that a re
 
 Grid scalars that a finer clock group overwrites cannot be checked. A thorn that sets a grid scalar in \texttt{CCTK\_POSTSTEP} and reads it in a later step must schedule the routine in \texttt{CCTK\_POST\_RECOVER\_VARIABLES} as well.
 
-\subsection{Checkpoints written before per-level end-of-step iterations}
+\subsection{Checkpoints written before per-level window iterations}
 
-A checkpoint records, for every level, its clock and the iteration of its last end of step: the \texttt{openPMD} iteration attributes \texttt{iteration\_num}, \texttt{iteration\_den} and \texttt{last\_tail\_iteration}, with a per-level suffix, or the \texttt{Silo} metafile variables of the same names in the \texttt{CarpetX} directory, one per patch and level. It holds no other extra data: no ghost zones, and no groups beyond those tagged \texttt{checkpoint}. Checkpoints written before the end-of-step iteration was recorded get it from the level clocks: the finest clock group gets the checkpoint iteration, and every coarser group the iteration in which its finest level last stepped. When every level shares one clock (an aligned checkpoint, or no subcycling), this is exact. With two or more clocks it assumes that no regrid has changed the number of levels since the coarsest clock group last stepped, and recovery prints a warning.
+A checkpoint records, for every level, its clock and the iteration of the last window that covered it: the \texttt{openPMD} iteration attributes \texttt{iteration\_num}, \texttt{iteration\_den} and \texttt{last\_tail\_iteration} (a name kept from when this was the iteration of the level's last end of step, which had the same values), with a per-level suffix, or the \texttt{Silo} metafile variables of the same names in the \texttt{CarpetX} directory, one per patch and level. It holds no other extra data: no ghost zones, and no groups beyond those tagged \texttt{checkpoint}. Checkpoints written before this iteration was recorded get it from the level clocks: the finest clock group gets the checkpoint iteration, and every coarser group the iteration in which its finest level last stepped. When every level shares one clock (an aligned checkpoint, or no subcycling), this is exact. With two or more clocks it assumes that no regrid has changed the number of levels since the coarsest clock group last stepped, and recovery prints a warning.
 
 \subsection{Silo checkpoints}
 

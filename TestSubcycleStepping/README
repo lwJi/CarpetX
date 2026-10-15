@@ -45,47 +45,81 @@ pass; a difference means the hook and the restriction have drifted apart.
 "tail_context" (checkpoint="no") holds on each level the context of the last
 CCTK_POSTSTEP traversal whose window covered the level: tail_iteration,
 tail_time and tail_timefac are that traversal's cctk_iteration, cctk_time and
-cctk_timefac. It is stamped everywhere, so it needs no SYNC, and after a
-restart it is also stamped in CCTK_POST_RECOVER_VARIABLES. Under subcycling a
-POSTSTEP window is the level just evolved, widened down to every coarser
-level that shares its clock, and it sees the evolved level's context:
-cctk_time = cctk_delta_time * that level's clock and cctk_timefac = 2^(that
-level). With 3 levels (test/subcycle_3levels.par, where cctk_delta_time = 1)
-the stamps (iteration, time, timefac) after each pass of the first coarse
-step are:
+cctk_timefac, and tail_postrestrict is the value of "postrestrict" it saw (a
+canary: it shows that the window came after that iteration's
+CCTK_POSTRESTRICT). It is stamped everywhere, so it needs no SYNC, and after
+a restart it is also stamped in CCTK_POST_RECOVER_VARIABLES.
+"analysis_context" is its CCTK_ANALYSIS twin (analysis_iteration,
+analysis_postrestrict).
 
-  pass 1: windows [0,1) [1,2) [2,3)   L0 (1,1,1)  L1 (1,1/2,2)  L2 (1,1/4,4)
-  pass 2: window  [1,3)               L0 (1,1,1)  L1 (2,1/2,4)  L2 (2,1/2,4)
-  pass 3: windows [0,2) [2,3)         L0 (3,1,2)  L1 (3,1,2)    L2 (3,3/4,4)
-  pass 4: window  [0,3)               L0 (4,1,4)  L1 (4,1,4)    L2 (4,1,4)
+Under subcycling the driver runs CCTK_POSTSTEP and CCTK_ANALYSIS once per
+iteration, after the batch that steps the finest level and its
+CCTK_POSTRESTRICT, over that batch's window: the finest level, widened down
+to every coarser level that now shares its clock. These are the levels the
+iteration finalized. The window sees the finest level's context: cctk_time =
+cctk_delta_time * the shared clock and cctk_timefac = 2^(finest level). Both
+stamps are end-of-step results (written in CCTK_POSTSTEP or CCTK_ANALYSIS,
+never in the evolution part of a step), so on a level that is mid-step (its
+clock differs from the finest level's) they are invalid, and poisoned in the
+output, from its CCTK_EVOL until its next end of step. With 3 levels
+(test/subcycle_3levels.par, where cctk_delta_time = 1), writing "-" for
+invalid and pr(it,L) = 100 + 10*it + L for the postrestrict canary, the
+first coarse step gives:
 
-The second coarse step repeats this with iterations 5 to 8 and times larger
-by 1. Initialization runs CCTK_POSTSTEP once over every level, with the
-finest level's context as at every aligned pass, so it stamps every level
-with (0,0,4). A level keeps its stamp until a later window covers it, e.g.
-level 0 keeps iteration 1 through pass 2.
+  pass  window  tail_iteration     tail_time         tail_postrestrict
+                L0   L1   L2       L0   L1   L2      L0       L1       L2
+  1     [2,3)   -    -    1        -    -    1/4     -        -        pr(0,2)
+  2     [1,3)   -    2    2        -    1/2  1/2     -        pr(2,1)  pr(2,2)
+  3     [2,3)   -    -    3        -    -    3/4     -        -        pr(2,2)
+  4     [0,3)   4    4    4        1    1    1       pr(4,0)  pr(4,1)  pr(4,2)
+
+tail_timefac is 4 wherever the stamp is valid, and analysis_context matches
+tail_context. Each level's valid tail_iteration values are the iterations
+that finalize it: level 0 once, level 1 twice and level 2 four times per
+coarse step, each after the restriction that completes the level's step. The
+second coarse step repeats this with iterations 5 to 8 and times larger by 1.
+Initialization runs CCTK_POSTSTEP once over every level, with the finest
+level's context as at every aligned pass, so it stamps every level with
+(0,0,4) and pr(0,L).
+
+"step_counts" (grid scalars, checkpoint="no") count every traversal of
+CCTK_POSTSTEP (step_count_poststep) and CCTK_ANALYSIS (step_count_analysis),
+the one after the initial data included. Each runs once per iteration, so
+after iteration n of a fresh run both counts are n + 1. They are not
+checkpointed, so that the frozen checkpoints of the recover tests, which
+predate them, still recover; CCTK_RECOVER_VARIABLES zeroes them, so after a
+restart they count the traversals since the restart.
 
 After a restart, recovery traverses CCTK_POST_RECOVER_VARIABLES once per
 clock group (a run of adjacent levels that share a clock), coarse to fine.
-Each traversal covers the group's levels and sees the context of the window
-in which they last ran CCTK_POSTSTEP, so after recovery every level holds
-the stamp the uninterrupted run holds after the checkpointed pass.
+Each traversal covers the group's levels and sees the context of the last
+window that covered them. Only the finest group was finalized when the
+checkpoint was written, so after the traversal of every other group the
+driver invalidates the end-of-step results on its levels. After recovery
+every level therefore holds what the uninterrupted run holds after the
+checkpointed pass: the finest group's stamps, and invalid stamps elsewhere.
 Restarting the 3-level run from each pass of the second coarse step gives
-these traversals, each with its window and its (iteration, time, timefac):
+these traversals, each with its window and its (iteration, time, timefac);
+"(invalidated)" marks the groups whose stamps do not survive:
 
-  from iteration 5 (clocks 2, 3/2, 5/4): [0,1) (5,2,1)  [1,2) (5,3/2,2)  [2,3) (5,5/4,4)
-  from iteration 6 (clocks 2, 3/2, 3/2): [0,1) (5,2,1)  [1,3) (6,3/2,4)
-  from iteration 7 (clocks 2, 2, 7/4):   [0,2) (7,2,2)  [2,3) (7,7/4,4)
+  from iteration 5 (clocks 2, 3/2, 5/4): [0,1) (5,2,1) (invalidated)
+                                         [1,2) (5,3/2,2) (invalidated)
+                                         [2,3) (5,5/4,4)
+  from iteration 6 (clocks 2, 3/2, 3/2): [0,1) (5,2,1) (invalidated)
+                                         [1,3) (6,3/2,4)
+  from iteration 7 (clocks 2, 2, 7/4):   [0,2) (7,2,2) (invalidated)
+                                         [2,3) (7,7/4,4)
   from iteration 8 (clocks 2, 2, 2):     [0,3) (8,2,4)
 
 The recover tests in TestSubcyclingMC2/test,
 recover-subcycling-openpmd-3clocks.par and -4clocks.par, output such stamps
 after restarts from iterations 5 and 9; their references equal the
-uninterrupted run's (checkpoint-subcycling-openpmd-3clocks and -4clocks).
-recover-subcycling-openpmd-addlevel.par does the same after a restart from
-iteration 6, right after a regrid added a fourth level (clocks 2, 3/2, 3/2,
-11/8): level 0 last stepped in iteration 5, before level 3 existed, so its
-traversal [0,1) sees iteration 5, where the clocks alone would give 4.
+uninterrupted run's (checkpoint-subcycling-openpmd-3clocks and -4clocks),
+invalid entries included. recover-subcycling-openpmd-addlevel.par does the
+same after a restart from iteration 6, right after a regrid added a fourth
+level (clocks 2, 3/2, 3/2, 11/8): level 0 last stepped in iteration 5,
+before level 3 existed, so its traversal [0,1) sees iteration 5, where the
+clocks alone would give 4 (the log shows it; its stamps are invalidated).
 recover-subcycling-silo-3clocks.par repeats the 3-clock restart from a Silo
 checkpoint, in relaxed recovery mode; its references equal those of
 recover-subcycling-openpmd-3clocks. recover-subcycling-openpmd-iteration0.par

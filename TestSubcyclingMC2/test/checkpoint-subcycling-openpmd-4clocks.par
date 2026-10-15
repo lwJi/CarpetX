@@ -2,14 +2,14 @@
 # the setup of checkpoint-subcycling-openpmd-3clocks.par. The checkpoint is
 # taken at iteration 9, where the four levels are on four different clocks
 # (2, 3/2, 5/4 and 9/8 coarse steps), so it carries the RK source bands of
-# levels 1, 2 and 3 and each level's last end-of-step iteration (9 on every
+# levels 1, 2 and 3 and each level's last window iteration (9 on every
 # level). The run continues to iteration 16, where the levels are aligned
 # again, as the uninterrupted baseline for
 # recover-subcycling-openpmd-4clocks.par.
 #
 # TestSubcycleStepping stamps tail_context, the context of the last
-# end-of-step window that covered each level. recovery_counts stays 0 on a
-# fresh start.
+# end-of-step window that covered each level; like error, it is invalid on
+# mid-step levels. recovery_counts stays 0 on a fresh start.
 #
 # Output is written every half coarse step (4 iterations), which keeps the
 # reference small and still shares iterations 12 (mid-cycle) and 16 (aligned)

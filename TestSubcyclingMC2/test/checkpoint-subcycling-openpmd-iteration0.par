@@ -1,12 +1,13 @@
 # Checkpoint half of a checkpoint/recover pair on the setup of
 # checkpoint-subcycling-openpmd-3clocks.par. The checkpoint is the initial
 # one (IO::checkpoint_ID), written at CCTK_CPINITIAL at iteration 0, where
-# every level's clock and last end-of-step iteration is 0. The run continues
+# every level's clock and last window iteration is 0. The run continues
 # to iteration 4, the end of the first coarse step, as the uninterrupted
 # baseline for recover-subcycling-openpmd-iteration0.par.
 #
 # TestSubcycleStepping stamps tail_context, the context of the last
-# end-of-step window that covered each level. At iteration 0 that is the
+# end-of-step window that covered each level; like error, it is invalid on
+# mid-step levels. At iteration 0 that is the
 # fresh-start CCTK_POSTSTEP over [0,3), which sees the finest level's context,
 # (0,0,4), as at every aligned iteration. recovery_counts stays 0 on a fresh
 # start.

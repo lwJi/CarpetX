@@ -524,7 +524,8 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
         // else: old checkpoint without per-level iteration — leave as nullopt
       }
 
-      // Read the per-level last end-of-step iteration if present
+      // Read the per-level last window iteration if present. The variable
+      // keeps its original name, so that old and new checkpoints read alike.
       {
         const std::string varname =
             dirname + "/" +
@@ -546,7 +547,7 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
         if (have_last_tail_iteration) {
           MPI_Bcast(&last_tail_iteration, 1, MPI_LONG_LONG, metafile_ioproc,
                     mpi_comm);
-          ghext->recovered_levels.at(patch).at(level).last_tail_iteration =
+          ghext->recovered_levels.at(patch).at(level).last_window_iteration =
               int(last_tail_iteration);
         }
         // else: checkpoint predates it — leave as nullopt
@@ -2559,14 +2560,15 @@ void OutputSilo(const cGH *restrict const cctkGH,
                            DB_LONG_LONG);
             assert(!ierr);
           }
-          // Write the per-level last end-of-step iteration
+          // Write the per-level last window iteration, under the variable's
+          // original name
           {
             const std::string varname =
                 dirname + "/" +
                 DB::legalize_name("last_tail_iteration.m" +
                                   std::to_string(patchdata.patch) + ".rl" +
                                   std::to_string(leveldata.level));
-            long long val = leveldata.last_tail_iteration;
+            long long val = leveldata.last_window_iteration;
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
                            DB_LONG_LONG);
