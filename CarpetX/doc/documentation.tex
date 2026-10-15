@@ -1100,6 +1100,19 @@ Prolongation refers to the interpolation of data on coarse grid into a finer gri
   \label{tab:other_prolongation_params}
 \end{table}
 
+\subsection{End-of-step results under subcycling}
+\label{sec:end_of_step_groups}
+
+Under subcycling (\texttt{CarpetX::use\_subcycling = yes}), the end of step (\texttt{CCTK\_POSTSTEP}, \texttt{CCTK\_ANALYSIS}) recomputes some groups from scratch after every step of a level, typically diagnostics and \texttt{regrid\_error}. Once a level steps, their values on it describe its previous time until its next end of step writes them again. \CarpetX\space calls these the \emph{end-of-step groups}. After \texttt{CCTK\_EVOL} of every level, it marks the part of their current timelevel that the end of step rewrites invalid on the levels that just stepped, and poisons it when \texttt{CarpetX::poison\_undefined\_values} is set, so that a routine that reads it in between stops the run with an error that names the group. That part is the regions named by the \texttt{WRITES} clauses in the two bins, and, for a group that a routine there synchronises (\texttt{SYNC}), the ghost zones and, where every face has a symmetry or a boundary condition, the outer boundary. The rest of the group keeps its values and validity: for example, \texttt{CarpetXRegrid} sets \texttt{regrid\_error} everywhere at \texttt{CCTK\_BASEGRID}, the error estimators rewrite only its interior, and nothing synchronises it, so its ghost zones stay valid.
+
+\CarpetX\space finds the end-of-step groups once at startup, from the \texttt{READS} and \texttt{WRITES} clauses of the routines scheduled in the two bins, taken in schedule order. A grid function group is an end-of-step group if these routines write the current timelevel of every one of its variables and none of them reads it before that, and if it is not checkpointed. A checkpointed group is state that recovery restores and that nothing recomputes (Sec.~\ref{sec:recovery}), and a group that the bins read before they write it carries a value from one end of step to the next. The log lists the set, for example
+%
+\begin{lstlisting}
+  INFO (CarpetX): End-of-step groups (invalidated when their level steps): CARPETXREGRID::REGRID_ERROR, TESTSUBCYCLINGMC2::ERROR
+\end{lstlisting}
+%
+The startup traversal calls no routine, and it runs before initial data or recovery set any grid scalar. It therefore counts a routine scheduled under a runtime \texttt{IF} only if the condition's grid scalar is nonzero at startup. With \texttt{CarpetX::poison\_undefined\_arrays = yes} (the default), the scalar then holds the poison value, which is nonzero, so the routine counts, and its groups are invalidated after every step even at steps where the condition is false; a routine that reads them then stops the run with an error. With \texttt{poison\_undefined\_arrays = no}, the scalar is uninitialised, and whether the routine counts can change from run to run. A routine with \texttt{TRIGGERS} likewise counts only if its output is due at startup. A group that only such an uncounted routine writes stays out of the set: it is never invalidated, and a level that reads it while its end of step is pending gets the values from its previous time without an error. Check the logged set when a routine in these bins has a runtime \texttt{IF} or \texttt{TRIGGERS}. A \texttt{WHILE} loop in either bin stops the run at startup, since the traversal could never leave it.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Boundary conditions and symmetries}
 \label{sec:bcs}

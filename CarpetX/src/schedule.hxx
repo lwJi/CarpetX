@@ -61,6 +61,26 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
 
 int CallFunction(void *function, cFunctionData *attribute, void *data);
 
+// Fill ghext->end_of_step_group from the READS and WRITES clauses of the
+// routines scheduled in CCTK_POSTSTEP and CCTK_ANALYSIS, in schedule order,
+// and log the set. Traverses the two bins without calling any routine, so a
+// routine under a runtime IF counts only if its condition holds at the call,
+// before initial data or recovery set the scalar: it holds the poison value
+// (nonzero) with poison_undefined_arrays, else uninitialised memory. One with
+// TRIGGERS counts only if its output is due. Aborts on a WHILE loop, which
+// the traversal could never leave. Call once, after the schedule is sorted
+// and the grid scalars have storage, before any level steps; only under
+// subcycling.
+void CollectEndOfStepGroups(cGH *cctkGH);
+
+// On the active levels, which have just stepped, invalidate the part of
+// timelevel 0 of each end-of-step group that the end of step rewrites (its
+// WRITES regions in the two bins, and what their SYNCs fill), and poison it
+// if poison_undefined_values is set: the values there describe the levels'
+// previous time until their next end of step rewrites them. A no-op if the
+// set is empty.
+void InvalidateEndOfStepResults(const cGH *cctkGH);
+
 int GroupStorageIncrease(const cGH *cctkGH, int n_groups, const int *groups,
                          const int *tls, int *status);
 int GroupStorageDecrease(const cGH *cctkGH, int n_groups, const int *groups,

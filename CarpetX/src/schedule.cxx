@@ -1470,6 +1470,11 @@ int Initialise(tFleshConfig *config) {
   // Needs rk_integrated_group from WRAGH; runs before the recover/new-grid
   // split, so it warns once on fresh starts and on recovery alike
   warn_inert_flux_tags();
+  // Needs the sorted schedule and the grid scalars' storage (a runtime IF
+  // reads its scalar); before the recover/new-grid split, so that fresh
+  // starts and recovery find the same set
+  if (ghext->use_subcycling)
+    CollectEndOfStepGroups(cctkGH);
 
   active_levels = std::optional<active_levels_t>();
 
@@ -1904,6 +1909,160 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
   }
 }
 
+namespace {
+// What the end of step rewrites of timelevel 0 of a group that the driver
+// treats as an end-of-step group (ghext->end_of_step_group)
+struct end_of_step_rewrite_t {
+  // Union of the WRITES regions in the two bins [variable]
+  std::vector<valid_t> writes;
+  // A routine in the bins SYNCs the group. The subcycling SYNC then marks the
+  // ghosts valid, and the outer boundary where every face has a symmetry or
+  // a boundary condition (SyncGroupsByDirISubcycling).
+  bool synced = false;
+};
+// Filled by CollectEndOfStepGroups; empty for every other group [group]
+std::vector<end_of_step_rewrite_t> end_of_step_rewrites;
+
+// What CollectEndOfStepGroups has recorded so far. The flesh hands the
+// recorder only the GH, so the state lives here while the collection runs.
+struct end_of_step_record_t {
+  std::vector<end_of_step_rewrite_t> rewrites; // [group]
+  // A routine in the bins reads timelevel 0 of the group before the bins
+  // write it, so it carries a value from one end of step to the next [group]
+  std::vector<bool> carried;
+  // The bin being traversed, and the routines recorded in it so far
+  const char *bin = nullptr;
+  std::unordered_set<const cFunctionData *> recorded;
+};
+end_of_step_record_t *end_of_step_record = nullptr;
+
+// CCTK_ScheduleTraverse callback of CollectEndOfStepGroups: record the
+// routine's clauses instead of calling it
+int RecordEndOfStepClauses(void *const function, cFunctionData *const attribute,
+                           void *const data) {
+  assert(end_of_step_record);
+  end_of_step_record_t &record = *end_of_step_record;
+  // The collection calls no routine, so nothing changes a WHILE condition: a
+  // routine traversed twice in one bin sits in a loop that would never end
+  if (!record.recorded.insert(attribute).second)
+    CCTK_VERROR(
+        "Collecting the end-of-step groups: %s::%s is traversed twice in %s. "
+        "Under subcycling CarpetX finds the groups that the end of step "
+        "recomputes by traversing CCTK_POSTSTEP and CCTK_ANALYSIS once at "
+        "startup without calling any routine, so these bins cannot hold a "
+        "WHILE loop, which would never end, nor a schedule group scheduled "
+        "twice",
+        attribute->thorn, attribute->routine, record.bin);
+  // Reads first: a routine that reads and writes a group carries it
+  for (const clause_t &rd : decode_clauses(attribute, rdwr_t::read))
+    if (rd.tl == 0 && !record.rewrites.at(rd.gi).writes.at(rd.vi).valid_any())
+      record.carried.at(rd.gi) = true;
+  for (const clause_t &wr : decode_clauses(attribute, rdwr_t::write))
+    if (wr.tl == 0)
+      record.rewrites.at(wr.gi).writes.at(wr.vi) |= wr.valid;
+  // The SYNC never fills regrid_error (sync_filter_groups)
+  static const int gi_regrid_error =
+      CCTK_GroupIndex("CarpetXRegrid::regrid_error");
+  for (int n = 0; n < attribute->n_SyncGroups; ++n)
+    if (attribute->SyncGroups[n] != gi_regrid_error)
+      record.rewrites.at(attribute->SyncGroups[n]).synced = true;
+  // Report the routine as synchronised, so that the flesh does not run its
+  // SYNC clauses on the way out
+  constexpr int didsync = 1;
+  return didsync;
+}
+} // namespace
+
+// See schedule.hxx. Two kinds of groups that the end of step writes stay out
+// of the set. A checkpointed group is state for recovery, which restores it
+// and recomputes nothing; this also covers evolved state that an end-of-step
+// routine overwrites without reading it. A group read in the bins before
+// they write it carries a value from one end of step to the next, so the
+// next end of step would find it invalid.
+void CollectEndOfStepGroups(cGH *restrict const cctkGH) {
+  static Timer timer("CollectEndOfStepGroups");
+  Interval interval(timer);
+
+  assert(ghext->use_subcycling);
+  const int num_groups = CCTK_NumGroups();
+  end_of_step_record_t record;
+  record.rewrites.resize(num_groups);
+  for (int gi = 0; gi < num_groups; ++gi)
+    record.rewrites.at(gi).writes.resize(CCTK_NumVarsInGroupI(gi));
+  record.carried.resize(num_groups, false);
+
+  assert(!end_of_step_record);
+  end_of_step_record = &record;
+  // In the order of a step
+  for (const char *const bin : {"CCTK_POSTSTEP", "CCTK_ANALYSIS"}) {
+    record.bin = bin;
+    record.recorded.clear();
+    const int ierr = CCTK_ScheduleTraverse(bin, cctkGH, RecordEndOfStepClauses);
+    assert(ierr == 0 || ierr == 2); // 2: nothing is scheduled in the bin
+  }
+  end_of_step_record = nullptr;
+
+  ghext->end_of_step_group.assign(num_groups, false);
+  end_of_step_rewrites.assign(num_groups, end_of_step_rewrite_t());
+  std::string names;
+  for (int gi = 0; gi < num_groups; ++gi) {
+    if (CCTK_GroupTypeI(gi) != CCTK_GF || ghext->active_timelevels.at(gi) == 0)
+      continue;
+    const std::vector<valid_t> &writes = record.rewrites.at(gi).writes;
+    if (writes.empty() ||
+        !std::all_of(writes.begin(), writes.end(),
+                     [](const valid_t &w) { return w.valid_any(); }) ||
+        record.carried.at(gi) || get_group_checkpoint_flag(gi))
+      continue;
+    ghext->end_of_step_group.at(gi) = true;
+    end_of_step_rewrites.at(gi) = record.rewrites.at(gi);
+    if (!names.empty())
+      names += ", ";
+    names += CCTK_FullGroupName(gi);
+  }
+  CCTK_VINFO("End-of-step groups (invalidated when their level steps): %s",
+             names.empty() ? "none" : names.c_str());
+}
+
+// See schedule.hxx. Invalidates only what the end of step rewrites: the rest
+// of a group, for example the ghosts of regrid_error, which CarpetXRegrid
+// sets at BASEGRID and nothing syncs, does not change when the level steps.
+// Otherwise the shape of CycleTimelevels' invalidation of an evolved group's
+// current timelevel.
+void InvalidateEndOfStepResults(const cGH *restrict const cctkGH) {
+  static Timer timer("InvalidateEndOfStepResults");
+  Interval interval(timer);
+
+  assert(active_levels);
+  const int num_groups = ghext->end_of_step_group.size();
+  for (int gi = 0; gi < num_groups; ++gi) {
+    if (!ghext->end_of_step_group.at(gi))
+      continue;
+    const end_of_step_rewrite_t &rewrite = end_of_step_rewrites.at(gi);
+    const int numvars = rewrite.writes.size();
+    active_levels->loop_serially([&](auto &restrict leveldata) {
+      auto &restrict groupdata = *leveldata.groupdata.at(gi);
+      assert(groupdata.numvars == numvars);
+      const valid_t synced =
+          !rewrite.synced ? valid_t()
+          : groupdata.all_faces_have_symmetries_or_boundaries()
+              ? make_valid_ghosts() | make_valid_outer()
+              : make_valid_ghosts();
+      for (int vi = 0; vi < numvars; ++vi)
+        groupdata.valid.at(0).at(vi).set_invalid(
+            rewrite.writes.at(vi) | synced,
+            [iteration = cctkGH->cctk_iteration] {
+              std::ostringstream buf;
+              buf << "Level stepped at iteration " << iteration
+                  << "; its end of step (POSTSTEP, ANALYSIS) is pending";
+              return buf.str();
+            });
+    });
+    for (int vi = 0; vi < numvars; ++vi)
+      poison_invalid_gf(*active_levels, gi, vi, 0);
+  }
+}
+
 // Schedule evolution
 int Evolve(tFleshConfig *config) {
   DECLARE_CCTK_PARAMETERS;
@@ -2127,6 +2286,11 @@ int Evolve(tFleshConfig *config) {
 
       CCTK_Traverse(cctkGH, "CCTK_PRESTEP");
       CCTK_Traverse(cctkGH, "CCTK_EVOL");
+      // The batch's end-of-step results now describe its previous time.
+      // After CCTK_EVOL, so that CycleTimelevels' check and the step's own
+      // reads still see them valid.
+      if (ghext->use_subcycling)
+        InvalidateEndOfStepResults(cctkGH);
 
       // reset active_levels to include all levels that have caught up to the
       // current timestep

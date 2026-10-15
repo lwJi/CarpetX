@@ -601,6 +601,17 @@ struct GHExt {
   // and when recovery rebuilds the bands. Empty means none.
   std::vector<bool> rk_integrated_group; // [group index]
 
+  // Grid-function groups that the end of step (CCTK_POSTSTEP, CCTK_ANALYSIS)
+  // recomputes from scratch: its routines write the current timelevel of
+  // every variable, none reads it there before that, and the group is not
+  // checkpointed. When a level steps, what the end of step wrote describes
+  // the level's previous time until its next end of step rewrites it, so
+  // InvalidateEndOfStepResults (schedule.hxx) invalidates that part after
+  // CCTK_EVOL. Collected once at startup under subcycling by
+  // CollectEndOfStepGroups (schedule.hxx). Empty means none, as without
+  // subcycling.
+  std::vector<bool> end_of_step_group; // [group index]
+
   // Per-level metadata read from a checkpoint, consumed when recovery restores
   // the level clocks in schedule.cxx. Either value is absent when the
   // checkpoint predates it.
