@@ -1471,6 +1471,10 @@ int Initialise(tFleshConfig *config) {
   // Needs rk_integrated_group from WRAGH; runs before the recover/new-grid
   // split, so it warns once on fresh starts and on recovery alike
   warn_inert_flux_tags();
+  // Same reasons: the classification counts the integrated groups as written
+  // in the evolution part, and it must be fixed before initial data or
+  // recovery so that fresh and restarted runs share it (end_of_step.hxx)
+  ClassifyEndOfStepResults();
 
   active_levels = std::optional<active_levels_t>();
 
@@ -2127,8 +2131,10 @@ int Evolve(tFleshConfig *config) {
         cctkGH->cctk_time += cctkGH->cctk_delta_time;
       SetStepTime(cctkGH, min_level, level_iteration);
 
-      CCTK_Traverse(cctkGH, "CCTK_PRESTEP");
-      CCTK_Traverse(cctkGH, "CCTK_EVOL");
+      // Classified, so that CallFunction checks every routine against the
+      // end-of-step classification walk (end_of_step.hxx)
+      TraverseClassified(cctkGH, "CCTK_PRESTEP", traversal_phase_t::evolution);
+      TraverseClassified(cctkGH, "CCTK_EVOL", traversal_phase_t::evolution);
 
       // reset active_levels to include all levels that have caught up to the
       // current timestep
@@ -2148,7 +2154,8 @@ int Evolve(tFleshConfig *config) {
           // window before the reflux and the restriction below, so that it
           // sees the state and its dependents as the last RK stage's
           // ODESolvers_PostStep left them, consistent everywhere
-          CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
+          TraverseClassified(cctkGH, "CarpetX_PreRestrict",
+                             traversal_phase_t::evolution);
           // Flux-register correction (reflux) of every time-aligned level
           // pair in the widened window, finest pair first, so that each pair
           // is corrected exactly once per coarse step and before the fine
@@ -2173,7 +2180,8 @@ int Evolve(tFleshConfig *config) {
             Restrict(cctkGH, min_level, max_level, groups);
           // Prolongation
           ProlongateAfterRestriction(cctkGH);
-          CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
+          TraverseClassified(cctkGH, "CCTK_POSTRESTRICT",
+                             traversal_phase_t::evolution);
         }
       }
 
@@ -2421,6 +2429,11 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     if (needs_check)
       check_storage_clauses(attribute);
   }
+
+  // Under subcycling every routine of a classified traversal must be one the
+  // end-of-step classification walk saw (end_of_step.hxx)
+  if (ghext->use_subcycling && ghext->phase != traversal_phase_t::other)
+    check_walked(attribute);
 
   // Under subcycling nothing in the end-of-step bins may SYNC
   // (end_of_step.hxx). The flesh would run a SYNC clause after the routine

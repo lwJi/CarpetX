@@ -29,6 +29,7 @@
 #include <ostream>
 #include <string>
 #include <type_traits>
+#include <unordered_set>
 #include <vector>
 
 namespace CarpetX {
@@ -588,6 +589,14 @@ struct GHExt {
   // subcycling; (other, nullptr) everywhere else.
   traversal_phase_t phase = traversal_phase_t::other;
   const char *bin = nullptr;
+
+  // The end-of-step results (end_of_step.hxx), derived once from the schedule
+  // tree by ClassifyEndOfStepResults under subcycling; empty otherwise, which
+  // means "none".
+  std::vector<bool> end_of_step_result; // [group index]
+  // Every routine that walk saw, as the cFunctionData pointer the flesh later
+  // hands CallFunction; check_walked looks calls up here.
+  std::unordered_set<const cFunctionData *> walked_functions;
 
   // CarpetX::do_reflux, cached in InitGH next to use_subcycling. Read from
   // here rather than through DECLARE_CCTK_PARAMETERS in the GroupData
