@@ -2,14 +2,15 @@
 # checkpoint-subcycling-openpmd-4clocks.par): recovers the frozen checkpoint
 # written at iteration 9, where the four levels are on four different
 # clocks, and continues to iteration 16. The checkpoint records each level's
-# last end-of-step iteration, so recovery traverses
-# CCTK_POST_RECOVER_VARIABLES once per clock group, each time with the
-# context in which that group last ran its end of step.
+# last step iteration, so recovery traverses CCTK_POST_RECOVER_VARIABLES
+# once per clock group, each time with the context of the step in which that
+# group last stepped, and then invalidates the end-of-step results of every
+# group but the finest, whose end of step is pending.
 #
 # For iterations 10 to 16, state must equal the uninterrupted run's bit for
-# bit, and error and tail_context must match it too; level 0 holds the
-# context of its recovery traversal (iteration 9) until its next end of step
-# at iteration 13. recovery_counts records what recovery ran: four
+# bit, and error and tail_context must match it too; level 0 runs its end of
+# step, and is written, only at iteration 16. recovery_counts records what
+# recovery ran: four
 # POST_RECOVER_VARIABLES traversals, one per clock group, and no POSTSTEP,
 # ANALYSIS, CarpetX_PreRestrict or POSTRESTRICT.
 #

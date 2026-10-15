@@ -2,9 +2,9 @@
 # pair (see checkpoint-subcycling-openpmd-3clocks.par) with Silo checkpoints.
 # The checkpoint is taken at iteration 5, where the three levels are on three
 # different clocks (2, 3/2 and 5/4 coarse steps), so it carries the RK source
-# bands of levels 1 and 2 and each level's last end-of-step iteration (5, 5
-# and 5). The run continues to iteration 8, where the levels are aligned
-# again, as the uninterrupted baseline for
+# bands of levels 1 and 2 and the iteration in which each level last stepped
+# (5, 5 and 5). The run continues to iteration 8, where the levels are
+# aligned again, as the uninterrupted baseline for
 # recover-subcycling-silo-3clocks.par.
 #
 # TestSubcycleStepping stamps tail_context, the context of the last

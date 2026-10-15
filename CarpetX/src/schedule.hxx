@@ -77,8 +77,10 @@ void CollectEndOfStepGroups(cGH *cctkGH);
 // timelevel 0 of each end-of-step group that the end of step rewrites (its
 // WRITES regions in the two bins, and what their SYNCs fill), and poison it
 // if poison_undefined_values is set: the values there describe the levels'
-// previous time until their next end of step rewrites them. A no-op if the
-// set is empty.
+// previous time until their next end of step rewrites them, in the finest
+// batch's window. Evolve calls it after CCTK_EVOL of every batch, recovery
+// after CCTK_POST_RECOVER_VARIABLES of every clock group but the finest. A
+// no-op if the set is empty.
 void InvalidateEndOfStepResults(const cGH *cctkGH);
 
 int GroupStorageIncrease(const cGH *cctkGH, int n_groups, const int *groups,

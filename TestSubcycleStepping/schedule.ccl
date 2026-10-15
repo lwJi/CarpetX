@@ -1,6 +1,7 @@
 # Schedule definitions for thorn TestSubcycleStepping
 
 STORAGE: iteration postrestrict prerestrict tail_context recovery_counts
+STORAGE: tail_count step_counts
 
 schedule TestSubcycleStepping_Init AT INITIAL
 {
@@ -47,7 +48,9 @@ schedule TestSubcycleStepping_Sync AT post_recover_variables
 
 # tail_context: each level records the context of the last end-of-step window
 # (CCTK_POSTSTEP) that covered it, and after a restart the context of the
-# CCTK_POST_RECOVER_VARIABLES traversal that covered it
+# CCTK_POST_RECOVER_VARIABLES traversal that covered it. It is an end-of-step
+# group: under subcycling the driver invalidates it on a level when the level
+# steps, until the level's end of step stamps it again.
 
 schedule TestSubcycleStepping_StampTail AT poststep
 {
@@ -60,6 +63,103 @@ schedule TestSubcycleStepping_StampTail AT post_recover_variables
   LANG: C
   WRITES: tail_context(everywhere)
 } "stamp the levels of a recovery traversal with its context"
+
+
+
+# tail_count: count the end-of-step windows (CCTK_POSTSTEP) that covered each
+# level. CCTK_INITIAL, a recovery (once per clock group) and a regrid (on the
+# levels it makes or remakes, which it does not prolongate tail_count to)
+# restart the count.
+
+schedule TestSubcycleStepping_ResetTailCount AT initial
+{
+  LANG: C
+  WRITES: tail_count(everywhere)
+} "zero the end-of-step count"
+
+schedule TestSubcycleStepping_ResetTailCount AT post_recover_variables
+{
+  LANG: C
+  WRITES: tail_count(everywhere)
+} "zero the end-of-step count"
+
+schedule TestSubcycleStepping_ResetTailCount AT postregrid
+{
+  LANG: C
+  WRITES: tail_count(everywhere)
+} "zero the end-of-step count"
+
+schedule TestSubcycleStepping_CountTail AT poststep
+{
+  LANG: C
+  READS: tail_count(everywhere)
+  WRITES: tail_count(everywhere)
+} "count the end-of-step windows that cover each level"
+
+
+
+# step_counts: count the calls of a global-mode routine in CCTK_POSTSTEP and
+# in CCTK_ANALYSIS during the current iteration. The first call in an
+# iteration zeroes both counts. One routine per bin, since a routine cannot
+# tell which bin calls it.
+
+schedule TestSubcycleStepping_ResetStepCounts AT initial
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: step_counts
+} "zero the end-of-step call counts"
+
+schedule TestSubcycleStepping_ResetStepCounts AT post_recover_variables
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: step_counts
+} "zero the end-of-step call counts"
+
+schedule TestSubcycleStepping_CountPostStepCalls AT poststep
+{
+  LANG: C
+  OPTIONS: global
+  READS: step_counts
+  WRITES: step_counts
+} "count the global-mode calls of CCTK_POSTSTEP in this iteration"
+
+schedule TestSubcycleStepping_CountAnalysisCalls AT analysis
+{
+  LANG: C
+  OPTIONS: global
+  READS: step_counts
+  WRITES: step_counts
+} "count the global-mode calls of CCTK_ANALYSIS in this iteration"
+
+
+
+# pending_probe: with read_pending_probe = yes, write and SYNC an end-of-step
+# result in CCTK_ANALYSIS, then read it everywhere. At iteration 1 of a run
+# with several levels, only the finest level runs its end of step, and its
+# parent's is pending, so the SYNC leaves its ghosts invalid and the read
+# stops the run (par/read-pending.par). The testsuite cannot expect an
+# abort, so no test sets the parameter.
+
+if (read_pending_probe) {
+
+  STORAGE: pending_probe
+
+  schedule TestSubcycleStepping_WriteProbe AT analysis
+  {
+    LANG: C
+    WRITES: pending_probe(interior)
+    SYNC: pending_probe
+  } "write an end-of-step result that a lagging level SYNCs"
+
+  schedule TestSubcycleStepping_ReadProbe AT analysis AFTER TestSubcycleStepping_WriteProbe
+  {
+    LANG: C
+    READS: pending_probe(everywhere)
+  } "read that result everywhere, ghosts included"
+
+}
 
 
 

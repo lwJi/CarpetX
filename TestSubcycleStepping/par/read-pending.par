@@ -1,0 +1,68 @@
+# A level that lags its parent reads an end-of-step result of the parent
+# through a SYNC. Not a test: the testsuite cannot expect an abort.
+#
+# With three levels, iteration 1 steps every level, and only the finest
+# level's end of step runs (window [2,3)); level 1's is pending until
+# iteration 2. TestSubcycleStepping_WriteProbe writes pending_probe and SYNCs
+# it, which leaves the ghosts of level 2 invalid instead of prolongating
+# level 1's stale values, and TestSubcycleStepping_ReadProbe, which reads it
+# everywhere, stops the run at iteration 1 with an error that says that the
+# parent's end of step (POSTSTEP, ANALYSIS) is pending. Run
+#
+#   ! "$CACTUSX/exe/cactus_carpetx" read-pending.par > read-pending.out 2>&1 &&
+#     grep -q "end of step (POSTSTEP, ANALYSIS) is pending" read-pending.out
+
+ActiveThorns = "
+  CarpetX
+  ErrorEstimator
+  IOUtil
+  TestSubcycleStepping
+"
+
+Cactus::presync_mode = "mixed-error"
+
+CarpetX::poison_undefined_values = yes
+
+CarpetX::ncells_x = 16
+CarpetX::ncells_y = 16
+CarpetX::ncells_z = 16
+
+Driver::periodic = "yes"
+Driver::periodic_x = yes
+Driver::periodic_y = yes
+Driver::periodic_z = yes
+
+CarpetX::max_grid_size_x = 10000000
+CarpetX::max_grid_size_y = 10000000
+CarpetX::max_grid_size_z = 10000000
+
+CarpetX::max_tile_size_x = 10000000
+CarpetX::max_tile_size_y = 10000000
+CarpetX::max_tile_size_z = 10000000
+
+CarpetX::dtfac = 8.0
+
+Cactus::cctk_itlast = 4
+
+CarpetX::use_subcycling = yes
+CarpetX::restrict_during_sync = no
+
+ErrorEstimator::region_shape = "cube"
+ErrorEstimator::scale_by_resolution = "yes"
+Driver::regrid_error_threshold = 4.
+CarpetX::max_num_levels = 3
+
+TestSubcycleStepping::read_pending_probe = yes
+
+IO::out_dir = $parfile
+IO::out_every = 0
+IO::parfile_write = no
+
+CarpetX::out_adios2_every = 0
+CarpetX::out_silo_every = 0
+CarpetX::out_openpmd_every = 0
+CarpetX::out_tsv_every = 0
+
+CarpetX::verbose = no
+CarpetX::out_performance = no
+CarpetX::out_metadata = no

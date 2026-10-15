@@ -1,1 +1,5 @@
 # Parameter definitions for thorn TestSubcycleStepping
+
+BOOLEAN read_pending_probe "Write and SYNC pending_probe in CCTK_ANALYSIS, and read it everywhere there, so that a level that lags its parent stops the run (par/read-pending.par)"
+{
+} no

@@ -24,11 +24,12 @@ SCHEDULE DGWaveToyX_RHS IN ODESolvers_RHS
   WRITES: f_rhs(interior)
 } "Calculate RHS of wave equation"
 
-# The diagnostics in this group are not checkpointed, and a level that lags
-# its parent SYNCs them from the parent: compute them in ODESolvers_Analysis,
-# and again after a restart, once the state's ghosts are refilled. This group
-# is scheduled after a restart, not ODESolvers_Analysis, which would change
-# that group for every thorn.
+# The diagnostics in this group are not checkpointed: compute them in
+# ODESolvers_Analysis, and again after a restart, once the state's ghosts are
+# refilled. This group is scheduled after a restart, not ODESolvers_Analysis,
+# which would change that group for every thorn. Under subcycling, a level that
+# lags its parent SYNCs them while the parent's end of step is pending, so its
+# ghosts stay invalid until the parent's end-of-step window.
 SCHEDULE GROUP DGWaveToyX_Diagnostics IN ODESolvers_Analysis
 {
 } "Calculate diagnostics of wave equation"

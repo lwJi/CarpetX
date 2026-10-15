@@ -524,30 +524,31 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
         // else: old checkpoint without per-level iteration — leave as nullopt
       }
 
-      // Read the per-level last end-of-step iteration if present
+      // Read the per-level last step iteration if present. The variable
+      // keeps its former name, so that older checkpoints still recover.
       {
         const std::string varname =
             dirname + "/" +
             DB::legalize_name("last_tail_iteration.m" + std::to_string(patch) +
                               ".rl" + std::to_string(level));
 
-        long long last_tail_iteration = 0;
-        bool have_last_tail_iteration = false;
+        long long last_step_iteration = 0;
+        bool have_last_step_iteration = false;
         if (read_metafile) {
           if (DBInqVarExists(metafile.get(), varname.c_str())) {
             const int ierr = DBReadVar(metafile.get(), varname.c_str(),
-                                       &last_tail_iteration);
+                                       &last_step_iteration);
             assert(!ierr);
-            have_last_tail_iteration = true;
+            have_last_step_iteration = true;
           }
         }
-        MPI_Bcast(&have_last_tail_iteration, 1, MPI_C_BOOL, metafile_ioproc,
+        MPI_Bcast(&have_last_step_iteration, 1, MPI_C_BOOL, metafile_ioproc,
                   mpi_comm);
-        if (have_last_tail_iteration) {
-          MPI_Bcast(&last_tail_iteration, 1, MPI_LONG_LONG, metafile_ioproc,
+        if (have_last_step_iteration) {
+          MPI_Bcast(&last_step_iteration, 1, MPI_LONG_LONG, metafile_ioproc,
                     mpi_comm);
-          ghext->recovered_levels.at(patch).at(level).last_tail_iteration =
-              int(last_tail_iteration);
+          ghext->recovered_levels.at(patch).at(level).last_step_iteration =
+              int(last_step_iteration);
         }
         // else: checkpoint predates it — leave as nullopt
       }
@@ -2588,14 +2589,14 @@ void OutputSilo(const cGH *restrict const cctkGH,
                            DB_LONG_LONG);
             assert(!ierr);
           }
-          // Write the per-level last end-of-step iteration
+          // Write the per-level last step iteration, under its former name
           {
             const std::string varname =
                 dirname + "/" +
                 DB::legalize_name("last_tail_iteration.m" +
                                   std::to_string(patchdata.patch) + ".rl" +
                                   std::to_string(leveldata.level));
-            long long val = leveldata.last_tail_iteration;
+            long long val = leveldata.last_step_iteration;
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
                            DB_LONG_LONG);

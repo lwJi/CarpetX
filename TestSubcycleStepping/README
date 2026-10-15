@@ -47,35 +47,54 @@ CCTK_POSTSTEP traversal whose window covered the level: tail_iteration,
 tail_time and tail_timefac are the cctk_iteration, cctk_time and
 cctk_timefac that StampTail, a local-mode routine, saw on that level. It is
 stamped everywhere, so it needs no SYNC, and after a restart it is also
-stamped in CCTK_POST_RECOVER_VARIABLES. Under subcycling a POSTSTEP window
-is the level just evolved, widened down to every coarser level that shares
-its clock, and it sees the evolved level's cctk_iteration and cctk_time =
-cctk_delta_time * that level's clock. A local-mode routine sees its own
-level's cctk_timefac, 2^level, as in Carpet; only level-, global- and
-meta-mode routines see the evolved level's. With 3 levels
-(test/subcycle_3levels.par, where cctk_delta_time = 1) the stamps
-(iteration, time, timefac) after each pass of the first coarse step are:
+stamped in CCTK_POST_RECOVER_VARIABLES. Under subcycling CCTK_POSTSTEP runs
+once per pass, after the restriction, in the window of the finest level,
+widened down to every coarser level that shares its clock: these are the
+levels whose step ends in this pass, and each level runs its end of step
+once per own step. The window sees the pass's cctk_iteration and cctk_time =
+cctk_delta_time * the finest level's clock. A local-mode routine sees its
+own level's cctk_timefac, 2^level, as in Carpet; only level-, global- and
+meta-mode routines see the finest level's. tail_context is an end-of-step
+group (see "End-of-step results under subcycling" in the CarpetX
+documentation): when a level steps, the driver invalidates its stamp, and
+poisons it, until the level's end of step stamps it again. Output writes
+only the window's levels, so it never shows such a pending stamp. With 3
+levels (test/subcycle_3levels.par, where cctk_delta_time = 1) the stamps
+(iteration, time, timefac) after each pass of the first coarse step are,
+with "-" for a pending stamp:
 
-  pass 1: windows [0,1) [1,2) [2,3)   L0 (1,1,1)  L1 (1,1/2,2)  L2 (1,1/4,4)
-  pass 2: window  [1,3)               L0 (1,1,1)  L1 (2,1/2,2)  L2 (2,1/2,4)
-  pass 3: windows [0,2) [2,3)         L0 (3,1,1)  L1 (3,1,2)    L2 (3,3/4,4)
-  pass 4: window  [0,3)               L0 (4,1,1)  L1 (4,1,2)    L2 (4,1,4)
+  pass 1: steps L0 L1 L2, window [2,3)   L0 -         L1 -          L2 (1,1/4,4)
+  pass 2: steps L2,       window [1,3)   L0 -         L1 (2,1/2,2)  L2 (2,1/2,4)
+  pass 3: steps L1 L2,    window [2,3)   L0 -         L1 -          L2 (3,3/4,4)
+  pass 4: steps L2,       window [0,3)   L0 (4,1,1)   L1 (4,1,2)    L2 (4,1,4)
 
 The second coarse step repeats this with iterations 5 to 8 and times larger
 by 1. Initialization runs CCTK_POSTSTEP once over every level, with the
 finest level's iteration and time as at every aligned pass, so it stamps
-level l with (0,0,2^l). A level keeps its stamp until a later window covers
-it, e.g. level 0 keeps iteration 1 through pass 2.
+level l with (0,0,2^l).
+
+"tail_count" (checkpoint="no") counts on each level the CCTK_POSTSTEP
+windows that covered it. CCTK_INITIAL zeroes it, and so do a recovery and a
+regrid that makes or remakes the level. Initialization covers every level
+once, and then each coarse step adds 1 on level 0, 2 on level 1 and 4 on
+level 2: test/subcycle_3levels.par ends with 3, 5 and 9 at iteration 8.
+"step_counts" (grid scalars, checkpoint="no") count the calls of a
+global-mode routine in CCTK_POSTSTEP (poststep_calls) and CCTK_ANALYSIS
+(analysis_calls) during the iteration last_iteration. Both are 1 at every
+iteration, including iteration 0.
 
 After a restart, recovery traverses CCTK_POST_RECOVER_VARIABLES once per
 clock group (a run of adjacent levels that share a clock), coarse to fine.
-Each traversal covers the group's levels and sees the context of the window
-in which they last ran CCTK_POSTSTEP, so after recovery every level holds
-the stamp the uninterrupted run holds after the checkpointed pass.
-Restarting the 3-level run from each pass of the second coarse step gives
-these traversals, each with its window and its (iteration, time, timefac),
-where timefac is the one the driver logs and level-, global- and meta-mode
-routines see; as during evolution, StampTail stamps level l with 2^l:
+Each traversal covers the group's levels and sees the context of the batch
+in which they last stepped. Only the finest group then also ran its end of
+step, so the driver invalidates the stamps of every coarser group after its
+traversal: after recovery the finest group holds the stamp that the
+uninterrupted run holds after the checkpointed pass, and every coarser
+group's stamp is pending, as there. Restarting the 3-level run from each
+pass of the second coarse step gives these traversals, each with its window
+and its (iteration, time, timefac), where timefac is the one the driver logs
+and level-, global- and meta-mode routines see; as during evolution,
+StampTail stamps level l with 2^l:
 
   from iteration 5 (clocks 2, 3/2, 5/4): [0,1) (5,2,1)  [1,2) (5,3/2,2)  [2,3) (5,5/4,4)
   from iteration 6 (clocks 2, 3/2, 3/2): [0,1) (5,2,1)  [1,3) (6,3/2,4)
@@ -112,3 +131,17 @@ The recover tests in TestSubcyclingMC2/test output them:
 recover-subcycling-openpmd-nonrhs.par (two clock groups), -3clocks.par
 (three), -4clocks.par (four), -addlevel.par (three), -iteration0.par (one)
 and recover-subcycling-silo-3clocks.par (three).
+
+"pending_probe" (checkpoint="no") is written and SYNCed in CCTK_ANALYSIS
+and then read everywhere there, ghosts included, only with
+read_pending_probe = yes. With 3 levels, pass 1 steps every level, and only
+level 2 runs its end of step; level 1's is pending until pass 2. The SYNC on
+level 2 therefore leaves its ghosts invalid instead of prolongating level
+1's values from its previous time, and the read stops the run with an error
+that says that the parent's end of step (POSTSTEP, ANALYSIS) is pending.
+The testsuite cannot expect an abort, so par/read-pending.par, outside
+test/, checks this:
+
+  cd par &&
+    ! "$CACTUSX/exe/cactus_carpetx" read-pending.par > read-pending.out 2>&1 &&
+    grep -q "end of step (POSTSTEP, ANALYSIS) is pending" read-pending.out

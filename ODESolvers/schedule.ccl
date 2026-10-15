@@ -90,22 +90,30 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 #     [regrid]
 #     BASEGRID (in driver)
 #     POSTREGRID (in driver)
-#   [cycle time levels]
-#   PRESTEP
-#   EVOL            (without subcycling: [reflux] inside ODESolvers_Solve,
+#   Per level batch (under subcycling, each level that steps, coarse to
+#   fine; without subcycling, one batch of all levels):
+#     [cycle time levels]
+#     PRESTEP
+#     EVOL          (without subcycling: [reflux] inside ODESolvers_Solve,
 #                    before the final ODESolvers_PostStep)
-#   [when restrict_during_sync = no and >= 2 levels are time-aligned:]
-#     CarpetX_PreRestrict  (sees the state before the reflux)
-#     [reflux]      (subcycling: finest pair first, once per coarse step)
-#     [restrict]    (fine to coarse, then prolongate restricted and, under
+#     [under subcycling: invalidate the batch's end-of-step results until
+#      its end of step]
+#   In the finest batch's window (the finest level, widened to every coarser
+#   level at its clock, i.e. the levels whose step ends now):
+#     [when restrict_during_sync = no and >= 2 levels are time-aligned:]
+#       CarpetX_PreRestrict  (sees the state before the reflux)
+#       [reflux]    (subcycling: finest pair first, once per coarse step)
+#       [restrict]  (fine to coarse, then prolongate restricted and, under
 #                    subcycling, integrated GFs)
-#     POSTRESTRICT  (ODESolvers_PostStep runs here; under subcycling its
+#       POSTRESTRICT  (ODESolvers_PostStep runs here; under subcycling its
 #                    SYNC repairs the ghosts after the reflux and the
 #                    restriction, and it recomputes the dependents)
-#   POSTSTEP        (per level batch under subcycling)
-#   ANALYSIS        (per level batch under subcycling)
-#   CHECKPOINT      (once, after all batches)
-#   OutputGH        (once, after all batches)
+#     POSTSTEP      (once per iteration, over the window: once per level
+#                    step)
+#     ANALYSIS      (likewise)
+#     CHECKPOINT    (once per iteration; every level)
+#     OutputGH      (once per iteration; under subcycling only the window's
+#                    levels)
 #
 # Recovery (instead of Initialization):
 #   [read grid structure]
@@ -115,10 +123,13 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 #   RECOVER_VARIABLES       (once, all levels, level clocks still 0)
 #   [restore level clocks]
 #   POST_RECOVER_VARIABLES  (once per clock group, coarse to fine, with the
-#                            group's context; under subcycling the evolved
-#                            state's ghosts are refilled first)
-#   CPINITIAL
-#   OutputGH
+#                            context of the batch in which the group last
+#                            stepped; under subcycling the evolved state's
+#                            ghosts are refilled first, and every group but
+#                            the finest has its end-of-step results
+#                            invalidated afterwards)
+#   CPINITIAL               (in the finest clock group's window)
+#   OutputGH                (likewise)
 #   (no restriction, POSTRESTRICT, POSTSTEP or ANALYSIS)
 #
 # Shutdown:

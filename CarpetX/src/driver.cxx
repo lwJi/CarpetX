@@ -830,7 +830,7 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     is_subcycling_level = false; // unused
     iteration = 0;
     delta_iteration = 1;
-    last_tail_iteration = 0;
+    last_step_iteration = 0;
   } else {
     // We are creating a new refined level
     auto &coarseleveldata = ghext->patchdata.at(patch).leveldata.at(level - 1);
@@ -838,8 +838,8 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     iteration = coarseleveldata.iteration;
     delta_iteration = coarseleveldata.delta_iteration / timereffact;
     // A level that a regrid creates or remakes shares its parent's clock, and
-    // so the parent's last end-of-step window
-    last_tail_iteration = coarseleveldata.last_tail_iteration;
+    // so the parent's clock group and the iteration in which it last stepped
+    last_step_iteration = coarseleveldata.last_step_iteration;
   }
 
   const amrex::IntVect nghostzones = {

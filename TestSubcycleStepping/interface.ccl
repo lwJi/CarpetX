@@ -16,6 +16,28 @@ CCTK_REAL tail_context TYPE=GF CENTERING={VVV} TAGS='checkpoint="no"'
   tail_iteration tail_time tail_timefac
 } "context of the last end-of-step or recovery traversal that covered each level"
 
+# The number of CCTK_POSTSTEP traversals whose window covered the level,
+# counted everywhere since CCTK_INITIAL, a recovery or a regrid that made the
+# level. Under subcycling each level runs its end of step once per own step,
+# so per coarse step this grows by 2^level. CountTail reads it before it
+# writes it, so it is not an end-of-step group that the driver invalidates
+# when the level steps. No other level reads it.
+CCTK_REAL tail_count TYPE=GF CENTERING={VVV} TAGS='checkpoint="no"' "number of end-of-step traversals that covered each level"
+
+# The number of calls of a global-mode routine in CCTK_POSTSTEP
+# (poststep_calls) and in CCTK_ANALYSIS (analysis_calls) in the iteration
+# last_iteration. Each is 1 at every iteration, since the end-of-step bins
+# run once per iteration.
+CCTK_INT step_counts TYPE=SCALAR TAGS='checkpoint="no"'
+{
+  poststep_calls analysis_calls last_iteration
+} "global-mode calls of the end-of-step bins in the current iteration"
+
+# Written and SYNCed in CCTK_ANALYSIS, and then read everywhere there, only
+# with read_pending_probe = yes. A level that lags its parent gets invalid
+# ghosts from that SYNC, so reading them stops the run.
+CCTK_REAL pending_probe TYPE=GF CENTERING={VVV} TAGS='checkpoint="no"' "an end-of-step result that a lagging level reads everywhere"
+
 # Number of traversals of the bins a recovery might run, counted from
 # CCTK_RECOVER_VARIABLES until CCTK_CPINITIAL ("counting" is 1 in between and
 # 0 otherwise)

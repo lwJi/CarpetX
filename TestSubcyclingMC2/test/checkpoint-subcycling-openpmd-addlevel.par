@@ -5,9 +5,10 @@
 # level, and the regrid at the start of iteration 6, which starts from level 2
 # (the only level at the minimum clock), adds level 3 at level 2's clock. The
 # checkpoint is taken at iteration 6, where the four levels are on three
-# clocks (2, 3/2, 3/2 and 11/8 coarse steps) and their last end-of-step
-# iterations are 5, 6, 6 and 6. Deriving level 0's from the clocks would give
-# 4 instead of 5, since level 3 did not exist when level 0 last stepped. The
+# clocks (2, 3/2, 3/2 and 11/8 coarse steps) and the iterations in which
+# they last stepped are 5, 6, 6 and 6. Deriving level 0's from the clocks
+# would give 4 instead of 5, since level 3 did not exist when level 0 last
+# stepped. The
 # run continues to iteration 8 as the uninterrupted baseline for
 # recover-subcycling-openpmd-addlevel.par.
 #

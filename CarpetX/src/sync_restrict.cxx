@@ -128,7 +128,7 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
 // `leveldata` is about to read it. The message names the parent's level and
 // timelevel. When gi is not checkpointed, it ends with the rule that was
 // broken: for a past timelevel always, and for the current timelevel only
-// while the parent has not run its end of step since the run was recovered
+// while the parent has not stepped since the run was recovered
 // (GHExt::recovered_iteration).
 static void
 error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
@@ -144,7 +144,7 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
 
   const bool recovering =
       ghext->recovered_iteration >= 0 &&
-      coarseleveldata.last_tail_iteration <= ghext->recovered_iteration;
+      coarseleveldata.last_step_iteration <= ghext->recovered_iteration;
 
   const std::function<std::string()> msg = [label]() {
     return std::string(label);
@@ -177,6 +177,39 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
   };
   for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
     error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), msg, hint);
+}
+
+// Whether the parent of `leveldata` has stepped but not yet run the end of
+// step (POSTSTEP, ANALYSIS) that rewrites group gi: gi is an end-of-step
+// group (GHExt::end_of_step_group), and the parent's current timelevel has an
+// invalid interior. Under subcycling the driver invalidates such a group on a
+// level when the level steps (InvalidateEndOfStepResults), and the level's
+// end of step runs only once its finer levels have caught up with it, in the
+// finest batch's window. Until then a finer level that lags it may SYNC the
+// group; recovery recreates the same state for every clock group but the
+// finest.
+static bool
+parent_end_of_step_pending(const GHExt::PatchData::LevelData &leveldata,
+                           const int gi) {
+  assert(leveldata.level > 0);
+  if (ghext->end_of_step_group.empty() || !ghext->end_of_step_group.at(gi))
+    return false;
+  const auto &restrict coarsegroupdata =
+      *ghext->patchdata.at(leveldata.patch)
+           .leveldata.at(leveldata.level - 1)
+           .groupdata.at(gi);
+  for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
+    if (!coarsegroupdata.valid.at(0).at(vi).get().valid_int)
+      return true;
+  return false;
+}
+
+// Why the ghosts of a level stay invalid after a SYNC of an end-of-step group
+// whose parent's end of step is pending (SyncGroupsByDirISubcycling)
+static std::string end_of_step_pending_reason() {
+  return "SyncGroupsByDirISubcycling did not prolongate from the parent "
+         "level, because the parent has stepped and its end of step "
+         "(POSTSTEP, ANALYSIS) is pending";
 }
 
 // =======================================================================
@@ -722,6 +755,17 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
           const bool aligned =
               (leveldata.iteration == coarseleveldata.iteration);
           const bool blend = !aligned && coarsegroupdata.mfab.size() >= 2;
+
+          // An end-of-step group whose parent has stepped and not yet run its
+          // end of step holds values from the parent's previous time there,
+          // and a single timelevel offers nothing to interpolate in time
+          // with. Instead of prolongating them, copy only between boxes of
+          // this level, and leave the ghosts invalid (see the postconditions
+          // below), so that a routine that reads them stops the run, while a
+          // routine that reads only the interior is unaffected. The parent's
+          // end of step comes in the window in which this level catches up
+          // with it.
+          const bool pending = parent_end_of_step_pending(leveldata, gi);
           const rat64 cdt = coarseleveldata.delta_iteration;
           const rat64 t_new = coarseleveldata.iteration;
           const rat64 t_fin = leveldata.iteration;
@@ -737,6 +781,14 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
               "SyncGroupsByDirISubcycling on coarse level before prolongation";
 
           for (int tl = 0; tl < sync_tl; ++tl) {
+            if (pending && tl == 0) {
+              tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
+                FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+                               ghext->patchdata.at(leveldata.patch)
+                                   .amrcore->Geom(leveldata.level));
+              });
+              continue;
+            }
             // Only tl=0 is the "new" coarse snapshot whose old partner is tl=1.
             const bool do_blend = blend && tl == 0;
             error_if_parent_invalid(leveldata, gi, tl, label);
@@ -792,9 +844,23 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
       // marked valid by the integrator after FillRKBoundary, not here.
       const bool integrated_subiter =
           group_is_integrated(gi) && leveldata.iteration > 0;
+      // Must match the branch above as well. The SYNC changes no flag of the
+      // parent's interior, so this is still what the branch saw.
+      const bool pending = leveldata.level > 0 && !integrated_subiter &&
+                           parent_end_of_step_pending(leveldata, gi);
 
       for (int tl = 0; tl < sync_tl0; ++tl) {
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
+          if (pending && tl == 0) {
+            // Not prolongated: the ghosts, and the outer boundary whose
+            // boundary conditions may read them, stay invalid
+            groupdata.valid.at(tl).at(vi).set_ghosts(
+                false, end_of_step_pending_reason);
+            if (groupdata.all_faces_have_symmetries_or_boundaries())
+              groupdata.valid.at(tl).at(vi).set_outer(
+                  false, end_of_step_pending_reason);
+            continue;
+          }
           if (!integrated_subiter) {
             groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
               return "SyncGroupsByDirISubcycling after syncing: "

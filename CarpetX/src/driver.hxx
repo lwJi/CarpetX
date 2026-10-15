@@ -390,12 +390,17 @@ struct GHExt {
       // Iteration and time at which this cycle level is valid
       rat64 iteration, delta_iteration;
 
-      // cctk_iteration of the last end-of-step window (POSTSTEP, ANALYSIS)
-      // that covered this level: set by Evolve after each such window, 0 on
-      // a fresh start, the parent's value when a regrid creates or remakes
-      // the level, and the checkpointed value on recovery. Checkpoints
-      // carry it next to the level's clock.
-      int last_tail_iteration;
+      // cctk_iteration in which this level's clock group last stepped: the
+      // iteration of the last batch whose window, widened after its step to
+      // the coarser levels at the same clock, covered this level. Set by
+      // Evolve right after each such widening, 0 on a fresh start, the
+      // parent's value when a regrid creates or remakes the level, and the
+      // checkpointed value on recovery. Under subcycling the level's end of
+      // step (POSTSTEP, ANALYSIS) runs in the finest batch's window only, so
+      // it may still be pending after that iteration. Checkpoints carry it
+      // next to the level's clock, under its former name
+      // last_tail_iteration.
+      int last_step_iteration;
 
       // Fabamrex::ArrayBase object holding a cell-centred BoxArray for
       // iterating over grid functions. This stores the grid structure
@@ -570,10 +575,9 @@ struct GHExt {
   // The iteration of the checkpoint this run was started from, or -1. Set
   // once, by RecoverHierarchy as soon as RecoverGridStructure has read it.
   // The flesh offers no query for this (config->recovered is only
-  // Initialise's argument). A level whose last_tail_iteration is not past it
-  // has not run its end of step since recovery, so it may still lack what the
-  // checkpoint does not hold; error messages about such a level state the
-  // recovery rule.
+  // Initialise's argument). A level whose last_step_iteration is not past it
+  // has not stepped since recovery, so it may still lack what the checkpoint
+  // does not hold; error messages about such a level state the recovery rule.
   int recovered_iteration = -1;
 
   // RecomputePerClockGroup is traversing CCTK_POST_RECOVER_VARIABLES, once
@@ -607,8 +611,11 @@ struct GHExt {
   // checkpointed. When a level steps, what the end of step wrote describes
   // the level's previous time until its next end of step rewrites it, so
   // InvalidateEndOfStepResults (schedule.hxx) invalidates that part after
-  // CCTK_EVOL. Collected once at startup under subcycling by
-  // CollectEndOfStepGroups (schedule.hxx). Empty means none, as without
+  // CCTK_EVOL, and recovery after the CCTK_POST_RECOVER_VARIABLES of every
+  // clock group but the finest. A SYNC on a level whose parent's part is
+  // invalid leaves the level's ghosts invalid instead of prolongating
+  // (SyncGroupsByDirISubcycling). Collected once at startup under subcycling
+  // by CollectEndOfStepGroups (schedule.hxx). Empty means none, as without
   // subcycling.
   std::vector<bool> end_of_step_group; // [group index]
 
@@ -617,7 +624,7 @@ struct GHExt {
   // checkpoint predates it.
   struct recovered_level_t {
     std::optional<rat64> iteration;         // iteration_num / iteration_den
-    std::optional<int> last_tail_iteration; // last_tail_iteration
+    std::optional<int> last_step_iteration; // last_tail_iteration
   };
   // Indexed [patch][level]. Empty outside of the recovery window.
   std::vector<std::vector<recovered_level_t> > recovered_levels;

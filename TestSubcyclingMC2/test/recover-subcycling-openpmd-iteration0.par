@@ -2,9 +2,9 @@
 # checkpoint-subcycling-openpmd-iteration0.par): recovers the frozen initial
 # checkpoint, written at CCTK_CPINITIAL at iteration 0, and continues to
 # iteration 4. Every level's clock is 0, so the levels form one clock group
-# [0,3), and recovery traverses CCTK_POST_RECOVER_VARIABLES once, with the
-# finest level's context (0,0,4). The fresh run's iteration-0 CCTK_POSTSTEP
-# saw the same context, so its stamps are reproduced.
+# [0,3), and recovery traverses CCTK_POST_RECOVER_VARIABLES once, in which
+# level l stamps (0,0,2^l). The fresh run's iteration-0 CCTK_POSTSTEP stamped
+# the same, so its stamps are reproduced.
 #
 # Unlike the other recover pars this one keeps out_initial_data, so the
 # recovered iteration 0 is output too. Every output of this run must equal

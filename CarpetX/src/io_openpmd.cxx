@@ -710,12 +710,13 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
       }
       // else: old checkpoint without per-level iteration — leave as nullopt
 
-      // Read the per-level last end-of-step iteration if present
-      const std::string last_tail_attr =
+      // Read the per-level last step iteration if present. The attribute
+      // keeps its former name, so that older checkpoints still recover.
+      const std::string last_step_attr =
           "last_tail_iteration" + level_suffixes.at(level);
-      if (read_iter->containsAttribute(last_tail_attr))
-        recovered.last_tail_iteration =
-            int(read_iter->getAttribute(last_tail_attr).get<std::int64_t>());
+      if (read_iter->containsAttribute(last_step_attr))
+        recovered.last_step_iteration =
+            int(read_iter->getAttribute(last_step_attr).get<std::int64_t>());
       // else: checkpoint predates it — leave as nullopt
     } // for level
   } // for patch
@@ -1679,10 +1680,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         write_iter.setAttribute(
             "iteration_den" + level_suffixes.at(level),
             static_cast<std::int64_t>(leveldata.iteration.den));
-        // Write the per-level last end-of-step iteration
+        // Write the per-level last step iteration, under its former name
         write_iter.setAttribute(
             "last_tail_iteration" + level_suffixes.at(level),
-            static_cast<std::int64_t>(leveldata.last_tail_iteration));
+            static_cast<std::int64_t>(leveldata.last_step_iteration));
       }
     }
   } // if !slice

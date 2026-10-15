@@ -53,9 +53,11 @@ SCHEDULE SpacetimeWaveToyX_Evol2 AT evol AFTER SpacetimeWaveToyX_Evol1
   SYNC: ftstate
 } "Evolve scalar wave, part 2"
 
-# The diagnostics in this group are not checkpointed, and a level that lags
-# its parent SYNCs them from the parent: compute them at the end of each step,
-# and again after a restart, once the state's ghosts are refilled
+# The diagnostics in this group are not checkpointed: compute them at the end
+# of each step, and again after a restart, once the state's ghosts are
+# refilled. Under subcycling, a level that lags its parent SYNCs them while the
+# parent's end of step is pending, so its ghosts stay invalid until the
+# parent's end-of-step window.
 SCHEDULE GROUP SpacetimeWaveToyX_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"

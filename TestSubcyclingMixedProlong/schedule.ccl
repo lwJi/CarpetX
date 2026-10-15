@@ -53,9 +53,11 @@ SCHEDULE TestSubcyclingMixedProlong_RHS_hi IN ODESolvers_RHS
   WRITES: rhs_hi(interior)
 } "Calculate scalar wave RHS (wide prolongation stencil)"
 
-# error_lo and error_hi are not checkpointed, and a level that lags its parent
-# SYNCs them from the parent: compute them at the end of each step, and again
-# after a restart, once the state's ghosts are refilled
+# error_lo and error_hi are not checkpointed: compute them at the end of each
+# step, and again after a restart, once the state's ghosts are refilled. Under
+# subcycling, a level that lags its parent SYNCs them while the parent's end of
+# step is pending, so its ghosts stay invalid until the parent's end-of-step
+# window.
 SCHEDULE GROUP TestSubcyclingMixedProlong_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"
