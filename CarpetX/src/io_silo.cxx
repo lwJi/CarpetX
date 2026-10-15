@@ -1071,7 +1071,7 @@ void InputSilo(const cGH *restrict const cctkGH,
 void OutputSilo(const cGH *restrict const cctkGH,
                 const std::vector<bool> &output_group,
                 const std::string &output_dir, const std::string &output_file,
-                std::optional<slice_t> slice) {
+                std::optional<slice_t> slice, const level_range_t &levels) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -1214,6 +1214,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
       // Loop over levels
       for (const auto &leveldata : patchdata.leveldata) {
+        if (!levels.contains(leveldata.level))
+          continue;
 
         const amrex::DistributionMapping &dm = leveldata.fab->DistributionMap();
         const int ncomponents = dm.size();
@@ -1749,6 +1751,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
   for (const auto &patchdata : ghext->patchdata) {
     if (!patchdata.is_cartesian) {
       for (const auto &leveldata : patchdata.leveldata) {
+        if (!levels.contains(leveldata.level))
+          continue;
         const int patch = patchdata.patch;
         const int level = leveldata.level;
         auto &minima = coordinate_minima.at(patch).at(level);
@@ -1836,34 +1840,40 @@ void OutputSilo(const cGH *restrict const cctkGH,
         // writes only intersecting ones, so the tree would dangle. Slices get
         // a flat multimesh with no MRG tree.
         if (!slice) {
-          // Count components
-          const int nlevels = ghext->num_levels();
+          // The tree describes the written levels only, [min_level,
+          // max_level), as its levels 0 to nlevels - 1; the vectors below are
+          // indexed by level - min_level
+          const int min_level = std::max(levels.min_level, 0);
+          const int max_level = std::min(levels.max_level, ghext->num_levels());
+          assert(min_level < max_level);
+          const int nlevels = max_level - min_level;
           const int npatches = ghext->num_patches();
           std::vector<int> comp0_level(nlevels);
           std::vector<int> ncomps_level(nlevels);
           std::vector<std::vector<int> > comp0_level_patch(nlevels);
           std::vector<std::vector<int> > ncomps_level_patch(nlevels);
-          for (int level = 0; level < nlevels; ++level) {
-            comp0_level_patch.at(level).resize(npatches, 0);
-            ncomps_level_patch.at(level).resize(npatches, 0);
+          for (int l = 0; l < nlevels; ++l) {
+            comp0_level_patch.at(l).resize(npatches, 0);
+            ncomps_level_patch.at(l).resize(npatches, 0);
           }
           int ncomps_total = 0;
-          for (int level = 0; level < nlevels; ++level) {
-            comp0_level.at(level) = ncomps_total;
+          for (int l = 0; l < nlevels; ++l) {
+            const int level = min_level + l;
+            comp0_level.at(l) = ncomps_total;
             for (int patch = 0; patch < npatches; ++patch) {
               const auto &patchdata = ghext->patchdata.at(patch);
               if (level < int(patchdata.leveldata.size())) {
                 const auto &leveldata = patchdata.leveldata.at(level);
-                comp0_level_patch.at(level).at(patch) = ncomps_total;
+                comp0_level_patch.at(l).at(patch) = ncomps_total;
                 const amrex::DistributionMapping &dm =
                     leveldata.fab->DistributionMap();
                 const int ncomponents = dm.size();
                 ncomps_total += ncomponents;
-                ncomps_level_patch.at(level).at(patch) =
-                    ncomps_total - comp0_level_patch.at(level).at(patch);
+                ncomps_level_patch.at(l).at(patch) =
+                    ncomps_total - comp0_level_patch.at(l).at(patch);
               }
             }
-            ncomps_level.at(level) = ncomps_total - comp0_level.at(level);
+            ncomps_level.at(l) = ncomps_total - comp0_level.at(l);
           }
 
           // Describe which components belong to which level
@@ -1916,8 +1926,12 @@ void OutputSilo(const cGH *restrict const cctkGH,
               const int patch = patchdata.patch;
               for (const auto &leveldata : patchdata.leveldata) {
                 const int level = leveldata.level;
+                if (!levels.contains(level))
+                  continue;
                 const int fine_level = level + 1;
-                if (fine_level < int(patchdata.leveldata.size())) {
+                // A finer level that is not written has no blocks here
+                if (fine_level < int(patchdata.leveldata.size()) &&
+                    levels.contains(fine_level)) {
                   const auto &groupdata = *leveldata.groupdata.at(gi);
                   const amrex::MultiFab &mfab = *groupdata.mfab[tl];
                   const auto &fine_leveldata =
@@ -1925,9 +1939,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   const auto &fine_groupdata = *fine_leveldata.groupdata.at(gi);
                   const amrex::MultiFab &fine_mfab = *fine_groupdata.mfab[tl];
 
-                  const int ncomps = ncomps_level_patch.at(level).at(patch);
+                  const int ncomps =
+                      ncomps_level_patch.at(level - min_level).at(patch);
                   const int fine_comp0 =
-                      comp0_level_patch.at(fine_level).at(patch);
+                      comp0_level_patch.at(fine_level - min_level).at(patch);
                   const amrex::BoxArray &fine_boxarray = fine_mfab.boxarray;
 
                   for (int component = 0; component < ncomps; ++component) {
@@ -1949,7 +1964,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
                 } else {
                   // no finer level, hence no children
-                  const int ncomps = ncomps_level.at(level);
+                  const int ncomps = ncomps_level.at(level - min_level);
                   for (int component = 0; component < ncomps; ++component) {
                     segment_types.push_back(DB_BLOCKCENT);
                     segment_data.emplace_back();
@@ -2127,6 +2142,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
+            if (!levels.contains(leveldata.level))
+              continue;
             const auto &groupdata = *leveldata.groupdata.at(gi);
             const int tl = 0;
             const amrex::MultiFab &mfab = *groupdata.mfab[tl];
@@ -2265,6 +2282,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
         std::vector<std::string> meshnames;
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
+            if (!levels.contains(leveldata.level))
+              continue;
             const auto &groupdata = *leveldata.groupdata.at(gi);
             const amrex::MultiFab &mfab = *groupdata.mfab[tl];
             const amrex::DistributionMapping &dm = mfab.DistributionMap();
@@ -2339,6 +2358,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
         zonecounts.reserve(meshnames.size());
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
+            if (!levels.contains(leveldata.level))
+              continue;
             const auto &groupdata = *leveldata.groupdata.at(gi);
             const int tl = 0;
             const amrex::MultiFab &mfab = *groupdata.mfab[tl];
@@ -2428,6 +2449,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
           std::vector<std::string> varnames;
           for (const auto &patchdata : ghext->patchdata) {
             for (const auto &leveldata : patchdata.leveldata) {
+              if (!levels.contains(leveldata.level))
+                continue;
               const auto &groupdata = *leveldata.groupdata.at(gi);
               const int tl = 0;
               const amrex::MultiFab &mfab = *groupdata.mfab[tl];
@@ -2491,7 +2514,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
       ierr = DBMkDir(metafile.get(), dirname.c_str());
       assert(!ierr);
 
-      // Write number of levels
+      // Write number of levels. This counts every level, also when only some
+      // are written; the per-level variables below exist for the written
+      // levels only.
       {
         const auto num_patches = ghext->num_patches();
 
@@ -2512,6 +2537,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
       // Write FabArrayBase (component positions and shapes)
       for (const auto &patchdata : ghext->patchdata) {
         for (const auto &leveldata : patchdata.leveldata) {
+          if (!levels.contains(leveldata.level))
+            continue;
           const amrex::FabArrayBase &fab = *leveldata.fab;
           const int ncomponents = fab.size();
           std::vector<int> boxes(2 * ndims * ncomponents);
@@ -2535,6 +2562,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
       // Write per-level iteration as rational (numerator/denominator)
       for (const auto &patchdata : ghext->patchdata) {
         for (const auto &leveldata : patchdata.leveldata) {
+          if (!levels.contains(leveldata.level))
+            continue;
           {
             const std::string varname =
                 dirname + "/" +

@@ -92,7 +92,7 @@ static out_header_t get_out_header() {
 void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
                  int gi, const std::vector<std::string> &varnames,
                  const out_fileinfo_t out_fileinfo,
-                 const out_header_t out_header) {
+                 const out_header_t out_header, const level_range_t &levels) {
   std::ostringstream buf;
   buf << filename << ".tsv";
   std::ofstream file(buf.str());
@@ -146,6 +146,8 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
 
   for (const auto &patchdata : ghext->patchdata) {
     for (const auto &leveldata : patchdata.leveldata) {
+      if (!levels.contains(leveldata.level))
+        continue;
       const auto &groupdata = *leveldata.groupdata.at(gi);
       const int tl = 0;
       const auto &geom = patchdata.amrcore->Geom(leveldata.level);
@@ -180,7 +182,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
   file.close();
 }
 
-void OutputTSVold(const cGH *restrict cctkGH) {
+void OutputTSVold(const cGH *restrict cctkGH, const level_range_t &levels) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -226,7 +228,8 @@ void OutputTSVold(const cGH *restrict cctkGH) {
         varnames.at(vi) = buf.str();
       }
 
-      WriteTSVold(cctkGH, filename, gi, varnames, out_fileinfo_val, out_header);
+      WriteTSVold(cctkGH, filename, gi, varnames, out_fileinfo_val, out_header,
+                  levels);
     }
   }
 }
@@ -452,7 +455,8 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
                  const vect<CCTK_REAL, dim> &outcoords,
                  const bool truncate_files, const out_fileinfo_t out_fileinfo,
                  const out_header_t out_header,
-                 const bool output_boundary_points) {
+                 const bool output_boundary_points,
+                 const level_range_t &levels) {
   const auto &groupdata0 =
       *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
 
@@ -470,6 +474,8 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
   data.reserve(10000);
   for (const auto &patchdata : ghext->patchdata) {
     for (const auto &leveldata : patchdata.leveldata) {
+      if (!levels.contains(leveldata.level))
+        continue;
       const auto &groupdata = *leveldata.groupdata.at(gi);
 
       const int tl = 0;
@@ -703,7 +709,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
   }
 }
 
-void OutputTSV(const cGH *restrict cctkGH) {
+void OutputTSV(const cGH *restrict cctkGH, const level_range_t &levels) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -786,13 +792,16 @@ void OutputTSV(const cGH *restrict cctkGH) {
       case CCTK_GF:
         WriteTSVGFs(cctkGH, basename + ".x.tsv", gi, {true, false, false},
                     {0, out_xline_y, out_xline_z}, truncate_files,
-                    out_fileinfo_val, out_header, output_boundary_points);
+                    out_fileinfo_val, out_header, output_boundary_points,
+                    levels);
         WriteTSVGFs(cctkGH, basename + ".y.tsv", gi, {false, true, false},
                     {out_yline_x, 0, out_yline_z}, truncate_files,
-                    out_fileinfo_val, out_header, output_boundary_points);
+                    out_fileinfo_val, out_header, output_boundary_points,
+                    levels);
         WriteTSVGFs(cctkGH, basename + ".z.tsv", gi, {false, false, true},
                     {out_zline_x, out_zline_y, 0}, truncate_files,
-                    out_fileinfo_val, out_header, output_boundary_points);
+                    out_fileinfo_val, out_header, output_boundary_points,
+                    levels);
         break;
       default:
         CCTK_ERROR("internal error");

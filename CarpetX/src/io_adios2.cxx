@@ -163,7 +163,8 @@ struct carpetx_adios2_t {
   void OutputADIOS2(const cGH *const cctkGH,
                     const std::vector<bool> &output_group,
                     const std::string &output_dir,
-                    const std::string &output_file);
+                    const std::string &output_file,
+                    const level_range_t &levels);
   ~carpetx_adios2_t();
 };
 
@@ -171,12 +172,12 @@ struct carpetx_adios2_t {
 
 void OutputADIOS2(const cGH *const cctkGH,
                   const std::vector<bool> &output_group,
-                  const std::string &output_dir,
-                  const std::string &output_file) {
+                  const std::string &output_dir, const std::string &output_file,
+                  const level_range_t &levels) {
   if (!carpetx_adios2_t::self)
     carpetx_adios2_t::self = std::make_optional<carpetx_adios2_t>();
   carpetx_adios2_t::self->OutputADIOS2(cctkGH, output_group, output_dir,
-                                       output_file);
+                                       output_file, levels);
 }
 
 void ShutdownADIOS2() { carpetx_adios2_t::self.reset(); }
@@ -188,7 +189,8 @@ std::optional<carpetx_adios2_t> carpetx_adios2_t::self;
 void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                                     const std::vector<bool> &output_group,
                                     const std::string &output_dir,
-                                    const std::string &output_file) {
+                                    const std::string &output_file,
+                                    const level_range_t &levels) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -266,6 +268,9 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
       if (io_verbose)
         CCTK_VINFO("  Defining variables...");
+
+      // Define the variables of every level, including those that this step
+      // does not write: they are defined only once
 
       // Loop over patches
       for (const auto &patchdata : ghext->patchdata) {
@@ -351,9 +356,12 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
     for (const auto &patchdata : ghext->patchdata) {
 
       // Loop over levels
-      std::vector<level_t<CCTK_REAL, int, 3> > levels(
+      std::vector<level_t<CCTK_REAL, int, 3> > grid_levels(
           patchdata.leveldata.size());
       for (const auto &leveldata : patchdata.leveldata) {
+        // A variable that is not put is absent from this step
+        if (!levels.contains(leveldata.level))
+          continue;
         if (io_verbose)
           CCTK_VINFO("  Writing patch %d level %d...", patchdata.patch,
                      leveldata.level);
@@ -413,13 +421,13 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                   .hi = {fabbox.bigEnd(0) + 1, fabbox.bigEnd(1) + 1,
                          fabbox.bigEnd(2) + 1}};
             } // for local_component
-            levels.at(leveldata.level) =
+            grid_levels.at(leveldata.level) =
                 level_t<CCTK_REAL, int, 3>{.rdomain = rdomain,
                                            .is_cell_centred = is_cell_centred,
                                            .idomain = idomain,
                                            .grids = std::move(grids)};
             const level_t<CCTK_REAL, int, 3> &level =
-                levels.at(leveldata.level);
+                grid_levels.at(leveldata.level);
             const auto offsets_sizes = level.offsets_sizes();
             const std::vector<int> &offsets = offsets_sizes[0];
             const std::vector<int> &sizes = offsets_sizes[1];
@@ -514,10 +522,15 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
         } // for gi
 
       } // for leveldata
-      assert(!levels.empty());
-      const auto rdomain = levels.front().rdomain;
+      assert(!grid_levels.empty());
+      // Every level spans the same physical domain, but level 0 may not
+      // have been written
+      const amrex::Geometry &geom0 = patchdata.amrcore->Geom(0);
+      const box_t<CCTK_REAL, 3> rdomain{
+          .lo = {geom0.ProbLo(0), geom0.ProbLo(1), geom0.ProbLo(2)},
+          .hi = {geom0.ProbHi(0), geom0.ProbHi(1), geom0.ProbHi(2)}};
       patches.at(patchdata.patch) = patch_t<CCTK_REAL, int, 3>{
-          .rdomain = rdomain, .levels = std::move(levels)};
+          .rdomain = rdomain, .levels = std::move(grid_levels)};
     } // for patchdata
     assert(!patches.empty());
     const grid_structure_t<CCTK_REAL, int, 3> grid_structure{

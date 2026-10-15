@@ -441,7 +441,8 @@ struct carpetx_openpmd_t {
                      const std::string &output_dir,
                      const std::string &output_file,
                      TimeLevelMode tl_mode = TimeLevelMode::Current,
-                     std::optional<slice_t> slice = std::nullopt);
+                     std::optional<slice_t> slice = std::nullopt,
+                     const level_range_t &levels = every_level);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -475,11 +476,11 @@ void OutputOpenPMD(const cGH *const cctkGH,
                    const std::vector<bool> &output_group,
                    const std::string &output_dir,
                    const std::string &output_file, TimeLevelMode tl_mode,
-                   std::optional<slice_t> slice) {
+                   std::optional<slice_t> slice, const level_range_t &levels) {
   if (!carpetx_openpmd_t::self)
     carpetx_openpmd_t::self = std::make_optional<carpetx_openpmd_t>();
   carpetx_openpmd_t::self->OutputOpenPMD(cctkGH, output_group, output_dir,
-                                         output_file, tl_mode, slice);
+                                         output_file, tl_mode, slice, levels);
 }
 
 void ShutdownOpenPMD() { carpetx_openpmd_t::self.reset(); }
@@ -1505,7 +1506,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                                       const std::string &output_dir,
                                       const std::string &output_file,
                                       TimeLevelMode tl_mode,
-                                      std::optional<slice_t> slice) {
+                                      std::optional<slice_t> slice,
+                                      const level_range_t &levels) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -1649,8 +1651,12 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       }
       write_iter.setAttribute("levelSuffixes" + patch_suffixes.at(patch),
                               level_suffixes);
+      // numLevels and levelSuffixes describe the whole hierarchy; a level
+      // that is not written has no per-level attributes and no meshes
       for (const auto &leveldata : patchdata.leveldata) {
         const int level = leveldata.level;
+        if (!levels.contains(level))
+          continue;
         const amrex::FabArrayBase &mfab = *leveldata.fab;
         const int nchunks = mfab.size();
         std::vector<std::int64_t> chunk_infos(2 * ndims * nchunks);
@@ -1687,6 +1693,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
   for (const auto &patchdata : ghext->patchdata) {
     // Loop over levels
     for (const auto &leveldata : patchdata.leveldata) {
+      if (!levels.contains(leveldata.level))
+        continue;
       if (io_verbose)
         CCTK_VINFO("Writing patch %d level %d mesh...", patchdata.patch,
                    leveldata.level);

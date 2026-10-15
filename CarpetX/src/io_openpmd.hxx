@@ -5,6 +5,7 @@
 
 #ifdef HAVE_CAPABILITY_openPMD_api
 
+#include "io.hxx"
 #include "io_slice.hxx"
 
 #include <optional>
@@ -24,11 +25,14 @@ void InputOpenPMD(const cGH *cctkGH, const std::vector<bool> &input_group,
                   const std::string &input_dir, const std::string &input_file,
                   TimeLevelMode tl_mode = TimeLevelMode::Current);
 
+// Writes the grid functions on `levels` only, with their per-level iteration
+// attributes; numLevels and levelSuffixes still list every level
 void OutputOpenPMD(const cGH *cctkGH, const std::vector<bool> &output_group,
                    const std::string &output_dir,
                    const std::string &output_file,
                    TimeLevelMode tl_mode = TimeLevelMode::Current,
-                   std::optional<slice_t> slice = std::nullopt);
+                   std::optional<slice_t> slice = std::nullopt,
+                   const level_range_t &levels = every_level);
 
 } // namespace CarpetX
 

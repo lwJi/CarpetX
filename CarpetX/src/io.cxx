@@ -109,6 +109,18 @@ void check_silo_no_multi_tl(const std::vector<bool> &group_mask,
 
 ////////////////////////////////////////////////////////////////////////////////
 
+level_range_t output_levels() {
+  if (active_levels)
+    return {active_levels->min_level, active_levels->max_level};
+  return {0, ghext->num_levels()};
+}
+
+bool contains_every_level(const level_range_t &levels) {
+  return levels.min_level <= 0 && levels.max_level >= ghext->num_levels();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 // Recovering
 
 int recover_iteration = -1;
@@ -329,7 +341,9 @@ void InputGH(const cGH *restrict cctkGH) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void OutputPlotfile(const cGH *restrict cctkGH) {
+// A plotfile numbers its levels from 0, so the coarsest of `levels` becomes
+// its level 0
+void OutputPlotfile(const cGH *restrict cctkGH, const level_range_t &levels) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -370,6 +384,13 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
 
       for (const auto &restrict patchdata : ghext->patchdata) {
 
+        const int min_level = std::max(levels.min_level, 0);
+        const int max_level =
+            std::min(levels.max_level, int(patchdata.leveldata.size()));
+        if (min_level >= max_level)
+          continue;
+        const int nlevels = max_level - min_level;
+
         const std::string basename = [&]() {
           std::ostringstream buf;
           buf << groupname << ".it" << std::setw(8) << std::setfill('0')
@@ -389,16 +410,17 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
           varnames.at(vi) = buf.str();
         }
 
-        amrex::Vector<const amrex::MultiFab *> mfabs(
-            patchdata.leveldata.size());
-        amrex::Vector<amrex::Geometry> geoms(patchdata.leveldata.size());
-        amrex::Vector<int> iters(patchdata.leveldata.size());
-        amrex::Vector<amrex::IntVect> reffacts(patchdata.leveldata.size());
-        for (const auto &restrict leveldata : patchdata.leveldata) {
-          mfabs.at(leveldata.level) = &*leveldata.groupdata.at(gi)->mfab.at(tl);
-          geoms.at(leveldata.level) = patchdata.amrcore->Geom(leveldata.level);
-          iters.at(leveldata.level) = cctk_iteration;
-          reffacts.at(leveldata.level) = amrex::IntVect{2, 2, 2};
+        amrex::Vector<const amrex::MultiFab *> mfabs(nlevels);
+        amrex::Vector<amrex::Geometry> geoms(nlevels);
+        amrex::Vector<int> iters(nlevels);
+        amrex::Vector<amrex::IntVect> reffacts(nlevels);
+        for (int level = min_level; level < max_level; ++level) {
+          const auto &restrict leveldata = patchdata.leveldata.at(level);
+          const int n = level - min_level;
+          mfabs.at(n) = &*leveldata.groupdata.at(gi)->mfab.at(tl);
+          geoms.at(n) = patchdata.amrcore->Geom(level);
+          iters.at(n) = cctk_iteration;
+          reffacts.at(n) = amrex::IntVect{2, 2, 2};
         }
 
         // TODO: Output all groups into a single file
@@ -562,10 +584,14 @@ int OutputGH(const cGH *restrict cctkGH) {
   static Timer timer("OutputGH");
   Interval interval(timer);
 
+  // Grid output writes only these levels; checkpoints write every level
+  const level_range_t levels = output_levels();
+
   const bool is_root = CCTK_MyProc(nullptr) == 0;
   if (is_root && verbose)
-    CCTK_VINFO("OutputGH: iteration %d, time %f, run time %d s", cctk_iteration,
-               double(cctk_time), CCTK_RunTime());
+    CCTK_VINFO("OutputGH: iteration %d, time %f, levels [%d,%d), run time %d s",
+               cctk_iteration, double(cctk_time), levels.min_level,
+               levels.max_level, CCTK_RunTime());
 
   {
     const int every = out_metadata_every == -1 ? out_every : out_metadata_every;
@@ -574,8 +600,11 @@ int OutputGH(const cGH *restrict cctkGH) {
   }
 
   {
+    // Norms reduce over every level, so they are written only where every
+    // level is written, i.e. where all levels share one time
     const int every = out_norm_every == -1 ? out_every : out_norm_every;
-    if (every > 0 && cctk_iteration % every == 0)
+    if (every > 0 && cctk_iteration % every == 0 &&
+        contains_every_level(levels))
       OutputNorms(cctkGH);
   }
 
@@ -588,7 +617,7 @@ int OutputGH(const cGH *restrict cctkGH) {
       // TODO: Stop at paramcheck time when ADIOS2 output parameters
       // are set, but ADIOS2 is not available
       const std::string simulation_name = get_simulation_name();
-      OutputADIOS2(cctkGH, group_enabled, out_dir, simulation_name);
+      OutputADIOS2(cctkGH, group_enabled, out_dir, simulation_name, levels);
 #else
       if (strlen(out_adios2_vars) != 0)
         CCTK_VERROR("ADIOS2 is not enabled. The parameter "
@@ -606,7 +635,8 @@ int OutputGH(const cGH *restrict cctkGH) {
       // TODO: Stop at paramcheck time when openPMD output parameters
       // are set, but openPMD is not available
       const std::string simulation_name = get_simulation_name();
-      OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name);
+      OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name,
+                    TimeLevelMode::Current, std::nullopt, levels);
 #else
       if (strlen(out_openpmd_vars) != 0)
         CCTK_VERROR("openPMD is not enabled. The parameter "
@@ -625,11 +655,11 @@ int OutputGH(const cGH *restrict cctkGH) {
       const std::string simulation_name = get_simulation_name();
       // xy plane: normal = z; xz: normal = y; yz: normal = x
       OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
-                    TimeLevelMode::Current, slice_t{2, out_xyplane_z});
+                    TimeLevelMode::Current, slice_t{2, out_xyplane_z}, levels);
       OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
-                    TimeLevelMode::Current, slice_t{1, out_xzplane_y});
+                    TimeLevelMode::Current, slice_t{1, out_xzplane_y}, levels);
       OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".yz",
-                    TimeLevelMode::Current, slice_t{0, out_yzplane_x});
+                    TimeLevelMode::Current, slice_t{0, out_yzplane_x}, levels);
 #else
       if (strlen(out_openpmd_2d_vars) != 0)
         CCTK_VERROR("openPMD is not enabled. The parameter "
@@ -641,7 +671,7 @@ int OutputGH(const cGH *restrict cctkGH) {
   {
     const int every = out_plotfile_every == -1 ? out_every : out_plotfile_every;
     if (every > 0 && cctk_iteration % every == 0)
-      OutputPlotfile(cctkGH);
+      OutputPlotfile(cctkGH, levels);
   }
 
   {
@@ -653,7 +683,8 @@ int OutputGH(const cGH *restrict cctkGH) {
       // TODO: Stop at paramcheck time when Silo output parameters are
       // set, but Silo is not available
       const std::string simulation_name = get_simulation_name();
-      OutputSilo(cctkGH, group_enabled, out_dir, simulation_name);
+      OutputSilo(cctkGH, group_enabled, out_dir, simulation_name, std::nullopt,
+                 levels);
 #else
       if (strlen(out_silo_vars) != 0)
         CCTK_VERROR("Silo is not enabled. The parameter "
@@ -671,11 +702,11 @@ int OutputGH(const cGH *restrict cctkGH) {
       const std::string simulation_name = get_simulation_name();
       // xy plane: normal = z; xz: normal = y; yz: normal = x
       OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
-                 slice_t{2, out_xyplane_z});
+                 slice_t{2, out_xyplane_z}, levels);
       OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
-                 slice_t{1, out_xzplane_y});
+                 slice_t{1, out_xzplane_y}, levels);
       OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".yz",
-                 slice_t{0, out_yzplane_x});
+                 slice_t{0, out_yzplane_x}, levels);
 #else
       if (strlen(out_silo_2d_vars) != 0)
         CCTK_VERROR("Silo is not enabled. The parameter "
@@ -684,12 +715,12 @@ int OutputGH(const cGH *restrict cctkGH) {
     }
   }
 
-  OutputTSVold(cctkGH);
+  OutputTSVold(cctkGH, levels);
 
   {
     const int every = out_tsv_every == -1 ? out_every : out_tsv_every;
     if (every > 0 && cctk_iteration % every == 0)
-      OutputTSV(cctkGH);
+      OutputTSV(cctkGH, levels);
   }
 
   // Call the IO methods registered via CCTK_RegisterIOMethod; the flesh's
@@ -763,8 +794,9 @@ void Checkpoint(const cGH *const restrict cctkGH) {
       }
       return enabled;
     }();
+    // Every level, unlike output: recovery restores the whole hierarchy
     OutputOpenPMD(cctkGH, checkpoint_group, checkpoint_dir, checkpoint_file,
-                  TimeLevelMode::All);
+                  TimeLevelMode::All, std::nullopt, every_level);
 #else
     // TODO: Check this at paramcheck
     CCTK_VERROR(
@@ -798,7 +830,9 @@ void Checkpoint(const cGH *const restrict cctkGH) {
       return enabled;
     }();
     check_silo_no_multi_tl(checkpoint_group, "checkpoint");
-    OutputSilo(cctkGH, checkpoint_group, checkpoint_dir, checkpoint_file);
+    // Every level, unlike output: recovery restores the whole hierarchy
+    OutputSilo(cctkGH, checkpoint_group, checkpoint_dir, checkpoint_file,
+               std::nullopt, every_level);
 #else
     // TODO: Check this at paramcheck
     CCTK_VERROR("CarpetX::checkpoint_method is set to \"silo\", but Silo is "

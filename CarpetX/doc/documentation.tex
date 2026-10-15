@@ -1566,6 +1566,23 @@ This will generate the \texttt{hpctoolkit-cactus\_config-name-database} folder, 
 
 \CarpetX\space outputs data in the following formats: \texttt{Silo}, \texttt{openPMD} (with various backends), \texttt{Adios2} and \texttt{TSV}. For each output format, users can choose what and how frequently variables will be written to disk. In the following sections we will provide details to each format.
 
+\subsection{Output under subcycling}
+\label{sec:output_subcycling}
+
+Under subcycling (\texttt{CarpetX::use\_subcycling = yes}), the refinement levels are at different times at most iterations. An output iteration therefore writes only the levels that are at the same time as the finest level, which are the levels whose step ends at this iteration. With three levels and \texttt{IO::out\_every = 1}, level 2 is written at every iteration, level 1 at every second iteration and level 0 at every fourth: each level is written at the end of each of its own steps, never in the middle of one. With $N$ levels, every level is written at output iterations that are multiples of $2^{N-1}$. Without subcycling all levels share one time, and every output iteration writes every level.
+
+This holds for \texttt{TSV}, \texttt{Silo}, \texttt{openPMD}, \texttt{ADIOS2} and plotfile output, the 2D slices included:
+%
+\begin{itemize}
+\item \texttt{TSV} files hold rows for the written levels only. Grid scalars and grid arrays have no levels; they are written at every output iteration.
+\item An \texttt{openPMD} iteration holds the meshes, and the per-level attributes \texttt{chunkInfo}, \texttt{iteration\_num}, \texttt{iteration\_den} and \texttt{last\_tail\_iteration}, of the written levels only. Its attributes \texttt{numLevels} and \texttt{levelSuffixes} still list every level.
+\item A \texttt{Silo} file's multimeshes, multivariables and AMR tree describe the written levels only. The tree numbers them from 0 at the coarsest written level, while the mesh and variable names keep each level's own number. The driver variable \texttt{nlevels} still counts every level, and the per-level driver variables exist for the written levels only.
+\item A plotfile starts at the coarsest written level, which is its level 0.
+\item Norms reduce over all levels, so they are written only at output iterations at which every level is written.
+\end{itemize}
+%
+Checkpoints always hold every level. The initial output of a recovered run (\texttt{CarpetX::out\_initial\_data}) writes the levels of the finest clock group (Sec.~\ref{sec:recovery}), the same levels that the original run wrote at that iteration.
+
 \subsection{TSV}
 \label{sec:tsv}
 
