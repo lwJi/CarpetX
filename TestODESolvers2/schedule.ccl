@@ -25,9 +25,11 @@ SCHEDULE TestODESolvers2_Boundary IN ODESolvers_PostStep
   SYNC: state
 } "Apply boundary conditions to state vector"
 
-# error and order are not checkpointed, and a level that lags its parent SYNCs
-# them from the parent: compute them at the end of each step, and again after
-# a restart, once the state's ghosts are refilled
+# error and order are end-of-step data and are not checkpointed: compute them
+# at the end of each step, and again after a restart, once the state's ghosts
+# are refilled. They SYNC, which nothing at the end of step may do under
+# subcycling (see "End of step under subcycling" in the CarpetX
+# documentation), so this thorn runs only without subcycling
 SCHEDULE GROUP TestODESolvers2_Diagnostics AT analysis
 {
 } "Calculate diagnostics of state vector"
