@@ -144,7 +144,7 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
 
   const bool recovering =
       ghext->recovered_iteration >= 0 &&
-      coarseleveldata.last_tail_iteration <= ghext->recovered_iteration;
+      coarseleveldata.last_finalized_iteration <= ghext->recovered_iteration;
 
   const std::function<std::string()> msg = [label]() {
     return std::string(label);
