@@ -31,9 +31,12 @@
 // its tags (window_restricts in sync_restrict.cxx): in Evolve every level the
 // restriction reads has stepped since its last end of step and holds them as
 // invalid, and the end of step after the restriction rewrites them on every
-// level of the window. A routine that READS such a result on a
-// mid-step level gets the usual invalid-input error, whose reason states this
-// rule, and output shows the results as invalid. The mid-step levels are
+// level of the window. A routine that READS such a result while it is
+// invalid gets the usual invalid-input error, whose reason states this rule:
+// on a mid-step level, and on every level of the window in an iteration's
+// CarpetX_PreRestrict and CCTK_POSTRESTRICT, which come before its end of
+// step. Output, which follows the end of step, shows the results of the
+// mid-step levels as invalid. The mid-step levels are
 // always a coarse prefix of the hierarchy. Recovery reproduces this: it
 // traverses CCTK_POST_RECOVER_VARIABLES once per clock group, as before, and
 // then invalidates the end-of-step results of every group but the finest

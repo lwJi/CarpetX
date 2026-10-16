@@ -187,7 +187,9 @@ void InvalidateEndOfStepResults(const int min_level, const int max_level) {
     const int numvars = groupdata0.numvars;
     // Like an INVALIDATES clause (CallFunction): the reason becomes the
     // "why" of the usual invalid-input error, so that a routine that reads
-    // a mid-step result learns the rule from the message
+    // an invalidated result learns the rule from the message. The levels are
+    // mid-step, or the finest batch's window between their EVOL and its end
+    // of step, so the reason states the rule, which covers both.
     levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(int(groupdata.mfab.size()) == ntls);
@@ -195,12 +197,12 @@ void InvalidateEndOfStepResults(const int min_level, const int max_level) {
         for (int vi = 0; vi < numvars; ++vi)
           groupdata.valid.at(tl).at(vi).set_invalid(
               make_valid_all(), [level = leveldata.level] {
-                return "Level " + std::to_string(level) +
-                       " is mid-step under subcycling: its end-of-step "
-                       "results (written in CCTK_POSTSTEP or CCTK_ANALYSIS) "
-                       "are invalid until its next end of step (see \"End "
-                       "of step under subcycling\" in the CarpetX "
-                       "documentation)";
+                return "Under subcycling, level " + std::to_string(level) +
+                       " has stepped since its last end of step: its "
+                       "end-of-step results (written in CCTK_POSTSTEP or "
+                       "CCTK_ANALYSIS) are invalid from its CCTK_EVOL until "
+                       "its next end of step (see \"End of step under "
+                       "subcycling\" in the CarpetX documentation)";
               });
     });
     // A no-op unless CarpetX::poison_undefined_values is set
