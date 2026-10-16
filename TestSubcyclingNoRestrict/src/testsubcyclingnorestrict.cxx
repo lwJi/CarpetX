@@ -146,14 +146,22 @@ extern "C" void TestSubcyclingNoRestrict_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingNoRestrict_Error;
   DECLARE_CCTK_PARAMETERS;
 
-  grid.loop_int_device<0, 0, 0>(
-      grid.nghostzones,
-      [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-        CCTK_REAL u0, rho0;
-        gaussian(amplitude, gaussian_width, cctk_time, p.x, p.y, p.z, u0, rho0);
-        u_err(p.I) = u(p.I) - u0;
-        rho_err(p.I) = rho(p.I) - rho0;
-      });
+  // Under subcycling the end-of-step bins must not SYNC, so this pointwise
+  // error is computed everywhere; without subcycling it is computed on the
+  // interior and SYNCed (see schedule.ccl)
+  const auto loop = [&](const auto &kernel) {
+    if (use_subcycling)
+      grid.loop_all_device<0, 0, 0>(grid.nghostzones, kernel);
+    else
+      grid.loop_int_device<0, 0, 0>(grid.nghostzones, kernel);
+  };
+
+  loop([=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+    CCTK_REAL u0, rho0;
+    gaussian(amplitude, gaussian_width, cctk_time, p.x, p.y, p.z, u0, rho0);
+    u_err(p.I) = u(p.I) - u0;
+    rho_err(p.I) = rho(p.I) - rho0;
+  });
 }
 
 } // namespace TestSubcyclingNoRestrict

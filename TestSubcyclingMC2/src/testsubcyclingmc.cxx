@@ -212,29 +212,34 @@ extern "C" void TestSubcyclingMC2_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_Error;
   DECLARE_CCTK_PARAMETERS;
 
+  // Under subcycling the end-of-step bins must not SYNC, so this pointwise
+  // error is computed everywhere; without subcycling it is computed on the
+  // interior and SYNCed (see schedule.ccl)
+  const auto loop = [&](const auto &kernel) {
+    if (use_subcycling)
+      grid.loop_all_device<0, 0, 0>(grid.nghostzones, kernel);
+    else
+      grid.loop_int_device<0, 0, 0>(grid.nghostzones, kernel);
+  };
+
   if (CCTK_EQUALS(initial_condition, "standing wave")) {
 
-    grid.loop_int_device<0, 0, 0>(
-        grid.nghostzones,
-        [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-          CCTK_REAL u0, rho0;
-          standing_wave(amplitude, standing_wave_kx, standing_wave_ky,
-                        standing_wave_kz, cctk_time, p.x, p.y, p.z, u0, rho0);
-          u_err(p.I) = u(p.I) - u0;
-          rho_err(p.I) = rho(p.I) - rho0;
-        });
+    loop([=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+      CCTK_REAL u0, rho0;
+      standing_wave(amplitude, standing_wave_kx, standing_wave_ky,
+                    standing_wave_kz, cctk_time, p.x, p.y, p.z, u0, rho0);
+      u_err(p.I) = u(p.I) - u0;
+      rho_err(p.I) = rho(p.I) - rho0;
+    });
 
   } else if (CCTK_EQUALS(initial_condition, "Gaussian")) {
 
-    grid.loop_int_device<0, 0, 0>(
-        grid.nghostzones,
-        [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
-          CCTK_REAL u0, rho0;
-          gaussian(amplitude, gaussian_width, cctk_time, p.x, p.y, p.z, u0,
-                   rho0);
-          u_err(p.I) = u(p.I) - u0;
-          rho_err(p.I) = rho(p.I) - rho0;
-        });
+    loop([=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+      CCTK_REAL u0, rho0;
+      gaussian(amplitude, gaussian_width, cctk_time, p.x, p.y, p.z, u0, rho0);
+      u_err(p.I) = u(p.I) - u0;
+      rho_err(p.I) = rho(p.I) - rho0;
+    });
 
   } else {
     CCTK_ERROR("Unknown initial condition");

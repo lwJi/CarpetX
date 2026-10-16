@@ -14,3 +14,7 @@ CCTK_REAL u_floor "Floor on u_nr: ODESolvers_PostStep sets u_nr = max(u_nr, u_fl
 {
   *:* :: ""
 } -1.0e+30
+
+SHARES: Driver
+
+USES BOOLEAN use_subcycling
