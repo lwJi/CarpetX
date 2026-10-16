@@ -1,7 +1,7 @@
 # Schedule definitions for thorn TestSubcycleStepping
 
 STORAGE: iteration postrestrict prerestrict tail_context analysis_context
-STORAGE: recovery_counts step_counts
+STORAGE: restricted_result recovery_counts step_counts
 
 schedule TestSubcycleStepping_Init AT INITIAL
 {
@@ -81,6 +81,24 @@ schedule TestSubcycleStepping_StampAnalysis AT post_recover_variables AFTER Test
   READS: postrestrict(everywhere)
   WRITES: analysis_context(everywhere)
 } "stamp the levels of a recovery traversal with its context"
+
+
+
+# restricted_result: an end-of-step result tagged restrict="yes"
+# (interface.ccl). Under subcycling a run with two or more levels completes
+# only if the driver's restrictions leave it out.
+
+schedule TestSubcycleStepping_StampRestricted AT initial
+{
+  LANG: C
+  WRITES: restricted_result(everywhere)
+} "stamp the restricted end-of-step result after the initial data"
+
+schedule TestSubcycleStepping_StampRestricted AT analysis
+{
+  LANG: C
+  WRITES: restricted_result(everywhere)
+} "stamp the restricted end-of-step result at the end of step"
 
 
 

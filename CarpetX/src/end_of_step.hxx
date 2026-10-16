@@ -26,7 +26,12 @@
 // until its next end of step writes them: InvalidateEndOfStepResults, called
 // by Evolve on each batch right after its EVOL. A level's own PRESTEP and
 // EVOL still read the results of its last end of step, which describe the
-// state the step starts from. A routine that READS such a result on a
+// state the step starts from. The driver's restriction of a window, and the
+// prolongation that follows it, leave every end-of-step result out, whatever
+// its tags (window_restricts in sync_restrict.cxx): in Evolve every level the
+// restriction reads has stepped since its last end of step and holds them as
+// invalid, and the end of step after the restriction rewrites them on every
+// level of the window. A routine that READS such a result on a
 // mid-step level gets the usual invalid-input error, whose reason states this
 // rule, and output shows the results as invalid. The mid-step levels are
 // always a coarse prefix of the hierarchy. Recovery reproduces this: it

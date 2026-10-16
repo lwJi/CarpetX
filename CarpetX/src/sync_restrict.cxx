@@ -193,9 +193,21 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
 // from it. The selectors read the flags on patch 0, level 0; every patch and
 // level carries the same ones.
 
-// The groups the end-of-step restriction restricts: those whose restrict
-// tag is "yes", where a missing restrict tag takes the value of the
-// checkpoint tag, and a missing checkpoint tag counts as "yes"
+// The group rule of the end-of-step restriction, shared by the next two
+// selectors: groups whose restrict tag is "yes", where a missing restrict tag
+// takes the value of the checkpoint tag, and a missing checkpoint tag counts
+// as "yes", but never an end-of-step result (end_of_step.hxx), whatever its
+// tags. Under subcycling every level that the restriction of a window reads
+// has stepped since its last end of step, so it holds its end-of-step
+// results as invalid, and the end of step that follows the restriction
+// rewrites them on every level of the window. Without subcycling there are
+// no end-of-step results.
+static bool
+window_restricts(const GHExt::PatchData::LevelData::GroupData &groupdata) {
+  return groupdata.do_restrict && !is_end_of_step_result(groupdata.groupindex);
+}
+
+// The groups the end-of-step restriction restricts (window_restricts)
 std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -210,7 +222,7 @@ std::vector<int> collect_restrictable_groups() {
       if (groupdata.mfab.empty())
         continue;
       // Only grid functions with restriction enabled
-      if (groupdata.do_restrict)
+      if (window_restricts(groupdata))
         groups.push_back(groupdata.groupindex);
     }
   }
@@ -234,7 +246,7 @@ static std::vector<int> reprolongate_groups() {
       if (groupdata.mfab.empty())
         continue;
       const int gi = groupdata.groupindex;
-      if (groupdata.do_restrict ||
+      if (window_restricts(groupdata) ||
           (ghext->use_subcycling && group_is_integrated(gi)))
         groups.push_back(gi);
     }

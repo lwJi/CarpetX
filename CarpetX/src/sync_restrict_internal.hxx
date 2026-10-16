@@ -10,8 +10,9 @@ namespace CarpetX {
 // Intra-CarpetX symbols defined in sync_restrict.cxx and called from
 // schedule.cxx. Not part of the public schedule.hxx surface.
 
-// The groups the end-of-step restriction restricts (the restrict tag); one of
-// the group selectors in sync_restrict.cxx
+// The groups the end-of-step restriction restricts (the restrict tag, but
+// never an end-of-step result); one of the group selectors in
+// sync_restrict.cxx
 std::vector<int> collect_restrictable_groups();
 
 // Restrict exactly `groups`, every level pair (level, level + 1) with both

@@ -97,6 +97,18 @@ void TestSubcycleStepping_StampAnalysis(CCTK_ARGUMENTS)
 }
 
 extern "C"
+void TestSubcycleStepping_StampRestricted(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_StampRestricted;
+
+  // Everywhere, as TestSubcycleStepping_StampTail
+  grid.loop_all<0,0,0>(grid.nghostzones, [=] CCTK_HOST(const Loop::PointDesc &pt) {
+    restricted_result(pt.I) = 100 + 10 * cctk_iteration + 1 * cctk_level;
+  });
+
+}
+
+extern "C"
 void TestSubcycleStepping_CountStepPostStep(CCTK_ARGUMENTS)
 {
   DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_CountStepPostStep;

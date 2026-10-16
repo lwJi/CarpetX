@@ -25,6 +25,16 @@ CCTK_REAL analysis_context TYPE=GF CENTERING={VVV} TAGS='checkpoint="no"'
   analysis_iteration analysis_postrestrict
 } "context of the last analysis or recovery traversal that covered each level"
 
+# An end-of-step result whose tags ask the driver to restrict it. Under
+# subcycling the driver never does: the levels that a window's restriction
+# reads have stepped since their last end of step, so they hold it as
+# invalid, and the end of step that follows rewrites it on every window
+# level. It is also stamped at CCTK_INITIAL, so that it is valid wherever
+# nothing has invalidated it. Not checkpointed, so that the frozen
+# checkpoints of the recover tests still recover, and not output, since the
+# end of step overwrites whatever a restriction would have left.
+CCTK_REAL restricted_result TYPE=GF CENTERING={VVV} TAGS='checkpoint="no" restrict="yes"' "end-of-step result tagged for restriction"
+
 # Number of traversals of CCTK_POSTSTEP and CCTK_ANALYSIS, the initial-data
 # traversals included, since the start of the run or the restart. Not
 # checkpointed, so that checkpoints written before these counts existed still

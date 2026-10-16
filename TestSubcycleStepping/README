@@ -82,6 +82,16 @@ Initialization runs CCTK_POSTSTEP once over every level, with the finest
 level's context as at every aligned pass, so it stamps every level with
 (0,0,4) and pr(0,L).
 
+"restricted_result" (checkpoint="no", restrict="yes") is stamped everywhere
+at CCTK_INITIAL and in CCTK_ANALYSIS. It is an end-of-step result whose tags
+ask the driver to restrict it, which under subcycling the driver must never
+do: when it restricts a window, every level of the window has stepped since
+its last end of step and holds the stamp as invalid, so a restriction that
+read it would stop the run. The tests that activate this thorn therefore
+complete only if the driver leaves end-of-step results out of its
+restrictions. The stamp is not output, since the end of step overwrites it
+on every level of the window right after the restriction.
+
 "step_counts" (grid scalars, checkpoint="no") count every traversal of
 CCTK_POSTSTEP (step_count_poststep) and CCTK_ANALYSIS (step_count_analysis),
 the one after the initial data included. Each runs once per iteration, so
