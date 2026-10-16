@@ -160,3 +160,9 @@ void TestSubcycleStepping_CountPostRestrict(CCTK_ARGUMENTS)
   if (*counting)
     ++*count_postrestrict;
 }
+
+extern "C"
+void TestSubcycleStepping_SyncInTail(CCTK_ARGUMENTS)
+{
+  // do nothing: the SYNC clause on this routine is the test
+}

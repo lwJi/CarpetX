@@ -625,11 +625,43 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
   return numgroups; // number of groups synchronized
 }
 
+// Abort if a sync is requested while the driver traverses an end-of-step bin
+// (GHExt::tail_bin) under subcycling. Under subcycling every sync passes
+// through SyncGroupsByDirISubcycling: a SYNC clause, an explicit
+// CCTK_SyncGroup* call, and a sync in a nested schedule group (Initialise
+// rejects presync-only mode, whose syncs would bypass it). The check runs
+// before the groups are filtered, so that a SYNC of a group without storage
+// or of a non-GF group aborts too.
+static void error_if_sync_in_tail(const int numgroups, const int *groups0) {
+  if (!ghext->tail_bin || numgroups == 0)
+    return;
+  std::ostringstream groupnames;
+  for (int n = 0; n < numgroups; ++n) {
+    const char *const groupname = CCTK_FullGroupName(groups0[n]);
+    if (n != 0)
+      groupnames << ", ";
+    groupnames << (groupname ? groupname : "(unknown group)");
+  }
+  const cFunctionData *const func = ghext->last_called_function;
+  CCTK_VERROR(
+      "%s::%s (%s) requested SYNC of %s with CarpetX::use_subcycling = yes. "
+      "End-of-step bins see finalized data and must not sync under "
+      "subcycling. Remove the SYNC: write pointwise outputs everywhere; "
+      "outputs that need a stencil stay interior and their ghosts are "
+      "invalid. See \"End-of-step bins under subcycling\" in the CarpetX "
+      "documentation.",
+      func ? func->thorn : "(unknown thorn)",
+      func ? func->routine : "(unknown routine)", ghext->tail_bin,
+      groupnames.str().c_str());
+}
+
 int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
                                const int *groups0, const int *directions) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
+
+  error_if_sync_in_tail(numgroups, groups0);
 
   mark_sync_active marked;
 

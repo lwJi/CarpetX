@@ -8,6 +8,7 @@
 #include <tuple.hxx>
 
 #include <cctk.h>
+#include <cctk_Schedule.h>
 
 #include <AMReX.H>
 #include <AMReX_AmrCore.H>
@@ -589,6 +590,17 @@ struct GHExt {
   // then be at other times, so error messages read it to explain that a
   // result read across levels must be checkpointed.
   bool in_recovery_traversal = false;
+
+  // The end-of-step bin the driver is traversing (Evolve's and Initialise's
+  // CCTK_POSTSTEP or CCTK_ANALYSIS), or nullptr. Set only by
+  // tail_traversal_scope. Under subcycling, SyncGroupsByDirISubcycling aborts
+  // while it is set: end-of-step bins see finalized data and must not sync.
+  const char *tail_bin = nullptr;
+  // The routine CallFunction dispatched last, set on entry and again on exit,
+  // so it still names the routine when the flesh fires its SYNC clause after
+  // the routine has returned. Read only by the error message of the
+  // end-of-step sync check.
+  const cFunctionData *last_called_function = nullptr;
 
   // CarpetX::do_reflux, cached in InitGH next to use_subcycling. Read from
   // here rather than through DECLARE_CCTK_PARAMETERS in the GroupData

@@ -1338,6 +1338,20 @@ struct recovery_traversal_scope {
   recovery_traversal_scope &
   operator=(const recovery_traversal_scope &) = delete;
 };
+
+// Marks the driver's own traversal of an end-of-step bin (CCTK_POSTSTEP or
+// CCTK_ANALYSIS) in Evolve and Initialise (GHExt::tail_bin). Under
+// subcycling, SyncGroupsByDirISubcycling aborts on any sync while it is set.
+struct tail_traversal_scope {
+  explicit tail_traversal_scope(const char *const bin) {
+    assert(bin);
+    assert(!ghext->tail_bin);
+    ghext->tail_bin = bin;
+  }
+  ~tail_traversal_scope() { ghext->tail_bin = nullptr; }
+  tail_traversal_scope(const tail_traversal_scope &) = delete;
+  tail_traversal_scope &operator=(const tail_traversal_scope &) = delete;
+};
 } // namespace
 
 // Traverse CCTK_POST_RECOVER_VARIABLES once per clock group, coarse to fine.
@@ -1445,6 +1459,14 @@ int Initialise(tFleshConfig *config) {
   if (use_subcycling && restrict_during_sync)
     CCTK_ERROR("CarpetX requires CarpetX::restrict_during_sync = "
                "\"no\" when CarpetX::use_subcycling = \"yes\"");
+
+  // Check presync_mode when use_subcycling is on: in presync-only mode
+  // CallFunction and CycleTimelevels sync through SyncGroupsByDirI, which
+  // bypasses the subcycling sync (SyncGroupsByDirISubcycling), its time
+  // interpolation and its end-of-step check
+  if (use_subcycling && CCTK_EQUALS(presync_mode, "presync-only"))
+    CCTK_ERROR("CarpetX requires Cactus::presync_mode = \"mixed-error\" when "
+               "CarpetX::use_subcycling = \"yes\"");
 
   // Initialise iteration and time
   cctkGH->cctk_iteration = 0;
@@ -1719,10 +1741,18 @@ int Initialise(tFleshConfig *config) {
     CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
   }
 
-  // Checkpoint, analysis, output
-  CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+  // Checkpoint, analysis, output. Only the end-of-step bins are marked, so
+  // that under subcycling a sync in them aborts before evolution starts;
+  // CCTK_CPINITIAL may sync.
+  {
+    const tail_traversal_scope scope("CCTK_POSTSTEP");
+    CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+  }
   CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
-  CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+  {
+    const tail_traversal_scope scope("CCTK_ANALYSIS");
+    CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+  }
   if (out_initial_data) {
     CCTK_OutputGH(cctkGH);
   }
@@ -2196,9 +2226,16 @@ int Evolve(tFleshConfig *config) {
         // batch that steps ahead of the finest level runs no end-of-step
         // bins; its levels keep their last end-of-step results until a later
         // window covers them. Without subcycling there is one batch over all
-        // levels, so this changes nothing.
-        CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
-        CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+        // levels, so this changes nothing. Under subcycling the window is
+        // final and a sync in either bin aborts (tail_traversal_scope).
+        {
+          const tail_traversal_scope scope("CCTK_POSTSTEP");
+          CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+        }
+        {
+          const tail_traversal_scope scope("CCTK_ANALYSIS");
+          CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+        }
 
         // Every level of the widened window has now run its end of step at
         // this iteration; the recovery hint in error_if_parent_invalid reads
@@ -2409,6 +2446,11 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
 #pragma omp critical
     CCTK_VINFO("CallFunction iteration %d %s: %s::%s", cctkGH->cctk_iteration,
                attribute->where, attribute->thorn, attribute->routine);
+
+  // For the end-of-step sync check's message. ghext is gone once
+  // CarpetX_Shutdown has run, while meta-mode routines are still called.
+  if (ghext)
+    ghext->last_called_function = attribute;
 
   static std::map<cFunctionData *restrict, Timer> timers;
 
@@ -2746,6 +2788,12 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       }
     }
   }
+
+  // The flesh fires this routine's SYNC clause after we return. A nested
+  // CallScheduleGroup may have overwritten last_called_function, so that a
+  // sync check would name the wrong routine: set it again.
+  if (ghext)
+    ghext->last_called_function = attribute;
 
   constexpr int didsync = 0;
   return didsync;
