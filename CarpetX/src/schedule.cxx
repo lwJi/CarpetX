@@ -112,7 +112,9 @@ int WidenMinLevel(int initial_min_level, rat64 target_iteration) {
 // The clock groups, coarse to fine: maximal runs [min_level, max_level) of
 // adjacent levels that share one clock. Each is the window WidenMinLevel
 // produces from the group's finest level, i.e. the window in which the
-// group's levels last ran their end of step. Without subcycling every level
+// group's levels last stepped. Only the finest group has also run its end of
+// step there (it is finalized); a coarser group is ahead of the finest level
+// and has not been finalized at its clock yet. Without subcycling every level
 // shares one clock, so there is a single group [0, num_levels). Reads only
 // patch 0, like WidenMinLevel.
 std::vector<std::pair<int, int> > ClockGroups() {
@@ -1343,10 +1345,14 @@ struct recovery_traversal_scope {
 // during evolution: cctk_iteration is the group's last_step_iteration,
 // and cctk_time and cctk_timefac are what Evolve set when the group's finest
 // level last stepped (SetStepTime). No coarser level has changed since then,
-// so a level-mode routine recomputes what it computed during evolution, and
-// global-mode routines run once per group, as once per window during
-// evolution. Logs one line per group and a closing note whatever
-// CarpetX::verbose is set to.
+// so a routine sees the state the group held then. For the finest group,
+// which the last end-of-step window covered, that reproduces what the
+// end-of-step bins computed during evolution. A coarser group is provisional
+// (it has stepped but not yet been finalized at its clock), so diagnostics
+// recomputed here may differ from the uninterrupted run's, which still show
+// the group's last finalized time, until a later window finalizes it.
+// Global-mode routines run once per group. Logs one line per group and a
+// closing note whatever CarpetX::verbose is set to.
 static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
   const recovery_traversal_scope scope;
 
@@ -2181,16 +2187,26 @@ int Evolve(tFleshConfig *config) {
           ProlongateAfterRestriction(cctkGH);
           CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
         }
+
+        // End of step, once per iteration: only the batch that steps the
+        // finest level (always the last batch) runs POSTSTEP and ANALYSIS,
+        // after the restriction above, on the widened window. Every level of
+        // that window now shares the finest level's time and has received
+        // all restriction and reflux for it, i.e. it is finalized. A coarser
+        // batch that steps ahead of the finest level runs no end-of-step
+        // bins; its levels keep their last end-of-step results until a later
+        // window covers them. Without subcycling there is one batch over all
+        // levels, so this changes nothing.
+        CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
+        CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
+
+        // Every level of the widened window has now run its end of step at
+        // this iteration; the recovery hint in error_if_parent_invalid reads
+        // it
+        active_levels->loop_serially([&](auto &restrict leveldata) {
+          leveldata.last_finalized_iteration = cctkGH->cctk_iteration;
+        });
       }
-
-      CCTK_Traverse(cctkGH, "CCTK_POSTSTEP");
-      CCTK_Traverse(cctkGH, "CCTK_ANALYSIS");
-
-      // Every level of the widened window has now run its end of step at
-      // this iteration; the recovery hint in error_if_parent_invalid reads it
-      active_levels->loop_serially([&](auto &restrict leveldata) {
-        leveldata.last_finalized_iteration = cctkGH->cctk_iteration;
-      });
     } // for min_level, max_level
 
     CCTK_Traverse(cctkGH, "CCTK_CHECKPOINT");

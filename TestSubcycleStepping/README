@@ -46,53 +46,85 @@ pass; a difference means the hook and the restriction have drifted apart.
 CCTK_POSTSTEP traversal whose window covered the level: tail_iteration,
 tail_time and tail_timefac are that traversal's cctk_iteration, cctk_time and
 cctk_timefac. It is stamped everywhere, so it needs no SYNC, and after a
-restart it is also stamped in CCTK_POST_RECOVER_VARIABLES. Under subcycling a
-POSTSTEP window is the level just evolved, widened down to every coarser
-level that shares its clock, and it sees the evolved level's context:
-cctk_time = cctk_delta_time * that level's clock and cctk_timefac = 2^(that
-level). With 3 levels (test/subcycle_3levels.par, where cctk_delta_time = 1)
-the stamps (iteration, time, timefac) after each pass of the first coarse
-step are:
+restart it is also stamped in CCTK_POST_RECOVER_VARIABLES. Under subcycling
+CCTK_POSTSTEP (and CCTK_ANALYSIS) runs once per pass, after the batch that
+steps the finest level and after the restriction: its window is the finest
+level, widened down to every coarser level that now shares its clock, i.e.
+the levels this pass finalized. It sees the finest level's context:
+cctk_time = cctk_delta_time * the finest clock and cctk_timefac = 2^(finest
+level). A coarser level that steps ahead of the finest level gets no
+end-of-step window until the finest level catches up with it. With 3 levels
+(test/subcycle_3levels.par, where cctk_delta_time = 1) the stamps
+(iteration, time, timefac) after each pass of the first coarse step are:
 
-  pass 1: windows [0,1) [1,2) [2,3)   L0 (1,1,1)  L1 (1,1/2,2)  L2 (1,1/4,4)
-  pass 2: window  [1,3)               L0 (1,1,1)  L1 (2,1/2,4)  L2 (2,1/2,4)
-  pass 3: windows [0,2) [2,3)         L0 (3,1,2)  L1 (3,1,2)    L2 (3,3/4,4)
-  pass 4: window  [0,3)               L0 (4,1,4)  L1 (4,1,4)    L2 (4,1,4)
+  pass 1: window [2,3)   L0 (0,0,4)  L1 (0,0,4)    L2 (1,1/4,4)
+  pass 2: window [1,3)   L0 (0,0,4)  L1 (2,1/2,4)  L2 (2,1/2,4)
+  pass 3: window [2,3)   L0 (0,0,4)  L1 (2,1/2,4)  L2 (3,3/4,4)
+  pass 4: window [0,3)   L0 (4,1,4)  L1 (4,1,4)    L2 (4,1,4)
 
 The second coarse step repeats this with iterations 5 to 8 and times larger
 by 1. Initialization runs CCTK_POSTSTEP once over every level, with the
 finest level's context as at every aligned pass, so it stamps every level
-with (0,0,4). A level keeps its stamp until a later window covers it, e.g.
-level 0 keeps iteration 1 through pass 2.
+with (0,0,4). A level keeps its stamp until it is finalized, i.e. until a
+later window covers it: level 0 keeps (0,0,4) through pass 3, and level 1
+keeps (2,1/2,4) through pass 3. Each level's stamp changes once per step of
+that level, and its time never repeats.
 
 After a restart, recovery traverses CCTK_POST_RECOVER_VARIABLES once per
 clock group (a run of adjacent levels that share a clock), coarse to fine.
-Each traversal covers the group's levels and sees the context of the window
-in which they last ran CCTK_POSTSTEP, so after recovery every level holds
-the stamp the uninterrupted run holds after the checkpointed pass.
-Restarting the 3-level run from each pass of the second coarse step gives
-these traversals, each with its window and its (iteration, time, timefac):
+Each traversal covers the group's levels and sees the context in which they
+last stepped: the widened window after the group's finest level last
+stepped, with that level's context. The finest clock group shares the
+finest level's clock, so the last pass also finalized it, and it holds the
+stamp the uninterrupted run holds after the checkpointed pass. Every coarser
+group is provisional: it has stepped ahead of the finest level but has not
+been finalized at its clock yet, so after recovery it holds its last-step
+context while the uninterrupted run still holds the stamp of its last
+finalization. The two agree again from the first window that covers the
+group. Restarting the 3-level run from each pass of the second coarse step
+gives these traversals, each with its window and its (iteration, time,
+timefac):
 
   from iteration 5 (clocks 2, 3/2, 5/4): [0,1) (5,2,1)  [1,2) (5,3/2,2)  [2,3) (5,5/4,4)
   from iteration 6 (clocks 2, 3/2, 3/2): [0,1) (5,2,1)  [1,3) (6,3/2,4)
   from iteration 7 (clocks 2, 2, 7/4):   [0,2) (7,2,2)  [2,3) (7,7/4,4)
   from iteration 8 (clocks 2, 2, 2):     [0,3) (8,2,4)
 
+Only the last group of each row is finalized; e.g. from iteration 5 the
+uninterrupted run holds (4,1,4) on levels 0 and 1 until they are finalized
+at iterations 8 and 6.
+
 The recover tests in TestSubcyclingMC2/test,
 recover-subcycling-openpmd-3clocks.par and -4clocks.par, output such stamps
-after restarts from iterations 5 and 9; their references equal the
-uninterrupted run's (checkpoint-subcycling-openpmd-3clocks and -4clocks).
-recover-subcycling-openpmd-addlevel.par does the same after a restart from
-iteration 6, right after a regrid added a fourth level (clocks 2, 3/2, 3/2,
-11/8): level 0 last stepped in iteration 5, before level 3 existed, so its
-traversal [0,1) sees iteration 5, where the clocks alone would give 4.
-recover-subcycling-silo-3clocks.par repeats the 3-clock restart from a Silo
-checkpoint, in relaxed recovery mode; its references equal those of
-recover-subcycling-openpmd-3clocks. recover-subcycling-openpmd-iteration0.par
-restarts from the initial checkpoint (IO::checkpoint_ID), where every clock
-is 0: one traversal [0,3) (0,0,4), the initialization stamp, and its
-references, iteration 0 included, equal the uninterrupted run's
+after restarts from iterations 5 and 9. Their references equal the
+uninterrupted run's (checkpoint-subcycling-openpmd-3clocks and -4clocks)
+except on provisional levels before their next finalization: level 0 at
+iteration 6 (3 clocks) and 12 (4 clocks) holds its recovery stamp, (5,2,1)
+and (9,2,1) in units of cctk_delta_time, where the uninterrupted run holds
+(4,1,4) and (8,1,8). TestSubcyclingMC2's error, recomputed in the same
+traversal, differs on the same rows. recover-subcycling-openpmd-addlevel.par
+does the same after a restart from iteration 6, right after a regrid added a
+fourth level (clocks 2, 3/2, 3/2, 11/8): level 0 last stepped in iteration
+5, before level 3 existed, so its traversal [0,1) sees iteration 5, where
+the clocks alone would give 4; it holds (5,2,1) at iterations 7 and 8, where
+the uninterrupted run holds (4,1,4). recover-subcycling-silo-3clocks.par
+repeats the 3-clock restart from a Silo checkpoint, in relaxed recovery
+mode; its references equal those of recover-subcycling-openpmd-3clocks.
+recover-subcycling-openpmd-iteration0.par restarts from the initial
+checkpoint (IO::checkpoint_ID), where every clock is 0: one traversal [0,3)
+(0,0,4), the initialization stamp, and its references, iteration 0
+included, equal the uninterrupted run's
 (checkpoint-subcycling-openpmd-iteration0) except for recovery_counts.
+Iteration 1's tail_context and error are not compared in this test. The
+checkpoint was written on 1 process; recovered on 2, the regrid at the top
+of iteration 1 splits each level into two boxes and remakes levels 1 and 2,
+and a remake does not carry groups that are not checkpointed. Level 1 then
+steps ahead of the finest level, so its tail_context and error stay
+poisoned until level 1 is finalized at iteration 2, while on 1 process (and
+in the uninterrupted run) nothing is remade and level 1 still holds
+(0,0,4). The reference therefore omits those two variables at iteration 1;
+the state at iteration 1, and every variable from iteration 2 on, are
+compared as usual.
 
 "recovery_counts" (grid scalars, checkpoint="no") count the traversals of
 CCTK_POST_RECOVER_VARIABLES (count_post_recover), CCTK_POSTSTEP
