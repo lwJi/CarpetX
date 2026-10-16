@@ -164,7 +164,8 @@ void error(const GridDescBaseDevice &grid, const CCTK_REAL time,
            const GF3D2<CCTK_REAL> &u_err, const GF3D2<CCTK_REAL> &rho_err) {
   DECLARE_CCTK_PARAMETERS;
 
-  // Under subcycling the end-of-step bins must not SYNC, so this pointwise
+  // Under subcycling the end-of-step bins may SYNC only when their window
+  // holds every level, and this runs in every iteration, so this pointwise
   // error is computed everywhere; without subcycling it is computed on the
   // interior and SYNCed (see schedule.ccl)
   const auto loop = [&](const auto &kernel) {

@@ -54,10 +54,11 @@ SCHEDULE TestSubcyclingMixedProlong_RHS_hi IN ODESolvers_RHS
 } "Calculate scalar wave RHS (wide prolongation stencil)"
 
 # error_lo and error_hi are not checkpointed: compute them at the end of each
-# step, and again after a restart, once the state's ghosts are refilled.
-# End-of-step bins must not SYNC under subcycling, so there these pointwise
-# errors are written everywhere; without subcycling they are written on the
-# interior and SYNCed
+# step, and again after a restart, once the state's ghosts are refilled. This
+# group runs in every iteration, and under subcycling an end-of-step bin may
+# SYNC only when its window holds every level, so there these pointwise errors
+# are written everywhere; without subcycling they are written on the interior
+# and SYNCed
 SCHEDULE GROUP TestSubcyclingMixedProlong_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"

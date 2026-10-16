@@ -626,14 +626,26 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
 }
 
 // Abort if a sync is requested while the driver traverses an end-of-step bin
-// (GHExt::tail_bin) under subcycling. Under subcycling every sync passes
-// through SyncGroupsByDirISubcycling: a SYNC clause, an explicit
-// CCTK_SyncGroup* call, and a sync in a nested schedule group (Initialise
-// rejects presync-only mode, whose syncs would bypass it). The check runs
-// before the groups are filtered, so that a SYNC of a group without storage
-// or of a non-GF group aborts too.
-static void error_if_sync_in_tail(const int numgroups, const int *groups0) {
+// (GHExt::tail_bin) under subcycling, unless the window holds every level.
+// The levels of the window share one time, so a sync among them is sound. A
+// window that starts above level 0 has a coarser neighbour outside it that
+// has stepped ahead and has not been finalized, and syncing the window's
+// coarsest level would fill its coarse-fine ghosts from that level's data of
+// another time. This is the condition under which interpolation across
+// levels aborts too. Under subcycling every sync passes through
+// SyncGroupsByDirISubcycling: a SYNC clause, an explicit CCTK_SyncGroup*
+// call, and a sync in a nested schedule group (Initialise rejects
+// presync-only mode, whose syncs would bypass it). The check runs before the
+// groups are filtered, so that a SYNC of a group without storage or of a
+// non-GF group aborts too.
+static void error_if_sync_in_tail(const cGH *restrict const cctkGH,
+                                  const int numgroups, const int *groups0) {
   if (!ghext->tail_bin || numgroups == 0)
+    return;
+  assert(active_levels);
+  const int min_level = active_levels->min_level;
+  const int max_level = active_levels->max_level;
+  if (min_level == 0)
     return;
   std::ostringstream groupnames;
   for (int n = 0; n < numgroups; ++n) {
@@ -644,15 +656,19 @@ static void error_if_sync_in_tail(const int numgroups, const int *groups0) {
   }
   const cFunctionData *const func = ghext->last_called_function;
   CCTK_VERROR(
-      "%s::%s (%s) requested SYNC of %s with CarpetX::use_subcycling = yes. "
-      "End-of-step bins see finalized data and must not sync under "
-      "subcycling. Remove the SYNC: write pointwise outputs everywhere; "
-      "outputs that need a stencil stay interior and their ghosts are "
-      "invalid. See \"End-of-step bins under subcycling\" in the CarpetX "
-      "documentation.",
+      "%s::%s (%s) requested SYNC of %s at iteration %d with "
+      "CarpetX::use_subcycling = yes, while the end-of-step window holds only "
+      "levels [%d,%d). The sync would fill the coarse-fine ghosts of level %d "
+      "from level %d, which has stepped ahead and has not been finalized. "
+      "Under subcycling an end-of-step bin may sync only at iterations at "
+      "which the window holds every level. Otherwise remove the SYNC: write "
+      "pointwise outputs everywhere; outputs that need a stencil stay interior "
+      "and their ghosts are invalid. See \"End-of-step bins under subcycling\" "
+      "in the CarpetX documentation.",
       func ? func->thorn : "(unknown thorn)",
       func ? func->routine : "(unknown routine)", ghext->tail_bin,
-      groupnames.str().c_str());
+      groupnames.str().c_str(), cctkGH->cctk_iteration, min_level, max_level,
+      min_level, min_level - 1);
 }
 
 int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
@@ -661,7 +677,7 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 
-  error_if_sync_in_tail(numgroups, groups0);
+  error_if_sync_in_tail(cctkGH, numgroups, groups0);
 
   mark_sync_active marked;
 

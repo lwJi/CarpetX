@@ -1,8 +1,9 @@
 # Parameter definitions for thorn TestSubcycleStepping
 
 # Fixture for the driver's end-of-step sync check: schedule a routine in
-# CCTK_ANALYSIS that SYNCs. Under subcycling the run must abort (see README
-# and par/sync_in_tail.par); the testsuite never sets it.
+# CCTK_ANALYSIS that SYNCs. Under subcycling the run must abort at the first
+# iteration whose window does not hold every level (see README and
+# par/sync_in_tail.par); the testsuite never sets it.
 BOOLEAN sync_in_tail "SYNC in ANALYSIS; must abort under subcycling"
 {
 } no

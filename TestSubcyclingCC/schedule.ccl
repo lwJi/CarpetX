@@ -39,8 +39,9 @@ SCHEDULE TestSubcyclingCC_RHS IN ODESolvers_RHS
 } "Calculate scalar wave RHS"
 
 # error is not checkpointed: compute it at the end of each step, and again after
-# a restart, once the state's ghosts are refilled. End-of-step bins must not
-# SYNC under subcycling, so there the pointwise error is written everywhere;
+# a restart, once the state's ghosts are refilled. This group runs in every
+# iteration, and under subcycling an end-of-step bin may SYNC only when its
+# window holds every level, so there the pointwise error is written everywhere;
 # without subcycling it is written on the interior and SYNCed
 SCHEDULE GROUP TestSubcyclingCC_Diagnostics AT analysis
 {

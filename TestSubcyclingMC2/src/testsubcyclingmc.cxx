@@ -212,7 +212,8 @@ extern "C" void TestSubcyclingMC2_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_Error;
   DECLARE_CCTK_PARAMETERS;
 
-  // Under subcycling the end-of-step bins must not SYNC, so this pointwise
+  // Under subcycling the end-of-step bins may SYNC only when their window
+  // holds every level, and this runs in every iteration, so this pointwise
   // error is computed everywhere; without subcycling it is computed on the
   // interior and SYNCed (see schedule.ccl)
   const auto loop = [&](const auto &kernel) {

@@ -1354,7 +1354,8 @@ struct recovery_traversal_scope {
 
 // Marks the driver's own traversal of an end-of-step bin (CCTK_POSTSTEP or
 // CCTK_ANALYSIS) in Evolve and Initialise (GHExt::tail_bin). Under
-// subcycling, SyncGroupsByDirISubcycling aborts on any sync while it is set.
+// subcycling, SyncGroupsByDirISubcycling aborts on a sync while it is set,
+// unless the window holds every level.
 struct tail_traversal_scope {
   explicit tail_traversal_scope(const char *const bin) {
     assert(bin);
@@ -1791,9 +1792,9 @@ int Initialise(tFleshConfig *config) {
 
   FinalizeWindow(cctkGH, false);
 
-  // Checkpoint, analysis, output. Only the end-of-step bins are marked, so
-  // that under subcycling a sync in them aborts before evolution starts;
-  // CCTK_CPINITIAL may sync.
+  // Checkpoint, analysis, output. The end-of-step bins are marked as in
+  // Evolve; their window here holds every level, so a sync in them is legal
+  // also under subcycling.
   TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
   CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
   TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
@@ -2229,8 +2230,8 @@ int Evolve(tFleshConfig *config) {
     // of levels that now share its time, then traverse POSTSTEP and ANALYSIS
     // on it. A coarser level that stepped ahead of the finest level keeps its
     // last end-of-step results until a later window covers it. Without
-    // subcycling the window holds every level. Under subcycling the window
-    // is final and a sync in either bin aborts (tail_traversal_scope).
+    // subcycling the window holds every level. Under subcycling a sync in
+    // either bin aborts unless it does (tail_traversal_scope).
     FinalizeWindow(cctkGH, ghext->use_subcycling);
     TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
     TraverseTailBin(cctkGH, "CCTK_ANALYSIS");

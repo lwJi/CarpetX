@@ -594,7 +594,8 @@ struct GHExt {
   // The end-of-step bin the driver is traversing (Evolve's and Initialise's
   // CCTK_POSTSTEP or CCTK_ANALYSIS), or nullptr. Set only by
   // tail_traversal_scope. Under subcycling, SyncGroupsByDirISubcycling aborts
-  // while it is set: end-of-step bins see finalized data and must not sync.
+  // while it is set unless the window holds every level: otherwise a sync
+  // would read the coarse level outside the window, which is not finalized.
   const char *tail_bin = nullptr;
   // The routine CallFunction dispatched last, set on entry and again on exit,
   // so it still names the routine when the flesh fires its SYNC clause after

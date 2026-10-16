@@ -1,9 +1,10 @@
 # Expected to abort: the fixture for the driver's end-of-step sync check.
 # test/subcycle_3levels.par with TestSubcycleStepping::sync_in_tail = yes,
 # which schedules TestSubcycleStepping_SyncInTail (SYNC: tail_context) in
-# CCTK_ANALYSIS. Under subcycling the run must abort in initialization's
-# CCTK_ANALYSIS, before iteration 1, with an error that names the routine,
-# the bin and the group. It lives in par/ because the testsuite has no
+# CCTK_ANALYSIS. Under subcycling the SYNC at initialization passes (its
+# window holds every level), and the run must abort in iteration 1's
+# CCTK_ANALYSIS (window [2,3)) with an error that names the routine, the bin,
+# the group and the window. It lives in par/ because the testsuite has no
 # expected-failure mode; see README for how to run it.
 
 ActiveThorns = "

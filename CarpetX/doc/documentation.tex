@@ -1805,21 +1805,24 @@ A routine in \texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS} can rely on the 
 
 The thorn \texttt{TestSubcycleStepping} records each level's last end-of-step context and checks this sequence; its \texttt{README} lists the stamps.
 
-\subsection{End-of-step routines must not SYNC}
-\label{sec:end_of_step_no_sync}
+\subsection{End-of-step routines SYNC only when the window holds every level}
+\label{sec:end_of_step_sync}
 
-Under subcycling a routine in \texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS} must not synchronize. Every level in the window is finalized and the ghost zones of the evolved state are already valid, so these bins need no synchronization, and one on the window's coarsest level would fill its ghost zones from its parent outside the window, which is provisional. \CarpetX\space therefore aborts the run when a sync is requested while it traverses either bin, during initialization or evolution. This covers a \texttt{SYNC:} clause, an explicit \texttt{CCTK\_SyncGroup*} call, and a sync in a schedule group the routine calls. The check runs when the sync is requested, so a routine that is scheduled but switched off, e.g.\ by a parameter, is never reported, while a \texttt{SYNC:} of a group that would not be synchronized (no storage, not a grid function) still aborts. A routine that syncs therefore stops the run at initialization, before the first iteration. The message names the routine, the bin, the groups and the fix:
+Under subcycling a routine in \texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS} may synchronize only at iterations at which the end-of-step window holds every level, every $2^{N-1}$ iterations with $N$ levels, the same iterations at which interpolation across levels works (see the next subsection). The levels of the window share one time, so a sync among them is sound. A window that starts above level 0, however, has a coarser neighbour outside it that is provisional, and syncing the window's coarsest level would fill its coarse-fine ghost zones from that neighbour's data of another time. \CarpetX\space therefore aborts the run when a sync is requested while it traverses either bin on such a window. This covers a \texttt{SYNC:} clause, an explicit \texttt{CCTK\_SyncGroup*} call, and a sync in a schedule group the routine calls. The check runs when the sync is requested, so a routine that is scheduled but switched off, e.g.\ by a parameter, is never reported, while a \texttt{SYNC:} of a group that would not be synchronized (no storage, not a grid function) still aborts. Initialization runs these bins on every level, so a sync there is legal; a routine that syncs in every iteration stops the run at iteration 1 when there are two or more levels. The message names the routine, the bin, the groups, the window and the fix:
 %
 \begin{lstlisting}
 TestSubcycleStepping::TestSubcycleStepping_SyncInTail (CCTK_ANALYSIS) requested
-SYNC of TESTSUBCYCLESTEPPING::TAIL_CONTEXT with CarpetX::use_subcycling = yes.
-End-of-step bins see finalized data and must not sync under subcycling. Remove
-the SYNC: write pointwise outputs everywhere; outputs that need a stencil stay
-interior and their ghosts are invalid. See "End-of-step bins under subcycling"
-in the CarpetX documentation.
+SYNC of TESTSUBCYCLESTEPPING::TAIL_CONTEXT at iteration 1 with
+CarpetX::use_subcycling = yes, while the end-of-step window holds only levels
+[2,3). The sync would fill the coarse-fine ghosts of level 2 from level 1, which
+has stepped ahead and has not been finalized. Under subcycling an end-of-step
+bin may sync only at iterations at which the window holds every level.
+Otherwise remove the SYNC: write pointwise outputs everywhere; outputs that need
+a stencil stay interior and their ghosts are invalid. See "End-of-step bins
+under subcycling" in the CarpetX documentation.
 \end{lstlisting}
 %
-How to remove the SYNC depends on what the routine computes:
+A routine that runs only at iterations at which the window holds every level, e.g.\ one that computes a stencil output such as $\Psi_4$ and synchronizes it before an interpolation onto spheres, keeps its SYNC. A routine that runs in every iteration has to remove it, and how depends on what the routine computes:
 %
 \begin{itemize}
 \item \emph{Pointwise outputs}, which depend only on the state at the same point (e.g.\ the error against an exact solution), are computed everywhere, interior and ghost zones, with \texttt{READS: state(everywhere)} and \texttt{WRITES: out(everywhere)}, and in the code with \texttt{grid.loop\_all\_device} instead of \texttt{grid.loop\_int\_device}.
@@ -1830,7 +1833,7 @@ The same schedule items usually run again in \texttt{CCTK\_POST\_RECOVER\_VARIAB
 
 Under subcycling every synchronization goes through the subcycling sync, which interpolates in time between a coarse level's time levels and performs this check. With \texttt{Cactus::presync\_mode = "presync-only"}, \CarpetX\space would instead synchronize the groups a routine \texttt{READS} by the non-subcycling sync, bypassing both. \CarpetX\space therefore requires \texttt{Cactus::presync\_mode = "mixed-error"} with subcycling and stops at startup otherwise.
 
-The thorn \texttt{TestSubcycleStepping} has a fixture that triggers this abort: the parameter file \texttt{par/sync\_in\_tail.par}, which is not part of the test suite; its \texttt{README} explains how to run it.
+The thorn \texttt{TestSubcycleStepping} has a fixture that triggers this abort at iteration 1, after the sync at initialization has passed: the parameter file \texttt{par/sync\_in\_tail.par}, which is not part of the test suite; its \texttt{README} explains how to run it.
 
 \subsection{Whole-hierarchy readers see provisional coarse levels}
 
@@ -1842,7 +1845,7 @@ The guarantees above cover the levels in the end-of-step window. A routine in th
 \item \emph{Output} (\texttt{CCTK\_OutputGH}) writes every level at every output iteration, provisional levels included.
 \end{itemize}
 %
-A thorn that needs whole-hierarchy results at a single finalized time computes them only at iterations at which every level shares one clock, i.e.\ when the end-of-step window holds every level.
+A thorn that needs whole-hierarchy results at a single finalized time computes them only at iterations at which every level shares one clock, i.e.\ when the end-of-step window holds every level. At these iterations it may also synchronize its outputs first (Sec.~\ref{sec:end_of_step_sync}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \section{Recovery}

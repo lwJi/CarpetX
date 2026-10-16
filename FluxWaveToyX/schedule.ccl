@@ -38,7 +38,8 @@ SCHEDULE FluxWaveToyX_RHS IN ODESolvers_RHS AFTER FluxWaveToyX_Fluxes
 
 # The diagnostics in this group are not checkpointed: compute them at the end
 # of each step, and again after a restart, once the state's ghosts are
-# refilled. End-of-step bins must not SYNC under subcycling, so there the
+# refilled. This group runs in every iteration, and under subcycling an
+# end-of-step bin may SYNC only when its window holds every level, so there the
 # pointwise error is written everywhere, while the outputs that need a stencil
 # are written on the interior only and their ghosts stay invalid. Without
 # subcycling every diagnostic is written on the interior and SYNCed
