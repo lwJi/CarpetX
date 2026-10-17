@@ -60,8 +60,8 @@ SCHEDULE TestSubcyclingNoRestrict_RHS IN ODESolvers_RHS
 # error is not checkpointed: compute it at the end of each step, and again after
 # a restart, once the state's ghosts are refilled. This group runs in every
 # iteration, and under subcycling an end-of-step bin may SYNC only when its
-# window holds every level, so there the pointwise error is written everywhere;
-# without subcycling it is written on the interior and SYNCed
+# window holds every level, so the pointwise error is written everywhere
+# instead of SYNCed
 SCHEDULE GROUP TestSubcyclingNoRestrict_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"
@@ -70,19 +70,9 @@ SCHEDULE GROUP TestSubcyclingNoRestrict_Diagnostics AT post_recover_variables AF
 {
 } "Calculate scalar wave diagnostics"
 
-if (use_subcycling) {
-  SCHEDULE TestSubcyclingNoRestrict_Error IN TestSubcyclingNoRestrict_Diagnostics
-  {
-    LANG: C
-    READS: state(everywhere)
-    WRITES: error(everywhere)
-  } "Calculate error in the restricted scalar wave state"
-} else {
-  SCHEDULE TestSubcyclingNoRestrict_Error IN TestSubcyclingNoRestrict_Diagnostics
-  {
-    LANG: C
-    READS: state(interior)
-    WRITES: error(interior)
-    SYNC: error
-  } "Calculate error in the restricted scalar wave state"
-}
+SCHEDULE TestSubcyclingNoRestrict_Error IN TestSubcyclingNoRestrict_Diagnostics
+{
+  LANG: C
+  READS: state(everywhere)
+  WRITES: error(everywhere)
+} "Calculate error in the restricted scalar wave state"
