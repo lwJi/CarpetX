@@ -37,3 +37,7 @@ KEYWORD boundary_condition "Boundary condition"
   "reflecting" :: "Apply a reflecting boundary condition"
   "radiative" :: "Apply a radiative boundary condition"
 } "CarpetX"
+
+SHARES: Driver
+
+USES BOOLEAN use_subcycling

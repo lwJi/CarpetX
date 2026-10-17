@@ -62,3 +62,7 @@ CCTK_INT add_level_at_iteration "From this iteration on, refined region 0 asks f
   0:* :: ""
 } -1
 
+
+SHARES: Driver
+
+USES BOOLEAN use_subcycling

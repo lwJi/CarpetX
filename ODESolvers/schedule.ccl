@@ -102,8 +102,8 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 #     POSTRESTRICT  (ODESolvers_PostStep runs here; under subcycling its
 #                    SYNC repairs the ghosts after the reflux and the
 #                    restriction, and it recomputes the dependents)
-#   POSTSTEP        (per level batch under subcycling)
-#   ANALYSIS        (per level batch under subcycling)
+#   POSTSTEP        (once, after all batches, on the finalized window)
+#   ANALYSIS        (once, after all batches, on the finalized window)
 #   CHECKPOINT      (once, after all batches)
 #   OutputGH        (once, after all batches)
 #

@@ -86,9 +86,11 @@ SCHEDULE TestSubcyclingMC2_RHS IN ODESolvers_RHS
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-# error is not checkpointed, and a level that lags its parent SYNCs it from
-# the parent: compute it at the end of each step, and again after a restart,
-# once the state's ghosts are refilled
+# error is not checkpointed: compute it at the end of each step, and again after
+# a restart, once the state's ghosts are refilled. This group runs in every
+# iteration, and under subcycling an end-of-step bin may SYNC only when its
+# window holds every level, so there the pointwise error is written everywhere;
+# without subcycling it is written on the interior and SYNCed
 SCHEDULE GROUP TestSubcyclingMC2_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"
@@ -97,10 +99,19 @@ SCHEDULE GROUP TestSubcyclingMC2_Diagnostics AT post_recover_variables AFTER ODE
 {
 } "Calculate scalar wave diagnostics"
 
-SCHEDULE TestSubcyclingMC2_Error IN TestSubcyclingMC2_Diagnostics
-{
-  LANG: C
-  READS: state(interior)
-  WRITES: error(interior)
-  SYNC: error
-} "Calculate error in scalar wave state"
+if (use_subcycling) {
+  SCHEDULE TestSubcyclingMC2_Error IN TestSubcyclingMC2_Diagnostics
+  {
+    LANG: C
+    READS: state(everywhere)
+    WRITES: error(everywhere)
+  } "Calculate error in scalar wave state"
+} else {
+  SCHEDULE TestSubcyclingMC2_Error IN TestSubcyclingMC2_Diagnostics
+  {
+    LANG: C
+    READS: state(interior)
+    WRITES: error(interior)
+    SYNC: error
+  } "Calculate error in scalar wave state"
+}

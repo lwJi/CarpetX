@@ -100,12 +100,12 @@ extern "C" void TestSubcyclingCC_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingCC_Error;
   DECLARE_CCTK_PARAMETERS;
 
-  grid.loop_int_device<1, 1, 1>(
+  // Pointwise, so computed everywhere instead of SYNCed (see schedule.ccl)
+  grid.loop_all_device<1, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         CCTK_REAL u0, rho0;
-        gaussian(amplitude, gaussian_width, cctk_time, p.x, p.y, p.z, u0,
-                 rho0);
+        gaussian(amplitude, gaussian_width, cctk_time, p.x, p.y, p.z, u0, rho0);
         u_err(p.I) = u(p.I) - u0;
         rho_err(p.I) = rho(p.I) - rho0;
       });

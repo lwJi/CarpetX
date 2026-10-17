@@ -99,9 +99,9 @@ bool group_has_flux_register(int gi);
 // integrator's end-of-step fill. Any
 // other window keeps the integrator's fill until a later window that holds it
 // is restricted. This is the one definition of "the window is restricted";
-// the restriction blocks of Initialise and Evolve call it. During recovery the
-// window is a clock group, the window in which its levels last ran their end
-// of step (ClockGroups), so it tells which of the two fills last wrote the
+// FinalizeWindow, for Initialise and Evolve, calls it. During recovery the
+// window is a clock group, the window in which its levels last stepped
+// (ClockGroups), so it tells which of the two fills last wrote the
 // integrated groups' ghosts. Defined in schedule.cxx.
 bool window_is_restricted(int min_level, int max_level);
 

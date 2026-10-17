@@ -146,7 +146,8 @@ extern "C" void TestSubcyclingNoRestrict_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingNoRestrict_Error;
   DECLARE_CCTK_PARAMETERS;
 
-  grid.loop_int_device<0, 0, 0>(
+  // Pointwise, so computed everywhere instead of SYNCed (see schedule.ccl)
+  grid.loop_all_device<0, 0, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         CCTK_REAL u0, rho0;

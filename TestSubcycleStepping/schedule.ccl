@@ -130,3 +130,19 @@ schedule TestSubcycleStepping_CountPostRestrict AT postrestrict
   READS: recovery_counts
   WRITES: recovery_counts
 } "count traversals of CCTK_POSTRESTRICT"
+
+
+
+# sync_in_tail: a fixture for the driver's end-of-step sync check. Under
+# subcycling a SYNC in CCTK_POSTSTEP or CCTK_ANALYSIS aborts the run once the
+# window does not hold every level, at iteration 1; par/sync_in_tail.par runs
+# it (see README)
+
+if (sync_in_tail) {
+  schedule TestSubcycleStepping_SyncInTail AT analysis
+  {
+    LANG: C
+    OPTIONS: global
+    SYNC: tail_context
+  } "request a SYNC in CCTK_ANALYSIS, which must abort at iteration 1 under subcycling"
+}
