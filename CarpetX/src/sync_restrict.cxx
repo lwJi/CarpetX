@@ -625,8 +625,10 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
   return numgroups; // number of groups synchronized
 }
 
-// Abort if a sync is requested while the driver traverses an end-of-step bin
-// (GHExt::tail_bin) under subcycling, unless the window holds every level.
+// Abort if a sync is requested while the driver traverses a bin on the
+// end-of-step window (GHExt::tail_bin: CCTK_POSTSTEP, CCTK_ANALYSIS,
+// CCTK_CHECKPOINT or CCTK_TERMINATE) under subcycling, unless the window holds
+// every level.
 // The levels of the window share one time, so a sync among them is sound. A
 // window that starts above level 0 has a coarser neighbour outside it that
 // has stepped ahead and has not been finalized, and syncing the window's
@@ -660,11 +662,12 @@ static void error_if_sync_in_tail(const cGH *restrict const cctkGH,
       "CarpetX::use_subcycling = yes, while the end-of-step window holds only "
       "levels [%d,%d). The sync would fill the coarse-fine ghosts of level %d "
       "from level %d, which has stepped ahead and has not been finalized. "
-      "Under subcycling an end-of-step bin may sync only at iterations at "
-      "which the window holds every level. Otherwise remove the SYNC: write "
-      "pointwise outputs everywhere; outputs that need a stencil stay interior "
-      "and their ghosts are invalid. See \"End-of-step bins under subcycling\" "
-      "in the CarpetX documentation.",
+      "Under subcycling CCTK_POSTSTEP, CCTK_ANALYSIS, CCTK_CHECKPOINT and "
+      "CCTK_TERMINATE may sync only when the end-of-step window holds every "
+      "level. Otherwise remove the SYNC: write pointwise outputs everywhere; "
+      "outputs that need a stencil stay interior and their ghosts are "
+      "invalid. See \"End-of-step bins under subcycling\" in the CarpetX "
+      "documentation.",
       func ? func->thorn : "(unknown thorn)",
       func ? func->routine : "(unknown routine)", ghext->tail_bin,
       groupnames.str().c_str(), cctkGH->cctk_iteration, min_level, max_level,

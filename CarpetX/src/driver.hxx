@@ -591,8 +591,9 @@ struct GHExt {
   // result read across levels must be checkpointed.
   bool in_recovery_traversal = false;
 
-  // The end-of-step bin the driver is traversing (Evolve's and Initialise's
-  // CCTK_POSTSTEP or CCTK_ANALYSIS), or nullptr. Set only by
+  // The bin the driver is traversing on the end-of-step window (CCTK_POSTSTEP
+  // and CCTK_ANALYSIS in Evolve and Initialise, CCTK_CHECKPOINT in Evolve,
+  // CCTK_TERMINATE in Shutdown), or nullptr. Set only by
   // tail_traversal_scope. Under subcycling, SyncGroupsByDirISubcycling aborts
   // while it is set unless the window holds every level: otherwise a sync
   // would read the coarse level outside the window, which is not finalized.

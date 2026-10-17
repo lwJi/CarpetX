@@ -1352,8 +1352,9 @@ struct recovery_traversal_scope {
   operator=(const recovery_traversal_scope &) = delete;
 };
 
-// Marks the driver's own traversal of an end-of-step bin (CCTK_POSTSTEP or
-// CCTK_ANALYSIS) in Evolve and Initialise (GHExt::tail_bin). Under
+// Marks the driver's own traversal of a bin on the end-of-step window
+// (GHExt::tail_bin): CCTK_POSTSTEP and CCTK_ANALYSIS in Evolve and
+// Initialise, CCTK_CHECKPOINT in Evolve, and CCTK_TERMINATE in Shutdown. Under
 // subcycling, SyncGroupsByDirISubcycling aborts on a sync while it is set,
 // unless the window holds every level.
 struct tail_traversal_scope {
@@ -1367,7 +1368,7 @@ struct tail_traversal_scope {
   tail_traversal_scope &operator=(const tail_traversal_scope &) = delete;
 };
 
-// Traverse an end-of-step bin, marked (tail_traversal_scope)
+// Traverse a bin on the end-of-step window, marked (tail_traversal_scope)
 void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
   const tail_traversal_scope scope(bin);
   CCTK_Traverse(cctkGH, bin);
@@ -2231,7 +2232,8 @@ int Evolve(tFleshConfig *config) {
     // on it. A coarser level that stepped ahead of the finest level keeps its
     // last end-of-step results until a later window covers it. Without
     // subcycling the window holds every level. Under subcycling a sync in
-    // either bin aborts unless it does (tail_traversal_scope).
+    // either bin, or in CCTK_CHECKPOINT below on the same window, aborts
+    // unless it does (tail_traversal_scope).
     FinalizeWindow(cctkGH, ghext->use_subcycling);
     TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
     TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
@@ -2242,7 +2244,7 @@ int Evolve(tFleshConfig *config) {
       leveldata.last_finalized_iteration = cctkGH->cctk_iteration;
     });
 
-    CCTK_Traverse(cctkGH, "CCTK_CHECKPOINT");
+    TraverseTailBin(cctkGH, "CCTK_CHECKPOINT");
     const double output_start_time = gettime();
     CCTK_OutputGH(cctkGH);
     const double output_finish_time = gettime();
@@ -2345,12 +2347,14 @@ int Shutdown(tFleshConfig *config) {
   assert(!active_levels);
   // CCTK_TERMINATE must run on the same level range that completed the last
   // full iteration; under subcycling, that includes coarser time-aligned
-  // levels.
+  // levels. This is the last iteration's end-of-step window, so under
+  // subcycling a sync aborts unless it holds every level
+  // (tail_traversal_scope).
   const auto window = FinalizedWindow();
   active_levels =
       std::make_optional<active_levels_t>(window.first, window.second);
 
-  CCTK_Traverse(cctkGH, "CCTK_TERMINATE");
+  TraverseTailBin(cctkGH, "CCTK_TERMINATE");
 
   active_levels = std::optional<active_levels_t>();
   active_levels = std::make_optional<active_levels_t>(0, 0);
@@ -2518,15 +2522,14 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                 return buf.str();
               });
         });
-        check_valid_gf(*active_levels, rd.gi, rd.vi, rd.tl,
-                       [attribute, cctkGH]() {
-                         std::ostringstream buf;
-                         buf << "CallFunction iteration "
-                             << cctkGH->cctk_iteration << " "
-                             << attribute->where << ": " << attribute->thorn
-                             << "::" << attribute->routine << " checking input";
-                         return buf.str();
-                       });
+        check_valid_gf(
+            *active_levels, rd.gi, rd.vi, rd.tl, [attribute, cctkGH]() {
+              std::ostringstream buf;
+              buf << "CallFunction iteration " << cctkGH->cctk_iteration << " "
+                  << attribute->where << ": " << attribute->thorn
+                  << "::" << attribute->routine << " checking input";
+              return buf.str();
+            });
       } else { // CCTK_ARRAY or CCTK_SCALAR
 
         const auto &restrict arraygroupdata =
@@ -2693,16 +2696,14 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                 return buf.str();
               });
         });
-        check_valid_gf(*active_levels, wr.gi, wr.vi, wr.tl,
-                       [attribute, cctkGH]() {
-                         std::ostringstream buf;
-                         buf << "CallFunction iteration "
-                             << cctkGH->cctk_iteration << " "
-                             << attribute->where << ": " << attribute->thorn
-                             << "::" << attribute->routine
-                             << " checking output";
-                         return buf.str();
-                       });
+        check_valid_gf(
+            *active_levels, wr.gi, wr.vi, wr.tl, [attribute, cctkGH]() {
+              std::ostringstream buf;
+              buf << "CallFunction iteration " << cctkGH->cctk_iteration << " "
+                  << attribute->where << ": " << attribute->thorn
+                  << "::" << attribute->routine << " checking output";
+              return buf.str();
+            });
       } else { // CCTK_ARRAY or CCTK_SCALAR
         auto &restrict arraygroupdata =
             *ghext->globaldata.arraygroupdata.at(wr.gi);
@@ -2748,16 +2749,14 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                 return buf.str();
               });
         });
-        check_valid_gf(*active_levels, inv.gi, inv.vi, inv.tl,
-                       [attribute, cctkGH]() {
-                         std::ostringstream buf;
-                         buf << "CallFunction iteration "
-                             << cctkGH->cctk_iteration << " "
-                             << attribute->where << ": " << attribute->thorn
-                             << "::" << attribute->routine
-                             << " checking output";
-                         return buf.str();
-                       });
+        check_valid_gf(
+            *active_levels, inv.gi, inv.vi, inv.tl, [attribute, cctkGH]() {
+              std::ostringstream buf;
+              buf << "CallFunction iteration " << cctkGH->cctk_iteration << " "
+                  << attribute->where << ": " << attribute->thorn
+                  << "::" << attribute->routine << " checking output";
+              return buf.str();
+            });
       } else { // CCTK_ARRAY or CCTK_SCALAR
         auto &restrict arraygroupdata =
             *ghext->globaldata.arraygroupdata.at(inv.gi);

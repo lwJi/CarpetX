@@ -1808,18 +1808,19 @@ The thorn \texttt{TestSubcycleStepping} records each level's last end-of-step co
 \subsection{End-of-step routines SYNC only when the window holds every level}
 \label{sec:end_of_step_sync}
 
-Under subcycling a routine in \texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS} may synchronize only at iterations at which the end-of-step window holds every level, every $2^{N-1}$ iterations with $N$ levels, the same iterations at which interpolation across levels works (see the next subsection). The levels of the window share one time, so a sync among them is sound. A window that starts above level 0, however, has a coarser neighbour outside it that is provisional, and syncing the window's coarsest level would fill its coarse-fine ghost zones from that neighbour's data of another time. \CarpetX\space therefore aborts the run when a sync is requested while it traverses either bin on such a window. This covers a \texttt{SYNC:} clause, an explicit \texttt{CCTK\_SyncGroup*} call, and a sync in a schedule group the routine calls. The check runs when the sync is requested, so a routine that is scheduled but switched off, e.g.\ by a parameter, is never reported, while a \texttt{SYNC:} of a group that would not be synchronized (no storage, not a grid function) still aborts. Initialization runs these bins on every level, so a sync there is legal; a routine that syncs in every iteration stops the run at iteration 1 when there are two or more levels. The message names the routine, the bin, the groups, the window and the fix:
+Under subcycling a routine in \texttt{CCTK\_POSTSTEP} or \texttt{CCTK\_ANALYSIS} may synchronize only at iterations at which the end-of-step window holds every level, every $2^{N-1}$ iterations with $N$ levels, the same iterations at which interpolation across levels works (see the next subsection). The same holds for \texttt{CCTK\_CHECKPOINT}, which \CarpetX\space traverses on the same window after \texttt{CCTK\_ANALYSIS}, and for \texttt{CCTK\_TERMINATE}, which runs on the window of the last iteration. The levels of the window share one time, so a sync among them is sound. A window that starts above level 0, however, has a coarser neighbour outside it that is provisional, and syncing the window's coarsest level would fill its coarse-fine ghost zones from that neighbour's data of another time. \CarpetX\space therefore aborts the run when a sync is requested while it traverses any of these four bins on such a window. This covers a \texttt{SYNC:} clause, an explicit \texttt{CCTK\_SyncGroup*} call, and a sync in a schedule group the routine calls. The check runs when the sync is requested, so a routine that is scheduled but switched off, e.g.\ by a parameter, is never reported, while a \texttt{SYNC:} of a group that would not be synchronized (no storage, not a grid function) still aborts. Initialization runs these bins on every level, so a sync there is legal; a routine that syncs in every iteration stops the run at iteration 1 when there are two or more levels. The message names the routine, the bin, the groups, the window and the fix:
 %
 \begin{lstlisting}
 TestSubcycleStepping::TestSubcycleStepping_SyncInTail (CCTK_ANALYSIS) requested
 SYNC of TESTSUBCYCLESTEPPING::TAIL_CONTEXT at iteration 1 with
 CarpetX::use_subcycling = yes, while the end-of-step window holds only levels
 [2,3). The sync would fill the coarse-fine ghosts of level 2 from level 1, which
-has stepped ahead and has not been finalized. Under subcycling an end-of-step
-bin may sync only at iterations at which the window holds every level.
-Otherwise remove the SYNC: write pointwise outputs everywhere; outputs that need
-a stencil stay interior and their ghosts are invalid. See "End-of-step bins
-under subcycling" in the CarpetX documentation.
+has stepped ahead and has not been finalized. Under subcycling CCTK_POSTSTEP,
+CCTK_ANALYSIS, CCTK_CHECKPOINT and CCTK_TERMINATE may sync only when the
+end-of-step window holds every level. Otherwise remove the SYNC: write pointwise
+outputs everywhere; outputs that need a stencil stay interior and their ghosts
+are invalid. See "End-of-step bins under subcycling" in the CarpetX
+documentation.
 \end{lstlisting}
 %
 A routine that runs only at iterations at which the window holds every level, e.g.\ one that computes a stencil output such as $\Psi_4$ and synchronizes it before an interpolation onto spheres, keeps its SYNC. A routine that runs in every iteration has to remove it, and how depends on what the routine computes:

@@ -143,11 +143,12 @@ and recover-subcycling-silo-3clocks.par (three).
 3. The end-of-step sync fixture
 
 Under subcycling the driver aborts on a SYNC requested while it traverses
-CCTK_POSTSTEP or CCTK_ANALYSIS on a window that does not hold every level,
-since the sync would fill the window's coarsest level from the provisional
-level below it (see "End-of-step bins under subcycling" in the CarpetX
-documentation). Every test above shows that nothing in these bins syncs; the
-fixture shows that the check fires, when, and what it says. The parameter
+CCTK_POSTSTEP, CCTK_ANALYSIS, CCTK_CHECKPOINT or CCTK_TERMINATE on a window
+that does not hold every level, since the sync would fill the window's
+coarsest level from the provisional level below it (see "End-of-step bins
+under subcycling" in the CarpetX documentation). Every test above shows that
+nothing in these bins syncs; the fixture shows that the check fires, when,
+and what it says. The parameter
 "sync_in_tail" (default no) schedules TestSubcycleStepping_SyncInTail, an
 empty global-mode routine with "SYNC: tail_context", in CCTK_ANALYSIS.
 par/sync_in_tail.par is test/subcycle_3levels.par with sync_in_tail = yes. It
@@ -168,8 +169,8 @@ names in upper case):
   CarpetX::use_subcycling = yes, while the end-of-step window holds only
   levels [2,3). The sync would fill the coarse-fine ghosts of level 2 from
   level 1, which has stepped ahead and has not been finalized. Under
-  subcycling an end-of-step bin may sync only at iterations at which the
-  window holds every level. Otherwise remove the SYNC: write pointwise
-  outputs everywhere; outputs that need a stencil stay interior and their
-  ghosts are invalid. See "End-of-step bins under subcycling" in the CarpetX
-  documentation.
+  subcycling CCTK_POSTSTEP, CCTK_ANALYSIS, CCTK_CHECKPOINT and CCTK_TERMINATE
+  may sync only when the end-of-step window holds every level. Otherwise
+  remove the SYNC: write pointwise outputs everywhere; outputs that need a
+  stencil stay interior and their ghosts are invalid. See "End-of-step bins
+  under subcycling" in the CarpetX documentation.
