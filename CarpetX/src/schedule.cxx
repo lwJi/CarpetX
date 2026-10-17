@@ -134,8 +134,9 @@ std::vector<std::pair<int, int> > ClockGroups() {
 // The finest clock group: the finest level, widened down to every coarser
 // level that shares its clock, i.e. the last of ClockGroups. This is the
 // end-of-step window. Derived from the clocks, so that no caller inherits it
-// from Evolve's batch loop. Evolve and the fresh-start tail of Initialise
-// finalize it (FinalizeWindow), and Shutdown traverses CCTK_TERMINATE on it.
+// from Evolve's batch loop. Each caller opens and closes it itself: Evolve
+// and the fresh-start tail of Initialise finalize it (FinalizeWindow) and run
+// the end-of-step bins on it, and Shutdown traverses CCTK_TERMINATE on it.
 // Reads only patch 0, like WidenMinLevel.
 std::pair<int, int> FinestClockGroup() {
   const int max_level = ghext->num_levels();
@@ -1374,23 +1375,23 @@ void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
   CCTK_Traverse(cctkGH, bin);
 }
 
-// Activate the finalized window (FinestClockGroup) in the finest level's
-// context and finalize it: once per iteration in Evolve, after the batch
-// loop, and once in the fresh-start tail of Initialise. Every level of the
-// window shares the finest level's time and has stepped in this iteration;
-// if the window is restricted, it receives here all reflux and restriction
-// for that time. The end-of-step bins then run on the window, which stays
-// active. `reflux` requests the flux-register correction below.
+// Finalize the active window, which the caller has set to the finest clock
+// group (FinestClockGroup) and keeps active through the end-of-step bins:
+// once per iteration in Evolve, after the batch loop, and once in the
+// fresh-start tail of Initialise. Sets cctk_time and cctk_timefac to the
+// finest level's (SetStepTime). Every level of the window shares that time
+// and has stepped in this iteration; if the window is restricted, it
+// receives here all reflux and restriction for that time. `reflux` requests
+// the flux-register correction below.
 void FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
   DECLARE_CCTK_PARAMETERS;
 
-  assert(!active_levels);
-  const auto window = FinestClockGroup();
-  const int min_level = window.first;
-  const int max_level = window.second;
+  assert(active_levels);
+  const int min_level = active_levels->min_level;
+  const int max_level = active_levels->max_level;
+  assert(FinestClockGroup() == std::make_pair(min_level, max_level));
   SetStepTime(cctkGH, max_level - 1,
               ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration);
-  active_levels = std::make_optional<active_levels_t>(min_level, max_level);
   active_levels->loop_serially([&](auto &restrict leveldata) {
     assert(leveldata.last_step_iteration == cctkGH->cctk_iteration);
   });
@@ -1791,6 +1792,12 @@ int Initialise(tFleshConfig *config) {
 #pragma omp critical
   CCTK_VINFO("Initialized %d levels", ghext->num_levels());
 
+  // Open the end-of-step window (every level, on a fresh start), and close it
+  // after the output below
+  assert(!active_levels);
+  const auto window = FinestClockGroup();
+  active_levels =
+      std::make_optional<active_levels_t>(window.first, window.second);
   FinalizeWindow(cctkGH, false);
 
   // Checkpoint, analysis, output. The end-of-step bins are marked as in
@@ -2227,13 +2234,17 @@ int Evolve(tFleshConfig *config) {
     } // for min_level, max_level
 
     // End of step, once per iteration, after the finest level has stepped
-    // (it steps in every iteration, in the last batch): finalize the window
-    // of levels that now share its time, then traverse POSTSTEP and ANALYSIS
-    // on it. A coarser level that stepped ahead of the finest level keeps its
-    // last end-of-step results until a later window covers it. Without
-    // subcycling the window holds every level. Under subcycling a sync in
-    // either bin, or in CCTK_CHECKPOINT below on the same window, aborts
-    // unless it does (tail_traversal_scope).
+    // (it steps in every iteration, in the last batch): open the window of
+    // levels that now share its time (FinestClockGroup), finalize it, then
+    // traverse POSTSTEP and ANALYSIS on it. A coarser level that stepped
+    // ahead of the finest level keeps its last end-of-step results until a
+    // later window covers it. Without subcycling the window holds every
+    // level. Under subcycling a sync in either bin, or in CCTK_CHECKPOINT
+    // below on the same window, aborts unless it does (tail_traversal_scope).
+    assert(!active_levels);
+    const auto window = FinestClockGroup();
+    active_levels =
+        std::make_optional<active_levels_t>(window.first, window.second);
     FinalizeWindow(cctkGH, ghext->use_subcycling);
     TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
     TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
