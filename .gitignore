@@ -6,3 +6,6 @@ tags
 
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
+
+# Virtualenv of scripts/openpmd-plot
+scripts/openpmd-plot/venv/

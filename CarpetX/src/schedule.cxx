@@ -1263,8 +1263,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
                  "Checkpoint at iteration %d predates per-level last-step "
                  "iterations; derived them from the %d distinct level clocks "
                  "(%s), assuming that no regrid has changed the number of "
-                 "levels since the coarsest clock group last stepped (see "
-                 "\"Recovery\" in the CarpetX documentation).",
+                 "levels since the coarsest clock group last stepped.",
                  checkpoint_iteration, num_groups, clocks.c_str());
   }
 
@@ -1478,8 +1477,7 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
   }
 
 #pragma omp critical
-  CCTK_VINFO("Recovery does not rerun restriction, POSTSTEP or ANALYSIS (see "
-             "\"Recovery\" in the CarpetX documentation)");
+  CCTK_VINFO("Recovery does not rerun restriction, POSTSTEP or ANALYSIS");
 }
 
 // Recover from a checkpoint: rebuild the hierarchy and its state
@@ -1490,8 +1488,7 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
 // CCTK_ANALYSIS, with or without subcycling. A CCTK_CHECKPOINT or
 // CCTK_TERMINATE checkpoint was written after all of them; an initial-data
 // checkpoint (CCTK_CPINITIAL) after POSTSTEP but before ANALYSIS. Results
-// recomputed in CCTK_POST_RECOVER_VARIABLES are reproduced either way. See
-// "Recovery" in the CarpetX documentation.
+// recomputed in CCTK_POST_RECOVER_VARIABLES are reproduced either way.
 static void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 

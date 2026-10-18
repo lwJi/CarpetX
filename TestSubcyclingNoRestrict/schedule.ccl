@@ -36,7 +36,7 @@ SCHEDULE TestSubcyclingNoRestrict_Sync IN ODESolvers_PostStep BEFORE TestSubcycl
 
 # An idempotent projection of the state with restriction disabled, which
 # changes the parent's tl=0 away from the dense output its child's coarse-fine
-# ghosts hold until the driver refills them after restriction (see README).
+# ghosts hold until ProlongateAfterRestriction refills them.
 # It runs in the solver after every RK stage, at POSTRESTRICT, and once more
 # per clock group at post_recover_variables, so it must give the same result
 # when applied twice. Only the interior is written: the coarse-fine ghosts

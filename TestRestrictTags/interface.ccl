@@ -7,10 +7,9 @@ USES INCLUDE HEADER: schedule.hxx
 
 
 
-# One group per row of the restrict tag table in the README. CCTK_INITIAL
-# writes coarse_value on level 0 and fine_value on level 1 into every group,
-# and TestRestrictTags_Check reads at CCTK_ANALYSIS which coarse interiors
-# now hold fine_value.
+# One group per case under test. CCTK_INITIAL writes coarse_value on level 0
+# and fine_value on level 1 into every group, and TestRestrictTags_Check reads
+# at CCTK_ANALYSIS which coarse interiors now hold fine_value.
 
 CCTK_REAL untagged TYPE=GF CENTERING={VVV} "no tags: restricted"
 

@@ -15,8 +15,12 @@ USES INCLUDE HEADER: derivs.hxx
 
 # Two vertex-centred state groups that differ only in their prolongation
 # tags. The narrow-stencil group is declared first on purpose: groups are
-# numbered in declaration order, and only this order fails visibly when the
-# RK source-band geometry is shared between groups (see README).
+# numbered in declaration order, and a driver that shared the RK source-band
+# geometry between groups would take it from the lowest-numbered one. In
+# this order the wide group's coarse patch overruns the shared narrow bands,
+# which poison_undefined_values makes visible; in the opposite order the
+# defect would stay silent. EnsureRKBuffers (CarpetX/src/subcycling.cxx)
+# now allocates each group's bands and coarse patch together.
 
 CCTK_REAL state_lo TYPE=gf TAGS='rhs="rhs_lo" dependents="error_lo" prolongation_type="ddf" prolongation_order=1'
 {

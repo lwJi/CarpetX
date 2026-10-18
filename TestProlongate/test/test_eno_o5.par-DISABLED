@@ -1,3 +1,6 @@
+# Disabled because it is very slow in a debug build: it takes about 30
+# minutes on GitHub's CI.
+
 ActiveThorns = "
     CarpetX
     IOUtil
