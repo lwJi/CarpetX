@@ -157,6 +157,10 @@ def verify_cxx(path: str, before: str, after: str) -> Result:
     return Result(path, False, evidence, _first_token_difference(a, b))
 
 
+def only_hash_lines(text: str) -> bool:
+    return all(not line.strip() or line.lstrip().startswith("#") for line in text.split("\n"))
+
+
 def verify_piraha(path: str, peg: str, before: str, after: str, flesh: str) -> Result:
     evidence = f"Piraha {peg} parse trees equal"
     (ok_a, dump_a), (ok_b, dump_b) = piraha_dumps(flesh, peg, [before, after])
@@ -166,6 +170,8 @@ def verify_piraha(path: str, peg: str, before: str, after: str, flesh: str) -> R
         return Result(path, False, evidence, f"after does not parse: {dump_b.strip()[:300]}")
     if dump_a == dump_b:
         return Result(path, True, evidence)
+    if not after.strip() and only_hash_lines(before):
+        return Result(path, True, f"only '#' lines before, empty after; Piraha {peg} parses both")
     return Result(path, False, evidence, _first_line_difference(dump_a, dump_b))
 
 

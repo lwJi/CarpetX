@@ -94,6 +94,23 @@ class Piraha(unittest.TestCase):
     def test_unparseable_file_fails(self):
         self.assertFalse(verify_file("X/param.ccl", "BOOLEAN {\n", "BOOLEAN {\n", FLESH).ok)
 
+    def test_a_comment_only_file_stripped_to_nothing_passes(self):
+        for name in ["param.ccl", "schedule.ccl", "configuration.ccl", "test/a.par"]:
+            for before in ["# Parameter definitions for thorn X\n", "# a\n\n  # b\n\n"]:
+                with self.subTest(name=name, before=before):
+                    after = strip(before, Lang.PAR if name.endswith(".par") else Lang.CCL)
+                    self.assertEqual(after, "")
+                    result = verify_file(f"X/{name}", before, after, FLESH)
+                    self.assertTrue(result.ok, result.detail)
+                    self.assertIn("empty after", result.evidence)
+
+    def test_emptying_a_file_with_code_fails(self):
+        before = '# Parameter definitions for thorn X\nBOOLEAN b "b"\n{\n} no\n'
+        self.assertFalse(verify_file("X/param.ccl", before, "", FLESH).ok)
+
+    def test_changing_a_comment_only_file_without_emptying_it_fails(self):
+        self.assertFalse(verify_file("X/param.ccl", "# a\n# b\n", "# b\n", FLESH).ok)
+
 
 if __name__ == "__main__":
     unittest.main()

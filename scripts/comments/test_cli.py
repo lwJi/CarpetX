@@ -100,6 +100,18 @@ class Cli(unittest.TestCase):
         self.assertIn("FAIL Thorn/src/a.cxx", result.stdout)
 
     @unittest.skipUnless(HAVE_CXX_TOOLS and HAVE_FLESH, "needs clang++, unifdef, perl and $CACTUSX")
+    def test_a_comment_only_file_is_kept_empty_and_verifies(self):
+        with open(os.path.join(self.repo, "Thorn/configuration.ccl"), "w") as f:
+            f.write("# Configuration definitions for thorn Thorn\n")
+        self.commit("configuration.ccl")
+        self.assertEqual(self.run_tool("strip", "Thorn").returncode, 0)
+        self.assertEqual(self.read("Thorn/configuration.ccl"), "")
+        self.commit("Thorn: remove comments")
+        result = self.run_tool("verify", "HEAD~1", "HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("ok   Thorn/configuration.ccl", result.stdout)
+
+    @unittest.skipUnless(HAVE_CXX_TOOLS and HAVE_FLESH, "needs clang++, unifdef, perl and $CACTUSX")
     def test_verify_rejects_uncovered_changes(self):
         with open(os.path.join(self.repo, "Thorn/README"), "w") as f:
             f.write("changed\n")

@@ -63,6 +63,8 @@ HASH_CASES = {
     ),
     "par trailing": (Lang.PAR, 'A::b = 1   # c\nA::c = "x # y"\n', 'A::b = 1\nA::c = "x # y"\n'),
     "par toggles": (Lang.PAR, "A::a = 1\n\n#A::b = 2\n\nA::c = 3\n", "A::a = 1\n\nA::c = 3\n"),
+    "comment-only param.ccl": (Lang.CCL, "# Parameter definitions for thorn X\n", ""),
+    "comment-only file with blank lines": (Lang.CCL, "# a\n\n# b\n\n", ""),
 }
 
 
