@@ -10,10 +10,6 @@ std::ostream &operator<<(std::ostream &os, const where_t where) {
     return os << "interior";
   case where_t::boundary:
     return os << "boundary";
-#if 0
-  case where_t::ghosts_inclusive:
-    return os << "ghosts_inclusive";
-#endif
   case where_t::ghosts:
     return os << "ghosts";
   default:
@@ -89,7 +85,6 @@ GridDescBase::GridDescBase(const cGH *restrict cctkGH) {
 }
 
 std::ostream &operator<<(std::ostream &os, const GridDescBase &grid) {
-  // Convert to vertex-centred boundaries
   const auto x0 = grid.x0 - grid.dx / 2;
   const auto x1 = x0 + (grid.gsh - 1) * grid.dx;
   return os << "GridDescBase{"
