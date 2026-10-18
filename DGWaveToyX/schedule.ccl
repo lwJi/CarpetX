@@ -1,5 +1,3 @@
-# Schedule definitions for thorn DGWaveToyX
-
 SCHEDULE DGWaveToyX_Init IN ODESolvers_Initial
 {
   LANG: C
@@ -24,11 +22,6 @@ SCHEDULE DGWaveToyX_RHS IN ODESolvers_RHS
   WRITES: f_rhs(interior)
 } "Calculate RHS of wave equation"
 
-# The diagnostics in this group are not checkpointed, and a level that lags
-# its parent SYNCs them from the parent: compute them in ODESolvers_Analysis,
-# and again after a restart, once the state's ghosts are refilled. This group
-# is scheduled after a restart, not ODESolvers_Analysis, which would change
-# that group for every thorn.
 SCHEDULE GROUP DGWaveToyX_Diagnostics IN ODESolvers_Analysis
 {
 } "Calculate diagnostics of wave equation"
@@ -55,8 +48,6 @@ SCHEDULE DGWaveToyX_Energy IN DGWaveToyX_Diagnostics
   SYNC: eps
 } "Calculate energy of wave equation"
 
-# DGWaveToyX_Error does not SYNC, so no other level reads it, and it is not
-# recomputed after a restart
 SCHEDULE DGWaveToyX_Error IN ODESolvers_Analysis
 {
   LANG: C
