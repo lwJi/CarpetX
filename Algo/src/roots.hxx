@@ -21,8 +21,6 @@
 #include <limits>
 #include <utility>
 
-// For accelerators: Declare whether a function should live on the device or the
-// host (or both)
 #if defined __CUDACC__
 #define ALGO_DEVICE __device__
 #define ALGO_HOST __host__
@@ -35,10 +33,6 @@
 #endif
 
 namespace Algo {
-
-// These helpers exist so that the `using std::...` declaration can live in a
-// function body. That matters for `clamp1`, which is called with arguments
-// named `min` and `max` that would otherwise shadow `std::min` and `std::max`.
 
 namespace {
 template <typename T> constexpr ALGO_HOST ALGO_DEVICE void swap1(T &x, T &y) {
@@ -73,35 +67,18 @@ constexpr ALGO_HOST ALGO_DEVICE T clamp1(const T &x, const T &lo, const T &hi) {
 } // namespace
 
 namespace {
-// Whether `x` and `y` bracket a sign change. Do not test this as `x * y < 0`:
-// that product underflows to `-0` for small operands, and `-0 < 0` is false,
-// so a bracket of e.g. `+1e-200` and `-1e-200` would be misread as having no
-// sign change at all.
 template <typename T>
 constexpr ALGO_HOST ALGO_DEVICE bool opposite_signs1(const T &x, const T &y) {
   return (x < 0 && y > 0) || (x > 0 && y < 0);
 }
 } // namespace
 
-// A relative convergence criterion, equivalent to
-// `boost::math::tools::eps_tolerance`: two values are considered equal once
-// they agree to `min_bits` binary digits.
-//
-// Note that this is a purely relative criterion, as it is in Boost. A bracket
-// that straddles zero therefore never satisfies it, because `min(|x|, |y|)`
-// tends to zero along with the bracket; such a search terminates on its
-// iteration count instead. Callers looking for a root at zero need an absolute
-// criterion, which this class deliberately does not provide.
 template <typename T> class eps_tolerance {
   T eps;
 
 public:
   constexpr ALGO_HOST ALGO_DEVICE eps_tolerance()
       : eps(4 * std::numeric_limits<T>::epsilon()) {}
-  // `eps` is clamped from below at `4 * epsilon`, as Boost does. Without the
-  // clamp, any `min_bits >= digits` asks for a precision that no two distinct
-  // floating-point numbers can satisfy, and the search silently runs until it
-  // exhausts its iteration count.
   explicit constexpr ALGO_HOST ALGO_DEVICE eps_tolerance(const int min_bits)
       : eps(max1(ldexp1(T(1), 1 - min_bits),
                  T(4 * std::numeric_limits<T>::epsilon()))) {}
@@ -111,20 +88,6 @@ public:
     return abs(x - y) <= eps * min(abs(x), abs(y));
   }
 };
-
-// The wrappers below run on the host only: Boost's root finders are not
-// device code. Each reports failure through `failed` rather than by throwing.
-// Boost raises `evaluation_error` both for argument errors it can detect (a
-// reversed `[min, max]`) and for a search that genuinely fails (it decides it
-// is at a local minimum rather than a root); neither can be suppressed with a
-// policy for the derivative-based iterates, which hardcode `policy<>()`, and
-// an exception escaping into the flesh would terminate the run.
-//
-// They also refuse an empty iteration budget rather than passing it on. Boost
-// counts down in a `do ... while (count && ...)` and decrements before it
-// tests, so a budget of zero underflows to an unbounded search; a negative
-// `max_iters` would convert to an enormous unsigned budget in the first place.
-// Neither can be expressed to Boost, so an empty budget is answered here.
 
 template <typename F, typename T>
 std::pair<T, T> bisect(F &&f, T min, T max, int min_bits, int max_iters,
@@ -175,12 +138,6 @@ std::pair<T, T> bracket_and_solve_root(F &&f, T guess, T factor, bool rising,
   }
 }
 
-// See <https://en.wikipedia.org/wiki/Brent%27s_method>
-//
-// Returns a bracket containing the root. `iters` is the number of iterations
-// performed. `failed` is set if no root was found, either because `[a, b]` did
-// not bracket one to begin with, or because `max_iters` was reached before the
-// bracket converged.
 template <typename F, typename T>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE ALGO_HOST ALGO_DEVICE std::pair<T, T>
 brent(F f, T a, T b, int min_bits, int max_iters, int &iters, bool &failed) {
@@ -199,7 +156,6 @@ brent(F f, T a, T b, int min_bits, int max_iters, int &iters, bool &failed) {
   if (fb == 0)
     return {b, b};
   if (!opposite_signs1(fa, fb)) {
-    // Root is not bracketed
     failed = true;
     return {min(a, b), max(a, b)};
   }
@@ -211,12 +167,10 @@ brent(F f, T a, T b, int min_bits, int max_iters, int &iters, bool &failed) {
   while (fb != 0 && !tol(a, b) && iters < max_iters) {
     T s;
     if (fa != fc && fb != fc)
-      // inverse quadratic interpolation
       s = (a * fb * fc) / ((fa - fb) * (fa - fc)) +
           (b * fa * fc) / ((fb - fa) * (fb - fc)) +
           (c * fa * fb) / ((fc - fa) * (fc - fb));
     else
-      // secant method
       s = (a + b) / 2 - (fa + fb) / 2 * (b - a) / (fb - fa);
     T u = (3 * a + b) / 4;
     T v = b;
@@ -228,15 +182,12 @@ brent(F f, T a, T b, int min_bits, int max_iters, int &iters, bool &failed) {
     bool cond4 = mflag && tol(c, b);
     bool cond5 = !mflag && tol(c, d);
     if (cond1 || cond2 || cond3 || cond4 || cond5) {
-      // bisection
       s = (a + b) / 2;
       mflag = true;
     } else {
       mflag = false;
     }
     auto fs = f(s);
-    // `d` is assigned for the first time here; it won't be used above on the
-    // first iteration because `mflag` is set
     d = c;
     c = b;
     fc = fb;
@@ -247,9 +198,6 @@ brent(F f, T a, T b, int min_bits, int max_iters, int &iters, bool &failed) {
       a = s;
       fa = fs;
     }
-    // The bracket is still valid. `fa` can be exactly zero here: if `fs` was
-    // zero we took the `else` branch above, and the swap below has not yet run
-    // to move that root into `b`.
     assert(fa == 0 || fb == 0 || opposite_signs1(fa, fb));
     if (abs(fa) < abs(fb)) {
       swap1(a, b);
@@ -264,7 +212,6 @@ brent(F f, T a, T b, int min_bits, int max_iters, int &iters, bool &failed) {
   return {min(a, b), max(a, b)};
 }
 
-// Requires function and its derivative
 template <typename F, typename T>
 T newton_raphson(F &&f, T guess, T min, T max, int min_bits, int max_iters,
                  int &iters, bool &failed) {
@@ -288,7 +235,6 @@ T newton_raphson(F &&f, T guess, T min, T max, int min_bits, int max_iters,
   }
 }
 
-// Requires function and first two derivatives
 template <typename F, typename T>
 T halley(F &&f, T guess, T min, T max, int min_bits, int max_iters, int &iters,
          bool &failed) {
@@ -312,7 +258,6 @@ T halley(F &&f, T guess, T min, T max, int min_bits, int max_iters, int &iters,
   }
 }
 
-// Requires function and first two derivatives
 template <typename F, typename T>
 T schroder(F &&f, T guess, T min, T max, int min_bits, int max_iters,
            int &iters, bool &failed) {
@@ -336,12 +281,6 @@ T schroder(F &&f, T guess, T min, T max, int min_bits, int max_iters,
   }
 }
 
-// Multi-dimensional Newton-Raphson iteration. `f` returns both the residual
-// and its Jacobian. Iterates are confined to the box `[min, max]`.
-//
-// `iters` is the number of Newton steps taken, at most `max_iters`. `failed`
-// is set if no solution was found, i.e. if the Jacobian became singular, if the
-// iteration stalled on a bound, or if `max_iters` was reached.
 template <typename F, typename T, int N>
 inline CCTK_ATTRIBUTE_ALWAYS_INLINE ALGO_HOST ALGO_DEVICE Arith::vec<T, N>
 newton_raphson_nd(F f, const Arith::vec<T, N> &guess,
@@ -361,9 +300,6 @@ newton_raphson_nd(F f, const Arith::vec<T, N> &guess,
     const vec fx = fx0;
     const mat jac = jac0;
 
-    // Comparing `1 + errfx` against `1` reduces to `errfx <= eps`, i.e. this is
-    // an absolute criterion on the residual, and hence sensitive to how `f` is
-    // scaled.
     const T errfx = sumabs(fx);
     if (tolfx(1 + errfx, 1)) {
       failed = false;
@@ -374,7 +310,6 @@ newton_raphson_nd(F f, const Arith::vec<T, N> &guess,
 
     const T det_jac = calc_det(jac);
     if (!isfinite(det_jac) || det_jac == 0)
-      // Singular Jacobian; there is no Newton step to take
       break;
     const mat inv_jac = calc_inv(jac, det_jac);
     const vec dx([&](int i) {
@@ -386,7 +321,6 @@ newton_raphson_nd(F f, const Arith::vec<T, N> &guess,
     for (int i = 0; i < N; ++i)
       moved |= xnew(i) != x(i);
     if (!moved)
-      // The iteration is stuck, most likely against a bound
       break;
     x = xnew;
   }
@@ -396,4 +330,4 @@ newton_raphson_nd(F f, const Arith::vec<T, N> &guess,
 
 } // namespace Algo
 
-#endif // #ifndef CARPETX_ALGO_ROOTS_HXX
+#endif
