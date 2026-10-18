@@ -30,9 +30,22 @@ agent_scripts/sandbox/setup.sh                                     # in-sandbox,
 
 The first in-sandbox `build.sh` configures and compiles from scratch (~13 min — give it a 30-minute timeout); the named sandbox persists the build across stop/start, so later builds are incremental (~10 s) and the testsuite takes ~25 s.
 
+## Code comments
+
+C, C++ and Fortran sources under any `src/` directory (`.c`, `.cc`, `.cpp`, `.cxx`, `.h`, `.hh`, `.hpp`, `.hxx`, `.f90`, `.F90`), every `.ccl` file and every `.par` file (including `.par-DISABLED`) carry no comments. `#if 0`/`#if 1` blocks and `#warning "TODO…"` lines count as comments. Allowed: `} // namespace X` closers, bare `//` line-break guards, `clang-format off/on` and `NOLINT` markers, and paper and URL citations (`arXiv:…`, `doi:…`, a URL) that make up the whole comment. Hooks refuse edits that add anything else and block a turn from ending while the working tree holds one, and the required `no-comments` PR check fails on it. `python3 scripts/comments check [PATH…]` runs the same check.
+
+Explain through names, assertions, error messages and tests; put the remaining why in the commit message body. Keep error messages and `.ccl` descriptions short: prose moved into a string breaks this rule.
+
+Before changing or removing code whose purpose isn't clear from the code, read its history:
+
+```bash
+git log -L <start>,<end>:<file>
+git blame --ignore-revs-file .git-blame-ignore-revs <file>
+```
+
 ## Commit & Pull Request Guidelines
 
-Recent history favors short subject lines with a thorn prefix, for example `ODESolvers: update comments` or `CarpetX: add par poison_undefined_arrays`. Keep commits focused on one thorn or one behavior change. PRs should explain the scientific or runtime impact, list the tests run, and link the relevant issue or discussion. Include plots or output snippets when a change affects diagnostics, IO, or visible simulation results.
+Recent history favors short subject lines with a thorn prefix, for example `ODESolvers: check more of the RK method table at compile time` or `CarpetX: add par poison_undefined_arrays`. Keep commits focused on one thorn or one behavior change. PRs should explain the scientific or runtime impact, list the tests run, and link the relevant issue or discussion. Include plots or output snippets when a change affects diagnostics, IO, or visible simulation results.
 
 ## Further Reading
 
