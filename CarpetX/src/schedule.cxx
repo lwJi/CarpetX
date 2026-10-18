@@ -1311,6 +1311,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
 static void RecoverHierarchy(cGH *restrict const cctkGH) {
   RecoverGridStructure(cctkGH);
   // RecoverGridStructure has set cctk_iteration to the checkpoint's
+  assert(ghext->recovered_iteration == -1);
   ghext->recovered_iteration = cctkGH->cctk_iteration;
 
   assert(!active_levels);
@@ -1332,6 +1333,11 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
   CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
 
   active_levels = std::optional<active_levels_t>();
+
+  for (const auto &patchdata : ghext->patchdata)
+    for (const auto &leveldata : patchdata.leveldata)
+      assert(leveldata.iteration == 0 &&
+             "recovery runs BASEGRID and RECOVER_VARIABLES at clock 0");
 
   // Restore the per-level clocks and last-step iterations
   RestoreLevelClocks(cctkGH);
