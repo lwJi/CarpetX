@@ -18,41 +18,6 @@
 
 namespace Arith {
 
-////////////////////////////////////////////////////////////////////////////////
-
-#if 0
-// This does not work with thrust::tuple
-
-#if 0
-namespace detail {
-template <typename T, std::size_t... I>
-decltype(auto) make_tuple_type(const T &t, std::index_sequence<I...>) {
-  // return std_make_tuple((I, t)...);
-  return std_make_tuple(std::enable_if_t<(I || true), T>(t)...);
-}
-} // namespace detail
-
-template <typename T, size_t N> struct ntuple {
-  using type = decltype(detail::make_tuple_type(declval<T>(),
-                                                std::make_index_sequence<N>{}));
-};
-#endif
-template <typename T, size_t N> struct ntuple {
-  using type = decltype(std_tuple_cat(
-      declval<std_tuple<T> >(), declval<typename ntuple<T, N - 1>::type>()));
-};
-template <typename T> struct ntuple<T, 0> { using type = std_tuple<>; };
-template <typename T, size_t N> using ntuple_t = typename ntuple<T, N>::type;
-
-#endif
-
-////////////////////////////////////////////////////////////////////////////////
-
-// A small vector with a length that is known at compile time, similar
-// to `std::array` or `Arith::arr`. The main difference is that `vect`
-// supports arithmetic operations, which is most useful for
-// multi-dimensional array indices.
-
 template <typename T, int D> struct vect;
 
 template <typename T> struct is_vect : std::false_type {};
@@ -66,7 +31,6 @@ template <typename T, int D> struct vect {
   typedef int size_type;
   static constexpr int size() { return D; }
 
-  // (no it doesn't) initializes all elements to zero
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST vect() : elts() {}
 
   constexpr ARITH_INLINE vect(const vect &) = default;
@@ -88,10 +52,6 @@ template <typename T, int D> struct vect {
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST vect(const T (&arr)[D])
       : elts(construct_array<T, D>([&](int d)
                                        ARITH_INLINE { return arr[d]; })) {}
-#if 0
-  constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST vect(ntuple_t<T, D> tup)
-      : elts(array_from_tuple<T, D>(std::move(tup))) {}
-#endif
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   vect(std::initializer_list<T> lst)
       : elts(construct_array<T, D>([&](size_t d) ARITH_INLINE {
@@ -173,8 +133,6 @@ template <typename T, int D> struct vect {
   fmap_(const F &f, const vect &x, const vect<Args, D> &...args) {
     loop([&](int d) ARITH_INLINE { f(x.elts[d], args.elts[d]...); });
   }
-
-  // TODO: scan, exscan
 
   template <typename Op, typename R, typename... Args,
             typename = std::remove_cv_t<std::remove_reference_t<
@@ -626,25 +584,25 @@ template <typename T, int D> struct vect {
     return fmap([](const T &a) ARITH_INLINE { return abs(a); }, x);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   all(const vect &x) {
     return fold([](const T &a, const T &b) ARITH_INLINE { return a && b; },
                 one<T>()(), x);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   any(const vect &x) {
     return fold([](const T &a, const T &b) ARITH_INLINE { return a || b; },
                 zero<T>()(), x);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   allisfinite(const vect &x) {
     return all(
         fmap([](const auto &a) ARITH_INLINE { return allisfinite(a); }, x));
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   anyisnan(const vect &x) {
     return any(fmap([](const auto &a) ARITH_INLINE { return anyisnan(a); }, x));
   }
@@ -697,7 +655,7 @@ template <typename T, int D> struct vect {
                 cond);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*vect<bool, D>*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   isnan(const vect &x) {
     using std::isnan;
     return fmap([](const T &a) ARITH_INLINE { return isnan(a); }, x);
@@ -799,7 +757,6 @@ template <typename T, int D> struct vect {
 
 template <typename T, int D> struct zero<vect<T, D> > {
   typedef vect<T, D> value_type;
-  // static constexpr value_type value = vect<T, D>::pure(zero_v<T>);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return vect<T, D>::pure(zero<T>()());
   }
@@ -810,7 +767,6 @@ template <typename T, int D> struct zero<vect<T, D> > {
 
 template <typename T, int D> struct nan<vect<T, D> > {
   typedef vect<T, D> value_type;
-  // static constexpr value_type value = vect<T, D>::pure(nan_v<T>);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return vect<T, D>::pure(nan<T>()());
   }
@@ -824,8 +780,6 @@ namespace std {
 template <typename T, int D> struct equal_to<Arith::vect<T, D> > {
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST bool
   operator()(const Arith::vect<T, D> &lhs, const Arith::vect<T, D> &rhs) const {
-    // This is not yet constexpr in C++17
-    // return equal_to<array<T, D> >()(lhs.elts, rhs.elts);
     for (int d = 0; d < D; ++d)
       if (!equal_to<T>()(lhs.elts[d], rhs.elts[d]))
         return false;
@@ -836,7 +790,6 @@ template <typename T, int D> struct equal_to<Arith::vect<T, D> > {
 template <typename T, int D> struct less<Arith::vect<T, D> > {
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST bool
   operator()(const Arith::vect<T, D> &lhs, const Arith::vect<T, D> &rhs) const {
-    // return less()(lhs.elts, rhs.elts);
     for (int d = 0; d < D; ++d) {
       if (less<T>()(lhs.elts[d], rhs.elts[d]))
         return true;
@@ -847,7 +800,6 @@ template <typename T, int D> struct less<Arith::vect<T, D> > {
   }
 };
 
-// Consistent with `equal_to` above, i.e. it hashes every component
 template <typename T, int D> struct hash<Arith::vect<T, D> > {
   std::size_t operator()(const Arith::vect<T, D> &x) const {
     std::size_t h = 0;
@@ -864,8 +816,6 @@ struct tuple_size<Arith::vect<T, D> >
 } // namespace std
 namespace Arith {
 
-////////////////////////////////////////////////////////////////////////////////
-
 template <typename T, int D>
 constexpr vect<simd<T>, D> if_else(const simdl<T> &cond,
                                    const vect<simd<T>, D> &x,
@@ -877,4 +827,4 @@ constexpr vect<simd<T>, D> if_else(const simdl<T> &cond,
 
 } // namespace Arith
 
-#endif // #ifndef CARPETX_ARITH_VECT_HXX
+#endif

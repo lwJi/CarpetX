@@ -7,7 +7,7 @@
 #include "tuple.hxx"
 #include "vect.hxx"
 
-#include "vec.hxx" // for symm_t
+#include "vec.hxx"
 
 #include <cctk.h>
 
@@ -22,7 +22,6 @@
 
 namespace Arith {
 
-// A rank-3 tensor with various symmetries
 template <typename T, int D, symm_t symm> struct gten3 {
   constexpr static int Nfull = D * D * D;
   constexpr static int Nsymm = D * (D + 1) * (D + 2) / 6;
@@ -101,7 +100,6 @@ private:
   }
 
 public:
-  // initializes all elements to nan
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST gten3()
       : elts(nan<vect<T, N> >()) {}
 
@@ -124,9 +122,6 @@ public:
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   gten3(std::array<T, N> x)
       : elts(std::move(x)) {}
-  // explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST gten3(const
-  // vector<T> &x) : elts(x) {} explicit constexpr ARITH_INLINE ARITH_DEVICE
-  // ARITH_HOST gten3(vector<T> &&x) : elts(std::move(x)) {}
 
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   operator vect<T, N>() const {
@@ -220,16 +215,6 @@ public:
     return fmap([&](const T &var, const U &x) { return var(arg1, arg2, x); },
                 *this, val);
   }
-  // template <typename... Args, typename U, typename T1 = T,
-  //           typename = decltype(declval<T1>().store(declval<Args>()...,
-  //                                                   declval<U>()))>
-  // ARITH_INLINE ARITH_DEVICE ARITH_HOST void store(const Args &...args,
-  //                         const gten3<U, D, symm> &val)
-  //                         const {
-  //   fmap_([&](const auto &var, const auto &x) { return var.store(args..., x);
-  //   },
-  //        val);
-  // }
   template <typename Arg1, typename Arg2, typename U, typename T1 = T,
             typename = decltype(std::declval<T1>().store(
                 std::declval<Arg1>(), std::declval<Arg2>(), std::declval<U>()))>
@@ -317,21 +302,21 @@ public:
     return *this = *this % a;
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator==(const gten3 & x, const gten3 & y) {
     return all(x.elts == y.elts);
   }
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator!=(const gten3 & x, const gten3 & y) {
     return !(x == y);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   all(const gten3 &x) {
     return all(x.elts);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   any(const gten3 &x) {
     return any(x.elts);
   }
@@ -347,7 +332,7 @@ public:
   }
 
   friend constexpr
-      ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*gten3<bool, D, symm>*/
+      ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
       isnan(const gten3 &x) {
     return isnan(x.elts);
   }
@@ -399,8 +384,6 @@ template <typename T, int D, symm_t symm> struct zero<gten3<T, D, symm> > {
 
 template <typename T, int D, symm_t symm> struct nan<gten3<T, D, symm> > {
   typedef gten3<T, D, symm> value_type;
-  // static constexpr value_type value =
-  //     gten3<T, D, symm>::pure(nan<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return gten3<T, D, symm>::pure(nan<T>());
   }
@@ -409,13 +392,9 @@ template <typename T, int D, symm_t symm> struct nan<gten3<T, D, symm> > {
   }
 };
 
-////////////////////////////////////////////////////////////////////////////////
-
 template <typename T, int D> using ten3 = gten3<T, D, symm_t::full>;
 template <typename T, int D> using sten3 = gten3<T, D, symm_t::symm>;
 template <typename T, int D> using aten3 = gten3<T, D, symm_t::anti>;
-
-////////////////////////////////////////////////////////////////////////////////
 
 template <typename T, int D, symm_t symm>
 constexpr gten3<simd<T>, D, symm> if_else(const simdl<T> &cond,
@@ -427,4 +406,4 @@ constexpr gten3<simd<T>, D, symm> if_else(const simdl<T> &cond,
 
 } // namespace Arith
 
-#endif // #ifndef CARPETX_ARITH_TEN3_HXX
+#endif

@@ -56,4 +56,4 @@ constexpr decltype(auto) get(std_tuple<Args...> &&x) {
 
 #endif
 
-#endif // #ifndef CARPETX_ARITH_TUPLE_HXX
+#endif

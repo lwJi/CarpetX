@@ -10,8 +10,6 @@
 
 namespace Arith {
 
-// #ifndef __CUDACC__
-
 namespace {
 void test_smallvector() {
   using R = CCTK_REAL;
@@ -33,10 +31,6 @@ void test_smallvector() {
   const VR x{1, 2, 3, 0, 0};
   const VR y{0, 12, 0, 14, 0};
   const VR z{0, 20, 0, 0, 24};
-
-  // std::cout << "x=" << x << "\n";
-  // std::cout << "y=" << y << "\n";
-  // std::cout << "z=" << z << "\n";
 
   const R a = -2;
   const R b = -3;
@@ -84,10 +78,6 @@ void test_spvect() {
   z.emplace_back(1, 20);
   z.emplace_back(4, 24);
 
-  // std::cout << "x=" << x << "\n";
-  // std::cout << "y=" << y << "\n";
-  // std::cout << "z=" << z << "\n";
-
   const R a = -2;
   const R b = -3;
 
@@ -127,8 +117,8 @@ void test_dual_spvect() {
   xv.emplace_back(0, 1);
   yv.emplace_back(1, 1);
 
-  const DR x(3, xv); // x=3
-  const DR y(4, yv); // y=4
+  const DR x(3, xv);
+  const DR y(4, yv);
 
   assert((x + y).val == 7);
   assert((x + y).eps == xv + yv);
@@ -143,16 +133,12 @@ void test_dual_spvect() {
 
 } // namespace
 
-// #endif
-
 extern "C" void Test_smallvector(CCTK_ARGUMENTS) {
-  // #ifndef __CUDACC__
   CCTK_INFO("Test_smallvector");
 
   test_smallvector();
   test_spvect();
   test_dual_spvect();
-  // #endif
 }
 
 } // namespace Arith

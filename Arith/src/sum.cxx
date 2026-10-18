@@ -70,8 +70,6 @@ constexpr CCTK_REAL hijk_symm(int i, int j, int k) {
 }
 } // namespace
 
-// This function is compiled, but not executed. The tests are "run" at
-// compile time. If this function compiles, the tests pass.
 void TestSum() {
   constexpr std::equal_to<CCTK_REAL> eq;
 
