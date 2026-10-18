@@ -22,7 +22,6 @@ extern "C" void TestArrayGroup_Initialize(CCTK_ARGUMENTS) {
   const int jmax = 6;
   const int nmax = 4;
 
-  // Initialize test array
   for (int n = 0; n < nmax; n++) {
     for (int j = 0; j < jmax; j++) {
       for (int i = 0; i < imax; i++) {
@@ -45,7 +44,6 @@ extern "C" void TestArrayGroup_Initialize(CCTK_ARGUMENTS) {
     }
   }
 
-  // Initialize test grid function
   int gi = CCTK_GroupIndex("TestArrayGroup::test_gf");
   cGroup group;
   int ierr = CCTK_GroupData(gi, &group);
@@ -75,7 +73,6 @@ extern "C" void TestArrayGroup_Compare(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
   DECLARE_CCTK_ARGUMENTS_TestArrayGroup_Compare;
 
-  // test array group
   const int imax = 5;
   const int jmax = 6;
   const int nmax = 4;
@@ -118,7 +115,7 @@ extern "C" void TestArrayGroup_Compare(CCTK_ARGUMENTS) {
                        CCTK_COMPLEX(3 + ival) + CCTK_COMPLEX(1i);
               default:
                 assert(0 && "Unexpected variable type");
-                return false; // notreached
+                return false;
               }
             }();
             if (!is_equal)
@@ -144,7 +141,6 @@ extern "C" void TestArrayGroup_Compare(CCTK_ARGUMENTS) {
     }
   }
 
-  // test grid function
   int gf_gi = CCTK_GroupIndex("TestArrayGroup::test_gf");
   cGroup gf_group;
   int ierr = CCTK_GroupData(gf_gi, &gf_group);
@@ -177,7 +173,6 @@ extern "C" void TestArrayGroup_Compare(CCTK_ARGUMENTS) {
     found_error = true;
   }
 
-  // test grid scalar
   if (*test_scalar != CCTK_REAL(1)) {
     CCTK_VWARN(CCTK_WARN_ALERT, "TestArrayGroup: CCTK_REAL grid scalar failed");
     found_error = true;
@@ -196,8 +191,6 @@ extern "C" void TestArrayGroup_Compare(CCTK_ARGUMENTS) {
 }
 
 extern "C" void TestArrayGroup_Terminate(CCTK_ARGUMENTS) {
-  // this should be caugt by output files, but since we test the array code
-  // itself, report an error explicitly
   if (found_error)
     CCTK_Exit(cctkGH, EXIT_FAILURE);
 }

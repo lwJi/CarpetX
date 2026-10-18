@@ -14,7 +14,6 @@ extern "C" void TestArrayGroup_DynamicData(CCTK_ARGUMENTS) {
     int lsh, ash, gsh, lbnd, ubnd, bbox, nghostzones;
   };
 
-  // Validate grid function dynamic data
   {
     const int gf_gi = CCTK_GroupIndex("TestArrayGroup::test_gf");
     cGroupDynamicData gf_data;
@@ -66,7 +65,6 @@ extern "C" void TestArrayGroup_DynamicData(CCTK_ARGUMENTS) {
       CCTK_ERROR("incorrect nghostzones data in grid function dynamic data");
   }
 
-  // Validate grid scalar dynamic data
   char const *const scalars[] = {
       "TestArrayGroup::test_scalar",
       "TestArrayGroup::test_scalar_int",
@@ -108,7 +106,6 @@ extern "C" void TestArrayGroup_DynamicData(CCTK_ARGUMENTS) {
       if (scalar_data.nghostzones[i] != -1)
         error.nghostzones += 1;
     }
-    // data is padded to Loop:dim with "neutral"
     for (int i = scalar_data.dim; i < dim; i++) {
       if (scalar_data.lsh[i] != 1)
         error.lsh += 1;
@@ -143,7 +140,6 @@ extern "C" void TestArrayGroup_DynamicData(CCTK_ARGUMENTS) {
       CCTK_ERROR("incorrect nghostzones data in scalar dynamic data");
   }
 
-  // Validate grid array dynamic data
   char const *const arrays[] = {
       "TestArrayGroup::test_array",
       "TestArrayGroup::test_array_int",
@@ -186,7 +182,6 @@ extern "C" void TestArrayGroup_DynamicData(CCTK_ARGUMENTS) {
       if (array_data.nghostzones[i] != 0)
         error.nghostzones += 1;
     }
-    // data is padded to Loop:dim with "neutral"
     for (int i = array_data.dim; i < dim; i++) {
       if (array_data.lsh[i] != 1)
         error.lsh += 1;
