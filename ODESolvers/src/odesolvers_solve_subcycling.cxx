@@ -315,6 +315,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
   *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
 
+  static_assert(
+      rk_methods_detail::subcycling_ok_rows_are({"constant", "RK4", "SSPRK3"}),
+      "rk_methods: the subcycling_ok rows must be the methods "
+      "ODESolvers_Solve_Subcycling has a branch for");
+
   if (CCTK_EQUALS(method, "constant")) {
 
     // y1 = y0
