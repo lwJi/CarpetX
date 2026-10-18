@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestSubcyclingMixedProlong
-
 STORAGE: state_lo[timelevels] state_hi[timelevels]
 STORAGE: rhs_lo rhs_hi error_lo error_hi
 
@@ -53,11 +51,6 @@ SCHEDULE TestSubcyclingMixedProlong_RHS_hi IN ODESolvers_RHS
   WRITES: rhs_hi(interior)
 } "Calculate scalar wave RHS (wide prolongation stencil)"
 
-# error_lo and error_hi are not checkpointed: compute them at the end of each
-# step, and again after a restart, once the state's ghosts are refilled. This
-# group runs in every iteration, and under subcycling an end-of-step bin may
-# SYNC only when its window holds every level, so these pointwise errors are
-# written everywhere instead of SYNCed
 SCHEDULE GROUP TestSubcyclingMixedProlong_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"
