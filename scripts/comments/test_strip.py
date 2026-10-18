@@ -20,6 +20,14 @@ CXX_CASES = {
     "blank line at the end of the file": ("a;\n\n// c\n", "a;\n"),
     "existing blank lines elsewhere stay": ("a;\n\n\nb; // c\n", "a;\n\n\nb;\n"),
     "an existing blank line after a brace stays": ("{\n\n  // c\n  a;\n}\n", "{\n\n  a;\n}\n"),
+    "blank line right after a brace that loses its trailing comment": (
+        "} else { // a\n  // b\n  // c\n\n  d;\n}\n",
+        "} else {\n  d;\n}\n",
+    ),
+    "an existing blank line after a brace with a trailing comment stays": (
+        "} else { // a\n\n  d;\n}\n",
+        "} else {\n\n  d;\n}\n",
+    ),
     "namespace closer stays": (
         "namespace X {\n// c\nint a;\n} // namespace X\n",
         "namespace X {\nint a;\n} // namespace X\n",
