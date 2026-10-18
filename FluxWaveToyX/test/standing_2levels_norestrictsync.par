@@ -7,20 +7,6 @@ ActiveThorns = "
     ODESolvers
 "
 
-# standing_2levels.par with CarpetX::restrict_during_sync = no: the
-# ODESolvers_PostStep SYNCs only exchange ghosts, and the fine level is
-# restricted onto the coarse level once per step in the driver's post-EVOL
-# restrict block (CarpetX_PreRestrict, restrict, prolongate, POSTRESTRICT).
-# Pins the flux-register (reflux) correction of FluxWaveToyX::state on this
-# path: ODESolvers_Solve feeds the register at every RK stage and applies it
-# at its final stage, before the driver restricts the fine state onto the
-# corrected coarse cells; the driver's own reflux in that block is for
-# subcycling only. With CarpetX::do_reflux = yes, the masked sum of
-# every flux-conservative component of the state (ft, fx, fy, fz) is
-# constant to round-off over the run; with do_reflux = no it drifts. u has a
-# source term (u_rhs = ft) and no flux, so its sum is not a conservation
-# diagnostic.
-
 Cactus::cctk_show_schedule = no
 Cactus::presync_mode = "mixed-error"
 
@@ -64,11 +50,6 @@ CarpetX::use_subcycling = no
 CarpetX::restrict_during_sync = no
 
 BoxInBox::num_regions = 1
-# Region 1: a fixed cube; regrid_every above keeps it fixed. It is displaced
-# from the origin by different amounts in x, y and z so that the composite
-# grid has no reflection symmetry: with a centred box the masked totals of
-# fx, fy, fz would vanish by symmetry at every step, whether or not the
-# reflux correction is applied.
 BoxInBox::shape_1 = "cube"
 BoxInBox::num_levels_1 = 2
 BoxInBox::position_x_1 = 0.25
@@ -76,10 +57,6 @@ BoxInBox::position_y_1 = -0.125
 BoxInBox::position_z_1 = 0.125
 BoxInBox::radius_1 = [ -1.0, 0.5 ]
 
-# Without subcycling every level takes the finest level's step, so 16
-# iterations reach the same time as the 16 fine steps of
-# standing_subcycling.par. All levels are time-aligned at every iteration;
-# the masked sums are a conservation diagnostic everywhere.
 Cactus::cctk_itlast = 16
 
 FluxWaveToyX::initial_condition = "standing wave"

@@ -1,5 +1,3 @@
-# Interface definition for thorn FluxWaveToyX
-
 IMPLEMENTS: FluxWaveToyX
 
 USES INCLUDE HEADER: loop_device.hxx
@@ -7,10 +5,6 @@ USES INCLUDE HEADER: vect.hxx
 
 
 
-# The fluxes= tag registers flux_x/y/z with the driver's flux-register
-# (reflux) correction. The driver expects the conservation-law convention
-# d/dt state + div(flux) = 0, with the leading components of each flux group
-# being the fluxes of the state's components in order.
 CCTK_REAL state TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1   +1 +1 +1   -1 +1 +1   +1 -1 +1   +1 +1 -1} rhs="rhs" fluxes="flux_x flux_y flux_z" dependents="flux_x flux_y flux_z rhs cons energy error mass mass_flux_x mass_flux_y mass_flux_z"'
 {
   u
@@ -18,12 +12,6 @@ CCTK_REAL state TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1   +1 +1 +1   -1
   fx fy fz
 } "State vector"
 
-# A flux-tagged diagnostic that ODESolvers does not integrate (no rhs= tag):
-# the conserved density ft and its fluxes, computed AT analysis, not in
-# ODESolvers_RHS. The driver must allocate no flux register for it and never
-# check its fluxes during the RK stages; the fluxes= tag is inert here. The
-# flux groups are dependents of state so that every stage update invalidates
-# them (a register for this group would then abort at the second RK stage).
 CCTK_REAL mass TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1} fluxes="mass_flux_x mass_flux_y mass_flux_z" checkpoint="no"'
 {
   mass_density
@@ -89,19 +77,6 @@ CCTK_REAL error TYPE=gf CENTERING={ccc} TAGS='parities={+1 +1 +1   +1 +1 +1   -1
   fx_err fy_err fz_err
 } "Error"
 
-# Fixture for the order of CarpetX_PreRestrict and the driver's reflux (see
-# schedule.ccl): the energy density averaged over the state's full ghost
-# width, computed IN CarpetX_PreRestrict, i.e. before the driver refluxes
-# the coarse level and restricts. It is not a dependent of state: it is a
-# snapshot of what a pre-restrict reader sees, kept until output.
-#
-# It is checkpointed: it cannot be recomputed after a restart (it is
-# computed only at POSTINITIAL and inside CarpetX_PreRestrict), and a level
-# that lags its parent SYNCs it from the parent. It is first computed at
-# POSTINITIAL, so that a checkpoint of the initial data holds defined values,
-# and again in every CarpetX_PreRestrict. The evolve and restrict tags keep
-# what a non-checkpointed group defaults to: a regrid does not require it to
-# be valid, and restriction does not overwrite it.
 CCTK_REAL prerestrict_energy TYPE=gf CENTERING={ccc} TAGS='checkpoint="yes" evolve="no" restrict="no"'
 {
   prerestrict_eps

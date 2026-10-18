@@ -6,14 +6,6 @@ ActiveThorns = "
     ODESolvers
 "
 
-# First half of the initial-data checkpoint/recover pair for the single-level
-# standing wave (standing.par). The run checkpoints its initial data at
-# iteration 0 (IO::checkpoint_ID), at CPINITIAL, and runs on as the
-# uninterrupted baseline. With a single level CarpetX_PreRestrict is never
-# traversed, so prerestrict_energy holds only what POSTINITIAL wrote: its
-# output pins that the checkpointed group is defined. recover_initial.par
-# continues from that checkpoint; its output must match this run's.
-
 Cactus::cctk_show_schedule = no
 Cactus::presync_mode = "mixed-error"
 
@@ -50,9 +42,6 @@ CarpetX::out_norm_vars = "
 CarpetX::out_norm_omit_unstable = yes
 CarpetX::out_norm_omit_sumloc_for_backward_compatibility = yes
 
-# Recovery restores only the interior of a checkpointed group, and nothing
-# reads prerestrict_energy's ghosts, so they are not refilled: output
-# interior points only
 CarpetX::out_tsv_output_boundary_points = no
 CarpetX::out_tsv_every = 4
 CarpetX::out_tsv_vars = "
