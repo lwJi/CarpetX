@@ -17,7 +17,7 @@ ActiveThorns = "
     TimerReport
 "
 
-$nlevels = 1   #TODO 8
+$nlevels = 1
 $ncells_x = 128
 $ncells_y = 128
 $ncells_z = 128
@@ -72,9 +72,6 @@ ReflectionSymmetry::avoid_origin_z = no
 
 Carpet::max_refinement_levels = $nlevels
 CarpetRegrid2::regrid_every = 0
-
-# TODO: Implement box-in-box
-# CarpetRegrid2::... = ...
 
 Carpet::prolongation_order_space = 3
 Carpet::prolongation_order_time = 2

@@ -1,5 +1,4 @@
 ActiveThorns = "
-    # SystemTopology
     ADMBase
     CarpetX
     ErrorEstimator

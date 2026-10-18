@@ -9,7 +9,7 @@ ActiveThorns = "
     WaveToyX
 "
 
-$nlevels = 1   #TODO 8
+$nlevels = 1
 $ncells_x = 128
 $ncells_y = 128
 $ncells_z = 128
@@ -92,4 +92,3 @@ TimerReport::output_all_timers_readable = no
 TimerReport::output_all_timers_together = no
 TimerReport::output_schedule_timers = no
 TimerReport::n_top_timers = 50
-# TimerReport::all_timers_clock = "count"
