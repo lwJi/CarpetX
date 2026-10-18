@@ -1,10 +1,6 @@
-# Schedule definitions for thorn TestPersistentGroups
-
 STORAGE: persist_default persist_noevolve stale_count stale_step
 
 
-
-# Initial data: stamp 0 everywhere, start the running total, check
 
 SCHEDULE TestPersistentGroups_Init AT initial
 {
@@ -28,9 +24,6 @@ SCHEDULE GROUP TestPersistentGroups_CheckGroup AT initial AFTER (TestPersistentG
 
 
 
-# Evolution: after the integrated state has been advanced, stamp the level's
-# new time on the interior, SYNC, and check every point including the ghosts
-
 SCHEDULE TestPersistentGroups_Write AT evol AFTER (ODESolvers_Solve, ODESolvers_Solve_Subcycling)
 {
   LANG: C
@@ -46,21 +39,11 @@ SCHEDULE GROUP TestPersistentGroups_CheckGroup AT evol AFTER TestPersistentGroup
 
 
 
-# Regridding: the stamps must survive (levels are time-aligned at a regrid)
-
 SCHEDULE GROUP TestPersistentGroups_CheckGroup AT postregrid
 {
 } "Count stale points in the tested groups"
 
 
-
-# Recovery: restart the running total (it is not checkpointed) once, in
-# CCTK_RECOVER_VARIABLES, which runs exactly once. Checkpoints carry the
-# interior only, so restore the ghosts with a SYNC (as
-# MHD_Diagnostics::vels_old and TestSubcycleStepping do), and check that the
-# recovered stamps are intact. Every traversal of CCTK_POST_RECOVER_VARIABLES
-# adds its stale points to the running total, so the total covers every level
-# however many traversals recovery makes.
 
 SCHEDULE TestPersistentGroups_Zero AT recover_variables
 {
@@ -82,8 +65,6 @@ SCHEDULE GROUP TestPersistentGroups_CheckGroup AT post_recover_variables AFTER T
 } "Count stale points in the tested groups"
 
 
-
-# The check pass
 
 SCHEDULE TestPersistentGroups_ZeroStep IN TestPersistentGroups_CheckGroup
 {

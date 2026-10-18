@@ -1,20 +1,3 @@
-# Old-format compatibility test: the frozen checkpoint predates per-level
-# end-of-step iterations (last_tail_iteration). Its levels are on two
-# clocks, so recovery derives the missing values from the clocks and warns.
-# See RestoreLevelClocks in CarpetX/src/schedule.cxx.
-
-# Recover half of a checkpoint/recover pair on the moving.par setup (see
-# there and checkpoint-moving.par): recovers the mid-cycle checkpoint taken at
-# iteration 6 (refined levels out of step with level 0, after the regrid at 4)
-# and continues through the regrids at iterations 8 and 12.
-#
-# At RECOVER_VARIABLES TestPersistentGroups restarts the running total. At
-# POST_RECOVER_VARIABLES, once per clock group, it SYNCs the tested groups
-# (checkpoints carry their interior only) and checks that the recovered
-# stamps are intact. The rows at iterations 8 and 16 hold the same stamps as
-# moving.par's. The correct value of stale_count is 0 for both groups in
-# every row.
-
 ActiveThorns = "
     BoxInBox
     CarpetX
@@ -29,10 +12,8 @@ $nlevels = 3
 $ncells = 32
 
 TestSubcyclingMC2::initial_condition = "Gaussian"
-TestSubcyclingMC2::gaussian_width = 0.17677669529 # sqrt(2)*W = 0.25
+TestSubcyclingMC2::gaussian_width = 0.17677669529
 
-# Drift the refined box along +x so that level-1 (and level-2) grids change at
-# each regrid
 TestSubcyclingMC2::box_velocity_x = 2.0
 
 CarpetX::use_subcycling = yes
@@ -74,7 +55,6 @@ CarpetX::blocking_factor_y = 2
 CarpetX::blocking_factor_z = 2
 
 BoxInBox::num_regions = 1
-# Region 1
 BoxInBox::shape_1 = "cube"
 BoxInBox::num_levels_1 = $nlevels
 BoxInBox::radius_1 = [ -1.0, 1.0, 0.5 ]
