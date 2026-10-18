@@ -11,6 +11,7 @@ CXX_CASES = {
         "int f(int x) {\n  restore();\n  g(5, true);\n}\n",
     ),
     "two blank lines touching keep one": ("a;\n\n// c\n\nb;\n", "a;\n\nb;\n"),
+    "two blank runs touching keep the longer": ("a;\n\n\n// c\n\nb;\n", "a;\n\n\nb;\n"),
     "blank line at the top of the file": ("// header\n\nint a;\n", "int a;\n"),
     "every blank line it leaves at the top of the file": ("// header\n\n\n\n// c\nint a;\n", "int a;\n"),
     "every blank line it leaves right after a brace": ("{\n  // c\n\n\n  a;\n}\n", "{\n  a;\n}\n"),
@@ -112,6 +113,11 @@ HASH_CASES = {
         "SCHEDULE GROUP G AT postinitial\n{\n} \"G\"\n",
     ),
     "comment-only file with blank lines": (Lang.CCL, "# a\n\n# b\n\n", ""),
+    "blank runs that groups separated keep the longest": (
+        Lang.CCL,
+        "STORAGE: a\n\n\n\n# glossary\n# more\n\n\n\n# list\n\n# TODO\n\n\n\nSCHEDULE GROUP G\n{\n} \"G\"\n",
+        "STORAGE: a\n\n\n\nSCHEDULE GROUP G\n{\n} \"G\"\n",
+    ),
 }
 
 

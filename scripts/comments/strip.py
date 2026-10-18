@@ -54,6 +54,15 @@ def _final_line(text: str, bounds: tuple[int, int], pending: list[Span]) -> str:
     return "".join(parts)
 
 
+def _blank_run(text: str, junction: int, after: bool) -> int:
+    count = 0
+    bounds = _line_after(text, junction) if after else _line_before(text, junction)
+    while _blank(text, bounds):
+        count += 1
+        bounds = _line_after(text, bounds[1]) if after else _line_before(text, bounds[0])
+    return count
+
+
 def _tidy(
     text: str,
     junction: int,
@@ -63,11 +72,13 @@ def _tidy(
 ) -> str:
     prev, nxt = _line_before(text, junction), _line_after(text, junction)
     if _blank(text, prev) and _blank(text, nxt):
-        if not keep_next:
-            text = _cut(text, nxt)
-        elif not keep_prev:
-            text = _cut(text, prev)
-            junction = prev[0]
+        for _ in range(min(_blank_run(text, junction, False), _blank_run(text, junction, True))):
+            if not keep_next:
+                text = _cut(text, _line_after(text, junction))
+            elif not keep_prev:
+                prev = _line_before(text, junction)
+                text = _cut(text, prev)
+                junction = prev[0]
         prev, nxt = _line_before(text, junction), _line_after(text, junction)
     while (
         _blank(text, nxt)
