@@ -43,6 +43,47 @@ class Exceptions(unittest.TestCase):
         self.assertEqual(violations("// prose\n// clang-format off\nint a;\n"), ["// prose"])
 
 
+class Citations(unittest.TestCase):
+    def test_a_citation_group_is_kept(self):
+        for comment in [
+            "// arXiv:1111.2177 [gr-qc], (71)",
+            "// See arXiv:1111.2177 [gr-qc], (74-75)",
+            "// arXiv:1111.2177v2, eqs. 74–75.",
+            "// https://stackoverflow.com/a/30968371",
+            "// See <https://en.wikipedia.org/wiki/Brent%27s_method>",
+            "// Taken from <https://en.cppreference.com/w/cpp/experimental/make_array>",
+            "// cf. doi:10.1016/0021-9991(88)90177-5",
+            "/* arXiv:1111.2177 (71) */",
+            "/*\n * arXiv:1111.2177\n * https://example.org/paper\n */",
+            "// arXiv:1111.2177 [gr-qc], (71)\n//\n// https://example.org/paper",
+        ]:
+            with self.subTest(comment):
+                self.assertEqual(violations(f"{{\n  {comment}\n  a = 1;\n}}\n"), [])
+
+    def test_trailing_and_hash_citations_are_kept(self):
+        self.assertEqual(violations("a = f(x); // arXiv:1111.2177 (71)\n"), [])
+        text = 'KEYWORD m "m"\n{\n  # See <https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods>\n  "a" :: "a"\n} "a"\n'
+        self.assertEqual(violations(text, Lang.CCL), [])
+
+    def test_a_citation_inside_prose_goes_with_its_group(self):
+        cases = [
+            "// This class is based on NSIMD\n// <https://github.com/agenium-scale/nsimd>. The NSIMD library is very\n// close to what we need.",
+            "// See <https://en.wikipedia.org/wiki/Brent%27s_method>\n//\n// Returns a bracket containing the root.",
+            "// see the paper arXiv:1111.2177",
+            "// arXiv:1111.2177 [gr-qc], (71) for the upwind stencil",
+            "// Shu & Osher 1988",
+            "// series->setSoftware(\"Einstein Toolkit <https://einsteintoolkit.org>\");",
+        ]
+        for comment in cases:
+            with self.subTest(comment):
+                self.assertEqual(violations(f"{comment}\nint a;\n"), [comment])
+        prose = "# -ksp_type {bcgs|gmres}   <https://petsc.org/KSPType.html>"
+        self.assertEqual(violations(f"{prose}\nBOOLEAN b \"b\"\n{{\n}} no\n", Lang.CCL), [prose])
+
+    def test_an_empty_comment_is_not_a_citation(self):
+        self.assertEqual(violations("int a;\n/* */\nint b;\n"), ["/* */"])
+
+
 class Groups(unittest.TestCase):
     def test_adjacent_full_line_comments_form_one_group(self):
         self.assertEqual(violations("// a\n// b\nint x;\n\n// c\n"), ["// a\n// b", "// c"])

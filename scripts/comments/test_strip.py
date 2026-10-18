@@ -45,6 +45,13 @@ CXX_CASES = {
     "crlf line endings": ("int a; // c\r\n// d\r\nint b;\r\n", "int a;\r\nint b;\r\n"),
     "file without a final newline": ("a;\n// c", "a;\n"),
     "comment-only file": ("// a\n\n// b\n", ""),
+    "a citation stays, a citation inside prose goes": (
+        "{\n  // arXiv:1111.2177 [gr-qc], (71)\n  a = 1;\n"
+        "  // Based on <https://example.org/lib>. Close to what we need.\n  b = 2;\n"
+        "  c = 3; // https://stackoverflow.com/a/30968371\n}\n",
+        "{\n  // arXiv:1111.2177 [gr-qc], (71)\n  a = 1;\n  b = 2;\n"
+        "  c = 3; // https://stackoverflow.com/a/30968371\n}\n",
+    ),
 }
 
 HASH_CASES = {

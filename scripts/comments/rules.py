@@ -13,6 +13,14 @@ LINE_MARKER = re.compile(
 BLOCK_MARKER = re.compile(
     r"^/\*\s*(?:clang-format (?:off|on)|NOLINT(?:NEXTLINE|BEGIN|END)?(?:\([^()\n]*\))?)\s*\*/$"
 )
+REF = r"(?:<?https?://\S+?>?|arXiv:\d{4}\.\d{4,5}(?:v\d+)?|doi:\S+)"
+CITATION_LINE = re.compile(
+    rf"^(?:See|From|Taken from|cf\.)?\s*{REF}(?:\s*\[[\w.-]+\])?"
+    r"(?:,?\s*(?:eqs?\.?\s*)?\(?[\d,\s–-]+\)?)?\.?$"
+)
+_OPENER = {"line": re.compile(r"^//+"), "hash": re.compile(r"^#+"), "block": re.compile(r"^/\*+")}
+_BLOCK_CLOSER = re.compile(r"\*+/$")
+_BLOCK_LINE_LEADER = re.compile(r"^\s*\*+")
 
 
 @dataclass(frozen=True)
@@ -79,6 +87,19 @@ def is_marker(span: Span) -> bool:
     return span.kind in ("line", "block") and bool(pattern.match(body))
 
 
+def comment_lines(span: Span) -> list[str]:
+    body = _OPENER[span.kind].sub("", span.text.rstrip("\n"), count=1)
+    if span.kind != "block":
+        return [line.strip() for line in body.split("\n")]
+    lines = _BLOCK_CLOSER.sub("", body).split("\n")
+    return [lines[0].strip()] + [_BLOCK_LINE_LEADER.sub("", line).strip() for line in lines[1:]]
+
+
+def is_citation(g: Group) -> bool:
+    lines = [line for s in g.spans for line in comment_lines(s) if line]
+    return bool(lines) and all(CITATION_LINE.match(line) for line in lines)
+
+
 def _last_line(text: str, span: Span) -> int:
     return span.line + text.count("\n", span.start, span.end)
 
@@ -116,6 +137,8 @@ def classify(g: Group, text: str) -> Allowed | Violation:
             return Allowed(g, "line-break guard")
         if NAMESPACE_CLOSER.match(body) and code_before(text, span).rstrip().endswith("}"):
             return Allowed(g, "namespace closer")
+    if is_citation(g):
+        return Allowed(g, "citation")
     return Violation(g)
 
 
