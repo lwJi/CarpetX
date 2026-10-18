@@ -1,5 +1,3 @@
-# Configuration definitions for thorn TestSymmetries
-
 REQUIRES Arith
 REQUIRES CarpetX
 REQUIRES Loop
