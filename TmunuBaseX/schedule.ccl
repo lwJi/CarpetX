@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TmunuBaseX
-
 STORAGE: eTtt eTti eTij
 
 SCHEDULE GROUP TmunuBaseX_SetTmunuVars AT initial AFTER ADMBaseX_SetADMVars
@@ -19,8 +17,6 @@ if (CCTK_IsThornActive("ODESolvers")) {
   {
   } "Schedule group for setting T_munu"
 
-  # T_munu is not checkpointed: recompute it after a restart. (With
-  # ODESolvers this happens inside ODESolvers_PostStep.)
   SCHEDULE GROUP TmunuBaseX_SetTmunuVars AT post_recover_variables AFTER ADMBaseX_SetADMVars
   {
   } "Schedule group for setting T_munu"

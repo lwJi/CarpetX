@@ -29,38 +29,6 @@ extern "C" void TmunuBaseX_ZeroTmunu(CCTK_ARGUMENTS) {
   const GF3D2<CCTK_REAL> eTzz_(layout, eTzz);
 
   const GridDescBaseDevice grid(cctkGH);
-#if 0
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { eTtt_(p.I) = 0; });
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { eTtx_(p.I) = 0; });
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { eTty_(p.I) = 0; });
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { eTtz_(p.I) = 0; });
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { eTxx_(p.I) = 0; });
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { eTxy_(p.I) = 0; });
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { eTxz_(p.I) = 0; });
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { eTyy_(p.I) = 0; });
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { eTyz_(p.I) = 0; });
-  grid.loop_all_device<0, 0, 0>(
-      grid.nghostzones, [=] CCTK_DEVICE(const PointDesc &p)
-                            CCTK_ATTRIBUTE_ALWAYS_INLINE { eTzz_(p.I) = 0; });
-#endif
 
   grid.loop_all_device<0, 0, 0>(grid.nghostzones,
                                 [=] CCTK_DEVICE(const PointDesc &p)
