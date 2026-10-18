@@ -63,14 +63,11 @@ std::unique_ptr<Particles> particles_ptr;
 
 Particles &get_particles() { return *particles_ptr; }
 
-////////////////////////////////////////////////////////////////////////////////
-
 extern "C" void ParticlesX_setup(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ParticlesX_setup;
   DECLARE_CCTK_PARAMETERS;
 
   const int myproc = CCTK_MyProc(cctkGH);
-  // const int nprocs = CCTK_nProcs(cctkGH);
   const int nparticles = myproc == 0 ? num_particles : 0;
 
   particles_ptr = std::make_unique<Particles>(nparticles);
@@ -100,7 +97,6 @@ extern "C" void ParticlesX_output(CCTK_ARGUMENTS) {
 #ifdef ADIOS2_HAVE_BLOSC2
   const adios2::Operator compressor =
       adios.DefineOperator("Blosc2Compressor", adios2::ops::LosslessBlosc);
-  // Use a high compression rate and a byteshuffle filter
   const adios2::Params compressor_options{
       {adios2::ops::blosc::key::clevel, adios2::ops::blosc::value::clevel_9},
       {adios2::ops::blosc::key::doshuffle,
