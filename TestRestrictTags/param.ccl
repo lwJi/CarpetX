@@ -1,5 +1,3 @@
-# Parameter definitions for thorn TestRestrictTags
-
 CCTK_REAL coarse_value "Value that CCTK_INITIAL writes into every group on level 0"
 {
   *:* :: "must differ from fine_value"

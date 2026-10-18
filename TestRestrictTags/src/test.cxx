@@ -15,12 +15,10 @@
 namespace TestRestrictTags {
 using namespace Loop;
 
-// The groups in the order interface.ccl declares them
 constexpr int ngroups = 6;
 const std::array<std::string, ngroups> group_names{
     "untagged", "ckpt_no", "nr", "nr_ckpt_no", "ry_ckpt_no", "nr_explicit"};
 
-// Which groups the parameter restricted_groups names
 std::array<bool, ngroups> parse_restricted_groups(const char *const names) {
   std::array<bool, ngroups> restricted;
   restricted.fill(false);
@@ -63,8 +61,6 @@ extern "C" void TestRestrictTags_Init(CCTK_ARGUMENTS) {
   });
 }
 
-// Restrict nr_explicit over the whole window, the levels CCTK_POSTINITIAL
-// covers. Its restrict="no" tag keeps only the driver away from it.
 extern "C" void TestRestrictTags_RestrictExplicit(CCTK_ARGUMENTS) {
   const int gi = CCTK_GroupIndex("TestRestrictTags::nr_explicit");
   assert(gi >= 0);
@@ -74,22 +70,8 @@ extern "C" void TestRestrictTags_RestrictExplicit(CCTK_ARGUMENTS) {
 }
 
 extern "C" void TestRestrictTags_Sync(CCTK_ARGUMENTS) {
-  // Do nothing; the schedule SYNCs
 }
 
-// Per level:
-//  - level 0, interior: fine_value on the points level 1 covers if the group
-//    is in restricted_groups, coarse_value everywhere else;
-//  - level 0, ghosts of a group not in restricted_groups: coarse_value;
-//  - level 1, interior: fine_value, and every point lies in the cube
-//    |x|, |y|, |z| <= fine_box_radius, so that the cube is exactly what
-//    level 1 covers;
-//  - level 1, ghosts of a group not in restricted_groups: fine_value in the
-//    cube (copies from the neighbouring boxes of level 1), and coarse_value
-//    outside it (prolongated from level 0).
-// The values are compared exactly: restriction injects vertex values, and
-// linear prolongation reproduces constants such as the defaults 1 and 2
-// exactly.
 extern "C" void TestRestrictTags_Check(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestRestrictTags_Check;
   DECLARE_CCTK_PARAMETERS;
@@ -103,7 +85,6 @@ extern "C" void TestRestrictTags_Check(CCTK_ARGUMENTS) {
   const std::array<bool, ngroups> restricted =
       parse_restricted_groups(restricted_groups);
 
-  // Whether level 1 covers this point
   const auto in_fine_box = [&](const PointDesc &p) {
     for (int d = 0; d < dim; ++d)
       if (std::fabs(p.X[d]) > fine_box_radius + p.DX[d] / 4)
@@ -111,7 +92,6 @@ extern "C" void TestRestrictTags_Check(CCTK_ARGUMENTS) {
     return true;
   };
 
-  // Level 1 must lie in the cube; level 0 then shows that it fills it
   if (!is_coarse) {
     int noutside = 0;
     vect<CCTK_REAL, dim> outside_X{0, 0, 0};
@@ -132,7 +112,6 @@ extern "C" void TestRestrictTags_Check(CCTK_ARGUMENTS) {
     }
   }
 
-  // The first mismatch
   int nbad = 0;
   int bad_group = -1;
   const char *bad_where = nullptr;
@@ -174,8 +153,6 @@ extern "C" void TestRestrictTags_Check(CCTK_ARGUMENTS) {
   check(5, nr_explicit);
 
   if (nbad != 0) {
-    // The routine runs once per tile from an OpenMP task list; let only one
-    // tile report and abort
 #pragma omp critical(TestRestrictTags_Check)
     CCTK_VERROR("Group %s on level %d holds %.17g at [%g,%g,%g] (%s), "
                 "expected %.17g (%s is %sin TestRestrictTags::"

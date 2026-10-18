@@ -1,5 +1,1 @@
-# Configuration definitions for thorn TestRestrictTags
-
-# CarpetX for schedule.hxx, whose driver.hxx needs CarpetX's AMReX, yaml-cpp
-# and zlib headers
 REQUIRES CarpetX Loop
