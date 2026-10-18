@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestSubcycleStepping
-
 STORAGE: iteration postrestrict prerestrict tail_context recovery_counts
 
 schedule TestSubcycleStepping_Init AT INITIAL
@@ -45,10 +43,6 @@ schedule TestSubcycleStepping_Sync AT post_recover_variables
 
 
 
-# tail_context: each level records the context of the last end-of-step window
-# (CCTK_POSTSTEP) that covered it, and after a restart the context of the
-# CCTK_POST_RECOVER_VARIABLES traversal that covered it
-
 schedule TestSubcycleStepping_StampTail AT poststep
 {
   LANG: C
@@ -62,12 +56,6 @@ schedule TestSubcycleStepping_StampTail AT post_recover_variables
 } "stamp the levels of a recovery traversal with its context"
 
 
-
-# recovery_counts: count the traversals of each bin from
-# CCTK_RECOVER_VARIABLES until CCTK_CPINITIAL, so that the first output after
-# a restart shows which bins recovery ran. A fresh start zeroes the counts
-# with counting off, so that they stay 0. One routine per bin, since a routine
-# cannot tell which bin calls it.
 
 schedule TestSubcycleStepping_ResetCounts AT initial
 {
@@ -132,11 +120,6 @@ schedule TestSubcycleStepping_CountPostRestrict AT postrestrict
 } "count traversals of CCTK_POSTRESTRICT"
 
 
-
-# sync_in_tail: a fixture for the driver's end-of-step sync check, run by
-# par/sync_in_tail.par. Under subcycling a SYNC in CCTK_POSTSTEP or
-# CCTK_ANALYSIS aborts the run once the window does not hold every level, at
-# iteration 1.
 
 if (sync_in_tail) {
   schedule TestSubcycleStepping_SyncInTail AT analysis

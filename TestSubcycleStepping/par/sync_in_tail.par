@@ -1,17 +1,3 @@
-# Expected to abort: the fixture for the driver's end-of-step sync check.
-# test/subcycle_3levels.par with TestSubcycleStepping::sync_in_tail = yes,
-# which schedules TestSubcycleStepping_SyncInTail (SYNC: tail_context) in
-# CCTK_ANALYSIS. Under subcycling the SYNC at initialization passes (its
-# window holds every level), and the run must abort in iteration 1's
-# CCTK_ANALYSIS (window [2,3)) with an error that names the routine, the bin,
-# the group and the window. It lives in par/ because the testsuite has no
-# expected-failure mode, so run it by hand from a scratch directory (the
-# flesh spells group names in upper case):
-#
-#   ! $CACTUS/exe/cactus_<config> <repo>/TestSubcycleStepping/par/sync_in_tail.par \
-#       > sync_in_tail.log 2>&1 &&
-#     grep -F 'TestSubcycleStepping::TestSubcycleStepping_SyncInTail (CCTK_ANALYSIS) requested SYNC of TESTSUBCYCLESTEPPING::TAIL_CONTEXT at iteration 1' sync_in_tail.log
-
 ActiveThorns = "
   CarpetX
   ErrorEstimator

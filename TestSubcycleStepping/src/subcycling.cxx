@@ -64,7 +64,6 @@ void TestSubcycleStepping_PreRestrict(CCTK_ARGUMENTS)
 extern "C"
 void TestSubcycleStepping_Sync(CCTK_ARGUMENTS)
 {
-  // do nothing
 }
 
 extern "C"
@@ -72,8 +71,6 @@ void TestSubcycleStepping_StampTail(CCTK_ARGUMENTS)
 {
   DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_StampTail;
 
-  // Everywhere, so that the stamp needs no SYNC and output never shows a
-  // poisoned ghost
   grid.loop_all<0,0,0>(grid.nghostzones, [=] CCTK_HOST(const Loop::PointDesc &pt) {
     tail_iteration(pt.I) = cctk_iteration;
     tail_time(pt.I) = cctk_time;
@@ -164,5 +161,4 @@ void TestSubcycleStepping_CountPostRestrict(CCTK_ARGUMENTS)
 extern "C"
 void TestSubcycleStepping_SyncInTail(CCTK_ARGUMENTS)
 {
-  // do nothing: the SYNC clause on this routine is the test
 }
