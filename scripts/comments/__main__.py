@@ -46,6 +46,12 @@ def run_verify(before: str, after: str, flesh: str | None) -> int:
         return 2
 
 
+def run_remerge() -> int:
+    from remerge import remerge
+
+    return remerge()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 scripts/comments",
@@ -61,12 +67,18 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("before", metavar="BEFORE")
     verify.add_argument("after", metavar="AFTER")
     verify.add_argument("--flesh", default=os.environ.get("CACTUSX"), help="Cactus flesh root (default: $CACTUSX)")
+    commands.add_parser(
+        "remerge",
+        help="redo each conflicted covered file's three-way merge with all three sides stripped",
+    )
     args = parser.parse_args(argv)
     try:
         if args.command == "check":
             return run_check(args.paths, args.full)
         if args.command == "strip":
             return run_strip(args.paths)
+        if args.command == "remerge":
+            return run_remerge()
         return run_verify(args.before, args.after, args.flesh)
     except FileNotFoundError as e:
         print(f"{parser.prog} {args.command}: {e}", file=sys.stderr)
