@@ -26,9 +26,49 @@ class PegFor(unittest.TestCase):
         self.assertEqual(peg_for("X/test/a.par-DISABLED"), "par.peg")
         self.assertIsNone(peg_for("X/test/test.ccl"))
 
-    def test_uncovered_and_unchecked_files_fail(self):
+    def test_uncovered_files_fail(self):
         self.assertFalse(verify_file("X/README", "a", "b", None).ok)
-        self.assertFalse(verify_file("X/test/test.ccl", "# a\nNPROCS 1\n", "NPROCS 1\n", None).ok)
+
+
+class TestCclAudit(unittest.TestCase):
+    BEFORE = (
+        "# Silo checkpoints can only be recovered on the rank count\n# they were written with.\n\n"
+        "NPROCS 1\n\nTEST a\n{\n  # These tolerances are ridiculous.\n  ABSTOL 2.0e-4 # why\n"
+        '  RELTOL 1\n}\nEXTENSIONS "x # y"\n'
+    )
+
+    def check(self, before, after, name="X/test/test.ccl"):
+        return verify_file(name, before, after, None)
+
+    def test_our_strip_passes(self):
+        after = strip(self.BEFORE, Lang.CCL)
+        self.assertEqual(after, 'NPROCS 1\n\nTEST a\n{\n  ABSTOL 2.0e-4\n  RELTOL 1\n}\nEXTENSIONS "x # y"\n')
+        result = self.check(self.BEFORE, after)
+        self.assertTrue(result.ok, result.detail)
+        self.assertIn("line audit", result.evidence)
+        self.assertTrue(self.check("NPROCS 1\nABSTOL 1e-12 # a\n", "NPROCS 1\nABSTOL 1e-12\n",
+                                   "TestInterpolate/test/tests.ccl").ok)
+
+    def test_a_comment_only_file_stripped_to_nothing_passes(self):
+        self.assertTrue(self.check("# a\n\n# b\n", "").ok)
+
+    def test_a_changed_value_fails(self):
+        self.assertFalse(self.check("NPROCS 1\n", "NPROCS 2\n").ok)
+        self.assertFalse(self.check("ABSTOL 1 # a\n", "ABSTOL 2\n").ok)
+
+    def test_a_deleted_code_line_fails(self):
+        self.assertFalse(self.check("# a\nNPROCS 1\nABSTOL 1\n", "NPROCS 1\n").ok)
+
+    def test_an_added_line_fails(self):
+        self.assertFalse(self.check("NPROCS 1\n", "NPROCS 1\nABSTOL 1\n").ok)
+        self.assertFalse(self.check("# a\n", "NPROCS 1\n").ok)
+
+    def test_cutting_inside_a_string_fails(self):
+        self.assertFalse(self.check('EXTENSIONS "x # y"\n', 'EXTENSIONS "x\n').ok)
+
+    def test_a_line_emptied_but_not_deleted_fails(self):
+        self.assertFalse(self.check("NPROCS 1 # a\n", "\n").ok)
+        self.assertFalse(self.check("NPROCS 1 # a\n", "# a\n").ok)
 
 
 @unittest.skipUnless(HAVE_CXX_TOOLS, "needs clang++ and unifdef")

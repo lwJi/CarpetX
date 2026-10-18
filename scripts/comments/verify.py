@@ -193,6 +193,34 @@ def only_hash_lines(text: str) -> bool:
     return all(not line.strip() or line.lstrip().startswith("#") for line in text.split("\n"))
 
 
+def _outside_quotes(prefix: str) -> bool:
+    unescaped = re.sub(r"\\.", "", prefix)
+    return unescaped.count('"') % 2 == 0 and unescaped.count("'") % 2 == 0
+
+
+def _lost_trailing_comment(marker: str, before: str, after: str) -> bool:
+    if not before.startswith(after) or not after.strip():
+        return False
+    rest = before[len(after) :]
+    return rest.lstrip(" \t").startswith(marker) and _outside_quotes(after)
+
+
+def line_audit(path: str, marker: str, before: str, after: str) -> Result:
+    evidence = f"only whole-line or trailing '{marker}…' removed (line audit)"
+    a, b = before.split("\n"), after.split("\n")
+    j = 0
+    for number, line in enumerate(a, start=1):
+        if j < len(b) and (b[j] == line or _lost_trailing_comment(marker, line, b[j])):
+            j += 1
+        elif not line.strip() or line.lstrip().startswith(marker):
+            continue
+        else:
+            return Result(path, False, evidence, f"before line {number} {line.strip()!r} is not in after")
+    if j < len(b):
+        return Result(path, False, evidence, f"after line {j + 1} {b[j].strip()!r} is not in before")
+    return Result(path, True, evidence)
+
+
 def verify_piraha(path: str, peg: str, before: str, after: str, flesh: str) -> Result:
     evidence = f"Piraha {peg} parse trees equal"
     (ok_a, dump_a), (ok_b, dump_b) = piraha_dumps(flesh, peg, [before, after])
@@ -214,6 +242,8 @@ def verify_file(path: str, before: str, after: str, flesh: str | None) -> Result
     if lang is Lang.CXX:
         return verify_cxx(path, before, after)
     peg = peg_for(path)
+    if peg is None and lang is Lang.CCL:
+        return line_audit(path, "#", before, after)
     if peg is None:
         return Result(path, False, "no independent check", f"verify has no checker for {PurePosixPath(path).name} yet")
     if flesh is None:
