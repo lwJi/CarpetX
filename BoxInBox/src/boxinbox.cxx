@@ -116,7 +116,7 @@ extern "C" void BoxInBox_Setup(CCTK_ARGUMENTS) {
 
   // The level about which we're deciding on, i.e. the current level + 1
   using std::ilogb;
-  const int level = ilogb(CCTK_REAL(cctk_levfac[0])) + 1;
+  const int finer_level = ilogb(CCTK_REAL(cctk_levfac[0])) + 1;
 
   const auto active1 = vect<bool, max_num_regions>::make(
       [&](int region) { return bool(active[region]); });
@@ -129,7 +129,7 @@ extern "C" void BoxInBox_Setup(CCTK_ARGUMENTS) {
       });
   const auto radii1 =
       vect<vect<CCTK_REAL, dim>, max_num_regions>::make([&](int region) {
-        const int level_region = level + max_num_levels * region;
+        const int level_region = finer_level + max_num_levels * region;
         return vect<CCTK_REAL, dim>{
             radius_x[level_region] < 0 ? radius[level_region]
                                        : radius_x[level_region],
@@ -141,11 +141,11 @@ extern "C" void BoxInBox_Setup(CCTK_ARGUMENTS) {
 
   for (int region = 0; region < max_num_regions; ++region)
     if (active1[region])
-      if (level < num_levels1[region])
+      if (finer_level < num_levels1[region])
         if (any(radii1[region] <= 0))
           CCTK_VERROR("Non-positive radius found: Refined region %d, "
                       "refinement level %d, radii are [%.17g,%.17g,%.17g]",
-                      region, level, double(radii1[region][0]),
+                      region, finer_level, double(radii1[region][0]),
                       double(radii1[region][1]), double(radii1[region][2]));
 
   const auto positions2 = positions1;
@@ -157,7 +157,7 @@ extern "C" void BoxInBox_Setup(CCTK_ARGUMENTS) {
 
         for (int region = 0; region < max_num_regions; ++region) {
           if (active1[region]) {
-            if (level < num_levels1[region]) {
+            if (finer_level < num_levels1[region]) {
               const auto position = positions2[region];
               const auto radii = radii1[region];
               // Decrease the box radius by one grid spacing since AMReX seems
