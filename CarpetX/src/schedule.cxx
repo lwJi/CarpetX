@@ -128,6 +128,8 @@ std::vector<std::pair<int, int> > ClockGroups() {
     max_level = min_level;
   }
   std::reverse(groups.begin(), groups.end());
+  assert((ghext->use_subcycling || groups.size() <= 1) &&
+         "without subcycling every level shares one clock");
   return groups;
 }
 
@@ -142,7 +144,10 @@ std::pair<int, int> FinestClockGroup() {
   const int max_level = ghext->num_levels();
   const rat64 finest_clock =
       ghext->patchdata.at(0).leveldata.at(max_level - 1).iteration;
-  return {WidenMinLevel(max_level - 1, finest_clock), max_level};
+  const int min_level = WidenMinLevel(max_level - 1, finest_clock);
+  assert((ghext->use_subcycling || min_level == 0) &&
+         "without subcycling the end-of-step window holds every level");
+  return {min_level, max_level};
 }
 
 // The cctk_iteration in which `level` last stepped, derived from the clocks
