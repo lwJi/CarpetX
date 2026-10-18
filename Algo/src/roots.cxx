@@ -126,7 +126,8 @@ extern "C" void Test_roots(CCTK_ARGUMENTS) {
     using std::abs, std::log;
     assert(abs(xh - log(CCTK_REAL(3))) < 1.0e-9);
     assert(abs(xs - log(CCTK_REAL(3))) < 1.0e-9);
-    assert(iters_h != iters_s);
+    assert(iters_h != iters_s &&
+           "Schroder and Halley must not be the same iteration");
     CCTK_VINFO("Test_schroder succeeded in %d iterations", iters);
   }
 
