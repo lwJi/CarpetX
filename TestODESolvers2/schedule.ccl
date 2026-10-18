@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestODESolvers2
-
 STORAGE: state rhs error order
 
 
@@ -25,9 +23,6 @@ SCHEDULE TestODESolvers2_Boundary IN ODESolvers_PostStep
   SYNC: state
 } "Apply boundary conditions to state vector"
 
-# error and order are not checkpointed, and a level that lags its parent SYNCs
-# them from the parent: compute them at the end of each step, and again after
-# a restart, once the state's ghosts are refilled
 SCHEDULE GROUP TestODESolvers2_Diagnostics AT analysis
 {
 } "Calculate diagnostics of state vector"
