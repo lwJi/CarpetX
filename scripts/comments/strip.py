@@ -47,19 +47,21 @@ def _tidy(text: str, junction: int, keep_prev: bool = False, keep_next: bool = F
             text = _cut(text, prev)
             junction = prev[0]
         prev, nxt = _line_before(text, junction), _line_after(text, junction)
-    if (
+    while (
         _blank(text, nxt)
         and not keep_next
         and (prev is None or text[prev[0] : prev[1]].rstrip().endswith("{"))
     ):
         text = _cut(text, nxt)
         nxt = _line_after(text, junction)
-    if (
+    while (
         _blank(text, prev)
         and not keep_prev
         and (nxt is None or text[nxt[0] : nxt[1]].lstrip().startswith("}"))
     ):
         text = _cut(text, prev)
+        junction = prev[0]
+        prev = _line_before(text, junction)
     return text
 
 

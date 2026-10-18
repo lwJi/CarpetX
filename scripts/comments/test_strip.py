@@ -12,6 +12,9 @@ CXX_CASES = {
     ),
     "two blank lines touching keep one": ("a;\n\n// c\n\nb;\n", "a;\n\nb;\n"),
     "blank line at the top of the file": ("// header\n\nint a;\n", "int a;\n"),
+    "every blank line it leaves at the top of the file": ("// header\n\n\n\n// c\nint a;\n", "int a;\n"),
+    "every blank line it leaves right after a brace": ("{\n  // c\n\n\n  a;\n}\n", "{\n  a;\n}\n"),
+    "every blank line it leaves at the end of the file": ("a;\n\n\n// c\n", "a;\n"),
     "blank line right after a brace": ("{\n  // c\n\n  a;\n}\n", "{\n  a;\n}\n"),
     "blank line right before a brace": ("{\n  a;\n\n  // c\n}\n", "{\n  a;\n}\n"),
     "blank line at the end of the file": ("a;\n\n// c\n", "a;\n"),
@@ -71,6 +74,11 @@ HASH_CASES = {
     "par trailing": (Lang.PAR, 'A::b = 1   # c\nA::c = "x # y"\n', 'A::b = 1\nA::c = "x # y"\n'),
     "par toggles": (Lang.PAR, "A::a = 1\n\n#A::b = 2\n\nA::c = 3\n", "A::a = 1\n\nA::c = 3\n"),
     "comment-only param.ccl": (Lang.CCL, "# Parameter definitions for thorn X\n", ""),
+    "schedule.ccl whose header is followed by a blank run": (
+        Lang.CCL,
+        "# Schedule definitions for thorn X\n\n\n\n# why\nSCHEDULE GROUP G AT postinitial\n{\n} \"G\"\n",
+        "SCHEDULE GROUP G AT postinitial\n{\n} \"G\"\n",
+    ),
     "comment-only file with blank lines": (Lang.CCL, "# a\n\n# b\n\n", ""),
 }
 
