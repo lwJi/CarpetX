@@ -39,6 +39,11 @@ CXX_CASES = {
         "assert(a == 1 || b == 5);\nf(IntVect{0},\n  g(1), x;\nint h(int, int) {\n}\n",
     ),
     "inline before a closer at the line start keeps the indentation": ("  /* c */ );\n", "  );\n"),
+    "inline before an array declarator after a name": (
+        "int f(const CCTK_REAL /*origin*/[],\n      void *const /*out*/ []);\n",
+        "int f(const CCTK_REAL[],\n      void *const[]);\n",
+    ),
+    "inline before a bracket after a separator keeps the space": ("f(a, /*x*/ [&] {});\n", "f(a, [&] {});\n"),
     "inline before an operand keeps the space": ("report(gi, /*vi=*/-1, /*tl=*/0);\n", "report(gi, -1, 0);\n"),
     "inline block across lines": ("/* a\n b */ int x;\n", "int x;\n"),
     "comments in strings stay": ('s = "a // b"; // c\n', 's = "a // b";\n'),

@@ -90,7 +90,8 @@ def _delete_comment(text: str, span: Span) -> str:
     start, end = span.start, span.end
     previous = text[start - 1] if start > line_start else ""
     following = after.lstrip(_HORIZONTAL)[:1]
-    if following and following in _NO_SPACE_BEFORE and before.strip():
+    closes_up = following in _NO_SPACE_BEFORE or (following == "[" and before.rstrip()[-1:] in _WORD)
+    if following and closes_up and before.strip():
         while start > line_start and text[start - 1] in _HORIZONTAL:
             start -= 1
         while end < line_end and text[end] in _HORIZONTAL:
