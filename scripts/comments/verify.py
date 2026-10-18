@@ -147,10 +147,42 @@ def _first_line_difference(a: str, b: str) -> str:
     return f"parse trees differ in length ({len(al)} vs {len(bl)} lines)"
 
 
+_TODO_WARNING = re.compile(r'^"?\s*(?:TODO|FIXME)\b')
+
+
+def drop_todo_warnings(tokens: list[Token]) -> tuple[list[Token], int]:
+    kept: list[Token] = []
+    dropped = 0
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if (
+            t.kind == "hash"
+            and t.first_on_line
+            and i + 2 < len(tokens)
+            and (tokens[i + 1].kind, tokens[i + 1].spelling) == ("raw_identifier", "warning")
+            and not tokens[i + 1].first_on_line
+            and not tokens[i + 2].first_on_line
+            and _TODO_WARNING.match(tokens[i + 2].spelling)
+        ):
+            i += 2
+            while i < len(tokens) and not tokens[i].first_on_line:
+                i += 1
+            dropped += 1
+            continue
+        kept.append(t)
+        i += 1
+    return kept, dropped
+
+
 def verify_cxx(path: str, before: str, after: str) -> Result:
     resolved, mode = unifdef_k(before)
-    evidence = f"clang raw tokens equal ({mode} before)"
-    a, b = clang_tokens(resolved), clang_tokens(after)
+    a, dropped = drop_todo_warnings(clang_tokens(resolved))
+    b, _ = drop_todo_warnings(clang_tokens(after))
+    evidence = f"clang raw tokens equal ({mode} before"
+    if dropped:
+        evidence += f", #warning TODO directives dropped: {dropped}"
+    evidence += ")"
     key = lambda t: (t.kind, t.spelling, t.first_on_line)
     if list(map(key, a)) == list(map(key, b)):
         return Result(path, True, evidence)

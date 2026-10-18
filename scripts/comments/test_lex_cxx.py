@@ -113,5 +113,41 @@ class ConstantGuards(unittest.TestCase):
         self.assertEqual(spans("#if 0\nx;\n"), [])
 
 
+class TodoWarnings(unittest.TestCase):
+    def test_a_todo_warning_is_a_span(self):
+        found = lex('void f();\n\n#warning "TODO: Restrict"\n\nvoid g();\n')
+        self.assertEqual([(s.kind, s.line, s.text) for s in found], [("warning", 3, '#warning "TODO: Restrict"')])
+
+    def test_a_continued_todo_warning_is_one_span(self):
+        text = '  {\n#warning                \\\n    "TODO: Allow different operators"\n    int rank = 0;\n'
+        self.assertEqual(spans(text), [("warning", '#warning                \\\n    "TODO: Allow different operators"')])
+
+    def test_spelled_variants(self):
+        for line in ['# warning "TODO x"', "  #warning TODO bare words", '#warning "FIXME: x"', '#warning " TODO"']:
+            self.assertEqual([s.kind for s in lex(f"{line}\nint a;\n")], ["warning"], line)
+
+    def test_other_diagnostics_are_code(self):
+        text = '#warning "SIMD is disabled"\n#error "TODO is not a #warning"\n#warning TODOS\nint TODO;\n'
+        self.assertEqual(spans(text), [])
+
+    def test_a_comment_on_the_directive_belongs_to_it(self):
+        self.assertEqual(spans('#warning "TODO: x" // why\nint a;\n'), [("warning", '#warning "TODO: x" // why')])
+
+    def test_a_block_comment_running_past_the_directive_is_refused(self):
+        result = scan('#warning "TODO: x" /* a\n b */\nint a;\n')
+        self.assertEqual([line for line, _ in result.refusals], [1])
+
+    def test_inside_a_dead_region_it_goes_with_the_region(self):
+        self.assertEqual(spans('#if 0\n#warning "TODO: x"\n#endif\n'), [("disabled", '#if 0\n#warning "TODO: x"\n#endif\n')])
+
+    def test_inside_a_live_branch_it_is_its_own_span(self):
+        found = lex('#if 1\n{\n#warning "TODO: x"\n  a;\n}\n#endif\n')
+        self.assertEqual([s.kind for s in found], ["disabled", "warning", "disabled"])
+
+    def test_inside_comments_and_raw_strings_it_is_ignored(self):
+        self.assertEqual(spans('/*\n#warning "TODO: x"\n*/\n'), [("block", '/*\n#warning "TODO: x"\n*/')])
+        self.assertEqual(spans('auto s = R"(\n#warning "TODO: x"\n)";\n'), [])
+
+
 if __name__ == "__main__":
     unittest.main()

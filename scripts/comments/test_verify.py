@@ -63,6 +63,25 @@ class Cxx(unittest.TestCase):
         before = "#if 0\nx;\n#else\ny;\n#endif\n"
         self.assertFalse(verify_file("X/src/a.cxx", before, "", None).ok)
 
+    def test_removing_a_todo_warning_passes(self):
+        before = (
+            '#warning "TODO: Restrict"\nvoid f();\n#if 1\n{\n#warning           \\\n'
+            '    "TODO: conservative"\n  int a;\n}\n#endif\n'
+        )
+        after = strip(before, Lang.CXX)
+        self.assertNotIn("#warning", after)
+        result = verify_file("X/src/a.cxx", before, after, None)
+        self.assertTrue(result.ok, result.detail)
+        self.assertIn("#warning TODO directives dropped: 2", result.evidence)
+
+    def test_removing_another_warning_fails(self):
+        before = '#warning "SIMD is disabled"\nvoid f();\n'
+        self.assertFalse(verify_file("X/src/a.cxx", before, "void f();\n", None).ok)
+
+    def test_removing_the_line_after_a_todo_warning_fails(self):
+        before = '#warning "TODO: x"\nvoid f();\nvoid g();\n'
+        self.assertFalse(verify_file("X/src/a.cxx", before, "void g();\n", None).ok)
+
     def test_a_hand_resolved_elif_chain_passes(self):
         before = (
             "  if (m) {\n#if 0 && defined __CUDACC__\n    g(); // why\n#elif 0 && defined __HIPCC__\n"

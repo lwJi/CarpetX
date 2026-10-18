@@ -55,6 +55,16 @@ CXX_CASES = {
     "crlf line endings": ("int a; // c\r\n// d\r\nint b;\r\n", "int a;\r\nint b;\r\n"),
     "file without a final newline": ("a;\n// c", "a;\n"),
     "comment-only file": ("// a\n\n// b\n", ""),
+    "todo warning between declarations": (
+        'void f();\n\n#warning "TODO: Restrict"\n\n// g\nvoid g();\n',
+        "void f();\n\nvoid g();\n",
+    ),
+    "continued todo warning in an if 1": (
+        "#if 1\n  {\n    Interval interval(timer);\n#warning                \\\n"
+        '    "TODO: Allow different operators"\n    // rank\n    int rank = 0;\n  }\n#else\n  old();\n#endif\n',
+        "  {\n    Interval interval(timer);\n    int rank = 0;\n  }\n",
+    ),
+    "other warnings stay": ('#warning "SIMD is disabled"\nint a;\n', '#warning "SIMD is disabled"\nint a;\n'),
     "a citation stays, a citation inside prose goes": (
         "{\n  // arXiv:1111.2177 [gr-qc], (71)\n  a = 1;\n"
         "  // Based on <https://example.org/lib>. Close to what we need.\n  b = 2;\n"

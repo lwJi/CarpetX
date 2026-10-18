@@ -44,6 +44,8 @@ IF_ANY = re.compile(r"^\s*#\s*if")
 ELIF = re.compile(r"^\s*#\s*elif")
 ELSE = re.compile(r"^\s*#\s*else\b")
 ENDIF = re.compile(r"^\s*#\s*endif\b")
+WARNING = re.compile(r"^\s*#\s*warning\b")
+TODO_MESSAGE = re.compile(r'^"?\s*(?:TODO|FIXME)\b')
 
 
 def _identifier_char(c: str) -> bool:
@@ -202,6 +204,32 @@ def _guard_line_ranges(lines: list[str], skip: set[int]):
     return ranges, refusals
 
 
+def _todo_warning_lines(lines: list[str], skip: set[int]) -> list[tuple[int, int]]:
+    found = []
+    number = 0
+    while number < len(lines):
+        first = number
+        if number in skip or not WARNING.match(lines[number]):
+            number += 1
+            continue
+        while lines[number].rstrip().endswith("\\") and number + 1 < len(lines):
+            number += 1
+        directive = "\n".join(lines[first : number + 1])
+        message = re.sub(r"\\[ \t]*\r?\n", "", WARNING.sub("", directive, count=1)).strip()
+        if TODO_MESSAGE.match(message):
+            found.append((first, number))
+        number += 1
+    return found
+
+
+def _contains(outer: Span, start: int, end: int) -> bool:
+    return outer.start <= start and end <= outer.end
+
+
+def _crosses(outer: Span, start: int, end: int) -> bool:
+    return outer.start < end and start < outer.end and not _contains(outer, start, end)
+
+
 def scan(text: str) -> Scan:
     comments, literals = _scan_comments(text)
     index = LineIndex(text)
@@ -221,14 +249,22 @@ def scan(text: str) -> Scan:
         start, end = line_offset(first), line_offset(last + 1)
         disabled.append(Span("disabled", start, end, first + 1, text[start:end]))
 
-    spans = list(disabled)
+    warnings = []
+    for first, last in _todo_warning_lines(lines, skip):
+        start = line_offset(first) + lines[first].index("#")
+        end = _line_end(text, text.find("\n", line_offset(last)))
+        if not any(_contains(d, start, end) for d in disabled):
+            warnings.append(Span("warning", start, end, first + 1, text[start:end]))
+
+    spans = disabled + warnings
     for kind, start, end in comments:
-        inside = [d for d in disabled if d.start <= start and end <= d.end]
-        if inside:
+        if any(_contains(s, start, end) for s in disabled + warnings):
             continue
         line = index.line_of(start)
-        if any(d.start < end and start < d.end for d in disabled):
+        if any(_crosses(d, start, end) for d in disabled):
             refusals.append((line, "comment crosses the edge of a constant #if guard"))
+        if any(_crosses(w, start, end) for w in warnings):
+            refusals.append((line, "comment crosses the end of a #warning directive"))
         spans.append(Span(kind, start, end, line, text[start:end]))
     spans.sort(key=lambda s: s.start)
     refusals.sort()

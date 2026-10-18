@@ -97,6 +97,11 @@ class Groups(unittest.TestCase):
             ["// a", "// b", "// c", "/*d*/"],
         )
 
+    def test_a_todo_warning_is_a_violation_of_its_own(self):
+        found = check('// a\n#warning "TODO: Restrict"\n// b\nint x;\n', Lang.CXX)
+        self.assertEqual([(v.line, [s.kind for s in v.group.spans]) for v in found],
+                         [(1, ["line"]), (2, ["warning"]), (3, ["line"])])
+
     def test_a_constant_guard_is_one_violation(self):
         found = check("#if 0\nx;\n#else\ny;\n#endif\n", Lang.CXX)
         self.assertEqual(len(found), 1)
