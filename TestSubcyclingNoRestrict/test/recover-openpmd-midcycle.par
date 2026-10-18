@@ -11,7 +11,7 @@
 # For iterations 7 and 8, state, state_nr and error must equal the
 # uninterrupted run's bit for bit. Had evolution left state_nr's ghosts on
 # level 2 at the dense output, prolongating them here would differ from it
-# by far more than the testsuite tolerance (see the README).
+# by far more than the testsuite tolerance.
 
 ActiveThorns = "
     BoxInBox

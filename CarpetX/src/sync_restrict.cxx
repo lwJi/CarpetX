@@ -153,8 +153,6 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
                                              recovering]() -> std::string {
     if (coarsegroupdata.do_checkpoint)
       return "";
-    const std::string see =
-        "  See \"Recovery\" in the CarpetX documentation.\n";
     // A past timelevel that another level reads must be checkpointed,
     // whatever invalidated it this time: no routine can recompute it, and
     // only a checkpoint carries it across a recovery or a regrid
@@ -163,16 +161,14 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
              " is not checkpointed, so a recovery, or a regrid that remakes "
              "its level, can lose its past timelevels, which no routine can "
              "recompute.\n"
-             "  Past timelevels read by another level must be checkpointed.\n" +
-             see;
+             "  Past timelevels read by another level must be checkpointed.\n";
     // Outside recovery the driver cannot tell why a current timelevel is
     // invalid (a missing routine, a missing POSTREGRID recomputation)
     if (recovering)
       return "  This run was recovered and group " + coarsegroupdata.groupname +
              " is not checkpointed.\n"
              "  Groups read by another level must be checkpointed or "
-             "recomputed in CCTK_POST_RECOVER_VARIABLES.\n" +
-             see;
+             "recomputed in CCTK_POST_RECOVER_VARIABLES.\n";
     return "";
   };
   for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
@@ -666,8 +662,7 @@ static void error_if_sync_in_tail(const cGH *restrict const cctkGH,
       "CCTK_TERMINATE may sync only when the end-of-step window holds every "
       "level. Otherwise remove the SYNC: write pointwise outputs everywhere; "
       "outputs that need a stencil stay interior and their ghosts are "
-      "invalid. See \"End-of-step bins under subcycling\" in the CarpetX "
-      "documentation.",
+      "invalid.",
       func ? func->thorn : "(unknown thorn)",
       func ? func->routine : "(unknown routine)", ghext->tail_bin,
       groupnames.str().c_str(), cctkGH->cctk_iteration, min_level, max_level,

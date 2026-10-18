@@ -1,8 +1,8 @@
 # Checkpoint half of a mid-cycle checkpoint/recover pair for an evolved group
-# with restriction disabled (TestSubcyclingNoRestrict::state_nr, see the
-# README). The checkpoint is taken at iteration 6, where the three levels are
-# at 2, 3/2 and 3/2 coarse steps: the clock groups are [0,1) and [1,3), and
-# the finest one was restricted at its last end of step. There
+# with restriction disabled (TestSubcyclingNoRestrict::state_nr). The
+# checkpoint is taken at iteration 6, where the three levels are at 2, 3/2
+# and 3/2 coarse steps: the clock groups are [0,1) and [1,3), and the finest
+# one was restricted at its last end of step. There
 # ProlongateAfterRestriction overwrote level 2's coarse-fine ghosts by
 # prolongation from level 1, for the restricted state and for state_nr
 # alike. Level 1 lags level 0 and keeps the dense output from its source

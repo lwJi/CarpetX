@@ -3,7 +3,3 @@ Author(s)    : Erik Schnetter <schnetter@gmail.com>
 Maintainer(s): Erik Schnetter <schnetter@gmail.com>
 Licence      : LGPL
 --------------------------------------------------------------------------
-
-1. Purpose
-
-Various numerical algorithms such as non-linear root finders.
