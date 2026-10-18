@@ -1,3 +1,5 @@
+import re
+
 import lex_cxx
 from files import Lang
 from lex_cxx import Span
@@ -8,6 +10,9 @@ _KEEP_SPACE_AFTER = "([{,"
 _NO_SPACE_BEFORE = ")]},;"
 _WORD = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
 _OPERATOR = set("+-*/%<>=&|^!.:#")
+_SPACED_BEFORE_PAREN = frozenset(
+    {"if", "for", "while", "switch", "catch", "return", "case", "throw", "constexpr", "and", "or", "not"}
+)
 
 
 class Refused(Exception):
@@ -86,6 +91,11 @@ def _would_merge(left: str, right: str) -> bool:
     return (left in _WORD and right in _WORD) or (left in _OPERATOR and right in _OPERATOR)
 
 
+def _name_before_paren(before: str, line: str) -> bool:
+    name = re.search(r"\w+$", before.rstrip())
+    return name is not None and name.group() not in _SPACED_BEFORE_PAREN and not line.lstrip().startswith("#")
+
+
 def _delete_disabled(text: str, span: Span, pending: list[Span]) -> str:
     closes, opens = lex_cxx.guard_shape(span)
     text = _cut(text, (span.start, span.end))
@@ -108,7 +118,11 @@ def _delete_comment(text: str, span: Span, pending: list[Span]) -> str:
     start, end = span.start, span.end
     previous = text[start - 1] if start > line_start else ""
     following = after.lstrip(_HORIZONTAL)[:1]
-    closes_up = following in _NO_SPACE_BEFORE or (following == "[" and before.rstrip()[-1:] in _WORD)
+    closes_up = (
+        following in _NO_SPACE_BEFORE
+        or (following == "[" and before.rstrip()[-1:] in _WORD)
+        or (following == "(" and _name_before_paren(before, text[line_start:line_end]))
+    )
     if following and closes_up and before.strip():
         while start > line_start and text[start - 1] in _HORIZONTAL:
             start -= 1

@@ -52,6 +52,15 @@ CXX_CASES = {
         "int f(const CCTK_REAL[],\n      void *const[]);\n",
     ),
     "inline before a bracket after a separator keeps the space": ("f(a, /*x*/ [&] {});\n", "f(a, [&] {});\n"),
+    "inline before a call's parens after a name": (
+        "y = var.copy(make_valid_int /*all*/ ());\n",
+        "y = var.copy(make_valid_int());\n",
+    ),
+    "inline before parens after a keyword keeps the space": (
+        "if /*x*/ (a)\n  return /*y*/ (b);\n",
+        "if (a)\n  return (b);\n",
+    ),
+    "inline before parens in a directive keeps a macro object-like": ("#define F /*x*/ (a)\n", "#define F (a)\n"),
     "inline before an operand keeps the space": ("report(gi, /*vi=*/-1, /*tl=*/0);\n", "report(gi, -1, 0);\n"),
     "inline block across lines": ("/* a\n b */ int x;\n", "int x;\n"),
     "comments in strings stay": ('s = "a // b"; // c\n', 's = "a // b";\n'),
