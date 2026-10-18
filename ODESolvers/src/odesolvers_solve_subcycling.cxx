@@ -559,6 +559,24 @@ extern "C" void ODESolvers_CheckMethod(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckMethod;
   DECLARE_CCTK_PARAMETERS;
 
+  const cParamData *const method_param =
+      CCTK_ParameterData("method", "ODESolvers");
+  assert(method_param);
+  for (const t_range *keyword = method_param->range; keyword;
+       keyword = keyword->next) {
+    if (!CCTK_Equals(keyword->origin, "ODESolvers"))
+      continue;
+    const bool has_row = std::any_of(
+        rk_methods.begin(), rk_methods.end(), [&](const rk_method_t &row) {
+          return CCTK_Equals(keyword->range, row.name);
+        });
+    if (!has_row)
+      CCTK_VERROR("ODESolvers::method keyword \"%s\" (ODESolvers/param.ccl) "
+                  "has no row in the RK method table "
+                  "(ODESolvers/src/rk_methods.hxx)",
+                  keyword->range);
+  }
+
   const rk_method_t &rk = rk_method(method);
 
   if (CarpetX::ghext->use_subcycling && !rk.subcycling_ok) {
