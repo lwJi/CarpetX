@@ -1,5 +1,3 @@
-# Interface definition for thorn TestOutput
-
 IMPLEMENTS: TestOutput
 
 USES INCLUDE HEADER: loop_device.hxx
@@ -20,5 +18,4 @@ CCTK_COMPLEX a1_complex TYPE=array DISTRIB=constant DIM=1 SIZE=10
 CCTK_COMPLEX a2_complex TYPE=array DISTRIB=constant DIM=2 SIZE=9,8
 CCTK_COMPLEX a3_complex TYPE=array DISTRIB=constant DIM=3 SIZE=7,6,5
 
-# Temporary
 CCTK_REAL gf_tmp TYPE=gf TAGS="checkpoint='no'"
