@@ -96,6 +96,16 @@ class Strip(unittest.TestCase):
             strip("a;\n#if 0 && defined A\nx;\n#elif 0 && defined B\ny;\n#else\nz;\n#endif\n", Lang.CXX)
         self.assertEqual(caught.exception.line, 2)
 
+    def test_elif_chain_inside_a_real_conditional_is_refused(self):
+        text = (
+            "#ifndef SIMD_DISABLE\n  f();\n#else\n  if (m) {\n"
+            "#if 0 && defined __CUDACC__\n    g();\n#elif 0 && defined __HIPCC__\n    h();\n#else\n"
+            "#if 0 && defined __llvm__\n    h();\n#else\n    *ptr = x;\n#endif\n#endif\n  }\n#endif\n"
+        )
+        with self.assertRaises(Refused) as caught:
+            strip(text, Lang.CXX)
+        self.assertEqual(caught.exception.line, 5)
+
 
 if __name__ == "__main__":
     unittest.main()

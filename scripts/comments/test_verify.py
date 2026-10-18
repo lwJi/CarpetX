@@ -63,6 +63,16 @@ class Cxx(unittest.TestCase):
         before = "#if 0\nx;\n#else\ny;\n#endif\n"
         self.assertFalse(verify_file("X/src/a.cxx", before, "", None).ok)
 
+    def test_a_hand_resolved_elif_chain_passes(self):
+        before = (
+            "  if (m) {\n#if 0 && defined __CUDACC__\n    g(); // why\n#elif 0 && defined __HIPCC__\n"
+            "    h();\n#else\n    // CPU\n#if 0 && defined __llvm__\n    h();\n#else\n    *ptr = x;\n"
+            "#endif\n#endif\n  }\n"
+        )
+        result = verify_file("X/src/a.cxx", before, "  if (m) {\n    *ptr = x;\n  }\n", None)
+        self.assertTrue(result.ok, result.detail)
+        self.assertFalse(verify_file("X/src/a.cxx", before, "  if (m) {\n    h();\n  }\n", None).ok)
+
 
 @unittest.skipUnless(HAVE_FLESH, "needs perl and a Cactus flesh in $CACTUSX")
 class Piraha(unittest.TestCase):
