@@ -1,5 +1,3 @@
-# Parameter definitions for thorn TestSubcyclingCC
-
 CCTK_REAL amplitude "Initial amplitude"
 {
   *:* :: ""

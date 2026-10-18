@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestSubcyclingCC
-
 STORAGE: state rhs error
 
 
@@ -38,11 +36,6 @@ SCHEDULE TestSubcyclingCC_RHS IN ODESolvers_RHS
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-# error is not checkpointed: compute it at the end of each step, and again after
-# a restart, once the state's ghosts are refilled. This group runs in every
-# iteration, and under subcycling an end-of-step bin may SYNC only when its
-# window holds every level, so the pointwise error is written everywhere
-# instead of SYNCed
 SCHEDULE GROUP TestSubcyclingCC_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"

@@ -1,9 +1,3 @@
-# Subcycling with a nonlinear (limited) prolongation operator on
-# cell-centred data: 3 levels, RK4, prolongation_type = "eno". The
-# refinement-boundary ghosts are filled from time-interpolated coarse
-# *states*, so this is the one case where the order of time interpolation
-# and spatial prolongation is visible in the output.
-
 ActiveThorns = "
     BoxInBox
     CarpetX
@@ -16,7 +10,7 @@ $out_every = 64
 $nlevels = 3
 $ncells = 32
 
-TestSubcyclingCC::gaussian_width = 0.17677669529 # sqrt(2)*W = 0.25
+TestSubcyclingCC::gaussian_width = 0.17677669529
 
 CarpetX::use_subcycling = yes
 CarpetX::restrict_during_sync = no
@@ -27,13 +21,6 @@ CarpetX::verbose = no
 Cactus::cctk_show_schedule = yes
 Cactus::presync_mode = "mixed-error"
 
-# The domain is shifted by a different, generic amount in each direction
-# so that no cell centre is mirrored about the pulse at the origin and no
-# two axes are interchangeable. The ENO stencil selection compares
-# undivided differences of candidate stencils; on a symmetric grid these
-# tie exactly and the tie is broken by platform-dependent rounding, which
-# makes the reference output compiler-specific. The offsets are not
-# multiples of half the cell spacing on any level (0.125, 0.0625, 0.03125).
 CarpetX::xmin = -4.0371
 CarpetX::ymin = -4.0193
 CarpetX::zmin = -4.0117
@@ -65,7 +52,6 @@ CarpetX::blocking_factor_y = 2
 CarpetX::blocking_factor_z = 2
 
 BoxInBox::num_regions = 1
-# Region 1
 BoxInBox::shape_1 = "cube"
 BoxInBox::num_levels_1 = $nlevels
 BoxInBox::radius_1 = [ -1.0, 1.0, 0.5 ]

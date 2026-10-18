@@ -15,8 +15,6 @@ using namespace Loop;
 
 constexpr int dim = 3;
 
-// u(t,r) = (f(t-r) - f(t+r)) / r
-// f(v) = A exp(-1/2 (v/W)^2)
 template <typename T>
 constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
                         const T z, T &u, T &rho) {
@@ -28,7 +26,6 @@ constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
   };
 
   if (r < sqrt(std::numeric_limits<T>::epsilon())) {
-    // L'Hôpital
     u = 2 / pow(W, 2) * f(t) * t;
     rho = -2 / pow(W, 4) * f(t) * (pow(t, 2) - pow(W, 2));
   } else {
@@ -37,8 +34,6 @@ constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
   }
 }
 
-// Fourth-order centred second derivative along direction d (five-point
-// stencil, reaches two cells to either side)
 template <typename T>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline T
 deriv2(const GF3D2<const T> &gf, const PointDesc &p, const int d) {
@@ -48,11 +43,6 @@ deriv2(const GF3D2<const T> &gf, const PointDesc &p, const int d) {
          (12 * p.DX[d] * p.DX[d]);
 }
 
-// Kreiss-Oliger dissipation for a fourth-order scheme (sixth-order
-// dissipation operator, seven-point stencil per direction, reaches three
-// cells to either side). Same normalisation as Derivs::calc_diss<4>:
-// (-1)^(diss_order/2+1) / 2^(diss_order) * sum_d D_+^3 D_-^3 u / dx_d,
-// with diss_order = 6, i.e. +1/64.
 template <typename T>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline T
 diss(const GF3D2<const T> &gf, const PointDesc &p) {
@@ -93,14 +83,12 @@ extern "C" void TestSubcyclingCC_RHS(CCTK_ARGUMENTS) {
 }
 
 extern "C" void TestSubcyclingCC_Sync(CCTK_ARGUMENTS) {
-  // do nothing
 }
 
 extern "C" void TestSubcyclingCC_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingCC_Error;
   DECLARE_CCTK_PARAMETERS;
 
-  // Pointwise, so computed everywhere instead of SYNCed (see schedule.ccl)
   grid.loop_all_device<1, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
