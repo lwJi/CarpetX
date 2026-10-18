@@ -95,7 +95,6 @@ extern "C" void TestInterpolate_test_cell_interpolation(CCTK_ARGUMENTS) {
   };
   void *const *output_array = (void *const *)resultptrs2;
 
-  /* DriverInterpolate arguments that aren't currently used */
   CCTK_INT const coord_system_handle = 0;
   CCTK_INT const interp_coords_type_code = 0;
   CCTK_INT const output_array_type_codes[1] = {0};
@@ -104,7 +103,6 @@ extern "C" void TestInterpolate_test_cell_interpolation(CCTK_ARGUMENTS) {
   if(interp_handle < 0)
     CCTK_VERROR("Could not obtain inteprolator handle for built-in 'CarpetX' interpolator: %d", interp_handle);
 
-  /* Table generation */
   int operands[DIM(all_operations)][DIM(all_varinds)];
   for (int op = 0 ; op < DIM(all_operations) ; op++) {
     for (int var = 0 ; var < DIM(all_varinds) ; var++) {
