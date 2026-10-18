@@ -1,4 +1,3 @@
-// TODO: Don't include files from other thorn; create a proper interface
 #include "../../CarpetX/src/driver.hxx"
 
 #include <pdesolvers.hxx>
@@ -27,7 +26,7 @@ extern "C" void PoissonX_Source(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_PoissonX_Source;
   DECLARE_CCTK_PARAMETERS;
 
-  const int npoints = 27; // 3 levels
+  const int npoints = 27;
 
   const std::array<int, dim> indextype = {0, 0, 0};
   const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -49,11 +48,11 @@ extern "C" void PoissonX_Source(CCTK_ARGUMENTS) {
           if (all(i >= Arith::vect<int, dim>::pure(0) &&
                   i < Arith::vect<int, dim>::pure(npoints))) {
             if (all(i / 9 == Arith::vect<int, dim>::pure(1))) {
-              gf_src(p.I) = 3; // red box (large)
+              gf_src(p.I) = 3;
             } else if (all(i / 3 % 3 == Arith::vect<int, dim>::pure(1))) {
-              gf_src(p.I) = 2; // green box (medium)
+              gf_src(p.I) = 2;
             } else if (all(i / 1 % 3 == Arith::vect<int, dim>::pure(1))) {
-              gf_src(p.I) = 1; // blue box (small)
+              gf_src(p.I) = 1;
             } else {
               gf_src(p.I) = 0;
             }
@@ -69,8 +68,6 @@ extern "C" void PoissonX_Source(CCTK_ARGUMENTS) {
 extern "C" void PoissonX_ChooseInitialGuess(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_PoissonX_ChooseInitialGuess;
 
-  // Set up an initial guess only when initializing the coarsest
-  // level. Otherwise, keep the data from the previous solve.
   *need_initial_guess = CarpetX::ghext->num_levels() == 1;
 }
 
@@ -90,7 +87,6 @@ extern "C" void PoissonX_Init(CCTK_ARGUMENTS) {
 
 extern "C" void PoissonX_Sync(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_PoissonX_Sync;
-  // do nothing
 }
 
 extern "C" void PoissonX_Boundaries(CCTK_ARGUMENTS) {
@@ -125,7 +121,7 @@ dual1<T> residual(const int fdorder, const Loop::GF3D2<const T> &point_type,
     return dual1<T>(val, std::move(eps));
   };
 
-  assert(point_type(p.I) == 1 /*intr*/ || point_type(p.I) == 5 /*rest*/);
+  assert(point_type(p.I) == 1 || point_type(p.I) == 5);
   using Arith::pow2;
   dual1<T> ddsol = 0;
   switch (fdorder) {
@@ -172,41 +168,12 @@ extern "C" void PoissonX_Residual(CCTK_ARGUMENTS) {
 
   grid.loop_int<0, 0, 0>(grid.nghostzones,
                          [=](const Loop::PointDesc &p) ARITH_INLINE {
-#if 0
-        assert(gf_point_type(p.I) == 1);
-        using Arith::pow2;
-        CCTK_REAL ddsol = 0;
-        switch (fdorder) {
-        case 2:
-          for (int d = 0; d < dim; ++d)
-            ddsol += (gf_sol(p.I - p.DI[d]) //
-                      - 2 * gf_sol(p.I)     //
-                      + gf_sol(p.I + p.DI[d])) /
-                     pow2(p.DX[d]);
-          break;
-        case 4:
-          for (int d = 0; d < dim; ++d)
-            ddsol += (-1 / 12.0 * gf_sol(p.I - 2 * p.DI[d]) //
-                      + 4 / 3.0 * gf_sol(p.I - p.DI[d])     //
-                      - 5 / 2.0 * gf_sol(p.I)               //
-                      + 4 / 3.0 * gf_sol(p.I + p.DI[d])     //
-                      - 1 / 12.0 * gf_sol(p.I + 2 * p.DI[d])) /
-                     pow2(p.DX[d]);
-          break;
-        default:
-          assert(0);
-          abort();
-        }
-        gf_res(p.I) = ddsol - gf_src(p.I);
-#else
         gf_res(p.I) = residual(fdorder,gf_point_type,gf_sol,gf_src,p).val;
-#endif
                          });
 }
 
 extern "C" void PoissonX_ResidualSync(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_PoissonX_ResidualSync;
-  // do nothing
 }
 
 extern "C" void PoissonX_ResidualBoundaries(CCTK_ARGUMENTS) {
@@ -251,40 +218,10 @@ extern "C" void PoissonX_Jacobian(CCTK_ARGUMENTS) {
           return int(gf_idx(I));
         };
         const int idx = getidx(p.I);
-#if 0
-        assert(gf_point_type(p.I) == 1);
-        using Arith::pow2;
-        switch (fdorder1) {
-        case 2:
-          for (int d = 0; d < dim; ++d) {
-            assert(getidx(p.I - p.DI[d]) >= 0);
-            assert(getidx(p.I + p.DI[d]) >= 0);
-            J.add_value(idx, getidx(p.I - p.DI[d]), 1 / pow2(p.DX[d]));
-            J.add_value(idx, getidx(p.I), -2 / pow2(p.DX[d]));
-            J.add_value(idx, getidx(p.I + p.DI[d]), 1 / pow2(p.DX[d]));
-          }
-          break;
-        case 4:
-          for (int d = 0; d < dim; ++d) {
-            J.add_value(idx, getidx(p.I - 2 * p.DI[d]),
-                        -1 / 12.0 / pow2(p.DX[d]));
-            J.add_value(idx, getidx(p.I - p.DI[d]), 4 / 3.0 / pow2(p.DX[d]));
-            J.add_value(idx, getidx(p.I), -5 / 2.0 / pow2(p.DX[d]));
-            J.add_value(idx, getidx(p.I + p.DI[d]), 4 / 3.0 / pow2(p.DX[d]));
-            J.add_value(idx, getidx(p.I + 2 * p.DI[d]),
-                        -1 / 12.0 / pow2(p.DX[d]));
-          }
-          break;
-        default:
-          assert(0);
-          abort();
-        }
-#else
         const auto row =
             residual(fdorder1, gf_point_type, gf_sol, gf_src, p).eps;
         for (const auto &elt : row)
           J.add_value(idx, getidx(elt.first), elt.second);
-#endif
       });
 }
 

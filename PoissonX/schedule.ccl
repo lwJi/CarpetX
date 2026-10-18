@@ -1,5 +1,3 @@
-# Schedule definitions for thorn PoissonX
-
 STORAGE: sol res src
 
 SCHEDULE PoissonX_Source AT initial BEFORE PDESolvers_Solve
@@ -21,14 +19,14 @@ SCHEDULE PoissonX_Init AT initial BEFORE PDESolvers_Solve IF PoissonX::need_init
   WRITES: sol(interior)
 } "Initialize solution"
 
-SCHEDULE PoissonX_Sync AT initial AFTER PoissonX_Init BEFORE PDESolvers_Solve # IF PoissonX::need_initial_guess
+SCHEDULE PoissonX_Sync AT initial AFTER PoissonX_Init BEFORE PDESolvers_Solve
 {
   LANG: C
   OPTIONS: global
   SYNC: sol
 } "Synchronize solution"
 
-SCHEDULE PoissonX_Boundaries AT initial AFTER PoissonX_Sync BEFORE PDESolvers_Solve # IF PoissonX::need_initial_guess
+SCHEDULE PoissonX_Boundaries AT initial AFTER PoissonX_Sync BEFORE PDESolvers_Solve
 {
   LANG: C
   WRITES: sol(boundary)
@@ -57,22 +55,6 @@ SCHEDULE PoissonX_Residual IN PDESolvers_Residual AFTER (PoissonX_Sync, PoissonX
   READS: src(interior)
   WRITES: res(interior)
 } "Evaluate residual"
-
-# SCHEDULE PoissonX_ResidualBoundaries IN PDESolvers_Residual AFTER PoissonX_Sync
-# {
-#   LANG: C
-#   READS: PDESolvers::point_type(everywhere)
-#   READS: sol(boundary)
-#   READS: src(boundary)
-#   WRITES: res(boundary)
-# } "Evaluate residual on boundaries"
-# 
-# SCHEDULE PoissonX_ResidualSync IN PDESolvers_Residual AFTER (PoissonX_Residual, PoissonX_ResidualBoundaries)
-# {
-#   LANG: C
-#   OPTIONS: global
-#   SYNC: res
-# } "Synchronize residual"
 
 SCHEDULE PoissonX_Sync IN PDESolvers_Jacobian
 {
