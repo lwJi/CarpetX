@@ -18,7 +18,7 @@ CITATION_LINE = re.compile(
     rf"^(?:See|From|Taken from|cf\.)?\s*{REF}(?:\s*\[[\w.-]+\])?"
     r"(?:,?\s*(?:eqs?\.?\s*)?\(?[\d,\s–-]+\)?)?\.?$"
 )
-_OPENER = {"line": re.compile(r"^//+"), "hash": re.compile(r"^#+"), "block": re.compile(r"^/\*+")}
+_OPENER = {"line": re.compile(r"^(?://+|!+)"), "hash": re.compile(r"^#+"), "block": re.compile(r"^/\*+")}
 _BLOCK_CLOSER = re.compile(r"\*+/$")
 _BLOCK_LINE_LEADER = re.compile(r"^\s*\*+")
 

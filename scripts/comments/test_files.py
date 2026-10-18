@@ -12,6 +12,11 @@ class Covered(unittest.TestCase):
         self.assertIsNone(covered("CarpetX/stencils/x.cxx"))
         self.assertIsNone(covered("src.cxx"))
 
+    def test_fortran_needs_a_src_directory(self):
+        self.assertIs(covered("TestArrayGroup/src/TestArray.F90"), Lang.FORTRAN)
+        self.assertIs(covered("A/src/x.f90"), Lang.FORTRAN)
+        self.assertIsNone(covered("A/doc/x.F90"))
+
     def test_every_ccl_file(self):
         for name in ["X/interface.ccl", "X/param.ccl", "X/schedule.ccl",
                      "X/configuration.ccl", "X/test/test.ccl", "TestInterpolate/test/tests.ccl"]:

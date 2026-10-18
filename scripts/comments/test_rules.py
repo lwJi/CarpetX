@@ -114,6 +114,13 @@ class Groups(unittest.TestCase):
     def test_cxx_exceptions_do_not_apply_to_hash_comments(self):
         self.assertEqual(violations("} # namespace X\n", Lang.CCL), ["# namespace X"])
 
+    def test_fortran_comments(self):
+        text = "  !// test array group\n  ! more\n  x = 1 ! why\n  ! arXiv:1111.2177 (71)\n  y = 2\n"
+        self.assertEqual(violations(text, Lang.FORTRAN), ["!// test array group\n! more", "! why"])
+
+    def test_cxx_exceptions_do_not_apply_to_fortran_comments(self):
+        self.assertEqual(violations("  x = f(a, & !\n    b)\nend ! namespace X\n", Lang.FORTRAN), ["!", "! namespace X"])
+
 
 if __name__ == "__main__":
     unittest.main()

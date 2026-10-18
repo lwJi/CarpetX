@@ -66,5 +66,29 @@ class Par(unittest.TestCase):
                          [("hash", "# c"), ("hash", "# it's"), ("hash", "# d")])
 
 
+class Fortran(unittest.TestCase):
+    def test_full_line_and_trailing(self):
+        text = "  !// test array group\n  x = 1 ! why\n"
+        self.assertEqual(spans(text, Lang.FORTRAN), [("line", "!// test array group"), ("line", "! why")])
+
+    def test_bang_inside_quotes(self):
+        self.assertEqual(spans('call CCTK_WARN(1, "a ! b") ! c\n', Lang.FORTRAN), [("line", "! c")])
+        self.assertEqual(spans("print *, 'it''s ! not' ! yes\n", Lang.FORTRAN), [("line", "! yes")])
+        self.assertEqual(spans("print *, '\"!\"', \"'!'\" ! c\n", Lang.FORTRAN), [("line", "! c")])
+
+    def test_an_unterminated_string_ends_at_the_line_end(self):
+        self.assertEqual(spans("s = 'a &\n! c\n", Lang.FORTRAN), [("line", "! c")])
+
+    def test_preprocessor_lines_hold_no_comments(self):
+        self.assertEqual(spans("#include <cctk.h>\n  #if !defined(X)\n#endif\n", Lang.FORTRAN), [])
+
+    def test_openmp_sentinels_are_directives(self):
+        text = "!$omp parallel do\n!$ n = omp_get_num_threads()\n! $omp is prose\n"
+        self.assertEqual(spans(text, Lang.FORTRAN), [("line", "! $omp is prose")])
+
+    def test_operators_are_not_comments(self):
+        self.assertEqual(spans("if (a /= b) s = 'x' // 'y'\n", Lang.FORTRAN), [])
+
+
 if __name__ == "__main__":
     unittest.main()

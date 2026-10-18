@@ -113,6 +113,13 @@ HASH_CASES = {
         "SCHEDULE GROUP G AT postinitial\n{\n} \"G\"\n",
     ),
     "comment-only file with blank lines": (Lang.CCL, "# a\n\n# b\n\n", ""),
+    "fortran": (
+        Lang.FORTRAN,
+        "#include <cctk.h>\n\nsubroutine S()\n  !// test\n  integer :: i ! why\n\n  ! check\n"
+        '  if (i /= 1) call CCTK_WARN(1, "a ! b")\n!$omp barrier\nend subroutine S\n',
+        "#include <cctk.h>\n\nsubroutine S()\n  integer :: i\n\n"
+        '  if (i /= 1) call CCTK_WARN(1, "a ! b")\n!$omp barrier\nend subroutine S\n',
+    ),
     "par string comment line": (
         Lang.PAR,
         'ActiveThorns = "\n    # SystemTopology\n    ADMBase\n"\n',

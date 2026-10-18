@@ -193,26 +193,56 @@ def only_hash_lines(text: str) -> bool:
     return all(not line.strip() or line.lstrip().startswith("#") for line in text.split("\n"))
 
 
-def _outside_quotes(prefix: str) -> bool:
-    unescaped = re.sub(r"\\.", "", prefix)
-    return unescaped.count('"') % 2 == 0 and unescaped.count("'") % 2 == 0
+@dataclass(frozen=True)
+class Dialect:
+    marker: str
+    comment: re.Pattern
+    escapes: bool
+    no_comment: re.Pattern | None = None
 
 
-def _lost_trailing_comment(marker: str, before: str, after: str) -> bool:
-    if not before.startswith(after) or not after.strip():
+HASH_DIALECT = Dialect("#", re.compile("#"), escapes=True)
+FORTRAN_DIALECT = Dialect("!", re.compile(r"!(?!\$)"), escapes=False, no_comment=re.compile(r"\s*#"))
+
+
+def _outside_quotes(prefix: str, escapes: bool) -> bool:
+    quote = None
+    i = 0
+    while i < len(prefix):
+        c = prefix[i]
+        if escapes and c == "\\":
+            i += 1
+        elif quote is None and c in "\"'":
+            quote = c
+        elif c == quote:
+            quote = None
+        i += 1
+    return quote is None
+
+
+def _may_hold_comment(dialect: Dialect, line: str) -> bool:
+    return dialect.no_comment is None or not dialect.no_comment.match(line)
+
+
+def _lost_trailing_comment(dialect: Dialect, before: str, after: str) -> bool:
+    if not before.startswith(after) or not after.strip() or not _may_hold_comment(dialect, before):
         return False
-    rest = before[len(after) :]
-    return rest.lstrip(" \t").startswith(marker) and _outside_quotes(after)
+    rest = before[len(after) :].lstrip(" \t")
+    return bool(dialect.comment.match(rest)) and _outside_quotes(after, dialect.escapes)
 
 
-def line_audit(path: str, marker: str, before: str, after: str) -> Result:
-    evidence = f"only whole-line or trailing '{marker}…' removed (line audit)"
+def _whole_line_comment(dialect: Dialect, line: str) -> bool:
+    return bool(dialect.comment.match(line.lstrip())) and _may_hold_comment(dialect, line)
+
+
+def line_audit(path: str, dialect: Dialect, before: str, after: str) -> Result:
+    evidence = f"only whole-line or trailing '{dialect.marker}…' removed (line audit)"
     a, b = before.split("\n"), after.split("\n")
     j = 0
     for number, line in enumerate(a, start=1):
-        if j < len(b) and (b[j] == line or _lost_trailing_comment(marker, line, b[j])):
+        if j < len(b) and (b[j] == line or _lost_trailing_comment(dialect, line, b[j])):
             j += 1
-        elif not line.strip() or line.lstrip().startswith(marker):
+        elif not line.strip() or _whole_line_comment(dialect, line):
             continue
         else:
             return Result(path, False, evidence, f"before line {number} {line.strip()!r} is not in after")
@@ -292,9 +322,11 @@ def verify_file(path: str, before: str, after: str, flesh: str | None) -> Result
         return Result(path, False, "not a covered file", "only comments in covered files may change")
     if lang is Lang.CXX:
         return verify_cxx(path, before, after)
+    if lang is Lang.FORTRAN:
+        return line_audit(path, FORTRAN_DIALECT, before, after)
     peg = peg_for(path)
     if peg is None and lang is Lang.CCL:
-        return line_audit(path, "#", before, after)
+        return line_audit(path, HASH_DIALECT, before, after)
     if peg is None:
         return Result(path, False, "no independent check", f"verify has no checker for {PurePosixPath(path).name} yet")
     if flesh is None:

@@ -10,12 +10,39 @@ _QUOTED = {
 }
 
 
-def _hash_span(text: str, start: int, stop: int, index: LineIndex) -> Span:
+_FORTRAN_NEXT = re.compile(r"""[!"']""")
+_FORTRAN_QUOTED = {
+    '"': re.compile(r'"(?:[^"\n]|"")*"?'),
+    "'": re.compile(r"'(?:[^'\n]|'')*'?"),
+}
+_DIRECTIVE = re.compile(r"[ \t]*#")
+
+
+def _hash_span(text: str, start: int, stop: int, index: LineIndex, kind: str = "hash") -> Span:
     newline = text.find("\n", start, stop)
     end = stop if newline < 0 else newline
     if end > start and text[end - 1] == "\r":
         end -= 1
-    return Span("hash", start, end, index.line_of(start), text[start:end])
+    return Span(kind, start, end, index.line_of(start), text[start:end])
+
+
+def _lex_fortran(text: str) -> list[Span]:
+    index = LineIndex(text)
+    spans = []
+    for line_start in index.starts:
+        newline = text.find("\n", line_start)
+        line_end = len(text) if newline < 0 else newline
+        if _DIRECTIVE.match(text, line_start, line_end):
+            continue
+        i = line_start
+        while (m := _FORTRAN_NEXT.search(text, i, line_end)) is not None:
+            i = m.start()
+            if text[i] == "!":
+                if not text.startswith("!$", i):
+                    spans.append(_hash_span(text, i, line_end, index, "line"))
+                break
+            i = _FORTRAN_QUOTED[text[i]].match(text, i, line_end).end()
+    return spans
 
 
 def _par_string_comments(text: str, start: int, end: int, index: LineIndex) -> list[Span]:
@@ -63,6 +90,8 @@ def scan(text: str, lang: Lang) -> tuple[list[Span], list[tuple[int, int]]]:
 
 
 def lex(text: str, lang: Lang) -> list[Span]:
+    if lang is Lang.FORTRAN:
+        return _lex_fortran(text)
     return scan(text, lang)[0]
 
 

@@ -8,11 +8,13 @@ from pathlib import PurePosixPath
 
 class Lang(Enum):
     CXX = "C/C++"
+    FORTRAN = "Fortran"
     CCL = ".ccl"
     PAR = ".par"
 
 
 CXX_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
+FORTRAN_SUFFIXES = {".f90", ".F90"}
 PAR_NAME = re.compile(r"\.par(-\w+)?$")
 
 
@@ -20,6 +22,8 @@ def covered(path: str) -> Lang | None:
     p = PurePosixPath(path)
     if "src" in p.parts[:-1] and p.suffix in CXX_SUFFIXES:
         return Lang.CXX
+    if "src" in p.parts[:-1] and p.suffix in FORTRAN_SUFFIXES:
+        return Lang.FORTRAN
     if p.suffix == ".ccl":
         return Lang.CCL
     if PAR_NAME.search(p.name):

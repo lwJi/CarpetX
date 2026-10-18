@@ -65,6 +65,8 @@ class TestCclAudit(unittest.TestCase):
 
     def test_cutting_inside_a_string_fails(self):
         self.assertFalse(self.check('EXTENSIONS "x # y"\n', 'EXTENSIONS "x\n').ok)
+        self.assertFalse(self.check("EXTENSIONS 'x # y'\n", "EXTENSIONS 'x\n").ok)
+        self.assertTrue(self.check('EXTENSIONS "it\'s" # y\n', 'EXTENSIONS "it\'s"\n').ok)
 
     def test_a_line_emptied_but_not_deleted_fails(self):
         self.assertFalse(self.check("NPROCS 1 # a\n", "\n").ok)
@@ -89,6 +91,38 @@ class StringModel(unittest.TestCase):
         self.assertFalse(self.ok("\n  a <# c>\n  b\n", "\n  \n  b\n"))
         self.assertFalse(self.ok("\n  a\n  <# c>\n", "\n  a\n  A\n"))
         self.assertFalse(self.ok("x # y\n  z\n", "x\n  z\n"))
+
+
+class FortranAudit(unittest.TestCase):
+    BEFORE = (
+        "#include <cctk.h>\n#if !defined(X)\n#endif\n\nsubroutine S()\n  !// test\n"
+        "  ! check that grid variable is of rank 3.\n  if(RANK(t) /= 3) then ! note rank 3\n"
+        '      call CCTK_ERROR("a ! b")\n  endif\n!$omp barrier\nend subroutine S\n'
+    )
+
+    def check(self, before, after):
+        return verify_file("X/src/a.F90", before, after, None)
+
+    def test_our_strip_passes(self):
+        after = strip(self.BEFORE, Lang.FORTRAN)
+        self.assertNotIn("note rank", after)
+        result = self.check(self.BEFORE, after)
+        self.assertTrue(result.ok, result.detail)
+        self.assertIn("'!…' removed (line audit)", result.evidence)
+
+    def test_a_code_change_fails(self):
+        self.assertFalse(self.check("  x = 1 ! a\n", "  x = 2\n").ok)
+
+    def test_cutting_a_directive_fails(self):
+        self.assertFalse(self.check("#if !defined(X)\n#endif\n", "#if\n#endif\n").ok)
+        self.assertFalse(self.check("#if !defined(X)\n#endif\n", "#endif\n").ok)
+
+    def test_removing_an_openmp_sentinel_fails(self):
+        self.assertFalse(self.check("!$omp barrier\nx = 1\n", "x = 1\n").ok)
+
+    def test_cutting_inside_a_string_fails(self):
+        self.assertFalse(self.check('  call f("a ! b")\n', '  call f("a\n').ok)
+        self.assertTrue(self.check("  call f('it''s') ! b\n", "  call f('it''s')\n").ok)
 
 
 @unittest.skipUnless(HAVE_CXX_TOOLS, "needs clang++ and unifdef")
