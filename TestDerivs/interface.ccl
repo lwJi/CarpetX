@@ -1,4 +1,3 @@
-# Interface definition for thorn TestDerivs
 IMPLEMENTS: TestDerivs
 
 INHERITS: CarpetXRegrid
