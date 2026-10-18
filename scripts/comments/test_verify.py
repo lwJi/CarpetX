@@ -5,7 +5,7 @@ import unittest
 
 from files import Lang
 from strip import strip
-from verify import peg_for, verify_file
+from verify import only_string_comments_removed, peg_for, verify_file
 
 HAVE_CXX_TOOLS = shutil.which("clang++") is not None and shutil.which("unifdef") is not None
 FLESH = os.environ.get("CACTUSX")
@@ -69,6 +69,26 @@ class TestCclAudit(unittest.TestCase):
     def test_a_line_emptied_but_not_deleted_fails(self):
         self.assertFalse(self.check("NPROCS 1 # a\n", "\n").ok)
         self.assertFalse(self.check("NPROCS 1 # a\n", "# a\n").ok)
+
+
+class StringModel(unittest.TestCase):
+    def ok(self, before, after):
+        return only_string_comments_removed(before.replace("<", "\x01").replace(">", "\x02"), after)
+
+    def test_a_comment_line_goes_with_its_newline(self):
+        self.assertTrue(self.ok("\n  a\n  <# c>\n  b\n", "\n  a\n  b\n"))
+        self.assertTrue(self.ok("\n  a\n\n  <# c>\n\n  b\n", "\n  a\n\n\n  b\n"))
+
+    def test_a_trailing_comment_goes_with_the_blanks_before_it(self):
+        self.assertTrue(self.ok("\n  a  <# c>\n", "\n  a\n"))
+        self.assertTrue(self.ok("\n  a <# c>\n", "\n  a \n"))
+        self.assertTrue(self.ok("a\n  <# c>", "a\n  "))
+
+    def test_anything_else_fails(self):
+        self.assertFalse(self.ok("\n  a\n\n  b\n", "\n  a\n  b\n"))
+        self.assertFalse(self.ok("\n  a <# c>\n  b\n", "\n  \n  b\n"))
+        self.assertFalse(self.ok("\n  a\n  <# c>\n", "\n  a\n  A\n"))
+        self.assertFalse(self.ok("x # y\n  z\n", "x\n  z\n"))
 
 
 @unittest.skipUnless(HAVE_CXX_TOOLS, "needs clang++ and unifdef")
@@ -145,6 +165,37 @@ class Piraha(unittest.TestCase):
 
     def test_removing_a_hash_inside_a_par_string_fails(self):
         self.assertFalse(verify_file("X/test/a.par", 'A::d = "x # y"\n', 'A::d = "x "\n', FLESH).ok)
+
+    def test_par_string_comment_removal_passes(self):
+        before = (
+            'ActiveThorns = "\n    # SystemTopology\n    ADMBase\n"\n'
+            'A::v = "x # y\n  a # b\n\n  # c\n\n  d\n"\n'
+        )
+        after = strip(before, Lang.PAR)
+        self.assertEqual(after, 'ActiveThorns = "\n    ADMBase\n"\nA::v = "x # y\n  a\n\n\n  d\n"\n')
+        result = verify_file("X/test/a.par", before, after, FLESH)
+        self.assertTrue(result.ok, result.detail)
+        self.assertIn("but for 3 string lines that par.peg's stringcomment drops", result.evidence)
+
+    def test_removing_a_hash_on_the_first_line_of_a_string_fails(self):
+        for before, after in [
+            ('A::v = "x # y\n  z\n"\n', 'A::v = "x\n  z\n"\n'),
+            ('ActiveThorns = "# first\n  B\n"\n', 'ActiveThorns = "\n  B\n"\n'),
+        ]:
+            with self.subTest(before=before):
+                self.assertFalse(verify_file("X/test/a.par", before, after, FLESH).ok)
+
+    def test_changing_a_string_beyond_its_comments_fails(self):
+        for before, after in [
+            ('A::v = "\n  a\n  # c\n  b\n"\n', 'A::v = "\n  a\n  B\n"\n'),
+            ('A::v = "\n  a\n\n  b\n"\n', 'A::v = "\n  a\n  b\n"\n'),
+            ('A::v = "\n  a # c\n"\n', 'A::v = "\n  \n"\n'),
+        ]:
+            with self.subTest(before=before):
+                self.assertFalse(verify_file("X/test/a.par", before, after, FLESH).ok)
+
+    def test_text_next_to_a_variable_in_a_string_counts(self):
+        self.assertFalse(verify_file("X/test/a.par", 'A::v = "x $parfile"\n', 'A::v = "y $parfile"\n', FLESH).ok)
 
     def test_schedule_comment_removal_passes(self):
         before = (

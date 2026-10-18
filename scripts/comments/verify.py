@@ -221,6 +221,51 @@ def line_audit(path: str, marker: str, before: str, after: str) -> Result:
     return Result(path, True, evidence)
 
 
+_PAR_STRING = re.compile(r'inquot\("((?:[^"\\]|\\.)*)"\)')
+_DUMP_ESCAPES = {"n": "\n", "t": "\t", "r": "\r"}
+_STRING_COMMENT = re.compile("\x01[^\x02]*\x02")
+
+
+def _unescape(dumped: str) -> str:
+    return re.sub(r"\\(.)", lambda m: _DUMP_ESCAPES.get(m.group(1), m.group(1)), dumped, flags=re.S)
+
+
+def string_lines(marked: str) -> list[tuple[str, bool]]:
+    return [(_STRING_COMMENT.sub("", line), "\x01" in line) for line in marked.split("\n")]
+
+
+def only_string_comments_removed(before: str, after: str) -> bool:
+    b = string_lines(before)
+    a = [value for value, _ in string_lines(after)]
+    reachable = {0}
+    for i, (value, comment) in enumerate(b):
+        following = set()
+        for j in reachable:
+            if j < len(a) and (a[j] == value or (comment and a[j] == value.rstrip(" \t"))):
+                following.add(j + 1)
+            if comment and not value.strip() and i + 1 < len(b):
+                following.add(j)
+        reachable = following
+    return len(a) in reachable
+
+
+def _compare_par_dumps(a: str, b: str) -> tuple[str | None, int]:
+    skeleton_a, skeleton_b = _PAR_STRING.sub("inquot(…)", a), _PAR_STRING.sub("inquot(…)", b)
+    if skeleton_a != skeleton_b:
+        return _first_line_difference(skeleton_a, skeleton_b), 0
+    strings_a = [_unescape(x) for x in _PAR_STRING.findall(a)]
+    strings_b = [_unescape(x) for x in _PAR_STRING.findall(b)]
+    commented = 0
+    for x, y in zip(strings_a, strings_b):
+        if x == y:
+            continue
+        if not only_string_comments_removed(x, y):
+            value = _STRING_COMMENT.sub("#…", x)
+            return f"string {value[:80]!r} changed beyond its '#' lines", 0
+        commented += sum(comment for _, comment in string_lines(x))
+    return None, commented
+
+
 def verify_piraha(path: str, peg: str, before: str, after: str, flesh: str) -> Result:
     evidence = f"Piraha {peg} parse trees equal"
     (ok_a, dump_a), (ok_b, dump_b) = piraha_dumps(flesh, peg, [before, after])
@@ -232,7 +277,13 @@ def verify_piraha(path: str, peg: str, before: str, after: str, flesh: str) -> R
         return Result(path, True, evidence)
     if not after.strip() and only_hash_lines(before):
         return Result(path, True, f"only '#' lines before, empty after; Piraha {peg} parses both")
-    return Result(path, False, evidence, _first_line_difference(dump_a, dump_b))
+    if peg != "par.peg":
+        return Result(path, False, evidence, _first_line_difference(dump_a, dump_b))
+    difference, commented = _compare_par_dumps(dump_a, dump_b)
+    if difference is not None:
+        return Result(path, False, evidence, difference)
+    noun = "line" if commented == 1 else "lines"
+    return Result(path, True, f"{evidence} but for {commented} string {noun} that par.peg's stringcomment drops")
 
 
 def verify_file(path: str, before: str, after: str, flesh: str | None) -> Result:

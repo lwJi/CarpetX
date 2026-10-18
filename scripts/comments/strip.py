@@ -1,6 +1,7 @@
 import re
 
 import lex_cxx
+import lex_hash
 from files import Lang
 from lex_cxx import Span
 from rules import Violation, classify, group, lex
@@ -113,7 +114,7 @@ def _delete_disabled(text: str, span: Span, pending: list[Span]) -> str:
     return _tidy(text, span.start, keep_prev=closes, keep_next=opens, pending=pending)
 
 
-def _delete_comment(text: str, span: Span, pending: list[Span]) -> str:
+def _delete_comment(text: str, span: Span, pending: list[Span], tidy: bool = True) -> str:
     line_start = text.rfind("\n", 0, span.start) + 1
     newline = text.find("\n", span.end)
     line_end = len(text) if newline < 0 else newline
@@ -121,7 +122,8 @@ def _delete_comment(text: str, span: Span, pending: list[Span]) -> str:
     after = text[span.end : line_end]
     if not before.strip() and not after.strip():
         cut_end = line_end + 1 if newline >= 0 else line_end
-        return _tidy(_cut(text, (line_start, cut_end)), line_start, pending=pending)
+        text = _cut(text, (line_start, cut_end))
+        return _tidy(text, line_start, pending=pending) if tidy else text
     if not after.strip():
         start = line_start + len(before.rstrip(_HORIZONTAL))
         end = line_end - 1 if after.endswith("\r") else line_end
@@ -165,10 +167,12 @@ def strip(text: str, lang: Lang) -> str:
         if refusals:
             raise Refused(*refusals[0])
     spans = sorted(violating_spans(text, lang), key=lambda s: s.start)
+    strings = lex_hash.strings(text, lang) if lang is Lang.PAR else []
     for i in reversed(range(len(spans))):
         pending = spans[:i]
         if spans[i].kind == "disabled":
             text = _delete_disabled(text, spans[i], pending)
         else:
-            text = _delete_comment(text, spans[i], pending)
+            in_string = any(start <= spans[i].start < end for start, end in strings)
+            text = _delete_comment(text, spans[i], pending, tidy=not in_string)
     return text

@@ -113,6 +113,21 @@ HASH_CASES = {
         "SCHEDULE GROUP G AT postinitial\n{\n} \"G\"\n",
     ),
     "comment-only file with blank lines": (Lang.CCL, "# a\n\n# b\n\n", ""),
+    "par string comment line": (
+        Lang.PAR,
+        'ActiveThorns = "\n    # SystemTopology\n    ADMBase\n"\n',
+        'ActiveThorns = "\n    ADMBase\n"\n',
+    ),
+    "par string keeps its first line and loses trailing comments": (
+        Lang.PAR,
+        'A::v = "x # y\n  z  # w\n  # u\n  q\n"\n',
+        'A::v = "x # y\n  z\n  q\n"\n',
+    ),
+    "par string blank lines around a comment line stay": (
+        Lang.PAR,
+        'A::v = "\n  a\n\n  # c\n\n  b\n"\n',
+        'A::v = "\n  a\n\n\n  b\n"\n',
+    ),
     "blank runs that groups separated keep the longest": (
         Lang.CCL,
         "STORAGE: a\n\n\n\n# glossary\n# more\n\n\n\n# list\n\n# TODO\n\n\n\nSCHEDULE GROUP G\n{\n} \"G\"\n",

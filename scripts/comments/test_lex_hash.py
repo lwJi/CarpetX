@@ -42,8 +42,21 @@ class Par(unittest.TestCase):
     def test_hash_inside_a_string(self):
         self.assertEqual(spans('IO::out_dir = "x # y"  # z\n', Lang.PAR), [("hash", "# z")])
 
-    def test_multi_line_string(self):
-        self.assertEqual(spans('A::v = "\n  x\n#  y\n"\n# z\n', Lang.PAR), [("hash", "# z")])
+    def test_hash_after_the_first_line_of_a_string_is_a_comment(self):
+        self.assertEqual(spans('A::v = "\n  x\n#  y\n"\n# z\n', Lang.PAR), [("hash", "#  y"), ("hash", "# z")])
+        text = 'ActiveThorns = "\n    # SystemTopology\n    ADMBase  # why\n"\n'
+        self.assertEqual(spans(text, Lang.PAR), [("hash", "# SystemTopology"), ("hash", "# why")])
+
+    def test_hash_on_the_first_line_of_a_string_is_content(self):
+        self.assertEqual(spans('A::v = "x # y\n  z # w\n"\n', Lang.PAR), [("hash", "# w")])
+        self.assertEqual(spans('ActiveThorns = "# first\n  CarpetX\n"\n', Lang.PAR), [])
+
+    def test_a_string_comment_ends_at_the_closing_quote(self):
+        self.assertEqual(spans('A::v = "a\n  # b" # c\n', Lang.PAR), [("hash", "# b"), ("hash", "# c")])
+        self.assertEqual(spans('A::v = "a\n  # b \\" c"\n', Lang.PAR), [("hash", '# b \\" c')])
+
+    def test_string_comments_are_par_only(self):
+        self.assertEqual(spans('STRING s "a\n  # b"\n{\n} ""\n', Lang.CCL), [])
 
     def test_escaped_quote(self):
         self.assertEqual(spans('A::v = "a \\" # b" # c\n', Lang.PAR), [("hash", "# c")])
