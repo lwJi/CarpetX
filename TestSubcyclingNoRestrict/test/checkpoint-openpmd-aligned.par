@@ -1,18 +1,3 @@
-# Checkpoint half of a time-aligned checkpoint/recover pair for an evolved
-# group with restriction disabled (TestSubcyclingNoRestrict::state_nr). The
-# checkpoint is taken at iteration 4, where the three levels are all at 1
-# coarse step: the single clock group [0,3) was restricted at its last end
-# of step. There ProlongateAfterRestriction overwrote the coarse-fine ghosts
-# of levels 1 and 2 by prolongation from their parents, for the restricted
-# state and for state_nr alike. The checkpoint is time-aligned and so
-# carries no source bands. The run continues to iteration 6 as the
-# uninterrupted baseline for recover-openpmd-aligned.par.
-#
-# amplitude = -1 makes u decrease from zero, and u_floor = -0.01 clips u_nr
-# at every step from the first one on around the refined levels' coarse-fine
-# boundaries, so that the parents' state_nr differs there from the dense
-# output that their children's ghosts held before that prolongation.
-
 ActiveThorns = "
     BoxInBox
     CarpetX
@@ -26,7 +11,7 @@ $nlevels = 3
 $ncells = 32
 
 TestSubcyclingNoRestrict::amplitude = -1.0
-TestSubcyclingNoRestrict::gaussian_width = 0.17677669529 # sqrt(2)*W = 0.25
+TestSubcyclingNoRestrict::gaussian_width = 0.17677669529
 TestSubcyclingNoRestrict::u_floor = -0.01
 
 CarpetX::use_subcycling = yes
@@ -68,7 +53,6 @@ CarpetX::blocking_factor_y = 2
 CarpetX::blocking_factor_z = 2
 
 BoxInBox::num_regions = 1
-# Region 1
 BoxInBox::shape_1 = "cube"
 BoxInBox::num_levels_1 = $nlevels
 BoxInBox::radius_1 = [ -1.0, 1.0, 0.5 ]

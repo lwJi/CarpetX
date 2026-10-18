@@ -21,8 +21,6 @@ using std::result_of_t;
 
 constexpr int dim = 3;
 
-// u(t,r) = (f(t-r) - f(t+r)) / r
-// f(v) = A exp(-1/2 (r/W)^2)
 template <typename T>
 constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
                         const T z, T &u, T &rho) {
@@ -34,7 +32,6 @@ constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
   };
 
   if (r < sqrt(std::numeric_limits<T>::epsilon())) {
-    // L'Hôpital
     u = 2 / pow(W, 2) * f(t) * t;
     rho = -2 / pow(W, 4) * f(t) * (pow(t, 2) - pow(W, 2));
   } else {
@@ -47,7 +44,6 @@ extern "C" void TestSubcyclingNoRestrict_Initial(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingNoRestrict_Initial;
   DECLARE_CCTK_PARAMETERS;
 
-  // Both state vectors start from the same data
   grid.loop_int_device<0, 0, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -61,14 +57,12 @@ extern "C" void TestSubcyclingNoRestrict_Initial(CCTK_ARGUMENTS) {
 }
 
 extern "C" void TestSubcyclingNoRestrict_Sync(CCTK_ARGUMENTS) {
-  // do nothing
 }
 
 extern "C" void TestSubcyclingNoRestrict_Floor(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingNoRestrict_Floor;
   DECLARE_CCTK_PARAMETERS;
 
-  // Idempotent: max(max(u, c), c) == max(u, c)
   grid.loop_int_device<0, 0, 0>(grid.nghostzones,
                                 [=] CCTK_DEVICE(const PointDesc &p)
                                     CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -92,16 +86,12 @@ extern "C" void TestSubcyclingNoRestrict_RHS(CCTK_ARGUMENTS) {
                                        cctk_nghostzones[2]};
   vect<int, dim> imin, imax;
   GridDescBase(cctkGH).box_int<0, 0, 0>(nghostzones, imin, imax);
-  // suffix 5: without ghost zones
   const GF3D5layout layout5(imin, imax);
 
-  // The scalar wave equation u_t = rho, rho_t = Laplacian u for one state
-  // vector, with a fourth-order centred Laplacian
   const auto calc_rhs = [&](const GF3D2<const CCTK_REAL> &gf_u,
                             const GF3D2<const CCTK_REAL> &gf_rho,
                             const GF3D2<CCTK_REAL> &gf_u_rhs,
                             const GF3D2<CCTK_REAL> &gf_rho_rhs) {
-    // Tile variables for derivatives and so on
     const int ntmps = 10;
     GF3D5vector<CCTK_REAL> tmps(layout5, ntmps);
     int itmp = 0;
@@ -146,7 +136,6 @@ extern "C" void TestSubcyclingNoRestrict_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingNoRestrict_Error;
   DECLARE_CCTK_PARAMETERS;
 
-  // Pointwise, so computed everywhere instead of SYNCed (see schedule.ccl)
   grid.loop_all_device<0, 0, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
