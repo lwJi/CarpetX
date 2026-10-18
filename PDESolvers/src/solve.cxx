@@ -1,6 +1,5 @@
 #include "pdesolvers.hxx"
 
-// TODO: Don't include files from other thorns; create a proper interface
 #include "../../CarpetX/src/driver.hxx"
 #include "../../CarpetX/src/fillpatch.hxx"
 #include "../../CarpetX/src/reduction.hxx"
@@ -40,55 +39,8 @@ namespace PDESolvers {
 
 const int tl = 0;
 
-// TODO: Generalize this
-const Arith::arr<int, 3> indextype{0, 0, 0}; // vertex centred
+const Arith::arr<int, 3> indextype{0, 0, 0};
 
-////////////////////////////////////////////////////////////////////////////////
-
-// Erik Schnetter the blocks for vertex centred grids overlap by one
-// point at the block boundaries (see
-// https://amrex-codes.github.io/amrex/docs_html/Basics.html#id4).
-// does FillPatchSingleLevel ensure these points are consistent? or is
-// the domain double-valued there, and only the ghost points (not
-// shown in this figure) are set?
-
-// weiqun If the original source data are consistent, the results of
-// FillPatchSingleLevel are also consistent.  Otherwise, it's undefined which
-// original values will used for which boxes.  It depends on how boxes are
-// distributed.
-
-// If you want to the data consistent, you can use MultiFab's OverrideSync
-// functions.
-//     void OverrideSync (const Periodicity& period =
-//         Periodicity::NonPeriodic());
-//     void OverrideSync (const iMultiFab& msk,
-//         const Periodicity& period = Periodicity::NonPeriodic());
-
-// The firs version will use data from the grid with the lowest grid number to
-// override others.
-
-// In the second version, you can pass your own mask.
-
-// Erik Schnetter thanks!
-
-// weiqun Even if you want to use the first version's mask, you might still want
-// to call
-//     //! Owner is the grid with the lowest grid number containing the data.
-//     std::unique_ptr<iMultiFab> OwnerMask (const Periodicity& period =
-//         Periodicity::NonPeriodic()) const;
-// and then use the second function.
-
-// If you need to call OverrideSync repeatedly, you could save the mask.
-
-// Erik Schnetter thanks!
-
-////////////////////////////////////////////////////////////////////////////////
-
-// 1: interior (defined by user)
-// 2: outer boundary (also defined by users)
-// 3: defined via synchronization (copied from another box on same level)
-// 4: defined via prolongation (interpolated from next coarser level)
-// 5: defined via restriction (injected from next finer level)
 enum class point_type_t {
   undf = 0,
   intr = 1,
@@ -99,7 +51,6 @@ enum class point_type_t {
 };
 
 void define_point_type() {
-  // Decode Cactus variables
   const int vn_pt = CCTK_VarIndex("PDESolvers::point_type");
   assert(vn_pt >= 0);
   const int gi_pt = CCTK_GroupIndexFromVarI(vn_pt);
@@ -117,8 +68,6 @@ void define_point_type() {
   const int vi_ind = vn_ind - v0_ind;
   assert(vi_ind >= 0);
 
-  // Initialize point type everywhere, assuming there is no synchronization,
-  // prolongation, or restriction
   CarpetX::active_levels->loop_parallel([&](const int patch, const int level,
                                             const int index,
                                             const int component,
@@ -148,7 +97,6 @@ void define_point_type() {
         []() { return "PDESolver::define_point_type"; });
   });
 
-  // Set indicator to level
   CarpetX::active_levels->loop_parallel(
       [&](const int patch, const int level, const int index,
           const int component, const cGH *restrict const cctkGH) {
@@ -167,7 +115,6 @@ void define_point_type() {
             []() { return "PDESolver::define_point_type before restricting"; });
       });
 
-  // Restrict
   for (const auto &patchdata : CarpetX::ghext->patchdata) {
     for (int level = int(patchdata.leveldata.size()) - 2; level >= 0; --level) {
       const auto &leveldata = patchdata.leveldata.at(level);
@@ -189,7 +136,7 @@ void define_point_type() {
         average_down_faces(finemfab_ind, mfab_ind, reffact);
         break;
       case 3:
-        average_down(finemfab_ind, mfab_ind, 0, 1 /*nvars*/, reffact);
+        average_down(finemfab_ind, mfab_ind, 0, 1, reffact);
         break;
       default:
         assert(0);
@@ -197,7 +144,6 @@ void define_point_type() {
     }
   }
 
-  // Check where the indicator changed; these are the restricted points
   CarpetX::active_levels->loop_parallel([&](const int patch, const int level,
                                             const int index,
                                             const int component,
@@ -218,7 +164,6 @@ void define_point_type() {
                            });
   });
 
-  // Set indicator to index
   CarpetX::active_levels->loop_parallel(
       [&](const int patch, const int level, const int index,
           const int component, const cGH *restrict const cctkGH) {
@@ -238,7 +183,6 @@ void define_point_type() {
             });
       });
 
-  // Synchronize (as if there was no prolongation)
   {
     CarpetX::task_manager tasks1;
     CarpetX::task_manager tasks2;
@@ -258,9 +202,6 @@ void define_point_type() {
     tasks2.run_tasks_serially();
   }
 
-  // Check where the indicator changed; these are the synchronized points.
-  // If points are both restricted and synchronized, then we count them as
-  // synchronized.
   CarpetX::active_levels->loop_parallel([&](const int patch, const int level,
                                             const int index,
                                             const int component,
@@ -282,7 +223,6 @@ void define_point_type() {
                            });
   });
 
-  // Set indicator to level
   CarpetX::active_levels->loop_parallel(
       [&](const int patch, const int level, const int index,
           const int component, const cGH *restrict const cctkGH) {
@@ -302,7 +242,6 @@ void define_point_type() {
             });
       });
 
-  // Prolongate and synchronize (we cannot just prolongate)
   {
     CarpetX::task_manager tasks1;
     CarpetX::task_manager tasks2;
@@ -334,9 +273,6 @@ void define_point_type() {
     tasks3.run_tasks_serially();
   }
 
-  // Check where the indicator changed; these are the prolongated points. If
-  // points are both restricted and prolongated, then we count them as
-  // prolongated.
   CarpetX::active_levels->loop_parallel([&](const int patch, const int level,
                                             const int index,
                                             const int component,
@@ -353,14 +289,12 @@ void define_point_type() {
           if (gf_ind(p.I) != level && gf_pt(p.I) != int(point_type_t::sync)) {
             assert(gf_pt(p.I) == int(point_type_t::undf) ||
                    gf_pt(p.I) == int(point_type_t::bdry));
-            // Points cannot be both restricted and prolongated
             assert(gf_pt(p.I) != int(point_type_t::rest));
             gf_pt(p.I) = int(point_type_t::prol);
           }
         });
   });
 
-  // Invalidate indicator
   CarpetX::active_levels->loop_serially([&](const int patch, const int level,
                                             const int index,
                                             const int component,
@@ -371,7 +305,6 @@ void define_point_type() {
         CarpetX::valid_t(), []() { return "PDESolver::define_point_type"; });
   });
 
-  // Collect some statistics
   Arith::vect<int, 6> npoints{0, 0, 0, 0, 0, 0};
   CarpetX::active_levels->loop_parallel(
       [&](const int patch, const int level, const int index,
@@ -403,8 +336,6 @@ void define_point_type() {
   assert(npoints[int(point_type_t::undf)] == 0);
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 void enumerate_points(
     int &restrict npoints_local, int &restrict npoints_global,
     std::vector<std::vector<int> > &restrict component_offsets,
@@ -417,7 +348,6 @@ void enumerate_points(
   int myproc;
   MPI_Comm_rank(MPI_COMM_WORLD, &myproc);
 
-  // Decode Cactus variables
   static const int vn_idx = CCTK_VarIndex("PDESolvers::idx");
   assert(vn_idx >= 0);
   static const int gi_idx = CCTK_GroupIndexFromVarI(vn_idx);
@@ -434,16 +364,7 @@ void enumerate_points(
   assert(v0_pt >= 0);
   const int vi_pt = vn_pt - v0_pt;
   assert(vi_pt >= 0);
-  // const int vn_vcx = CCTK_VarIndex("CoordinatesX::vcoordx");
-  // assert(vn_vcx >= 0);
-  // const int gi_vcx = CCTK_GroupIndexFromVarI(vn_vcx);
-  // assert(gi_vcx >= 0);
-  // const int v0_vcx = CCTK_FirstVarIndexI(gi_vcx);
-  // assert(v0_vcx >= 0);
-  // const int vi_vcx = vn_vcx - v0_vcx;
-  // assert(vi_vcx >= 0);
 
-  // Determine number of components per level
   assert(CarpetX::ghext->num_patches() == 1);
   const auto &patchdata = CarpetX::ghext->patchdata.at(0);
   std::vector<int> level_sizes(patchdata.leveldata.size(), 0);
@@ -451,19 +372,16 @@ void enumerate_points(
   CarpetX::active_levels->loop_serially(
       [&](const int patch, const int level, const int index,
           const int component, const cGH *restrict const cctkGH) {
-        // #pragma omp atomic
         ++level_sizes.at(level);
         int &maxcomponent = level_maxcomponents.at(level);
         using std::max;
-        // #pragma omp critical
         maxcomponent = max(maxcomponent, component);
       });
 
-  // Allocate data structure
-  component_offsets.resize(patchdata.leveldata.size()); // process local
+  component_offsets.resize(patchdata.leveldata.size());
   component_sizes.resize(patchdata.leveldata.size());
   component_prolongated_offsets.resize(
-      patchdata.leveldata.size()); // process local
+      patchdata.leveldata.size());
   component_prolongated_sizes.resize(patchdata.leveldata.size());
   for (std::size_t level = 0; level < patchdata.leveldata.size(); ++level) {
     assert(level_maxcomponents.at(level) + 1 == level_sizes.at(level));
@@ -473,7 +391,6 @@ void enumerate_points(
     component_prolongated_sizes.at(level).resize(level_sizes.at(level));
   }
 
-  // Enumerate and count points
   CarpetX::active_levels->loop_parallel([&](const int patch, const int level,
                                             const int index,
                                             const int component,
@@ -494,7 +411,6 @@ void enumerate_points(
                              case int(point_type_t::bdry):
                              case int(point_type_t::rest):
                              case int(point_type_t::sync):
-                               // ignore this point
                                break;
                              case int(point_type_t::prol):
                                ++npoints_prolongated;
@@ -507,7 +423,6 @@ void enumerate_points(
     component_prolongated_sizes.at(level).at(component) = npoints_prolongated;
   });
 
-  // Local exclusive prefix sum
   int npoints = 0;
   int npoints_prolongated = 0;
   for (std::size_t level = 0; level < component_offsets.size(); ++level) {
@@ -524,7 +439,6 @@ void enumerate_points(
   npoints_local = npoints;
   npoints_prolongated_local = npoints_prolongated;
 
-  // Global exclusive prefix sum
   int npoints_offset = 0;
   MPI_Exscan(&npoints_local, &npoints_offset, 1, MPI_INT, MPI_SUM,
              MPI_COMM_WORLD);
@@ -536,7 +450,6 @@ void enumerate_points(
   MPI_Allreduce(&npoints_prolongated_local, &npoints_prolongated_global, 1,
                 MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 
-  // Set indices
   CarpetX::active_levels->loop_parallel([&](const int patch, const int level,
                                             const int index,
                                             const int component,
@@ -556,7 +469,6 @@ void enumerate_points(
         grid.nghostzones, [&](const Loop::PointDesc &p) ARITH_INLINE {
           switch (int(gf_pt(p.I))) {
           case int(point_type_t::intr):
-            // solve for this point
             gf_idx(p.I) = idx++;
             break;
           case int(point_type_t::bdry):
@@ -564,7 +476,6 @@ void enumerate_points(
             break;
           case int(point_type_t::rest):
           case int(point_type_t::sync):
-            // undefined (will be set later)
             gf_idx(p.I) = -2;
             break;
           case int(point_type_t::prol):
@@ -601,7 +512,6 @@ void enumerate_points(
         []() { return "PDESolver::enumerate_points"; });
   });
 
-  // Restrict index
   for (const auto &patchdata : CarpetX::ghext->patchdata) {
     for (int level = int(patchdata.leveldata.size()) - 2; level >= 0; --level) {
       const auto &leveldata = patchdata.leveldata.at(level);
@@ -622,7 +532,7 @@ void enumerate_points(
         average_down_faces(finemfab_idx, mfab_idx, reffact);
         break;
       case 3:
-        average_down(finemfab_idx, mfab_idx, 0, 1 /*nvars*/, reffact);
+        average_down(finemfab_idx, mfab_idx, 0, 1, reffact);
         break;
       default:
         assert(0);
@@ -630,7 +540,6 @@ void enumerate_points(
     }
   }
 
-  // Synchronize index
   {
     CarpetX::task_manager tasks1;
     CarpetX::task_manager tasks2;
@@ -650,7 +559,6 @@ void enumerate_points(
     tasks2.run_tasks_serially();
   }
 
-  // Check that restriction and synchronization worked
   CarpetX::active_levels->loop_parallel([&](const int patch, const int level,
                                             const int index,
                                             const int component,
@@ -687,9 +595,7 @@ void enumerate_points(
         []() { return "PDESolver::enumerate_points"; });
   });
 
-  // Calculate prolongation Jacobian
   {
-    // Find all coarse indices which are sources of prolongation
     std::vector<
         std::vector<std::vector<std::tuple<int, Arith::vect<int, 3> > > > >
         locations(patchdata.leveldata.size());
@@ -698,7 +604,6 @@ void enumerate_points(
     CarpetX::active_levels->loop_parallel(
         [&](const int patch, const int level, const int index,
             const int component, const cGH *restrict const cctkGH) {
-          // Level 0 has no prolongated points
           if (level == 0)
             assert(component_prolongated_sizes.at(level).at(component) == 0);
           if (component_prolongated_sizes.at(level).at(component) == 0)
@@ -716,8 +621,6 @@ void enumerate_points(
               layout1, static_cast<const CCTK_REAL *>(
                            CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
           const CarpetX::GridDescBase grid(cctkGH);
-          // Arith::vect<int, 3> imin, imax;
-          // grid.box_all<0, 0, 0>(grid.nghostzones, imin, imax);
           const auto offset = amrex_origin;
 
           std::vector<std::tuple<int, Arith::vect<int, 3> > > locs;
@@ -729,7 +632,6 @@ void enumerate_points(
                   const int cL = fL - 1;
                   const Arith::vect<int, 3> cI0 = div_floor(fI, 2);
                   const Arith::vect<int, 3> cIm = mod_floor(fI, 2);
-                  // linear interpolation
                   for (int k = 0; k < cIm[2] + 1; ++k) {
                     for (int j = 0; j < cIm[1] + 1; ++j) {
                       for (int i = 0; i < cIm[0] + 1; ++i) {
@@ -744,27 +646,19 @@ void enumerate_points(
           locations.at(level).at(component) = std::move(locs);
         });
 
-    // Find the components where the prolongation sources live, and determine
-    // their Jacobian indices
     std::vector<std::vector<std::vector<int> > > indices(
         patchdata.leveldata.size());
-    // std::vector<std::vector<std::vector<CCTK_REAL> > > vcoordxs(
-    //     patchdata.leveldata.size());
     for (int level = 0; level < int(patchdata.leveldata.size()); ++level) {
       indices.at(level).resize(level_sizes.at(level));
-      // vcoordxs.at(level).resize(level_sizes.at(level));
       for (int component = 0; component < level_sizes.at(level); ++component) {
         indices.at(level).at(component).resize(
             locations.at(level).at(component).size(), 0x80000000U);
-        // vcoordxs.at(level).at(component).resize(
-        //     locations.at(level).at(component).size(), -1.0 / 0.0);
       }
     }
     CarpetX::active_levels->loop_parallel(
         [&](const int patch, const int level, const int index,
             const int component, const cGH *restrict const cctkGH) {
           const auto &patchdata = CarpetX::ghext->patchdata.at(patch);
-          // The finest level has no prolongation sources
           if (level == int(patchdata.leveldata.size()) - 1)
             return;
           const auto &mfab =
@@ -779,10 +673,6 @@ void enumerate_points(
           const Loop::GF3D2<const CCTK_REAL> gf_idx(
               layout1, static_cast<const CCTK_REAL *>(
                            CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
-          // const Loop::GF3D2<const CCTK_REAL> gf_vcoordx(
-          //     layout1,
-          //     static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl,
-          //     vn_vcx)));
           const CarpetX::GridDescBase grid(cctkGH);
           Arith::vect<int, 3> imin, imax;
           grid.box_all<0, 0, 0>(grid.nghostzones, imin, imax);
@@ -794,7 +684,6 @@ void enumerate_points(
                  ++component1) {
               const auto &locs = locations.at(level1).at(component1);
               auto &idxs = indices.at(level1).at(component1);
-              // auto &vcxs = vcoordxs.at(level1).at(component1);
               for (int n = 0; n < int(locs.size()); ++n) {
                 const auto &loc = locs.at(n);
                 const auto &cL = std::get<0>(loc);
@@ -803,32 +692,23 @@ void enumerate_points(
                   const Arith::vect<int, 3> I = cI - offset;
                   if (all(imin <= I && I < imax)) {
                     const int idx = int(gf_idx(I));
-                    // We require that a prolongation source is not prolongated
-                    // itself. (We could extend the algorithm to handle this.)
                     assert(idx < prolongation_index_offset);
                     int &idxn = idxs.at(n);
 #pragma omp atomic write
                     idxn = idx;
-                    // CCTK_REAL &vcxn = vcxs.at(n);
-                    // #pragma omp atomic write
-                    // vcxn = gf_vcoordx(I);
                   }
                 }
               }
             }
           }
         });
-    // Note: Prolongation boundaries do not yet work with multiple processes
     for (int level = 0; level < int(patchdata.leveldata.size()); ++level) {
       for (int component = 0; component < level_sizes.at(level); ++component) {
         for (const auto &idx : indices.at(level).at(component))
           assert(idx != int(0x80000000U));
-        // for (const auto &vcx : vcoordxs.at(level).at(component))
-        //   assert(vcx != -1.0 / 0.0);
       }
     }
 
-    // Calculate the Jacobian stencils
     std::vector<std::vector<std::vector<std::tuple<int, int, CCTK_REAL> > > >
         Jpvalss(patchdata.leveldata.size());
     for (int level = 0; level < int(patchdata.leveldata.size()); ++level)
@@ -836,7 +716,6 @@ void enumerate_points(
     CarpetX::active_levels->loop_parallel(
         [&](const int patch, const int level, const int index,
             const int component, const cGH *restrict const cctkGH) {
-          // Level 0 has no prolongated points
           if (level == 0)
             assert(component_prolongated_sizes.at(level).at(component) == 0);
           if (component_prolongated_sizes.at(level).at(component) == 0)
@@ -855,18 +734,12 @@ void enumerate_points(
           const Loop::GF3D2<const CCTK_REAL> gf_idx(
               layout1, static_cast<const CCTK_REAL *>(
                            CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
-          // const Loop::GF3D2<const CCTK_REAL> gf_vcoordx(
-          //     layout1,
-          //     static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl,
-          //     vn_vcx)));
           const CarpetX::GridDescBase grid(cctkGH);
           const auto offset = amrex_origin;
 
           const auto &locs = locations.at(level).at(component);
           const auto &idxs = indices.at(level).at(component);
-          // const auto &vcxs = vcoordxs.at(level).at(component);
           assert(idxs.size() == locs.size());
-          // assert(vcxs.size() == locs.size());
           int n = 0;
           std::vector<std::tuple<int, int, CCTK_REAL> > Jpvals;
           Jpvals.reserve(locs.size());
@@ -887,11 +760,7 @@ void enumerate_points(
                         assert(all(std::get<1>(locs.at(n)) == cI));
                         const int row = idx;
                         const int col = idxs.at(n);
-                        // Ignore boundary points
                         if (col >= 0) {
-                          // We assume that a prolongation source is not
-                          // prolongated itself. (We could extend the algorithm
-                          // to handle this.)
                           assert(col < prolongation_index_offset);
                           const CCTK_REAL val =
                               1.0 /
@@ -902,18 +771,12 @@ void enumerate_points(
                       }
                     }
                   }
-
-                  // if (all(cIm == Arith::vect<int, 3>::pure(0))) {
-                  //   const CCTK_REAL vcx = gf_vcoordx(p.I);
-                  //   assert(vcxs.at(n) == vcx);
-                  // }
                 }
               });
           assert(n == int(locs.size()));
           Jpvalss.at(level).at(component) = std::move(Jpvals);
         });
 
-    // Convert Jpvals into sparse matrix
     Jp = csr_t(npoints_prolongated_global, npoints_global, Jpvalss);
   }
 }
@@ -927,7 +790,6 @@ void copy_Cactus_to_PETSc(
   int myproc;
   MPI_Comm_rank(MPI_COMM_WORLD, &myproc);
 
-  // Decode Cactus variables
   const int nvars = varinds.size();
   std::vector<int> gis, vis;
   gis.reserve(nvars);
@@ -952,13 +814,11 @@ void copy_Cactus_to_PETSc(
   static const int vi_pt = vn_pt - v0_pt;
   assert(vi_pt >= 0);
 
-  // Get vector from PETSc
   CCTK_REAL *vec_ptr;
   ierr = VecGetArray(vec, &vec_ptr);
   assert(!ierr);
   CCTK_REAL *restrict const petsc_ptr = vec_ptr;
 
-  // Copy Cactus vector to PETSc
   CarpetX::active_levels->loop_parallel([&](const int patch, const int level,
                                             const int index,
                                             const int component,
@@ -993,7 +853,6 @@ void copy_Cactus_to_PETSc(
           case int(point_type_t::rest):
           case int(point_type_t::sync):
           case int(point_type_t::prol):
-            // ignore this point
             break;
           default:
             assert(0);
@@ -1015,7 +874,6 @@ void copy_PETSc_to_Cactus(
   int myproc;
   MPI_Comm_rank(MPI_COMM_WORLD, &myproc);
 
-  // Decode Cactus variables
   const int nvars = varinds.size();
   std::vector<int> gis, vis;
   gis.reserve(nvars);
@@ -1040,13 +898,11 @@ void copy_PETSc_to_Cactus(
   static const int vi_pt = vn_pt - v0_pt;
   assert(vi_pt >= 0);
 
-  // Get vector from PETSc
   const CCTK_REAL *vec_ptr;
   ierr = VecGetArrayRead(vec, &vec_ptr);
   assert(!ierr);
   const CCTK_REAL *restrict const petsc_ptr = vec_ptr;
 
-  // Copy PETSc vector to Cactus
   CarpetX::active_levels->loop_parallel([&](const int patch, const int level,
                                             const int index,
                                             const int component,
@@ -1076,7 +932,6 @@ void copy_PETSc_to_Cactus(
           case int(point_type_t::rest):
           case int(point_type_t::sync):
           case int(point_type_t::prol):
-            // ignore this point
             break;
           default:
             assert(0);
@@ -1093,26 +948,23 @@ void copy_PETSc_to_Cactus(
   assert(!ierr);
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 extern "C" void PDESolvers_Setup(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_PDESolvers_Setup;
   DECLARE_CCTK_PARAMETERS;
 
-  // Parse Cactus parameter into PETSc command line options
-  /*static*/ std::vector<std::string> args;
+  std::vector<std::string> args;
   args.push_back("cactus");
   std::istringstream buf(petsc_options);
   std::copy(std::istream_iterator<std::string>(buf),
             std::istream_iterator<std::string>(), std::back_inserter(args));
 
-  /*static*/ std::vector<char *> argptrs;
+  std::vector<char *> argptrs;
   for (auto &arg : args)
     argptrs.push_back(arg.data());
   argptrs.push_back(nullptr);
 
-  /*static*/ int argc = args.size();
-  /*static*/ char **argv = argptrs.data();
+  int argc = args.size();
+  char **argv = argptrs.data();
   PetscErrorCode ierr = PetscInitialize(&argc, &argv, NULL, NULL);
   assert(!ierr);
 }
@@ -1140,13 +992,10 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
 
   PetscErrorCode ierr;
 
-  // Grid layout
-
   define_point_type();
 
   int npoints_local, npoints_global;
   int npoints_prolongated_local, npoints_prolongated_global;
-  // component_offsets are process local
   std::vector<std::vector<int> > component_offsets, component_sizes;
   std::vector<std::vector<int> > component_prolongated_offsets,
       component_prolongated_sizes;
@@ -1156,13 +1005,10 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
                    npoints_prolongated_global, component_prolongated_offsets,
                    component_prolongated_sizes, Jp);
 
-  // TODO: fix this
   const std::vector<int> solinds{CCTK_VarIndex("PoissonX::sol")};
   const std::vector<int> resinds{CCTK_VarIndex("PoissonX::res")};
   const int nvars = solinds.size();
   assert(int(resinds.size()) == nvars);
-
-  // Nonlinear solver
 
   SNES snes;
   ierr = SNESCreate(PETSC_COMM_WORLD, &snes);
@@ -1172,8 +1018,6 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
   ierr = SNESSetAlwaysComputesFinalResidual(snes, PETSC_TRUE);
   assert(!ierr);
 
-  // State vector and evaluation function
-
   Vec r;
   ierr = VecCreateMPI(PETSC_COMM_WORLD, nvars * npoints_local,
                       nvars * npoints_global, &r);
@@ -1181,10 +1025,6 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
   ierr = VecSetFromOptions(r);
   assert(!ierr);
 
-  // Row equilibration: a left scaling applied to both the residual and the
-  // Jacobian. It is the identity until it is computed below, just before the
-  // solve; the lambdas capture it by reference and apply whatever it holds at
-  // the time they run.
   Vec rowscale;
   ierr = VecDuplicate(r, &rowscale);
   assert(!ierr);
@@ -1203,11 +1043,6 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
   ierr = SNESSetFunction(snes, r, FormFunction, &evalf);
   assert(!ierr);
 
-  // Matrix and Jacobian evaluation function
-
-  // The matrix is deliberately created without preallocation:
-  // `jacobians_t::define_matrix` preallocates it from the entries it is about
-  // to insert, once it knows them.
   Mat J;
   ierr = MatCreate(PETSC_COMM_WORLD, &J);
   assert(!ierr);
@@ -1254,32 +1089,11 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
                rtol, stol, maxit, maxf);
   }
 
-  // Initialize solution
-
   Vec x;
   ierr = VecDuplicate(r, &x);
   assert(!ierr);
   copy_Cactus_to_PETSc(x, solinds, component_offsets, component_sizes);
 
-  // Row equilibration
-  //
-  // The rows of the flat matrix come from several refinement levels. For a
-  // second order operator their magnitudes differ by a factor 4^level, and
-  // algebraic multigrid then loses its resolution independence: AMG relies on
-  // the near null space (the constants) leaving a small residual, which
-  // requires the rows to be scaled comparably. Left scaling by 1/|J_ii|
-  // preserves each row sum and restores this. (PETSc's -ksp_diagonal_scale
-  // scales symmetrically, which does not preserve row sums and makes AMG
-  // converge worse; do not use it here.)
-  //
-  // This is a left preconditioner: it scales the residual and the Jacobian
-  // identically, so the Newton step and the solution are unchanged. It does
-  // change the residual norms that SNES and KSP test their tolerances against.
-  //
-  // The scaling is taken from the Jacobian at the initial guess and held fixed
-  // for the whole solve, so that residual and Jacobian can never be scaled
-  // inconsistently. Evaluating the Jacobian here costs one extra assembly;
-  // `define_matrix` zeroes the matrix first, so this is idempotent.
   if (row_equilibration) {
     ierr = evalJ(snes, x, J, J);
     assert(!ierr);
@@ -1300,8 +1114,6 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
     assert(!ierr);
   }
 
-  // Solve
-
   CCTK_INFO("Solve");
   ierr = SNESSolve(snes, NULL, x);
   assert(!ierr);
@@ -1315,7 +1127,6 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
     case SNES_CONVERGED_FNORM_RELATIVE:
     case SNES_CONVERGED_SNORM_RELATIVE:
     case SNES_CONVERGED_ITS:
-      // SNES converged; do nothing
       CCTK_INFO("SNES iterations converged");
       break;
     case SNES_DIVERGED_FUNCTION_DOMAIN:
@@ -1349,8 +1160,6 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
     CCTK_VINFO("Iterations: %d Newton, %d linear", niters, liters);
   }
 
-  // Extract solution
-
   copy_PETSc_to_Cactus(x, solinds, component_offsets, component_sizes);
   CallScheduleGroup(cctkGH, "PDESolvers_Residual");
   {
@@ -1375,8 +1184,6 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
     buf << res_norm;
     CCTK_VINFO("Residual norm: %s", buf.str().c_str());
   }
-
-  // Clean up
 
   jacobians.reset();
   VecDestroy(&x);
