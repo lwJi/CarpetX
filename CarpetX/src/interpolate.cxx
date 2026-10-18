@@ -350,7 +350,8 @@ int InterpLocalUniform(int /*N_dims*/, int /*param_table_handle*/,
                        int /*N_output_arrays*/,
                        const CCTK_INT /*output_array_type_codes*/[],
                        void *const /*output_arrays*/[]) {
-  CCTK_ERROR("Dummy InterpLocalUniform function called");
+  CCTK_ERROR("CarpetX implements no local interpolator; its \"CarpetX\" "
+             "handle serves only grid-array interpolation");
 }
 
 extern "C" CCTK_INT CarpetX_InterpGridArrays(
