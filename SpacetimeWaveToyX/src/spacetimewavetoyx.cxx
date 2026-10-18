@@ -16,8 +16,6 @@ namespace SpacetimeWaveToyX {
 
 constexpr int dim = 3;
 
-// u(t,x,y,z) =
-//   A cos(2 π omega t) cos(2 π kx x) cos(2 π ky y) cos(2 π kz z)
 template <typename T>
 constexpr void standing_wave(const T A, const Arith::vect<T, dim> &k, const T t,
                              const Arith::vect<T, dim> &x, T &u) {
@@ -30,8 +28,6 @@ constexpr void standing_wave(const T A, const Arith::vect<T, dim> &k, const T t,
       cos(2 * pi * k[1] * x[1]) * cos(2 * pi * k[2] * x[2]);
 }
 
-// u(t,r) = (f(t-r) - f(t+r)) / r
-// f(v) = A exp(-1/2 (r/W)^2)
 template <typename T>
 constexpr void gaussian(const T A, const T W, const T t,
                         const Arith::vect<T, dim> &x, T &u) {
@@ -44,7 +40,6 @@ constexpr void gaussian(const T A, const T W, const T t,
   };
 
   if (r < sqrt(std::numeric_limits<T>::epsilon())) {
-    // L'Hôpital
     u = 2 / pow(W, 2) * f(t) * t;
   } else {
     u = (f(t - r) - f(t + r)) / r;
@@ -234,7 +229,6 @@ extern "C" void SpacetimeWaveToyX_Evol2(CCTK_ARGUMENTS) {
       });
 }
 
-// Empty: the SYNC in the schedule restores the ghosts after recovery
 extern "C" void SpacetimeWaveToyX_Sync(CCTK_ARGUMENTS) {}
 
 extern "C" void SpacetimeWaveToyX_Constraints(CCTK_ARGUMENTS) {
