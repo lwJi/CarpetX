@@ -1,0 +1,18 @@
+name: Comments
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  no-comments:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s scripts/comments
+      - run: python3 scripts/comments check
