@@ -1,6 +1,6 @@
 # Checkpoint half of a time-aligned checkpoint/recover pair for an evolved
-# group with restriction disabled (TestSubcyclingNoRestrict::state_nr, see
-# the README). The checkpoint is taken at iteration 4, where the three levels
+# group with restriction disabled (TestSubcyclingNoRestrict::state_nr). The
+# checkpoint is taken at iteration 4, where the three levels
 # are all at 1 coarse step: the single clock group [0,3) was restricted at
 # its last end of step. There ProlongateAfterRestriction overwrote the
 # coarse-fine ghosts of levels 1 and 2 by prolongation from their parents,

@@ -15,7 +15,7 @@
 namespace TestRestrictTags {
 using namespace Loop;
 
-// The groups in the order of the restrict tag table (README)
+// The groups in the order interface.ccl declares them
 constexpr int ngroups = 6;
 const std::array<std::string, ngroups> group_names{
     "untagged", "ckpt_no", "nr", "nr_ckpt_no", "ry_ckpt_no", "nr_explicit"};

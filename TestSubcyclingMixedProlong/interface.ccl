@@ -16,7 +16,11 @@ USES INCLUDE HEADER: derivs.hxx
 # Two vertex-centred state groups that differ only in their prolongation
 # tags. The narrow-stencil group is declared first on purpose: groups are
 # numbered in declaration order, and only this order fails visibly when the
-# RK source-band geometry is shared between groups (see README).
+# RK source-band geometry is shared between groups. A driver that shares it
+# per centering takes it from the lowest-numbered group: with the narrow
+# group first, the wide group's dense output reads outside the shared bands,
+# which poison_undefined_values turns into a visible failure; with the wide
+# group first, a build without assertions is silently correct.
 
 CCTK_REAL state_lo TYPE=gf TAGS='rhs="rhs_lo" dependents="error_lo" prolongation_type="ddf" prolongation_order=1'
 {

@@ -5,7 +5,12 @@
 # window holds every level), and the run must abort in iteration 1's
 # CCTK_ANALYSIS (window [2,3)) with an error that names the routine, the bin,
 # the group and the window. It lives in par/ because the testsuite has no
-# expected-failure mode; see README for how to run it.
+# expected-failure mode. Run it by hand from a scratch directory; this
+# succeeds only if the run aborts with that error:
+#
+#   ! $CACTUS/exe/cactus_<config> <repo>/TestSubcycleStepping/par/sync_in_tail.par \
+#       > sync_in_tail.log 2>&1 &&
+#     grep -F 'TestSubcycleStepping::TestSubcycleStepping_SyncInTail (CCTK_ANALYSIS) requested SYNC of TESTSUBCYCLESTEPPING::TAIL_CONTEXT at iteration 1' sync_in_tail.log
 
 ActiveThorns = "
   CarpetX

@@ -7,14 +7,13 @@ ActiveThorns = "
 "
 
 # Two levels without subcycling and with CarpetX::restrict_during_sync = no,
-# so that the driver restricts only at the end of the step: the "end of
-# step" column of the table in the README. The run stops after the initial
-# data (cctk_itlast = 0), whose end-of-step restriction runs before
-# CCTK_ANALYSIS. TestRestrictTags_Check aborts the run there unless the
-# coarse interior under level 1 holds fine_value for exactly the groups in
-# TestRestrictTags::restricted_groups: the two that the driver restricts by
-# their tags, and nr_explicit, which the test restricts through the exported
-# RestrictNoPoison although it is tagged restrict="no".
+# so that the driver restricts only at the end of the step. The run stops
+# after the initial data (cctk_itlast = 0), whose end-of-step restriction
+# runs before CCTK_ANALYSIS. TestRestrictTags_Check aborts the run there
+# unless the coarse interior under level 1 holds fine_value for exactly the
+# groups in TestRestrictTags::restricted_groups: the two that the driver
+# restricts by their tags, and nr_explicit, which the test restricts through
+# the exported RestrictNoPoison although it is tagged restrict="no".
 
 Cactus::cctk_show_schedule = no
 Cactus::presync_mode = "mixed-error"

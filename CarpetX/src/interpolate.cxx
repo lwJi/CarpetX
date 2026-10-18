@@ -893,8 +893,7 @@ void CarpetX::InterpolationSetup::Interpolate(
               ? " This run is recovering from a mid-cycle checkpoint, where "
                 "levels are at different times. Results that read across "
                 "levels cannot be recomputed in "
-                "CCTK_POST_RECOVER_VARIABLES; checkpoint them instead (see "
-                "\"Recovery\" in the CarpetX documentation)."
+                "CCTK_POST_RECOVER_VARIABLES; checkpoint them instead."
               : "";
       CCTK_VERROR("Interpolation in time required when interpolating %s at "
                   "iteration %d: points used refinement levels at subcycling "
