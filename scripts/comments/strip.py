@@ -5,6 +5,7 @@ from rules import Violation, classify, group, lex
 
 _HORIZONTAL = " \t"
 _KEEP_SPACE_AFTER = "([{,"
+_NO_SPACE_BEFORE = ")]},;"
 _WORD = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
 _OPERATOR = set("+-*/%<>=&|^!.:#")
 
@@ -86,7 +87,13 @@ def _delete_comment(text: str, span: Span) -> str:
         return _cut(text, (start, end))
     start, end = span.start, span.end
     previous = text[start - 1] if start > line_start else ""
-    if previous == "" or previous in _HORIZONTAL or previous in _KEEP_SPACE_AFTER:
+    following = after.lstrip(_HORIZONTAL)[:1]
+    if following and following in _NO_SPACE_BEFORE and before.strip():
+        while start > line_start and text[start - 1] in _HORIZONTAL:
+            start -= 1
+        while end < line_end and text[end] in _HORIZONTAL:
+            end += 1
+    elif previous == "" or previous in _HORIZONTAL or previous in _KEEP_SPACE_AFTER:
         while end < line_end and text[end] in _HORIZONTAL:
             end += 1
     else:

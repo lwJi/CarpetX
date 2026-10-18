@@ -30,6 +30,13 @@ CXX_CASES = {
     "inline after a word": ("a/*x*/;\n", "a;\n"),
     "inline without space keeps tokens apart": ("a/*x*/b;\nc+/*x*/+d;\n", "a b;\nc+ +d;\n"),
     "inline at the line start": ("  /* c */ int a;\n", "  int a;\n"),
+    "inline before a closer or separator": (
+        "assert(a == 1 /*x*/ || b == 5 /*y*/);\nf(IntVect{0} /* c */,\n  g(1 /*all*/), x /*d*/ ;\n"
+        "int h(int /*n*/, int /*m*/) {\n}\n",
+        "assert(a == 1 || b == 5);\nf(IntVect{0},\n  g(1), x;\nint h(int, int) {\n}\n",
+    ),
+    "inline before a closer at the line start keeps the indentation": ("  /* c */ );\n", "  );\n"),
+    "inline before an operand keeps the space": ("report(gi, /*vi=*/-1, /*tl=*/0);\n", "report(gi, -1, 0);\n"),
     "inline block across lines": ("/* a\n b */ int x;\n", "int x;\n"),
     "comments in strings stay": ('s = "a // b"; // c\n', 's = "a // b";\n'),
     "two comments on one line": ("/* a */ // b\nint x;\n", "int x;\n"),
