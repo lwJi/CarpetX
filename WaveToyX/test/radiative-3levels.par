@@ -15,7 +15,6 @@ CarpetX::ncells_x = 16
 CarpetX::ncells_y = 16
 CarpetX::ncells_z = 16
 
-# Set the (unused) outer boundary points to reasonable values
 CarpetX::boundary_x = "neumann"
 CarpetX::boundary_y = "neumann"
 CarpetX::boundary_z = "neumann"
