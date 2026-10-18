@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -191,6 +192,76 @@ class HookStop(Project):
         with mock.patch("rules.check", side_effect=RuntimeError("lexer crash")):
             out = self.decision(self.stop())
         self.assertEqual(out, {"systemMessage": "comment check skipped: RuntimeError: lexer crash"})
+
+
+SETTINGS = os.path.join(hooks.PROJECT, ".claude", "settings.json")
+EVENTS = {"PreToolUse": "hook-edit", "Stop": "hook-stop", "SubagentStop": "hook-stop"}
+
+
+def configured_hooks() -> dict[str, list[tuple[str | None, str]]]:
+    with open(SETTINGS) as f:
+        settings = json.load(f)["hooks"]
+    return {
+        event: [(entry.get("matcher"), h["command"]) for entry in settings.get(event, []) for h in entry["hooks"]]
+        for event in EVENTS
+    }
+
+
+@unittest.skipUnless(os.path.isfile(SETTINGS), "needs .claude/settings.json")
+class SettingsCommands(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+        self.env.update(isolated_git_env(self.tmp.name))
+
+    def run_command(self, command, project, payload):
+        env = dict(self.env) if project is None else dict(self.env, CLAUDE_PROJECT_DIR=project)
+        return subprocess.run(["sh", "-c", command], input=json.dumps(payload), env=env, capture_output=True, text=True)
+
+    def project(self, name, files):
+        root = os.path.join(self.tmp.name, name)
+        for path, text in files.items():
+            os.makedirs(os.path.dirname(os.path.join(root, path)), exist_ok=True)
+            with open(os.path.join(root, path), "w") as f:
+                f.write(text)
+        return root
+
+    def payloads(self, root):
+        edit = {
+            "tool_name": "Edit",
+            "tool_input": {"file_path": os.path.join(root, "Thorn/src/a.cxx"), "old_string": "int a;\n", "new_string": "int a; // why\n"},
+        }
+        return {"PreToolUse": edit, "Stop": {"stop_hook_active": False}, "SubagentStop": {"stop_hook_active": False}}
+
+    def test_each_event_runs_its_hook_once(self):
+        for event, hooks_ in configured_hooks().items():
+            self.assertEqual(len(hooks_), 1, event)
+            matcher, command = hooks_[0]
+            self.assertEqual(matcher, "Edit|Write" if event == "PreToolUse" else None, event)
+            self.assertTrue(command.endswith(f'python3 "$d" {EVENTS[event]}'), command)
+
+    def test_every_command_exits_0_silently_without_the_tool(self):
+        empty = self.project("empty", {"Thorn/src/a.cxx": "int a;\n"})
+        stale = self.project("stale", {"Thorn/src/a.cxx": "int a;\n", "scripts/comments/__pycache__/files.pyc": ""})
+        for project in [empty, stale, None]:
+            for event, [(_, command)] in configured_hooks().items():
+                result = self.run_command(command, project, self.payloads(project or empty)[event])
+                self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""), (project, event))
+
+    def test_every_command_runs_the_project_s_tool(self):
+        root = self.project("project", {"Thorn/src/a.cxx": "int a;\n", "Thorn/src/b.cxx": "// why\n"})
+        shutil.copytree(TOOL, os.path.join(root, "scripts", "comments"), ignore=shutil.ignore_patterns("__pycache__"))
+        subprocess.run(["git", "init", "-q"], cwd=root, env=self.env, check=True)
+        for event, [(_, command)] in configured_hooks().items():
+            result = self.run_command(command, root, self.payloads(root)[event])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            out = json.loads(result.stdout)
+            if event == "PreToolUse":
+                self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+            else:
+                self.assertEqual(out["decision"], "block")
+                self.assertIn("  Thorn/src/b.cxx:1   // why", out["reason"].split("\n"))
 
 
 class HookCli(unittest.TestCase):
