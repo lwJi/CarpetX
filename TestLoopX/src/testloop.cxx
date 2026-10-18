@@ -91,21 +91,6 @@ extern "C" void TestLoopX_Mix(CCTK_ARGUMENTS) {
           CCTK_ATTRIBUTE_ALWAYS_INLINE { testloop_gf_fz(p.I) += 1.2; });
 }
 
-// Partition test for loop_allmn_device(ord) / loop_outer_n_device(ord) and
-// loop_allm1_device on a box that is tiled in all three directions. Each
-// primitive adds its own marker, so the final value of a point tells which
-// primitives visited it:
-//
-//   testloop_gf_n1 (VVV): allm1 += 100, allmn(1) += 1, outer_n(1) += 10
-//     -> every point must read 101 (allm1 and allmn(1) agree) or 10 (outer_n)
-//   testloop_gf_n2 (CCC): allmn(2) += 1, outer_n(2) += 10
-//     -> every point must read 1 or 10
-//
-// 0 means neither primitive visited the point; 11, 20, 102, 111 mean a
-// double visit; 100 or 1 alone on n1 means allm1 and allmn(1) disagree.
-// The zeroing pass with loop_all_device covers the whole box, so it also
-// overwrites CarpetX's poison; TestLoopX_OuterN_Check therefore does the
-// point-by-point check that the poison scan cannot do here.
 extern "C" void TestLoopX_OuterN(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestLoopX_OuterN;
   DECLARE_CCTK_PARAMETERS;
@@ -142,10 +127,6 @@ extern "C" void TestLoopX_OuterN(CCTK_ARGUMENTS) {
           CCTK_ATTRIBUTE_ALWAYS_INLINE { testloop_gf_n2(p.I) += 10.0; });
 }
 
-// Whole-box check of the markers set by TestLoopX_OuterN, ghost points
-// included. The TSV axis cuts and the norms (interior only) cannot see the
-// ghost edges and corners where the tangential-band gap of the old
-// loop_outer_n_device lived, so the check is done here and aborts the run.
 extern "C" void TestLoopX_OuterN_Check(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestLoopX_OuterN_Check;
   DECLARE_CCTK_PARAMETERS;
@@ -176,8 +157,6 @@ extern "C" void TestLoopX_OuterN_Check(CCTK_ARGUMENTS) {
   });
 
   if (nbad_n1 != 0 || nbad_n2 != 0) {
-    // The scheduled function runs once per tile from an OpenMP task list;
-    // let only one tile report and abort
 #pragma omp critical(TestLoopX_OuterN_Check)
     CCTK_VERROR("loop_allmn_device / loop_outer_n_device / loop_allm1_device "
                 "do not partition the box on tile [%d,%d,%d]-[%d,%d,%d) of "
@@ -299,8 +278,6 @@ extern "C" void TestLoopX_iMix_Check(CCTK_ARGUMENTS) {
     }
   });
   if (nbad_n1 != 0 || nbad_n2 != 0 || nbad_n3 != 0 || nbad_n4 != 0) {
-    // The scheduled function runs once per tile from an OpenMP task list;
-    // let only one tile report and abort
 #pragma omp critical(TestLoopX_iMix_Check)
     CCTK_VERROR("loop_imix_allmn_device / loop_imix_outer_n_device "
                 "do not partition the box on tile [%d,%d,%d]-[%d,%d,%d) of "
