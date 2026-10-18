@@ -513,6 +513,10 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
     active_levels->loop_coarse_to_fine([&](const auto &leveldata) {
       if (leveldata.level == 0)
         return;
+      assert(aligned_with_parent(leveldata) ==
+                 (leveldata.level > active_levels->min_level) &&
+             "recovery traverses POST_RECOVER_VARIABLES once per clock "
+             "group, so only the group's coarsest level lags its parent");
       // Prolongated in space above
       if (restricted && aligned_with_parent(leveldata))
         return;
