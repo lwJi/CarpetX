@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import sys
 import traceback
@@ -52,6 +53,18 @@ def run_remerge() -> int:
     return remerge()
 
 
+def run_hook(command: str) -> int:
+    try:
+        import hooks
+
+        handler = hooks.hook_edit if command == "hook-edit" else hooks.hook_stop
+        raw = sys.stdin.buffer.read()
+    except Exception as e:
+        print(json.dumps({"systemMessage": f"comment check skipped: {type(e).__name__}: {e}"}))
+        return 0
+    return handler(raw, sys.stdout)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 scripts/comments",
@@ -71,7 +84,17 @@ def main(argv: list[str] | None = None) -> int:
         "remerge",
         help="redo each conflicted covered file's three-way merge with all three sides stripped",
     )
+    commands.add_parser(
+        "hook-edit",
+        help="Claude Code PreToolUse hook: deny an Edit or Write that adds a comment (payload on stdin)",
+    )
+    commands.add_parser(
+        "hook-stop",
+        help="Claude Code Stop/SubagentStop hook: block the stop while the working tree holds a comment",
+    )
     args = parser.parse_args(argv)
+    if args.command in ("hook-edit", "hook-stop"):
+        return run_hook(args.command)
     try:
         if args.command == "check":
             return run_check(args.paths, args.full)
