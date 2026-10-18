@@ -3,9 +3,6 @@
 namespace ODESolvers {
 using namespace std;
 
-////////////////////////////////////////////////////////////////////////////////
-
-// Initialize the temporary mfab mechanism
 void statecomp_t::init_tmp_mfabs() {
   assert(CarpetX::active_levels);
   CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
@@ -18,7 +15,6 @@ void statecomp_t::init_tmp_mfabs() {
   });
 }
 
-// Free all temporary mfabs that we might have allocated
 void statecomp_t::free_tmp_mfabs() {
   assert(CarpetX::active_levels);
   CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
@@ -31,7 +27,6 @@ void statecomp_t::free_tmp_mfabs() {
   });
 }
 
-// State that the state vector has valid data in the interior
 void statecomp_t::set_valid(const valid_t valid) const {
   const int tl = this->timelevel;
   for (auto groupdata : groupdatas) {
@@ -54,18 +49,10 @@ void statecomp_t::set_valid(const valid_t valid) const {
             << (valid.valid_int ? "valid" : "invalid");
         return buf.str();
       });
-      // // TODO: Parallelize over patches, levels, group, variables, and
-      // // timelevels
-      // const active_levels_t active_levels(
-      //     groupdata->level, groupdata->level + 1, groupdata->patch,
-      //     groupdata->patch + 1);
-      // CarpetX::poison_invalid_gf(active_levels, groupdata->groupindex, vi,
-      // tl);
     }
   }
 }
 
-// Combine validity information from several sources
 template <std::size_t N>
 void statecomp_t::combine_valids(const statecomp_t &dst, const CCTK_REAL scale,
                                  const std::array<CCTK_REAL, N> &factors,
@@ -110,15 +97,12 @@ void statecomp_t::combine_valids(const statecomp_t &dst, const CCTK_REAL scale,
   }
 }
 
-// Ensure a state vector has valid data in the interior
 void statecomp_t::check_valid(const valid_t required,
                               const function<string()> &why) const {
   const int tl = this->timelevel;
   for (const auto groupdata : groupdatas) {
     for (int vi = 0; vi < groupdata->numvars; ++vi) {
       CarpetX::error_if_invalid(*groupdata, vi, tl, required, why);
-      // TODO: Parallelize over pathces, levels, group, variables, and
-      // timelevels
       const CarpetX::active_levels_t active_levels(
           groupdata->level, groupdata->level + 1, groupdata->patch,
           groupdata->patch + 1);
@@ -128,7 +112,6 @@ void statecomp_t::check_valid(const valid_t required,
   }
 }
 
-// Copy state vector into newly allocated memory
 statecomp_t statecomp_t::copy(const CarpetX::valid_t where) const {
   const std::size_t size = mfabs.size();
   statecomp_t result;
@@ -137,29 +120,11 @@ statecomp_t statecomp_t::copy(const CarpetX::valid_t where) const {
   result.mfabs.reserve(size);
   for (std::size_t n = 0; n < size; ++n) {
     const auto groupdata = groupdatas.at(n);
-    // This global nan-check doesn't work since we don't care about the
-    // boundaries
-    // #ifdef CCTK_DEBUG
-    //     const auto &x = mfabs.at(n);
-    //     if (x->contains_nan())
-    //       CCTK_VERROR("statecomp_t::copy.x: Group %s contains nans",
-    //                   groupdata->groupname.c_str());
-    // #endif
     auto y = groupdata->alloc_tmp_mfab();
     result.groupdatas.push_back(groupdata);
     result.mfabs.push_back(y);
   }
   lincomb(result, 0, make_array(CCTK_REAL(1)), make_array(this), where);
-  // This global nan-check doesn't work since we don't care about the boundaries
-  // #ifdef CCTK_DEBUG
-  //   for (std::size_t n = 0; n < size; ++n) {
-  //     const auto groupdata = result.groupdatas.at(n);
-  //     const auto &y = result.mfabs.at(n);
-  //     if (y->contains_nan())
-  //       CCTK_VERROR("statecomp_t::copy.y: Group %s contains nans",
-  //                   groupdata->groupname.c_str());
-  //   }
-  // #endif
   return result;
 }
 
@@ -192,8 +157,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
   std::vector<std::function<void()> > tasks;
 #endif
 
-  // TODO: Poison ghosts/boundaries
-
   for (std::size_t m = 0; m < size; ++m) {
     const std::ptrdiff_t ncomps = dst.mfabs.at(m)->nComp();
     const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync();
@@ -202,8 +165,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
       std::array<amrex::Array4<const CCTK_REAL>, N> srcvars;
       for (std::size_t n = 0; n < N; ++n)
         srcvars[n] = srcs[n]->mfabs.at(m)->const_array(mfi);
-      // Array4's public stride members were replaced by get_stride() in
-      // AMReX 26.02
 #if AMREX_RELEASE_NUMBER >= 260200
       for (std::size_t n = 0; n < N; ++n) {
         assert(srcvars[n].template get_stride<1>() == dstvar.get_stride<1>());
@@ -227,7 +188,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
         srcptrs[n] = srcvars[n].dataPtr();
 
 #ifndef AMREX_USE_GPU
-      // CPU
 
       const std::ptrdiff_t ntiles = omp_get_max_threads();
       const std::ptrdiff_t tile_size = Arith::align_ceil(
@@ -238,8 +198,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
         const std::ptrdiff_t imax = min(npoints, imin + tile_size);
 
         if (!read_dst && N == 1 && factors[0] == 1) {
-          // Copy
-
           auto task = [=]() {
             std::memcpy(&dstptr[imin], &srcptrs[0][imin],
                         (imax - imin) * sizeof *dstptr);
@@ -247,8 +205,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           tasks.push_back(std::move(task));
 
         } else if (!read_dst && N >= 1 && factors[0] == 1) {
-          // Write without scaling
-
           auto task = [=]() {
 #pragma omp simd
             for (std::ptrdiff_t i = imin; i < imax; ++i) {
@@ -261,8 +217,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           tasks.push_back(std::move(task));
 
         } else if (!read_dst) {
-          // Write
-
           auto task = [=]() {
 #pragma omp simd
             for (std::ptrdiff_t i = imin; i < imax; ++i) {
@@ -275,8 +229,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           tasks.push_back(std::move(task));
 
         } else if (scale == 1) {
-          // Update without scaling
-
           auto task = [=]() {
 #pragma omp simd
             for (std::ptrdiff_t i = imin; i < imax; ++i) {
@@ -289,8 +241,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           tasks.push_back(std::move(task));
 
         } else {
-          // Update
-
           auto task = [=]() {
 #pragma omp simd
             for (std::ptrdiff_t i = imin; i < imax; ++i) {
@@ -302,10 +252,9 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           };
           tasks.push_back(std::move(task));
         }
-      } // for imin
+      }
 
 #else
-      // GPU
 
       const CCTK_REAL scale1 = scale;
       assert(npoints < INT_MAX);
@@ -321,13 +270,7 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
             [=] CCTK_DEVICE(const amrex::Box &box)
                 __attribute__((__always_inline__, __flatten__)) {
                   const int i = box.smallEnd()[0];
-                  // const int j = box.smallEnd()[1];
-                  // const int k = box.smallEnd()[2];
                   CCTK_REAL accum = 0;
-                  // The ROCM 6.2 compiler can't handle
-                  // `std::array::operator[]`, so we avoid it via pointers:
-                  // for (std::size_t n = 0; n < N; ++n)
-                  //   accum += factors[n] * srcptrs[n][i];
                   const CCTK_REAL *restrict const factors_ptr = factors.data();
                   const CCTK_REAL *restrict const *restrict const srcptrs_ptr =
                       srcptrs.data();
@@ -343,13 +286,7 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
             [=] CCTK_DEVICE(const amrex::Box &box)
                 __attribute__((__always_inline__, __flatten__)) {
                   const int i = box.smallEnd()[0];
-                  // const int j = box.smallEnd()[1];
-                  // const int k = box.smallEnd()[2];
                   CCTK_REAL accum = scale1 * dstptr[i];
-                  // The ROCM 6.2 compiler can't handle
-                  // `std::array::operator[]`, so we avoid it via pointers:
-                  // for (std::size_t n = 0; n < N; ++n)
-                  //   accum += factors[n] * srcptrs[n][i];
                   const CCTK_REAL *restrict const factors_ptr = factors.data();
                   const CCTK_REAL *restrict const *restrict const srcptrs_ptr =
                       srcptrs.data();
@@ -364,12 +301,10 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
   }
 
 #ifndef AMREX_USE_GPU
-  // run all tasks
 #pragma omp parallel for schedule(dynamic)
   for (std::size_t i = 0; i < tasks.size(); ++i)
     tasks[i]();
 #else
-  // wait for all tasks
   amrex::Gpu::synchronize();
   AMREX_GPU_ERROR_CHECK();
 #endif

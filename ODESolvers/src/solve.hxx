@@ -1,7 +1,6 @@
 #ifndef CARPETX_ODESOLVERS_SOLVE_HXX
 #define CARPETX_ODESOLVERS_SOLVE_HXX
 
-// TODO: Don't include files from other thorns; create a proper interface
 #include "../../CarpetX/src/driver.hxx"
 #include "../../CarpetX/src/schedule.hxx"
 #include "../../CarpetX/src/timer.hxx"
@@ -41,8 +40,6 @@ static inline int omp_get_max_threads() { return 1; }
 namespace ODESolvers {
 using namespace std;
 
-////////////////////////////////////////////////////////////////////////////////
-
 // Taken from <https://en.cppreference.com/w/cpp/experimental/make_array>
 namespace details {
 template <class> struct is_ref_wrapper : std::false_type {};
@@ -71,9 +68,6 @@ constexpr details::return_type<D, Types...> make_array(Types &&...t) {
   return {std::forward<Types>(t)...};
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-// A state vector component, with mfabs for each level, group, and variable
 struct statecomp_t {
 
   statecomp_t() = default;
@@ -81,14 +75,11 @@ struct statecomp_t {
   statecomp_t(statecomp_t &&) = default;
   statecomp_t &operator=(statecomp_t &&) = default;
 
-  // Don't allow copies because we might own stuff
   statecomp_t(const statecomp_t &) = delete;
   statecomp_t &operator=(const statecomp_t &) = delete;
 
   vector<GHExt::PatchData::LevelData::GroupData *> groupdatas;
   vector<amrex::MultiFab *> mfabs;
-  // Timelevel of every mfab/groupdata entry. Subcycling aliases the previous
-  // step at tl=1; all other paths use tl=0.
   int timelevel = 0;
 
   static void init_tmp_mfabs();
@@ -132,11 +123,7 @@ struct statecomp_t {
 template <std::size_t N> using reals = std::array<CCTK_REAL, N>;
 template <std::size_t N> using states = std::array<const statecomp_t *, N>;
 
-////////////////////////////////////////////////////////////////////////////////
-
 inline int groupindex(const int other_gi, std::string gn) {
-  // If the group name does not contain a colon, then prefix the current group's
-  // implementation or thorn name
   if (gn.find(':') == std::string::npos) {
     const char *const thorn_or_impl = CCTK_GroupImplementationI(other_gi);
     assert(thorn_or_impl);
@@ -168,16 +155,15 @@ inline int get_group_rhs(const int gi) {
   const int iret =
       Util_TableGetString(tags, rhs_buf.size(), rhs_buf.data(), "rhs");
   if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
-    rhs_buf[0] = '\0'; // default: empty (no RHS)
+    rhs_buf[0] = '\0';
   } else if (iret >= 0) {
-    // do nothing
   } else {
     assert(0);
   }
 
   const std::string str(rhs_buf.data());
   if (str.empty())
-    return -1; // No RHS specified
+    return -1;
 
   const int rhs = groupindex(gi, str);
   if (rhs < 0)
@@ -197,9 +183,8 @@ inline std::vector<int> get_group_dependents(const int gi) {
   const int iret = Util_TableGetString(tags, dependents_buf.size(),
                                        dependents_buf.data(), "dependents");
   if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
-    dependents_buf[0] = '\0'; // default: empty (no DEPENDENTS)
+    dependents_buf[0] = '\0';
   } else if (iret >= 0) {
-    // do nothing
   } else {
     assert(0);
   }
@@ -208,12 +193,10 @@ inline std::vector<int> get_group_dependents(const int gi) {
   const std::string str(dependents_buf.data());
   std::size_t pos = 0;
   for (;;) {
-    // Skip white space
     while (pos < str.size() && std::isspace(str[pos]))
       ++pos;
     if (pos == str.size())
       break;
-    // Read group name
     const std::size_t group_begin = pos;
     while (pos < str.size() && !std::isspace(str[pos]))
       ++pos;
@@ -231,12 +214,10 @@ inline std::vector<int> get_group_dependents(const int gi) {
   return dependents;
 }
 
-// Mark groups as invalid
 inline void mark_invalid(const std::vector<int> &groups) {
   CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
     for (const int gi : groups) {
       auto &groupdata = *leveldata.groupdata.at(gi);
-      // Invalidate all variables of the current time level
       const int tl = 0;
       for (auto &why_valid : groupdata.valid.at(tl))
         why_valid =
@@ -247,4 +228,4 @@ inline void mark_invalid(const std::vector<int> &groups) {
 
 } // namespace ODESolvers
 
-#endif // #ifndef CARPETX_ODESOLVERS_SOLVE_HXX
+#endif
