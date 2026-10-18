@@ -1,9 +1,3 @@
-# Schedule definitions for thorn CarpetX
-
-
-
-# Driver startup and shutdown
-
 SCHEDULE CarpetX_Startup AT startup AS Driver_Startup
 {
   LANG: C
@@ -19,8 +13,6 @@ if (!CCTK_Equals(recover, "no") && *recover_file)
 }
 
 
-
-# I/O
 
 SCHEDULE CarpetX_CheckpointInitial AT cpinitial
 {
@@ -48,15 +40,6 @@ SCHEDULE CarpetX_Shutdown AT shutdown AS Driver_Shutdown
 
 
 
-# Schedule hooks
-
-# Traversed by the driver, never scheduled into a bin. Thorns may schedule
-# routines IN this group; with nothing scheduled the traversal is empty.
-# Under subcycling it runs before the reflux: the evolved state and its
-# dependents= groups are as the last RK stage's ODESolvers_PostStep left
-# them, consistent everywhere (interior, ghosts, outer boundary), without
-# the flux-register correction, which the driver applies after this
-# traversal and before it restricts.
 SCHEDULE GROUP CarpetX_PreRestrict
 {
 } "Traversed over the time-aligned level window before the driver refluxes and restricts"

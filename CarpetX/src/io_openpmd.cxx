@@ -114,15 +114,9 @@ openPMD::Format get_format() {
               OPENPMDAPI_VERSION_MINOR, OPENPMDAPI_VERSION_PATCH);
 }
 
-// - fileBased: One file per iteration. Needs templated file name to encode
-//   iteration number.
-// - groupBased: Multiple iterations per file
-// - variableBased: Multiple iterations stored per variable. Needs special
-//    support in the backend.
 constexpr openPMD::IterationEncoding iterationEncoding =
     openPMD::IterationEncoding::fileBased;
 
-// TODO: Set number of threads?
 #ifdef ADIOS2_HAVE_BLOSC2
 const std::string options = R"EOS(
   {
@@ -157,29 +151,21 @@ const std::string options = R"EOS(
 constexpr bool input_ghosts = false;
 constexpr bool output_ghosts = false;
 
-////////////////////////////////////////////////////////////////////////////////
-
 struct Const {
-  // From: CODATA Internationally recommended 2018 values of the
-  // Fundamental Physical Constants
-  static constexpr CCTK_REAL c = 299792458;         // m s⁻¹
-  static constexpr CCTK_REAL G = 6.67430e-11;       // m³ kg⁻¹ s⁻²
-  static constexpr CCTK_REAL M_solar = 1.98847e+30; // kg
+  static constexpr CCTK_REAL c = 299792458;
+  static constexpr CCTK_REAL G = 6.67430e-11;
+  static constexpr CCTK_REAL M_solar = 1.98847e+30;
 };
 
 struct Unit {
-  // We use c = G = 1, and M_solar as mass unit.
-  static constexpr CCTK_REAL velocity = Const::c;                       // m s⁻¹
-  static constexpr CCTK_REAL mass = Const::M_solar;                     // kg
-  static constexpr CCTK_REAL length = Const::G * mass / pow2(Const::c); // m
-  static constexpr CCTK_REAL time = length / velocity;                  // s
+  static constexpr CCTK_REAL velocity = Const::c;
+  static constexpr CCTK_REAL mass = Const::M_solar;
+  static constexpr CCTK_REAL length = Const::G * mass / pow2(Const::c);
+  static constexpr CCTK_REAL time = length / velocity;
 };
-
-////////////////////////////////////////////////////////////////////////////////
 
 namespace {
 
-// TODO: Get this from `valid.cxx`
 inline CCTK_REAL get_poison() {
 #if defined CCTK_REAL_PRECISION_4
   constexpr std::uint32_t ipoison = 0xffc00000UL + 0xdead;
@@ -241,8 +227,6 @@ template <typename T> std::string vector_string(const std::vector<T> &vec) {
 
 } // namespace
 
-////////////////////////////////////////////////////////////////////////////////
-
 std::string Geometry_string(const openPMD::Mesh::Geometry &geometry) {
   std::ostringstream buf;
   buf << geometry;
@@ -261,8 +245,6 @@ std::string UnitDimension_string(const std::array<double, 7> &unitDimension) {
   return buf.str();
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 struct carpetx_openpmd_t {
   carpetx_openpmd_t() = default;
 
@@ -272,8 +254,6 @@ struct carpetx_openpmd_t {
   carpetx_openpmd_t &operator=(carpetx_openpmd_t &&) = default;
 
   static std::optional<carpetx_openpmd_t> self;
-
-  ////////////////////////////////////////////////////////////////////////////////
 
   template <typename T, std::size_t D> struct box_t {
     Arith::vect<T, D> lo, hi;
@@ -336,9 +316,6 @@ struct carpetx_openpmd_t {
         const I ilo2 = 2 * idomain.lo[d] - is_cell_centred;
         const I ihi2 = 2 * idomain.hi[d] + is_cell_centred;
         const I i2 = 2 * icoord[d];
-        // The expression below has been carefully constructed to
-        // avoid round-off errors at i=ilo and i=ihi. Do not rearrange
-        // the terms without preserving this property.
         r[d] = (T(ihi2 - i2) / T(ihi2 - ilo2)) * rlo[d] +
                (T(i2 - ilo2) / T(ihi2 - ilo2)) * rhi[d];
       }
@@ -364,12 +341,6 @@ struct carpetx_openpmd_t {
     std::vector<level_t<T, I, D> > levels;
   };
 
-  ////////////////////////////////////////////////////////////////////////////////
-
-  // Allowed characters are only [A-Za-z_]
-  // The optional `band` tag namespaces subcycling source-band meshes apart
-  // from the regular tl=0 data (see subcycling checkpoint/recovery). An empty
-  // tag (the default) leaves regular-data mesh names unchanged.
   static std::string make_meshname(const int gi, const int patch,
                                    const int level, const int tl = 0,
                                    const std::string &band = std::string()) {
@@ -382,7 +353,6 @@ struct carpetx_openpmd_t {
     if (patch != -1)
       buf << "_patch" << std::setw(2) << std::setfill('0') << patch;
     if (level != -1)
-      // The suffix should be `_lvl<N>`. No `std::setfill`?
       buf << "_lev" << std::setw(2) << std::setfill('0') << level;
     if (tl > 0)
       buf << "_tl" << std::setw(2) << std::setfill('0') << tl;
@@ -391,24 +361,6 @@ struct carpetx_openpmd_t {
     return buf.str();
   }
 
-#if 0
-  static std_tuple<int, int> interpret_meshname(const std::string &meshname) {
-    std::smatch match;
-    const bool matched =
-        std::regex_match(meshname, match, std::regex("(\\w+)_lev0*(\\d+)"));
-    if (!matched)
-      CCTK_VERROR("Cannot parse mesh name %s", meshname.c_str());
-    const std::string groupname = match[1].str();
-    const int gi = CCTK_GroupIndex(groupname.c_str());
-    if (gi < 0)
-      CCTK_VERROR("Unknown group name %s", groupname.c_str());
-    const std::string levelstr = match[2].str();
-    const int level = std::stoi(levelstr);
-    return {gi, level};
-  }
-#endif
-
-  // Allowed characters are only [A-Za-z_]
   static std::string make_componentname(const int gi, const int vi) {
     const int v0 = CCTK_FirstVarIndexI(gi);
     std::string varname = CCTK_FullVarName(v0 + vi);
@@ -418,11 +370,8 @@ struct carpetx_openpmd_t {
     return varname;
   }
 
-  ////////////////////////////////////////////////////////////////////////////////
-
   std::optional<std::string> filename;
   std::optional<openPMD::Series> series;
-  // std::optional<openPMD::ReadIterations> read_iters;
   std::optional<openPMD::Iteration> read_iter;
   std::optional<openPMD::WriteIterations> write_iters;
 
@@ -443,8 +392,6 @@ struct carpetx_openpmd_t {
                      TimeLevelMode tl_mode = TimeLevelMode::Current,
                      std::optional<slice_t> slice = std::nullopt);
 };
-
-////////////////////////////////////////////////////////////////////////////////
 
 std::optional<carpetx_openpmd_t> carpetx_openpmd_t::self;
 
@@ -484,8 +431,6 @@ void OutputOpenPMD(const cGH *const cctkGH,
 
 void ShutdownOpenPMD() { carpetx_openpmd_t::self.reset(); }
 
-////////////////////////////////////////////////////////////////////////////////
-
 int carpetx_openpmd_t::InputOpenPMDParameters(const std::string &input_dir,
                                               const std::string &input_file) {
   DECLARE_CCTK_PARAMETERS;
@@ -493,7 +438,6 @@ int carpetx_openpmd_t::InputOpenPMDParameters(const std::string &input_dir,
   assert(!input_dir.empty());
   assert(!input_file.empty());
 
-  // Set up timers
   static Timer timer("InputOpenPMDParameters");
   Interval interval(timer);
 
@@ -525,28 +469,25 @@ int carpetx_openpmd_t::InputOpenPMDParameters(const std::string &input_dir,
       series = std::make_optional<openPMD::Series>(
           *filename, openPMD::Access::READ_ONLY, MPI_COMM_WORLD, options);
     } catch (const openPMD::no_such_file_error &) {
-      // Did not find a checkpoint file
       if (io_verbose) {
         CCTK_VINFO("Not recovering parameters:");
         CCTK_VINFO("  Could not find an openPMD checkpoint file \"%s\"",
                    filename->c_str());
       }
-      return -1; // no iteration found
+      return -1;
     }
 
-    // Find largest iteration
     for (auto iter = series->iterations.begin();
          iter != series->iterations.end(); ++iter)
       input_iteration = iter->first;
 
     if (input_iteration < 0) {
-      // Did not find a checkpoint file
       if (io_verbose) {
         CCTK_VINFO("Not recovering parameters:");
         CCTK_VINFO("  Could not find an openPMD checkpoint file \"%s\"",
                    filename->c_str());
       }
-      return -1; // no iteration found
+      return -1;
     }
 
     read_iter = std::make_optional<openPMD::Iteration>(
@@ -554,13 +495,11 @@ int carpetx_openpmd_t::InputOpenPMDParameters(const std::string &input_dir,
   }
   assert(filename);
   assert(series);
-  // assert(read_iters);
   assert(read_iter);
 
   CCTK_VINFO("Recovering parameters from checkpoint file \"%s\" iteration %d",
              filename->c_str(), input_iteration);
 
-  // Read metadata
   {
     const bool has_parameters = read_iter->containsAttribute("AllParameters");
     assert(has_parameters);
@@ -584,7 +523,6 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
   assert(!input_file.empty());
   assert(input_iteration >= 0);
 
-  // Set up timers
   static Timer timer("InputOpenPMDGridStructure");
   Interval interval(timer);
 
@@ -593,13 +531,11 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
 
   assert(filename);
   assert(series);
-  // assert(read_iters);
   assert(read_iter);
 
   cctkGH->cctk_iteration = input_iteration;
   cctkGH->cctk_time = read_iter->time<double>();
 
-  // TODO: Check whether attribute exists and has correct type
   const int ndims = read_iter->getAttribute("numDims").get<std::int64_t>();
   assert(ndims >= 0);
 
@@ -673,7 +609,6 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
         levboxes.at(component) = amrex::Box(small, big - 1);
       }
 
-      // Don't set coarse level domain; this is already set by the driver
       if (level > 0) {
         amrex::Geometry geom = patchdata.amrcore->Geom(level - 1);
         geom.refine({2, 2, 2});
@@ -694,7 +629,6 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
 
       auto &recovered = ghext->recovered_levels.at(patch).at(level);
 
-      // Read per-level iteration if present (new checkpoint format)
       const std::string iter_num_attr =
           "iteration_num" + level_suffixes.at(level);
       const std::string iter_den_attr =
@@ -707,17 +641,14 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
             read_iter->getAttribute(iter_den_attr).get<std::int64_t>();
         recovered.iteration = rat64(num, den);
       }
-      // else: old checkpoint without per-level iteration — leave as nullopt
 
-      // Read the per-level last-step iteration if present
       const std::string last_step_attr =
           "last_step_iteration" + level_suffixes.at(level);
       if (read_iter->containsAttribute(last_step_attr))
         recovered.last_step_iteration =
             int(read_iter->getAttribute(last_step_attr).get<std::int64_t>());
-      // else: checkpoint predates it — leave as nullopt
-    } // for level
-  } // for patch
+    }
+  }
 }
 
 void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
@@ -728,7 +659,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
-  // Set up timers
   static Timer timer("InputOpenPMD");
   Interval interval(timer);
 
@@ -771,7 +701,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
   }
   assert(filename);
   assert(series);
-  // assert(read_iters);
   assert(read_iter);
 
   CCTK_VINFO("  iteration: %d", cctkGH->cctk_iteration);
@@ -848,24 +777,17 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           }
         }
 
-      } // for record_component
-    } // for mesh
+      }
+    }
   }
 
-  // Post-read tasks
   std::vector<std::function<void()> > tasks;
 
-  // First read grid functions in a loop over patches and levels
-
-  // Loop over patches
   for (const auto &patchdata : ghext->patchdata) {
-    // Loop over levels
     for (const auto &leveldata : patchdata.leveldata) {
       if (io_verbose)
         CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
                    leveldata.level);
-
-      // Determine grid structure
 
       const int *const nghosts = cctkGH->cctk_nghostzones;
       const amrex::Geometry &geom = patchdata.amrcore->Geom(leveldata.level);
@@ -882,8 +804,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
       const amrex::Box &dom = geom.Domain();
       const amrex::IntVect &ilo = dom.smallEnd();
       const amrex::IntVect &ihi = dom.bigEnd();
-      // The domain is always vertex centred. The tensor components are
-      // then staggered if necessary.
       const box_t<int, 3> idomain{
           .lo = {ilo[0] - input_ghosts * nghosts[0],
                  ilo[1] - input_ghosts * nghosts[1],
@@ -907,8 +827,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
       for (int gi = 0; gi < numgroups; ++gi) {
         if (input_group.at(gi)) {
 
-          // Check group properties
-
           cGroup cgroup;
           const int ierr = CCTK_GroupData(gi, &cgroup);
           assert(!ierr);
@@ -916,10 +834,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             continue;
           assert(cgroup.vartype == CCTK_VARIABLE_REAL);
           assert(cgroup.dim == 3);
-          // cGroupDynamicData cgroupdynamicdata;
-          // ierr = CCTK_GroupDynamicData(cctkGH, gi, &cgroupdynamicdata);
-          // assert(!ierr);
-          // TODO: Check whether data are valid
 
           if (io_verbose)
             CCTK_VINFO("Reading group %s...", CCTK_FullGroupName(gi));
@@ -927,7 +841,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           auto &groupdata = *leveldata.groupdata.at(gi);
           if (groupdata.mfab.empty())
             continue;
-          // const int firstvarindex = groupdata.firstvarindex;
           const int numvars = groupdata.numvars;
 
           const int tl_count =
@@ -941,20 +854,13 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
 
             const int num_local_components = mfab.local_size();
 
-            // Read mesh
-
             const std::string meshname =
                 make_meshname(gi, leveldata.patch, leveldata.level, tl);
             if (io_verbose)
               CCTK_VINFO("Reading mesh %s...", meshname.c_str());
             assert(read_iter->meshes.count(meshname));
             const openPMD::Mesh &mesh = read_iter->meshes.at(meshname);
-            // TODO: The openPMD standard says to add an attribute
-            // `refinementRatio`, which is a vector of integers
 
-            // Define tensor components
-
-            // TODO: Set component names according to the tensor type
             std::vector<openPMD::MeshRecordComponent> record_components;
             record_components.reserve(numvars);
             openPMD::Extent extent;
@@ -971,8 +877,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             }
             assert(int(record_components.size()) == numvars);
 
-            // Read data
-
             if (io_verbose)
               CCTK_VINFO("Reading %d variables with %d components...", numvars,
                          num_local_components);
@@ -981,20 +885,19 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                                              groupdata.nghostzones[1] == 0 &&
                                              groupdata.nghostzones[2] == 0;
 
-            // Loop over components (AMReX boxes)
             for (int local_component = 0;
                  local_component < num_local_components; ++local_component) {
               const int component = mfab.IndexArray().at(local_component);
 
               const amrex::Box &fabbox =
-                  mfab.fabbox(component); // exterior (with ghosts)
+                  mfab.fabbox(component);
               const box_t<int, 3> extbox{
                   .lo = {fabbox.smallEnd(0), fabbox.smallEnd(1),
                          fabbox.smallEnd(2)},
                   .hi = {fabbox.bigEnd(0) + 1, fabbox.bigEnd(1) + 1,
                          fabbox.bigEnd(2) + 1}};
               const amrex::Box &validbox =
-                  mfab.box(component); // interior (without ghosts)
+                  mfab.box(component);
               const box_t<int, 3> intbox{
                   .lo = {validbox.smallEnd(0), validbox.smallEnd(1),
                          validbox.smallEnd(2)},
@@ -1008,7 +911,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               const int np = box.size();
               assert(int(count.at(0) * count.at(1) * count.at(2)) == np);
               for (int d = 0; d < 3; ++d)
-                // assert(start.at(d) >= 0);
                 assert(start.at(d) <
                        std::numeric_limits<std::remove_reference_t<decltype(
                                start.at(d))> >::max() /
@@ -1037,7 +939,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                   constexpr int amrex_di = 1;
                   const int amrex_dj = amrex_di * amrex_shape[0];
                   const int amrex_dk = amrex_dj * amrex_shape[1];
-                  // const int amrex_np = amrex_dk * amrex_shape[2];
                   CCTK_REAL *const amrex_ptr =
                       amrex_var_ptr + amrex_di * amrex_offset[0] +
                       amrex_dj * amrex_offset[1] + amrex_dk * amrex_offset[2];
@@ -1047,22 +948,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                   const int contig_dk = contig_dj * contig_shape[1];
                   const int contig_np = contig_dk * contig_shape[2];
                   assert(contig_np == np);
-#if 1
                   CCTK_REAL *const contig_ptr =
                       amrex_var_ptr + extbox.size() - box.size();
-                  // TODO: optimize memory layout
-#if 0
-                CCTK_REAL *const contig_ptr =
-                    ptr + contig_di * (contig_shape[0] - 1) +
-                    contig_dj * (contig_shape[1] - 1) +
-                    contig_dk * (contig_shape[2] - 1) + 1 - contig_np;
-                assert(&amrex_ptr[amrex_di * (amrex_shape[0] - 1) +
-                                  amrex_dj * (amrex_shape[1] - 1) +
-                                  amrex_dk * (amrex_shape[2] - 1)] ==
-                       &contig_ptr[contig_di * (contig_shape[0] - 1) +
-                                   contig_dj * (contig_shape[1] - 1) +
-                                   contig_dk * (contig_shape[2] - 1)]);
-#endif
                   if (poison_undefined_values) {
                     const CCTK_REAL poison = get_poison();
 #pragma omp simd
@@ -1080,49 +967,18 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                               contig_ptr[contig_di * i + contig_dj * j +
                                          contig_dk * k];
                   });
-#else
-                  CCTK_REAL *const contig_ptr = new CCTK_REAL[np];
-                  if (poison_undefined_values) {
-                    const CCTK_REAL poison = get_poison();
-#pragma omp simd
-                    for (int n = 0; n < np; ++n)
-                      contig_ptr[n] = poison;
-                  }
-                  record_components.at(vi).loadChunkRaw(contig_ptr, start,
-                                                        count);
-                  tasks.emplace_back([=]() {
-                    for (int k = 0; k < contig_shape[2]; ++k)
-                      for (int j = 0; j < contig_shape[1]; ++j)
-#pragma omp simd
-                        for (int i = 0; i < contig_shape[0]; ++i)
-                          amrex_ptr[amrex_di * i + amrex_dj * j +
-                                    amrex_dk * k] =
-                              contig_ptr[contig_di * i + contig_dj * j +
-                                         contig_dk * k];
-                    delete[] contig_ptr;
-                  });
-#endif
                 }
 
-              } // for vi
-            } // for local_component
+              }
+            }
 
-            // Mark read variables as valid
             for (int vi = 0; vi < numvars; ++vi)
               groupdata.valid.at(tl).at(vi).set_all(
                   input_ghosts || group_has_no_ghosts ? make_valid_all()
                                                       : make_valid_int(),
                   []() { return "read from openPMD file"; });
-          } // for tl
+          }
 
-          // Subcycling coarse source bands (see OutputOpenPMD): zero-ghost
-          // MultiFabs sharing the level's idomain frame. A time-aligned
-          // checkpoint carries no bands, so a missing mesh leaves the rebuilt
-          // band untouched; a mid-cycle checkpoint must carry them for every
-          // coarse level that is ahead of a finer level, and likewise the
-          // child's flux register, which is live there (see
-          // recovered_finer_level_is_behind), so there a missing mesh (old
-          // derivative-band format, or a truncated file) is refused.
           {
             const bool need_bands = recovered_finer_level_is_behind(
                 leveldata.patch, leveldata.level);
@@ -1135,13 +991,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               const std::string meshname = make_meshname(
                   gi, leveldata.patch, leveldata.level, 0, band_tag);
               if (!read_iter->meshes.count(meshname)) {
-                // A do_reflux mismatch cannot reach this error: the parameter
-                // is STEERABLE = NEVER and the flesh restores it from the
-                // checkpoint before any mesh is read, so a differing par-file
-                // value aborts in IOUtil_SetAllParameters and an omitted one
-                // adopts the checkpoint's, allocating no register when that is
-                // "no". What arrives here is a checkpoint written before
-                // flux-register checkpointing existed, or a truncated one.
                 if (need_bands)
                   CCTK_VERROR(
                       "Mid-cycle checkpoint lacks %s: mesh \"%s\" (band %s) "
@@ -1155,8 +1004,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                       kind == band_kind::flux_register
                           ? "a version without flux-register checkpointing"
                           : "the derivative-band scheme");
-                return; // not needed: time-aligned, or a register the
-                        // parent resets before its next reflux
+                return;
               }
               if (io_verbose)
                 CCTK_VINFO("Reading band mesh %s...", meshname.c_str());
@@ -1180,7 +1028,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                 const int component = band->IndexArray().at(local_component);
 
                 const amrex::Box &fabbox =
-                    band->fabbox(component); // zero ghost
+                    band->fabbox(component);
                 const box_t<int, 3> box{
                     .lo = {fabbox.smallEnd(0), fabbox.smallEnd(1),
                            fabbox.smallEnd(2)},
@@ -1204,8 +1052,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                   record_components.at(vi).loadChunk(openPMD::shareRaw(ptr),
                                                      start, count);
 #endif
-                } // for vi
-              } // for local_component
+                }
+              }
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
@@ -1215,28 +1063,21 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                      band_kind::old_source),
                       band_kind::old_source, -1);
-            // The child's flux register, restored so that the first reflux
-            // after recovery repays the same mismatch the uninterrupted run
-            // would have. Null (skipped) for groups without a register.
             for (int f = 0; f < 2 * dim; ++f)
               read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                        band_kind::flux_register, f),
                         band_kind::flux_register, f);
           }
         }
-      } // for gi
+      }
 
-    } // for leveldata
-  } // for patchdata
-
-  // Next read grid scalars and grid arrays
+    }
+  }
 
   {
     const int numgroups = CCTK_NumGroups();
     for (int gi = 0; gi < numgroups; ++gi) {
       if (input_group.at(gi)) {
-
-        // Check group properties
 
         cGroup cgroup;
         const int ierr = CCTK_GroupData(gi, &cgroup);
@@ -1253,28 +1094,18 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         auto &groupdata = *ghext->globaldata.arraygroupdata.at(gi);
         if (groupdata.data.empty())
           continue;
-        // const int firstvarindex = groupdata.firstvarindex;
         const int numvars = groupdata.numvars;
         const int tl = 0;
-
-        // Determine grid structure
 
         using ivect = Arith::vect<int, dim>;
 
         const box_t<int, 3> idomain{.lo = ivect{0, 0, 0},
                                     .hi = ivect(groupdata.gsh)};
 
-        // Read mesh
-
         const std::string meshname = make_meshname(gi, -1, -1);
         assert(read_iter->meshes.count(meshname));
         const openPMD::Mesh &mesh = read_iter->meshes.at(meshname);
-        // TODO: The openPMD standard says to add an attribute
-        // `refinementRatio`, which is a vector of integers
 
-        // Define tensor components
-
-        // TODO: Set component names according to the tensor type
         std::vector<openPMD::MeshRecordComponent> record_components;
         record_components.reserve(numvars);
         openPMD::Extent extent;
@@ -1291,8 +1122,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         }
         assert(int(record_components.size()) == numvars);
 
-        // Read data
-
         if (io_verbose)
           CCTK_VINFO("Reading %d variables...", numvars);
 
@@ -1300,18 +1129,15 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                                          groupdata.nghostzones[1] == 0 &&
                                          groupdata.nghostzones[2] == 0;
 
-        // exterior (with ghosts)
         for (int d = 0; d < dim; ++d)
           assert(groupdata.lsh[d] == groupdata.gsh[d]);
         assert(all(Arith::vect<int, dim>(groupdata.lsh) ==
                    Arith::vect<int, dim>(groupdata.gsh)));
         const box_t<int, 3> extbox{.lo = ivect{0, 0, 0},
                                    .hi = ivect(groupdata.lsh)};
-        // interior (without ghosts)
         const box_t<int, 3> intbox{.lo = ivect(groupdata.nghostzones),
                                    .hi = ivect(groupdata.lsh) -
                                          ivect(groupdata.nghostzones)};
-        // It seems that openPMD assumes that chunks do not have ghost zones
         assert(!input_ghosts);
         const box_t<int, 3> &box = input_ghosts ? extbox : intbox;
 
@@ -1320,7 +1146,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         const int np = box.size();
         assert(int(count.at(0) * count.at(1) * count.at(2)) == np);
         for (int d = 0; d < 3; ++d)
-          // assert(start.at(d) >= 0);
           assert(start.at(d) <
                  std::numeric_limits<
                      std::remove_reference_t<decltype(start.at(d))> >::max() /
@@ -1374,12 +1199,10 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             const int contig_np = contig_dk * contig_shape[2];
             assert(contig_np == np);
             const int contig_offset = extbox.size() - box.size();
-            // TODO: optimize memory layout
             const auto expand_box = [=](void *const contig_ptr) {
               for (int k = 0; k < contig_shape[2]; ++k)
                 for (int j = 0; j < contig_shape[1]; ++j)
                   for (int i = 0; i < contig_shape[0]; ++i)
-                    // TODO: copy whole contiguous strip at once
                     memcpy(cactus_var_ptr +
                                (cactus_di * i + cactus_dj * j + cactus_dk * k) *
                                    vartypesize,
@@ -1390,7 +1213,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               if (poison_undefined_values) {
                 const size_t typesize =
                     size_t(CCTK_VarTypeSize(cgroup.vartype));
-                // TODO: Use AnyTypeScalarRef for this?
                 std::vector<char> poison(typesize);
                 assert(cgroup.vartype == CCTK_VARIABLE_REAL ||
                        cgroup.vartype == CCTK_VARIABLE_INT ||
@@ -1460,15 +1282,14 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             }
           }
 
-          // Mark read variables as valid
           groupdata.valid.at(tl).at(vi).set_all(
               input_ghosts || group_has_no_ghosts ? make_valid_all()
                                                   : make_valid_int(),
               []() { return "read from openPMD file"; });
 
-        } // for vi
+        }
       }
-    } // for gi
+    }
   }
 
   if (io_verbose)
@@ -1498,8 +1319,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
     timer.print();
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                                       const std::vector<bool> &output_group,
                                       const std::string &output_dir,
@@ -1509,7 +1328,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
-  // Set up timers
   static Timer timer("OutputOpenPMD");
   Interval interval(timer);
 
@@ -1551,15 +1369,13 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         : iterationEncoding == openPMD::IterationEncoding::variableBased
             ? (is_first_output ? openPMD::Access::CREATE
                                : openPMD::Access::READ_WRITE)
-            : openPMD::Access::READ_ONLY /*error*/;
+            : openPMD::Access::READ_ONLY;
     is_first_output = false;
     CCTK_VINFO("  options: %s", options.c_str());
     series = std::make_optional<openPMD::Series>(*filename, access,
                                                  MPI_COMM_WORLD, options);
     series->setIterationEncoding(iterationEncoding);
 
-    // Series metadata must be rank-identical (HDF5 metadata writes are
-    // collective): broadcast rank 0's author and hostname.
     {
       char author[1000] = {0};
       char const *const user = getenv("USER");
@@ -1569,15 +1385,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       if (author[0])
         series->setAuthor(author);
     }
-    // Software is always "openPMD-api"
-    // series->setSoftware("Einstein Toolkit <https://einsteintoolkit.org>");
-    // series->setSoftwareVersion("...");
-    // Date is set automatically
-    // const std::time_t t = std::time(nullptr);
-    // char date[100];
-    // std::strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%S",
-    // std::localtime(&t)); series->setDate(date);
-    // series->setSoftwareDependencies("...");
     {
       char hostname[1000];
       Util_GetHostName(hostname, sizeof hostname);
@@ -1602,18 +1409,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
   const int myproc = CCTK_MyProc(cctkGH);
   const int ioproc = 0;
 
-  // At an unsynchronized subcycling checkpoint the coarse source bands hold
-  // the in-progress coarse step (u(t_n) and the stage derivatives), which
-  // exists nowhere else and must be serialized. Otherwise the on-disk format
-  // is unchanged.
   const bool write_bands = !all_levels_synchronized();
 
-  // Iteration attributes are set on EVERY rank (all inputs are replicated):
-  // rank-asymmetric writes deadlock the HDF5 backend's collective metadata.
-
-  // Write parameters
   {
-    char *const data = IOUtil_GetAllParameters(cctkGH, 1 /*all*/);
+    char *const data = IOUtil_GetAllParameters(cctkGH, 1);
     const std::string parameters(data);
     std::free(data);
     write_iter.setAttribute("AllParameters", parameters);
@@ -1628,8 +1427,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
     for (const auto &patchdata : ghext->patchdata) {
       const int patch = patchdata.patch;
       std::ostringstream buf;
-      // String attributes cannot be empty; we thus always need to use a patch
-      // suffix if (ghext->num_patches() > 1)
       buf << "_patch" << std::setw(2) << std::setfill('0') << patch;
       patch_suffixes.at(patch) = buf.str();
     }
@@ -1666,32 +1463,24 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         write_iter.setAttribute("chunkInfo" + level_suffixes.at(level),
                                 chunk_infos);
 
-        // Write per-level iteration as rational (numerator/denominator)
         write_iter.setAttribute(
             "iteration_num" + level_suffixes.at(level),
             static_cast<std::int64_t>(leveldata.iteration.num));
         write_iter.setAttribute(
             "iteration_den" + level_suffixes.at(level),
             static_cast<std::int64_t>(leveldata.iteration.den));
-        // Write the per-level last-step iteration
         write_iter.setAttribute(
             "last_step_iteration" + level_suffixes.at(level),
             static_cast<std::int64_t>(leveldata.last_step_iteration));
       }
     }
-  } // if !slice
+  }
 
-  // First write grid functions in a loop over patches and levels
-
-  // Loop over patches
   for (const auto &patchdata : ghext->patchdata) {
-    // Loop over levels
     for (const auto &leveldata : patchdata.leveldata) {
       if (io_verbose)
         CCTK_VINFO("Writing patch %d level %d mesh...", patchdata.patch,
                    leveldata.level);
-
-      // Determine grid structure
 
       const int *const nghosts = cctkGH->cctk_nghostzones;
       const amrex::Geometry &geom = patchdata.amrcore->Geom(leveldata.level);
@@ -1708,8 +1497,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       const amrex::Box &dom = geom.Domain();
       const amrex::IntVect &ilo = dom.smallEnd();
       const amrex::IntVect &ihi = dom.bigEnd();
-      // The domain is always vertex centred. The tensor components are
-      // then staggered if necessary.
       box_t<int, 3> idomain{
           .lo = {ilo[0] - output_ghosts * nghosts[0],
                  ilo[1] - output_ghosts * nghosts[1],
@@ -1717,18 +1504,13 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
           .hi = {ihi[0] + output_ghosts * nghosts[0] + 1 + 1,
                  ihi[1] + output_ghosts * nghosts[1] + 1 + 1,
                  ihi[2] + output_ghosts * nghosts[2] + 1 + 1}};
-      // When slicing, restrict the (vertex-centred) domain to a thickness-1
-      // slab at the plane. The same x0/dx frame is reused for every
-      // per-component box below so all scopes pick the same integer plane.
-      // restrict_box tests exterior bounds; this matches restrict_box_interior
-      // only because output_ghosts is false (box == intbox).
       const Arith::vect<CCTK_REAL, 3> slice_x0{xlo[0], xlo[1], xlo[2]};
       const Arith::vect<CCTK_REAL, 3> slice_dx{dx[0], dx[1], dx[2]};
       if (slice) {
         const auto r =
             slice->restrict_box(idomain.lo, idomain.hi, slice_x0, slice_dx);
         if (!r)
-          continue; // plane misses this (patch, level) entirely
+          continue;
         idomain.lo = r->first;
         idomain.hi = r->second;
       }
@@ -1744,8 +1526,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                    int(idomain.hi[2]));
       }
 
-      // Create dataset
-
       const openPMD::Datatype datatype =
           openPMD::determineDatatype<CCTK_REAL>();
       const openPMD::Extent extent = to_vector(reversed(idomain.shape()));
@@ -1755,8 +1535,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       for (int gi = 0; gi < numgroups; ++gi) {
         if (output_group.at(gi)) {
 
-          // Check group properties
-
           cGroup cgroup;
           const int ierr = CCTK_GroupData(gi, &cgroup);
           assert(!ierr);
@@ -1764,10 +1542,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             continue;
           assert(cgroup.vartype == CCTK_VARIABLE_REAL);
           assert(cgroup.dim == 3);
-          // cGroupDynamicData cgroupdynamicdata;
-          // ierr = CCTK_GroupDynamicData(cctkGH, gi, &cgroupdynamicdata);
-          // assert(!ierr);
-          // TODO: Check whether data are valid
 
           if (io_verbose)
             CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
@@ -1775,7 +1549,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
           const auto &groupdata = *leveldata.groupdata.at(gi);
           if (groupdata.mfab.empty())
             continue;
-          // const int firstvarindex = groupdata.firstvarindex;
           const int numvars = groupdata.numvars;
 
           const int tl_count =
@@ -1788,8 +1561,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                 indextype.cellCentered(2)};
 
             const int num_local_components = mfab.local_size();
-
-            // Create mesh
 
             const std::string meshname =
                 make_meshname(gi, leveldata.patch, leveldata.level, tl);
@@ -1806,50 +1577,13 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                               rdomain.hi - rdomain.lo, idomain.shape() - 1))));
             mesh.setGridGlobalOffset(to_vector<double>(reversed(rdomain.lo)));
             mesh.setGridUnitSI(Unit::length);
-            // const std::map<openPMD::UnitDimension, double> unitDimension{
-            //     {openPMD::UnitDimension::L, 1}};
-            // mesh.setUnitDimension(unitDimension);
-            mesh.setTimeOffset(CCTK_REAL(0)); // TODO: check interface.ccl
+            mesh.setTimeOffset(CCTK_REAL(0));
 
-            // Cell centred grids are offset by 1/2
             const Arith::vect<double, 3> position =
                 fmap([](auto c) { return 0.5 * c; }, is_cell_centred);
 
-            // Define tensor components
-
-            // TODO: Set component names according to the tensor type
             std::vector<openPMD::MeshRecordComponent> record_components;
             record_components.reserve(numvars);
-#if 0
-        switch (numvars) {
-        case 1:
-          for (int vi = 0; vi < numvars; ++vi) {
-           record_omponents.push_back(mesh[openPMD::MeshRecordComponent::SCALAR]);
-          }
-          break;
-        case 3:
-          for (int vi = 0; vi < numvars; ++vi) {
-            const std::string cnames[] = {"x", "y", "z"};
-            record_components.push_back(mesh[cnames[vi]]);
-          }
-          break;
-        case 6:
-          for (int vi = 0; vi < numvars; ++vi) {
-            const std::string cnames[] = {"xx", "xy", "xz", "yy", "yz", "zz"};
-            record_components.push_back(mesh[cnames[vi]]);
-          }
-          break;
-        default:
-          CCTK_VWARN(CCTK_WARN_ALERT, "unsupported tensor type gi=%d group=%s",
-                     gi, CCTK_FullGroupName(gi));
-          for (int vi = 0; vi < numvars; ++vi) {
-          const std::string varname = CCTK_VarName(firstvarindex + vi);
-            CCTK_VINFO("Creating component %d %s", vi, varname.c_str());
-            record_components.push_back(mesh[varname]);
-          }
-          break;
-        }
-#endif
             for (int vi = 0; vi < numvars; ++vi) {
               const std::string componentname = make_componentname(gi, vi);
               record_components.push_back(mesh[componentname]);
@@ -1859,8 +1593,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             }
             assert(int(record_components.size()) == numvars);
 
-            // Write data
-
             if (io_verbose)
               CCTK_VINFO("Writing %d variables with %d components...", numvars,
                          num_local_components);
@@ -1868,33 +1600,26 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             for (int vi = 0; vi < numvars; ++vi)
               record_components.at(vi).resetDataset(dataset);
 
-            // Loop over components (AMReX boxes)
             for (int local_component = 0;
                  local_component < num_local_components; ++local_component) {
               const int component = mfab.IndexArray().at(local_component);
 
               const amrex::Box &fabbox =
-                  mfab.fabbox(component); // exterior (with ghosts)
+                  mfab.fabbox(component);
               const box_t<int, 3> extbox{
                   .lo = {fabbox.smallEnd(0), fabbox.smallEnd(1),
                          fabbox.smallEnd(2)},
                   .hi = {fabbox.bigEnd(0) + 1, fabbox.bigEnd(1) + 1,
                          fabbox.bigEnd(2) + 1}};
               const amrex::Box &validbox =
-                  mfab.box(component); // interior (without ghosts)
+                  mfab.box(component);
               const box_t<int, 3> intbox{
                   .lo = {validbox.smallEnd(0), validbox.smallEnd(1),
                          validbox.smallEnd(2)},
                   .hi = {validbox.bigEnd(0) + 1, validbox.bigEnd(1) + 1,
                          validbox.bigEnd(2) + 1}};
-              // It seems that openPMD assumes that chunks do not have
-              // ghost zones
               assert(!output_ghosts);
               box_t<int, 3> box = output_ghosts ? extbox : intbox;
-              // Restrict this component to the thickness-1 slab, skipping
-              // components that miss the plane. Membership is cell-canonical so
-              // cell and vertex variables pick the same components for the
-              // shared vertex-framed dataset.
               if (slice) {
                 const amrex::Box cvalidbox = amrex::enclosedCells(validbox);
                 const Arith::vect<int, 3> cval_lo{cvalidbox.smallEnd(0),
@@ -1907,7 +1632,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                     box.lo, box.hi, cval_lo, cval_hi, slice_x0, slice_dx,
                     is_cell_centred);
                 if (!r)
-                  continue; // this component does not intersect the plane
+                  continue;
                 box.lo = r->first;
                 box.hi = r->second;
               }
@@ -1915,10 +1640,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
               Arith::vect<int, 3> start_vec = box.lo - idomain.lo;
               if (slice) {
                 const int n = slice->normal_dir;
-                // The slab must fall inside this component's exterior extent.
                 assert(box.lo[n] >= extbox.lo[n] && box.hi[n] <= extbox.hi[n]);
-                // idomain is vertex-framed, so box.lo - idomain.lo is wrong for
-                // the thickness-1 slab; force the normal offset to 0.
                 start_vec[n] = 0;
               }
               const openPMD::Offset start = to_vector(reversed(start_vec));
@@ -1926,7 +1648,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
               const int np = box.size();
               assert(int(count.at(0) * count.at(1) * count.at(2)) == np);
               for (int d = 0; d < 3; ++d)
-                // assert(start.at(d) >= 0);
                 assert(start.at(d) <
                        std::numeric_limits<std::remove_reference_t<decltype(
                                start.at(d))> >::max() /
@@ -1936,7 +1657,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
 
               const amrex::FArrayBox &fab = mfab[component];
               for (int vi = 0; vi < numvars; ++vi) {
-                // A thin slab (box != extbox) takes the contiguous-copy path.
                 if (box == extbox) {
                   const CCTK_REAL *const ptr = fab.dataPtr() + vi * np;
 #if OPENPMDAPI_VERSION_GE(0, 15, 0)
@@ -1953,16 +1673,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                   record_components.at(vi).storeChunk(std::move(ptr), start,
                                                       count);
                 }
-              } // for vi
-            } // for local_component
-          } // for tl
+              }
+            }
+          }
 
-          // Subcycling coarse source bands: zero-ghost MultiFabs in this
-          // level's index space, so they share the level's idomain frame and
-          // dataset extent and write a sparse subset of chunks. Geometry is
-          // rebuilt on recovery; we serialize only the data, namespaced by a
-          // band tag. Present on every level with children. 2D slices emit
-          // only the main grid data; bands remain 3D-only.
           if (write_bands && !slice) {
             const auto write_band = [&](const amrex::MultiFab *const band,
                                         const band_kind kind, const int stage) {
@@ -2015,7 +1729,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                 const int component = band->IndexArray().at(local_component);
 
                 const amrex::Box &fabbox =
-                    band->fabbox(component); // zero ghost
+                    band->fabbox(component);
                 const box_t<int, 3> box{
                     .lo = {fabbox.smallEnd(0), fabbox.smallEnd(1),
                            fabbox.smallEnd(2)},
@@ -2039,8 +1753,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                   record_components.at(vi).storeChunk(openPMD::shareRaw(ptr),
                                                       start, count);
 #endif
-                } // for vi
-              } // for local_component
+                }
+              }
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
@@ -2050,33 +1764,21 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                       band_kind::old_source),
                        band_kind::old_source, -1);
-            // The child's flux register (partially accumulated mid-cycle):
-            // six zero-ghost face MultiFabs in this level's index space,
-            // nodal in their own direction. idomain is vertex-framed, so a
-            // face plane on the domain boundary still fits the dataset.
             for (int f = 0; f < 2 * dim; ++f)
               write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                         band_kind::flux_register, f),
                          band_kind::flux_register, f);
-          } // if write_bands
+          }
         }
-      } // for gi
+      }
 
-    } // for leveldata
-  } // for patchdata
+    }
+  }
 
-  // Next write grid scalars and grid arrays.
-  // Slices emit only GF data; a non-GF group in out_openpmd_2d_vars produces
-  // nothing here.
-
-  // Mesh and dataset definitions are collective (HDF5); only the data write
-  // below is restricted to a single rank (the data is replicated).
   if (!slice) {
     const int numgroups = CCTK_NumGroups();
     for (int gi = 0; gi < numgroups; ++gi) {
       if (output_group.at(gi)) {
-
-        // Check group properties
 
         cGroup cgroup;
         const int ierr = CCTK_GroupData(gi, &cgroup);
@@ -2093,18 +1795,13 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         const auto &groupdata = *ghext->globaldata.arraygroupdata.at(gi);
         if (groupdata.data.empty())
           continue;
-        // const int firstvarindex = groupdata.firstvarindex;
         const int numvars = groupdata.numvars;
         const int tl = 0;
-
-        // Determine grid structure
 
         using ivect = Arith::vect<int, dim>;
 
         const box_t<int, 3> idomain{.lo = ivect{0, 0, 0},
                                     .hi = ivect(groupdata.gsh)};
-
-        // Create dataset
 
         const openPMD::Datatype datatype = [](int varType) {
           switch (varType) {
@@ -2121,41 +1818,18 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         const openPMD::Extent extent = to_vector(reversed(idomain.shape()));
         const openPMD::Dataset dataset(datatype, extent);
 
-        // Create mesh
-
         const std::string meshname = make_meshname(gi, -1, -1);
         openPMD::Mesh mesh = write_iter.meshes[meshname];
 
-        // mesh.setGeometry(openPMD::Mesh::Geometry::cartesian);
-        // mesh.setAxisLabels(reversed(std::vector<std::string>{"x", "y",
-        // "z"}));
-        // mesh.setGridSpacing(to_vector<CCTK_REAL>(
-        //     reversed(fmap([](auto x, auto y) { return x / CCTK_REAL(y); },
-        //                   rdomain.hi - rdomain.lo, idomain.shape() - 1))));
-        // mesh.setGridGlobalOffset(to_vector<double>(reversed(rdomain.lo)));
-        // mesh.setGridUnitSI(Unit::length);
-        // // const std::map<openPMD::UnitDimension, double> unitDimension{
-        // //     {openPMD::UnitDimension::L, 1}};
-        // // mesh.setUnitDimension(unitDimension);
-        mesh.setTimeOffset(CCTK_REAL(0)); // TODO: check interface.ccl
+        mesh.setTimeOffset(CCTK_REAL(0));
 
-        // // Cell centred grids are offset by 1/2
-        // const Arith::vect<double, 3> position{0, 0, 0};
-
-        // Define tensor components
-
-        // TODO: Set component names according to the tensor type
         std::vector<openPMD::MeshRecordComponent> record_components;
         record_components.reserve(numvars);
         for (int vi = 0; vi < numvars; ++vi) {
           const std::string componentname = make_componentname(gi, vi);
           record_components.push_back(mesh[componentname]);
-          // auto &record_component = record_components.back();
-          // record_component.setPosition(to_vector<double>(reversed(position)));
         }
         assert(int(record_components.size()) == numvars);
-
-        // Write data
 
         if (io_verbose)
           CCTK_VINFO("Writing %d variables...", numvars);
@@ -2163,18 +1837,15 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         for (int vi = 0; vi < numvars; ++vi)
           record_components.at(vi).resetDataset(dataset);
 
-        // exterior (with ghosts)
         for (int d = 0; d < dim; ++d)
           assert(groupdata.lsh[d] == groupdata.gsh[d]);
         assert(all(Arith::vect<int, dim>(groupdata.lsh) ==
                    Arith::vect<int, dim>(groupdata.gsh)));
         const box_t<int, 3> extbox{.lo = ivect{0, 0, 0},
                                    .hi = ivect(groupdata.lsh)};
-        // interior (without ghosts)
         const box_t<int, 3> intbox{.lo = ivect(groupdata.nghostzones),
                                    .hi = ivect(groupdata.lsh) -
                                          ivect(groupdata.nghostzones)};
-        // It seems that openPMD assumes that chunks do not have ghost zones
         assert(!output_ghosts);
         const box_t<int, 3> &box = output_ghosts ? extbox : intbox;
 
@@ -2183,7 +1854,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         const int np = box.size();
         assert(int(count.at(0) * count.at(1) * count.at(2)) == np);
         for (int d = 0; d < 3; ++d)
-          // assert(start.at(d) >= 0);
           assert(start.at(d) <
                  std::numeric_limits<
                      std::remove_reference_t<decltype(start.at(d))> >::max() /
@@ -2201,7 +1871,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         assert(cactus_dk > 0);
         assert(cactus_np > 0);
         assert(int(groupdata.data.at(tl).size()) == numvars * cactus_np);
-        // Replicated data; only one rank writes.
         if (myproc == ioproc) {
           for (int vi = 0; vi < numvars; ++vi) {
             const void *const var_ptr =
@@ -2240,7 +1909,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
               for (int k = 0; k < contig_shape[2]; ++k)
                 for (int j = 0; j < contig_shape[1]; ++j)
                   for (int i = 0; i < contig_shape[0]; ++i)
-                    // TODO: copy whole contiguous strip at once
                     memcpy(contig_ptr->data_at(contig_di * i + contig_dj * j +
                                                contig_dk * k),
                            cactus_ptr->data_at(cactus_di * i + cactus_dj * j +
@@ -2272,14 +1940,12 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                 assert(0 && "Unexpected variable type");
               }
             }
-          } // for vi
+          }
         }
       }
     }
   }
 
-  // Record the two in-plane axes for the slice files (3D path registers
-  // nothing).
   if (slice && CCTK_MyProc(nullptr) == 0) {
     output_file_description_t ofd;
     ofd.filename = *filename;
@@ -2335,7 +2001,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
     filename.reset();
     break;
   case openPMD::IterationEncoding::variableBased:
-    // do nothing
     break;
   default:
     abort();
@@ -2356,4 +2021,4 @@ namespace CarpetX {
 void ShutdownOpenPMD() {}
 } // namespace CarpetX
 
-#endif // #ifdef HAVE_CAPABILITY_OPENPMD
+#endif

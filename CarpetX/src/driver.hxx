@@ -38,14 +38,8 @@ using Loop::dim;
 
 using rat64 = rational<int64_t>;
 
-// Compile-time capacity of the subcycling band arrays. The runtime-active
-// count lives in GHExt::num_rk_stages (RK4 uses 4, SSPRK3 uses 3).
 inline constexpr int max_num_rk_stages = 4;
 
-// TODO: It seems that AMReX now also has `RB90`, `RB180`, and
-// `PolarB` boundary conditions. Make these available as well.
-
-// Symmetries are domain properties
 enum class symmetry_t {
   none,
   interpatch,
@@ -54,8 +48,6 @@ enum class symmetry_t {
 };
 std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry);
 
-// Boundary conditions are group properties. They are valid only for faces where
-// the domain symmetry is `none`.
 enum class boundary_t {
   none,
   symmetry_boundary,
@@ -72,9 +64,6 @@ static_assert(AMREX_SPACEDIM == dim,
 static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
               "AMReX's Real type must be the same as Cactus's CCTK_REAL");
 
-////////////////////////////////////////////////////////////////////////////////
-
-// AMR driver
 class CactusAmrCore final : public amrex::AmrCore {
   int patch;
 
@@ -102,11 +91,6 @@ public:
   void SetupLevel(int level, const amrex::BoxArray &ba,
                   const amrex::DistributionMapping &dm,
                   const std::function<std::string()> &why);
-  // Re-partition a recovered level's covered region into a fresh box
-  // decomposition matching the current max_grid_size / node count. Pure
-  // geometry: the returned BoxArray covers exactly the same cell union as the
-  // input, so no field data is changed. Level 0 regenerates the canonical
-  // full-domain decomposition; levels > 0 coalesce then re-tile + load-balance.
   amrex::BoxArray RechopLevel(int level, amrex::BoxArray ba) const;
   virtual void
   MakeNewLevelFromScratch(int level, amrex::Real time,
@@ -121,7 +105,6 @@ public:
   virtual void ClearLevel(int level) override;
 };
 
-// Cactus grid hierarchy extension
 struct GHExt {
 
   GHExt() = default;
@@ -145,7 +128,7 @@ struct GHExt {
   };
 
   cctkGHptr global_cctkGH;
-  std::vector<cctkGHptr> level_cctkGHs; // [reflevel]
+  std::vector<cctkGHptr> level_cctkGHs;
 
   struct CommonGroupData {
     std::string groupname;
@@ -153,31 +136,21 @@ struct GHExt {
     int firstvarindex;
     int numvars;
 
-    bool do_checkpoint; // whether to checkpoint
-    bool do_evolve;     // whether this is an evolved state variable
-    // whether the driver's end-of-step restriction restricts this group
-    // (restrict_during_sync = no): the "restrict" tag; if absent, the
-    // "checkpoint" tag
+    bool do_checkpoint;
+    bool do_evolve;
     bool do_restrict;
-    // whether a SYNC restricts this group (restrict_during_sync = yes): the
-    // "restrict" tag; if absent, yes
     bool restrict_on_sync;
 
-    std::vector<std::vector<why_valid_t> > valid; // [time level][var index]
-
-    // TODO: add poison_invalid and check_valid functions
+    std::vector<std::vector<why_valid_t> > valid;
 
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const CommonGroupData &commongroupdata);
   };
 
   struct GlobalData {
-    // all data that exists on all levels
-
     class AnyTypeVector {
 
     public:
-      // access to a single element of a AnyTypeVector
       class AnyTypeScalarRef {
       public:
         AnyTypeScalarRef() = delete;
@@ -204,7 +177,6 @@ struct GHExt {
         assert(_count == count_);
         assert(_data != nullptr);
       };
-      // Noncopyable for now
       AnyTypeVector(const AnyTypeVector &) = delete;
       AnyTypeVector &operator=(const AnyTypeVector &) = delete;
       AnyTypeVector &operator=(AnyTypeVector &&other) {
@@ -307,13 +279,9 @@ struct GHExt {
       void *_data;
     };
 
-    // For subcycling in time, there really should be one copy of each
-    // integrated grid scalar per level. We don't do that yet; instead,
-    // we assume that grid scalars only hold "analysis" data.
-
     struct ArrayGroupData : public CommonGroupData {
       std::vector<AnyTypeVector>
-          data; // [time level][var index + grid point index]
+          data;
       int array_size;
       int dimension;
       int activetimelevels;
@@ -343,9 +311,8 @@ struct GHExt {
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const ArrayGroupData &arraygroupdata);
     };
-    // TODO: right now this is sized for the total number of groups
     std::vector<std::unique_ptr<ArrayGroupData> >
-        arraygroupdata; // [group index]
+        arraygroupdata;
 
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const GlobalData &globaldata);
@@ -367,8 +334,6 @@ struct GHExt {
 
     std::array<std::array<symmetry_t, dim>, 2> symmetries;
 
-    // AMReX grid structure
-    // TODO: convert this from unique_ptr to optional
     std::unique_ptr<CactusAmrCore> amrcore;
 
     struct LevelData {
@@ -384,56 +349,21 @@ struct GHExt {
 
       int patch, level;
 
-      // This level uses subcycling with respect to the next coarser
-      // level. (Ignored for the coarsest level.)
       bool is_subcycling_level;
 
-      // Iteration and time at which this cycle level is valid
       rat64 iteration, delta_iteration;
 
-      // The cctk_iteration in which this level's clock group reached its
-      // current clock: stamped by Evolve after every batch's EVOL on the
-      // widened window, 0 on a fresh start, the parent's value when a regrid
-      // creates or remakes the level, and the checkpointed value on
-      // recovery. Recovery replays CCTK_POST_RECOVER_VARIABLES in this
-      // context. Checkpointed next to the level's clock.
       int last_step_iteration;
 
-      // The cctk_iteration of the last end-of-step window (POSTSTEP,
-      // ANALYSIS) that covered this level, i.e. when it was last finalized:
-      // stamped by Evolve after each such window, 0 on a fresh start and on
-      // recovery, the parent's value when a regrid creates or remakes the
-      // level. Not checkpointed.
       int last_finalized_iteration;
 
-      // Fabamrex::ArrayBase object holding a cell-centred BoxArray for
-      // iterating over grid functions. This stores the grid structure
-      // and its distribution over all processes, but holds no data.
       std::unique_ptr<amrex::FabArrayBase> fab;
 
-      // Cached flux geometry of this level for the flux-register (reflux)
-      // path, built by amrex::Geometry::GetFaceArea and GetVolume:
-      // face_area[d] is a one-component, zero-ghost MultiFab on this
-      // level's BoxArray converted to the d-face centring (the centring of
-      // the flux group in direction d), holding the constant face area
-      // prod_{j != d} dx_j; cell_volume is its cell-centred counterpart
-      // holding dx_0 dx_1 dx_2. All four share the level's
-      // DistributionMapping with every GroupData MultiFab, so that the
-      // (mflx, area, ...) and (mf, volume, ...) overloads of
-      // amrex::FluxRegister can index them with the flux's or the state's
-      // MFIter. EnsureFluxGeometry builds them together, lazily, on the
-      // first AccumulateFluxes or Reflux that finds a register on this
-      // level, so that neither call allocates a CarpetX-side MultiFab in
-      // steady state. Constant per level: CarpetX levels are Cartesian, and
-      // the layout only changes when a regrid remakes or clears the level,
-      // which destroys this LevelData and the cache with it; there is no
-      // other invalidation. Null on levels that never see a register; pure
-      // geometry, never checkpointed and not valid-tracked.
       mutable std::array<std::unique_ptr<amrex::MultiFab>, dim> face_area;
       mutable std::unique_ptr<amrex::MultiFab> cell_volume;
 
       cctkGHptr patch_cctkGH;
-      std::vector<cctkGHptr> local_cctkGHs; // [component]
+      std::vector<cctkGHptr> local_cctkGHs;
 
       cGH *get_patch_cctkGH() const { return patch_cctkGH.get(); }
       cGH *get_local_cctkGH(const int component) const {
@@ -465,84 +395,21 @@ struct GHExt {
         std::vector<CCTK_REAL> robin_values;
         amrex::Vector<amrex::BCRec> bcrecs;
 
-        // Apply outer (physical) boundary conditions to a MultiFab
         void apply_boundary_conditions(amrex::MultiFab &mfab) const;
 
-        // each amrex::MultiFab has numvars components
-        std::vector<std::unique_ptr<amrex::MultiFab> > mfab; // [time level]
+        std::vector<std::unique_ptr<amrex::MultiFab> > mfab;
 
-        // The RK buffers of the subcycling boundary fill (FillRKBoundary) into
-        // this group on this (refined) level. All of them are owned by this
-        // level and have the geometry of one FPinfo, that of this level's
-        // MultiFab of the group for the group's interpolator and ghost width.
-        // EnsureRKBuffers allocates them together, lazily, at the parent's
-        // first StoreRKOldState after this level was made (or in the recovery
-        // pre-pass). They die with this LevelData when a regrid remakes or
-        // clears the level; there is no other invalidation. Null on level 0,
-        // for groups that are not integrated, and where the coarse-fine
-        // footprint is empty.
-
-        // Coarse-fine source bands holding the parent level's subcycling RK
-        // stage derivatives (zero-ghost, numvars comps) on the coarse cells
-        // under this level's cf-ghost footprint: FPinfo::ba_crse_patch on
-        // FPinfo::dm_patch, i.e. in the parent's index space and with exactly
-        // the layout of rk_crse_patch below. Indexed by RK stage; filled by
-        // StoreRKStage on the parent and read by FillRKBoundary on this level,
-        // which evaluates the dense-output polynomial on them and prolongates
-        // the resulting coarse state. Data with history: they hold the
-        // parent's in-progress step for both of this level's substeps, and are
-        // serialized at mid-cycle checkpoints under the parent level's name
-        // (see rk_source_band).
         mutable std::array<std::unique_ptr<amrex::MultiFab>, max_num_rk_stages>
             ks_source_band;
 
-        // Coarse-fine source band holding the parent's subcycling old state
-        // u(t_n), a single snapshot (not RK-stage indexed) with the geometry
-        // and lifecycle of the ks bands above. Filled from the parent's
-        // var(tl) by StoreRKOldState at solve start; the u(t_n) base of the
-        // dense output.
         mutable std::unique_ptr<amrex::MultiFab> old_source_band;
 
-        // Persistent work buffers of the fill: the dense output is evaluated
-        // from the bands straight into rk_crse_patch (FPinfo::ba_crse_patch on
-        // FPinfo::dm_patch, the layout of the bands), which is then
-        // interpolated into rk_fine_patch (FPinfo::ba_fine_patch on the same
-        // dm_patch). Zero ghosts, numvars comps. Pure scratch, fully
-        // overwritten before each read: never checkpointed and not
-        // valid-tracked.
         mutable std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;
 
-        // Flux register of the pair (level - 1, level), owned by this (fine)
-        // level: allocated only where it is fed, i.e. for a group with a
-        // fluxes= tag that ODESolvers integrates (ghext->rk_integrated_group)
-        // under do_reflux, with and without subcycling; zeroed on creation,
-        // and reset by the parent's first RK stage (AccumulateFluxes).
-        //
-        // Contract of the fluxes= tag: on an ODESolvers-integrated group it
-        // promises that the flux groups are computed in ODESolvers_RHS, so
-        // that every RK stage can accumulate them; on any other group the tag
-        // is validated for shape (LevelData constructor) and otherwise inert:
-        // no register, no accumulation, no validity check of the fluxes.
         std::unique_ptr<amrex::FluxRegister> freg;
-        // Coarse-side staging for AccumulateFluxes: the parent's raw flux is
-        // parallel-copied here, scaled, and added into freg. Allocated
-        // together with freg and with the same arguments, so each face FabSet
-        // has freg's BoxArray, DistributionMapping and component count.
-        // Contents are meaningless between calls (zeroed before each use);
-        // not checkpointed (not a freg_* band) and not valid-tracked; rebuilt
-        // with freg when the level is remade on regrid.
         std::unique_ptr<amrex::FluxRegister> freg_scratch;
-        // associated flux group indices
-        std::array<int, dim> fluxes; // [dir]
+        std::array<int, dim> fluxes;
 
-        // CarpetX can allocate and free (temporary) multifabs that
-        // are associated with a Cactus grid function group. These
-        // multifabs remain allocated when they are freed, which makes
-        // it efficient when they are re-allocated later. However,
-        // they are freed when the current level changes during
-        // regridding (and the shape of the multifab presumably
-        // changes). This is used e.g. by ODESolvers for its
-        // temporaries.
       private:
         mutable std::vector<std::unique_ptr<amrex::MultiFab> > tmp_mfabs;
         mutable std::size_t next_tmp_mfab;
@@ -555,82 +422,40 @@ struct GHExt {
         friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                          const GroupData &groupdata);
       };
-      // TODO: right now this is sized for the total number of groups
-      std::vector<std::unique_ptr<GroupData> > groupdata; // [group index]
+      std::vector<std::unique_ptr<GroupData> > groupdata;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const LevelData &leveldata);
     };
-    std::vector<LevelData> leveldata; // [reflevel]
+    std::vector<LevelData> leveldata;
 
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const PatchData &patchdata);
   };
-  std::vector<PatchData> patchdata; // [patch]
+  std::vector<PatchData> patchdata;
 
-  // Number of active timelevels per group, populated from schedule.ccl STORAGE
-  // statements during CCTKi_ScheduleGHInit. Indexed by group index; 0 means no
-  // storage. Frozen between schedule init and the first allocation pass.
-  std::vector<int> active_timelevels; // [group index]
+  std::vector<int> active_timelevels;
   bool storage_frozen = false;
 
   bool use_subcycling = false;
 
-  // The iteration of the checkpoint this run was started from, or -1. Set
-  // once, by RecoverHierarchy as soon as RecoverGridStructure has read it.
-  // The flesh offers no query for this (config->recovered is only
-  // Initialise's argument). A level whose last_finalized_iteration is not past
-  // it has not run its end of step since recovery, so it may still lack what
-  // the checkpoint does not hold; error messages about such a level state the
-  // recovery rule.
   int recovered_iteration = -1;
 
-  // RecomputePerClockGroup is traversing CCTK_POST_RECOVER_VARIABLES, once
-  // per clock group. Set only inside that loop. Levels outside the window may
-  // then be at other times, so error messages read it to explain that a
-  // result read across levels must be checkpointed.
   bool in_recovery_traversal = false;
 
-  // The bin the driver is traversing on the end-of-step window (CCTK_POSTSTEP
-  // and CCTK_ANALYSIS in Evolve and Initialise, CCTK_CHECKPOINT in Evolve,
-  // CCTK_TERMINATE in Shutdown), or nullptr. Set only by
-  // tail_traversal_scope. Under subcycling, SyncGroupsByDirISubcycling aborts
-  // while it is set unless the window holds every level: otherwise a sync
-  // would read the coarse level outside the window, which is not finalized.
   const char *tail_bin = nullptr;
-  // The routine CallFunction dispatched last, set on entry and again on exit,
-  // so it still names the routine when the flesh fires its SYNC clause after
-  // the routine has returned. Read only by the error message of the
-  // end-of-step sync check.
   const cFunctionData *last_called_function = nullptr;
 
-  // CarpetX::do_reflux, cached in InitGH next to use_subcycling. Read from
-  // here rather than through DECLARE_CCTK_PARAMETERS in the GroupData
-  // constructor, where the parameter block would shadow the do_restrict
-  // member; recovery restores the parameter before InitGH runs.
   bool do_reflux = false;
 
-  // Stage count of ODESolvers::method, published at WRAGH from the method
-  // table (ODESolvers/src/rk_methods.hxx). Under subcycling it is <=
-  // max_num_rk_stages (ODESolvers_CheckMethod rejects the others at
-  // PARAMCHECK) and sizes the bands; without subcycling it may exceed that
-  // (RKF78: 11, DP87: 13) and only bounds the stage AccumulateFluxes accepts.
   int num_rk_stages = 4;
 
-  // Groups advanced by the time integrator, published by it at WRAGH
-  // (ODESolvers: the groups with an "rhs" tag). These are exactly the groups
-  // that own coarse-fine source bands under subcycling, both during evolution
-  // and when recovery rebuilds the bands. Empty means none.
-  std::vector<bool> rk_integrated_group; // [group index]
+  std::vector<bool> rk_integrated_group;
 
-  // Per-level metadata read from a checkpoint, consumed when recovery restores
-  // the level clocks in schedule.cxx. Either value is absent when the
-  // checkpoint predates it.
   struct recovered_level_t {
-    std::optional<rat64> iteration; // iteration_num / iteration_den
+    std::optional<rat64> iteration;
     std::optional<int> last_step_iteration;
   };
-  // Indexed [patch][level]. Empty outside of the recovery window.
   std::vector<std::vector<recovered_level_t> > recovered_levels;
 
   int num_patches() const { return patchdata.size(); }
@@ -666,75 +491,27 @@ struct GHExt {
 
 extern std::unique_ptr<GHExt> ghext;
 
-// Print one CCTK_WARN_ALERT for each grid-function group whose fluxes= tag
-// cannot take effect: flux-tagged, but rejected by group_has_flux_register
-// (subcycling.hxx), i.e. not integrated by ODESolvers, so it never gets a
-// flux register and is never refluxed. With CarpetX::do_reflux = no, print
-// instead a single CCTK_INFO if some integrated grid function carries a
-// fluxes= tag, since every such tag is then inert. Silent when
-// CarpetX::max_num_levels <= 1, since then no group gets a register. Warns
-// on the root process only. Called once by Initialise, after
-// PARAMCHECK (it needs ghext->do_reflux from InitGH and
-// ghext->rk_integrated_group from WRAGH) and before any level exists, so it
-// fires once per run, fresh start or recovery.
 void warn_inert_flux_tags();
 
-// Group tag "checkpoint"; absent -> yes. Reads only the tags table, so valid
-// from PARAMCHECK on. Defined in driver.cxx.
 bool get_group_checkpoint_flag(int gi);
 
-// Group tag "evolve"; absent -> the "checkpoint" tag (absent -> yes). Reads
-// only the tags table, so valid from PARAMCHECK on. Defined in driver.cxx.
 bool get_group_evolve_flag(int gi);
 
-// True iff every level of every patch sits at the same subcycling iteration,
-// i.e. the checkpoint is time-aligned. Always true without subcycling. When
-// false, the coarse source bands hold the in-progress coarse step (u(t_n) and
-// the stage derivatives) that must be serialized.
 bool all_levels_synchronized();
 
-// True when (patch, level) is a coarse level ahead of some finer level in the
-// checkpoint being recovered, so the checkpoint must carry its source bands:
-// - its evolved groups' olds/kss_*, which the child reads during its next
-//   substep if it is behind this level, and at recovery for its end-of-step
-//   ghosts if it is aligned with it but a finer level is behind;
-// - the freg_* bands of the pair (level, level + 1), whose flux register is
-//   live: level `level` has begun a coarse step whose reflux has not yet been
-//   applied.
-// Reads the iterations in ghext->recovered_levels; a missing entry
-// (checkpoint without iteration_num/den) means time-aligned, hence false.
-// Always false without subcycling and on the finest level. Only meaningful
-// during RecoverGH, while the recovered levels are still populated.
 bool recovered_finer_level_is_behind(int patch, int level);
 
-// Subcycling source-band kinds serialized at unsynchronized checkpoints:
-// ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)
-// snapshot, flux_register the six face FabSets of the child's flux register
-// (GroupData::freg), each a zero-ghost MultiFab in the parent's index space
-// holding the partially accumulated flux mismatch of the pair (level,
-// level+1). For flux_register `stage` is the face index 0..5, namely
-// 2*dir + (high ? 1 : 0).
 enum class band_kind { ks_source, old_source, flux_register };
 
-// Token identifying a source band in checkpoint names: "kss_s00".."kss_s03"
-// for ks_source, "olds" for old_source, "freg_xlo".."freg_zhi" for
-// flux_register. Shared by both IO backends.
 std::string subcycling_band_tag(band_kind kind, int stage = -1);
 
-// The source band that level `level` fills as a parent: owned by the child
-// level's GroupData. Null on the finest level, for groups that are not
-// integrated, and where the coarse-fine footprint is empty. For
-// flux_register, null unless the child owns a register for this group (an
-// integrated group with a fluxes= tag under do_reflux).
 amrex::MultiFab *rk_source_band(int patch, int level, int gi, band_kind kind,
                                 int stage = -1);
 
-// Monotonically increasing counter. Incremented whenever the AMR grid
-// hierarchy is invalidated (regridding, recovery). Starts at 0.
 extern std::atomic<CCTK_INT> carpetx_epoch;
 
 extern "C" CCTK_INT CarpetX_GetEpoch(void);
 
 } // namespace CarpetX
 
-#endif // #ifndef CARPETX_CARPETX_DRIVER_HXX
+#endif

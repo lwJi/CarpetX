@@ -53,7 +53,6 @@ void mpi_reduce_typed(const void *restrict x0, void *restrict y0,
 
 void mpi_reduce(void *restrict x, void *restrict y, int *restrict length,
                 MPI_Datatype *restrict datatype) {
-  // Analyze MPI datatype
   int num_integers, num_addresses, num_datatypes, combiner;
   MPI_Type_get_envelope(*datatype, &num_integers, &num_addresses,
                         &num_datatypes, &combiner);
@@ -79,23 +78,12 @@ void mpi_reduce(void *restrict x, void *restrict y, int *restrict length,
 MPI_Op reduction_mpi_op() {
   static MPI_Op op = MPI_OP_NULL;
   if (op == MPI_OP_NULL)
-    MPI_Op_create(mpi_reduce, 1 /*commutes*/, &op);
+    MPI_Op_create(mpi_reduce, 1, &op);
   return op;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 namespace {
 
-// Number of active octants (out of 8) surrounding a grid point, i.e. eight
-// times the volume weight with which the point enters a reduction.
-//
-// For vertex-centred directions, points on the boundary of the valid region
-// and points at refinement boundaries are counted with a reduced weight.
-// `masked` reports whether a point is covered by a finer level.
-//
-// This is shared between the CPU and the GPU code path so that both compute
-// the same weights.
 template <typename Mask>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline int
 active_octants(const vect<int, dim> &ipos, const vect<int, dim> &indextype,
@@ -106,23 +94,18 @@ active_octants(const vect<int, dim> &ipos, const vect<int, dim> &indextype,
                                             vect<int, dim>::unit(2)};
   constexpr vect<vect<vect<int, dim>, dim>, 2> dirs = {-di, +di};
 
-  // The octants adjacent to each of the six faces
   constexpr unsigned char faces[2][dim] = {
       {0b01010101, 0b00110011, 0b00001111},
       {0b10101010, 0b11001100, 0b11110000}};
 
   const vect<vect<int, dim>, 2> ibnd = {imin, imax - 1};
 
-  // For vertex-centred grids, ensure that points at the outer boundary are
-  // counted with a weight of 1/2
   unsigned char outer_active = 0b11111111;
   for (int f = 0; f < 2; ++f)
     for (int d = 0; d < dim; ++d)
       if (indextype[d] == 0 && ipos[d] == ibnd[f][d])
         outer_active &= ~faces[f][d];
 
-  // For vertex-centred grids, ensure that points at refinement boundaries are
-  // counted with a weight of 1/2
   unsigned char inner_active;
   if (!masked(ipos)) {
     inner_active = 0b11111111;
@@ -144,12 +127,6 @@ active_octants(const vect<int, dim> &ipos, const vect<int, dim> &indextype,
   return count;
 }
 
-// Like `active_octants`, but for a grid function array on the GPU, where the
-// bounds of the valid region are not available directly: the array covers the
-// fab box, which is the valid box grown by `ng`.
-//
-// We access the bounds via `lbound`/`ubound` instead of `Array4::begin`/`end`
-// because AMReX 26.02 removes those members. `ubound` is inclusive.
 template <typename T, typename Mask>
 CCTK_DEVICE CCTK_HOST CCTK_ATTRIBUTE_ALWAYS_INLINE inline int
 active_octants_in_fab(const amrex::Array4<const T> &restrict vars,
@@ -178,9 +155,7 @@ reduce_array(const amrex::Array4<const T> &restrict vars, const int n,
 
   const CCTK_REAL dV = prod(dx);
 
-  // Use per-loop reduction objects to reduce round-off error
   reduction<T, dim> redk;
-  // TODO: use loop.hxx code to loop over grid
   for (int k = tmin[2]; k < tmax[2]; ++k) {
     reduction<T, dim> redj;
     for (int j = tmin[1]; j < tmax[1]; ++j) {
@@ -213,7 +188,6 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
   assert(group.grouptype == CCTK_GF);
 
   reduction<CCTK_REAL, dim> red;
-  // TODO: Parallelize over patches and levels
   for (auto &restrict patchdata : ghext->patchdata) {
     for (auto &restrict leveldata : patchdata.leveldata) {
       const auto &restrict groupdata = *leveldata.groupdata.at(gi);
@@ -245,16 +219,12 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
 
         finemask_imfab = std::make_unique<amrex::iMultiFab>(makeFineMask(
             mfab, fine_mfab.boxArray(), reffact, geom.periodicity(),
-            /*coarse value*/ 0, /* fine value */ 1));
+            0, 1));
       }
 
 #ifndef AMREX_USE_GPU
-      // CPU
 
       auto mfitinfo = amrex::MFItInfo().SetDynamic(true).EnableTiling();
-      // TODO: check that multi-threading actually helps (and we are
-      // not dominated by memory latency)
-      // TODO: document required version of OpenMP to use custom reductions
 #ifdef __NVCOMPILER
 #pragma omp parallel
       {
@@ -264,13 +234,13 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
 #pragma omp parallel reduction(reduction : red)
 #endif
         for (amrex::MFIter mfi(mfab, mfitinfo); mfi.isValid(); ++mfi) {
-          const amrex::Box &bx = mfi.tilebox(); // current tile (without ghosts)
+          const amrex::Box &bx = mfi.tilebox();
           const vect<int, dim> tmin{bx.smallEnd(0), bx.smallEnd(1),
                                     bx.smallEnd(2)};
           const vect<int, dim> tmax{bx.bigEnd(0) + 1, bx.bigEnd(1) + 1,
                                     bx.bigEnd(2) + 1};
           const amrex::Box &vbx =
-              mfi.validbox(); // interior region (without ghosts)
+              mfi.validbox();
           const vect<int, dim> imin{vbx.smallEnd(0), vbx.smallEnd(1),
                                     vbx.smallEnd(2)};
           const vect<int, dim> imax{vbx.bigEnd(0) + 1, vbx.bigEnd(1) + 1,
@@ -282,7 +252,6 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
           if (finemask_imfab) {
             finemask = std::make_unique<amrex::Array4<const int> >(
                 finemask_imfab->array(mfi));
-            // Ensure the mask has the correct size
             assert(amrex::lbound(*finemask).x == amrex::lbound(vars).x);
             assert(amrex::lbound(*finemask).y == amrex::lbound(vars).y);
             assert(amrex::lbound(*finemask).z == amrex::lbound(vars).z);
@@ -301,18 +270,11 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
 #endif
 
 #else
-      // GPU
-      //
-      // Reduce over all boxes of the level in a single kernel launch.
-      // `amrex::ParReduce` iterates over all local boxes of the `MultiFab`
-      // and passes the local box index as first argument.
 
       using tuple_type = reduction<CCTK_REAL, dim>::tuple_type;
 
       const amrex::IntVect nghosts = mfab.nGrowVect();
 #ifdef CCTK_DEBUG
-      // We derive the valid box from the fab box below, which requires that
-      // every fab is grown uniformly
       for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi)
         assert(mfi.fabbox() == amrex::grow(mfi.validbox(), nghosts));
 #endif
@@ -328,7 +290,6 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
       const int vi1 = vi;
       const vect<int, dim> indextype1 = indextype;
 
-      // First pass: the sums and the extrema
       reduction<CCTK_REAL, dim> level_red = amrex::ParReduce(
           amrex::TypeList<
               amrex::ReduceOpMin, amrex::ReduceOpMax, amrex::ReduceOpSum,
@@ -339,7 +300,7 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
                           CCTK_REAL, CCTK_REAL, CCTK_REAL, CCTK_REAL, CCTK_REAL,
                           CCTK_REAL>{},
           mfab,
-          amrex::IntVect(0), // interior region, without ghosts
+          amrex::IntVect(0),
           [=] CCTK_DEVICE(const int b, const int i, const int j,
                           const int k) noexcept -> tuple_type {
             const amrex::Array4<const CCTK_REAL> &restrict vars = data_ma[b];
@@ -359,35 +320,20 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
                 reduction<CCTK_REAL, dim>(x, W * dV, vars(i, j, k, vi1)));
           });
 
-      // Second pass: the locations of the extrema. AMReX's reduction
-      // operators cannot express argmin/argmax, so we reduce the smallest
-      // linear index among the points attaining the extremum, and convert
-      // that index back to a position below.
-      //
-      // The extrema are those of this patch and level; `reduction::operator+`
-      // keeps the locations belonging to the smaller minimum resp. the larger
-      // maximum when the levels, patches, and MPI processes are combined.
-      //
-      // Points attaining the extremum are not unique. Which one is found is
-      // unspecified, as it is for the CPU code path, where the order in which
-      // the OpenMP threads combine their results is unspecified as well.
       if (level_red.vol > 0) {
-        // The index space holding all valid points of this level
         const amrex::Box lvlbox = mfab.boxArray().minimalBox();
         const amrex::Dim3 blo = amrex::lbound(lvlbox);
         const amrex::Long nx = lvlbox.length(0);
         const amrex::Long ny = lvlbox.length(1);
         constexpr amrex::Long noindex = std::numeric_limits<amrex::Long>::max();
 
-        // If the data contain nans then no point compares equal to the
-        // extremum, and the locations remain unknown (nan)
         const CCTK_REAL lmin = level_red.min;
         const CCTK_REAL lmax = level_red.max;
 
         const amrex::GpuTuple<amrex::Long, amrex::Long> locs = amrex::ParReduce(
             amrex::TypeList<amrex::ReduceOpMin, amrex::ReduceOpMin>{},
             amrex::TypeList<amrex::Long, amrex::Long>{}, mfab,
-            amrex::IntVect(0), // interior region, without ghosts
+            amrex::IntVect(0),
             [=] CCTK_DEVICE(const int b, const int i, const int j,
                             const int k) noexcept
                 -> amrex::GpuTuple<amrex::Long, amrex::Long> {

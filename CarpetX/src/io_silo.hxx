@@ -28,4 +28,4 @@ void OutputSilo(const cGH *cctkGH, const std::vector<bool> &output_group,
 
 #endif
 
-#endif // #ifndef CARPETX_CARPETX_IO_SILO_HXX
+#endif

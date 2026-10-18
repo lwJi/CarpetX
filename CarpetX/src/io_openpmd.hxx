@@ -34,4 +34,4 @@ void OutputOpenPMD(const cGH *cctkGH, const std::vector<bool> &output_group,
 
 #endif
 
-#endif // #ifndef CARPETX_CARPETX_IO_OPENPMD_HXX
+#endif

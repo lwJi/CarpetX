@@ -8,7 +8,6 @@ namespace CarpetLib {
 template <typename T> struct typeprops {
   typedef T complex;
   typedef T real;
-  // Create a complex number from a real number
   static inline complex const &fromreal(real const &x) { return x; }
 };
 
@@ -36,7 +35,6 @@ template <> struct typeprops<CCTK_COMPLEX32> {
 };
 #endif
 
-// Return the specific Cactus variable type for a Cactus variable type
 static inline int specific_cactus_type(int const vartype) {
   switch (vartype) {
   case CCTK_VARIABLE_INT:
@@ -83,4 +81,4 @@ static inline int specific_cactus_type(int const vartype) {
 }
 } // namespace CarpetLib
 
-#endif // #ifndef CARPETX_CARPETX_TYPEPROPS_HH
+#endif

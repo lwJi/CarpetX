@@ -33,7 +33,6 @@ void OutputNorms(const cGH *restrict cctkGH) {
   static Timer timer("OutputNorms");
   Interval interval(timer);
 
-  // Find output groups
   const std::vector<bool> group_enabled = [&] {
     std::vector<bool> enabled(CCTK_NumGroups(), false);
     const auto callback{
@@ -120,7 +119,6 @@ void OutputNorms(const cGH *restrict cctkGH) {
 
         bool group_has_valid_variables = false;
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          // Only output variables with valid data
           if (!groupdata.valid.at(tl).at(vi).get().valid_int)
             continue;
           group_has_valid_variables = true;
@@ -143,7 +141,6 @@ void OutputNorms(const cGH *restrict cctkGH) {
         file << sep << ++col << ":time";
 
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          // Only output variables with valid data
           if (!groupdata.valid.at(tl).at(vi).get().valid_int)
             continue;
 
@@ -178,7 +175,6 @@ void OutputNorms(const cGH *restrict cctkGH) {
 
     bool group_has_valid_variables = false;
     for (int vi = 0; vi < groupdata.numvars; ++vi) {
-      // Only output variables with valid data
       if (!groupdata.valid.at(tl).at(vi).get().valid_int)
         continue;
       group_has_valid_variables = true;
@@ -199,8 +195,6 @@ void OutputNorms(const cGH *restrict cctkGH) {
       file.open(filename, std::ios_base::app);
       ofd.filename = filename;
 
-      // get more precision for floats, could also use
-      // https://stackoverflow.com/a/30968371
       file << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1)
            << std::scientific;
 
@@ -208,7 +202,6 @@ void OutputNorms(const cGH *restrict cctkGH) {
     }
 
     for (int vi = 0; vi < groupdata.numvars; ++vi) {
-      // Only output variables with valid data
       if (!groupdata.valid.at(tl).at(vi).get().valid_int)
         continue;
 

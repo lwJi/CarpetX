@@ -2,8 +2,6 @@
 
 namespace CarpetX {
 
-// Polynomial (Lagrange) interpolation
-
 static prolongate_3d_rf2<VC, VC, VC, POLY, POLY, POLY, 1, 1, 1, FB_NONE>
     prolongate_poly_3d_rf2_c000_o1;
 static prolongate_3d_rf2<VC, VC, CC, POLY, POLY, POLY, 1, 1, 1, FB_NONE>

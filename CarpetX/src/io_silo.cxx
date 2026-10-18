@@ -51,16 +51,6 @@ namespace {
 
 constexpr bool io_verbose = true;
 
-// // Compile-time if-then-else expression
-// template <bool cond, typename T, typename F>
-// constexpr std::enable_if_t<cond, T> ifelse(T &&t, F &&f) {
-//   return std::forward<T>(t);
-// }
-// template <bool cond, typename T, typename F>
-// constexpr std::enable_if_t<!cond, F> ifelse(T &&t, F &&f) {
-//   return std::forward<F>(f);
-// }
-
 template <typename T> struct db_datatype;
 template <> struct db_datatype<char> : std::integral_constant<int, DB_CHAR> {};
 template <>
@@ -75,22 +65,16 @@ template <>
 struct db_datatype<double> : std::integral_constant<int, DB_DOUBLE> {};
 template <typename T> constexpr int db_datatype_v = db_datatype<T>::value;
 
-// Slice membership + slab bounds for component `c`, shared by the data-write
-// and metadata passes so they skip the same components in the same order.
-// Returns the thickness-1 slab (or nullopt if `c` misses the plane), tested
-// against the interior box so a box-boundary plane belongs to one component.
 inline std::optional<std::pair<Arith::vect<int, 3>, Arith::vect<int, 3> > >
 slice_slab(const amrex::MultiFab &mfab, const int c,
            const amrex::Real *const x0, const amrex::Real *const dx,
            const amrex::IndexType &indextype, const slice_t &slice) {
-  const amrex::Box &fabbox = mfab.fabbox(c); // exterior
+  const amrex::Box &fabbox = mfab.fabbox(c);
   const Arith::vect<int, 3> ext_lo{fabbox.smallEnd(0), fabbox.smallEnd(1),
                                    fabbox.smallEnd(2)};
   const Arith::vect<int, 3> ext_hi{fabbox.bigEnd(0) + 1, fabbox.bigEnd(1) + 1,
                                    fabbox.bigEnd(2) + 1};
-  const amrex::Box &validbox = mfab.box(c); // interior (variable-typed)
-  // enclosedCells maps a nodal or cell valid box to the same cell range, so
-  // membership (which box owns the plane) is centering-independent.
+  const amrex::Box &validbox = mfab.box(c);
   const amrex::Box cvalidbox = amrex::enclosedCells(validbox);
   const Arith::vect<int, 3> cval_lo{
       cvalidbox.smallEnd(0), cvalidbox.smallEnd(1), cvalidbox.smallEnd(2)};
@@ -146,9 +130,6 @@ int match_filename(const std::string &file_name) {
   return std::stoi(sm.str(1));
 }
 
-// The optional `band` tag namespaces subcycling source-band meshes/vars
-// apart from the regular tl=0 data (see subcycling checkpoint/recovery). An
-// empty tag (the default) leaves regular-data names byte-identical.
 std::string make_meshname(const std::array<int, dim> &nghosts,
                           const int patch = -1, const int reflevel = -1,
                           const int component = -1,
@@ -214,8 +195,6 @@ std::string make_fabarraybasename(const int patch, const int reflevel) {
 
 } // namespace
 
-////////////////////////////////////////////////////////////////////////////////
-
 int InputSiloParameters(const std::string &input_dir,
                         const std::string &input_file) {
   DECLARE_CCTK_PARAMETERS;
@@ -223,7 +202,6 @@ int InputSiloParameters(const std::string &input_dir,
   assert(!input_dir.empty());
   assert(!input_file.empty());
 
-  // Set up timers
   static Timer timer("InputSiloParameters");
   Interval interval(timer);
 
@@ -236,20 +214,15 @@ int InputSiloParameters(const std::string &input_dir,
   const int metafile_ioproc = 0;
   const bool read_metafile = myproc == metafile_ioproc;
 
-  // Configure Silo library
   DBShowErrors(DB_ALL_AND_DRVR, nullptr);
   DBSetAllowEmptyObjects(1);
-
-  // TODO: directories instead of carefully chosen names
 
   static Timer timer_parameters("InputSiloParameters.parameters");
   auto interval_parameters = std::make_unique<Interval>(timer_parameters);
 
-  // Find checkpoint input iteration
   int input_iteration = -1;
   if (read_metafile) {
 
-    // Find latest iteration (if any)
     try {
       for (const auto &direntry : filesystem::directory_iterator(input_dir)) {
         const auto &filename = direntry.path().filename().string();
@@ -258,14 +231,12 @@ int InputSiloParameters(const std::string &input_dir,
         input_iteration = max(input_iteration, iter);
       }
     } catch (const filesystem::filesystem_error &) {
-      // do nothing if directory does not exist
     }
   }
 
   MPI_Bcast(&input_iteration, 1, MPI_INT, metafile_ioproc, mpi_comm);
 
   if (input_iteration < 0) {
-    // Did not find a checkpoint file
     if (io_verbose) {
       CCTK_VINFO("Not recovering parameters:");
       CCTK_VINFO("  Could not find a Silo checkpoint file \"%s/%s.*.silo\"",
@@ -274,7 +245,6 @@ int InputSiloParameters(const std::string &input_dir,
     return input_iteration;
   }
 
-  // Read metadata
   std::string parameters;
   if (read_metafile) {
     CCTK_VINFO(
@@ -284,15 +254,11 @@ int InputSiloParameters(const std::string &input_dir,
 
     const std::string metafilename =
         input_dir + "/" + make_filename(input_file, input_iteration);
-    // We could use DB_UNKNOWN instead of DB_HDF5
-    // assert(metafilename.size() < 256);
     const DB::ptr<DBfile> metafile =
         DB::make(DBOpen(metafilename.c_str(), DB_HDF5, DB_READ));
     assert(metafile);
 
-    // Read parameters
     {
-      // TODO: Put this into a "drivername" subdirectory?
       const int type = DBGetVarType(metafile.get(), "AllParameters");
       assert(type == DB_CHAR);
 
@@ -338,7 +304,6 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
 
   int ierr;
 
-  // Set up timers
   static Timer timer("InputSiloGridStructure");
   Interval interval(timer);
 
@@ -351,7 +316,6 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
   const int metafile_ioproc = 0;
   const bool read_metafile = myproc == metafile_ioproc;
 
-  // Configure Silo library
   DBShowErrors(DB_ALL_AND_DRVR, nullptr);
 
   constexpr int ndims = dim;
@@ -361,15 +325,10 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
   static Timer timer_meta("InputSiloGridStructure.meta");
   auto interval_meta = std::make_unique<Interval>(timer_meta);
 
-  // TODO: Recover grid structure for grid arrays; call SetupGlobals for them?
-
-  // Read metadata
-
   DB::ptr<DBfile> metafile;
   if (read_metafile) {
     const std::string metafilename =
         input_dir + "/" + make_filename(input_file, input_iteration);
-    // We could use DB_UNKNOWN instead of DB_HDF5
     metafile = DB::make(DBOpen(metafilename.c_str(), DB_HDF5, DB_READ));
     assert(metafile);
   }
@@ -400,13 +359,11 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
   MPI_Bcast(&dtime, 1, MPI_DOUBLE, metafile_ioproc, mpi_comm);
   cctkGH->cctk_time = dtime;
 
-  // Read internal driver state
   const std::string dirname = DB::legalize_name(driver_name);
 
   int npatches;
   std::vector<int> nlevels;
   if (read_metafile) {
-    // Read number of levels
     const std::string varname = dirname + "/" + DB::legalize_name("nlevels");
     const int vartype = DBGetVarType(metafile.get(), varname.c_str());
     assert(vartype == DB_INT);
@@ -429,7 +386,6 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
 
   ghext->recovered_levels.resize(ghext->num_patches());
 
-  // Read FabArrayBase (component positions and shapes)
   for (int patch = 0; patch < npatches; ++patch) {
     CCTK_VINFO("Reading patch %d...", patch);
 
@@ -473,7 +429,6 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
         levboxes.at(component) = amrex::Box(small, big);
       }
 
-      // Don't set coarse level domain; this is already set by the driver
       if (level > 0) {
         amrex::Geometry geom = patchdata.amrcore->Geom(level - 1);
         geom.refine({2, 2, 2});
@@ -490,7 +445,6 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
       patchdata.amrcore->SetupLevel(level, boxarray, dm,
                                     []() { return "Recovering"; });
 
-      // Read per-level iteration if present (new checkpoint format)
       {
         const std::string varname_num =
             dirname + "/" +
@@ -521,10 +475,8 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
           ghext->recovered_levels.at(patch).at(level).iteration =
               rat64(iter_num, iter_den);
         }
-        // else: old checkpoint without per-level iteration — leave as nullopt
       }
 
-      // Read the per-level last-step iteration if present
       {
         const std::string varname =
             dirname + "/" +
@@ -549,10 +501,9 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
           ghext->recovered_levels.at(patch).at(level).last_step_iteration =
               int(last_step_iteration);
         }
-        // else: checkpoint predates it — leave as nullopt
       }
-    } // for level
-  } // for patch
+    }
+  }
 
   interval_meta = nullptr;
 }
@@ -566,7 +517,6 @@ void InputSilo(const cGH *restrict const cctkGH,
   assert(!input_dir.empty());
   assert(!input_file.empty());
 
-  // Set up timers
   static Timer timer("InputSilo");
   Interval interval(timer);
 
@@ -605,7 +555,6 @@ void InputSilo(const cGH *restrict const cctkGH,
   const bool read_file = myproc % ioproc_every == 0;
   assert((myioproc == myproc) == read_file);
 
-  // Configure Silo library
   DBShowErrors(DB_ALL_AND_DRVR, nullptr);
 
   constexpr int ndims = dim;
@@ -615,7 +564,6 @@ void InputSilo(const cGH *restrict const cctkGH,
   static Timer timer_data("InputSilo.data");
   auto interval_data = std::make_unique<Interval>(timer_data);
 
-  // Read data
   {
     DB::ptr<DBfile> file;
     if (read_file) {
@@ -624,22 +572,14 @@ void InputSilo(const cGH *restrict const cctkGH,
       const std::string filename =
           input_dir + "/" + subdirname + "/" +
           make_filename(input_file, cctk_iteration, myproc / ioproc_every);
-      // We could use DB_UNKNOWN instead of DB_HDF5
       file = DB::make(DBOpen(filename.c_str(), DB_HDF5, DB_READ));
       assert(file);
     }
 
-    // Bands are written all-or-nothing (only at unsynchronized checkpoints), so
-    // detect their presence once with global flags. This keeps the band read
-    // symmetric with the regular read; a per-variable file probe inside the
-    // loop would desync the band owner's MPI_Recv. The source bands (kss_*,
-    // olds) and the flux-register bands (freg_*) are probed separately: a
-    // mid-cycle checkpoint written before flux registers were checkpointed
-    // carries the former but not the latter.
     bool file_has_bands = false;
     bool file_has_freg = false;
     if (ghext->use_subcycling) {
-      int local_has[2] = {0, 0}; // [0]: kss_*/olds, [1]: freg_*
+      int local_has[2] = {0, 0};
       if (read_file) {
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
@@ -660,7 +600,7 @@ void InputSilo(const cGH *restrict const cctkGH,
                 const amrex::DistributionMapping &bdm = band->DistributionMap();
                 for (int c = 0; c < bdm.size(); ++c) {
                   if (bdm[c] / ioproc_every * ioproc_every != myproc)
-                    continue; // not read by this ioproc
+                    continue;
                   const std::string varname = make_varname(
                       gi, 0, patchdata.patch, leveldata.level, c, band_tag);
                   if (DBInqVarExists(file.get(), varname.c_str())) {
@@ -689,13 +629,6 @@ void InputSilo(const cGH *restrict const cctkGH,
       file_has_bands = global_has[0] != 0;
       file_has_freg = global_has[1] != 0;
 
-      // A mid-cycle checkpoint must carry the coarse source bands for every
-      // coarse level that is ahead of a finer level (see
-      // recovered_finer_level_is_behind); a file without any band data
-      // there was written by the derivative-band scheme or is incomplete.
-      // Every rank evaluates the same predicate on replicated data (recovered
-      // iterations, band geometry), so the abort is collective and the
-      // per-component MPI protocol below stays symmetric.
       if (!file_has_bands) {
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
@@ -711,7 +644,7 @@ void InputSilo(const cGH *restrict const cctkGH,
               const amrex::MultiFab *const band = rk_source_band(
                   patchdata.patch, leveldata.level, gi, band_kind::old_source);
               if (!band || band->empty())
-                continue; // not evolved, or an empty coarse-fine footprint
+                continue;
               CCTK_VERROR(
                   "Mid-cycle checkpoint lacks coarse RK step data (bands %s, "
                   "%s..) for group %s on patch %d level %d. The checkpoint "
@@ -725,9 +658,6 @@ void InputSilo(const cGH *restrict const cctkGH,
         }
       }
 
-      // Likewise the child's flux register wherever it is live: without it
-      // the first reflux after recovery would apply only the remaining fine
-      // substeps' fluxes. Same collective predicate as above.
       if (!file_has_freg) {
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
@@ -744,15 +674,7 @@ void InputSilo(const cGH *restrict const cctkGH,
                   rk_source_band(patchdata.patch, leveldata.level, gi,
                                  band_kind::flux_register, 0);
               if (!band || band->empty())
-                continue; // no register for this group
-              // A do_reflux mismatch cannot reach this error: the parameter
-              // is STEERABLE = NEVER and the flesh restores it from the
-              // checkpoint before any variable is read, so a differing
-              // par-file value aborts in IOUtil_SetAllParameters and an
-              // omitted one adopts the checkpoint's, allocating no register
-              // when that is "no". What arrives here is a checkpoint written
-              // before flux-register checkpointing existed, or a truncated
-              // one.
+                continue;
               CCTK_VERROR(
                   "Mid-cycle checkpoint lacks flux-register data (bands "
                   "%s..) for group %s on patch %d level %d. The checkpoint "
@@ -767,19 +689,15 @@ void InputSilo(const cGH *restrict const cctkGH,
       }
     }
 
-    // Loop over patches and levels
     for (const auto &patchdata : ghext->patchdata) {
       for (const auto &leveldata : patchdata.leveldata) {
         if (io_verbose)
           CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
                      leveldata.level);
 
-        // Loop over groups
-        // std::set<mesh_props_t> have_meshes;
         for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
           if (!input_group.at(gi))
             continue;
-          // TODO: read grid arrays
           if (CCTK_GroupTypeI(gi) != CCTK_GF)
             continue;
           if (io_verbose)
@@ -788,7 +706,6 @@ void InputSilo(const cGH *restrict const cctkGH,
           auto &groupdata = *leveldata.groupdata.at(gi);
           if (groupdata.mfab.empty())
             continue;
-          // TODO: Check that group has the default number of ghost zones
           const int numvars = groupdata.numvars;
           const int tl = 0;
           amrex::MultiFab &mfab = *groupdata.mfab[tl];
@@ -797,7 +714,6 @@ void InputSilo(const cGH *restrict const cctkGH,
 
           const std::array<int, dim> &nghosts = groupdata.nghostzones;
 
-          // Loop over components (AMReX boxes)
           const int ncomponents = dm.size();
           for (int component = 0; component < ncomponents; ++component) {
             if (io_verbose)
@@ -810,7 +726,7 @@ void InputSilo(const cGH *restrict const cctkGH,
             if (!(recv_this_fab || read_this_fab))
               continue;
 
-            const amrex::Box &fabbox = mfab.fabbox(component); // exterior
+            const amrex::Box &fabbox = mfab.fabbox(component);
 
             std::array<int, ndims> dims;
             for (int d = 0; d < ndims; ++d)
@@ -820,10 +736,9 @@ void InputSilo(const cGH *restrict const cctkGH,
               zonecount *= dims[d];
             assert(zonecount >= 0 && zonecount <= INT_MAX);
 
-            // Communicate variable, part 1
             static Timer timer_mpi("InputSilo.mpi");
             auto interval_mpi = std::make_unique<Interval>(timer_mpi);
-            const int mpi_tag = 22901; // randomly chosen
+            const int mpi_tag = 22901;
             std::vector<CCTK_REAL> buffer;
             MPI_Request mpi_req;
             CCTK_REAL *data = nullptr;
@@ -843,7 +758,6 @@ void InputSilo(const cGH *restrict const cctkGH,
             }
             interval_mpi = nullptr;
 
-            // Read variable
             if (read_file) {
               static Timer timer_var("InputSilo.var");
               Interval interval_var(timer_var);
@@ -869,11 +783,6 @@ void InputSilo(const cGH *restrict const cctkGH,
               }();
 
               if (centering == DB_EDGECENT || centering == DB_FACECENT) {
-                // Need to find the other 2 edge- or face-centered
-                // variables, and output them as well. Maybe input all 3
-                // when the x- or xy-centered value is input, for those
-                // which should be input? Maybe add a "sibling" tag to
-                // such grid functions to find these other components?
                 assert(0);
               }
 
@@ -895,9 +804,6 @@ void InputSilo(const cGH *restrict const cctkGH,
                 assert(quadvar->centering == centering);
                 assert(quadvar->nvals == 1);
 
-                // TODO: check DBOPT_COORDSYS:
-                // int cartesian = DB_CARTESIAN;
-
                 const int column_major = 0;
                 assert(quadvar->major_order == column_major);
 
@@ -905,14 +811,12 @@ void InputSilo(const cGH *restrict const cctkGH,
 
                 void *const data_ptr = data + vi * zonecount;
                 memcpy(data_ptr, read_ptr, zonecount * sizeof(CCTK_REAL));
-              } // for vi
-            } // if read_file
+              }
+            }
 
-            // Communicate variable, part 2
             static Timer timer_wait("InputSilo.wait");
             auto interval_wait = std::make_unique<Interval>(timer_wait);
             if (recv_this_fab && read_this_fab) {
-              // do nothing
             } else if (recv_this_fab) {
               MPI_Wait(&mpi_req, MPI_STATUS_IGNORE);
             } else {
@@ -926,13 +830,8 @@ void InputSilo(const cGH *restrict const cctkGH,
                     make_valid_all(), []() { return "read from Silo file"; });
             interval_wait = nullptr;
 
-          } // for component
+          }
 
-          // Subcycling coarse source bands: zero-ghost MultiFabs with their
-          // own DistributionMap, each read in its own component loop mirroring
-          // the Phase 1 write (reversed MPI). When file_has_bands, every
-          // rebuilt non-empty source band is present in full, and likewise
-          // every flux-register band when file_has_freg.
           if (file_has_bands || file_has_freg) {
             const int centering = [&]() {
               const int rank = indextype.cellCentered(0) +
@@ -970,7 +869,7 @@ void InputSilo(const cGH *restrict const cctkGH,
                   continue;
 
                 const amrex::Box &fabbox =
-                    band->fabbox(component); // zero ghost
+                    band->fabbox(component);
 
                 std::array<int, ndims> dims;
                 for (int d = 0; d < ndims; ++d)
@@ -980,8 +879,7 @@ void InputSilo(const cGH *restrict const cctkGH,
                   zonecount *= dims[d];
                 assert(zonecount >= 0 && zonecount <= INT_MAX);
 
-                // Communicate the band fab from the I/O process, part 1.
-                const int mpi_tag = 22903; // randomly chosen, band path
+                const int mpi_tag = 22903;
                 std::vector<CCTK_REAL> buffer;
                 MPI_Request mpi_req;
                 CCTK_REAL *data = nullptr;
@@ -1000,7 +898,6 @@ void InputSilo(const cGH *restrict const cctkGH,
                   data = buffer.data();
                 }
 
-                // Read the band variables.
                 if (read_file) {
                   for (int vi = 0; vi < numvars; ++vi) {
                     const std::string varname =
@@ -1020,12 +917,10 @@ void InputSilo(const cGH *restrict const cctkGH,
                     const void *const read_ptr = quadvar->vals[0];
                     void *const data_ptr = data + vi * zonecount;
                     memcpy(data_ptr, read_ptr, zonecount * sizeof(CCTK_REAL));
-                  } // for vi
-                } // if read_file
+                  }
+                }
 
-                // Communicate the band fab, part 2.
                 if (recv_this_fab && read_this_fab) {
-                  // do nothing
                 } else if (recv_this_fab) {
                   MPI_Wait(&mpi_req, MPI_STATUS_IGNORE);
                 } else {
@@ -1033,7 +928,7 @@ void InputSilo(const cGH *restrict const cctkGH,
                   MPI_Send(buffer.data(), numvars * zonecount,
                            mpi_datatype_v<CCTK_REAL>, proc, mpi_tag, mpi_comm);
                 }
-              } // for band component
+              }
             };
 
             if (file_has_bands) {
@@ -1045,28 +940,20 @@ void InputSilo(const cGH *restrict const cctkGH,
                                        band_kind::old_source),
                         band_kind::old_source, -1);
             }
-            // The child's flux register (six faces), restored so that the
-            // first reflux after recovery repays the same mismatch the
-            // uninterrupted run would have. Null (skipped) for groups
-            // without a register. When absent the register stays zero; the
-            // check above guarantees it is not live, so the parent resets it
-            // before its next reflux.
             if (file_has_freg)
               for (int f = 0; f < 2 * dim; ++f)
                 read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                          band_kind::flux_register, f),
                           band_kind::flux_register, f);
-          } // if file_has_bands || file_has_freg
+          }
 
-        } // for gi
-      } // for leveldata
-    } // for patchdata
-  } // read data
+        }
+      }
+    }
+  }
 
   interval_data = nullptr;
 }
-
-////////////////////////////////////////////////////////////////////////////////
 
 void OutputSilo(const cGH *restrict const cctkGH,
                 const std::vector<bool> &output_group,
@@ -1077,7 +964,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
   int ierr;
 
-  // Set up timers
   static Timer timer("OutputSilo");
   Interval interval(timer);
 
@@ -1110,31 +996,17 @@ void OutputSilo(const cGH *restrict const cctkGH,
   assert(myproc < myioproc + ioproc_every);
   const bool write_file = myproc % ioproc_every == 0;
   assert((myioproc == myproc) == write_file);
-  // If process 1 exists and if it is not an I/O process, then output
-  // metadata there. Else output metadata on process 0.
   const int metafile_ioproc = nprocs == 1 || ioproc_every == 1 ? 0 : 1;
   const bool write_metafile = myproc == metafile_ioproc;
 
-  // Configure Silo library
   DBShowErrors(DB_ALL_AND_DRVR, nullptr);
-  // DBSetAllowEmptyObjects(1);
   DBSetCompression(out_silo_compression_options);
   DBSetEnableChecksums(1);
 
-  // TODO: directories instead of carefully chosen names
-
   constexpr int ndims = dim;
 
-  // At an unsynchronized subcycling checkpoint the coarse source bands hold
-  // the in-progress coarse step (u(t_n) and the stage derivatives), which
-  // exists nowhere else and must be serialized. Otherwise the on-disk format
-  // is unchanged.
   const bool write_bands = !all_levels_synchronized();
 
-  // 2D slice output maps a physical coord to an index via (coord - x0)/dx,
-  // which is undefined on a non-Cartesian patch. Reject up front so every loop
-  // below can assume slice ⟹ all-Cartesian. is_cartesian is identical on every
-  // rank, so this scan is collective-safe.
   if (slice) {
     for (const auto &patchdata : ghext->patchdata)
       if (!patchdata.is_cartesian)
@@ -1147,11 +1019,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
   static Timer timer_data("OutputSilo.data");
   auto interval_data = std::make_unique<Interval>(timer_data);
 
-  // Global coordinate extents for each component
   std::vector<std::vector<std::vector<std::array<CCTK_REAL, dim> > > >
       coordinate_minima, coordinate_maxima;
 
-  // Write data
   {
     static Timer timer_mkdir("OutputSilo.mkdir");
     auto interval_mkdir = std::make_unique<Interval>(timer_mkdir);
@@ -1172,8 +1042,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
       const std::string filename =
           pathname + "/" +
           make_filename(output_file, cctk_iteration, myproc / ioproc_every);
-      // assert(filename.size() < 256);
-      // assert(output_file.size() < 256);
       file = DB::make(DBCreate(filename.c_str(), DB_CLOBBER, DB_LOCAL,
                                output_file.c_str(), DB_HDF5));
       assert(file);
@@ -1181,7 +1049,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
     if (write_file) {
       {
-        char *const data = IOUtil_GetAllParameters(cctkGH, 1 /*all*/);
+        char *const data = IOUtil_GetAllParameters(cctkGH, 1);
         const std::string parameters(data);
         std::free(data);
         const int dims = parameters.length();
@@ -1190,7 +1058,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         assert(!ierr);
       }
 
-      { // Tell VisIt that the mesh structure may change over time
+      {
         const int dims = 1;
         const int value = 1;
         ierr = DBWrite(file.get(), "MetadataIsTimeVarying", &value, &dims, 1,
@@ -1202,7 +1070,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
     coordinate_minima.resize(ghext->patchdata.size());
     coordinate_maxima.resize(ghext->patchdata.size());
 
-    // Loop over patches
     for (const auto &patchdata : ghext->patchdata) {
 
       if (!patchdata.is_cartesian) {
@@ -1212,7 +1079,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
             .resize(patchdata.leveldata.size());
       }
 
-      // Loop over levels
       for (const auto &leveldata : patchdata.leveldata) {
 
         const amrex::DistributionMapping &dm = leveldata.fab->DistributionMap();
@@ -1227,19 +1093,16 @@ void OutputSilo(const cGH *restrict const cctkGH,
               .resize(ncomponents);
         }
 
-        // Loop over groups
         std::set<mesh_props_t> have_meshes;
         for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
           if (!output_group.at(gi))
             continue;
-          // TODO: Output grid arrays
           if (CCTK_GroupTypeI(gi) != CCTK_GF)
             continue;
 
           const auto &groupdata = *leveldata.groupdata.at(gi);
           if (groupdata.mfab.empty())
             continue;
-          // TODO: Check that group has the default number of ghost zones
           const int numvars = groupdata.numvars;
           const int tl = 0;
           const amrex::MultiFab &mfab = *groupdata.mfab[tl];
@@ -1250,7 +1113,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
           const mesh_props_t mesh_props{nghosts};
           const bool have_mesh = have_meshes.count(mesh_props);
 
-          // Loop over components (AMReX boxes)
           for (int component = 0; component < ncomponents; ++component) {
             const int proc = dm[component];
             const int ioproc = proc / ioproc_every * ioproc_every;
@@ -1259,48 +1121,35 @@ void OutputSilo(const cGH *restrict const cctkGH,
             if (!(send_this_fab || write_this_fab))
               continue;
 
-            // TODO: Check whether data are valid
-            const amrex::Box &fabbox = mfab.fabbox(component); // exterior
+            const amrex::Box &fabbox = mfab.fabbox(component);
 
-            // Exterior (source) half-open bounds. The variable `data` array is
-            // always shaped by this box, whether the local fab pointer or an
-            // MPI receive buffer.
             const Arith::vect<int, 3> ext_lo{
                 fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
             const Arith::vect<int, 3> ext_hi{fabbox.bigEnd(0) + 1,
                                              fabbox.bigEnd(1) + 1,
                                              fabbox.bigEnd(2) + 1};
 
-            // Number of zones in the full exterior box. Used for MPI send/recv
-            // sizing and for indexing into the (un-sliced) `data` array.
             std::ptrdiff_t src_zonecount = 1;
             for (int d = 0; d < ndims; ++d)
               src_zonecount *= ext_hi[d] - ext_lo[d];
             assert(src_zonecount >= 0 && src_zonecount <= INT_MAX);
 
-            // Geometry for this (patch, level): index 0 sits at the Cartesian
-            // coordinate x0[d], with cell size dx[d].
             const amrex::Geometry &geom =
                 patchdata.amrcore->Geom(leveldata.level);
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
 
-            // Restrict to a thickness-1 slab when slicing. sub_lo/sub_hi
-            // default to the full exterior box, so the non-slice path is
-            // unchanged.
             Arith::vect<int, 3> sub_lo = ext_lo, sub_hi = ext_hi;
             const int slice_n = slice ? slice->normal_dir : -1;
             if (slice) {
               const auto r =
                   slice_slab(mfab, component, x0, dx, indextype, *slice);
               if (!r)
-                continue; // component does not intersect the plane
+                continue;
               sub_lo = r->first;
               sub_hi = r->second;
             }
 
-            // Mesh dimensions: the slab shape (== exterior shape when not
-            // slicing).
             std::array<int, ndims> dims;
             for (int d = 0; d < ndims; ++d)
               dims[d] = sub_hi[d] - sub_lo[d];
@@ -1325,23 +1174,15 @@ void OutputSilo(const cGH *restrict const cctkGH,
               if (patchdata.is_cartesian) {
                 for (int d = 0; d < ndims; ++d) {
                   coords[d].resize(dims_vc[d]);
-                  // sub_lo[d] == fabbox.smallEnd(d) for in-plane axes; for the
-                  // sliced normal axis it is the plane index, so the slab's
-                  // single coordinate plane is placed correctly.
                   for (int i = 0; i < dims_vc[d]; ++i)
                     coords[d][i] = x0[d] + (sub_lo[d] + i) * dx[d];
                 }
                 for (int d = 0; d < ndims; ++d)
                   coord_ptrs[d] = coords[d].data();
               } else {
-                // Find the vertex-centred coordinate grid functions
-                // Silo always wants vertex-centred coordinates.
                 const int coordinate_group =
                     CCTK_GroupIndex("CoordinatesX::vertex_coords");
                 assert(coordinate_group >= 0);
-                // TODO: We may need to send the coordinates across
-                // the network. We don't do this yet, so assert that
-                // we actually have the coordinates stored locally.
                 assert(send_this_fab && write_this_fab);
                 assert(leveldata.groupdata.at(coordinate_group)->nghostzones ==
                        groupdata.nghostzones);
@@ -1387,7 +1228,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
               std::array<int, ndims> min_index, max_index;
               for (int d = 0; d < ndims; ++d) {
-                // The thickness-1 slab carries no ghosts along the normal.
                 const int ng = (slice && d == slice_n) ? 0 : nghosts[d];
                 min_index[d] = ng;
                 max_index[d] = ng;
@@ -1404,9 +1244,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   DBAddOption(optlist.get(), DBOPT_MAJORORDER, &column_major);
               assert(!ierr);
 
-              // float time = cctk_time;
-              // ierr = DBAddOption(optlist.get(), DBOPT_TIME, &time);
-              // assert(!ierr);
               double dtime = cctk_time;
               ierr = DBAddOption(optlist.get(), DBOPT_DTIME, &dtime);
               assert(!ierr);
@@ -1426,12 +1263,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
               assert(!ierr);
 
               have_meshes.insert(mesh_props);
-            } // if write mesh
+            }
 
-            // Communicate variable
             static Timer timer_mpi("OutputSilo.mpi");
             auto interval_mpi = std::make_unique<Interval>(timer_mpi);
-            const int mpi_tag = 22900; // randomly chosen
+            const int mpi_tag = 22900;
             std::vector<CCTK_REAL> buffer;
             const CCTK_REAL *data = nullptr;
             if (send_this_fab && write_this_fab) {
@@ -1452,7 +1288,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
             }
             interval_mpi = nullptr;
 
-            // Write variable
             if (write_file) {
               static Timer timer_var("OutputSilo.var");
               Interval interval_var(timer_var);
@@ -1493,9 +1328,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   DBAddOption(optlist.get(), DBOPT_MAJORORDER, &column_major);
               assert(!ierr);
 
-              // float time = cctk_time;
-              // ierr = DBAddOption(optlist.get(), DBOPT_TIME, &time);
-              // assert(!ierr);
               double dtime = cctk_time;
               ierr = DBAddOption(optlist.get(), DBOPT_DTIME, &dtime);
               assert(!ierr);
@@ -1506,19 +1338,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
               assert(!ierr);
 
               if (centering == DB_EDGECENT || centering == DB_FACECENT) {
-                // Need to find the other 2 edge- or face-centered
-                // variables, and output them as well. Maybe output all
-                // 3 when the x- or xy-centered value is output? Maybe
-                // add a "sibling" tag to such grid functions to find
-                // these other components?
                 assert(0);
               }
 
-              // A thickness-1 slab is contiguous only for the xy plane (normal
-              // = z, the slowest axis); xz/yz planes are strided. Extract each
-              // variable's slab from the exterior-shaped `data` into a
-              // contiguous buffer before handing it to Silo. `zonecount` is the
-              // slab count (== src_zonecount when not slicing).
               std::vector<CCTK_REAL> slab;
               if (slice)
                 slab.resize(zonecount);
@@ -1539,17 +1361,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
                     file.get(), varname.c_str(), meshname.c_str(), data_ptr,
                     dims.data(), ndims, nullptr, 0, db_datatype_v<CCTK_REAL>,
                     centering, optlist.get());
-              } // for vi
-            } // if write_file
+              }
+            }
 
-          } // for component
+          }
 
-          // Subcycling coarse source bands: zero-ghost MultiFabs in this
-          // level's index space with their own DistributionMap, so each gets
-          // its own component loop. Geometry is rebuilt on recovery; we
-          // serialize only the data, namespaced by a band tag. Present on
-          // every level with children. 2D slice output covers only the main
-          // grid data, so bands are skipped entirely when slicing.
           if (write_bands && !slice) {
             const int centering = [&]() {
               const int rank = indextype.cellCentered(0) +
@@ -1593,7 +1409,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   continue;
 
                 const amrex::Box &fabbox =
-                    band->fabbox(component); // zero ghost
+                    band->fabbox(component);
 
                 std::array<int, ndims> dims;
                 for (int d = 0; d < ndims; ++d)
@@ -1603,7 +1419,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   zonecount *= dims[d];
                 assert(zonecount >= 0 && zonecount <= INT_MAX);
 
-                // Write the band mesh (zero ghost => no LO/HI offset).
                 if (write_file) {
                   const std::string meshname =
                       make_meshname(band_nghosts, patchdata.patch,
@@ -1659,8 +1474,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   assert(!ierr);
                 }
 
-                // Communicate the band fab to the I/O process.
-                const int mpi_tag = 22902; // randomly chosen, band path
+                const int mpi_tag = 22902;
                 std::vector<CCTK_REAL> buffer;
                 const CCTK_REAL *data = nullptr;
                 if (send_this_fab && write_this_fab) {
@@ -1681,7 +1495,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   data = buffer.data();
                 }
 
-                // Write the band variables.
                 if (write_file) {
                   const std::string meshname =
                       make_meshname(band_nghosts, patchdata.patch,
@@ -1718,9 +1531,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
                         dims.data(), ndims, nullptr, 0,
                         db_datatype_v<CCTK_REAL>, centering, optlist.get());
                     assert(!ierr);
-                  } // for vi
-                } // if write_file
-              } // for band component
+                  }
+                }
+              }
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
@@ -1730,21 +1543,16 @@ void OutputSilo(const cGH *restrict const cctkGH,
             write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                       band_kind::old_source),
                        band_kind::old_source, -1);
-            // The child's flux register (partially accumulated mid-cycle):
-            // six zero-ghost face MultiFabs in this level's index space,
-            // nodal in their own direction. They are serialized like the
-            // bands above, as thickness-1 slabs with the group's (zone)
-            // centering; the mesh is hidden and only the data round-trips.
             for (int f = 0; f < 2 * dim; ++f)
               write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
                                         band_kind::flux_register, f),
                          band_kind::flux_register, f);
-          } // if write_bands
+          }
 
-        } // for gi
-      } // for leveldata
-    } // for patchdata
-  } // write data
+        }
+      }
+    }
+  }
 
   for (const auto &patchdata : ghext->patchdata) {
     if (!patchdata.is_cartesian) {
@@ -1777,7 +1585,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
   static Timer timer_meta("OutputSilo.meta");
   auto interval_meta = std::make_unique<Interval>(timer_meta);
 
-  // Write metadata
   if (write_metafile) {
 
     const std::string metafilename = std::string(output_dir) + "/" +
@@ -1788,7 +1595,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
     assert(metafile);
 
     {
-      char *const data = IOUtil_GetAllParameters(cctkGH, 1 /*all*/);
+      char *const data = IOUtil_GetAllParameters(cctkGH, 1);
       const std::string parameters(data);
       std::free(data);
       const int dims = parameters.length();
@@ -1798,7 +1605,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
     }
 
     {
-      // Tell VisIt that the mesh structure may change over time
       const int dims = 1;
       const int value = 1;
       ierr = DBWrite(metafile.get(), "MetadataIsTimeVarying", &value, &dims, 1,
@@ -1806,14 +1612,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
       assert(!ierr);
     }
 
-    // Loop over groups
-    // Map each shared multimesh to its block count so the multivar block below
-    // can check that every slice multivar references the same number of blocks.
     std::map<mesh_props_t, std::size_t> mesh_nblocks;
     for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
       if (!output_group.at(gi))
         continue;
-      // TODO: Output grid arrays
       if (CCTK_GroupTypeI(gi) != CCTK_GF)
         continue;
 
@@ -1832,11 +1634,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
       if (!have_mesh) {
         const std::string multimeshname = make_meshname(nghosts);
 
-        // The AMR MRG tree enumerates all components unconditionally; a slice
-        // writes only intersecting ones, so the tree would dangle. Slices get
-        // a flat multimesh with no MRG tree.
         if (!slice) {
-          // Count components
           const int nlevels = ghext->num_levels();
           const int npatches = ghext->num_patches();
           std::vector<int> comp0_level(nlevels);
@@ -1866,8 +1664,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
             ncomps_level.at(level) = ncomps_total - comp0_level.at(level);
           }
 
-          // Describe which components belong to which level
-          // Question: Can this name be changed?
           const std::string levelmaps_name =
               multimeshname + "_wmrgtree_lvlMaps";
           {
@@ -1901,8 +1697,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
             assert(!ierr);
           }
 
-          // Describe which components are children of which other components
-          // Question: Can this name be changed?
           const std::string childmaps_name =
               multimeshname + "_wmrgtree_chldMaps";
           std::vector<int> num_children;
@@ -1931,7 +1725,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   const amrex::BoxArray &fine_boxarray = fine_mfab.boxarray;
 
                   for (int component = 0; component < ncomps; ++component) {
-                    const amrex::Box &box = mfab.box(component); // interior
+                    const amrex::Box &box = mfab.box(component);
                     amrex::Box refined_box(box);
                     refined_box.refine(2);
                     const std::vector<std::pair<int, amrex::Box> > child_boxes =
@@ -1948,15 +1742,14 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   }
 
                 } else {
-                  // no finer level, hence no children
                   const int ncomps = ncomps_level.at(level);
                   for (int component = 0; component < ncomps; ++component) {
                     segment_types.push_back(DB_BLOCKCENT);
                     segment_data.emplace_back();
                   }
                 }
-              } // loop over all levels
-            } // loop over all patches
+              }
+            }
 
             std::vector<int> &segment_lengths = num_children;
             std::vector<const int *> segment_data_ptrs;
@@ -1974,14 +1767,12 @@ void OutputSilo(const cGH *restrict const cctkGH,
             assert(!ierr);
           }
 
-          // Create Mrgtree
           {
             const int max_mgrtree_children = 2;
             const DB::ptr<DBmrgtree> mrgtree = DB::make(
                 DBMakeMrgtree(DB_MULTIMESH, 0, max_mgrtree_children, nullptr));
             assert(mrgtree);
 
-            // Describe AMR configuration
             const int max_amr_decomp_children = 2;
             ierr = DBAddRegion(mrgtree.get(), "amr_decomp", 0,
                                max_amr_decomp_children, nullptr, 0, nullptr,
@@ -1990,7 +1781,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
             ierr = DBSetCwr(mrgtree.get(), "amr_decomp");
             assert(ierr >= 0);
 
-            // Describe AMR levels
             {
               ierr = DBAddRegion(mrgtree.get(), "levels", 0, nlevels, nullptr,
                                  0, nullptr, nullptr, nullptr, nullptr);
@@ -2024,7 +1814,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
               assert(ierr >= 0);
             }
 
-            // Describe AMR children
             {
               ierr =
                   DBAddRegion(mrgtree.get(), "patches", 0, ncomps_total,
@@ -2082,7 +1871,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
             }
           }
 
-          // Write refinement ratios
           {
             const std::string levelrationame =
                 multimeshname + "_wmrgtree_lvlRatios";
@@ -2115,11 +1903,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
                                nullptr);
             assert(!ierr);
           }
-        } // if !slice (MRG tree)
+        }
 
-        // Extents feed the multimesh DBOPT_EXTENTS option, so this runs for
-        // both slice and non-slice output; for a slice it is filtered to the
-        // slab.
         typedef std::array<std::array<int, ndims>, 2> iextent_t;
         typedef std::array<std::array<CCTK_REAL, ndims>, 2> extent_t;
         std::vector<iextent_t> iextents;
@@ -2137,7 +1922,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
               const amrex::Real *const x0 = geom.ProbLo();
               const amrex::Real *const dx = geom.CellSize();
               for (int c = 0; c < ncomponents; ++c) {
-                const amrex::Box &fabbox = mfab.fabbox(c); // exterior
+                const amrex::Box &fabbox = mfab.fabbox(c);
                 Arith::vect<int, 3> sub_lo{
                     fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
                 Arith::vect<int, 3> sub_hi{fabbox.bigEnd(0) + 1,
@@ -2146,7 +1931,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 if (slice) {
                   const auto r = slice_slab(mfab, c, x0, dx, indextype, *slice);
                   if (!r)
-                    continue; // skip components that miss the plane
+                    continue;
                   sub_lo = r->first;
                   sub_hi = r->second;
                 }
@@ -2161,16 +1946,14 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 iextents.push_back(iextent);
                 extents.push_back(extent);
               }
-            } else { // if !patchdata.is_cartesian)
-              // The function-entry guard rejects non-Cartesian slices, so this
-              // branch is unreachable for slices and needs no slice_slab skip.
+            } else {
               assert(!slice);
               const auto &minima =
                   coordinate_minima.at(patchdata.patch).at(leveldata.level);
               const auto &maxima =
                   coordinate_maxima.at(patchdata.patch).at(leveldata.level);
               for (int c = 0; c < ncomponents; ++c) {
-                const amrex::Box &fabbox = mfab.fabbox(c); // exterior
+                const amrex::Box &fabbox = mfab.fabbox(c);
                 iextent_t iextent;
                 extent_t extent;
                 for (int d = 0; d < ndims; ++d) {
@@ -2182,12 +1965,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 iextents.push_back(iextent);
                 extents.push_back(extent);
               }
-            } // if !patchdata.is_cartesian)
+            }
           }
         }
 
-        // Write extents (MRG block; omitted for slices). Non-slice:
-        // iextents.size() == ncomps_total.
         if (!slice) {
           const int ncomps = int(iextents.size());
           const std::string iextentsname = multimeshname + "_wmrgtree_ijkExts";
@@ -2195,8 +1976,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
           const std::vector<std::string> icompnames{"iMin", "iMax", "jMin",
                                                     "jMax", "kMin", "kMax"};
-          // TODO: These are local coordinates -- are they useful? Should they
-          // be omitted? Look at `patchdata.is_cartesian`.
           const std::vector<std::string> compnames{"xMin", "xMax", "yMin",
                                                    "yMax", "zMin", "zMax"};
           std::vector<const char *> icompname_ptrs;
@@ -2251,7 +2030,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
                              data_ptrs.data(), nullptr);
           assert(!ierr);
 
-          // Write rank
           const std::vector<int> ranks(ncomps, ndims);
           const std::vector<const void *> rank_ptrs{ranks.data()};
           ierr = DBPutMrgvar(metafile.get(), "rank", "mrgTree", 1, nullptr,
@@ -2259,8 +2037,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
                              rank_ptrs.data(), nullptr);
           assert(!ierr);
         }
-
-        // Write multimesh
 
         std::vector<std::string> meshnames;
         for (const auto &patchdata : ghext->patchdata) {
@@ -2275,7 +2051,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
             const amrex::Real *const dx = geom.CellSize();
             for (int c = 0; c < ncomponents; ++c) {
               if (slice && !slice_slab(mfab, c, x0, dx, indextype, *slice))
-                continue; // skip components that miss the plane
+                continue;
               const int proc = dm[c];
               const std::string proc_filename =
                   make_subdirname(output_file, cctk_iteration) + "/" +
@@ -2300,9 +2076,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
         ierr = DBAddOption(optlist.get(), DBOPT_CYCLE, &cycle);
         assert(!ierr);
 
-        // float time = cctk_time;
-        // ierr = DBAddOption(optlist.get(), DBOPT_TIME, &time);
-        // assert(!ierr);
         double dtime = cctk_time;
         ierr = DBAddOption(optlist.get(), DBOPT_DTIME, &dtime);
         assert(!ierr);
@@ -2312,8 +2085,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
         assert(!ierr);
 
         int extents_size = 2 * ndims;
-        // This needs to have type `double`, even if everything else is
-        // `float`
         typedef std::array<std::array<double, ndims>, 2> dextent_t;
 #ifdef CCTK_REAL_PRECISION_8
         std::vector<dextent_t> &dextents = extents;
@@ -2348,7 +2119,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
             for (int c = 0; c < ncomponents; ++c) {
-              const amrex::Box &fabbox = mfab.fabbox(c); // exterior
+              const amrex::Box &fabbox = mfab.fabbox(c);
               Arith::vect<int, 3> sub_lo{fabbox.smallEnd(0), fabbox.smallEnd(1),
                                          fabbox.smallEnd(2)};
               Arith::vect<int, 3> sub_hi{fabbox.bigEnd(0) + 1,
@@ -2357,7 +2128,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
               if (slice) {
                 const auto r = slice_slab(mfab, c, x0, dx, indextype, *slice);
                 if (!r)
-                  continue; // skip components that miss the plane
+                  continue;
                 sub_lo = r->first;
                 sub_hi = r->second;
               }
@@ -2376,7 +2147,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
         ierr = DBAddOption(optlist.get(), DBOPT_ZONECOUNTS, zonecounts.data());
         assert(!ierr);
 
-        // The multimesh references the MRG tree only when one was written.
         const std::string mrgtreename = "mrgtree";
         if (!slice) {
           ierr = DBAddOption(optlist.get(), DBOPT_MRGTREE_NAME,
@@ -2390,9 +2160,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
         assert(!ierr);
 
         mesh_nblocks[mesh_props] = meshname_ptrs.size();
-      } // if write multimesh
+      }
 
-      // Write multivar
       {
         const std::string multimeshname = make_meshname(nghosts);
 
@@ -2403,9 +2172,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
         ierr = DBAddOption(optlist.get(), DBOPT_CYCLE, &cycle);
         assert(!ierr);
 
-        // float time = cctk_time;
-        // ierr = DBAddOption(optlist.get(), DBOPT_TIME, &time);
-        // assert(!ierr);
         double dtime = cctk_time;
         ierr = DBAddOption(optlist.get(), DBOPT_DTIME, &dtime);
         assert(!ierr);
@@ -2438,9 +2204,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
               const amrex::Real *const x0 = geom.ProbLo();
               const amrex::Real *const dx = geom.CellSize();
               for (int c = 0; c < ncomponents; ++c) {
-                // Same guard as the multimesh loops, keeping multivar aligned.
                 if (slice && !slice_slab(mfab, c, x0, dx, indextype, *slice))
-                  continue; // skip components that miss the plane
+                  continue;
                 const int proc = dm[c];
                 const std::string proc_filename =
                     make_subdirname(output_file, cctk_iteration) + "/" +
@@ -2458,10 +2223,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
           for (const auto &varname : varnames)
             varname_ptrs.push_back(varname.c_str());
 
-          // A slice multimesh and every multivar referencing it must enumerate
-          // the same block set; a divergence means block membership has become
-          // centering-dependent. Abort rather than emit a file VisIt cannot
-          // read. Collective-safe (identical on every rank).
           if (slice) {
             const std::size_t nmesh = mesh_nblocks.at(mesh_props);
             if (varname_ptrs.size() != nmesh)
@@ -2480,18 +2241,16 @@ void OutputSilo(const cGH *restrict const cctkGH,
                                varname_ptrs.size(), varname_ptrs.data(),
                                nullptr, optlist.get());
           assert(!ierr);
-        } // for vi
-      } // write multivar
+        }
+      }
 
-    } // for gi
+    }
 
-    // Write internal driver state
     {
       const std::string dirname = DB::legalize_name(driver_name);
       ierr = DBMkDir(metafile.get(), dirname.c_str());
       assert(!ierr);
 
-      // Write number of levels
       {
         const auto num_patches = ghext->num_patches();
 
@@ -2509,14 +2268,13 @@ void OutputSilo(const cGH *restrict const cctkGH,
         assert(!ierr);
       }
 
-      // Write FabArrayBase (component positions and shapes)
       for (const auto &patchdata : ghext->patchdata) {
         for (const auto &leveldata : patchdata.leveldata) {
           const amrex::FabArrayBase &fab = *leveldata.fab;
           const int ncomponents = fab.size();
           std::vector<int> boxes(2 * ndims * ncomponents);
           for (int component = 0; component < ncomponents; ++component) {
-            const amrex::Box &fabbox = fab.box(component); // valid region
+            const amrex::Box &fabbox = fab.box(component);
             for (int d = 0; d < ndims; ++d)
               boxes[d + 2 * ndims * component] = fabbox.smallEnd(d);
             for (int d = 0; d < ndims; ++d)
@@ -2532,7 +2290,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
         }
       }
 
-      // Write per-level iteration as rational (numerator/denominator)
       for (const auto &patchdata : ghext->patchdata) {
         for (const auto &leveldata : patchdata.leveldata) {
           {
@@ -2559,7 +2316,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
                            DB_LONG_LONG);
             assert(!ierr);
           }
-          // Write the per-level last-step iteration
           {
             const std::string varname =
                 dirname + "/" +
@@ -2619,7 +2375,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
       OutputMeta_RegisterOutputFile(std::move(ofd));
     }
 
-  } // if write metadata
+  }
 
   interval_meta = nullptr;
 
