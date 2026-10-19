@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import tempfile
 
-from tokens import Kind, Token
+from tokens import Kind, LexError, Token
 
 CLANG = "clang++"
 CLANG_ARGS = ["-x", "c++", "-std=c++20", "-w", "-fsyntax-only", "-Xclang", "-dump-raw-tokens"]
@@ -21,10 +21,6 @@ HAS_INCLUDE = {b"__has_include", b"__has_include_next"}
 
 
 class ToolMissing(RuntimeError):
-    pass
-
-
-class LexError(RuntimeError):
     pass
 
 

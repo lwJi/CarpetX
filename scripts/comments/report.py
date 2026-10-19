@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from rules import Violation
+from tokens import DIRECTIVE_PLACEMENTS
 
 RULE = (
     'Thorn files allow no comments (see "Code comments" in CLAUDE.md).\n'
@@ -10,6 +11,9 @@ EXCERPT_WIDTH = 72
 
 
 def excerpt(v: Violation) -> str:
+    if v.region.placement in DIRECTIVE_PLACEMENTS:
+        code = v.region.code
+        return code[:EXCERPT_WIDTH] + ("…" if len(code) > EXCERPT_WIDTH else "")
     lines = v.token.text.strip().splitlines() or [""]
     first = lines[0].strip()
     more = len(lines) > 1 or len(first) > EXCERPT_WIDTH or v.region.text.strip() != v.token.text.strip()

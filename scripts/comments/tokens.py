@@ -5,6 +5,10 @@ from enum import Enum
 from typing import Iterable
 
 
+class LexError(RuntimeError):
+    pass
+
+
 class Kind(Enum):
     CODE = "code"
     SPACE = "space"
@@ -25,6 +29,11 @@ class Placement(Enum):
     WHOLE_LINE = "whole-line"
     TRAILING = "trailing"
     INLINE = "inline"
+    GUARD = "constant guard"
+    MESSAGE = "compile-time message"
+
+
+DIRECTIVE_PLACEMENTS = (Placement.GUARD, Placement.MESSAGE)
 
 
 @dataclass(frozen=True)
@@ -45,6 +54,16 @@ class Region:
     @property
     def text(self) -> str:
         return join(self.tokens)
+
+    @property
+    def code(self) -> str:
+        pieces: list[str] = []
+        for t in self.tokens:
+            if t.kind in (Kind.CODE, Kind.DIRECTIVE):
+                pieces.append(t.text)
+            elif pieces and pieces[-1] != " ":
+                pieces.append(" ")
+        return "".join(pieces).strip()
 
 
 def join(tokens: Iterable[Token]) -> str:

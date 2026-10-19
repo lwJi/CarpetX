@@ -1,0 +1,33 @@
+name: Comments
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{github.workflow}}-${{github.head_ref || github.ref}}
+  cancel-in-progress: ${{github.event_name == 'pull_request'}}
+
+jobs:
+  no-comments:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install clang
+        run: |
+          command -v clang++ || { sudo apt-get update && sudo apt-get install --yes --no-install-recommends clang; }
+          clang++ --version
+
+      - name: Test scripts/comments
+        run: python3 -m unittest discover -s scripts/comments
+
+      - name: Check thorn files for comments
+        run: python3 scripts/comments check

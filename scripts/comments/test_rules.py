@@ -7,12 +7,13 @@ from unittest import mock
 import lex_clang
 from files import Lang
 from rules import check, check_text
+from tokens import Placement
 
 HAVE_CLANG = shutil.which(lex_clang.CLANG) is not None
 
 
-def violations(text):
-    return [v.region.text for v in check_text(text, Lang.CXX)]
+def violations(text, lang=Lang.CXX):
+    return [v.region.text for v in check_text(text, lang)]
 
 
 def in_a_function(comment):
@@ -146,6 +147,78 @@ class EverythingElse(unittest.TestCase):
 
     def test_check_takes_tokens(self):
         self.assertEqual([v.region.text for v in check(lex_clang.lex("int a; // x\n"), Lang.CXX)], ["// x"])
+
+
+@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
+class GuardsAndMessages(unittest.TestCase):
+    def test_constant_guards_and_messages_are_violations(self):
+        found = check_text('#if 0\nint a;\n#endif\n#warning "TODO: Restrict"\n#pragma message("x")\n', Lang.CXX)
+        self.assertEqual([(v.line, v.region.code) for v in found],
+                         [(1, "#if 0"), (4, '#warning "TODO: Restrict"'), (5, '#pragma message("x")')])
+
+    def test_comments_in_and_on_a_guard_are_reported_too(self):
+        found = check_text("#if 0 // old\n// int a;\n#endif\n", Lang.CXX)
+        self.assertEqual([(v.line, v.region.placement) for v in found],
+                         [(1, Placement.GUARD), (1, Placement.TRAILING), (2, Placement.WHOLE_LINE)])
+
+    def test_a_citation_does_not_excuse_a_guard(self):
+        self.assertEqual(len(check_text("#if 0 // arXiv:1111.2177\n#endif\n", Lang.CXX)), 1)
+
+    def test_error_and_other_pragmas_stay(self):
+        self.assertEqual(violations('#error "Particles requires MPI support for I/O"\n#pragma omp parallel\n'), [])
+
+    def test_a_file_with_only_a_guard_is_lexed(self):
+        self.assertEqual(len(check_text("#if 0\nint a;\n#endif\n", Lang.CXX)), 1)
+        self.assertEqual(len(check_text('_Pragma("message(\\"x\\")")\n', Lang.CXX)), 1)
+
+
+class HashLanguages(unittest.TestCase):
+    def test_every_comment_is_a_violation(self):
+        self.assertEqual(violations("# Parameter definitions\nINT a \"a\"\n{\n} 1 # why\n", Lang.PARAM),
+                         ["# Parameter definitions", "# why"])
+        self.assertEqual(violations("# a\n# b\nSRCS = x.cxx\n", Lang.MAKE), ["# a\n# b"])
+        self.assertEqual(violations("  ! a\n  x = 1 ! b\n", Lang.FORTRAN), ["! a", "! b"])
+        self.assertEqual(violations("/* a */ SCHEDULE X AT Y\n", Lang.SCHEDULE), ["/* a */"])
+
+    def test_commented_out_schedule_blocks_are_one_run(self):
+        text = "# SCHEDULE A AT b\n# {\n#   LANG: C\n# } \"a\"\n# \n# SCHEDULE B AT c\n# {\n# } \"b\"\n\nSCHEDULE C AT d\n"
+        found = check_text(text, Lang.SCHEDULE)
+        self.assertEqual([(v.line, v.region.text.count("\n") + 1) for v in found], [(1, 8)])
+
+    def test_a_bare_hash_is_a_comment_and_does_not_end_a_run(self):
+        self.assertEqual(violations("A::b = 1\n#\nA::c = 2\n", Lang.PAR), ["#"])
+        self.assertEqual(violations("# See <https://example.org/x>\n#\n# prose\nA::b = 1\n", Lang.PAR),
+                         ["# See <https://example.org/x>\n#\n# prose"])
+
+    def test_citations_are_allowed(self):
+        for lang, comment in [
+            (Lang.PARAM, "  # See <https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods>"),
+            (Lang.PAR, "# arXiv:1111.2177 [gr-qc], (74-75)"),
+            (Lang.MAKE, "# doi:10.1016/0021-9991(88)90177-5"),
+            (Lang.FORTRAN, "  ! https://example.org/paper"),
+            (Lang.SCHEDULE, "/* arXiv:1111.2177 */"),
+        ]:
+            with self.subTest(lang=lang):
+                self.assertEqual(violations(comment + "\nx\n", lang), [])
+
+    def test_prose_next_to_a_url_is_not_a_citation(self):
+        text = "# -ksp_type {bcgs|bcgsl|gmres|...}   <https://www.mcs.anl.gov/petsc/KSPType.html>\n"
+        self.assertEqual(len(violations(text, Lang.PARAM)), 1)
+
+    def test_tool_markers_are_c_and_c_plus_plus_only(self):
+        self.assertEqual(violations("} # namespace X\n", Lang.PARAM), ["# namespace X"])
+        self.assertEqual(violations("# clang-format off\n", Lang.PARAM), ["# clang-format off"])
+
+    def test_par_string_comments(self):
+        text = 'ActiveThorns = "\n    # SystemTopology\n    ADMBase  # why\n"\n'
+        found = check_text(text, Lang.PAR)
+        self.assertEqual([(v.line, v.region.placement, v.region.text) for v in found],
+                         [(2, Placement.WHOLE_LINE, "# SystemTopology"), (3, Placement.TRAILING, "# why")])
+
+    def test_no_opener_skips_the_lexer(self):
+        with mock.patch("rules.lex", side_effect=AssertionError("lexed")):
+            self.assertEqual(check_text("SCHEDULE X AT Y\n{\n} \"x\"\n", Lang.SCHEDULE), [])
+            self.assertEqual(check_text("x = 1 # not Fortran\n", Lang.FORTRAN), [])
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ import hooks
 import lex_clang
 from files import PROJECT, Lang
 from hooks import added, simulate_edit
+from test_files import ISOLATED_GIT, git
 
 HAVE_CLANG = shutil.which(lex_clang.CLANG) is not None
 TOOL = os.path.dirname(os.path.abspath(__file__))
@@ -92,6 +93,29 @@ class Added(unittest.TestCase):
 
     def test_an_allowed_comment_is_not_added(self):
         self.assertEqual(self.texts("int a;\n", "namespace X {\nint a;\n} // namespace X\n"), [])
+
+    def test_a_new_guard_or_message_is_added(self):
+        self.assertEqual(self.texts("int a;\n", "#if 0\nint a;\n#endif\n"), [(1, "#")])
+        self.assertEqual(self.texts("int a;\n", '#warning "x"\nint a;\n'), [(1, "#")])
+        self.assertEqual(len(added("#if 0\nint a;\n#endif\n", "#if 0\nint a;\n#endif\n#if 0\n#endif\n", Lang.CXX)), 1)
+
+    def test_an_existing_guard_is_not_the_edit_s(self):
+        before = "#if 0\nint a;\n#endif\n#warning \"x\"\n"
+        self.assertEqual(self.texts(before, "#if 0\nint b;\nint c;\n#endif\n#warning \"x\"\n"), [])
+        self.assertEqual(self.texts(before, "#  if   0\nint a;\n#endif\n#warning   \"x\"\n"), [])
+        self.assertEqual(self.texts("#if 0\n#if 0\n#endif\n#endif\n", "#if 0\n#endif\n"), [])
+
+    def test_changing_a_guard_adds_one(self):
+        self.assertEqual(len(added("#if X\n#endif\n", "#if 1\n#endif\n", Lang.CXX)), 1)
+        self.assertEqual(len(added('#warning "x"\n', '#warning "y"\n', Lang.CXX)), 1)
+
+
+class AddedHash(unittest.TestCase):
+    def test_only_new_hash_comments_are_added(self):
+        before = "# header\nINT a \"a\"\n{\n} 1\n"
+        found = added(before, before + "# x\n", Lang.PARAM)
+        self.assertEqual([(v.line, v.token.text) for v in found], [(5, "# x")])
+        self.assertEqual(added(before, before.replace("1\n", "2\n"), Lang.PARAM), [])
 
 
 class Project(unittest.TestCase):
@@ -189,6 +213,17 @@ class HookEditWithoutClang(Project):
             output = self.edit("Thorn/src/a.cxx", "int a = 1;\n", "int a = 1; // why\n")
         self.assertEqual(self.skipped(output), "comment check skipped: clang++ not found on PATH")
 
+    def test_hash_languages_are_judged_without_clang(self):
+        write_files(self.root, {"Thorn/param.ccl": "# old\nINT n \"n\"\n{\n} 1\n"})
+        with mock.patch.dict(os.environ, {"PATH": ""}):
+            lines = self.denied(self.edit("Thorn/param.ccl", "} 1\n", "} 1 # why\n"))
+            self.assertEqual(lines[0], "Thorn/param.ccl:4   # why")
+            self.assertEqual(self.edit("Thorn/param.ccl", "} 1\n", "} 2\n"), "")
+            self.denied(self.write("Thorn/test/t.par", "A::b = 1\n# why\n"))
+            self.denied(self.write("Thorn/src/make.code.defn", "# why\nSRCS = a.cxx\n"))
+            self.denied(self.write("Thorn/src/f.F90", "x = 1 ! why\n"))
+            self.assertEqual(self.write("Thorn/test/t.par", "A::b = \"# not a comment\"\n"), "")
+
     def test_a_bad_payload_is_a_system_message(self):
         for payload in [
             "not json",
@@ -198,6 +233,134 @@ class HookEditWithoutClang(Project):
         ]:
             with self.subTest(payload=payload):
                 self.skipped(self.run_hook(payload))
+
+
+STOP_FILES = {
+    "Thorn/interface.ccl": "IMPLEMENTS: Thorn\n",
+    "Thorn/param.ccl": "# old prose\nINT n \"n\"\n{\n  *:* :: \"\"\n} 1\n",
+    "Thorn/src/a.cxx": "namespace Thorn {\nint a = 1; // old\n} // namespace Thorn\n",
+    "Thorn/src/make.code.defn": "SRCS = a.cxx\n",
+    "Thorn/test/t.par": "Thorn::n = 2\n",
+    "Thorn/README": "not covered\n",
+}
+
+
+class HookStop(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = os.path.realpath(tmp.name)
+        patcher = mock.patch.dict(os.environ, ISOLATED_GIT)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        git(self.root, "init", "-q", "-b", "dev")
+        self.commit(STOP_FILES)
+        git(self.root, "switch", "-q", "-c", "work")
+
+    def commit(self, files):
+        write_files(self.root, files)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "c")
+
+    def append(self, name, text):
+        with open(os.path.join(self.root, name), "a") as f:
+            f.write(text)
+
+    def run_hook(self, payload=None):
+        out = io.StringIO()
+        payload = {"hook_event_name": "Stop", "stop_hook_active": False} if payload is None else payload
+        raw = payload if isinstance(payload, str) else json.dumps(payload)
+        self.assertEqual(hooks.hook_stop(raw, out, root=self.root), 0)
+        return out.getvalue()
+
+    def blocked(self, output):
+        self.assertTrue(output, "the hook printed nothing")
+        decision = json.loads(output)
+        self.assertEqual(sorted(decision), ["decision", "reason"])
+        self.assertEqual(decision["decision"], "block")
+        return decision["reason"].split("\n")
+
+    def test_a_clean_branch_stops(self):
+        self.assertEqual(self.run_hook(), "")
+        self.commit({"Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"].replace("} 1", "} 2")})
+        self.assertEqual(self.run_hook(), "")
+
+    def test_a_comment_written_to_the_working_tree_blocks(self):
+        self.append("Thorn/param.ccl", "# x\n")
+        lines = self.blocked(self.run_hook())
+        self.assertEqual(lines[0], "Thorn/param.ccl:6   # x")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 comment")
+
+    def test_stop_hook_active_allows_the_stop(self):
+        self.append("Thorn/param.ccl", "# x\n")
+        self.assertEqual(self.run_hook({"hook_event_name": "Stop", "stop_hook_active": True}), "")
+        self.assertEqual(self.run_hook({"hook_event_name": "SubagentStop", "stop_hook_active": True}), "")
+        self.blocked(self.run_hook({"hook_event_name": "SubagentStop", "stop_hook_active": False}))
+
+    def test_a_comment_committed_on_the_branch_blocks(self):
+        self.commit({"Thorn/test/t.par": "Thorn::n = 2 # why\n"})
+        self.assertEqual(self.blocked(self.run_hook())[0], "Thorn/test/t.par:1   # why")
+
+    @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
+    def test_every_kind_of_file_is_checked(self):
+        self.append("Thorn/src/a.cxx", "#if 0\n#endif\n")
+        self.append("Thorn/src/make.code.defn", "# m\n")
+        write_files(self.root, {"Thorn/src/new.cxx": "int n; // n\n", "Thorn/schedule.ccl": "/* s */\n"})
+        lines = self.blocked(self.run_hook())
+        self.assertEqual(lines[:4], ["Thorn/schedule.ccl:1         /* s */", "Thorn/src/a.cxx:4            #if 0",
+                                     "Thorn/src/make.code.defn:2   # m", "Thorn/src/new.cxx:1          // n"])
+
+    @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
+    def test_comments_that_dev_already_has_are_not_reported(self):
+        self.append("Thorn/src/a.cxx", "int b = 2;\n")
+        self.commit({"Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"] + "INT m \"m\"\n{\n} 1\n"})
+        self.assertEqual(self.run_hook(), "")
+
+    def test_a_renamed_file_keeps_its_old_comments(self):
+        git(self.root, "mv", "Thorn/param.ccl", "Thorn/test/test.ccl")
+        self.assertEqual(self.run_hook(), "")
+        self.append("Thorn/test/test.ccl", "# new\n")
+        self.assertEqual(self.blocked(self.run_hook())[0], "Thorn/test/test.ccl:6   # new")
+
+    def test_files_that_are_not_covered_or_are_gone_are_skipped(self):
+        self.append("Thorn/README", "# not covered\n")
+        write_files(self.root, {"scripts/x.par": "# not a thorn\n", "Other/param.ccl": "# no interface.ccl\n"})
+        os.remove(os.path.join(self.root, "Thorn/test/t.par"))
+        self.assertEqual(self.run_hook(), "")
+
+    def test_ignored_files_are_skipped(self):
+        self.commit({".gitignore": "*.par\n"})
+        write_files(self.root, {"Thorn/test/u.par": "# ignored\n"})
+        self.assertEqual(self.run_hook(), "")
+
+    def test_without_dev_only_uncommitted_changes_count(self):
+        self.commit({"Thorn/test/t.par": "Thorn::n = 2 # committed\n"})
+        git(self.root, "branch", "-q", "-D", "dev")
+        self.assertEqual(self.run_hook(), "")
+        self.append("Thorn/test/t.par", "# x\n")
+        self.assertEqual(self.blocked(self.run_hook())[0], "Thorn/test/t.par:2   # x")
+
+    def test_no_clang_is_a_system_message_only_for_c_and_c_plus_plus(self):
+        self.append("Thorn/param.ccl", "# x\n")
+        only_git = os.path.join(self.root, ".bin")
+        os.makedirs(only_git)
+        os.symlink(shutil.which("git"), os.path.join(only_git, "git"))
+        with open(os.path.join(self.root, ".git", "info", "exclude"), "a") as f:
+            f.write(".bin/\n")
+        with mock.patch.dict(os.environ, {"PATH": only_git}):
+            self.blocked(self.run_hook())
+            self.append("Thorn/src/a.cxx", "int b; // y\n")
+            output = self.run_hook()
+        self.assertEqual(json.loads(output), {"systemMessage": "comment check skipped: clang++ not found on PATH"})
+
+    def test_a_bad_payload_or_no_repository_is_a_system_message(self):
+        for payload in ["not json", "[]"]:
+            with self.subTest(payload=payload):
+                self.assertIn("systemMessage", json.loads(self.run_hook(payload)))
+        with tempfile.TemporaryDirectory() as other:
+            out = io.StringIO()
+            hooks.hook_stop(json.dumps({"stop_hook_active": False}), out, root=other)
+            self.assertIn("systemMessage", json.loads(out.getvalue()))
 
 
 def copy_tool(root):
@@ -261,11 +424,39 @@ class Cli(Project):
     def test_check_of_a_missing_path_exits_2(self):
         self.assertEqual(self.run_tool(["check", os.path.join(self.root, "nope")]).returncode, 2)
 
+    @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
+    def test_check_without_a_path_scans_the_whole_tree(self):
+        write_files(self.root, {"Thorn/param.ccl": "# p\n", "Thorn/src/c.cxx": "int c; // why\n", "scripts/x.par": "# no\n"})
+        result = self.run_tool(["check"])
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout.split("\n")[:2], ["Thorn/param.ccl:1   # p", "Thorn/src/c.cxx:1   // why"])
+        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 2 comments")
+
+    def test_a_file_clang_rejects_names_the_file(self):
+        write_files(self.root, {"Thorn/src/c.cxx": "int c; // why\n"})
+        fake = os.path.join(self.root, "bin")
+        os.makedirs(fake)
+        with open(os.path.join(fake, "clang++"), "w") as f:
+            f.write("#!/bin/sh\necho 'error: boom' >&2\nexit 1\n")
+        os.chmod(os.path.join(fake, "clang++"), 0o755)
+        result = self.run_tool(["check", os.path.join(self.root, "Thorn")], env=dict(os.environ, PATH=fake + os.pathsep + os.environ["PATH"]))
+        self.assertEqual(result.returncode, 2)
+        self.assertRegex(result.stderr, r"^comments check: Thorn/src/[ac]\.cxx: clang\+\+ exited with status 1: error: boom")
+
+    def test_hook_stop_with_a_bad_payload_exits_0(self):
+        result = self.run_tool(["hook-stop"], "not json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("systemMessage", json.loads(result.stdout))
+
+
+def configured(event):
+    with open(SETTINGS) as f:
+        entries = json.load(f)["hooks"].get(event, [])
+    return [(entry.get("matcher"), hook["command"]) for entry in entries for hook in entry["hooks"]]
+
 
 def configured_pretooluse():
-    with open(SETTINGS) as f:
-        entries = json.load(f)["hooks"].get("PreToolUse", [])
-    return [(entry.get("matcher"), hook["command"]) for entry in entries for hook in entry["hooks"]]
+    return configured("PreToolUse")
 
 
 @unittest.skipUnless(os.path.isfile(SETTINGS), "needs .claude/settings.json")
@@ -295,6 +486,32 @@ class Settings(Project):
         result = self.run_command(command, self.root, edit_payload(self.root))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_stop_and_subagent_stop_run_hook_stop(self):
+        for event in ("Stop", "SubagentStop"):
+            with self.subTest(event=event):
+                [(matcher, command)] = configured(event)
+                self.assertIsNone(matcher)
+                self.assertTrue(command.endswith('python3 "$d" hook-stop'), command)
+                self.assertEqual(command.replace("hook-stop", "hook-edit"), configured_pretooluse()[0][1])
+
+    def test_the_stop_command_is_silent_where_the_tool_is_absent(self):
+        [(_, command)] = configured("Stop")
+        for project in [self.root, None]:
+            result = self.run_command(command, project, {"stop_hook_active": False})
+            self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""), project)
+
+    def test_the_stop_command_runs_the_project_s_tool(self):
+        [(_, command)] = configured("Stop")
+        copy_tool(self.root)
+        with mock.patch.dict(os.environ, ISOLATED_GIT):
+            git(self.root, "init", "-q", "-b", "dev")
+            git(self.root, "add", "-A")
+            git(self.root, "commit", "-q", "-m", "c")
+            write_files(self.root, {"Thorn/param.ccl": "# x\n"})
+            result = self.run_command(command, self.root, {"stop_hook_active": False})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["decision"], "block")
 
 
 if __name__ == "__main__":
