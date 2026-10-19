@@ -92,13 +92,81 @@ class ConstantGuards(unittest.TestCase):
                          [("disabled", "#if 1\n"), ("disabled", "#else\nb;\n#endif\n")])
 
     def test_spelled_variants(self):
-        for opener in ["#if 0", "#  if (0)", "#if false", "#if 0 && defined __CUDACC__", "  #if 0 // off"]:
+        for opener in ["#if 0", "#  if (0)", "#if(0)", "#if 0 && defined __CUDACC__", "  #if 0 // off"]:
+            self.assertEqual([s.kind for s in lex(f"{opener}\nx;\n#endif\n")], ["disabled"], opener)
+        self.assertEqual(spans("#if(1)\nc;\n#endif\n"), [("disabled", "#if(1)\n"), ("disabled", "#endif\n")])
+
+    def test_a_compound_condition_is_constant_only_when_it_must_be(self):
+        for opener in [
+            "#if defined A && 0", "#if 0 && !defined(A)", "#if (0) && defined A", "#if (0 && defined A)", "#if ((0))",
+        ]:
+            result = scan(f"{opener}\nx;\n#endif\n")
+            self.assertEqual([s.kind for s in result.spans], ["disabled"], opener)
+            self.assertEqual(result.refusals, [], opener)
+        for opener in [
+            "#if(0) && A || B", "#if 0 && A || B", "#if (0 && A) || B", "#if 0 && A ? 1 : 1", "#if (0) && A)", "#if 1 && A",
+            "#if 1 or 0 && 0", "#if 0 && 0 or 1",
+        ]:
+            self.assertEqual(spans(f"{opener}\nx;\n#endif\n"), [], opener)
+        self.assertEqual(spans("#if 1 && (1)\nx;\n#endif\n"), [("disabled", "#if 1 && (1)\n"), ("disabled", "#endif\n")])
+
+    def test_negation(self):
+        for opener in ["#if !1", "#if !(1 && defined A) && 0", "#if 0 && !!defined A"]:
+            self.assertEqual([s.kind for s in lex(f"{opener}\nx;\n#endif\n")], ["disabled"], opener)
+        self.assertEqual(spans("#if !0\nx;\n#endif\n"), [("disabled", "#if !0\n"), ("disabled", "#endif\n")])
+
+    def test_any_other_operand_makes_a_condition_code(self):
+        for opener in [
+            "#if A && 0", "#if 0 && FOO(1)", "#if 0 && A > 1", "#if 0 && (A || B)", "#if 0 && (1 or 1)", "#if 0 && !A",
+            "#if 0 && defined", "#if 0 && defined(A", "#if 0 && __has_include(<)", "#if 0x0", "#if !", "#if", "#if ()",
+            "#if false", "#if true", "#if __has_include(<a(b.h>) && 0", "#if 0 && __has_include(<a)b.h>)",
+        ]:
+            result = scan(f"{opener}\nx;\n#endif\n")
+            self.assertEqual(result.spans, [], opener)
+            self.assertEqual(result.refusals, [], opener)
+
+    def test_a_condition_is_constant_only_when_it_fits_on_its_line(self):
+        for text in [
+            "#if A && 0 && \\\n  B || 1\nx;\n#endif\n",
+            "#if 0 && \\\n  B\nx;\n#endif\n",
+            "#ifdef A\n#elif 0 && \\\n  B\nx;\n#endif\n",
+        ]:
+            self.assertEqual(spans(text), [], text)
+            self.assertEqual(scan(text).refusals, [], text)
+        self.assertEqual(spans("#if 0 && /* x\n */ B || 1\nx;\n#endif\n"), [("block", "/* x\n */")])
+        self.assertEqual(spans("#if 0 /* x\n */\nx;\n#endif\n"), [("disabled", "#if 0 /* x\n */\nx;\n#endif\n")])
+
+    def test_literals_in_a_condition(self):
+        for opener in [
+            "#if A && 0 && '(' == 40 || ')' == 41", "#if 0 && 'a'", "#if 1'0 && 0",
+            "#if 0 && __has_include(<a)b>) || 1", '#if 0 && __has_include("a)b") || 1',
+        ]:
+            self.assertEqual(spans(f"{opener}\nx;\n#endif\n"), [], opener)
+        for opener in ["#if 0 && __has_include(<a.h>)", '#if 0 && __has_include("a(b")']:
             self.assertEqual([s.kind for s in lex(f"{opener}\nx;\n#endif\n")], ["disabled"], opener)
 
     def test_real_conditions_are_code(self):
-        text = "#ifdef A\n#if FOO\n#if 0x1\n#if 0 || B\nx;\n#endif\n#endif\n#endif\n#elif 0\n#endif\n"
+        text = "#ifdef A\n#if FOO\n#if 0x1\n#if 0 || B\nx;\n#endif\n#endif\n#endif\n#elif B\n#endif\n"
         self.assertEqual(spans(text), [])
         self.assertEqual(scan(text).refusals, [])
+
+    def test_a_constant_elif_under_a_real_conditional_is_refused(self):
+        result = scan("#ifdef A\nx;\n#elif 0\ny; // c\n#if 0\nz;\n#endif\n#else\nw;\n#endif\n")
+        self.assertEqual([(s.kind, s.text) for s in result.spans], [("disabled", "#elif 0\ny; // c\n#if 0\nz;\n#endif\n")])
+        self.assertEqual([line for line, _ in result.refusals], [3])
+        result = scan("#ifdef A\nx;\n#elif(1)\ny;\n#else\nz;\n#endif\n")
+        self.assertEqual([(s.kind, s.text) for s in result.spans], [("disabled", "#elif(1)\n")])
+        self.assertEqual([line for line, _ in result.refusals], [3])
+
+    def test_a_constant_elif_is_its_own_guard_group(self):
+        found = lex("#if 1\n#ifdef A\n#elif 0\nx;\n#endif\n#endif\n")
+        self.assertEqual([s.text for s in found], ["#if 1\n", "#elif 0\nx;\n", "#endif\n"])
+        self.assertEqual([len(g) for g in guard_groups(found)], [2, 1])
+
+    def test_a_constant_elif_in_a_dead_region_goes_with_the_region(self):
+        result = scan("#if 0\n#ifdef A\n#elif 0\nx;\n#endif\n#endif\n")
+        self.assertEqual([s.kind for s in result.spans], ["disabled"])
+        self.assertEqual(result.refusals, [])
 
     def test_nested_guards_in_a_dead_region_are_one_span(self):
         self.assertEqual(

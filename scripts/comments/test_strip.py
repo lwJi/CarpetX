@@ -80,6 +80,15 @@ CXX_CASES = {
         "{\n#if 0\nb;\n#else\n\n  c;  \n\n#endif\n}\n",
         "{\n\n  c;  \n\n}\n",
     ),
+    "if 0 with no space": ("a;\n#if(0)\nb;\n#endif\n", "a;\n"),
+    "a compound condition that may be live stays": (
+        "#if 0 && A || B\nx;\n#endif\n#if defined A && 0\ny;\n#endif\n",
+        "#if 0 && A || B\nx;\n#endif\n",
+    ),
+    "a constant guard with a macro operand stays": (
+        "#define A 1 || 1\n#if A && 0\nx;\n#endif\n",
+        "#define A 1 || 1\n#if A && 0\nx;\n#endif\n",
+    ),
     "has_include in a macro body is not a header name": (
         "#define H __has_include(<a/*note*/b>)\n",
         "#define H __has_include(<a b>)\n",
@@ -188,6 +197,13 @@ class Strip(unittest.TestCase):
         with self.assertRaises(Refused) as caught:
             strip("a;\n#if 0 && defined A\nx;\n#elif 0 && defined B\ny;\n#else\nz;\n#endif\n", Lang.CXX)
         self.assertEqual(caught.exception.line, 2)
+
+    def test_constant_elif_under_a_real_conditional_is_refused(self):
+        for text in ["#ifdef A\nx;\n#elif 0\ny;\n#endif\n", "#ifdef A\nx;\n#elif 1\ny;\n#else\nz;\n#endif\n"]:
+            with self.subTest(text=text):
+                with self.assertRaises(Refused) as caught:
+                    strip(text, Lang.CXX)
+                self.assertEqual(caught.exception.line, 3)
 
     def test_elif_chain_inside_a_real_conditional_is_refused(self):
         text = (

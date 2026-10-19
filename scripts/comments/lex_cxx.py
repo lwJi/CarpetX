@@ -44,14 +44,65 @@ _DOUBLE_QUOTED = re.compile(r'"(?:[^"\\\n]|\\.)*"?', re.S)
 _SINGLE_QUOTED = re.compile(r"'(?:[^'\\\n]|\\.)*'?", re.S)
 _ENCODING_PREFIXES = ("u8", "u", "U", "L")
 
-IF0 = re.compile(r"^\s*#\s*if\s+\(?\s*(?:0|false)\s*\)?\s*(?:&&.*)?$")
-IF1 = re.compile(r"^\s*#\s*if\s+\(?\s*(?:1|true)\s*\)?\s*$")
+_CONDITION = re.compile(r"^\s*#\s*(if|elif)\b(.*)$")
+_CONDITION_TOKEN = re.compile(r'\s*(&&|<[^<>()]*>|"[^"]*"|\w+|\S)')
+_LITERALS = {"0": False, "1": True}
+_NAME = re.compile(r"[A-Za-z_]\w*")
+_HAS_INCLUDE = ("__has_include", "__has_include_next")
 IF_ANY = re.compile(r"^\s*#\s*if")
 ELIF = re.compile(r"^\s*#\s*elif")
 ELSE = re.compile(r"^\s*#\s*else\b")
 ENDIF = re.compile(r"^\s*#\s*endif\b")
 WARNING = re.compile(r"^\s*#\s*warning\b")
 TODO_MESSAGE = re.compile(r'^"?\s*(?:TODO|FIXME)\b')
+
+
+class _Unfoldable(Exception):
+    pass
+
+
+def _conjunction(tokens: list[str], i: int) -> tuple[bool | None, int]:
+    value, i = _operand(tokens, i)
+    while tokens[i : i + 1] == ["&&"]:
+        right, i = _operand(tokens, i + 1)
+        value = False if False in (value, right) else True if value and right else None
+    return value, i
+
+
+def _operand(tokens: list[str], i: int) -> tuple[bool | None, int]:
+    t = tokens[i] if i < len(tokens) else ""
+    rest = tokens[i + 1 : i + 4]
+    if t in _LITERALS:
+        return _LITERALS[t], i + 1
+    if t == "!":
+        value, i = _operand(tokens, i + 1)
+        return (None if value is None else not value), i
+    if t == "(":
+        value, i = _conjunction(tokens, i + 1)
+        if tokens[i : i + 1] != [")"]:
+            raise _Unfoldable
+        return value, i + 1
+    if t == "defined" and len(rest) == 3 and rest[0] == "(" and _NAME.fullmatch(rest[1]) and rest[2] == ")":
+        return None, i + 4
+    if t == "defined" and rest and _NAME.fullmatch(rest[0]):
+        return None, i + 2
+    if t in _HAS_INCLUDE and len(rest) == 3 and rest[0] == "(" and rest[2] == ")":
+        header = rest[1]
+        if len(header) >= 2 and header[0] + header[-1] in ("<>", '""'):
+            return None, i + 4
+    raise _Unfoldable
+
+
+def constant_condition(line: str, keyword: str) -> bool | None:
+    m = _CONDITION.match(line)
+    if m is None or m.group(1) != keyword:
+        return None
+    tokens = _CONDITION_TOKEN.findall(m.group(2))
+    try:
+        value, end = _conjunction(tokens, 0)
+    except _Unfoldable:
+        return None
+    return value if end == len(tokens) else None
 
 
 def _identifier_char(c: str) -> bool:
@@ -200,13 +251,27 @@ class _Guard:
     dead: bool
     else_line: int | None = None
     elif_line: int | None = None
+    dead_elif: int | None = None
 
     @property
     def constant(self) -> bool:
         return self.kind != "other"
 
 
-def _guard_line_ranges(lines: list[str], skip: set[int]):
+_CONSTANT_ELIF = "constant #elif: resolve this guard by hand"
+
+
+def _end_dead_elif(g: _Guard, number: int, ranges: list[tuple[int, int]]) -> None:
+    if g.dead_elif is not None:
+        ranges.append((g.dead_elif, number - 1))
+        g.dead_elif = None
+        g.dead = False
+
+
+def _guard_line_ranges(lines: list[str], skip: set[int], conditions: dict[int, str]):
+    def folded(number: int, keyword: str) -> bool | None:
+        return constant_condition(conditions[number], keyword) if number in conditions else None
+
     stack: list[_Guard] = []
     ranges: list[tuple[int, int]] = []
     refusals: list[tuple[int, str]] = []
@@ -215,24 +280,41 @@ def _guard_line_ranges(lines: list[str], skip: set[int]):
             continue
         if IF_ANY.match(line):
             parent_live = not any(g.dead for g in stack)
-            if IF0.match(line):
+            value = folded(number, "if")
+            if value is False:
                 stack.append(_Guard("if0", number, parent_live, True))
-            elif IF1.match(line):
+            elif value is True:
                 stack.append(_Guard("if1", number, parent_live, False))
             else:
                 stack.append(_Guard("other", number, parent_live, False))
         elif ELIF.match(line) and stack:
             g = stack[-1]
-            if g.constant and g.elif_line is None:
-                g.elif_line = number
+            if g.constant:
+                if g.elif_line is None:
+                    g.elif_line = number
+                    g.dead = True
+                continue
+            _end_dead_elif(g, number, ranges)
+            if not g.parent_live:
+                continue
+            value = folded(number, "elif")
+            if value is False:
+                g.dead_elif = number
                 g.dead = True
+                refusals.append((number + 1, _CONSTANT_ELIF))
+            elif value is True:
+                ranges.append((number, number))
+                refusals.append((number + 1, _CONSTANT_ELIF))
         elif ELSE.match(line) and stack:
             g = stack[-1]
-            if g.constant and g.elif_line is None and g.else_line is None:
+            if not g.constant:
+                _end_dead_elif(g, number, ranges)
+            elif g.elif_line is None and g.else_line is None:
                 g.else_line = number
                 g.dead = not g.dead
         elif ENDIF.match(line) and stack:
             g = stack.pop()
+            _end_dead_elif(g, number, ranges)
             if not (g.constant and g.parent_live):
                 continue
             if g.elif_line is not None:
@@ -303,6 +385,15 @@ def _directive_ranges(text: str, blanked: str, opaque: list[tuple[int, int]]) ->
     return ranges
 
 
+def _one_line_conditions(blanked: str, directives: list[tuple[int, int]], index: LineIndex) -> dict[int, str]:
+    found = {}
+    for start, end in directives:
+        first, *rest = blanked[start:end].split("\n")
+        if not first.rstrip().endswith("\\") and not any(line.strip() for line in rest):
+            found[index.line_of(start) - 1] = first
+    return found
+
+
 def scan(text: str) -> Scan:
     comments, literals = _scan_comments(text)
     index = LineIndex(text)
@@ -314,8 +405,9 @@ def scan(text: str) -> Scan:
     blanked = _blank_out(text, comments)
     opaque = sorted([(start, end) for _, start, end in comments] + literals)
     directives = _directive_ranges(text, blanked, opaque)
+    conditions = _one_line_conditions(blanked, directives, index)
     lines = blanked.split("\n")
-    line_ranges, refusals = _guard_line_ranges(lines, skip)
+    line_ranges, refusals = _guard_line_ranges(lines, skip, conditions)
 
     def line_offset(number: int) -> int:
         return index.starts[number] if number < len(index.starts) else len(text)
@@ -353,6 +445,8 @@ def lex(text: str) -> list[Span]:
 
 def guard_shape(span: Span) -> tuple[bool, bool]:
     lines = span.text.rstrip("\n").split("\n")
+    if ELIF.match(lines[0]):
+        return False, False
     closes = bool(ELSE.match(lines[0]) or ENDIF.match(lines[0]))
     opens = not ENDIF.match(lines[-1])
     return closes, opens

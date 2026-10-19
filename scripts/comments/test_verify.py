@@ -186,12 +186,47 @@ class Cxx(unittest.TestCase):
         result = verify_file("X/src/a.cxx", "#define A 1\nint x;\n", "#define A 1 int x;\n", None)
         self.assertFalse(result.ok)
 
+    def test_our_strip_of_spacing_header_names_and_guards_passes(self):
+        before = (
+            "#include <a//b.h> // c\n#include <d/*e.h>\nint x; /* f */\n#define F/* c */(x)\n"
+            "#define G(a) f(a /* c */)\nS(a/* c */+b);\n#if(0)\nold();\n#endif\nf(IntVect{0} /* c */, g(1 /*all*/));\n"
+            "#if 0 && A || B\nlive();\n#endif\n#if defined A && 0\ndead();\n#endif\n"
+            "#if __has_include(<g//h.h>)\n#endif\n#define H __has_include(<a/*note*/b>)\n"
+        )
+        result = verify_file("X/src/a.cxx", before, strip(before, Lang.CXX), None)
+        self.assertTrue(result.ok, result.detail)
+
     def test_our_strip_of_a_header_name_lookalike_in_a_macro_passes(self):
         before = "#define F(include) \\\n#include <a/* >\n// */b>\nint x;\n"
         after = strip(before, Lang.CXX)
         self.assertEqual(after, "#define F(include) \\\n#include <a b>\nint x;\n")
         result = verify_file("X/src/a.cxx", before, after, None)
         self.assertTrue(result.ok, result.detail)
+
+    def test_our_strip_folds_the_guards_unifdef_folds(self):
+        for before, survives in [
+            ("#if A && 0 && \\\n  B || 1\nx();\n#endif\n", True),
+            ("#if 0 && \\\n  B\nx();\n#endif\n", True),
+            ("#ifdef A\n#elif 0 && \\\n  B\nx();\n#endif\n", True),
+            ("#if 0 && /* c\n */ B || 1\nx();\n#endif\n", True),
+            ("#if 0 /* c\n */\nx();\n#endif\n", False),
+            ("#if A && 0 && '(' == 40 || ')' == 41\nx();\n#endif\n", True),
+            ("#if 0 && __has_include(<a)b>) || 1\nx();\n#endif\n", True),
+            ('#if 0 && __has_include("a(b")\nx();\n#endif\n', False),
+            ("#if 1 or 0 && 0\nx();\n#endif\n", True),
+            ("#if 0 && !defined(A) && defined B\nx();\n#endif\n", False),
+            ("#if !(1 && defined A) && 0\nx();\n#endif\n", False),
+            ("#if !0\nx();\n#else\ny();\n#endif\n", True),
+            ("#if false\nx();\n#endif\n", True),
+            ("#if __has_include(<a(b.h>) && 0\nx();\n#endif\n", True),
+            ("#if 0 && __has_include(<a)b.h>)\nx();\n#endif\n", True),
+            ('#if __has_include("a(b.h") && 0\nx();\n#endif\n', False),
+        ]:
+            with self.subTest(before=before):
+                after = strip(before, Lang.CXX)
+                self.assertEqual("x();" in after, survives)
+                result = verify_file("X/src/a.cxx", before, after, None)
+                self.assertTrue(result.ok, result.detail)
 
     def test_a_macro_turned_function_like_fails(self):
         for after in ["#define F(x)\n", "#define F\\\n(x)\n"]:
@@ -215,6 +250,23 @@ class Cxx(unittest.TestCase):
         ]:
             with self.subTest(before=before, after=after):
                 self.assertFalse(verify_file("X/src/a.cxx", before, after, None).ok)
+
+    def test_a_hand_resolved_constant_elif_passes(self):
+        before = "#ifdef A\nx;\n#elif 0\ny;\n#endif\n#ifdef B\nu;\n#elif 1\nv;\n#else\nw;\n#endif\n"
+        after = "#ifdef A\nx;\n#endif\n#ifdef B\nu;\n#else\nv;\n#endif\n"
+        result = verify_file("X/src/a.cxx", before, after, None)
+        self.assertTrue(result.ok, result.detail)
+
+    def test_a_guard_unifdef_resolves_but_strip_leaves_fails(self):
+        before = "#if 0 && FOO\nx;\n#endif\nint y; // c\n"
+        result = verify_file("X/src/a.cxx", before, strip(before, Lang.CXX), None)
+        self.assertFalse(result.ok)
+        self.assertIn("line 1", result.detail)
+
+    def test_a_hand_resolved_guard_with_a_macro_operand_passes(self):
+        before = "#define A 1\n#if A && 0\nx;\n#endif\ny;\n"
+        result = verify_file("X/src/a.cxx", before, "#define A 1\ny;\n", None)
+        self.assertTrue(result.ok, result.detail)
 
     def test_dropping_a_live_branch_fails(self):
         before = "#if 0\nx;\n#else\ny;\n#endif\n"
