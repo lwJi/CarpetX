@@ -21,13 +21,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install clang
+      - name: Install clang and unifdef
         run: |
-          command -v clang++ || { sudo apt-get update && sudo apt-get install --yes --no-install-recommends clang; }
+          command -v clang++ && command -v unifdef || {
+            sudo apt-get update && sudo apt-get install --yes --no-install-recommends clang unifdef
+          }
           clang++ --version
+          unifdef -V
+
+      # verify reads .ccl and .par files with the flesh's own Piraha grammars
+      - name: Clone the Cactus flesh
+        run: |
+          git clone --quiet --depth 1 https://bitbucket.org/cactuscode/cactus.git "$RUNNER_TEMP/flesh"
+          echo "CACTUSX=$RUNNER_TEMP/flesh" >> "$GITHUB_ENV"
 
       - name: Test scripts/comments
         run: python3 -m unittest discover -s scripts/comments
 
+      - name: Prove the blame skips are comment-only
+        if: ${{ !cancelled() }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 scripts/comments verify-skips "$BASE"
+
       - name: Check thorn files for comments
+        if: ${{ !cancelled() }}
         run: python3 scripts/comments check

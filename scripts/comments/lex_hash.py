@@ -40,6 +40,7 @@ class Out:
     def __init__(self, text: str):
         self.text = text
         self.items: list[list] = []
+        self.strings: list[tuple[int, int]] = []
 
     def add(self, kind: Kind, start: int, end: int) -> None:
         if start >= end:
@@ -127,6 +128,7 @@ def par_string(out: Out, start: int, end: int, closed: bool) -> None:
     if first_line_end == content_end or out.last_code() == "!DESC":
         out.add(Kind.CODE, start, end)
         return
+    out.strings.append((start, end))
     out.add(Kind.CODE, start, first_line_end)
     i = first_line_end
     while i < content_end:
@@ -282,6 +284,10 @@ def lex_fortran(text: str) -> Out:
         out.plain(stop, end)
         line_start = end
     return out
+
+
+def par_strings(text: str) -> list[tuple[int, int]]:
+    return lex_hashed(text, Lang.PAR).strings
 
 
 def may_hold_comments(text: str, lang: Lang) -> bool:

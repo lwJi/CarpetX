@@ -200,6 +200,31 @@ def show(root: str, rev: str, name: Optional[str]) -> str:
     return decode(proc.stdout) if proc.returncode == 0 else ""
 
 
+def tree_names(root: str, rev: str) -> list[str]:
+    return split_z(git(root, "ls-tree", "-r", "-z", "--name-only", rev))
+
+
+def blobs(root: str, rev: str, names: list[str]) -> dict:
+    if not names:
+        return {}
+    request = "".join(f"{rev}:{name}\n" for name in names).encode("utf-8", "surrogateescape")
+    proc = subprocess.run(["git", "-C", root, "cat-file", "--batch"], input=request, capture_output=True)
+    if proc.returncode != 0:
+        raise GitError(f"git cat-file --batch exited with status {proc.returncode}: {decode(proc.stderr).strip()}")
+    data = proc.stdout
+    found = {}
+    pos = 0
+    for name in names:
+        header_end = data.index(b"\n", pos)
+        fields = data[pos:header_end].split(b" ")
+        if len(fields) != 3 or fields[1] != b"blob":
+            raise GitError(f"{rev}:{name} is not a file")
+        start = header_end + 1
+        found[name] = decode(data[start : start + int(fields[2])])
+        pos = start + int(fields[2]) + 1
+    return found
+
+
 def parallel(fn: Callable[[T], R], items: Iterable[T]) -> list[R]:
     items = list(items)
     if len(items) < 2:

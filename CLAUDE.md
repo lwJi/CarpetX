@@ -43,6 +43,10 @@ Everything else is banned, however short: prose, TODO and FIXME, `/*arg=*/` labe
 
 Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message, never in a comment.
 
+When the code doesn't explain itself, read its history. Start with the thorn's `<Thorn>: remove comments` commit, whose message records what the removed comments said that the code doesn't. Then use `git log -L <start>,<end>:<file>` for the lines you are changing, and `git blame --ignore-revs-file .git-blame-ignore-revs <file>`, which skips the commits that only removed comments. History describes the code as it was at that commit, so check every claim against the current code before relying on it.
+
+A comment-removal commit is the output of `python3 scripts/comments strip <Thorn>` and nothing else, and its SHA goes on `.git-blame-ignore-revs`. The `no-comments` check runs `python3 scripts/comments verify <SHA>^ <SHA>` on each SHA a PR adds there, to prove the commit changed only comments.
+
 ## Commit & Pull Request Guidelines
 
 Recent history favors short subject lines with a thorn prefix, for example `ODESolvers: check more of the RK method table at compile time` or `CarpetX: add par poison_undefined_arrays`. Keep commits focused on one thorn or one behavior change. PRs should explain the scientific or runtime impact, list the tests run, and link the relevant issue or discussion. Include plots or output snippets when a change affects diagnostics, IO, or visible simulation results.
