@@ -77,7 +77,25 @@ class Fortran(unittest.TestCase):
         self.assertEqual(spans("print *, '\"!\"', \"'!'\" ! c\n", Lang.FORTRAN), [("line", "! c")])
 
     def test_an_unterminated_string_ends_at_the_line_end(self):
-        self.assertEqual(spans("s = 'a &\n! c\n", Lang.FORTRAN), [("line", "! c")])
+        self.assertEqual(spans("s = 'a & b\n! c\n", Lang.FORTRAN), [("line", "! c")])
+
+    def test_a_string_continued_with_an_ampersand(self):
+        text = "s = 'abc&\n! note\n\n#ifdef A\n   &def ! x' ! why\nt = \"a&\n  b ! y\" ! z\n"
+        self.assertEqual(spans(text, Lang.FORTRAN), [("line", "! note"), ("line", "! why"), ("line", "! z")])
+
+    def test_each_preprocessor_branch_starts_where_its_if_started(self):
+        for first, second in [("s = 'abc&", "s = 'def !ghi&"), ("s = 'def !ghi&", "s = 'abc&")]:
+            text = f"#ifdef A\n  {first}\n#else\n  {second}\n#endif\n  &end' ! c\n"
+            with self.subTest(first=first):
+                self.assertEqual(spans(text, Lang.FORTRAN), [("line", "! c")])
+
+    def test_after_branches_that_disagree_only_whole_line_comments_are_comments(self):
+        both = "s = 'abc&\n#ifdef A\n  &def'\n#else\n  &ghi&\n#endif\n! note\n  &jkl ! x'\nt = 1 ! y\n"
+        self.assertEqual(spans(both, Lang.FORTRAN), [("line", "! note"), ("line", "! y")])
+        skipped = "s = 'abc&\n#ifdef A\n  &def'\n#endif\n  &ghi ! x'\nt = 1 ! y\n"
+        self.assertEqual(spans(skipped, Lang.FORTRAN), [("line", "! y")])
+        nested = "s = 'abc&\n#if A\n#ifdef B\n  &def'\n#endif\n#elif C\n#endif\n  &ghi ! x'\n"
+        self.assertEqual(spans(nested, Lang.FORTRAN), [])
 
     def test_preprocessor_lines_hold_no_comments(self):
         self.assertEqual(spans("#include <cctk.h>\n  #if !defined(X)\n#endif\n", Lang.FORTRAN), [])

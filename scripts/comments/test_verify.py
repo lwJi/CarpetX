@@ -124,6 +124,39 @@ class FortranAudit(unittest.TestCase):
         self.assertFalse(self.check('  call f("a ! b")\n', '  call f("a\n').ok)
         self.assertTrue(self.check("  call f('it''s') ! b\n", "  call f('it''s')\n").ok)
 
+    def test_cutting_inside_a_continued_string_fails(self):
+        self.assertFalse(self.check("s = 'abc&\n   &def ! x'\n", "s = 'abc&\n   &def\n").ok)
+        self.assertFalse(self.check("s = 'abc&\n! c\n   def ! x'\n", "s = 'abc&\n   def\n").ok)
+
+    def test_our_strip_of_a_continued_string_passes(self):
+        before = "s = 'abc&\n! note\n   &def ! x' ! why\nt = 'a' ! c\n"
+        after = strip(before, Lang.FORTRAN)
+        self.assertEqual(after, "s = 'abc&\n   &def ! x'\nt = 'a'\n")
+        result = self.check(before, after)
+        self.assertTrue(result.ok, result.detail)
+
+    BRANCHES = (
+        "#ifdef A\n  s = 'abc&\n#else\n  s = 'def !ghi&\n#endif\n  &end' ! c\n",
+        "s = 'abc&\n#ifdef A\n  &def'\n#else\n  &ghi&\n#endif\n! note\n  &jkl ! x'\nt = 1 ! y\n",
+    )
+
+    def test_cutting_inside_a_string_continued_in_a_preprocessor_branch_fails(self):
+        for before, cut in zip(self.BRANCHES, [" !ghi&", " ! x'"]):
+            with self.subTest(cut=cut):
+                self.assertFalse(self.check(before, before.replace(cut, "")).ok)
+
+    def test_our_strip_of_strings_continued_in_preprocessor_branches_passes(self):
+        expected = (
+            "#ifdef A\n  s = 'abc&\n#else\n  s = 'def !ghi&\n#endif\n  &end'\n",
+            "s = 'abc&\n#ifdef A\n  &def'\n#else\n  &ghi&\n#endif\n  &jkl ! x'\nt = 1\n",
+        )
+        for before, want in zip(self.BRANCHES, expected):
+            with self.subTest(before=before):
+                after = strip(before, Lang.FORTRAN)
+                self.assertEqual(after, want)
+                result = self.check(before, after)
+                self.assertTrue(result.ok, result.detail)
+
 
 @unittest.skipUnless(HAVE_CXX_TOOLS, "needs clang++ and unifdef")
 class Cxx(unittest.TestCase):

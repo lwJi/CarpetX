@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass, field
 
 from files import Lang
 from lex_cxx import LineIndex, Span
@@ -11,11 +12,39 @@ _QUOTED = {
 
 
 _FORTRAN_NEXT = re.compile(r"""[!"']""")
-_FORTRAN_QUOTED = {
-    '"': re.compile(r'"(?:[^"\n]|"")*"?'),
-    "'": re.compile(r"'(?:[^'\n]|'')*'?"),
+_FORTRAN_QUOTED_REST = {
+    '"': re.compile(r'(?:[^"\n]|"")*("?)'),
+    "'": re.compile(r"(?:[^'\n]|'')*('?)"),
 }
 _DIRECTIVE = re.compile(r"[ \t]*#")
+_DIRECTIVE_NAME = re.compile(r"[ \t]*#[ \t]*(\w*)")
+_BLANKS = re.compile(r"[ \t\r]*")
+_EITHER = "either"
+
+
+@dataclass
+class _Conditional:
+    entry: str | None
+    ends: list[str | None] = field(default_factory=list)
+    has_else: bool = False
+
+
+def _quote_after_directive(line: str, quote: str | None, conditionals: list[_Conditional]) -> str | None:
+    name = _DIRECTIVE_NAME.match(line).group(1)
+    if name in ("if", "ifdef", "ifndef"):
+        conditionals.append(_Conditional(quote))
+        return quote
+    if name not in ("elif", "elifdef", "elifndef", "else", "endif"):
+        return quote
+    if not conditionals:
+        conditionals.append(_Conditional(_EITHER))
+    c = conditionals.pop() if name == "endif" else conditionals[-1]
+    c.ends.append(quote)
+    c.has_else = c.has_else or name == "else"
+    if name != "endif":
+        return c.entry
+    ends = c.ends if c.has_else else c.ends + [c.entry]
+    return ends[0] if all(e == ends[0] for e in ends) else _EITHER
 
 
 def _hash_span(text: str, start: int, stop: int, index: LineIndex, kind: str = "hash") -> Span:
@@ -26,22 +55,53 @@ def _hash_span(text: str, start: int, stop: int, index: LineIndex, kind: str = "
     return Span(kind, start, end, index.line_of(start), text[start:end])
 
 
+def _string_continues(text: str, line_start: int, line_end: int) -> bool:
+    return text[line_start:line_end].rstrip().endswith("&")
+
+
 def _lex_fortran(text: str) -> list[Span]:
     index = LineIndex(text)
     spans = []
+    quote = None
+    conditionals: list[_Conditional] = []
     for line_start in index.starts:
         newline = text.find("\n", line_start)
         line_end = len(text) if newline < 0 else newline
         if _DIRECTIVE.match(text, line_start, line_end):
+            quote = _quote_after_directive(text[line_start:line_end], quote, conditionals)
             continue
         i = line_start
+        if quote is not None:
+            first = _BLANKS.match(text, line_start, line_end).end()
+            if first == line_end or text[first] == "!":
+                if first < line_end and not text.startswith("!$", first):
+                    spans.append(_hash_span(text, first, line_end, index, "line"))
+                continue
+            if quote == _EITHER:
+                if not _string_continues(text, line_start, line_end):
+                    quote = None
+                continue
+            if text[first] == "&":
+                i = first + 1
+            rest = _FORTRAN_QUOTED_REST[quote].match(text, i, line_end)
+            if not rest.group(1):
+                if not _string_continues(text, line_start, line_end):
+                    quote = None
+                continue
+            quote = None
+            i = rest.end()
         while (m := _FORTRAN_NEXT.search(text, i, line_end)) is not None:
             i = m.start()
             if text[i] == "!":
                 if not text.startswith("!$", i):
                     spans.append(_hash_span(text, i, line_end, index, "line"))
                 break
-            i = _FORTRAN_QUOTED[text[i]].match(text, i, line_end).end()
+            rest = _FORTRAN_QUOTED_REST[text[i]].match(text, i + 1, line_end)
+            if not rest.group(1):
+                if _string_continues(text, line_start, line_end):
+                    quote = text[i]
+                break
+            i = rest.end()
     return spans
 
 

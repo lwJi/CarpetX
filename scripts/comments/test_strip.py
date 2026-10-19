@@ -121,6 +121,11 @@ HASH_CASES = {
         "SCHEDULE GROUP G AT postinitial\n{\n} \"G\"\n",
     ),
     "comment-only file with blank lines": (Lang.CCL, "# a\n\n# b\n\n", ""),
+    "fortran string continued with an ampersand": (
+        Lang.FORTRAN,
+        "s = 'abc&\n! note\n   &def ! x' ! why\nt = \"a&\n  b ! y\"\n",
+        "s = 'abc&\n   &def ! x'\nt = \"a&\n  b ! y\"\n",
+    ),
     "fortran": (
         Lang.FORTRAN,
         "#include <cctk.h>\n\nsubroutine S()\n  !// test\n  integer :: i ! why\n\n  ! check\n"

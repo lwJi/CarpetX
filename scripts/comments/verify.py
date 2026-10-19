@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from files import Lang, covered, git_toplevel
@@ -223,14 +223,16 @@ class Dialect:
     comment: re.Pattern
     escapes: bool
     no_comment: re.Pattern | None = None
+    continued_strings: bool = False
 
 
 HASH_DIALECT = Dialect("#", re.compile("#"), escapes=True)
-FORTRAN_DIALECT = Dialect("!", re.compile(r"!(?!\$)"), escapes=False, no_comment=re.compile(r"\s*#"))
+FORTRAN_DIALECT = Dialect(
+    "!", re.compile(r"!(?!\$)"), escapes=False, no_comment=re.compile(r"\s*#"), continued_strings=True
+)
 
 
-def _outside_quotes(prefix: str, escapes: bool) -> bool:
-    quote = None
+def _outside_quotes(prefix: str, escapes: bool, quote: str | None = None) -> bool:
     i = 0
     while i < len(prefix):
         c = prefix[i]
@@ -248,23 +250,85 @@ def _may_hold_comment(dialect: Dialect, line: str) -> bool:
     return dialect.no_comment is None or not dialect.no_comment.match(line)
 
 
-def _lost_trailing_comment(dialect: Dialect, before: str, after: str) -> bool:
+def _lost_trailing_comment(dialect: Dialect, before: str, after: str, quote: str | None = None) -> bool:
     if not before.startswith(after) or not after.strip() or not _may_hold_comment(dialect, before):
         return False
+    if quote == _UNKNOWN_QUOTE:
+        return False
     rest = before[len(after) :].lstrip(" \t")
-    return bool(dialect.comment.match(rest)) and _outside_quotes(after, dialect.escapes)
+    return bool(dialect.comment.match(rest)) and _outside_quotes(after, dialect.escapes, quote)
 
 
 def _whole_line_comment(dialect: Dialect, line: str) -> bool:
     return bool(dialect.comment.match(line.lstrip())) and _may_hold_comment(dialect, line)
 
 
+def _quote_open_after(line: str, quote: str | None) -> str | None:
+    for c in line:
+        if quote is None and c == "!":
+            break
+        if quote is None and c in "\"'":
+            quote = c
+        elif c == quote:
+            quote = None
+    return quote
+
+
+_UNKNOWN_QUOTE = "unknown"
+_CPP_NAME = re.compile(r"\s*#\s*(\w*)")
+
+
+@dataclass
+class _CppGroup:
+    entry: str | None
+    ends: list[str | None] = field(default_factory=list)
+    has_else: bool = False
+
+
+def _quote_after_cpp_line(line: str, quote: str | None, groups: list[_CppGroup]) -> str | None:
+    name = _CPP_NAME.match(line).group(1)
+    if name in ("if", "ifdef", "ifndef"):
+        groups.append(_CppGroup(quote))
+        return quote
+    if name not in ("elif", "elifdef", "elifndef", "else", "endif"):
+        return quote
+    group = (groups.pop() if name == "endif" else groups[-1]) if groups else _CppGroup(_UNKNOWN_QUOTE)
+    group.ends.append(quote)
+    group.has_else = group.has_else or name == "else"
+    if name != "endif":
+        return group.entry
+    outcomes = set(group.ends) | (set() if group.has_else else {group.entry})
+    return outcomes.pop() if len(outcomes) == 1 else _UNKNOWN_QUOTE
+
+
+def _quotes_open_at_line_starts(dialect: Dialect, lines: list[str]) -> list[str | None]:
+    opens: list[str | None] = []
+    quote = None
+    groups: list[_CppGroup] = []
+    for line in lines:
+        opens.append(quote)
+        if not dialect.continued_strings:
+            continue
+        if not _may_hold_comment(dialect, line):
+            quote = _quote_after_cpp_line(line, quote, groups)
+            continue
+        body = line.strip()
+        if quote is not None and (not body or body.startswith("!")):
+            continue
+        if quote != _UNKNOWN_QUOTE:
+            quote = _quote_open_after(line, quote)
+        if quote is not None and not body.endswith("&"):
+            quote = None
+    return opens
+
+
 def line_audit(path: str, dialect: Dialect, before: str, after: str) -> Result:
     evidence = f"only whole-line or trailing '{dialect.marker}…' removed (line audit)"
     a, b = before.split("\n"), after.split("\n")
+    opens = _quotes_open_at_line_starts(dialect, a)
     j = 0
     for number, line in enumerate(a, start=1):
-        if j < len(b) and (b[j] == line or _lost_trailing_comment(dialect, line, b[j])):
+        if j < len(b) and (b[j] == line or _lost_trailing_comment(dialect, line, b[j], opens[number - 1])):
             j += 1
         elif not line.strip() or _whole_line_comment(dialect, line):
             continue
