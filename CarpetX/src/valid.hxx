@@ -111,7 +111,6 @@ class why_valid_t {
   std::function<std::string()> why_int, why_outer, why_ghosts;
 
 public:
-  // The constructor that doesn't give a reason should never be called
   why_valid_t() = delete;
   why_valid_t(const std::function<std::string()> &why)
       : why_valid_t(false, why) {}
@@ -159,8 +158,6 @@ public:
   operator std::string() const;
   friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const why_valid_t &why);
 };
-
-////////////////////////////////////////////////////////////////////////////////
 
 struct checksum_t {
   valid_t where;
@@ -231,8 +228,6 @@ checksums_t calculate_checksums(
 void check_checksums(const checksums_t &checksums,
                      const std::function<std::string()> &where);
 
-////////////////////////////////////////////////////////////////////////////////
-
 template <typename T> struct ipoison_t;
 
 template <> struct ipoison_t<CCTK_COMPLEX> {
@@ -264,9 +259,6 @@ public:
   poison_value_t() = default;
 
   CCTK_HOST CCTK_DEVICE bool is_poison(const T &val) const {
-    // no memcmp on CUDA :-(
-    // return std::memcmp(&val, &ipoison.value, sizeof(val)) == 0;
-
     typedef decltype(ipoison.value) array_type;
     typedef typename std::remove_extent<array_type>::type const_type;
     const size_t array_size = std::extent<array_type>::value;
@@ -298,4 +290,4 @@ private:
 
 } // namespace CarpetX
 
-#endif // #ifndef CARPETX_CARPETX_VALID_HXX
+#endif

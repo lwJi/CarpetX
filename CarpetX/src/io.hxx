@@ -13,4 +13,4 @@ int OutputGH(const cGH *cctkGH);
 
 } // namespace CarpetX
 
-#endif // #ifndef CARPETX_CARPETX_IO_HXX
+#endif

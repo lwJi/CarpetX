@@ -23,4 +23,4 @@ public:
 
 } // namespace CarpetX
 
-#endif // #ifndef TASK_MANAGER_HXX
+#endif

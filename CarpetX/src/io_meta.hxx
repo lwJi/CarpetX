@@ -37,7 +37,7 @@ enum class reduction_t {
 
 struct output_file_description_t {
   std::string filename;                //
-  std::string description;             // human readable
+  std::string description;
   std::string writer_thorn;            //
   std::vector<std::string> variables;  //
   std::vector<int> iterations;         //
@@ -54,4 +54,4 @@ void OutputMeta(const cGH *);
 
 } // namespace CarpetX
 
-#endif // #ifndef CARPETX_CARPETX_IO_META_HXX
+#endif

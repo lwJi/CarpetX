@@ -2,8 +2,6 @@
 
 namespace CarpetX {
 
-// Minmod (tensor product) interpolation
-
 static prolongate_3d_rf2<VC, VC, VC, POLY, POLY, POLY, 1, 1, 1, FB_NONE>
     prolongate_minmod_3d_rf2_c000_o1;
 static prolongate_3d_rf2<VC, VC, CC, POLY, POLY, MINMOD, 1, 1, 1, FB_NONE>

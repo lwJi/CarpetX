@@ -10,8 +10,6 @@ const MPI_Datatype mpi_datatype<int>::value = MPI_INT;
 const MPI_Datatype mpi_datatype<long>::value = MPI_LONG;
 const MPI_Datatype mpi_datatype<long long>::value = MPI_LONG_LONG;
 
-// const MPI_Datatype mpi_datatype<signed_char>::value = MPI_SIGNED_CHAR;
-
 const MPI_Datatype mpi_datatype<unsigned char>::value = MPI_UNSIGNED_CHAR;
 const MPI_Datatype mpi_datatype<unsigned short>::value = MPI_UNSIGNED_SHORT;
 const MPI_Datatype mpi_datatype<unsigned int>::value = MPI_UNSIGNED;

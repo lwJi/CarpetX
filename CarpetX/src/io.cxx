@@ -36,8 +36,6 @@
 
 namespace CarpetX {
 
-////////////////////////////////////////////////////////////////////////////////
-
 namespace {
 std::vector<bool> find_groups(const char *const method,
                               const char *const out_vars) {
@@ -64,11 +62,9 @@ std::string get_parameter_filename() {
   int ilen = CCTK_ParameterFilename(buf.size(), buf.data());
   assert(ilen < int(buf.size() - 1));
   std::string parfilename(buf.data());
-  // Remove directory prefix, if any
   auto slash = parfilename.rfind('/');
   if (slash != std::string::npos)
     parfilename = parfilename.substr(slash + 1);
-  // Remove suffix, if it is there
   auto suffix = parfilename.rfind('.');
   if (suffix != std::string::npos && parfilename.substr(suffix) == ".par")
     parfilename = parfilename.substr(0, suffix);
@@ -107,10 +103,6 @@ void check_silo_no_multi_tl(const std::vector<bool> &group_mask,
 }
 } // namespace
 
-////////////////////////////////////////////////////////////////////////////////
-
-// Recovering
-
 int recover_iteration = -1;
 
 extern "C" int CarpetX_RecoverParameters() {
@@ -145,8 +137,6 @@ extern "C" int CarpetX_RecoverParameters() {
 
   return recover_iteration >= 0;
 }
-
-////////////////////////////////////////////////////////////////////////////////
 
 void RecoverGridStructure(cGH *restrict cctkGH) {
   DECLARE_CCTK_ARGUMENTS;
@@ -183,8 +173,6 @@ void RecoverGridStructure(cGH *restrict cctkGH) {
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 void RecoverGH(const cGH *restrict cctkGH) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
@@ -194,22 +182,19 @@ void RecoverGH(const cGH *restrict cctkGH) {
 
   const bool is_root = CCTK_MyProc(nullptr) == 0;
   if (is_root) {
-    const int runtime = CCTK_RunTime(); // seconds
+    const int runtime = CCTK_RunTime();
     CCTK_VINFO("RecoverGH: iteration %d, time %f, run time %.2f h",
                cctk_iteration, double(cctk_time), double(runtime / 3600));
   }
 
-  // Find input groups
   const std::vector<bool> group_enabled = [&] {
     std::vector<bool> enabled(CCTK_NumGroups(), false);
     for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
       const GHExt::GlobalData &globaldata = ghext->globaldata;
       if (globaldata.arraygroupdata.at(gi)) {
-        // grid array
         enabled.at(gi) = globaldata.arraygroupdata.at(gi)->do_checkpoint &&
                          !globaldata.arraygroupdata.at(gi)->data.empty();
       } else {
-        // grid function
         const int patch = 0;
         const int level = 0;
         const GHExt::PatchData::LevelData &leveldata =
@@ -222,14 +207,6 @@ void RecoverGH(const cGH *restrict cctkGH) {
     return enabled;
   }();
 
-  // Rebuild the source bands, each on its group's own geometry
-  // (deterministic, not serialized: a function of the refined level's layout
-  // and the group's interpolator and ghost width), so the band read below has
-  // somewhere to land. The refined level owns the bands of the step its parent
-  // takes, so there is nothing to allocate on level 0; EnsureRKBuffers is a
-  // no-op for groups the time integrator does not advance (the evolution never
-  // fills or writes their bands) and where the coarse-fine footprint is empty.
-  // Single-threaded: it warms AMReX's FPinfo cache.
   if (ghext->use_subcycling) {
     for (const auto &patchdata : ghext->patchdata)
       for (const auto &leveldata : patchdata.leveldata) {
@@ -270,7 +247,6 @@ void RecoverGH(const cGH *restrict cctkGH) {
     CCTK_ERROR("unknown value for paramater CarpetX::recover_method");
   }
 
-  // Increment epoch
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -286,7 +262,7 @@ void InputGH(const cGH *restrict cctkGH) {
 
   const bool is_root = CCTK_MyProc(nullptr) == 0;
   if (is_root) {
-    const int runtime = CCTK_RunTime(); // seconds
+    const int runtime = CCTK_RunTime();
     CCTK_VINFO("InputGH: iteration %d, time %f, run time %.2f h",
                cctk_iteration, double(cctk_time), double(runtime / 3600.0));
   }
@@ -294,13 +270,11 @@ void InputGH(const cGH *restrict cctkGH) {
   if (CCTK_EQUALS(filereader_method, "openpmd")) {
 
 #ifdef HAVE_CAPABILITY_openPMD_api
-    // TODO: handle multiple file names in `filereader_ID_files`
     const std::vector<bool> input_group =
         find_groups("openPMD", filereader_ID_vars);
     const std::string simulation_name = get_simulation_name();
     InputOpenPMD(cctkGH, input_group, filereader_ID_dir, filereader_ID_files);
 #else
-    // TODO: Check this at paramcheck
     CCTK_VERROR(
         "CarpetX::filereader_method is set to \"openpmd\", but openPMD_api "
         "is not enabled");
@@ -311,13 +285,9 @@ void InputGH(const cGH *restrict cctkGH) {
     const std::vector<bool> input_group =
         find_groups("Silo", filereader_ID_vars);
 #ifdef HAVE_CAPABILITY_Silo
-    // TODO: Stop at paramcheck time when Silo input parameters are
-    // set, but Silo is not available
-    // TODO: handle multiple file names in `filereader_ID_files`
     const std::string simulation_name = get_simulation_name();
     InputSilo(cctkGH, input_group, filereader_ID_dir, filereader_ID_files);
 #else
-    // TODO: Check this at paramcheck
     CCTK_VERROR("CarpetX::filereader_method is set to \"silo\", but Silo is "
                 "not enabled");
 #endif
@@ -326,8 +296,6 @@ void InputGH(const cGH *restrict cctkGH) {
     CCTK_ERROR("unknown value for paramater CarpetX::filereader_method");
   }
 }
-
-////////////////////////////////////////////////////////////////////////////////
 
 void OutputPlotfile(const cGH *restrict cctkGH) {
   DECLARE_CCTK_ARGUMENTS;
@@ -341,16 +309,10 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
   auto enable_group{[](int index, const char *optstring, void *callback) {
     std::vector<bool> &group_enabled =
         *static_cast<std::vector<bool> *>(callback);
-    // CCTK_TraverseString expands the given groups into their variables
-    // so I condense it down again to groups only
     group_enabled.at(CCTK_GroupIndexFromVarI(index)) = true;
   }};
   CCTK_TraverseString(out_plotfile_groups, enable_group, &group_enabled,
                       CCTK_GROUP_OR_VAR);
-
-  // TODO: Set the number of output files (the number of files written
-  // in parallel) to reduce the total number of files
-  // VisMF::SetNOutFiles(saveNFiles);
 
   for (int gi = 0; gi < numgroups; ++gi) {
     if (!group_enabled.at(gi))
@@ -401,7 +363,6 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
           reffacts.at(leveldata.level) = amrex::IntVect{2, 2, 2};
         }
 
-        // TODO: Output all groups into a single file
         WriteMultiLevelPlotfile(filename, mfabs.size(), mfabs, varnames, geoms,
                                 cctk_time, iters, reffacts);
 
@@ -416,38 +377,31 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
           assert(visit.good());
           visit << basename << "/Header\n";
           visit.close();
-        } // if is_root
-      } // for patchdata
+        }
+      }
     }
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 struct parameters {};
 YAML::Emitter &operator<<(YAML::Emitter &yaml, parameters) {
-  // Collect all parameters and their values
   std::vector<std::pair<std::string, const cParamData *> > parameter_values;
   int first = 1;
   for (;;) {
     const cParamData *data;
-    // This call is not thread safe
     const int iret = CCTK_ParameterWalk(first, nullptr, nullptr, &data);
     assert(iret >= 0);
     if (iret)
       break;
     first = 0;
-    // Ignore inactive thorns
     if (!CCTK_IsThornActive(data->thorn))
       continue;
     const std::string fullname = std::string(data->thorn) + "::" + data->name;
     parameter_values.emplace_back(fullname, data);
   }
 
-  // Sort parameters alphabetically
   std::sort(parameter_values.begin(), parameter_values.end());
 
-  // Output parameters
   yaml << YAML::LocalTag("parameters-1.0.0");
   yaml << YAML::BeginMap;
   for (const auto &parameter_value : parameter_values) {
@@ -505,17 +459,6 @@ void OutputMetadata(const cGH *restrict cctkGH) {
     for (int d = 0; d < dim; ++d)
       yaml << cctk_nghostzones[d];
     yaml << YAML::EndSeq;
-    // Note: origin_space and delta_space are nan at this point
-    // yaml << YAML::Key << "origin_space";
-    // yaml << YAML::Value << YAML::Flow << YAML::BeginSeq;
-    // for (int d = 0; d < dim; ++d)
-    //   yaml << cctk_origin_space[d];
-    // yaml << YAML::EndSeq;
-    // yaml << YAML::Key << "delta_space";
-    // yaml << YAML::Value << YAML::Flow << YAML::BeginSeq;
-    // for (int d = 0; d < dim; ++d)
-    //   yaml << cctk_delta_space[d];
-    // yaml << YAML::EndSeq;
     yaml << YAML::Key << "iteration";
     yaml << YAML::Value << cctk_iteration;
     yaml << YAML::Key << "time";
@@ -524,8 +467,6 @@ void OutputMetadata(const cGH *restrict cctkGH) {
     yaml << YAML::Value << cctk_delta_time;
     yaml << YAML::Key << "ghext";
     yaml << YAML::Value << *ghext;
-    // yaml << YAML::Key << "parameters";
-    // yaml << YAML::Value << parameters();
     yaml << YAML::EndMap;
     yaml << YAML::EndDoc;
 
@@ -585,8 +526,6 @@ int OutputGH(const cGH *restrict cctkGH) {
       const std::vector<bool> group_enabled =
           find_groups("ADIOS2", out_adios2_vars);
 #ifdef HAVE_CAPABILITY_ADIOS2
-      // TODO: Stop at paramcheck time when ADIOS2 output parameters
-      // are set, but ADIOS2 is not available
       const std::string simulation_name = get_simulation_name();
       OutputADIOS2(cctkGH, group_enabled, out_dir, simulation_name);
 #else
@@ -603,8 +542,6 @@ int OutputGH(const cGH *restrict cctkGH) {
       const std::vector<bool> group_enabled =
           find_groups("openPMD", out_openpmd_vars);
 #ifdef HAVE_CAPABILITY_openPMD_api
-      // TODO: Stop at paramcheck time when openPMD output parameters
-      // are set, but openPMD is not available
       const std::string simulation_name = get_simulation_name();
       OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name);
 #else
@@ -623,7 +560,6 @@ int OutputGH(const cGH *restrict cctkGH) {
           find_groups("openPMD-2D", out_openpmd_2d_vars);
 #ifdef HAVE_CAPABILITY_openPMD_api
       const std::string simulation_name = get_simulation_name();
-      // xy plane: normal = z; xz: normal = y; yz: normal = x
       OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
                     TimeLevelMode::Current, slice_t{2, out_xyplane_z});
       OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
@@ -650,8 +586,6 @@ int OutputGH(const cGH *restrict cctkGH) {
       const std::vector<bool> group_enabled =
           find_groups("Silo", out_silo_vars);
 #ifdef HAVE_CAPABILITY_Silo
-      // TODO: Stop at paramcheck time when Silo output parameters are
-      // set, but Silo is not available
       const std::string simulation_name = get_simulation_name();
       OutputSilo(cctkGH, group_enabled, out_dir, simulation_name);
 #else
@@ -669,7 +603,6 @@ int OutputGH(const cGH *restrict cctkGH) {
           find_groups("Silo-2D", out_silo_2d_vars);
 #ifdef HAVE_CAPABILITY_Silo
       const std::string simulation_name = get_simulation_name();
-      // xy plane: normal = z; xz: normal = y; yz: normal = x
       OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
                  slice_t{2, out_xyplane_z});
       OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
@@ -692,8 +625,6 @@ int OutputGH(const cGH *restrict cctkGH) {
       OutputTSV(cctkGH);
   }
 
-  // Call the IO methods registered via CCTK_RegisterIOMethod; the flesh's
-  // default traversal never runs since CCTK_OutputGH is overloaded.
   {
     const int num_methods = CCTK_NumIOMethods();
     for (int handle = 0; handle < num_methods; ++handle) {
@@ -703,17 +634,13 @@ int OutputGH(const cGH *restrict cctkGH) {
     }
   }
 
-  // Describe all output files
   OutputMeta(cctkGH);
 
   if (is_root && verbose)
     CCTK_VINFO("OutputGH done.");
 
-  // TODO: This should be the number of variables output
   return 0;
 }
-
-////////////////////////////////////////////////////////////////////////////////
 
 void Checkpoint(const cGH *const restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
@@ -746,11 +673,9 @@ void Checkpoint(const cGH *const restrict cctkGH) {
       for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
         const GHExt::GlobalData &globaldata = ghext->globaldata;
         if (globaldata.arraygroupdata.at(gi)) {
-          // grid array
           enabled.at(gi) = globaldata.arraygroupdata.at(gi)->do_checkpoint &&
                            !globaldata.arraygroupdata.at(gi)->data.empty();
         } else {
-          // grid function
           const int patch = 0;
           const GHExt::PatchData &patchdata = ghext->patchdata.at(patch);
           const int level = 0;
@@ -766,7 +691,6 @@ void Checkpoint(const cGH *const restrict cctkGH) {
     OutputOpenPMD(cctkGH, checkpoint_group, checkpoint_dir, checkpoint_file,
                   TimeLevelMode::All);
 #else
-    // TODO: Check this at paramcheck
     CCTK_VERROR(
         "CarpetX::checkpoint_method is set to \"openpmd\", but openPMD_api is "
         "not enabled");
@@ -780,11 +704,9 @@ void Checkpoint(const cGH *const restrict cctkGH) {
       for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
         const GHExt::GlobalData &globaldata = ghext->globaldata;
         if (globaldata.arraygroupdata.at(gi)) {
-          // grid array
           enabled.at(gi) = globaldata.arraygroupdata.at(gi)->do_checkpoint &&
                            !globaldata.arraygroupdata.at(gi)->data.empty();
         } else {
-          // grid function
           const int patch = 0;
           const GHExt::PatchData &patchdata = ghext->patchdata.at(patch);
           const int level = 0;
@@ -800,7 +722,6 @@ void Checkpoint(const cGH *const restrict cctkGH) {
     check_silo_no_multi_tl(checkpoint_group, "checkpoint");
     OutputSilo(cctkGH, checkpoint_group, checkpoint_dir, checkpoint_file);
 #else
-    // TODO: Check this at paramcheck
     CCTK_VERROR("CarpetX::checkpoint_method is set to \"silo\", but Silo is "
                 "not enabled");
 #endif
@@ -812,42 +733,13 @@ void Checkpoint(const cGH *const restrict cctkGH) {
 
 namespace {
 
-// Trigger state for `IO::checkpoint_every_walltime_hours`.
-//
-// Every checkpoint trigger mechanism is independent: it consults only its own
-// state, never checkpoints written by the other mechanisms.
-//
-// This is the run time (seconds since the start of this run) at which the
-// walltime trigger last fired; 0 means it has not fired yet. It is advanced
-// whenever the trigger fires, even if the resulting checkpoint is then skipped
-// because one had already been written for this iteration.
-int last_walltime_trigger_runtime = 0; // seconds
+int last_walltime_trigger_runtime = 0;
 
-// Whether the walltime criterion `IO::checkpoint_every_walltime_hours` is met
-// at run time `runtime` (seconds since the start of this run), advancing the
-// trigger's state when it is.
-//
-// The criterion is anchored to the start of the run, not to the previous
-// checkpoint: slot boundaries lie at run times N, 2N, 3N, ... for an interval
-// of N seconds, and the trigger fires at the first evaluation point that falls
-// into a later slot than the previous firing did. The long-term rate is thus
-// exactly one checkpoint per N, with no drift accumulating from the delay
-// between a boundary and the next evaluation point.
-//
-// When a single time step spans several slots, the state snaps to the current
-// slot instead of advancing one slot at a time, so that the slots skipped over
-// do not make the trigger fire again on the following time steps.
-//
-// Both callers are scheduled with `OPTIONS: meta`, so this runs once per
-// iteration. It must be called on every process with the same `runtime`, since
-// it mutates state and decides whether a collective operation happens.
 bool CheckWalltimeTrigger(const int runtime) {
   DECLARE_CCTK_PARAMETERS;
 
   if (!(checkpoint_every_walltime_hours > 0))
     return false;
-  // Round to whole seconds, the resolution of `CCTK_RunTime`, but keep the
-  // interval positive so that the slot arithmetic below is well defined
   const int interval =
       std::max(int(lrint(checkpoint_every_walltime_hours * 3600)), 1);
   if (runtime / interval <= last_walltime_trigger_runtime / interval)
@@ -856,7 +748,6 @@ bool CheckWalltimeTrigger(const int runtime) {
   return true;
 }
 
-// Name the triggers that fired, for the log message
 std::string DescribeTriggers(const char *const name1, const bool fired1,
                              const char *const name2, const bool fired2) {
   std::string description;
@@ -876,11 +767,9 @@ extern "C" void CarpetX_CheckpointInitial(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
-  int runtime = CCTK_RunTime(); // seconds
+  int runtime = CCTK_RunTime();
   MPI_Bcast(&runtime, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-  // Setting up initial conditions can take a long time, so the walltime
-  // criterion is evaluated here as well and not only during the evolution
   const bool checkpoint_by_walltime = CheckWalltimeTrigger(runtime);
 
   if (checkpoint_ID || checkpoint_by_walltime) {
@@ -899,7 +788,7 @@ extern "C" void CarpetX_Checkpoint(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
-  int runtime = CCTK_RunTime(); // seconds
+  int runtime = CCTK_RunTime();
   MPI_Bcast(&runtime, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
   const bool checkpoint_by_iteration =
@@ -923,7 +812,7 @@ extern "C" void CarpetX_CheckpointTerminate(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 
   if (checkpoint_on_terminate) {
-    const int runtime = CCTK_RunTime(); // seconds
+    const int runtime = CCTK_RunTime();
     CCTK_VINFO("Checkpointing before terminating at iteration %d, time %f, run "
                "time %.2f h",
                cctk_iteration, double(cctk_time), double(runtime / 3600.0));

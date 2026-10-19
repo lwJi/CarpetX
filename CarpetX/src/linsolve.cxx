@@ -28,8 +28,6 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
   const int tl = 0;
   const int vi = 0;
 
-  // Create operator
-
   assert(ghext->patchdata.size() == 1);
   const int patch = 0;
   const auto &patchdata = ghext->patchdata.at(patch);
@@ -44,7 +42,6 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
 
   amrex::MLNodeLaplacian mlnodelaplacian(geoms, grids, dmaps);
 
-  // TODO: Look at Geometry for this
   mlnodelaplacian.setDomainBC(
       {amrex::LinOpBCType::Dirichlet, amrex::LinOpBCType::Dirichlet,
        amrex::LinOpBCType::Dirichlet},
@@ -61,8 +58,6 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
   }
 
   mlnodelaplacian.setVerbose(10);
-
-  // Create solver
 
   amrex::MLMG mlmg(mlnodelaplacian);
 
@@ -86,8 +81,6 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
 
   mlmg.setVerbose(10);
   mlmg.setBottomVerbose(10);
-
-  // Solve
 
   if (have_res) {
     mlmg.compResidual(ress, sols, rhss);
@@ -114,8 +107,6 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
                    double(ress.at(level)->norminf(vi, 0, false, true)));
   }
 
-  // const CCTK_REAL rtol = 0.0;
-  // const CCTK_REAL atol = 1.0e-12;
   const CCTK_REAL maxerr = mlmg.solve(sols, rhss, reltol, abstol);
 #pragma omp critical
   CCTK_VINFO("Solution error (norm_inf): %g", double(maxerr));

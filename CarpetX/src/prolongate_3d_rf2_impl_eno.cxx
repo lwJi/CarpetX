@@ -2,8 +2,6 @@
 
 namespace CarpetX {
 
-// ENO (tensor product) interpolation
-
 static prolongate_3d_rf2<VC, VC, VC, POLY, POLY, POLY, 3, 3, 3, FB_NONE>
     prolongate_eno_3d_rf2_c000_o3;
 static prolongate_3d_rf2<VC, VC, CC, POLY, POLY, ENO, 3, 3, 2, FB_NONE>

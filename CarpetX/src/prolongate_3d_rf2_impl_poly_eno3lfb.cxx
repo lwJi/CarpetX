@@ -2,10 +2,6 @@
 
 namespace CarpetX {
 
-// Interpolate polynomially in vertex centred directions and conserve
-// with 3rd order accuracy and a linear fallback in cell centred
-// directions
-
 static prolongate_3d_rf2<VC, VC, VC, POLY, POLY, POLY, 1, 1, 1, FB_LINEAR>
     prolongate_poly_eno3lfb_3d_rf2_c000_o1;
 static prolongate_3d_rf2<VC, VC, CC, POLY, POLY, CONS, 1, 1, 0, FB_LINEAR>
@@ -57,17 +53,6 @@ static prolongate_3d_rf2<CC, CC, VC, ENO, ENO, POLY, 2, 2, 5, FB_LINEAR>
 static prolongate_3d_rf2<CC, CC, CC, ENO, ENO, ENO, 2, 2, 2, FB_LINEAR>
     prolongate_poly_eno3lfb_3d_rf2_c111_o5;
 
-#if 0
-static prolongate_3d_rf2<VC, VC, VC, POLY, POLY, POLY, 7, 7, 7, FB_LINEAR>    prolongate_poly_eno3lfb_3d_rf2_c000_o7;
-static prolongate_3d_rf2<VC, VC, CC, POLY, POLY, ENO, 7, 7, 3, FB_LINEAR>    prolongate_poly_eno3lfb_3d_rf2_c001_o7;
-static prolongate_3d_rf2<VC, CC, VC, POLY, ENO, POLY, 7, 3, 7, FB_LINEAR>    prolongate_poly_eno3lfb_3d_rf2_c010_o7;
-static prolongate_3d_rf2<VC, CC, CC, POLY, ENO, ENO, 7, 3, 3, FB_LINEAR>    prolongate_poly_eno3lfb_3d_rf2_c011_o7;
-static prolongate_3d_rf2<CC, VC, VC, ENO, POLY, POLY, 3, 7, 7, FB_LINEAR>    prolongate_poly_eno3lfb_3d_rf2_c100_o7;
-static prolongate_3d_rf2<CC, VC, CC, ENO, POLY, ENO, 3, 7, 3, FB_LINEAR>    prolongate_poly_eno3lfb_3d_rf2_c101_o7;
-static prolongate_3d_rf2<CC, CC, VC, ENO, ENO, POLY, 3, 3, 7, FB_LINEAR>    prolongate_poly_eno3lfb_3d_rf2_c110_o7;
-static prolongate_3d_rf2<CC, CC, CC, ENO, ENO, ENO, 3, 3, 3, FB_LINEAR>    prolongate_poly_eno3lfb_3d_rf2_c111_o7;
-#endif
-
 const std::map<int, std::array<amrex::Interpolater *, 8> >
     prolongate_poly_eno3lfb_3d_rf2{
         {1,
@@ -103,19 +88,6 @@ const std::map<int, std::array<amrex::Interpolater *, 8> >
              &prolongate_poly_eno3lfb_3d_rf2_c110_o5,
              &prolongate_poly_eno3lfb_3d_rf2_c111_o5,
          }},
-#if 0
-        {7,
-         {
-             &prolongate_poly_eno3lfb_3d_rf2_c000_o7,
-             &prolongate_poly_eno3lfb_3d_rf2_c001_o7,
-             &prolongate_poly_eno3lfb_3d_rf2_c010_o7,
-             &prolongate_poly_eno3lfb_3d_rf2_c011_o7,
-             &prolongate_poly_eno3lfb_3d_rf2_c100_o7,
-             &prolongate_poly_eno3lfb_3d_rf2_c101_o7,
-             &prolongate_poly_eno3lfb_3d_rf2_c110_o7,
-             &prolongate_poly_eno3lfb_3d_rf2_c111_o7,
-         }},
-#endif
     };
 
 } // namespace CarpetX

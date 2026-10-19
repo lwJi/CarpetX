@@ -86,12 +86,12 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml, const reduction_t &reduction) {
 
 struct real_output_file_description_t {
   std::string filename;                //
-  std::string description;             // human readable
+  std::string description;
   std::string writer_thorn;            //
   std::vector<std::string> variables;  //
   std::vector<int> iterations;         //
-  group_type_t group_type;             // set automatically
-  int variable_dimensions;             // set automatically
+  group_type_t group_type;
+  int variable_dimensions;
   std::vector<int> output_directions;  //
   std::vector<reduction_t> reductions; //
   std::string format_name;             //
@@ -114,12 +114,11 @@ struct real_output_file_description_t {
 real_output_file_description_t::real_output_file_description_t(
     output_file_description_t ofd) {
   if (iterations.empty())
-    return; // CCTK_ERROR("Empty iterations");
+    return;
   if (variables.empty())
-    return; // CCTK_ERROR("Empty variables");
+    return;
 
   filename = ofd.filename;
-  // TODO: Check whether file exists
   if (filename == "")
     CCTK_ERROR("Empty filename");
 
@@ -219,7 +218,6 @@ real_output_file_description_t::real_output_file_description_t(
     }
   }
 
-  // TODO: Check whether directions are unique
   output_directions = ofd.output_directions;
   for (const auto &dir : output_directions)
     if (dir < 0 || dir >= variable_dimensions)
@@ -230,12 +228,10 @@ real_output_file_description_t::real_output_file_description_t(
   if (!output_directions.empty() && !reductions.empty())
     CCTK_ERROR("Cannot have both output directions and reductions");
 
-  // TODO: Maintain a list of known output formats?
   format_name = ofd.format_name;
   if (format_name == "")
     CCTK_VERROR("Bad format name \"%s\"", format_name.c_str());
 
-  // TODO: Maintain a list of known versions for each output format?
   format_version = ofd.format_version;
   for (const auto &ver : format_version)
     if (ver < 0)
@@ -261,7 +257,7 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
          << rofd.output_directions;
     yaml << YAML::Key << "reductions" << YAML::Value << YAML::Flow
          << rofd.reductions;
-  } // if !rofd.variables.empty
+  }
   yaml << YAML::Key << "format_name" << YAML::Value << rofd.format_name;
   yaml << YAML::Key << "format_version" << YAML::Value << YAML::Flow
        << YAML::BeginSeq;
@@ -272,13 +268,10 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   return yaml;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 std::vector<real_output_file_description_t> real_output_file_descriptions;
 
 void OutputMeta_RegisterOutputFile(
     output_file_description_t output_file_description) {
-  // Only the root process outputs metadata
   if (CCTK_MyProc(nullptr) != 0)
     return;
 
@@ -289,11 +282,9 @@ void OutputMeta_RegisterOutputFile(
 void OutputMeta(const cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
-  // Only the root process outputs metadata
   if (CCTK_MyProc(nullptr) != 0)
     return;
 
-  // Skip metadata output if no files were written
   if (real_output_file_descriptions.empty())
     return;
 

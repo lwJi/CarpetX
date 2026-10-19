@@ -31,12 +31,6 @@ CarpetX::ncells_z = 64
 Driver::periodic_x = no
 Driver::periodic_y = no
 Driver::periodic_z = no
-# CarpetX::reflection_x = yes
-# CarpetX::reflection_y = yes
-# CarpetX::reflection_z = yes
-# CarpetX::reflection_upper_x = yes
-# CarpetX::reflection_upper_y = yes
-# CarpetX::reflection_upper_z = yes
 
 CarpetX::ghost_size = 3
 
@@ -47,7 +41,6 @@ CarpetX::prolongation_type = "ddf"
 CarpetX::prolongation_order = 5
 CarpetX::interpolation_order = 3
 
-# Initial data are set up by the file reader
 ADMBaseX::initial_data = "none"
 ADMBaseX::initial_lapse = "none"
 ADMBaseX::initial_shift = "none"

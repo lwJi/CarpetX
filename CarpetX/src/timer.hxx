@@ -54,4 +54,4 @@ public:
 
 } // namespace CarpetX
 
-#endif // #ifndef CARPETX_CARPETX_TIMER_HXX
+#endif

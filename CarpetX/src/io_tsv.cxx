@@ -25,7 +25,6 @@
 
 namespace CarpetX {
 
-// Which information to output in the header
 enum out_fileinfo_t {
   fileinfo_none = 0x0,
   fileinfo_create_date = 0x1,
@@ -48,7 +47,6 @@ static out_fileinfo_t get_out_fileinfo() {
   CCTK_ERROR("Internal error");
 }
 
-// Collect the information we may want to put into headers
 struct fileinfo_t {
   std::string current_date, current_time;
   std::string hostname;
@@ -76,7 +74,6 @@ static fileinfo_t get_fileinfo() {
   return fileinfo;
 }
 
-// How to output the headers
 enum out_header_t { header_none, header_comment, header_plain };
 static out_header_t get_out_header() {
   DECLARE_CCTK_PARAMETERS;
@@ -98,15 +95,11 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
   std::ofstream file(buf.str());
   const std::string sep = "\t";
 
-  // get more precision for floats, could also use
-  // https://stackoverflow.com/a/30968371
   file << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1)
        << std::scientific;
 
-  // Output header
   switch (out_header) {
   case header_none:
-    // no header
     break;
   case header_comment: {
     fileinfo_t fileinfo = get_fileinfo();
@@ -130,8 +123,6 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
     break;
   }
   case header_plain: {
-    // We can only output axis labels when using the "plain" format; everything
-    // else would break TSV "standard" (and confuse TSV readers)
     if (out_fileinfo & fileinfo_axis_labels) {
       file << "iteration" << sep << "time" << sep << "patch" << sep << "level"
            << sep << "component" << sep << "i" << sep << "j" << sep << "k"
@@ -153,7 +144,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
       for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
         const amrex::Array4<const CCTK_REAL> &vars = mfab.array(mfi);
         const amrex::Dim3 imin = amrex::lbound(vars);
-        const amrex::Dim3 imax = amrex::ubound(vars); // inclusive
+        const amrex::Dim3 imax = amrex::ubound(vars);
         for (int k = imin.z; k <= imax.z; ++k) {
           for (int j = imin.y; j <= imax.y; ++j) {
             for (int i = imin.x; i <= imax.x; ++i) {
@@ -231,13 +222,10 @@ void OutputTSVold(const cGH *restrict cctkGH) {
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
                      const int gi, const bool truncate_files,
                      const out_fileinfo_t out_fileinfo,
                      const out_header_t out_header) {
-  // Output only on root process
   if (CCTK_MyProc(nullptr) > 0)
     return;
 
@@ -252,25 +240,18 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
 
   const std::string sep = "\t";
   static std::set<std::string> did_write_file;
-  // Truncate only if (1) we should, and (2) this is the first time we're
-  // writing to that file
   const bool truncate_this_file =
       truncate_files && did_write_file.count(filename) == 0;
   did_write_file.insert(filename);
   const std::ios::openmode mode =
       truncate_this_file ? std::ios::out : std::ios::app;
   std::ofstream file(filename, mode);
-  // get more precision for floats, could also use
-  // https://stackoverflow.com/a/30968371
   file << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1)
        << std::scientific;
 
   if (file.tellp() == 0) {
-    // Output header if the file is empty, i.e. the first time we write to this
-    // file
     switch (out_header) {
     case header_none:
-      // no header
       break;
     case header_comment: {
       fileinfo_t fileinfo = get_fileinfo();
@@ -300,8 +281,6 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
       break;
     }
     case header_plain: {
-      // We can only output axis labels when using the "plain" format;
-      // everything else would break TSV "standard" (and confuse TSV readers)
       if (out_fileinfo & fileinfo_axis_labels) {
         file << "iteration" << sep << "time";
         for (const auto &varname : varnames)
@@ -321,7 +300,6 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
     }
   }
 
-  // Output data
   file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time;
   const int tl = 0;
   const auto &data = arraygroupdata.data.at(tl);
@@ -334,7 +312,6 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
                     const int gi, const int out_dir, const bool truncate_files,
                     const out_fileinfo_t out_fileinfo,
                     const out_header_t out_header) {
-  // Output only on root process
   if (CCTK_MyProc(nullptr) > 0)
     return;
 
@@ -352,25 +329,18 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
 
   const std::string sep = "\t";
   static std::set<std::string> did_write_file;
-  // Truncate only if (1) we should, and (2) this is the first time we're
-  // writing to that file
   const bool truncate_this_file =
       truncate_files && did_write_file.count(filename) == 0;
   did_write_file.insert(filename);
   const std::ios::openmode mode =
       truncate_this_file ? std::ios::out : std::ios::app;
   std::ofstream file(filename, mode);
-  // get more precision for floats, could also use
-  // https://stackoverflow.com/a/30968371
   file << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1)
        << std::scientific;
 
   if (file.tellp() == 0) {
-    // Output header if the file is empty, i.e. the first time we write to this
-    // file
     switch (out_header) {
     case header_none:
-      // no header
       break;
     case header_comment: {
       fileinfo_t fileinfo = get_fileinfo();
@@ -404,8 +374,6 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
       break;
     }
     case header_plain: {
-      // We can only output axis labels when using the "plain" format;
-      // everything else would break TSV "standard" (and confuse TSV readers)
       if (out_fileinfo & fileinfo_axis_labels) {
         file << "iteration";
         file << sep << "time";
@@ -434,7 +402,6 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
   const int np = dk * arraygroupdata.lsh[2];
   const std::array<int, dim> DI{di, dj, dk};
 
-  // Output data
   for (int i = 0; i < arraygroupdata.lsh[out_dir]; ++i) {
     file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time;
     for (int dir = 0; dir < arraygroupdata.dimension; ++dir)
@@ -456,16 +423,14 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
   const auto &groupdata0 =
       *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
 
-  // Number of values transmitted per grid point
-  const int nintvalues = 1                  // patch
-                         + 1                // level
-                         + dim              // grid point index
-                         + 1;               // isghost
-  const int nvalues = nintvalues            // integer values
-                      + dim                 // coordinates
-                      + groupdata0.numvars; // grid function values
+  const int nintvalues = 1
+                         + 1
+                         + dim
+                         + 1;
+  const int nvalues = nintvalues
+                      + dim
+                      + groupdata0.numvars;
 
-  // Data transmitted from this process
   std::vector<CCTK_REAL> data;
   data.reserve(10000);
   for (const auto &patchdata : ghext->patchdata) {
@@ -474,7 +439,6 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
 
       const int tl = 0;
 
-      // Convert a (direction, face) pair to an AMReX Orientation
       const auto orient = [&](int d, int f) {
         return amrex::Orientation(d, amrex::Orientation::Side(f));
       };
@@ -505,7 +469,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
         const amrex::Array4<const CCTK_REAL> &vars = mfab.array(mfi);
 
         const amrex::Box &vbx =
-            mfi.validbox(); // interior region (without ghosts)
+            mfi.validbox();
         vect<vect<bool, dim>, 2> bbox;
         for (int d = 0; d < dim; ++d)
           for (int f = 0; f < 2; ++f)
@@ -515,12 +479,10 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
                          symmetries[f][d] != symmetry_t::none;
 
         const amrex::Dim3 vlo = amrex::lbound(vars);
-        const amrex::Dim3 vhi = amrex::ubound(vars); // inclusive
+        const amrex::Dim3 vhi = amrex::ubound(vars);
         const vect<int, dim> varmin = {vlo.x, vlo.y, vlo.z};
-        // varmax is exclusive
         const vect<int, dim> varmax = {vhi.x + 1, vhi.y + 1, vhi.z + 1};
 
-        // Skip ghost points but keep boundary points
         const vect<int, dim> intmin = varmin + !bbox[0] * nghosts;
         const vect<int, dim> intmax = varmax - !bbox[1] * nghosts;
 
@@ -528,15 +490,12 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
         vect<int, dim> imin, imax;
         for (int d = 0; d < dim; ++d) {
           if (outdirs[d]) {
-            // output everything
             imin[d] = varmin[d] + !output_boundary_points * nghosts[d];
             imax[d] = varmax[d] - !output_boundary_points * nghosts[d];
           } else if (icoord[d] >= varmin[d] && icoord[d] < varmax[d]) {
-            // output one point
             imin[d] = icoord[d];
             imax[d] = icoord[d] + 1;
           } else {
-            // output nothing
             output_something = false;
           }
         }
@@ -561,10 +520,10 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
               }
             }
           }
-        } // if output_something
-      } // for mfi
-    } // for leveldata
-  } // for patchdata
+        }
+      }
+    }
+  }
   assert(data.size() % nvalues == 0);
 
   const MPI_Comm comm = amrex::ParallelDescriptor::Communicator();
@@ -606,11 +565,9 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
       std::array<int, nintvalues> pi, pj;
       for (int d = 0; d < nintvalues; ++d)
         pi[d] = int(all_data.at(i * nvalues + d));
-      // Ignore `isghost` field
       pi[dim + 2] = 0;
       for (int d = 0; d < nintvalues; ++d)
         pj[d] = int(all_data.at(j * nvalues + d));
-      // Ignore `isghost` field
       pj[dim + 2] = 0;
       return pi == pj;
     };
@@ -632,25 +589,18 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
 
     const std::string sep = "\t";
     static std::set<std::string> did_write_file;
-    // Truncate only if (1) we should, and (2) this is the first time we're
-    // writing to that file
     const bool truncate_this_file =
         truncate_files && did_write_file.count(filename) == 0;
     did_write_file.insert(filename);
     const std::ios::openmode mode =
         truncate_this_file ? std::ios::out : std::ios::app;
     std::ofstream file(filename, mode);
-    // get more precision for floats, could also use
-    // https://stackoverflow.com/a/30968371
     file << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1)
          << std::scientific;
 
     if (file.tellp() == 0) {
-      // Output header if the file is empty, i.e. the first time we write to
-      // this file
       switch (out_header) {
       case header_none:
-        // no header
         break;
       case header_comment: {
         int col = 0;
@@ -686,12 +636,11 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
       }
     }
 
-    // Output data
     for (const auto i : iptr) {
       int pos = nvalues * i;
       file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time;
       for (int v = 0; v < nintvalues; ++v)
-        if (v != dim + 2) // skip `isghost` marker
+        if (v != dim + 2)
           file << sep << int(all_data.at(pos++));
         else
           pos++;
@@ -718,14 +667,8 @@ void OutputTSV(const cGH *restrict cctkGH) {
   const bool combine_iterations = out_tsv_combine_iterations;
   const bool output_boundary_points = out_tsv_output_boundary_points;
 
-  // `IO_TruncateOutputFiles` says whether files should be truncated
-  // at the beginning of the simulation. Typically, we should truncate
-  // if we do not recover, and vice versa. This is the decision that
-  // `IO_TruncateOutputFiles` makes. We still need to figure out
-  // ourselves whether this is the beginning of a simulation.
   const bool truncate_files = IO_TruncateOutputFiles(cctkGH);
 
-  // Find output groups
   const std::vector<bool> group_enabled = [&] {
     std::vector<bool> enabled(CCTK_NumGroups(), false);
     const auto callback{
