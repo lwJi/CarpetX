@@ -36,7 +36,7 @@ Thorn files contain no comments. A thorn is a top-level directory with an `inter
 
 A comment is allowed only if all of it is one of these:
 
-- A tool marker: a namespace closer such as `} // namespace CarpetX`, a bare `//` (after code it steers clang-format's line breaks; on a line of its own it separates a citation from the next comment), or `// clang-format off` / `// clang-format on`.
+- A tool marker: a namespace closer such as `} // namespace CarpetX`, a bare `//`, or `// clang-format off` / `// clang-format on`. A bare `//` after code, or on a line of its own between two code lines, steers clang-format's line breaks; on a line of its own between comments, it separates a citation from the next comment.
 - A citation that consists of a single URL, arXiv ID or DOI, optionally introduced by `See`, `From`, `Taken from` or `cf.` and followed by an arXiv category and equation numbers, for example `// See arXiv:1111.2177 [gr-qc], (74-75)` or `// doi:10.1016/0021-9991(88)90177-5`. Write an author-year citation as its DOI.
 
 Everything else is banned, however short: prose, TODO and FIXME, `/*arg=*/` labels, line references into other code bases, commented-out code and `.par` settings, `#if 0` / `#if 1` blocks, and compile-time messages (`#warning`, `#pragma message`). There is no per-line or per-file exception. CCL description strings and runtime messages are not comments, but don't move comment prose into them.
