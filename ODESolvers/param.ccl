@@ -1,5 +1,3 @@
-# Parameter definitions for thorn ODESolvers
-
 KEYWORD method "ODE solver method" STEERABLE=always
 {
   # See <https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods>

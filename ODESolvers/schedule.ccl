@@ -1,5 +1,3 @@
-# Schedule definitions for thorn ODESolvers
-
 STORAGE: do_substeps
 
 SCHEDULE ODESolvers_InitConstants AT WRAGH
@@ -18,10 +16,6 @@ if(use_subcycling) {
     OPTIONS: level
   } "Solve ODEs with subcycling"
 
-  # Refill refinement-boundary ghosts of the evolved state so they match
-  # what the uninterrupted run's last end of step left there. Recovery
-  # traverses CCTK_POST_RECOVER_VARIABLES once per clock group, so this
-  # refills each group's levels, before anything reads them.
   SCHEDULE ODESolvers_Solve_Subcycling_Recovery AT CCTK_POST_RECOVER_VARIABLES BEFORE ODESolvers_PostStep
   {
     LANG: C
@@ -58,112 +52,6 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
 
 
 
-# CarpetX scheduled groups:
-#
-# Startup:
-#   STARTUP (special)
-#   WRAGH
-#   PARAMCHECK
-#
-# Initialization:
-#   Initialization loop:
-#     If regridding:
-#       [regrid]
-#       BASEGRID (in driver)
-#       POSTREGRID (in driver, except for initial coarsest level that is created from scratch)
-#     InputGH
-#     INITIAL
-#     POSTINITIAL
-#     POSTPOSTINITIAL
-#   [when restrict_during_sync = no and >= 2 levels (all time-aligned here):]
-#     CarpetX_PreRestrict
-#     [restrict]    (fine to coarse, then prolongate restricted and, under
-#                    subcycling, integrated GFs)
-#     POSTRESTRICT
-#   POSTSTEP
-#   CPINITIAL       (an initial checkpoint is written here, before ANALYSIS)
-#   ANALYSIS
-#   OutputGH
-#
-# Time evolution loop:
-#   If regridding:
-#     [regrid]
-#     BASEGRID (in driver)
-#     POSTREGRID (in driver)
-#   [cycle time levels]
-#   PRESTEP
-#   EVOL            (without subcycling: [reflux] inside ODESolvers_Solve,
-#                    before the final ODESolvers_PostStep)
-#   [when restrict_during_sync = no and >= 2 levels are time-aligned:]
-#     CarpetX_PreRestrict  (sees the state before the reflux)
-#     [reflux]      (subcycling: finest pair first, once per coarse step)
-#     [restrict]    (fine to coarse, then prolongate restricted and, under
-#                    subcycling, integrated GFs)
-#     POSTRESTRICT  (ODESolvers_PostStep runs here; under subcycling its
-#                    SYNC repairs the ghosts after the reflux and the
-#                    restriction, and it recomputes the dependents)
-#   POSTSTEP        (once, after all batches, on the finalized window)
-#   ANALYSIS        (once, after all batches, on the finalized window)
-#   CHECKPOINT      (once, after all batches)
-#   OutputGH        (once, after all batches)
-#
-# Recovery (instead of Initialization):
-#   [read grid structure]
-#   BASEGRID
-#   (relaxed recovery_mode only) INITIAL, POSTINITIAL, POSTPOSTINITIAL
-#   [read checkpoint]
-#   RECOVER_VARIABLES       (once, all levels, level clocks still 0)
-#   [restore level clocks]
-#   POST_RECOVER_VARIABLES  (once per clock group, coarse to fine, with the
-#                            group's context; under subcycling the evolved
-#                            state's ghosts are refilled first)
-#   CPINITIAL
-#   OutputGH
-#   (no restriction, POSTRESTRICT, POSTSTEP or ANALYSIS)
-#
-# Shutdown:
-#   TERMINATE
-#   SHUTDOWN (special)
-
-
-
-# Desirable schedule groups:
-#
-# Initial condition loop:
-#   BaseGrid: Set up constants (e.g. coordinates) everywhere on the grid
-#   Initial: Set up initial conditions on interior of state vector
-#   PostStep: Apply boundary conditions to state vector, and project if necessary
-#   EstimateError: Estimate discretization error (for regridding)
-# Analysis: Calculate analysis quantities everywhere
-#
-# Time evolution loop:
-#   EstimateError: Estimate discretization error (for regridding)
-#   If regridding:
-#     [regrid]
-#     [interpolate]
-#     BaseGrid: Set up constants (e.g. coordinates) everywhere on the grid
-#     PostStep: Apply boundary conditions to state vector, and project if necessary
-#   Time stepping loop:
-#     RHS: Evaluate RHS for of state vector everywhere on the grid
-#     [time step]
-#     PostStep: Apply boundary conditions to state vector, and project if necessary
-#   Analysis: Calculate analysis quantities everywhere
-
-
-
-# BaseGrid: Set up constants (e.g. coordinates) everywhere on the grid
-# Initial: Set up initial conditions on interior of state vector
-# PostStep: Apply boundary conditions to state vector, and project if necessary
-# EstimateError: Estimate discretization error (for regridding)
-# Analysis: Calculate analysis quantities everywhere
-# RHS: Evaluate RHS for of state vector everywhere on the grid
-
-# TODO: Use only interior of RHS in ODESolver
-
-
-
-# Define all groups without scheduling them
-
   SCHEDULE GROUP ODESolvers_BaseGrid
   {
   } "Set up constants (e.g. coordinates) everywhere on the grid"
@@ -188,18 +76,11 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
   {
   } "Calculate analysis quantities everywhere"
 
-  # Traversed only by ODESolvers_Solve, in its IMEX122 / "Implicit Euler"
-  # branch (CallScheduleGroup); never scheduled into a bin. Thorns schedule
-  # their implicit solve IN this group; with nothing scheduled the traversal
-  # is empty. The group must be declared: traversing an undeclared group
-  # fails.
   SCHEDULE GROUP ODESolvers_ImplicitStep
   {
   } "Take an implicit step everywhere on the grid"
 
 
-
-# Initialization
 
   SCHEDULE GROUP ODESolvers_BaseGrid AT basegrid
   {
@@ -213,49 +94,22 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
   {
   } "Apply boundary conditions to state vector, and project if necessary"
   
-  # SCHEDULE GROUP ODESolvers_RHS AT postinitial AFTER ODESolvers_PostStep
-  # {
-  # } "Evaluate RHS for of state vector everywhere on the grid"
-
   SCHEDULE GROUP ODESolvers_EstimateError AT postinitial AFTER (ODESolvers_PostStep, ODESolvers_RHS)
   {
   } "Estimate discretization error (for regridding)"
-
-# Recovering
 
   SCHEDULE GROUP ODESolvers_PostStep AT post_recover_variables
   {
   } "Apply boundary conditions to state vector, and project if necessary"
 
-  # SCHEDULE GROUP ODESolvers_RHS AT post_recover_variables AFTER ODESolvers_PostStep
-  # {
-  # } "Evaluate RHS for of state vector everywhere on the grid"
-
   SCHEDULE GROUP ODESolvers_EstimateError AT post_recover_variables AFTER (ODESolvers_PostStep, ODESolvers_RHS)
   {
   } "Estimate discretization error (for regridding)"
-
-# Regridding
 
   SCHEDULE GROUP ODESolvers_PostStep AT postregrid
   {
   } "Apply boundary conditions to state vector, and project if necessary"
 
-# Time evolution
-
-  # # This group will also be scheduled dynamically from ODESolvers_solve
-  # SCHEDULE GROUP ODESolvers_PostStep AT poststep
-  # {
-  # } "Apply boundary conditions to state vector, and project if necessary"
-  
-  # # This group will also be scheduled dynamically from ODESolvers_solve
-  # SCHEDULE GROUP ODESolvers_RHS AT poststep AFTER ODESolvers_PostStep
-  # {
-  # } "Evaluate the RHS for of state vector everywhere on the grid"
-
-  # TODO: this does not yet handle "IMEX122" correctly
-  # this group never actually executes since do_subseteps == 0 always, it is
-  # only present to show up in the schedule printout
   SCHEDULE GROUP ODESolvers_CalledBySolve AT EVOL AFTER ODESolvers_Solve WHILE (ODESolvers::do_substeps)
   {
   } "Groups internally scheduled by ODESolvers_Solve"
@@ -273,13 +127,9 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
   {
   } "Estimate discretization error (for regridding)"
 
-# Restricting
-
   SCHEDULE GROUP ODESolvers_PostStep AT postrestrict
   {
   } "Apply boundary conditions to state vector, and project if necessary"
-
-# Analysis
 
   SCHEDULE GROUP ODESolvers_Analysis AT analysis
   {
