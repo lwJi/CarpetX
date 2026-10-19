@@ -1,5 +1,7 @@
-# Commits that only remove comments. The no-comments check proves each SHA
-# a PR adds here with `python3 scripts/comments verify <SHA>^ <SHA>`.
+# Commits that only remove comments, and the clang-format commits that
+# follow them. The no-comments check proves each SHA a PR adds here with
+# `python3 scripts/comments verify <SHA>^ <SHA>` (`verify --layout` for a
+# "<Thorn>: clang-format after removing comments" commit).
 
 # WaveToyX: remove comments
 2a313b09b2ab68f448fd4133fed40f4a4ee0ca78
@@ -15,3 +17,9 @@ e29ab7a3bc2c4a21524aaf15ba0ea015eb9806df
 
 # ODESolvers: remove comments
 43a7ee9afa3c13466ae60a3e63383a3ec5b0f6cb
+
+# CarpetX: clang-format after removing comments
+650fcac89c575295c90d9483cd5fe0abda7fe874
+
+# ODESolvers: clang-format after removing comments
+7d4a0a1dd9d724065fe6ac9b43144df5d9312ce3
