@@ -247,8 +247,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
   const amrex::FabArrayBase &fab = *leveldata.fab;
 
   const amrex::Box &fbx = fab.fabbox(component);
-  const amrex::Box &vbx =
-      fab.box(component);
+  const amrex::Box &vbx = fab.box(component);
   const amrex::Box &gbx = fbx;
   const amrex::Box &domain = patchdata.amrcore->Geom(leveldata.level).Domain();
 

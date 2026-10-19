@@ -60,21 +60,11 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
   }
 
   if constexpr (RKSTAGES == 3) {
-    const std::array<CCTK_REAL, 3> b = {
-        xsi - (5. / 6.) * xsi2,
-        (1. / 6.) * xsi2,
-        (2. / 3.) * xsi2
-    };
-    const std::array<CCTK_REAL, 3> bt = {
-        1.0 - (5. / 3.) * xsi,
-        (1. / 3.) * xsi,
-        (4. / 3.) * xsi
-    };
-    constexpr std::array<CCTK_REAL, 3> btt = {
-        -5. / 3.,
-        1. / 3.,
-        4. / 3.
-    };
+    const std::array<CCTK_REAL, 3> b = {xsi - (5. / 6.) * xsi2,
+                                        (1. / 6.) * xsi2, (2. / 3.) * xsi2};
+    const std::array<CCTK_REAL, 3> bt = {1.0 - (5. / 3.) * xsi, (1. / 3.) * xsi,
+                                         (4. / 3.) * xsi};
+    constexpr std::array<CCTK_REAL, 3> btt = {-5. / 3., 1. / 3., 4. / 3.};
 
     if (stage == 1) {
       amrex::ParallelFor(
@@ -117,29 +107,14 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
     const CCTK_REAL xsi3 = xsi2 * xsi;
 
     const std::array<CCTK_REAL, 4> b = {
-        xsi - 1.5 * xsi2 + (2. / 3.) * xsi3,
-        xsi2 - (2. / 3.) * xsi3,
-        xsi2 - (2. / 3.) * xsi3,
-        -0.5 * xsi2 + (2. / 3.) * xsi3
-    };
+        xsi - 1.5 * xsi2 + (2. / 3.) * xsi3, xsi2 - (2. / 3.) * xsi3,
+        xsi2 - (2. / 3.) * xsi3, -0.5 * xsi2 + (2. / 3.) * xsi3};
     const std::array<CCTK_REAL, 4> bt = {
-        1.0 - 3.0 * xsi + 2.0 * xsi2,
-        2.0 * xsi - 2.0 * xsi2,
-        2.0 * xsi - 2.0 * xsi2,
-        -xsi + 2.0 * xsi2
-    };
-    const std::array<CCTK_REAL, 4> btt = {
-        -3.0 + 4.0 * xsi,
-        2.0 - 4.0 * xsi,
-        2.0 - 4.0 * xsi,
-        -1.0 + 4.0 * xsi
-    };
-    constexpr std::array<CCTK_REAL, 4> bttt = {
-        4.0,
-        -4.0,
-        -4.0,
-        4.0
-    };
+        1.0 - 3.0 * xsi + 2.0 * xsi2, 2.0 * xsi - 2.0 * xsi2,
+        2.0 * xsi - 2.0 * xsi2, -xsi + 2.0 * xsi2};
+    const std::array<CCTK_REAL, 4> btt = {-3.0 + 4.0 * xsi, 2.0 - 4.0 * xsi,
+                                          2.0 - 4.0 * xsi, -1.0 + 4.0 * xsi};
+    constexpr std::array<CCTK_REAL, 4> bttt = {4.0, -4.0, -4.0, 4.0};
 
     if (stage == 1) {
       amrex::ParallelFor(

@@ -31,8 +31,7 @@ inline void FillPatch_ProlongateGhosts(
     amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs,
     const amrex::MultiFab *cmfab_old = nullptr, CCTK_REAL w_new = 1) {
   FillPatch_Prolongate(tasks2, tasks3, groupdata, coarsegroupdata, mfab, cmfab,
-                       fgeom, cgeom, mapper, bcrecs, true,
-                       cmfab_old, w_new);
+                       fgeom, cgeom, mapper, bcrecs, true, cmfab_old, w_new);
 }
 
 inline void FillPatch_ProlongateOnly(

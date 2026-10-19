@@ -1333,10 +1333,9 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 static int
 regrid_prolongate_tls(const GHExt::PatchData::LevelData::GroupData &groupdata) {
   const int ntls = groupdata.mfab.size();
-  return groupdata.do_evolve ? (ntls > 1 ? ntls - 1 : ntls)
-         : groupdata.do_checkpoint
-             ? ntls
-             : 0;
+  return groupdata.do_evolve       ? (ntls > 1 ? ntls - 1 : ntls)
+         : groupdata.do_checkpoint ? ntls
+                                   : 0;
 }
 
 void CactusAmrCore::MakeNewLevelFromCoarse(

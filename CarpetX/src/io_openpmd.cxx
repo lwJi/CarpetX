@@ -888,15 +888,13 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                  local_component < num_local_components; ++local_component) {
               const int component = mfab.IndexArray().at(local_component);
 
-              const amrex::Box &fabbox =
-                  mfab.fabbox(component);
+              const amrex::Box &fabbox = mfab.fabbox(component);
               const box_t<int, 3> extbox{
                   .lo = {fabbox.smallEnd(0), fabbox.smallEnd(1),
                          fabbox.smallEnd(2)},
                   .hi = {fabbox.bigEnd(0) + 1, fabbox.bigEnd(1) + 1,
                          fabbox.bigEnd(2) + 1}};
-              const amrex::Box &validbox =
-                  mfab.box(component);
+              const amrex::Box &validbox = mfab.box(component);
               const box_t<int, 3> intbox{
                   .lo = {validbox.smallEnd(0), validbox.smallEnd(1),
                          validbox.smallEnd(2)},
@@ -1025,8 +1023,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                    local_component < num_local_components; ++local_component) {
                 const int component = band->IndexArray().at(local_component);
 
-                const amrex::Box &fabbox =
-                    band->fabbox(component);
+                const amrex::Box &fabbox = band->fabbox(component);
                 const box_t<int, 3> box{
                     .lo = {fabbox.smallEnd(0), fabbox.smallEnd(1),
                            fabbox.smallEnd(2)},
@@ -1600,15 +1597,13 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                  local_component < num_local_components; ++local_component) {
               const int component = mfab.IndexArray().at(local_component);
 
-              const amrex::Box &fabbox =
-                  mfab.fabbox(component);
+              const amrex::Box &fabbox = mfab.fabbox(component);
               const box_t<int, 3> extbox{
                   .lo = {fabbox.smallEnd(0), fabbox.smallEnd(1),
                          fabbox.smallEnd(2)},
                   .hi = {fabbox.bigEnd(0) + 1, fabbox.bigEnd(1) + 1,
                          fabbox.bigEnd(2) + 1}};
-              const amrex::Box &validbox =
-                  mfab.box(component);
+              const amrex::Box &validbox = mfab.box(component);
               const box_t<int, 3> intbox{
                   .lo = {validbox.smallEnd(0), validbox.smallEnd(1),
                          validbox.smallEnd(2)},
@@ -1724,8 +1719,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                    local_component < num_local_components; ++local_component) {
                 const int component = band->IndexArray().at(local_component);
 
-                const amrex::Box &fabbox =
-                    band->fabbox(component);
+                const amrex::Box &fabbox = band->fabbox(component);
                 const box_t<int, 3> box{
                     .lo = {fabbox.smallEnd(0), fabbox.smallEnd(1),
                            fabbox.smallEnd(2)},

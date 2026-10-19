@@ -70,9 +70,9 @@ void FillPatch_Prolongate(
   MultiFab &mfab_crse_patch = *mfab_crse_patch_ptr;
   mf_set_domain_bndry(mfab_crse_patch, cgeom);
 
-  mfab_crse_patch.ParallelCopy_nowait(
-      cmfab, 0, 0, ncomps, IntVect{0},
-      mfab_crse_patch.nGrowVect(), cgeom.periodicity());
+  mfab_crse_patch.ParallelCopy_nowait(cmfab, 0, 0, ncomps, IntVect{0},
+                                      mfab_crse_patch.nGrowVect(),
+                                      cgeom.periodicity());
 
   MultiFab *mfab_crse_patch_old_ptr = nullptr;
   if (do_blend) {
@@ -139,14 +139,11 @@ void Prolongate_Start(
 
   coarsegroupdata.apply_boundary_conditions(crse_patch);
 
-  FillPatchInterp(fine_patch, 0, crse_patch, 0, ncomps,
-                  IntVect{0}, cgeom, fgeom,
-                  grow(convert(fgeom.Domain(), mfab.ixType()), nghosts), ratio,
-                  mapper, bcrecs, 0);
+  FillPatchInterp(fine_patch, 0, crse_patch, 0, ncomps, IntVect{0}, cgeom,
+                  fgeom, grow(convert(fgeom.Domain(), mfab.ixType()), nghosts),
+                  ratio, mapper, bcrecs, 0);
 
-  mfab.ParallelCopy_nowait(
-      fine_patch, 0, 0, ncomps,
-      IntVect{0}, nghosts);
+  mfab.ParallelCopy_nowait(fine_patch, 0, 0, ncomps, IntVect{0}, nghosts);
 }
 
 void Prolongate_Finish(const GHExt::PatchData::LevelData::GroupData &groupdata,
@@ -223,26 +220,25 @@ void FillPatch_RemakeLevel(
     MultiFab mfab_crse_patch = make_mf_crse_patch<MultiFab>(fpc, ncomps);
     mf_set_domain_bndry(mfab_crse_patch, cgeom);
 
-    mfab_crse_patch.ParallelCopy(
-        cmfab, 0, 0, ncomps, IntVect{0},
-        mfab_crse_patch.nGrowVect(), cgeom.periodicity());
+    mfab_crse_patch.ParallelCopy(cmfab, 0, 0, ncomps, IntVect{0},
+                                 mfab_crse_patch.nGrowVect(),
+                                 cgeom.periodicity());
     coarsegroupdata.apply_boundary_conditions(mfab_crse_patch);
 
     MultiFab mfab_fine_patch = make_mf_fine_patch<MultiFab>(fpc, ncomps);
 
-    FillPatchInterp(mfab_fine_patch, 0, mfab_crse_patch, 0, ncomps,
-                    IntVect{0}, cgeom, fgeom,
+    FillPatchInterp(mfab_fine_patch, 0, mfab_crse_patch, 0, ncomps, IntVect{0},
+                    cgeom, fgeom,
                     grow(convert(fgeom.Domain(), mfab.ixType()), nghosts),
                     ratio, mapper, bcrecs, 0);
 
-    mfab.ParallelCopy_nowait(
-        mfab_fine_patch, 0, 0, ncomps,
-        IntVect{0}, nghosts);
+    mfab.ParallelCopy_nowait(mfab_fine_patch, 0, 0, ncomps, IntVect{0},
+                             nghosts);
     mfab.ParallelCopy_finish();
   }
 
-  mfab.ParallelCopy(fmfab, 0, 0, ncomps, IntVect{0},
-                    nghosts, fgeom.periodicity());
+  mfab.ParallelCopy(fmfab, 0, 0, ncomps, IntVect{0}, nghosts,
+                    fgeom.periodicity());
   groupdata.apply_boundary_conditions(mfab);
 }
 

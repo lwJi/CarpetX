@@ -280,8 +280,7 @@ struct GHExt {
     };
 
     struct ArrayGroupData : public CommonGroupData {
-      std::vector<AnyTypeVector>
-          data;
+      std::vector<AnyTypeVector> data;
       int array_size;
       int dimension;
       int activetimelevels;
@@ -311,8 +310,7 @@ struct GHExt {
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const ArrayGroupData &arraygroupdata);
     };
-    std::vector<std::unique_ptr<ArrayGroupData> >
-        arraygroupdata;
+    std::vector<std::unique_ptr<ArrayGroupData> > arraygroupdata;
 
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const GlobalData &globaldata);

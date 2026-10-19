@@ -85,11 +85,11 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml, const reduction_t &reduction) {
 }
 
 struct real_output_file_description_t {
-  std::string filename;                //
+  std::string filename; //
   std::string description;
-  std::string writer_thorn;            //
-  std::vector<std::string> variables;  //
-  std::vector<int> iterations;         //
+  std::string writer_thorn;           //
+  std::vector<std::string> variables; //
+  std::vector<int> iterations;        //
   group_type_t group_type;
   int variable_dimensions;
   std::vector<int> output_directions;  //

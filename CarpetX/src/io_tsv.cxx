@@ -423,13 +423,8 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
   const auto &groupdata0 =
       *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
 
-  const int nintvalues = 1
-                         + 1
-                         + dim
-                         + 1;
-  const int nvalues = nintvalues
-                      + dim
-                      + groupdata0.numvars;
+  const int nintvalues = 1 + 1 + dim + 1;
+  const int nvalues = nintvalues + dim + groupdata0.numvars;
 
   std::vector<CCTK_REAL> data;
   data.reserve(10000);
@@ -468,8 +463,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
       for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
         const amrex::Array4<const CCTK_REAL> &vars = mfab.array(mfi);
 
-        const amrex::Box &vbx =
-            mfi.validbox();
+        const amrex::Box &vbx = mfi.validbox();
         vect<vect<bool, dim>, 2> bbox;
         for (int d = 0; d < dim; ++d)
           for (int f = 0; f < 2; ++f)

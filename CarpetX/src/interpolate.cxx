@@ -296,18 +296,10 @@ template <typename T, int order, int centering> struct interpolator {
 
 } // namespace
 
-int InterpLocalUniform(int, int,
-                       const CCTK_REAL[],
-                       const CCTK_REAL[],
-                       int, int,
-                       const void *const[],
-                       int,
-                       const CCTK_INT[],
-                       const CCTK_INT[],
-                       const void *const[],
-                       int,
-                       const CCTK_INT[],
-                       void *const[]) {
+int InterpLocalUniform(int, int, const CCTK_REAL[], const CCTK_REAL[], int, int,
+                       const void *const[], int, const CCTK_INT[],
+                       const CCTK_INT[], const void *const[], int,
+                       const CCTK_INT[], void *const[]) {
   CCTK_ERROR("CarpetX implements no local interpolator; its \"CarpetX\" "
              "handle serves only grid-array interpolation");
 }

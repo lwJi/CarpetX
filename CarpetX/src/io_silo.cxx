@@ -867,8 +867,7 @@ void InputSilo(const cGH *restrict const cctkGH,
                 if (!(recv_this_fab || read_this_fab))
                   continue;
 
-                const amrex::Box &fabbox =
-                    band->fabbox(component);
+                const amrex::Box &fabbox = band->fabbox(component);
 
                 std::array<int, ndims> dims;
                 for (int d = 0; d < ndims; ++d)
@@ -1405,8 +1404,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 if (!(send_this_fab || write_this_fab))
                   continue;
 
-                const amrex::Box &fabbox =
-                    band->fabbox(component);
+                const amrex::Box &fabbox = band->fabbox(component);
 
                 std::array<int, ndims> dims;
                 for (int d = 0; d < ndims; ++d)
