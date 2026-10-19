@@ -30,9 +30,22 @@ agent_scripts/sandbox/setup.sh                                     # in-sandbox,
 
 The first in-sandbox `build.sh` configures and compiles from scratch (~13 min — give it a 30-minute timeout); the named sandbox persists the build across stop/start, so later builds are incremental (~10 s) and the testsuite takes ~25 s.
 
+## Code comments
+
+Thorn files contain no comments. A thorn is a top-level directory with an `interface.ccl`, and its files are the C, C++ and Fortran sources under `src/`, every `.ccl`, every `.par` and `.par-DISABLED`, and `make.code.defn`. Repo tooling (`scripts/`, `agent_scripts/`, `docker/`, workflows, option lists) keeps its comments, and so does `BenchX/`.
+
+A comment is allowed only if all of it is one of these:
+
+- A tool marker: a namespace closer such as `} // namespace CarpetX`, a bare `//` (after code it steers clang-format's line breaks; on a line of its own it separates a citation from the next comment), or `// clang-format off` / `// clang-format on`.
+- A citation that consists of a single URL, arXiv ID or DOI, optionally introduced by `See`, `From`, `Taken from` or `cf.` and followed by an arXiv category and equation numbers, for example `// See arXiv:1111.2177 [gr-qc], (74-75)` or `// doi:10.1016/0021-9991(88)90177-5`. Write an author-year citation as its DOI.
+
+Everything else is banned, however short: prose, TODO and FIXME, `/*arg=*/` labels, line references into other code bases, commented-out code and `.par` settings, `#if 0` / `#if 1` blocks, and compile-time messages (`#warning`, `#pragma message`). There is no per-line or per-file exception. CCL description strings and runtime messages are not comments, but don't move comment prose into them.
+
+Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message, never in a comment.
+
 ## Commit & Pull Request Guidelines
 
-Recent history favors short subject lines with a thorn prefix, for example `ODESolvers: update comments` or `CarpetX: add par poison_undefined_arrays`. Keep commits focused on one thorn or one behavior change. PRs should explain the scientific or runtime impact, list the tests run, and link the relevant issue or discussion. Include plots or output snippets when a change affects diagnostics, IO, or visible simulation results.
+Recent history favors short subject lines with a thorn prefix, for example `ODESolvers: check more of the RK method table at compile time` or `CarpetX: add par poison_undefined_arrays`. Keep commits focused on one thorn or one behavior change. PRs should explain the scientific or runtime impact, list the tests run, and link the relevant issue or discussion. Include plots or output snippets when a change affects diagnostics, IO, or visible simulation results.
 
 ## Further Reading
 
