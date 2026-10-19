@@ -5,11 +5,12 @@ from dataclasses import dataclass
 from typing import Optional
 
 import lex_clang
+import lex_hash
 from files import Lang
-from regions import comment_regions
-from tokens import Kind, Placement, Region, Token
+from regions import comment_regions, directive_regions
+from tokens import DIRECTIVE_PLACEMENTS, Kind, Placement, Region, Token
 
-COMMENT_OPENER = re.compile(r"/[/*\\]")
+CXX_HINT = re.compile(r"/[/*]|\\[ \t\f\v]*[\r\n]|_Pragma|(?:#|%:)[ \t\f\v]*(?:if|elif|warning|pragma)\b")
 NAMESPACE_CLOSER = re.compile(r"// namespace(?: [A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)?")
 FORMATTER_MARKER = re.compile(r"// clang-format (?:off|on)|/\* clang-format (?:off|on) \*/")
 URL = r"(?:<https?://[^\s<>]+>|https?://[^\s<>]+)"
@@ -19,7 +20,7 @@ EQUATIONS = r"(?:\((?:eqs?\. ?)?\d+[a-z]?(?: ?[-–,] ?\d+[a-z]?)*\)|eqs?\. ?\d+
 CITATION = re.compile(
     rf"(?:(?:See|From|Taken from|cf\.) )?(?:{URL}|{ARXIV}|{DOI})(?: \[[\w.-]+\])?(?:,? {EQUATIONS})?\.?"
 )
-LINE_OPENER = re.compile(r"^//+")
+LINE_OPENER = re.compile(r"^(?://+|#+|!+)")
 BLOCK_OPENER = re.compile(r"^/\*+")
 BLOCK_CLOSER = re.compile(r"\*+/$")
 BLOCK_LEADER = re.compile(r"^\*+")
@@ -32,7 +33,11 @@ class Violation:
 
     @property
     def token(self) -> Token:
-        return self.shown if self.shown is not None else self.region.comments[0]
+        if self.shown is not None:
+            return self.shown
+        if self.region.placement in DIRECTIVE_PLACEMENTS:
+            return self.region.tokens[0]
+        return self.region.comments[0]
 
     @property
     def line(self) -> int:
@@ -85,22 +90,34 @@ def is_tool_marker(region: Region, tokens: list[Token]) -> bool:
 
 
 def allowed(region: Region, tokens: list[Token], lang: Lang) -> bool:
+    if region.placement in DIRECTIVE_PLACEMENTS:
+        return False
     if lang is Lang.CXX and is_tool_marker(region, tokens):
         return True
     return is_citation(region)
 
 
+def regions_of(tokens: list[Token], lang: Lang) -> list[Region]:
+    if lang is not Lang.CXX:
+        return comment_regions(tokens)
+    found = comment_regions(tokens, is_formatter_marker) + directive_regions(tokens)
+    return sorted(found, key=lambda r: (r.first, r.placement in DIRECTIVE_PLACEMENTS))
+
+
 def check(tokens: list[Token], lang: Lang) -> list[Violation]:
-    standalone = is_formatter_marker if lang is Lang.CXX else (lambda token: False)
-    return [Violation(r) for r in comment_regions(tokens, standalone) if not allowed(r, tokens, lang)]
+    return [Violation(r) for r in regions_of(tokens, lang) if not allowed(r, tokens, lang)]
 
 
 def lex(text: str, lang: Lang) -> list[Token]:
-    return lex_clang.lex(text)
+    if lang is Lang.CXX:
+        return lex_clang.lex(text)
+    return lex_hash.lex(text, lang)
 
 
 def may_hold_comments(text: str, lang: Lang) -> bool:
-    return bool(COMMENT_OPENER.search(text))
+    if lang is Lang.CXX:
+        return bool(CXX_HINT.search(text))
+    return lex_hash.may_hold_comments(text, lang)
 
 
 def check_text(text: str, lang: Lang) -> list[Violation]:

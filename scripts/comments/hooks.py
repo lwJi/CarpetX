@@ -7,11 +7,11 @@ from collections import Counter
 from dataclasses import replace
 from typing import Optional
 
-from files import PROJECT, Lang, covered, read_text, repo_name
+from files import PROJECT, Lang, changed, covered, is_regular, merge_base, parallel, read_text, repo_name, show, untracked
 from lex_clang import ToolMissing
 from report import render
-from rules import check, lex, may_hold_comments
-from tokens import Kind, Token
+from rules import check, lex, may_hold_comments, regions_of
+from tokens import DIRECTIVE_PLACEMENTS, Kind, Region, Token
 
 
 def emit(out, message: dict) -> None:
@@ -45,6 +45,10 @@ def comment_key(token: Token) -> str:
     return " ".join(token.text.split())
 
 
+def directive_key(region: Region) -> str:
+    return " ".join(t.text for t in region.tokens if t.kind in (Kind.CODE, Kind.DIRECTIVE))
+
+
 def added(before: str, after: str, lang: Lang) -> list:
     if not may_hold_comments(after, lang):
         return []
@@ -52,20 +56,34 @@ def added(before: str, after: str, lang: Lang) -> list:
     found = check(tokens, lang)
     if not found:
         return []
-    old = Counter()
-    if may_hold_comments(before, lang):
-        old.update(comment_key(t) for t in lex(before, lang) if t.kind is Kind.COMMENT)
-    flagged = {i for v in found for i in range(v.region.first, v.region.last + 1)}
+    old_tokens = lex(before, lang) if may_hold_comments(before, lang) else []
+    old_comments = Counter(comment_key(t) for t in old_tokens if t.kind is Kind.COMMENT)
+    old_directives = Counter(
+        directive_key(r) for r in regions_of(old_tokens, lang) if r.placement in DIRECTIVE_PLACEMENTS
+    )
+    flagged = {
+        i
+        for v in found
+        if v.region.placement not in DIRECTIVE_PLACEMENTS
+        for i in range(v.region.first, v.region.last + 1)
+    }
     comments = [i for i, t in enumerate(tokens) if t.kind is Kind.COMMENT]
     new = set()
     for i in sorted(comments, key=lambda i: (i in flagged, i)):
         key = comment_key(tokens[i])
-        if old[key]:
-            old[key] -= 1
+        if old_comments[key]:
+            old_comments[key] -= 1
         else:
             new.add(i)
     result = []
     for v in found:
+        if v.region.placement in DIRECTIVE_PLACEMENTS:
+            key = directive_key(v.region)
+            if old_directives[key]:
+                old_directives[key] -= 1
+            else:
+                result.append(v)
+            continue
         first_new = next((i for i in range(v.region.first, v.region.last + 1) if i in new), None)
         if first_new is not None:
             result.append(replace(v, shown=tokens[first_new]))
@@ -103,4 +121,42 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
             }
         },
     )
+    return 0
+
+
+def branch_changes(root: str) -> list[tuple[str, Optional[str], str, Lang]]:
+    base = merge_base(root)
+    pairs = {new: old for old, new in changed(root, base)}
+    for name in untracked(root):
+        pairs.setdefault(name, None)
+    found = []
+    for name in sorted(pairs):
+        path = os.path.join(root, name)
+        lang = covered(name, root)
+        if lang is not None and is_regular(path):
+            found.append((base, pairs[name], name, lang))
+    return found
+
+
+def hook_stop(raw, out=None, root: str = PROJECT) -> int:
+    out = out or sys.stdout
+    try:
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("the hook payload is not a JSON object")
+        if payload.get("stop_hook_active"):
+            return 0
+
+        def judge(item):
+            base, old, name, lang = item
+            after = read_text(os.path.join(root, name))
+            return [(name, v) for v in added(show(root, base, old), after, lang)]
+
+        found = [entry for entries in parallel(judge, branch_changes(root)) for entry in entries]
+        if not found:
+            return 0
+        reason = render(found)
+    except Exception as e:
+        return skipped(out, e)
+    emit(out, {"decision": "block", "reason": reason})
     return 0

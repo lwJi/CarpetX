@@ -52,6 +52,14 @@ class Render(unittest.TestCase):
         [(_, v)] = found("A/src/a.cxx", "// " + "x" * 100 + "\n")
         self.assertEqual(excerpt(v), "// " + "x" * 69 + "…")
 
+    def test_a_guard_or_message_shows_its_directive(self):
+        text = "\n#if 0\nint a;\n#endif\n#warning                \\\n    \"TODO: Allow different restriction operators, and ensure this is conservative\"\n"
+        self.assertEqual(
+            render(found("A/src/a.cxx", text)).split("\n")[:2],
+            ["A/src/a.cxx:2   #if 0",
+             'A/src/a.cxx:5   #warning "TODO: Allow different restriction operators, and ensure this i…'],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
