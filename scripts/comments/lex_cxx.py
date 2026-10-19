@@ -33,7 +33,12 @@ class Scan:
     directives: list[tuple[int, int]]
 
 
-_NEXT = re.compile(r"""[/"']""")
+_NEXT = re.compile(
+    r"""[/"']"""
+    r"|^[ \t]*\#[ \t]*(?:(?:include|include_next|import)[ \t]*(?P<header><)|(?P<conditional>(?:el)?if)\b)"
+    r"|\b__has_include(?:_next)?[ \t]*\([ \t]*(?P<has_include><)",
+    re.M,
+)
 _RAW_OPEN = re.compile(r'"([^()\\ \t\n]{0,16})\(')
 _DOUBLE_QUOTED = re.compile(r'"(?:[^"\\\n]|\\.)*"?', re.S)
 _SINGLE_QUOTED = re.compile(r"'(?:[^'\\\n]|\\.)*'?", re.S)
@@ -89,12 +94,57 @@ def _line_comment_end(text: str, start: int) -> int:
         return _line_end(text, newline)
 
 
+def _spliced_onto_previous_line(text: str, line_start: int) -> bool:
+    if line_start == 0:
+        return False
+    previous = text.rfind("\n", 0, line_start - 1) + 1
+    return text[previous : line_start - 1].rstrip().endswith("\\")
+
+
+def _header_name_end(text: str, start: int, literals: list[tuple[int, int]]) -> int:
+    newline = text.find("\n", start)
+    close = text.find(">", start, len(text) if newline < 0 else newline)
+    if close < 0:
+        return start + 1
+    literals.append((start, close + 1))
+    return close + 1
+
+
+def _one_logical_line(
+    text: str, start: int, end: int, comments: list[tuple[str, int, int]], literals: list[tuple[int, int]]
+) -> bool:
+    newline = text.find("\n", start, end)
+    while newline >= 0:
+        hidden = any(s <= newline < e for _, s, e in comments) or any(s <= newline < e for s, e in literals)
+        line_start = text.rfind("\n", 0, newline) + 1
+        if not hidden and not text[line_start:newline].rstrip().endswith("\\"):
+            return False
+        newline = text.find("\n", newline + 1, end)
+    return True
+
+
 def _scan_comments(text: str) -> tuple[list[tuple[str, int, int]], list[tuple[int, int]]]:
     comments: list[tuple[str, int, int]] = []
     literals: list[tuple[int, int]] = []
     n = len(text)
     i = 0
+    conditional = None
     while (m := _NEXT.search(text, i)) is not None:
+        if (m.group("header") or m.group("conditional")) and _spliced_onto_previous_line(text, m.start()):
+            i = m.end()
+            continue
+        if m.group("header") is not None:
+            i = _header_name_end(text, m.start("header"), literals)
+            continue
+        if m.group("conditional") is not None:
+            conditional = m.start()
+            i = m.end()
+            continue
+        if m.group("has_include") is not None:
+            i = m.start("has_include")
+            if conditional is not None and _one_logical_line(text, conditional, i, comments, literals):
+                i = _header_name_end(text, i, literals)
+            continue
         i = m.start()
         c = text[i]
         if c == "/":

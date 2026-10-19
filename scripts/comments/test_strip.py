@@ -70,6 +70,7 @@ CXX_CASES = {
         "#define G(a) f(a /* c */)\n#define H(x) \\\n  g /*c*/ (x)\n#define K(a,/*c*/b) a\n",
         "#define G(a) f(a )\n#define H(x) \\\n  g (x)\n#define K(a, b) a\n",
     ),
+    "a header name holds no comment": ("#include <a//b.h> // c\n", "#include <a//b.h>\n"),
     "inline before an operand keeps the space": ("report(gi, /*vi=*/-1, /*tl=*/0);\n", "report(gi, -1, 0);\n"),
     "inline block across lines": ("/* a\n b */ int x;\n", "int x;\n"),
     "comments in strings stay": ('s = "a // b"; // c\n', 's = "a // b";\n'),
@@ -78,6 +79,10 @@ CXX_CASES = {
     "if 0 else keeps the live branch byte for byte": (
         "{\n#if 0\nb;\n#else\n\n  c;  \n\n#endif\n}\n",
         "{\n\n  c;  \n\n}\n",
+    ),
+    "has_include in a macro body is not a header name": (
+        "#define H __has_include(<a/*note*/b>)\n",
+        "#define H __has_include(<a b>)\n",
     ),
     "if 1": ("#if 1\nc;\n#endif\n", "c;\n"),
     "if 1 else": ("#if 1\nc;\n#else\nb;\n#endif\n", "c;\n"),

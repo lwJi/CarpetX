@@ -67,16 +67,26 @@ class Token:
     in_directive: bool = False
 
 
+@dataclass(frozen=True)
+class _Raw:
+    kind: str
+    spelling: str
+    line: int
+    offset: int
+
+
 _SPLICE = re.compile(r"\\[ \t]*\r?\n")
+_HEADER_NAME_DIRECTIVES = frozenset({"include", "include_next", "import"})
+_HAS_INCLUDE = frozenset({"__has_include", "__has_include_next"})
+_RAW_LEXED_APART = re.compile(rb"""//|/\*|["']""")
 _TIGHT = frozenset({"l_paren", "r_paren", "l_square", "r_square", "l_brace", "r_brace", "comma", "semi"})
 
 
-def clang_tokens(text: str) -> list[Token]:
-    clang = _require("clang++")
+def _raw_tokens(clang: str, data: bytes) -> list[_Raw]:
     with tempfile.TemporaryDirectory() as tmp:
         source = os.path.join(tmp, "source.cxx")
-        with open(source, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
-            f.write(text)
+        with open(source, "wb") as f:
+            f.write(data)
         result = subprocess.run(
             [clang, "-x", "c++", "-std=c++20", "-w", "-fsyntax-only",
              "-Xclang", "-dump-raw-tokens", source],
@@ -88,29 +98,91 @@ def clang_tokens(text: str) -> list[Token]:
         record = re.compile(
             r"(\w+) '(.*?)'\t(.*?)\tLoc=<" + re.escape(source) + r":(\d+):(\d+)>\n", re.S
         )
-    tokens = []
+    line_starts = [0] + [m.end() for m in re.finditer(rb"\n", data)]
+    raws = []
     position = 0
-    first_on_line, space, directive = True, False, False
     for m in record.finditer(output):
         if m.start() != position:
             raise RuntimeError(f"cannot parse clang raw-token output near: {output[position:position + 200]!r}")
         position = m.end()
-        kind, spelling = m.group(1), m.group(2)
-        if kind == "comment":
+        line, column = int(m.group(4)), int(m.group(5))
+        raws.append(_Raw(m.group(1), m.group(2), line, line_starts[line - 1] + column - 1))
+    if position != len(output):
+        raise RuntimeError(f"cannot parse clang raw-token output near: {output[position:position + 200]!r}")
+    return raws
+
+
+def _directive_name(tokens: list[Token]) -> str | None:
+    for k in range(len(tokens) - 1, -1, -1):
+        if tokens[k].first_on_line:
+            return tokens[k + 1].spelling if tokens[k].kind == "hash" and k + 1 < len(tokens) else None
+    return None
+
+
+def _opens_header_name(tokens: list[Token]) -> bool:
+    if len(tokens) < 2 or not tokens[-1].in_directive:
+        return False
+    a, b = tokens[-2], tokens[-1]
+    after_include = (
+        a.kind == "hash" and a.first_on_line and b.kind == "raw_identifier" and b.spelling in _HEADER_NAME_DIRECTIVES
+    )
+    in_has_include = (
+        a.kind == "raw_identifier"
+        and a.spelling in _HAS_INCLUDE
+        and b.kind == "l_paren"
+        and _directive_name(tokens) in ("if", "elif")
+    )
+    return after_include or in_has_include
+
+
+def _header_name_close(data: bytes, start: int) -> int | None:
+    newline = data.find(b"\n", start)
+    close = data.find(b">", start + 1, len(data) if newline < 0 else newline)
+    return None if close < 0 else close
+
+
+def _assemble(raws: list[_Raw], data: bytes, hidden: dict[int, bytes]) -> tuple[list[Token], tuple[int, int] | None]:
+    tokens: list[Token] = []
+    first_on_line, space, directive = True, False, False
+    header_name_end = -1
+    for r in raws:
+        if r.offset <= header_name_end:
+            continue
+        if r.kind == "comment":
             space = True
             continue
-        if kind == "unknown" and not spelling.strip():
-            blank = _SPLICE.sub("", spelling)
+        if r.kind == "unknown" and not r.spelling.strip():
+            blank = _SPLICE.sub("", r.spelling)
             first_on_line = first_on_line or "\n" in blank
             space = space or bool(blank)
             continue
         if first_on_line:
-            directive = kind == "hash"
-        tokens.append(Token(kind, spelling, first_on_line, int(m.group(4)), space, directive))
+            directive = r.kind == "hash"
+        kind, spelling = r.kind, r.spelling
+        if kind == "less" and not first_on_line and _opens_header_name(tokens):
+            close = _header_name_close(data, r.offset)
+            if close is not None:
+                if r.offset not in hidden and _RAW_LEXED_APART.search(data, r.offset, close):
+                    return tokens, (r.offset, close)
+                kind = "header_name"
+                spelling = hidden.get(r.offset, data[r.offset : close + 1]).decode("utf-8", "surrogateescape")
+                header_name_end = close
+        tokens.append(Token(kind, spelling, first_on_line, r.line, space, directive))
         first_on_line = space = False
-    if position != len(output):
-        raise RuntimeError(f"cannot parse clang raw-token output near: {output[position:position + 200]!r}")
-    return tokens
+    return tokens, None
+
+
+def clang_tokens(text: str) -> list[Token]:
+    clang = _require("clang++")
+    data = text.encode("utf-8", "surrogateescape")
+    hidden: dict[int, bytes] = {}
+    while True:
+        tokens, header_name = _assemble(_raw_tokens(clang, data), data, hidden)
+        if header_name is None:
+            return tokens
+        start, close = header_name
+        hidden[start] = data[start : close + 1]
+        data = data[: start + 1] + b"_" * (close - start - 1) + data[close:]
 
 
 def _spacing(tokens: list[Token]) -> list[bool | None]:

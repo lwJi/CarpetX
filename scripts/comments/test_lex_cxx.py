@@ -38,6 +38,22 @@ class Comments(unittest.TestCase):
         self.assertEqual(spans("int a = 1'0; // c\n"), [("line", "// c")])
         self.assertEqual(spans("int a = 0xFF'FF; // c\n"), [("line", "// c")])
 
+    def test_header_names_hold_no_comments(self):
+        self.assertEqual(spans("#include <a//b.h>\n#  include_next <c/*d>\n"), [])
+        self.assertEqual(spans("#include <a/*b.h> // c\nint x; /* d */\n"), [("line", "// c"), ("block", "/* d */")])
+        self.assertEqual(spans("#if __has_include(<a//b.h>)\n#endif\n"), [])
+        self.assertEqual(spans("#if A && \\\n  __has_include(<a//b.h>)\n#elif __has_include(<c//d>)\n#endif\n"), [])
+        self.assertEqual(spans("bool b = x < y; // c\n"), [("line", "// c")])
+
+    def test_has_include_outside_a_conditional_is_not_a_header_name(self):
+        self.assertEqual(spans("#define H __has_include(<a/*note*/b>)\n"), [("block", "/*note*/")])
+        self.assertEqual(spans("#if A\nbool h = __has_include(<a/*c*/b>);\n#endif\n"), [("block", "/*c*/")])
+
+    def test_a_line_continuing_a_macro_starts_no_directive(self):
+        self.assertEqual(spans("#define F(include) \\\n#include <a/* >\n// */b>\n"), [("block", "/* >\n// */")])
+        self.assertEqual(spans("#define G(if) \\\n#if __has_include(<a/* >)\n// */b>)\n"), [("block", "/* >)\n// */")])
+        self.assertEqual(spans("#define F(x) x\r\n#include <a//b.h>\r\n"), [])
+
     def test_continued_line_comment(self):
         self.assertEqual(
             spans("// a \\\nstill the comment\nint x;\n"),

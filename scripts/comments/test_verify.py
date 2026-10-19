@@ -186,6 +186,13 @@ class Cxx(unittest.TestCase):
         result = verify_file("X/src/a.cxx", "#define A 1\nint x;\n", "#define A 1 int x;\n", None)
         self.assertFalse(result.ok)
 
+    def test_our_strip_of_a_header_name_lookalike_in_a_macro_passes(self):
+        before = "#define F(include) \\\n#include <a/* >\n// */b>\nint x;\n"
+        after = strip(before, Lang.CXX)
+        self.assertEqual(after, "#define F(include) \\\n#include <a b>\nint x;\n")
+        result = verify_file("X/src/a.cxx", before, after, None)
+        self.assertTrue(result.ok, result.detail)
+
     def test_a_macro_turned_function_like_fails(self):
         for after in ["#define F(x)\n", "#define F\\\n(x)\n"]:
             with self.subTest(after=after):
@@ -198,6 +205,16 @@ class Cxx(unittest.TestCase):
         self.assertFalse(verify_file("X/src/a.cxx", "S(a/* c */+b);\n", "S(a+b);\n", None).ok)
         result = verify_file("X/src/a.cxx", "f(a /* c */, b);\n", "f(a, b);\n", None)
         self.assertTrue(result.ok, result.detail)
+
+    def test_changing_a_header_name_or_code_after_it_fails(self):
+        for before, after in [
+            ("#include <a//b.h>\n", "#include <a\n"),
+            ("#include <a//b.h>\n", "#include <a/b.h>\n"),
+            ("#if __has_include(<a//b.h>)\n#endif\n", "#if __has_include(<a\n#endif\n"),
+            ("#include <a/*b.h>\nint x;\n", "#include <a/*b.h>\nint y;\n"),
+        ]:
+            with self.subTest(before=before, after=after):
+                self.assertFalse(verify_file("X/src/a.cxx", before, after, None).ok)
 
     def test_dropping_a_live_branch_fails(self):
         before = "#if 0\nx;\n#else\ny;\n#endif\n"
