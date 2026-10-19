@@ -38,7 +38,7 @@ jobs:
       - name: Test scripts/comments
         run: python3 -m unittest discover -s scripts/comments
 
-      - name: Prove the blame skips are comment-only
+      - name: Prove the blame skips are comment- or layout-only
         if: ${{ !cancelled() }}
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}

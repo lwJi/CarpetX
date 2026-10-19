@@ -68,7 +68,20 @@ def run_strip(paths: list[str]) -> int:
     return EXIT_CLEAN
 
 
-def run_verify(command: str, revs: list[str], flesh: str | None) -> int:
+def run_reformat(thorns: list[str]) -> int:
+    from files import PROJECT, GitError
+    from lex_clang import LexError, ToolMissing
+    from reformat import ReformatError, reformat
+
+    try:
+        reformat(PROJECT, thorns, print)
+    except (ToolMissing, GitError, LexError, ReformatError, UnicodeError, OSError) as e:
+        print(f"comments reformat: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    return EXIT_CLEAN
+
+
+def run_verify(command: str, revs: list[str], flesh: str | None, layout: bool = False) -> int:
     from files import PROJECT, GitError, resolve
     from lex_clang import LexError, ToolMissing
     from strip import StripError
@@ -81,7 +94,9 @@ def run_verify(command: str, revs: list[str], flesh: str | None) -> int:
             if resolve(PROJECT, rev) is None:
                 raise ValueError(f"no such commit: {rev}")
         if command == "verify":
-            ok = report(verify_revs(PROJECT, revs[0], revs[1], flesh), f"verify {revs[0]} {revs[1]}", print)
+            what = f"verify{' --layout' if layout else ''} {revs[0]} {revs[1]}"
+            results = verify_revs(PROJECT, revs[0], revs[1], flesh, layout=layout)
+            ok = report(results, what, print, "layout" if layout else "comments")
         else:
             ok = verify_skips(PROJECT, revs[0], flesh, print)
     except (ToolMissing, GitError, LexError, StripError, ValueError) as e:
@@ -113,11 +128,21 @@ def main(argv: list[str] | None = None) -> int:
     strip.add_argument("paths", nargs="+", metavar="PATH", help="files or directories to strip in place")
     flesh = {"metavar": "DIR", "default": os.environ.get("CACTUSX"),
              "help": "the Cactus flesh, for its .ccl and .par grammars (default: $CACTUSX)"}
+    reformat = commands.add_parser(
+        "reformat",
+        help="clang-format 22.1.1 the C/C++ files a thorn's remove comments commit left unformatted, "
+             "if they were clean before it")
+    reformat.add_argument("thorns", nargs="+", metavar="THORN", help="thorns to reformat in place")
     verify = commands.add_parser("verify", help="prove that AFTER differs from BEFORE only in comments")
     verify.add_argument("--flesh", **flesh)
+    verify.add_argument("--layout", action="store_true",
+                        help="prove instead that only line breaks and spacing differ (C/C++ only)")
     verify.add_argument("before", metavar="BEFORE")
     verify.add_argument("after", metavar="AFTER")
-    skips = commands.add_parser("verify-skips", help="verify each commit added to .git-blame-ignore-revs since BASE")
+    skips = commands.add_parser(
+        "verify-skips",
+        help="verify each commit added to .git-blame-ignore-revs since BASE, a \"<Thorn>: clang-format after "
+             "removing comments\" commit with --layout")
     skips.add_argument("--flesh", **flesh)
     skips.add_argument("base", metavar="BASE")
     commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a comment")
@@ -130,8 +155,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "strip":
             return run_strip(args.paths)
+        if args.command == "reformat":
+            return run_reformat(args.thorns)
         if args.command == "verify":
-            return run_verify("verify", [args.before, args.after], args.flesh)
+            return run_verify("verify", [args.before, args.after], args.flesh, args.layout)
         if args.command == "verify-skips":
             return run_verify("verify-skips", [args.base], args.flesh)
         return run_check(args.paths)

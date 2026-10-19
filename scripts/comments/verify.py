@@ -100,6 +100,68 @@ def verify_cxx(name: str, before: str, after: str) -> Result:
     return Result(name, True, how)
 
 
+@dataclass(frozen=True)
+class Placed:
+    text: str
+    kind: Kind
+    opens_line: bool
+    spaced: Optional[bool]
+    line: int
+
+    @property
+    def key(self) -> tuple:
+        return self.text, self.kind, self.opens_line, self.spaced
+
+    def describe(self) -> str:
+        kind = {Kind.DIRECTIVE: "directive token", Kind.COMMENT: "comment"}.get(self.kind, "token")
+        where = (
+            " on a line of its own" if self.kind is Kind.COMMENT and self.opens_line
+            else " after code on its line" if self.kind is Kind.COMMENT
+            else " opening a directive" if self.opens_line
+            else " after a gap" if self.spaced
+            else " with no gap before it" if self.spaced is False
+            else ""
+        )
+        return f"line {self.line} {kind} {self.text!r}{where}"
+
+
+def placed(tokens: list[Token]) -> list[Placed]:
+    found = []
+    line_start, spaced = True, False
+    previous: Optional[Token] = None
+    for t in tokens:
+        if t.kind is Kind.NEWLINE:
+            line_start = True
+        elif t.kind is Kind.SPACE:
+            spaced = True
+        elif t.kind is Kind.COMMENT:
+            found.append(Placed(t.text, t.kind, line_start, None, t.line))
+            line_start, spaced = False, True
+        else:
+            directive = t.kind is Kind.DIRECTIVE
+            opens = directive and line_start
+            gap = spaced or line_start
+            compared = previous is not None and not opens and (
+                directive or (previous.text not in TIGHT and t.text not in TIGHT))
+            found.append(Placed(t.text, t.kind, opens, gap if compared else None, t.line))
+            previous, line_start, spaced = t, False, False
+    return found
+
+
+def verify_layout_cxx(name: str, before: str, after: str) -> Result:
+    how = "clang tokens and comments equal, only line breaks and spacing moved"
+    a = placed(lex_clang.lex(before))
+    b = placed(lex_clang.lex(after))
+    for x, y in zip(a, b):
+        if x.key != y.key:
+            return Result(name, False, how, f"before {x.describe()}, after {y.describe()}")
+    if len(a) > len(b):
+        return Result(name, False, how, f"before has more tokens, from {a[len(b)].describe()}")
+    if len(b) > len(a):
+        return Result(name, False, how, f"after has more tokens, from {b[len(a)].describe()}")
+    return Result(name, True, how)
+
+
 def piraha_dumps(flesh: str, peg: str, texts: list[str]) -> list[tuple[bool, str]]:
     perl = shutil.which("perl")
     if perl is None:
@@ -355,25 +417,31 @@ def changed_files(root: str, before: str, after: str) -> list[tuple[str, str]]:
     return [(fields[k], fields[k + 1]) for k in range(0, len(fields) - 1, 2)]
 
 
-def verify_revs(root: str, before: str, after: str, flesh: Optional[str]) -> list[Result]:
+def verify_revs(root: str, before: str, after: str, flesh: Optional[str], layout: bool = False) -> list[Result]:
     thorns = thorns_in(tree_names(root, before)) | thorns_in(tree_names(root, after))
+    what = "a reformat" if layout else "a strip"
     refused = []
     items = []
     for status, name in changed_files(root, before, after):
         lang = lang_of(name) if name.split("/")[0] in thorns else None
         if status != "M":
-            refused.append(Result(name, False, "a strip only modifies files", f"git reports status {status}"))
+            refused.append(Result(name, False, f"{what} only modifies files", f"git reports status {status}"))
         elif lang is None:
-            refused.append(Result(name, False, "not a thorn file", "a strip touches thorn files only"))
+            refused.append(Result(name, False, "not a thorn file", f"{what} touches thorn files only"))
+        elif layout and lang is not Lang.CXX:
+            refused.append(Result(name, False, "not a C/C++ file", f"{what} touches C/C++ sources only"))
         else:
             items.append([name, lang])
     names = [name for name, _ in items]
     old, new = blobs(root, before, names), blobs(root, after, names)
-    checked = verify_files([(name, lang, old[name], new[name]) for name, lang in items], flesh)
+    if layout:
+        checked = parallel(lambda item: verify_layout_cxx(item[0], old[item[0]], new[item[0]]), items)
+    else:
+        checked = verify_files([(name, lang, old[name], new[name]) for name, lang in items], flesh)
     return sorted(refused + checked, key=lambda r: r.name)
 
 
-def report(results: list[Result], what: str, out: Callable[[str], None]) -> bool:
+def report(results: list[Result], what: str, out: Callable[[str], None], proof: str = "comments") -> bool:
     width = max((len(r.name) for r in results), default=0)
     for r in results:
         out(f"{'ok  ' if r.ok else 'FAIL'}  {r.name.ljust(width)}  {r.how}")
@@ -382,7 +450,7 @@ def report(results: list[Result], what: str, out: Callable[[str], None]) -> bool
     failed = sum(not r.ok for r in results)
     noun = "file" if len(results) == 1 else "files"
     if failed:
-        out(f"✗ {what}: {failed} of {len(results)} {noun} changed more than comments")
+        out(f"✗ {what}: {failed} of {len(results)} {noun} changed more than {proof}")
     else:
-        out(f"✓ {what}: only comments ({len(results)} {noun} changed)")
+        out(f"✓ {what}: only {proof} ({len(results)} {noun} changed)")
     return not failed

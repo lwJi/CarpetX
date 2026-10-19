@@ -11,7 +11,8 @@ import lex_clang
 from files import Lang
 from strip import strip
 from upstream import listed, verify_skips
-from verify import line_audit, only_string_comments_removed, verify_cxx, verify_files, verify_revs
+from verify import (line_audit, only_string_comments_removed, verify_cxx, verify_files, verify_layout_cxx,
+                    verify_revs)
 
 HAVE_CXX_TOOLS = shutil.which(lex_clang.CLANG) is not None and shutil.which("unifdef") is not None
 FLESH = os.environ.get("CACTUSX")
@@ -176,6 +177,52 @@ class Cxx(unittest.TestCase):
         self.assertFalse(self.check("#include <a//b.h>\n", "#include <a/b.h>\n").ok)
 
 
+@unittest.skipUnless(HAVE_CXX_TOOLS, "needs clang++ and unifdef on PATH")
+class Layout(unittest.TestCase):
+    def check(self, before, after):
+        return verify_layout_cxx("X/src/a.cxx", before, after)
+
+    def test_moved_line_breaks_and_trailing_comment_spacing_pass(self):
+        for before, after in [
+            ("void f() {\n  g(1,\n    2);\n}\n", "void f() { g(1, 2); }\n"),
+            ("int a;   //\nint bb; //\n", "int a;  //\nint bb; //\n"),
+            ("int a;\n\n\nint b;\n", "int a;\n\nint b;\n"),
+            ("const int n = 1\n  + 2;\n", "const int n = 1 + 2;\n"),
+            ("#define M(a) \\\n  f(a)\n", "#define M(a)                                                           \\\n  f(a)\n"),
+            ("} // namespace X\n", "}   // namespace X\n"),
+        ]:
+            with self.subTest(before=before):
+                result = self.check(before, after)
+                self.assertTrue(result.ok, result.why)
+
+    def test_a_token_change_fails(self):
+        self.assertFalse(self.check("int a = 1;\n", "int a = 2;\n").ok)
+        self.assertFalse(self.check("f(a > > b);\n", "f(a >> b);\n").ok)
+
+    def test_a_gap_between_operands_or_in_a_directive_counts(self):
+        self.assertFalse(self.check("S(a+b);\n", "S(a + b);\n").ok)
+        result = self.check("#define F(x) x\n", "#define F (x) x\n")
+        self.assertFalse(result.ok)
+        self.assertIn("after a gap", result.why)
+        self.assertTrue(self.check("f( a, b );\n", "f(a, b);\n").ok)
+
+    def test_moving_code_into_or_out_of_a_directive_fails(self):
+        self.assertFalse(self.check("#define A 1\nint x;\n", "#define A 1 int x;\n").ok)
+        self.assertFalse(self.check("#define A 1 + 2\n", "#define A 1\n+ 2\n").ok)
+        self.assertFalse(self.check("#define A 1\n#define B 2\n", "#define A 1 #define B 2\n").ok)
+
+    def test_a_moved_or_reflowed_comment_fails(self):
+        result = self.check("int a; //\nint b;\n", "int a;\n//\nint b;\n")
+        self.assertFalse(result.ok)
+        self.assertIn("comment", result.why)
+        self.assertFalse(self.check("// See <https://a.b/c> d\n", "// See <https://a.b/c>\n// d\n").ok)
+
+    def test_the_comment_proof_refuses_what_the_layout_proof_allows(self):
+        before, after = "void f() {\n  g(1,\n    2);\n}\n", "void f() { g(1, 2); }\n"
+        self.assertTrue(self.check(before, after).ok)
+        self.assertFalse(verify_cxx("X/src/a.cxx", before, after).ok)
+
+
 @unittest.skipUnless(HAVE_FLESH, "needs perl and a Cactus flesh in $CACTUSX")
 class Piraha(unittest.TestCase):
     def check(self, name, lang, before, after):
@@ -314,6 +361,29 @@ class History(unittest.TestCase):
                 ok, shown = self.skips(self.base)
                 self.assertFalse(ok)
                 self.assertIn(why, shown)
+
+    def test_verify_skips_proves_a_reformat_commit_by_layout(self):
+        tidy = commit(self.root, {"X/src/a.cxx": "namespace X {\nint a =\n    1;\n} // namespace X\n"}, "untidy")
+        layout = commit(self.root, {"X/src/a.cxx": "namespace X {\nint a = 1;\n} // namespace X\n"},
+                        "X: clang-format after removing comments")
+        self.assertFalse(all(r.ok for r in verify_revs(self.root, tidy, layout, None)))
+        self.assertTrue(all(r.ok for r in verify_revs(self.root, tidy, layout, None, layout=True)))
+        commit(self.root, {".git-blame-ignore-revs": f"{self.strip}\n{layout}\n"}, "ignore")
+        ok, shown = self.skips(self.base)
+        self.assertTrue(ok, shown)
+        self.assertIn(f"verify --layout {layout[:12]}", shown)
+        self.assertIn("only layout", shown)
+
+    def test_verify_skips_refuses_a_reformat_commit_that_changes_code_or_a_ccl(self):
+        for files in [{"X/src/a.cxx": "namespace X {\nint a = 1;\n} // namespace X\n"},
+                      {"X/interface.ccl": "IMPLEMENTS:   X\n"}]:
+            with self.subTest(files=sorted(files)):
+                bad = commit(self.root, files, "X: clang-format after removing comments")
+                commit(self.root, {".git-blame-ignore-revs": f"{bad}\n"}, "ignore")
+                ok, shown = self.skips(self.strip)
+                self.assertFalse(ok, shown)
+                self.assertIn("changed more than layout", shown)
+                run_git(self.root, "reset", "-q", "--hard", self.strip)
 
     def test_listed_skips_comments_and_repeats(self):
         self.assertEqual(listed("# a\n\nabc # b\nabc\n  def\n"), ["abc", "def"])

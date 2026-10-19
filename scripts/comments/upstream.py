@@ -9,6 +9,7 @@ from verify import report, verify_revs
 
 IGNORE_REVS = ".git-blame-ignore-revs"
 FULL_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+REFORMAT_SUBJECT = re.compile(r"[A-Za-z0-9_]+: clang-format after removing comments")
 
 
 def listed(text: str) -> list[str]:
@@ -58,11 +59,14 @@ def verify_skips(root: str, base: str, flesh: Optional[str], out: Callable[[str]
             failed += 1
             continue
         out(f"{rev[:12]}  {subject}")
-        ok = report(verify_revs(root, rev + "^1", rev, flesh), f"verify {rev[:12]}^1 {rev[:12]}", lambda line: out("  " + line))
+        layout = REFORMAT_SUBJECT.fullmatch(subject) is not None
+        what = f"verify{' --layout' if layout else ''} {rev[:12]}^1 {rev[:12]}"
+        results = verify_revs(root, rev + "^1", rev, flesh, layout=layout)
+        ok = report(results, what, lambda line: out("  " + line), "layout" if layout else "comments")
         failed += not ok
     noun = "commit" if len(new) == 1 else "commits"
     if failed:
-        out(f"✗ verify-skips {base}: {failed} of {len(new)} new blame-skip {noun} not proven comment-only")
+        out(f"✗ verify-skips {base}: {failed} of {len(new)} new blame-skip {noun} not proven comment- or layout-only")
     else:
-        out(f"✓ verify-skips {base}: {len(new)} new blame-skip {noun}, each comment-only")
+        out(f"✓ verify-skips {base}: {len(new)} new blame-skip {noun}, each comment- or layout-only")
     return not failed

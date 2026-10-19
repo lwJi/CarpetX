@@ -45,7 +45,7 @@ Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message
 
 When the code doesn't explain itself, read its history. Start with the thorn's `<Thorn>: remove comments` commit, whose message records what the removed comments said that the code doesn't. Then use `git log -L <start>,<end>:<file>` for the lines you are changing, and `git blame --ignore-revs-file .git-blame-ignore-revs <file>`, which skips the commits that only removed comments. History describes the code as it was at that commit, so check every claim against the current code before relying on it.
 
-A comment-removal commit is the output of `python3 scripts/comments strip <Thorn>` and nothing else, and its SHA goes on `.git-blame-ignore-revs`. The `no-comments` check runs `python3 scripts/comments verify <SHA>^ <SHA>` on each SHA a PR adds there, to prove the commit changed only comments.
+A comment-removal commit is the output of `python3 scripts/comments strip <Thorn>` and nothing else, and its SHA goes on `.git-blame-ignore-revs`. Where that leaves a C/C++ file that was clang-format-clean before it unclean, a second commit, `<Thorn>: clang-format after removing comments`, follows it: the output of `python3 scripts/comments reformat <Thorn>` and nothing else. `reformat` runs only with clang-format 22.1.1 (`python3 -m pip install clang-format==22.1.1`), and it leaves alone the files that were not clean before the strip. Its SHA goes on `.git-blame-ignore-revs` too. The `no-comments` check runs `python3 scripts/comments verify <SHA>^ <SHA>` on each SHA a PR adds there, to prove the commit changed only comments, or `verify --layout` for a clang-format commit, to prove it changed only line breaks and spacing.
 
 ## Commit & Pull Request Guidelines
 
