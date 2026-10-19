@@ -63,9 +63,12 @@ class Token:
     spelling: str
     first_on_line: bool
     line: int
+    space_before: bool = False
+    in_directive: bool = False
 
 
 _SPLICE = re.compile(r"\\[ \t]*\r?\n")
+_TIGHT = frozenset({"l_paren", "r_paren", "l_square", "r_square", "l_brace", "r_brace", "comma", "semi"})
 
 
 def clang_tokens(text: str) -> list[Token]:
@@ -87,23 +90,40 @@ def clang_tokens(text: str) -> list[Token]:
         )
     tokens = []
     position = 0
-    first_on_line = True
+    first_on_line, space, directive = True, False, False
     for m in record.finditer(output):
         if m.start() != position:
             raise RuntimeError(f"cannot parse clang raw-token output near: {output[position:position + 200]!r}")
         position = m.end()
         kind, spelling = m.group(1), m.group(2)
         if kind == "comment":
+            space = True
             continue
         if kind == "unknown" and not spelling.strip():
-            if "\n" in _SPLICE.sub("", spelling):
-                first_on_line = True
+            blank = _SPLICE.sub("", spelling)
+            first_on_line = first_on_line or "\n" in blank
+            space = space or bool(blank)
             continue
-        tokens.append(Token(kind, spelling, first_on_line, int(m.group(4))))
-        first_on_line = False
+        if first_on_line:
+            directive = kind == "hash"
+        tokens.append(Token(kind, spelling, first_on_line, int(m.group(4)), space, directive))
+        first_on_line = space = False
     if position != len(output):
         raise RuntimeError(f"cannot parse clang raw-token output near: {output[position:position + 200]!r}")
     return tokens
+
+
+def _spacing(tokens: list[Token]) -> list[bool | None]:
+    found: list[bool | None] = []
+    for i, t in enumerate(tokens):
+        tight = t.kind in _TIGHT or (i > 0 and tokens[i - 1].kind in _TIGHT)
+        compared = not t.first_on_line and (t.in_directive or not tight)
+        found.append(t.space_before if compared else None)
+    return found
+
+
+def token_shape(tokens: list[Token]) -> list[tuple[str, str, bool, bool | None]]:
+    return [(t.kind, t.spelling, t.first_on_line, s) for t, s in zip(tokens, _spacing(tokens))]
 
 
 def piraha_dumps(flesh: str, peg: str, texts: list[str]) -> list[tuple[bool, str]]:
@@ -128,10 +148,15 @@ def piraha_dumps(flesh: str, peg: str, texts: list[str]) -> list[tuple[bool, str
     return dumps
 
 
+def _describe(t: Token, spaced: bool | None) -> str:
+    gap = "" if spaced is None else (" after a space" if spaced else " with no space before it")
+    return f"line {t.line} {t.kind} {t.spelling!r}{gap}"
+
+
 def _first_token_difference(a: list[Token], b: list[Token]) -> str:
-    for x, y in zip(a, b):
-        if (x.kind, x.spelling, x.first_on_line) != (y.kind, y.spelling, y.first_on_line):
-            return f"before line {x.line} {x.kind} {x.spelling!r} vs after line {y.line} {y.kind} {y.spelling!r}"
+    for x, y, sx, sy in zip(a, b, token_shape(a), token_shape(b)):
+        if sx != sy:
+            return f"before {_describe(x, sx[3])} vs after {_describe(y, sy[3])}"
     if len(a) > len(b):
         x = a[len(b)]
         return f"before has more tokens, from line {x.line} {x.kind} {x.spelling!r}"
@@ -183,8 +208,7 @@ def verify_cxx(path: str, before: str, after: str) -> Result:
     if dropped:
         evidence += f", #warning TODO directives dropped: {dropped}"
     evidence += ")"
-    key = lambda t: (t.kind, t.spelling, t.first_on_line)
-    if list(map(key, a)) == list(map(key, b)):
+    if token_shape(a) == token_shape(b):
         return Result(path, True, evidence)
     return Result(path, False, evidence, _first_token_difference(a, b))
 

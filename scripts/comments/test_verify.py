@@ -153,6 +153,19 @@ class Cxx(unittest.TestCase):
         result = verify_file("X/src/a.cxx", "#define A 1\nint x;\n", "#define A 1 int x;\n", None)
         self.assertFalse(result.ok)
 
+    def test_a_macro_turned_function_like_fails(self):
+        for after in ["#define F(x)\n", "#define F\\\n(x)\n"]:
+            with self.subTest(after=after):
+                result = verify_file("X/src/a.cxx", "#define F/* c */(x)\n", after, None)
+                self.assertFalse(result.ok)
+                self.assertIn("no space before it", result.detail)
+
+    def test_spacing_is_checked_in_directives_and_between_operands(self):
+        self.assertFalse(verify_file("X/src/a.cxx", "#define G(a) f(a /* c */)\n", "#define G(a) f(a)\n", None).ok)
+        self.assertFalse(verify_file("X/src/a.cxx", "S(a/* c */+b);\n", "S(a+b);\n", None).ok)
+        result = verify_file("X/src/a.cxx", "f(a /* c */, b);\n", "f(a, b);\n", None)
+        self.assertTrue(result.ok, result.detail)
+
     def test_dropping_a_live_branch_fails(self):
         before = "#if 0\nx;\n#else\ny;\n#endif\n"
         self.assertFalse(verify_file("X/src/a.cxx", before, "", None).ok)

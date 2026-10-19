@@ -30,6 +30,7 @@ class LineIndex:
 class Scan:
     spans: list[Span]
     refusals: list[tuple[int, str]]
+    directives: list[tuple[int, int]]
 
 
 _NEXT = re.compile(r"""[/"']""")
@@ -230,6 +231,28 @@ def _crosses(outer: Span, start: int, end: int) -> bool:
     return outer.start < end and start < outer.end and not _contains(outer, start, end)
 
 
+def _directive_ranges(text: str, blanked: str, opaque: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    starts = [start for start, _ in opaque]
+
+    def inside(offset: int) -> bool:
+        k = bisect.bisect_right(starts, offset) - 1
+        return k >= 0 and offset < opaque[k][1]
+
+    ranges = []
+    logical = physical = 0
+    for newline in [m.start() for m in re.finditer("\n", text)] + [len(text)]:
+        spliced = text[physical:newline].rstrip().endswith("\\")
+        physical = newline + 1
+        if newline < len(text) and (inside(newline) or spliced):
+            continue
+        segment = blanked[logical:newline]
+        body = segment.lstrip()
+        if body.startswith("#"):
+            ranges.append((newline - len(body), newline))
+        logical = newline + 1
+    return ranges
+
+
 def scan(text: str) -> Scan:
     comments, literals = _scan_comments(text)
     index = LineIndex(text)
@@ -238,7 +261,10 @@ def scan(text: str) -> Scan:
         skip.update(index.lines_starting_inside(start, end))
     for start, end in literals:
         skip.update(index.lines_starting_inside(start, end))
-    lines = _blank_out(text, comments).split("\n")
+    blanked = _blank_out(text, comments)
+    opaque = sorted([(start, end) for _, start, end in comments] + literals)
+    directives = _directive_ranges(text, blanked, opaque)
+    lines = blanked.split("\n")
     line_ranges, refusals = _guard_line_ranges(lines, skip)
 
     def line_offset(number: int) -> int:
@@ -268,7 +294,7 @@ def scan(text: str) -> Scan:
         spans.append(Span(kind, start, end, line, text[start:end]))
     spans.sort(key=lambda s: s.start)
     refusals.sort()
-    return Scan(spans, refusals)
+    return Scan(spans, refusals, directives)
 
 
 def lex(text: str) -> list[Span]:

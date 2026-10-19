@@ -1,3 +1,4 @@
+import bisect
 import re
 
 import lex_cxx
@@ -10,7 +11,6 @@ _HORIZONTAL = " \t"
 _KEEP_SPACE_AFTER = "([{,"
 _NO_SPACE_BEFORE = ")]},;"
 _WORD = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
-_OPERATOR = set("+-*/%<>=&|^!.:#")
 _SPACED_BEFORE_PAREN = frozenset(
     {"if", "for", "while", "switch", "catch", "return", "case", "throw", "constexpr", "and", "or", "not"}
 )
@@ -99,13 +99,14 @@ def _tidy(
     return text
 
 
-def _would_merge(left: str, right: str) -> bool:
-    return (left in _WORD and right in _WORD) or (left in _OPERATOR and right in _OPERATOR)
-
-
-def _name_before_paren(before: str, line: str) -> bool:
+def _name_before_paren(before: str) -> bool:
     name = re.search(r"\w+$", before.rstrip())
-    return name is not None and name.group() not in _SPACED_BEFORE_PAREN and not line.lstrip().startswith("#")
+    return name is not None and name.group() not in _SPACED_BEFORE_PAREN
+
+
+def _inside(ranges: list[tuple[int, int]], offset: int) -> bool:
+    k = bisect.bisect_right(ranges, (offset, float("inf"))) - 1
+    return k >= 0 and offset < ranges[k][1]
 
 
 def _delete_disabled(text: str, span: Span, pending: list[Span]) -> str:
@@ -114,7 +115,9 @@ def _delete_disabled(text: str, span: Span, pending: list[Span]) -> str:
     return _tidy(text, span.start, keep_prev=closes, keep_next=opens, pending=pending)
 
 
-def _delete_comment(text: str, span: Span, pending: list[Span], tidy: bool = True) -> str:
+def _delete_comment(
+    text: str, span: Span, pending: list[Span], tidy: bool = True, in_directive: bool = False
+) -> str:
     line_start = text.rfind("\n", 0, span.start) + 1
     newline = text.find("\n", span.end)
     line_end = len(text) if newline < 0 else newline
@@ -134,23 +137,21 @@ def _delete_comment(text: str, span: Span, pending: list[Span], tidy: bool = Tru
     closes_up = (
         following in _NO_SPACE_BEFORE
         or (following == "[" and before.rstrip()[-1:] in _WORD)
-        or (following == "(" and _name_before_paren(before, text[line_start:line_end]))
+        or (following == "(" and _name_before_paren(before))
     )
-    if following and closes_up and before.strip():
+    if not in_directive and following and closes_up and before.strip():
         while start > line_start and text[start - 1] in _HORIZONTAL:
             start -= 1
         while end < line_end and text[end] in _HORIZONTAL:
             end += 1
-    elif previous == "" or previous in _HORIZONTAL or previous in _KEEP_SPACE_AFTER:
+        return text[:start] + text[end:]
+    if (previous != "" and previous in _HORIZONTAL) or (
+        not in_directive and (previous == "" or previous in _KEEP_SPACE_AFTER)
+    ):
         while end < line_end and text[end] in _HORIZONTAL:
             end += 1
-    else:
-        while start > line_start and text[start - 1] in _HORIZONTAL:
-            start -= 1
-    left = text[start - 1] if start > line_start else ""
-    right = text[end] if end < line_end else ""
-    replacement = " " if _would_merge(left, right) else ""
-    return text[:start] + replacement + text[end:]
+        return text[:start] + text[end:]
+    return text[:start] + ("" if text[end] in _HORIZONTAL else " ") + text[end:]
 
 
 def violating_spans(text: str, lang: Lang) -> list[Span]:
@@ -162,10 +163,12 @@ def violating_spans(text: str, lang: Lang) -> list[Span]:
 
 
 def strip(text: str, lang: Lang) -> str:
+    directives: list[tuple[int, int]] = []
     if lang is Lang.CXX:
-        refusals = lex_cxx.scan(text).refusals
-        if refusals:
-            raise Refused(*refusals[0])
+        scanned = lex_cxx.scan(text)
+        if scanned.refusals:
+            raise Refused(*scanned.refusals[0])
+        directives = scanned.directives
     spans = sorted(violating_spans(text, lang), key=lambda s: s.start)
     strings = lex_hash.strings(text, lang) if lang is Lang.PAR else []
     for i in reversed(range(len(spans))):
@@ -174,5 +177,6 @@ def strip(text: str, lang: Lang) -> str:
             text = _delete_disabled(text, spans[i], pending)
         else:
             in_string = any(start <= spans[i].start < end for start, end in strings)
-            text = _delete_comment(text, spans[i], pending, tidy=not in_string)
+            in_directive = _inside(directives, spans[i].start)
+            text = _delete_comment(text, spans[i], pending, tidy=not in_string, in_directive=in_directive)
     return text

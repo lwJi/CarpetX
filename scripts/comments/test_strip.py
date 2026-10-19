@@ -62,6 +62,14 @@ CXX_CASES = {
         "if (a)\n  return (b);\n",
     ),
     "inline before parens in a directive keeps a macro object-like": ("#define F /*x*/ (a)\n", "#define F (a)\n"),
+    "inline with no space either side becomes one space": (
+        "#define F/* c */(x)\nS(a/* c */+b);\n",
+        "#define F (x)\nS(a +b);\n",
+    ),
+    "inline in a directive keeps its spacing": (
+        "#define G(a) f(a /* c */)\n#define H(x) \\\n  g /*c*/ (x)\n#define K(a,/*c*/b) a\n",
+        "#define G(a) f(a )\n#define H(x) \\\n  g (x)\n#define K(a, b) a\n",
+    ),
     "inline before an operand keeps the space": ("report(gi, /*vi=*/-1, /*tl=*/0);\n", "report(gi, -1, 0);\n"),
     "inline block across lines": ("/* a\n b */ int x;\n", "int x;\n"),
     "comments in strings stay": ('s = "a // b"; // c\n', 's = "a // b";\n'),
