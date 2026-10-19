@@ -1390,8 +1390,6 @@ static void restrict_level(const cGH *cctkGH, const int level,
           {
             static Timer timer("Restrict::average_down");
             Interval interval(timer);
-#warning                                                                       \
-    "TODO: Allow different restriction operators, and ensure this is conservative"
             // rank: 0: vertex, 1: edge, 2: face, 3: volume
             int rank = 0;
             for (int d = 0; d < dim; ++d)
