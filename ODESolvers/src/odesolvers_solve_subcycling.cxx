@@ -52,9 +52,8 @@ dense_output_point_t dense_output_point(const LevelData &leveldata,
 void fill_rk_boundary(const cGH *cctkGH, const LevelData &leveldata,
                       const std::vector<int> &groups, const int stage) {
   const auto [xsi, stage0] = dense_output_point(leveldata, stage);
-  CarpetX::FillRKBoundary(leveldata.patch, leveldata.level, groups,
-                          0, stage0, xsi,
-                          parent_step(cctkGH, leveldata));
+  CarpetX::FillRKBoundary(leveldata.patch, leveldata.level, groups, 0, stage0,
+                          xsi, parent_step(cctkGH, leveldata));
 }
 
 solve_setup_t collect_solve_setup() {
@@ -234,8 +233,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   };
   const auto store_old = [&]() {
     active_levels->loop_serially([&](const auto &restrict leveldata) {
-      CarpetX::StoreRKOldState(leveldata.patch, leveldata.level, var_groups,
-                               0);
+      CarpetX::StoreRKOldState(leveldata.patch, leveldata.level, var_groups, 0);
     });
     synchronize();
   };
