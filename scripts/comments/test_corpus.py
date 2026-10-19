@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import os
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ HAVE_CLANG = shutil.which(lex_clang.CLANG) is not None
 HAVE_UNIFDEF = shutil.which("unifdef") is not None
 HAVE_CLANG_FORMAT = shutil.which("clang-format") is not None
 HAVE_ET0 = resolve(PROJECT, ET0) == ET0
+REFERENCE_PUNCTUATION = {"&", "&&", "*"}
 FLESH = os.environ.get("CACTUSX")
 HAVE_FLESH = (
     shutil.which("perl") is not None
@@ -99,25 +101,66 @@ def clang_format(name: str, text: str) -> str:
 
 def layout(text: str) -> list[tuple]:
     found = []
-    newlines, spaced = 0, False
+    newlines, spaced, raw = 0, False, ""
     for t in lex_clang.lex(text):
         if t.kind is Kind.NEWLINE:
             newlines += 1
+            raw += t.text
         elif t.kind is Kind.SPACE:
             spaced = True
+            raw += t.text
         else:
             gap = ("blank", newlines - 1) if newlines > 1 else "break" if newlines else "space" if spaced else "none"
-            found.append((" ".join(t.text.split()) if t.kind is Kind.COMMENT else t.text, gap, t.line))
-            newlines, spaced = 0, False
+            found.append((" ".join(t.text.split()) if t.kind is Kind.COMMENT else t.text, gap, t.line, raw))
+            newlines, spaced, raw = 0, False, ""
     return found
 
 
-def first_layout_difference(a: list[tuple], b: list[tuple]):
-    for x, y in zip(a, b):
-        rebroken = "break" in (x[1], y[1]) and not any(isinstance(g, tuple) for g in (x[1], y[1]))
-        if x[0] != y[0] or (x[1] != y[1] and not rebroken):
-            return x, y
+def untouched_gaps(before: list[tuple], after: list[tuple]) -> set:
+    matcher = difflib.SequenceMatcher(None, [x[0] for x in before], [x[0] for x in after], autojunk=False)
+    found = set()
+    for block in matcher.get_matching_blocks():
+        for k in range(1, block.size):
+            if before[block.a + k][3] == after[block.b + k][3]:
+                found.add(block.b + k)
+    return found
+
+
+def first_layout_difference(before: str, after: str, formatted: str):
+    a, b = layout(after), layout(formatted)
+    untouched = None
+    for i, (x, y) in enumerate(zip(a, b)):
+        if x[0] != y[0]:
+            return x[:3], y[:3]
+        if x[1] == y[1] or ("break" in (x[1], y[1]) and not any(isinstance(g, tuple) for g in (x[1], y[1]))):
+            continue
+        if {x[1], y[1]} <= {"space", "none"} and REFERENCE_PUNCTUATION & {x[0], a[i - 1][0]}:
+            if untouched is None:
+                untouched = untouched_gaps(layout(before), a)
+            if i in untouched:
+                continue
+        return x[:3], y[:3]
     return None if len(a) == len(b) else (len(a), len(b))
+
+
+@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
+class LayoutComparison(unittest.TestCase):
+    def test_new_line_breaks_are_allowed_but_blank_lines_and_spacing_are_not(self):
+        self.assertIsNone(first_layout_difference("f(a, // c\n  b);\n", "f(a,\n  b);\n", "f(a, b);\n"))
+        self.assertIsNotNone(first_layout_difference("a;\n// c\n\nb;\n", "a;\n\nb;\n", "a;\nb;\n"))
+        self.assertIsNotNone(first_layout_difference("f(a /* c */);\n", "f(a );\n", "f(a);\n"))
+
+    def test_reference_spacing_strip_left_alone_is_excused(self):
+        before = "auto /*bool*/\nop(const T & x);\n"
+        self.assertIsNone(first_layout_difference(before, "auto\nop(const T & x);\n", "auto op(const T &x);\n"))
+
+    def test_spacing_strip_changed_is_not_excused_even_beside_a_reference(self):
+        self.assertIsNotNone(first_layout_difference("a = b/*c*/*d;\n", "a = b *d;\n", "a = b*d;\n"))
+        self.assertIsNotNone(first_layout_difference("f(T /*c*/ &x);\n", "f(T &x);\n", "f(T&x);\n"))
+
+    def test_spacing_beside_other_tokens_is_not_excused(self):
+        before = "auto /*bool*/\nx = b + c;\n"
+        self.assertIsNotNone(first_layout_difference(before, "auto\nx = b + c;\n", "auto x = b +c;\n"))
 
 
 @unittest.skipUnless(HAVE_CLANG and HAVE_UNIFDEF, "needs clang++ and unifdef on PATH")
@@ -174,7 +217,7 @@ class Et0Strip(unittest.TestCase):
             name, lang, before, after = item
             if lang is not Lang.CXX or clang_format(name, before) != before:
                 return name, False, None
-            return name, True, first_layout_difference(layout(after), layout(clang_format(name, after)))
+            return name, True, first_layout_difference(before, after, clang_format(name, after))
 
         results = parallel(difference, self.changed)
         self.assertGreater(sum(clean for _, clean, _ in results), 100)
