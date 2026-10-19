@@ -1,0 +1,5 @@
+# Commits that only remove comments. The no-comments check proves each SHA
+# a PR adds here with `python3 scripts/comments verify <SHA>^ <SHA>`.
+
+# WaveToyX: remove comments
+2a313b09b2ab68f448fd4133fed40f4a4ee0ca78
