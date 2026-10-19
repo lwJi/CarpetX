@@ -83,8 +83,6 @@ void Prolongate_Start(
 void Prolongate_Finish(const GHExt::PatchData::LevelData::GroupData &groupdata,
                        amrex::MultiFab &mfab);
 
-#warning "TODO: Restrict"
-
 // Prolongate and sync interior. Expects coarse mfab prolongated and
 // synced. ("InterpFromCoarseLevel")
 void FillPatch_NewLevel(
