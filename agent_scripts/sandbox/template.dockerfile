@@ -50,6 +50,7 @@ RUN apt-get update && \
     apt-get --yes --no-install-recommends install \
         bzip2 \
         ca-certificates \
+        clang \
         clang-format \
         cmake \
         curl \
@@ -107,6 +108,7 @@ RUN apt-get update && \
         rsync \
         subversion \
         tar \
+        unifdef \
         vim \
         wget \
         xz-utils \
