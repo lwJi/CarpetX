@@ -69,7 +69,22 @@ def unifdef_k(text: str, tokens: Optional[list[Token]] = None) -> str:
     return re.sub(re.escape(tag) + r"(\d+)_", lambda m: literals[int(m.group(1))], folded)
 
 
-def lone_separators(tokens: list[Token], drop: set) -> set:
+def code_beside(tokens: list[Token], k: int, step: int) -> bool:
+    i = k + step
+    newlines = 0
+    while 0 <= i < len(tokens):
+        kind = tokens[i].kind
+        if kind is Kind.NEWLINE:
+            newlines += 1
+            if newlines > 1:
+                return False
+        elif kind in (Kind.CODE, Kind.DIRECTIVE):
+            return newlines == 1
+        i += step
+    return False
+
+
+def orphaned_separators(tokens: list[Token], drop: set) -> set:
     whole = sorted(k for k, p in placements(tokens).items() if p is Placement.WHOLE_LINE)
     blocks: list[list[int]] = []
     for k in whole:
@@ -79,6 +94,10 @@ def lone_separators(tokens: list[Token], drop: set) -> set:
             blocks.append([k])
     found = set()
     for block in blocks:
+        if all(is_separator(tokens[k]) for k in block):
+            if not (code_beside(tokens, block[0], -1) and code_beside(tokens, block[-1], 1)):
+                found.update(block)
+            continue
         for pos, k in enumerate(block):
             if not is_separator(tokens[k]):
                 continue
@@ -96,7 +115,7 @@ def dropped(tokens: list[Token], lang: Lang) -> set:
             continue
         drop.update(i for i in range(v.region.first, v.region.last + 1) if tokens[i].kind is Kind.COMMENT)
     if lang is Lang.CXX:
-        drop |= lone_separators(tokens, drop)
+        drop |= orphaned_separators(tokens, drop)
     return drop
 
 

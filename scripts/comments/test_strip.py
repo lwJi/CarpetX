@@ -97,7 +97,15 @@ CXX = {
         "// arXiv:1111.2177\n//\n// prose\n//\n// arXiv:1203.4536\nint g();\n",
         "// arXiv:1111.2177\n// arXiv:1203.4536\nint g();\n",
     ),
-    "a separator alone between code lines goes": ("[a, //\n //\n b];\nint x;\n//\nint y;\n", "[a, //\n b];\nint x;\nint y;\n"),
+    "a separator that had code on both sides stays": (
+        "auto k = [\n#ifdef A\n    a = a,\n#endif\n    x = x,\n    //\n    cmin, cmax](int i) {};\nint x;\n//\n//\nint y;\n",
+        "auto k = [\n#ifdef A\n    a = a,\n#endif\n    x = x,\n    //\n    cmin, cmax](int i) {};\nint x;\n//\n//\nint y;\n",
+    ),
+    "a separator orphaned between code lines by a dropped run goes": (
+        "int x;\n// prose\n//\n// more prose\nint y;\nint z;\n//\n// prose\nint w;\n",
+        "int x;\nint y;\nint z;\nint w;\n",
+    ),
+    "a separator beside a blank line goes": ("int x;\n\n//\nint y;\n//\n\nint z;\n", "int x;\n\nint y;\n\nint z;\n"),
     "a compile-time message stays for a hand edit": ('#warning "TODO: x" // c\nint a;\n', '#warning "TODO: x"\nint a;\n'),
     "crlf line endings": ("int a; // c\r\n// d\r\nint b;\r\n", "int a;\r\nint b;\r\n"),
     "a file without a final newline": ("a;\n// c", "a;\n"),
