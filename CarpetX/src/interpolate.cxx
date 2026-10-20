@@ -111,10 +111,6 @@ template <typename T, int order, int centering> struct interpolator {
     // switch ((centering >> (2 - dir)) & 1)
 
     const T x = di[dir] - order / T(2);
-    // #ifdef CCTK_DEBUG
-    //     using std::fabs;
-    //     assert(fabs(x) <= T(0.5) + eps());
-    // #endif
 
     switch (order) {
     case 0: {
@@ -241,7 +237,6 @@ template <typename T, int order, int centering> struct interpolator {
   void interpolate3d(const Particles &particles,
                      std::vector<T> &varresult) const {
     const auto x0 = grid.x0 + (2 * grid.lbnd - !indextype) * grid.dx / 2;
-    // const auto x1 = x0 + (grid.lsh - 1 - indextype) * grid.dx;
     const auto dx = grid.dx;
 
     assert(amrex::ubound(vars).x - amrex::lbound(vars).x + 1 ==
@@ -254,20 +249,6 @@ template <typename T, int order, int centering> struct interpolator {
     // We assume that the input is synchronized, i.e. that all ghost
     // zones are valid, but all outer boundaries are invalid.
 
-    // The point must lie inside the domain. At outer boundaries the
-    // point may be in the boundary region, but at ghost boundaries
-    // the point cannot be in the ghost region. We define as "ghost"
-    // region here the interpolation stencil size which is `order /
-    // 2`.
-    // const auto x0_allowed =
-    //     x0 +
-    //     (!allowed_boundaries[0] * grid.nghostzones + (order - 1) / T(2)) * dx
-    //     - eps();
-    // const auto x1_allowed =
-    //     x1 -
-    //     (!allowed_boundaries[1] * grid.nghostzones + (order - 1) / T(2)) * dx
-    //     + eps();
-
     // The allowed index range is [i0, i1)
     const auto i0_allowed = !allowed_boundaries[0] * grid.nghostzones;
     const auto i1_allowed =
@@ -279,8 +260,6 @@ template <typename T, int order, int centering> struct interpolator {
     for (int n = 0; n < np; ++n) {
       const vect<T, dim> x{particles[n].rdata(0), particles[n].rdata(1),
                            particles[n].rdata(2)};
-      // // Ensure the point is inside the domain
-      // assert(all(x >= x0_allowed && x <= x1_allowed));
 
       // Find stencil anchor (i.e. the leftmost stencil point)
       const auto qi = (x - x0) / dx;
@@ -360,21 +339,11 @@ extern "C" CCTK_INT CarpetX_InterpGridArrays(
     void const *const coords[], int const N_input_arrays,
     CCTK_INT const input_array_variable_indices[], int const N_output_arrays,
     CCTK_INT const output_array_type_codes[], void *const output_arrays[]) {
-  /* TODO: verify that the interface with SymmetryInterpolate can be simply
-     copied from Carpet like below */
-  //  if (CCTK_IsFunctionAliased("SymmetryInterpolate")) {
-  //    return SymmetryInterpolate(
-  //        cctkGH, N_dims, local_interp_handle, param_table_handle,
-  //        coord_system_handle, N_interp_points, interp_coords_type_code,
-  //        coords, N_input_arrays, input_array_variable_indices,
-  //        N_output_arrays, output_array_type_codes, output_arrays);
-  //  } else {
   return CarpetX_DriverInterpolate(
       cctkGH, N_dims, local_interp_handle, param_table_handle,
       coord_system_handle, N_interp_points, interp_coords_type_code, coords,
       N_input_arrays, input_array_variable_indices, N_output_arrays,
       output_array_type_codes, output_arrays);
-  //  }
 }
 
 extern "C" CCTK_INT CarpetX_DriverInterpolate(
@@ -694,7 +663,6 @@ void CarpetX::InterpolationSetup::Interpolate(
            pti.isValid(); ++pti) {
         const MFPointer mfp(pti);
         const GridDesc grid(leveldata, mfp);
-        // const int component = mfp.index();
 
         min_level_iteration_used =
             min_level_iteration_used != -1

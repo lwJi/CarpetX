@@ -114,8 +114,6 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
                    double(ress.at(level)->norminf(vi, 0, false, true)));
   }
 
-  // const CCTK_REAL rtol = 0.0;
-  // const CCTK_REAL atol = 1.0e-12;
   const CCTK_REAL maxerr = mlmg.solve(sols, rhss, reltol, abstol);
 #pragma omp critical
   CCTK_VINFO("Solution error (norm_inf): %g", double(maxerr));

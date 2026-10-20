@@ -51,16 +51,6 @@ namespace {
 
 constexpr bool io_verbose = true;
 
-// // Compile-time if-then-else expression
-// template <bool cond, typename T, typename F>
-// constexpr std::enable_if_t<cond, T> ifelse(T &&t, F &&f) {
-//   return std::forward<T>(t);
-// }
-// template <bool cond, typename T, typename F>
-// constexpr std::enable_if_t<!cond, F> ifelse(T &&t, F &&f) {
-//   return std::forward<F>(f);
-// }
-
 template <typename T> struct db_datatype;
 template <> struct db_datatype<char> : std::integral_constant<int, DB_CHAR> {};
 template <>
@@ -284,8 +274,6 @@ int InputSiloParameters(const std::string &input_dir,
 
     const std::string metafilename =
         input_dir + "/" + make_filename(input_file, input_iteration);
-    // We could use DB_UNKNOWN instead of DB_HDF5
-    // assert(metafilename.size() < 256);
     const DB::ptr<DBfile> metafile =
         DB::make(DBOpen(metafilename.c_str(), DB_HDF5, DB_READ));
     assert(metafile);
@@ -774,8 +762,6 @@ void InputSilo(const cGH *restrict const cctkGH,
           CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
                      leveldata.level);
 
-        // Loop over groups
-        // std::set<mesh_props_t> have_meshes;
         for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
           if (!input_group.at(gi))
             continue;
@@ -894,9 +880,6 @@ void InputSilo(const cGH *restrict const cctkGH,
                 assert(quadvar->datatype == db_datatype_v<CCTK_REAL>);
                 assert(quadvar->centering == centering);
                 assert(quadvar->nvals == 1);
-
-                // TODO: check DBOPT_COORDSYS:
-                // int cartesian = DB_CARTESIAN;
 
                 const int column_major = 0;
                 assert(quadvar->major_order == column_major);
@@ -1117,7 +1100,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
   // Configure Silo library
   DBShowErrors(DB_ALL_AND_DRVR, nullptr);
-  // DBSetAllowEmptyObjects(1);
   DBSetCompression(out_silo_compression_options);
   DBSetEnableChecksums(1);
 
@@ -1172,8 +1154,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
       const std::string filename =
           pathname + "/" +
           make_filename(output_file, cctk_iteration, myproc / ioproc_every);
-      // assert(filename.size() < 256);
-      // assert(output_file.size() < 256);
       file = DB::make(DBCreate(filename.c_str(), DB_CLOBBER, DB_LOCAL,
                                output_file.c_str(), DB_HDF5));
       assert(file);
@@ -1404,9 +1384,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   DBAddOption(optlist.get(), DBOPT_MAJORORDER, &column_major);
               assert(!ierr);
 
-              // float time = cctk_time;
-              // ierr = DBAddOption(optlist.get(), DBOPT_TIME, &time);
-              // assert(!ierr);
               double dtime = cctk_time;
               ierr = DBAddOption(optlist.get(), DBOPT_DTIME, &dtime);
               assert(!ierr);
@@ -1493,9 +1470,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   DBAddOption(optlist.get(), DBOPT_MAJORORDER, &column_major);
               assert(!ierr);
 
-              // float time = cctk_time;
-              // ierr = DBAddOption(optlist.get(), DBOPT_TIME, &time);
-              // assert(!ierr);
               double dtime = cctk_time;
               ierr = DBAddOption(optlist.get(), DBOPT_DTIME, &dtime);
               assert(!ierr);
@@ -2300,9 +2274,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
         ierr = DBAddOption(optlist.get(), DBOPT_CYCLE, &cycle);
         assert(!ierr);
 
-        // float time = cctk_time;
-        // ierr = DBAddOption(optlist.get(), DBOPT_TIME, &time);
-        // assert(!ierr);
         double dtime = cctk_time;
         ierr = DBAddOption(optlist.get(), DBOPT_DTIME, &dtime);
         assert(!ierr);
@@ -2403,9 +2374,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
         ierr = DBAddOption(optlist.get(), DBOPT_CYCLE, &cycle);
         assert(!ierr);
 
-        // float time = cctk_time;
-        // ierr = DBAddOption(optlist.get(), DBOPT_TIME, &time);
-        // assert(!ierr);
         double dtime = cctk_time;
         ierr = DBAddOption(optlist.get(), DBOPT_DTIME, &dtime);
         assert(!ierr);

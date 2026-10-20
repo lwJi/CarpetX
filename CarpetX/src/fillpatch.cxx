@@ -213,7 +213,6 @@ void FillPatch_NewLevel(
   const int ncomps = mfab.nComp();
   const IntVect ratio{2, 2, 2};
   const IntVect &nghosts = mfab.nGrowVect();
-  // const EB2::IndexSpace *const index_space = nullptr;
 
   const InterpolaterBoxCoarsener &coarsener = mapper->BoxCoarsener(ratio);
 

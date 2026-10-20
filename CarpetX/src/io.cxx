@@ -348,10 +348,6 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
   CCTK_TraverseString(out_plotfile_groups, enable_group, &group_enabled,
                       CCTK_GROUP_OR_VAR);
 
-  // TODO: Set the number of output files (the number of files written
-  // in parallel) to reduce the total number of files
-  // VisMF::SetNOutFiles(saveNFiles);
-
   for (int gi = 0; gi < numgroups; ++gi) {
     if (!group_enabled.at(gi))
       continue;
@@ -505,17 +501,6 @@ void OutputMetadata(const cGH *restrict cctkGH) {
     for (int d = 0; d < dim; ++d)
       yaml << cctk_nghostzones[d];
     yaml << YAML::EndSeq;
-    // Note: origin_space and delta_space are nan at this point
-    // yaml << YAML::Key << "origin_space";
-    // yaml << YAML::Value << YAML::Flow << YAML::BeginSeq;
-    // for (int d = 0; d < dim; ++d)
-    //   yaml << cctk_origin_space[d];
-    // yaml << YAML::EndSeq;
-    // yaml << YAML::Key << "delta_space";
-    // yaml << YAML::Value << YAML::Flow << YAML::BeginSeq;
-    // for (int d = 0; d < dim; ++d)
-    //   yaml << cctk_delta_space[d];
-    // yaml << YAML::EndSeq;
     yaml << YAML::Key << "iteration";
     yaml << YAML::Value << cctk_iteration;
     yaml << YAML::Key << "time";
@@ -524,8 +509,6 @@ void OutputMetadata(const cGH *restrict cctkGH) {
     yaml << YAML::Value << cctk_delta_time;
     yaml << YAML::Key << "ghext";
     yaml << YAML::Value << *ghext;
-    // yaml << YAML::Key << "parameters";
-    // yaml << YAML::Value << parameters();
     yaml << YAML::EndMap;
     yaml << YAML::EndDoc;
 
