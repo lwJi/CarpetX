@@ -9,11 +9,12 @@ git remote get-url ET || git remote add ET https://github.com/EinsteinToolkit/Ca
 git fetch ET
 git fetch origin
 git switch -c merge-upstream origin/dev
-s=$(python3 scripts/comments strip-upstream ET/main)
-git merge --no-ff -m "Merge EinsteinToolkit/CarpetX main into dev" "$s"
+s=$(python3 scripts/comments strip-upstream ET/main) && git merge --no-ff -m "Merge EinsteinToolkit/CarpetX main into dev" "$s"
 ```
 
 `strip-upstream` finds `S_{k-1}` as the newest commit in `HEAD`'s history with the trailer. It then strips a temporary worktree of `ET/main`, commits the result on top of `ET/main` and `S_{k-1}`, and checks it with `verify ET/main S_k`. Its progress goes to stderr, and only once `verify` passes does it print `S_k`'s SHA to stdout. If `ET/main` holds nothing that `S_{k-1}` doesn't already strip, it prints `S_{k-1}` itself, the merge reports `Already up to date.`, and you are done.
+
+If `verify` fails, `strip-upstream` prints no SHA, exits with status 1, and the merge doesn't run. A `before does not parse` on a `.ccl` or `.par` file means the flesh's grammars don't accept upstream's file, for example a CCL feature that so far exists only on a flesh branch. In that case, rerun with `--flesh` pointing at a flesh that builds upstream. The `no-comments` check clones the flesh's default branch for the same proof, so it stays red on the merge PR until the feature reaches that branch. Any other failure is a bug in `strip` or `verify`: stop and report it rather than merging `ET/main` itself.
 
 ## Resolving conflicts
 
