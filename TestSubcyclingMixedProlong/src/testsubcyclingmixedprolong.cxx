@@ -198,8 +198,7 @@ extern "C" void TestSubcyclingMixedProlong_RHS_hi(CCTK_ARGUMENTS) {
   rhs(cctkGH, grid, u_hi, rho_hi, u_hi_rhs, rho_hi_rhs);
 }
 
-extern "C" void TestSubcyclingMixedProlong_Sync(CCTK_ARGUMENTS) {
-}
+extern "C" void TestSubcyclingMixedProlong_Sync(CCTK_ARGUMENTS) {}
 
 extern "C" void TestSubcyclingMixedProlong_Error_lo(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMixedProlong_Error_lo;
