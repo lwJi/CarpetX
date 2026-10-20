@@ -49,19 +49,12 @@ Driver::regrid_every = 4
 Driver::regrid_error_threshold = 0.9
 
 CarpetX::prolongation_type = "ddf"
-#CarpetX::prolongation_order = 5
 CarpetX::ghost_size = 3
 CarpetX::dtfac = 0.25
 
 CarpetX::blocking_factor_x = 2
 CarpetX::blocking_factor_y = 2
 CarpetX::blocking_factor_z = 2
-#CarpetX::max_grid_size_x = 10000000
-#CarpetX::max_grid_size_y = 10000000
-#CarpetX::max_grid_size_z = 10000000
-#CarpetX::max_tile_size_x = 10000000
-#CarpetX::max_tile_size_y = 10000000
-#CarpetX::max_tile_size_z = 10000000
 
 BoxInBox::num_regions = 1
 # Region 1
@@ -74,12 +67,9 @@ Cactus::terminate = "iteration"
 Cactus::cctk_itlast = 16
 
 ODESolvers::method = "RK4"
-#ODESolvers::verbose = yes
 
 IO::out_dir = $parfile
 IO::out_every = $out_every
-
-#CarpetX::out_norm_vars = "all"
 
 CarpetX::out_tsv_vars = "
     TestSubcyclingMC2::state

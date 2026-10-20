@@ -31,12 +31,6 @@ CarpetX::ncells_z = 64
 Driver::periodic_x = no
 Driver::periodic_y = no
 Driver::periodic_z = no
-# CarpetX::reflection_x = yes
-# CarpetX::reflection_y = yes
-# CarpetX::reflection_z = yes
-# CarpetX::reflection_upper_x = yes
-# CarpetX::reflection_upper_y = yes
-# CarpetX::reflection_upper_z = yes
 
 CarpetX::ghost_size = 3
 
