@@ -1,5 +1,3 @@
-# Configuration definitions for thorn TestBoundaries
-
 OPTIONAL MPI
 {
 }
