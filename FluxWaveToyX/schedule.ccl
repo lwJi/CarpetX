@@ -1,5 +1,3 @@
-# Schedule definitions for thorn FluxWaveToyX
-
 STORAGE: state cons flux_x flux_y flux_z rhs energy error
 STORAGE: mass mass_flux_x mass_flux_y mass_flux_z
 STORAGE: prerestrict_energy
@@ -36,13 +34,6 @@ SCHEDULE FluxWaveToyX_RHS IN ODESolvers_RHS AFTER FluxWaveToyX_Fluxes
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-# The diagnostics in this group are not checkpointed: compute them at the end
-# of each step, and again after a restart, once the state's ghosts are
-# refilled. This group runs in every iteration, and under subcycling an
-# end-of-step bin may SYNC only when its window holds every level, so there the
-# pointwise error is written everywhere, while the outputs that need a stencil
-# are written on the interior only and their ghosts stay invalid. Without
-# subcycling every diagnostic is written on the interior and SYNCed
 SCHEDULE GROUP FluxWaveToyX_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"
@@ -92,9 +83,6 @@ if (use_subcycling) {
     WRITES: error(everywhere)
   } "Calculate error in scalar wave state"
 
-  # Fixture for the driver's flux-register bookkeeping: a flux-tagged group
-  # that is not integrated by ODESolvers, whose fluxes exist only after
-  # analysis (see interface.ccl).
   SCHEDULE FluxWaveToyX_Mass IN FluxWaveToyX_Diagnostics
   {
     LANG: C
@@ -150,9 +138,6 @@ if (use_subcycling) {
     SYNC: error
   } "Calculate error in scalar wave state"
 
-  # Fixture for the driver's flux-register bookkeeping: a flux-tagged group
-  # that is not integrated by ODESolvers, whose fluxes exist only after
-  # analysis (see interface.ccl).
   SCHEDULE FluxWaveToyX_Mass IN FluxWaveToyX_Diagnostics
   {
     LANG: C
@@ -165,13 +150,6 @@ if (use_subcycling) {
   } "Calculate the conserved density and its fluxes for output"
 }
 
-# Fixture for the order of CarpetX_PreRestrict and the driver's reflux: when
-# CarpetX_PreRestrict is traversed, the coarse level is not yet refluxed,
-# and its ghosts agree with its interior. The average reaches across the
-# state's full ghost width because the refluxed coarse cells (the cells just
-# outside the refined box) lie up to ghost_size cells from the neighbouring
-# coarse box's face in the standing_subcycling setup, so a narrower stencil
-# would not read them.
 SCHEDULE FluxWaveToyX_PreRestrictEnergy IN CarpetX_PreRestrict
 {
   LANG: C
@@ -180,12 +158,6 @@ SCHEDULE FluxWaveToyX_PreRestrictEnergy IN CarpetX_PreRestrict
   SYNC: prerestrict_energy
 } "Average the energy density over the ghost width before restriction"
 
-# prerestrict_energy is checkpointed (see interface.ccl), and a checkpoint
-# can be written before CarpetX_PreRestrict is ever traversed: at CPINITIAL
-# on a single level, or with restrict_during_sync = yes. Compute it from the
-# initial data too, once ODESolvers has filled the state's ghosts, so that
-# it is defined whenever it is checkpointed. Where the initial
-# CarpetX_PreRestrict runs, it overwrites this value before any output.
 SCHEDULE FluxWaveToyX_PreRestrictEnergy AT postinitial AFTER ODESolvers_PostStep
 {
   LANG: C

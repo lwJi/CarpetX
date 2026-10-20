@@ -15,15 +15,12 @@ namespace FluxWaveToyX {
 
 constexpr int dim = 3;
 
-// Average from cells to faces ("reconstruction")
 template <typename T>
 CCTK_DEVICE CCTK_HOST inline CCTK_ATTRIBUTE_ALWAYS_INLINE auto
 average(const Loop::GF3D2<T> &var, const Loop::PointDesc &p, const int dir) {
   return (var(p.I - p.DI[dir]) + var(p.I)) / 2;
 }
 
-// Flux divergence
-// Expects fluxes on faces, calculates divergence in cell
 template <typename T>
 CCTK_DEVICE CCTK_HOST inline CCTK_ATTRIBUTE_ALWAYS_INLINE auto
 flux_div(const Loop::GF3D2<T> &flux_x, const Loop::GF3D2<T> &flux_y,
@@ -33,15 +30,12 @@ flux_div(const Loop::GF3D2<T> &flux_x, const Loop::GF3D2<T> &flux_y,
          (flux_z(p.I + p.DI[2]) - flux_z(p.I)) / p.DX[2];
 }
 
-// Derivative
 template <typename T>
 CCTK_DEVICE CCTK_HOST inline CCTK_ATTRIBUTE_ALWAYS_INLINE auto
 deriv(const Loop::GF3D2<T> &var, const Loop::PointDesc &p, const int dir) {
   return (var(p.I + p.DI[dir]) - var(p.I - p.DI[dir])) / (2 * p.DX[dir]);
 }
 
-// u(t,x,y,z) =
-//   A cos(2 pi omega t) cos(2 pi kx x) cos(2 pi ky y) cos(2 pi kz z)
 template <typename T>
 constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
                              const T t, const T x, const T y, const T z, T &u,
@@ -63,8 +57,6 @@ constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
        cos(2 * pi * ky * y) * sin(2 * pi * kz * z);
 }
 
-// u(t,r) = (f(t-r) - f(t+r)) / r
-// f(v) = A exp(-1/2 (r/W)^2)
 template <typename T>
 constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
                         const T z, T &u, T &ft, T &fx, T &fy, T &fz) {
@@ -77,7 +69,6 @@ constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
   };
 
   if (r < sqrt(std::numeric_limits<T>::epsilon())) {
-    // L'Hôpital
     u = 2 / pow(W, 2) * f(t) * t;
     ft = -2 / pow(W, 4) * f(t) * (pow(t, 2) - pow(W, 2));
     fx = 0;
@@ -141,19 +132,6 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
 
   const bc_t bc = get_bc();
 
-  // "Reconstructing" at the cell interface is just averaging here, and flux
-  // limiting is not necessary since the solution is smooth
-
-  // The fluxes follow the conservation-law convention
-  //   d/dt state + div(flux) = 0,
-  // which the driver's flux register (the fluxes= tag on `state`) and AMReX
-  // expect. The wave equation as a first-order system is d/dt ft = div f and
-  // d/dt f_i = d_i ft, so the fluxes are the negatives of the averaged
-  // quantities, and the RHS below subtracts their divergence. (Negating the
-  // fluxes and the divergence is exact in floating point, so the evolution
-  // is unchanged by this convention.)
-
-  // Calculate x-flux
   grid.loop_int_device<0, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -183,7 +161,6 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
         }
       });
 
-  // Calculate y-flux
   grid.loop_int_device<1, 0, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -213,7 +190,6 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
         }
       });
 
-  // Calculate z-flux
   grid.loop_int_device<1, 1, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -248,8 +224,6 @@ extern "C" void FluxWaveToyX_RHS(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_RHS;
   DECLARE_CCTK_PARAMETERS;
 
-  // d/dt state = -div(flux) (+ source): see FluxWaveToyX_Fluxes for the
-  // sign convention of the fluxes. u has no flux, only the source ft.
   grid.loop_int_device<1, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -264,8 +238,6 @@ extern "C" void FluxWaveToyX_RHS(CCTK_ARGUMENTS) {
 extern "C" void FluxWaveToyX_Boundaries(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_Boundaries;
   DECLARE_CCTK_PARAMETERS;
-
-  // Do nothing
 }
 
 extern "C" void FluxWaveToyX_Constraints(CCTK_ARGUMENTS) {
@@ -304,11 +276,6 @@ extern "C" void FluxWaveToyX_Energy(CCTK_ARGUMENTS) {
                                     });
 }
 
-// The conserved density ft and its fluxes (the ft components of the fluxes
-// in FluxWaveToyX_Fluxes), computed at analysis. This group carries a
-// fluxes= tag but no rhs= tag: it exists to check that the driver allocates
-// no flux register for a group ODESolvers does not integrate, and so never
-// demands these fluxes during the RK stages, when they are invalid.
 extern "C" void FluxWaveToyX_Mass(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_Mass;
 
@@ -336,7 +303,6 @@ extern "C" void FluxWaveToyX_Mass(CCTK_ARGUMENTS) {
       });
 }
 
-// Energy density (ft^2 + f^2) / 2 at one grid point
 template <typename T>
 CCTK_DEVICE CCTK_HOST inline CCTK_ATTRIBUTE_ALWAYS_INLINE T
 energy_density(const Loop::GF3D2<const T> &ft, const Loop::GF3D2<const T> &fx,
@@ -346,11 +312,6 @@ energy_density(const Loop::GF3D2<const T> &ft, const Loop::GF3D2<const T> &fx,
   return (pow(ft(I), 2) + pow(fx(I), 2) + pow(fy(I), 2) + pow(fz(I), 2)) / 2;
 }
 
-// The energy density averaged along each axis over the full ghost width,
-// computed IN CarpetX_PreRestrict. Interior cells at a box face then read
-// every ghost layer of the state, so the output pins that the hook runs
-// before the driver's reflux: interior and ghosts both hold the uncorrected
-// values (see schedule.ccl and test/standing_subcycling_prerestrict.par).
 extern "C" void FluxWaveToyX_PreRestrictEnergy(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_PreRestrictEnergy;
 
@@ -380,10 +341,6 @@ extern "C" void FluxWaveToyX_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_Error;
   DECLARE_CCTK_PARAMETERS;
 
-  // Under subcycling the end-of-step bins may SYNC only when their window
-  // holds every level, and this runs in every iteration, so this pointwise
-  // error is computed everywhere; without subcycling it is computed on the
-  // interior and SYNCed (see schedule.ccl)
   const auto loop = [&](const auto &kernel) {
     if (use_subcycling)
       grid.loop_all_device<1, 1, 1>(grid.nghostzones, kernel);
