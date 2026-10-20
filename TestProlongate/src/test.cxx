@@ -29,9 +29,6 @@ bool is_near_jump(const Loop::PointDesc &p, const bool enox, const bool enoy,
                   const bool enoz, const bool fbx, const bool fby,
                   const bool fbz, const int orderx, const int ordery,
                   const int orderz) {
-  // Stay away from the discontinuity.
-  // `1 dx` on the coarse grid is `2 dx` on the fine grid. The coarse grid is
-  // also offset by 1/2 grid spacing if it's cell centred.
   using std::max;
   return (enox && fabs(p.x) < 2.1 * p.dx) || (enoy && fabs(p.y) < 2.1 * p.dy) ||
          (enoz && fabs(p.z) < 2.1 * p.dz) ||
@@ -44,8 +41,6 @@ template <typename T> T fun1d_base(const T x, const int order) {
   return order == 0 ? 1 : pow(x, order);
 }
 
-// The `DDF` operators have order `order` for VC, but only `order-1` for CC. The
-// caller needs to handle this.
 template <typename T>
 T fun1d(const T x, const T dx, const bool consx, const int orderx) {
   T res = 0;
@@ -58,9 +53,6 @@ T fun1d(const T x, const T dx, const bool consx, const int orderx) {
   return res;
 }
 
-// The grid stores the average values of the underlying function (x*y*z)**n
-// which amounts to storing differences of the anti-derivative 1/(n+1)**3 *
-// (x*y*z)**(n+1)
 template <typename T>
 T fun(const T x, const T y, const T z, const T dx, const T dy, const T dz,
       const bool consx, const bool consy, const bool consz, const bool enox,
@@ -76,8 +68,6 @@ extern "C" void TestProlongate_Set(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestProlongate_Set;
   DECLARE_CCTK_PARAMETERS;
 
-  // Get prolongation order from driver, the parmeter is private since really
-  // there is normally no reason to depend on it
   int order_type;
   const void *const order_p =
       CCTK_ParameterGet("prolongation_order", "CarpetX", &order_type);
@@ -224,8 +214,6 @@ extern "C" void TestProlongate_Set(CCTK_ARGUMENTS) {
 extern "C" void TestProlongate_Sync(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestProlongate_Sync;
   DECLARE_CCTK_PARAMETERS;
-
-  // do nothing
 }
 
 extern "C" void TestProlongate_Regrid(CCTK_ARGUMENTS) {
@@ -251,12 +239,8 @@ extern "C" void TestProlongate_Check(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestProlongate_Check;
   DECLARE_CCTK_PARAMETERS;
 
-  // there is no reduction yet, so for now I require that only 1 MPI rank be in
-  // use
   assert(CCTK_nProcs(cctkGH) == 1 && "Must be single rank");
 
-  // get prolongation order from driver, the parmeter is private since really
-  // there is normally no reason to depend on it
   int order_type;
   const void *const order_p =
       CCTK_ParameterGet("prolongation_order", "CarpetX", &order_type);
