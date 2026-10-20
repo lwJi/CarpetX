@@ -55,9 +55,7 @@ template <typename I> constexpr bool would_mul_overflow(I x, I y) noexcept {
 
 } // namespace
 
-template <typename I> constexpr I checked_pos(I x) noexcept {
-  return +x;
-}
+template <typename I> constexpr I checked_pos(I x) noexcept { return +x; }
 
 template <typename I> constexpr I checked_neg(I x) {
   if constexpr (std::is_signed_v<I>) {

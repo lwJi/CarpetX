@@ -301,9 +301,8 @@ public:
     return anyisnan(x.elts);
   }
 
-  friend constexpr
-      ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
-      isnan(const gmat &x) {
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
+  isnan(const gmat &x) {
     return isnan(x.elts);
   }
 

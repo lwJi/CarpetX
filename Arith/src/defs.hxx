@@ -131,8 +131,7 @@ template <> struct nan<double> {
 template <
     int imin, int imax, int istep = 1, typename F,
     std::enable_if_t<(istep > 0 ? imin >= imax : imin <= imax)> * = nullptr>
-constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST void unroll_for(const F &f) {
-}
+constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST void unroll_for(const F &f) {}
 
 template <
     int imin, int imax, int istep = 1, typename F,

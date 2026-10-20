@@ -247,13 +247,11 @@ public:
     return !(x == y);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
-  all(const vec &x) {
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto all(const vec &x) {
     return all(x.elts);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
-  any(const vec &x) {
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto any(const vec &x) {
     return any(x.elts);
   }
 

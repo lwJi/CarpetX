@@ -21,8 +21,7 @@ namespace Arith {
 
 template <typename T, int D> struct rten {
 
-  constexpr static int N0 =
-      D * (D - 1) / 2;
+  constexpr static int N0 = D * (D - 1) / 2;
   constexpr static int N = N0 * (N0 + 1) / 2;
   vect<T, N> elts;
 

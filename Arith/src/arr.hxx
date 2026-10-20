@@ -720,8 +720,7 @@ public:
       elts[i] = value;
   }
 
-  ARITH_INLINE ARITH_HOST void
-  swap(arr &other) noexcept {
+  ARITH_INLINE ARITH_HOST void swap(arr &other) noexcept {
     if (this == &other)
       return;
     for (std::size_t i = 0; i < N; ++i)
