@@ -8,20 +8,6 @@ SCHEDULE WaveToyX_Initial AT initial
   WRITES: state(interior)
 } "Initialize scalar wave state"
 
-# SCHEDULE WaveToyX_EstimateError AT postinitial
-# {
-#   LANG: C
-#   READS: state(everywhere)
-#   WRITES: CarpetXRegrid::regrid_error(interior)
-# } "Estimate error for regridding"
-# 
-# SCHEDULE WaveToyX_EstimateError AT poststep
-# {
-#   LANG: C
-#   READS: state(everywhere)
-#   WRITES: CarpetXRegrid::regrid_error(interior)
-# } "Estimate error for regridding"
-
 SCHEDULE WaveToyX_Boundaries IN ODESolvers_PostStep
 {
   LANG: C
