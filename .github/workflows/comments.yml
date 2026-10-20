@@ -16,6 +16,10 @@ concurrency:
 jobs:
   no-comments:
     runs-on: ubuntu-latest
+    env:
+      # The commit the change is judged against: the PR's base, or the tip
+      # `dev` had before this push.
+      BASE: ${{github.event.pull_request.base.sha || github.event.before}}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,5 +33,6 @@ jobs:
       - name: Test scripts/comments
         run: python3 -m unittest discover -s scripts/comments
 
-      - name: Check thorn files for comments
-        run: python3 scripts/comments check
+      - name: Check the comments this change adds to thorn files
+        if: ${{!cancelled() && env.BASE != '0000000000000000000000000000000000000000'}}
+        run: python3 scripts/comments check --since "$BASE"

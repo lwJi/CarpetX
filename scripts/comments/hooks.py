@@ -124,8 +124,8 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
     return 0
 
 
-def branch_changes(root: str) -> list[tuple[str, Optional[str], str, Lang]]:
-    base = merge_base(root)
+def branch_changes(root: str, base: Optional[str] = None) -> list[tuple[str, Optional[str], str, Lang]]:
+    base = merge_base(root) if base is None else base
     pairs = {new: old for old, new in changed(root, base)}
     for name in untracked(root):
         pairs.setdefault(name, None)
@@ -138,6 +138,15 @@ def branch_changes(root: str) -> list[tuple[str, Optional[str], str, Lang]]:
     return found
 
 
+def added_since(root: str, base: Optional[str] = None) -> list:
+    def judge(item):
+        base, old, name, lang = item
+        after = read_text(os.path.join(root, name))
+        return [(name, v) for v in added(show(root, base, old), after, lang)]
+
+    return [entry for entries in parallel(judge, branch_changes(root, base)) for entry in entries]
+
+
 def hook_stop(raw, out=None, root: str = PROJECT) -> int:
     out = out or sys.stdout
     try:
@@ -146,13 +155,7 @@ def hook_stop(raw, out=None, root: str = PROJECT) -> int:
             raise ValueError("the hook payload is not a JSON object")
         if payload.get("stop_hook_active"):
             return 0
-
-        def judge(item):
-            base, old, name, lang = item
-            after = read_text(os.path.join(root, name))
-            return [(name, v) for v in added(show(root, base, old), after, lang)]
-
-        found = [entry for entries in parallel(judge, branch_changes(root)) for entry in entries]
+        found = added_since(root)
         if not found:
             return 0
         reason = render(found)

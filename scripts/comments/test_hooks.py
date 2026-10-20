@@ -514,5 +514,61 @@ class Settings(Project):
         self.assertEqual(json.loads(result.stdout)["decision"], "block")
 
 
+
+class CheckSince(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = os.path.realpath(tmp.name)
+        patcher = mock.patch.dict(os.environ, ISOLATED_GIT)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        git(self.root, "init", "-q", "-b", "dev")
+        write_files(self.root, STOP_FILES)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "base")
+        self.base = git(self.root, "rev-parse", "HEAD").strip()
+        copy_tool(self.root)
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "tool")
+
+    def run_tool(self, *args):
+        return subprocess.run(
+            [sys.executable, os.path.join(self.root, "scripts", "comments"), *args], capture_output=True, text=True
+        )
+
+    def append(self, name, text):
+        with open(os.path.join(self.root, name), "a") as f:
+            f.write(text)
+
+    def test_old_comments_pass_and_added_ones_fail(self):
+        result = self.run_tool("check", "--since", self.base)
+        self.assertEqual((result.returncode, result.stdout), (0, "✓ no-comments: 0 comments\n"), result.stderr)
+        self.append("Thorn/param.ccl", "# x\n")
+        self.append("Thorn/test/t.par", "Thorn::n = 3\n")
+        result = self.run_tool("check", "--since", self.base)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout.split("\n")[0], "Thorn/param.ccl:6   # x")
+        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment")
+
+    def test_a_comment_committed_since_the_base_fails(self):
+        self.append("Thorn/test/t.par", "# why\n")
+        git(self.root, "commit", "-q", "-am", "add a comment")
+        result = self.run_tool("check", "--since", self.base)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout.split("\n")[0], "Thorn/test/t.par:2   # why")
+        self.assertEqual(self.run_tool("check", "--since", "HEAD").returncode, 0)
+
+    def test_an_unknown_rev_exits_2(self):
+        result = self.run_tool("check", "--since", "nonsense")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("'nonsense' is not a commit in this repository", result.stderr)
+
+    def test_since_refuses_paths(self):
+        result = self.run_tool("check", "--since", self.base, "Thorn")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--since takes no PATH", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
