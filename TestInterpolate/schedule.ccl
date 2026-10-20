@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestInterpolate
-
 STORAGE: results_interpolate
 STORAGE: results_driver_interpolate
 STORAGE: reference
