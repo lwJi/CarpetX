@@ -43,8 +43,6 @@ public:
 
   bool invariant() const;
 
-  // void count_nz(int ilocal_min, int ilocal_max, int &restrict nlocal,
-  //               int &restrict ntotal) const;
   std::size_t size() const;
 };
 
@@ -63,8 +61,6 @@ public:
 
   jacobian_t() = default;
   std::size_t size() const;
-  // void count_nz(int ilocal_min, int ilocal_max, int &restrict nlocal,
-  //               int &restrict ntotal) const;
   void clear();
   void add_value(int i, int j, CCTK_REAL v) { entries.emplace_back(i, j, v); }
   void set_matrix_entries(const csr_t &Jp, Mat J) const;
@@ -87,8 +83,6 @@ public:
   jacobians_t();
   jacobian_t &get_local();
   std::size_t size() const;
-  // void count_nz(int ilocal_min, int ilocal_max, int &restrict nlocal,
-  //               int &restrict ntotal) const;
   void clear();
   void define_matrix(const csr_t &Jp, Mat J) const;
 };

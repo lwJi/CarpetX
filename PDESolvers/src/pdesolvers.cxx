@@ -91,29 +91,9 @@ csr_t::csr_t(const int m, const int n,
 
 std::size_t csr_t::size() const { return nzvals.size(); }
 
-// void csr_t::count_nz(int ilocal_min, int ilocal_max, int &restrict nlocal,
-//                      int &restrict ntotal) const {
-//   for (int i = 0; i < m; ++i) {
-//     const int ncols = rowptrs.at(i + 1) - rowptrs.at(i);
-//     if (i >= ilocal_min && i < ilocal_max)
-//       nlocal += ncols;
-//     ntotal += ncols;
-//   }
-// }
-
 ////////////////////////////////////////////////////////////////////////////////
 
 std::size_t jacobian_t::size() const { return entries.size(); }
-
-// void jacobian_t::count_nz(int ilocal_min, int ilocal_max, int &restrict
-// nlocal,
-//                           int &restrict ntotal) const {
-//   for (const auto &e : entries) {
-//     const auto i = std::get<0>(e);
-//     nlocal += i >= ilocal_min && i < ilocal_max;
-//     ++ntotal;
-//   }
-// }
 
 void jacobian_t::clear() { entries.clear(); }
 
@@ -192,13 +172,6 @@ std::size_t jacobians_t::size() const {
     sz += j.size();
   return sz;
 }
-
-// void jacobians_t::count_nz(int ilocal_min, int ilocal_max, int &restrict
-// nlocal,
-//                            int &restrict ntotal) const {
-//   for (auto &j : jacobians)
-//     j.count_nz(ilocal_min, ilocal_max, nlocal, ntotal);
-// }
 
 void jacobians_t::clear() {
   for (auto &j : jacobians)
@@ -334,9 +307,6 @@ void jacobians_t::define_matrix(const csr_t &Jp, Mat J) const {
   } else {
     assert(0);
   }
-  // We don't need to zero since we insert instead of adding
-  // ierr = MatZeroEntries(J);
-  // assert(!ierr);
   for (int i = 0; i < Jcsr.m; ++i) {
     const int jp0 = Jcsr.rowptrs.at(i);
     const int jp1 = Jcsr.rowptrs.at(i + 1);
