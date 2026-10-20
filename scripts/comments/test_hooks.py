@@ -96,10 +96,41 @@ class Added(unittest.TestCase):
         before = "// one two\n// three\nint x;\n"
         self.assertEqual(self.texts(before, "// one too\n// three\nint x;\n"), [(1, "// one too")])
         self.assertEqual(self.texts(before, "// one two\n// three\n// four\nint x;\n"), [(1, "// one two")])
-        self.assertEqual(self.texts(before, "// one two\nint x;\n"), [(1, "// one two")])
+
+    def test_a_trimmed_paragraph_is_not_added(self):
+        before = "// one\n// two\n// three\nint x;\n"
+        self.assertEqual(self.texts(before, "// one\n// three\nint x;\n"), [])
+        self.assertEqual(self.texts(before, "// two\n// three\nint x;\n"), [])
+        self.assertEqual(self.texts(before, "{\n  // one\n  int x;\n}\n"), [])
+        self.assertEqual(self.texts("/* one\n   two\n   three */\n", "/* one\n   three */\n"), [])
+        code = "// Copy in one go\n// int y = x;\n// y += 1;\nint x;\n"
+        self.assertEqual(self.texts(code, "// Copy in one go\nint x;\n"), [])
+        self.assertEqual(self.texts_from(["int x;\n", before], "// one\nint x;\n"), [])
+
+    def test_a_trimmed_and_reworded_paragraph_is_added(self):
+        before = "// one two\n// three\n// four\nint x;\n"
+        self.assertEqual(self.texts(before, "// one two\n// four!\nint x;\n"), [(1, "// one two")])
+        self.assertEqual(self.texts(before, "// one\n// four\nint x;\n"), [(1, "// one")])
+
+    def test_a_reordered_paragraph_is_added(self):
+        before = "// one two\n// three\n// four\nint x;\n"
+        self.assertEqual(self.texts(before, "// four\n// one two\nint x;\n"), [(1, "// four")])
+
+    def test_an_unchanged_paragraph_keeps_its_match_before_a_trim(self):
+        before = "// a\n// b\nint x;\n"
+        self.assertEqual(self.texts(before, "// a\nint y;\n\n// a\n// b\nint x;\n"), [(1, "// a")])
+
+    def test_trims_share_out_the_old_paragraphs(self):
+        before = "// a\n// c\nint x;\n// a\n// b\nint y;\n"
+        self.assertEqual(self.texts(before, "// a\nint x;\n// c\nint y;\n"), [])
+        self.assertEqual(self.texts(before, "// a\nint x;\n// c\nint y;\n// b\n"), [(5, "// b")])
+
+    def test_an_added_citation_does_not_take_a_paragraph_s_match(self):
+        before = "// See arXiv:1111.2177\n// for the stencil\nint x;\n"
+        self.assertEqual(self.texts(before, "// See arXiv:1111.2177\nint y;\n" + before), [])
 
     def test_a_split_paragraph_is_added(self):
-        self.assertEqual(self.texts("// a\n// b\n", "// a\nint y;\n// b\n"), [(1, "// a"), (3, "// b")])
+        self.assertEqual(self.texts("// a\n// b\n", "// a\nint y;\n// b\n"), [(3, "// b")])
 
     def test_a_joined_paragraph_is_added(self):
         self.assertEqual(self.texts("// a\nint x;\n// b\n", "// a\n// b\n"), [(1, "// a")])
@@ -158,7 +189,16 @@ class AddedHash(unittest.TestCase):
         self.assertEqual(self.texts(before, "# one too\n# three\n" + param, Lang.PARAM), [(1, "# one too")])
         fortran = "! one two\n! three\nx = 1\n"
         self.assertEqual(self.texts(fortran, "  ! one\n  ! two three\nx = 1\n", Lang.FORTRAN), [])
-        self.assertEqual(self.texts(fortran, "! one two\nx = 1\n! three\n", Lang.FORTRAN), [(1, "! one two"), (3, "! three")])
+        self.assertEqual(self.texts(fortran, "! one two\nx = 1\n! three\n", Lang.FORTRAN), [(3, "! three")])
+
+    def test_a_trimmed_hash_paragraph_is_not_added(self):
+        param = "INT a \"a\"\n{\n} 1\n"
+        before = "# one\n# two\n# three\n" + param
+        self.assertEqual(self.texts(before, "# one\n# three\n" + param, Lang.PARAM), [])
+        self.assertEqual(self.texts(before, "# one\n# thre\n" + param, Lang.PARAM), [(1, "# one")])
+        fortran = "! one\n! two\n! three\nx = 1\n"
+        self.assertEqual(self.texts(fortran, "! two\n! three\nx = 1\n", Lang.FORTRAN), [])
+        self.assertEqual(self.texts(fortran, "! three\n! one\nx = 1\n", Lang.FORTRAN), [(1, "! three")])
 
 
 class Project(unittest.TestCase):
@@ -213,6 +253,12 @@ class HookEdit(Project):
             self.edit("Thorn/src/a.cxx", "} // namespace Thorn\n", "} // namespace Thorn\nnamespace B {\n} // namespace B\n"),
             "",
         )
+
+    def test_an_edit_that_deletes_a_line_of_a_comment_is_allowed(self):
+        write_files(self.root, {"Thorn/src/c.cxx": "// one\n// two\n// three\nint c;\n"})
+        self.assertEqual(self.edit("Thorn/src/c.cxx", "// two\n", ""), "")
+        self.assertEqual(self.edit("Thorn/src/c.cxx", "// one\n// two\n", "// one\n"), "")
+        self.denied(self.edit("Thorn/src/c.cxx", "// two\n", "// too\n"))
 
     def test_write(self):
         self.denied(self.write("Thorn/src/new.cxx", "/* why */\nint n;\n"))

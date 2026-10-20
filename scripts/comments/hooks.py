@@ -53,21 +53,53 @@ def simulate_edit(tool_name: str, tool_input: dict, before: Optional[str]) -> Op
     return before.replace(old, new, -1 if replace_all else 1)
 
 
+def region_lines(region: Region) -> tuple[str, ...]:
+    return tuple(" ".join(line.split()) for token in region.comments for line in comment_lines(token) if line.split())
+
+
 def region_key(region: Region) -> tuple[bool, str]:
-    is_directive = region.placement in DIRECTIVE_PLACEMENTS
-    if is_directive:
-        words = [t.text for t in region.tokens if t.kind in (Kind.CODE, Kind.DIRECTIVE)]
-    else:
-        words = [word for token in region.comments for line in comment_lines(token) for word in line.split()]
-    return is_directive, " ".join(words)
+    if region.placement in DIRECTIVE_PLACEMENTS:
+        return True, " ".join(t.text for t in region.tokens if t.kind in (Kind.CODE, Kind.DIRECTIVE))
+    return False, " ".join(region_lines(region))
 
 
-def starting_point(befores: Iterable[str], lang: Lang) -> Counter:
+def starting_point(befores: Iterable[str], lang: Lang) -> tuple[Counter, dict]:
     keys: Counter = Counter()
+    shapes: dict = {}
     for text in befores:
-        if may_hold_comments(text, lang):
-            keys |= Counter(region_key(r) for r in regions_of(lex(text, lang), lang))
-    return keys
+        if not may_hold_comments(text, lang):
+            continue
+        regions = regions_of(lex(text, lang), lang)
+        keys |= Counter(region_key(r) for r in regions)
+        for r in regions:
+            if r.placement not in DIRECTIVE_PLACEMENTS:
+                shapes.setdefault(region_key(r), set()).add(region_lines(r))
+    return keys, shapes
+
+
+def is_trim(lines: tuple, shape: tuple) -> bool:
+    rest = iter(shape)
+    return bool(lines) and all(line in rest for line in lines)
+
+
+def untrimmed(found: list, old: Counter, shapes: dict) -> list:
+    units = [key for key, count in old.items() if not key[0] for _ in range(count)]
+    edges = []
+    for v in found:
+        lines = () if v.region.placement in DIRECTIVE_PLACEMENTS else region_lines(v.region)
+        edges.append([u for u, key in enumerate(units) if any(is_trim(lines, shape) for shape in shapes[key])])
+    owner: dict = {}
+
+    def take(i: int, seen: set) -> bool:
+        for u in edges[i]:
+            if u not in seen:
+                seen.add(u)
+                if u not in owner or take(owner[u], seen):
+                    owner[u] = i
+                    return True
+        return False
+
+    return [v for i, v in enumerate(found) if not take(i, set())]
 
 
 def added(befores: Iterable[str], after: str, lang: Lang) -> list:
@@ -79,15 +111,16 @@ def added(befores: Iterable[str], after: str, lang: Lang) -> list:
         return []
     flagged = {v.region.first for v in found}
     kept = Counter(region_key(r) for r in regions_of(tokens, lang) if r.first not in flagged)
-    old = starting_point(befores, lang) - kept
-    result = []
+    old, shapes = starting_point(befores, lang)
+    old -= kept
+    unmatched = []
     for v in found:
         key = region_key(v.region)
         if old[key] > 0:
             old[key] -= 1
         else:
-            result.append(v)
-    return result
+            unmatched.append(v)
+    return untrimmed(unmatched, old, shapes)
 
 
 def hook_edit(raw, out=None, root: str = PROJECT) -> int:
