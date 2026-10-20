@@ -82,8 +82,7 @@ extern "C" void TestSubcyclingCC_RHS(CCTK_ARGUMENTS) {
       });
 }
 
-extern "C" void TestSubcyclingCC_Sync(CCTK_ARGUMENTS) {
-}
+extern "C" void TestSubcyclingCC_Sync(CCTK_ARGUMENTS) {}
 
 extern "C" void TestSubcyclingCC_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingCC_Error;
