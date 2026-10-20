@@ -105,6 +105,24 @@ def run_verify(command: str, revs: list[str], flesh: str | None, layout: bool = 
     return EXIT_CLEAN if ok else EXIT_FOUND
 
 
+def run_strip_upstream(ref: str, seed: bool, flesh: str | None) -> int:
+    from files import PROJECT, GitError
+    from lex_clang import LexError, ToolMissing
+    from strip import StripError
+    from upstream import UpstreamError, strip_upstream
+
+    sys.stderr.reconfigure(errors="backslashreplace")
+    try:
+        s = strip_upstream(PROJECT, ref, seed, flesh, lambda line: print(line, file=sys.stderr))
+    except (ToolMissing, GitError, LexError, StripError, UpstreamError) as e:
+        print(f"comments strip-upstream: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    if s is None:
+        return EXIT_FOUND
+    print(s)
+    return EXIT_CLEAN
+
+
 def run_hook(name: str) -> int:
     try:
         import hooks
@@ -145,6 +163,14 @@ def main(argv: list[str] | None = None) -> int:
              "removing comments\" commit with --layout")
     skips.add_argument("--flesh", **flesh)
     skips.add_argument("base", metavar="BASE")
+    upstream = commands.add_parser(
+        "strip-upstream",
+        help="commit REF with its thorn files stripped, on top of the newest Comments-Stripped-From: commit in "
+             "HEAD's history, verify it, and print its SHA for git merge --no-ff")
+    upstream.add_argument("--seed", action="store_true",
+                          help="start the lineage: give the strip commit REF as its only parent, for git merge -s ours")
+    upstream.add_argument("--flesh", **flesh)
+    upstream.add_argument("ref", metavar="REF", help="the upstream commit, usually ET/main")
     commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a comment")
     commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a comment")
     args = parser.parse_args(argv)
@@ -161,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
             return run_verify("verify", [args.before, args.after], args.flesh, args.layout)
         if args.command == "verify-skips":
             return run_verify("verify-skips", [args.base], args.flesh)
+        if args.command == "strip-upstream":
+            return run_strip_upstream(args.ref, args.seed, args.flesh)
         return run_check(args.paths)
     except Exception:
         traceback.print_exc()
