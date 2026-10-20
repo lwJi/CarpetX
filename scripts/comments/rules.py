@@ -29,12 +29,9 @@ BLOCK_LEADER = re.compile(r"^\*+")
 @dataclass(frozen=True)
 class Violation:
     region: Region
-    shown: Optional[Token] = None
 
     @property
     def token(self) -> Token:
-        if self.shown is not None:
-            return self.shown
         if self.region.placement in DIRECTIVE_PLACEMENTS:
             return self.region.tokens[0]
         return self.region.comments[0]

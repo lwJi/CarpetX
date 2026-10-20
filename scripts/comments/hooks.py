@@ -4,14 +4,13 @@ import json
 import os
 import sys
 from collections import Counter
-from dataclasses import replace
-from typing import Optional
+from typing import Iterable, Optional
 
 from files import PROJECT, Lang, changed, covered, is_regular, merge_base, parallel, read_text, repo_name, show, untracked
 from lex_clang import ToolMissing
 from report import render
-from rules import check, lex, may_hold_comments, regions_of
-from tokens import DIRECTIVE_PLACEMENTS, Kind, Region, Token
+from rules import check, comment_lines, lex, may_hold_comments, regions_of
+from tokens import DIRECTIVE_PLACEMENTS, Kind, Region
 
 
 def emit(out, message: dict) -> None:
@@ -41,52 +40,40 @@ def simulate_edit(tool_name: str, tool_input: dict, before: Optional[str]) -> Op
     return before.replace(old, new, -1 if replace_all else 1)
 
 
-def comment_key(token: Token) -> str:
-    return " ".join(token.text.split())
+def region_key(region: Region) -> tuple[bool, str]:
+    is_directive = region.placement in DIRECTIVE_PLACEMENTS
+    if is_directive:
+        words = [t.text for t in region.tokens if t.kind in (Kind.CODE, Kind.DIRECTIVE)]
+    else:
+        words = [word for token in region.comments for line in comment_lines(token) for word in line.split()]
+    return is_directive, " ".join(words)
 
 
-def directive_key(region: Region) -> str:
-    return " ".join(t.text for t in region.tokens if t.kind in (Kind.CODE, Kind.DIRECTIVE))
+def starting_point(befores: Iterable[str], lang: Lang) -> Counter:
+    keys: Counter = Counter()
+    for text in befores:
+        if may_hold_comments(text, lang):
+            keys |= Counter(region_key(r) for r in regions_of(lex(text, lang), lang))
+    return keys
 
 
-def added(before: str, after: str, lang: Lang) -> list:
+def added(befores: Iterable[str], after: str, lang: Lang) -> list:
     if not may_hold_comments(after, lang):
         return []
     tokens = lex(after, lang)
     found = check(tokens, lang)
     if not found:
         return []
-    old_tokens = lex(before, lang) if may_hold_comments(before, lang) else []
-    old_comments = Counter(comment_key(t) for t in old_tokens if t.kind is Kind.COMMENT)
-    old_directives = Counter(
-        directive_key(r) for r in regions_of(old_tokens, lang) if r.placement in DIRECTIVE_PLACEMENTS
-    )
-    flagged = {
-        i
-        for v in found
-        if v.region.placement not in DIRECTIVE_PLACEMENTS
-        for i in range(v.region.first, v.region.last + 1)
-    }
-    comments = [i for i, t in enumerate(tokens) if t.kind is Kind.COMMENT]
-    new = set()
-    for i in sorted(comments, key=lambda i: (i in flagged, i)):
-        key = comment_key(tokens[i])
-        if old_comments[key]:
-            old_comments[key] -= 1
-        else:
-            new.add(i)
+    flagged = {v.region.first for v in found}
+    kept = Counter(region_key(r) for r in regions_of(tokens, lang) if r.first not in flagged)
+    old = starting_point(befores, lang) - kept
     result = []
     for v in found:
-        if v.region.placement in DIRECTIVE_PLACEMENTS:
-            key = directive_key(v.region)
-            if old_directives[key]:
-                old_directives[key] -= 1
-            else:
-                result.append(v)
-            continue
-        first_new = next((i for i in range(v.region.first, v.region.last + 1) if i in new), None)
-        if first_new is not None:
-            result.append(replace(v, shown=tokens[first_new]))
+        key = region_key(v.region)
+        if old[key] > 0:
+            old[key] -= 1
+        else:
+            result.append(v)
     return result
 
 
@@ -105,7 +92,7 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
         after = simulate_edit(tool_name, tool_input, before)
         if after is None:
             return 0
-        found = added(before or "", after, lang)
+        found = added([before or ""], after, lang)
         if not found:
             return 0
         reason = render([(name, v) for v in found])
@@ -142,7 +129,7 @@ def added_since(root: str, base: Optional[str] = None) -> list:
     def judge(item):
         base, old, name, lang = item
         after = read_text(os.path.join(root, name))
-        return [(name, v) for v in added(show(root, base, old), after, lang)]
+        return [(name, v) for v in added([show(root, base, old)], after, lang)]
 
     return [entry for entries in parallel(judge, branch_changes(root, base)) for entry in entries]
 

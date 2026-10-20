@@ -69,7 +69,10 @@ class SimulateEdit(unittest.TestCase):
 @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class Added(unittest.TestCase):
     def texts(self, before, after):
-        return [(v.line, v.token.text) for v in added(before, after, Lang.CXX)]
+        return self.texts_from([before], after)
+
+    def texts_from(self, befores, after):
+        return [(v.line, v.token.text) for v in added(befores, after, Lang.CXX)]
 
     def test_a_new_comment_is_added(self):
         self.assertEqual(self.texts("int a;\n", "int a; // why\n"), [(1, "// why")])
@@ -77,11 +80,40 @@ class Added(unittest.TestCase):
     def test_comments_already_in_the_file_are_not_the_edit_s(self):
         self.assertEqual(self.texts("// one\nint x;\n// two\nint y;\n", "// one\nint x;\nint y;\n"), [])
         self.assertEqual(self.texts("// one\nint x;\n", "{\n  // one\n  int x;\n}\n"), [])
-        self.assertEqual(self.texts("// a\nint x;\n// b\n", "// a\n// b\n"), [])
-        self.assertEqual(self.texts("// a\n// b\n", "// a\nint y;\n// b\n"), [])
 
-    def test_only_the_new_comment_is_shown(self):
-        self.assertEqual(self.texts("// one\n// two\nint x;\n", "// one\n// two\n// three\nint x;\n"), [(3, "// three")])
+    def test_a_reflowed_paragraph_is_not_added(self):
+        before = "// The finest clock group: the finest\n// level, widened down to every coarser\nint x;\n"
+        after = "{\n  //   The finest clock group: the\n  //   finest level, widened down to\n  //   every coarser\n  int x;\n}\n"
+        self.assertEqual(self.texts(before, after), [])
+        self.assertEqual(self.texts("int a;      // x y\n", "int a; // x  y\n"), [])
+        self.assertEqual(self.texts("/* one two\n   three */\nint x;\n", "/* one\n * two three */\nint x;\n"), [])
+
+    def test_a_moved_paragraph_is_not_added(self):
+        self.assertEqual(self.texts("// one\n// two\nint x;\nint y;\n", "int x;\n// one\n// two\nint y;\n"), [])
+        self.assertEqual(self.texts("int x; // one\n", "// one\nint x;\n"), [])
+
+    def test_a_reworded_paragraph_is_added(self):
+        before = "// one two\n// three\nint x;\n"
+        self.assertEqual(self.texts(before, "// one too\n// three\nint x;\n"), [(1, "// one too")])
+        self.assertEqual(self.texts(before, "// one two\n// three\n// four\nint x;\n"), [(1, "// one two")])
+        self.assertEqual(self.texts(before, "// one two\nint x;\n"), [(1, "// one two")])
+
+    def test_a_split_paragraph_is_added(self):
+        self.assertEqual(self.texts("// a\n// b\n", "// a\nint y;\n// b\n"), [(1, "// a"), (3, "// b")])
+
+    def test_a_joined_paragraph_is_added(self):
+        self.assertEqual(self.texts("// a\nint x;\n// b\n", "// a\n// b\n"), [(1, "// a")])
+
+    def test_a_comment_in_any_starting_tree_is_not_added(self):
+        befores = ["// a\nint x;\n", "int x;\n// b\nint y;\n"]
+        self.assertEqual(self.texts_from(befores, "// a\nint x;\n// b\nint y;\n"), [])
+        self.assertEqual(self.texts_from(befores, "// a\nint x;\n// b\nint y;\n// c\n"), [(5, "// c")])
+        self.assertEqual(self.texts_from([], "int a; // x\n"), [(1, "// x")])
+
+    def test_starting_trees_take_the_maximum_count(self):
+        befores = ["int a; // x\nint b; // x\n", "int a; // x\n"]
+        self.assertEqual(self.texts_from(befores, "int a; // x\nint b; // x\n"), [])
+        self.assertEqual(self.texts_from(befores, "int a; // x\nint b; // x\nint c; // x\n"), [(3, "// x")])
 
     def test_a_duplicate_of_an_existing_comment_is_added(self):
         self.assertEqual(self.texts("int a; // x\n", "int a; // x\nint b; // x\n"), [(2, "// x")])
@@ -97,7 +129,7 @@ class Added(unittest.TestCase):
     def test_a_new_guard_or_message_is_added(self):
         self.assertEqual(self.texts("int a;\n", "#if 0\nint a;\n#endif\n"), [(1, "#")])
         self.assertEqual(self.texts("int a;\n", '#warning "x"\nint a;\n'), [(1, "#")])
-        self.assertEqual(len(added("#if 0\nint a;\n#endif\n", "#if 0\nint a;\n#endif\n#if 0\n#endif\n", Lang.CXX)), 1)
+        self.assertEqual(len(added(["#if 0\nint a;\n#endif\n"], "#if 0\nint a;\n#endif\n#if 0\n#endif\n", Lang.CXX)), 1)
 
     def test_an_existing_guard_is_not_the_edit_s(self):
         before = "#if 0\nint a;\n#endif\n#warning \"x\"\n"
@@ -106,16 +138,27 @@ class Added(unittest.TestCase):
         self.assertEqual(self.texts("#if 0\n#if 0\n#endif\n#endif\n", "#if 0\n#endif\n"), [])
 
     def test_changing_a_guard_adds_one(self):
-        self.assertEqual(len(added("#if X\n#endif\n", "#if 1\n#endif\n", Lang.CXX)), 1)
-        self.assertEqual(len(added('#warning "x"\n', '#warning "y"\n', Lang.CXX)), 1)
+        self.assertEqual(len(added(["#if X\n#endif\n"], "#if 1\n#endif\n", Lang.CXX)), 1)
+        self.assertEqual(len(added(['#warning "x"\n'], '#warning "y"\n', Lang.CXX)), 1)
 
 
 class AddedHash(unittest.TestCase):
+    def texts(self, before, after, lang):
+        return [(v.line, v.token.text) for v in added([before], after, lang)]
+
     def test_only_new_hash_comments_are_added(self):
         before = "# header\nINT a \"a\"\n{\n} 1\n"
-        found = added(before, before + "# x\n", Lang.PARAM)
-        self.assertEqual([(v.line, v.token.text) for v in found], [(5, "# x")])
-        self.assertEqual(added(before, before.replace("1\n", "2\n"), Lang.PARAM), [])
+        self.assertEqual(self.texts(before, before + "# x\n", Lang.PARAM), [(5, "# x")])
+        self.assertEqual(self.texts(before, before.replace("1\n", "2\n"), Lang.PARAM), [])
+
+    def test_a_reflowed_hash_paragraph_is_not_added(self):
+        param = "INT a \"a\"\n{\n} 1\n"
+        before = "# one two\n# three\n" + param
+        self.assertEqual(self.texts(before, "#   one\n#   two three\n" + param, Lang.PARAM), [])
+        self.assertEqual(self.texts(before, "# one too\n# three\n" + param, Lang.PARAM), [(1, "# one too")])
+        fortran = "! one two\n! three\nx = 1\n"
+        self.assertEqual(self.texts(fortran, "  ! one\n  ! two three\nx = 1\n", Lang.FORTRAN), [])
+        self.assertEqual(self.texts(fortran, "! one two\nx = 1\n! three\n", Lang.FORTRAN), [(1, "! one two"), (3, "! three")])
 
 
 class Project(unittest.TestCase):
