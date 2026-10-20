@@ -1,5 +1,3 @@
-# Parameter definitions for thorn CarpetX
-
 PRIVATE:
 
 BOOLEAN verbose "Verbose output" STEERABLE=always
@@ -390,14 +388,12 @@ CCTK_INT max_num_levels "Maximum number of refinement levels"
 } 1
 
 
-#TODO: move to CarpetRegridX
 CCTK_INT regrid_every "Regridding interval" STEERABLE=always
 {
   0 :: "never"
   1:* :: "every that many iterations"
 } 0
 
-#TODO: eliminate in favor of regrid_error being a true/false field
 CCTK_REAL regrid_error_threshold "Regridding error threshold" STEERABLE=always
 {
   0.0:* :: ""

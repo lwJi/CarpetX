@@ -1,9 +1,3 @@
-# Schedule definitions for thorn CarpetX
-
-
-
-# Driver startup and shutdown
-
 SCHEDULE CarpetX_Startup AT startup AS Driver_Startup
 {
   LANG: C
@@ -19,8 +13,6 @@ if (!CCTK_Equals(recover, "no") && *recover_file)
 }
 
 
-
-# I/O
 
 SCHEDULE CarpetX_CheckpointInitial AT cpinitial
 {

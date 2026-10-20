@@ -34,13 +34,9 @@ int GroupStorageDecrease(const cGH *cctkGH, int n_groups, const int *groups,
 int EnableGroupStorage(const cGH *cctkGH, const char *groupname);
 int DisableGroupStorage(const cGH *cctkGH, const char *groupname);
 
-////////////////////////////////////////////////////////////////////////////////
-
 struct active_levels_t {
   int min_level, max_level;
   int min_patch, max_patch;
-
-  // active_levels_t() = delete;
 
   active_levels_t(const int min_level, const int max_level, const int min_patch,
                   const int max_patch);
@@ -51,54 +47,35 @@ private:
   void assert_consistent_iterations() const;
 
 public:
-  // Loop over all active patches of all active levels from coarsest
-  // to finest
   void loop_coarse_to_fine(
       const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
       const;
 
-  // Loop over all active patches of all active levels from finest to
-  // coarsest
   void loop_fine_to_coarse(
       const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
       const;
 
-  // Loop over all active patches of all active levels serially
   void loop_serially(
       const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
       const {
     loop_coarse_to_fine(kernel);
   }
 
-  // // Loop over all active patches of all active levels in parallel
-  // void loop_parallel(
-  //     const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
-  //     const;
-
-  // Loop over all components of all active patches of all active
-  // levels in parallel
   void loop_parallel(
       const std::function<void(int patch, int level, int index, int component,
                                const cGH *cctkGH)> &kernel) const;
 
-  // Loop over all components of all active patches of all active
-  // levels serially
   void loop_serially(
       const std::function<void(int patch, int level, int index, int component,
                                const cGH *cctkGH)> &kernel) const;
 };
 
-// The levels CallFunction should traverse
-// TODO: Move this into ghext
 extern std::optional<active_levels_t> active_levels;
 
-////////////////////////////////////////////////////////////////////////////////
-
-// Like an MFIter, but does not support iteration, instead it can be copied
 struct MFPointer {
   int m_index;
-  amrex::Box m_validbox; // interior of component
-  amrex::Box m_tilebox;  // interior of tile
+  amrex::Box m_validbox;
+  amrex::Box m_tilebox;
 
   MFPointer() = delete;
   MFPointer(const MFPointer &) = default;
@@ -120,7 +97,6 @@ struct MFPointer {
   }
 
   const amrex::Box growntilebox(const amrex::IntVect &ng) const noexcept {
-    // return m_growntilebox;
     amrex::Box bx = tilebox();
     const amrex::Box &vbx = validbox();
     for (int d = 0; d < AMREX_SPACEDIM; ++d) {
@@ -142,7 +118,6 @@ struct GridDesc : GridDescBase {
   GridDesc(const cGH *cctkGH) : GridDescBase(cctkGH) {}
 };
 
-// TODO: remove this
 struct GridPtrDesc : GridDesc {
   amrex::Dim3 cactus_offset;
 
@@ -203,8 +178,6 @@ struct GridPtrDesc1 : GridDesc {
   }
 };
 
-////////////////////////////////////////////////////////////////////////////////
-
 cGH *copy_cctkGH(const cGH *restrict const sourceGH);
 void delete_cctkGH(cGH *cctkGH);
 
@@ -231,11 +204,6 @@ void leave_local_mode(cGH *restrict cctkGH,
                       const MFPointer &mfp);
 
 void synchronize();
-
-// These functions are defined in valid.cxx. These prototypes should
-// be moved to valid.hxx. Unfortunately, they depend on GHExt, which is declared
-// in driver.hxx, which includes valid.hxx. Declaring the prorotypes here avoids
-// that circular reference. This should be fixed.
 
 void error_if_invalid(const GHExt::PatchData::LevelData::GroupData &grouppdata,
                       int vi, int tl, const valid_t &required,
@@ -265,4 +233,4 @@ void check_valid_ga(int gi, int vi, int tl, nan_handling_t nan_handling,
 
 } // namespace CarpetX
 
-#endif // #ifndef CARPETX_CARPETX_SCHEDULE_HXX
+#endif

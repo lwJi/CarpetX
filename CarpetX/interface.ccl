@@ -1,5 +1,3 @@
-# Interface definition for thorn CarpetX
-
 IMPLEMENTS: Driver
 
 USES INCLUDE HEADER: silo.hxx
@@ -19,12 +17,10 @@ INCLUDES HEADER: reduction.hxx IN reduction.hxx
 
 
 
-# Number of patches
 CCTK_INT FUNCTION MultiPatch_GetSystemSpecification( \
   CCTK_INT OUT npatches)
 USES FUNCTION MultiPatch_GetSystemSpecification
 
-# Overall size of the domain
 CCTK_INT FUNCTION MultiPatch_GetPatchSpecification2( \
   CCTK_INT IN patch, \
   CCTK_INT OUT is_cartesian, \
@@ -34,14 +30,12 @@ CCTK_INT FUNCTION MultiPatch_GetPatchSpecification2( \
   CCTK_REAL OUT ARRAY xmax)
 USES FUNCTION MultiPatch_GetPatchSpecification2
 
-# Patch boundaries
 CCTK_INT FUNCTION MultiPatch_GetBoundarySpecification2( \
   CCTK_INT IN patch, \
   CCTK_INT IN size, \
   CCTK_INT OUT ARRAY is_interpatch_boundary)
 USES FUNCTION MultiPatch_GetBoundarySpecification2 \
 
-# Patch interpolation
 void FUNCTION MultiPatch_Interpolate( \
   CCTK_POINTER_TO_CONST IN cctkGH, \
   CCTK_INT IN nvars, \
@@ -50,7 +44,6 @@ USES FUNCTION MultiPatch_Interpolate
 
 
 
-# The overall size of the domain
 CCTK_INT FUNCTION MultiPatch_GetDomainSpecification
   (CCTK_INT IN patch,
    CCTK_INT IN size,
@@ -63,7 +56,6 @@ CCTK_INT FUNCTION MultiPatch_GetDomainSpecification
    CCTK_REAL OUT ARRAY spacing)
 PROVIDES FUNCTION MultiPatch_GetDomainSpecification WITH CarpetX_GetDomainSpecification LANGUAGE C
 
-# Convenient way to determine boundary sizes
 CCTK_INT FUNCTION MultiPatch_GetBoundarySizesAndTypes
   (CCTK_POINTER_TO_CONST IN cctkGH,
    CCTK_INT IN patch,
@@ -93,15 +85,11 @@ PROVIDES FUNCTION GetLoopBoxInt WITH CarpetX_GetLoopBoxInt LANGUAGE C
 
 
 
-# I/O
-
 CCTK_INT FUNCTION IO_TruncateOutputFiles \
   (CCTK_POINTER_TO_CONST IN GH)
 USES FUNCTION IO_TruncateOutputFiles
 
 
-
-# Call scheduled groups
 
 void FUNCTION CallScheduleGroup(
   CCTK_POINTER IN cctkGH,
@@ -109,8 +97,6 @@ void FUNCTION CallScheduleGroup(
 PROVIDES FUNCTION CallScheduleGroup WITH CarpetX_CallScheduleGroup LANGUAGE C
 
 
-
-# Solve elliptic equations
 
 void FUNCTION SolvePoisson(
   CCTK_INT IN gi_sol,
@@ -123,8 +109,6 @@ void FUNCTION SolvePoisson(
 PROVIDES FUNCTION SolvePoisson WITH CarpetX_SolvePoisson LANGUAGE C
 
 
-
-# Interpolation
 
 void FUNCTION Interpolate(
   CCTK_POINTER_TO_CONST IN cctkGH,
@@ -143,23 +127,6 @@ CCTK_INT FUNCTION GetEpoch()
 PROVIDES FUNCTION GetEpoch WITH CarpetX_GetEpoch LANGUAGE C
 
 
-
-#TODO: This will be needed for interface with SymmetryInterpolate
-#CCTK_INT FUNCTION SymmetryInterpolate(
-#  CCTK_POINTER_TO_CONST IN cctkGH,
-#  CCTK_INT IN N_dims,
-#  CCTK_INT IN local_interp_handle,
-#  CCTK_INT IN param_table_handle,
-#  CCTK_INT IN coord_system_handle,
-#  CCTK_INT IN N_interp_points,
-#  CCTK_INT IN interp_coords_type,
-#  CCTK_POINTER_TO_CONST ARRAY IN interp_coords,
-#  CCTK_INT IN N_input_arrays,
-#  CCTK_INT ARRAY IN input_array_indices,
-#  CCTK_INT IN N_output_arrays,
-#  CCTK_INT ARRAY IN output_array_types,
-#  CCTK_POINTER ARRAY IN output_arrays)
-#USES FUNCTION SymmetryInterpolate
 
 void FUNCTION MultiPatch_GlobalToLocal2( \
   CCTK_INT IN npoints, \

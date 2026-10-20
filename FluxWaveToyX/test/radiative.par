@@ -21,7 +21,6 @@ FluxWaveToyX::initial_condition = "Gaussian"
 FluxWaveToyX::gaussian_width = 0.125
 FluxWaveToyX::boundary_condition = "radiative"
 
-# Set the (unused) outer boundary points to reasonable values
 CarpetX::boundary_x = "neumann"
 CarpetX::boundary_y = "neumann"
 CarpetX::boundary_z = "neumann"

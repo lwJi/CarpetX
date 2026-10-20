@@ -2,9 +2,6 @@ NPROCS 1
 
 TEST test-dp87
 {
-  # These tolerances are ridiculous. It seems that floating-point
-  # accuracy really suffers here. We probably should remove some of
-  # the output that is unstable.
   ABSTOL 2.0e-4
   RELTOL 2.0e-4
 }

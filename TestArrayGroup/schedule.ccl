@@ -1,5 +1,3 @@
-# Schedule definitions for thorn CarpetX
-
 STORAGE: test_scalar test_array test_gf
 STORAGE: test_scalar_int test_array_int
 STORAGE: test_scalar_complex test_array_complex
@@ -23,7 +21,6 @@ SCHEDULE TestArrayGroup_Compare AT PostInitial
 SCHEDULE TestArrayGroup_CompareF AT PostInitial
 {
   LANG: Fortran
-  # no local support so far
   OPTION: global
   READS: test_scalar(everywhere) test_array(everywhere)
   READS: test_scalar_int(everywhere) test_array_int(everywhere)
@@ -38,7 +35,6 @@ SCHEDULE TestArrayGroup_DynamicData AT PostInitial
 SCHEDULE TestArrayGroup_DynamicDataF AT PostInitial
 {
   LANG: Fortran
-  # no local support so far
   OPTION: global
   READS: test_scalar(everywhere) test_array(everywhere)
   READS: test_scalar_int(everywhere) test_array_int(everywhere)

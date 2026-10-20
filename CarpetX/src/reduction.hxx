@@ -15,15 +15,10 @@ namespace CarpetX {
 using namespace Arith;
 
 template <typename T, int D> struct reduction {
-  // TODO: contains_inf, contains_nan?
   T min, max, sum, sum2;
   T vol, maxabs, sumabs, sum2abs;
   vect<T, D> minloc, maxloc, sumloc;
 
-  // The eight scalar reductions, plus `sumloc`. `minloc` and `maxloc` are not
-  // expressible with AMReX's reduction operators, which only support sums and
-  // extrema of arithmetic types; reduction.cxx obtains them from a second
-  // reduction pass.
   using tuple_type = amrex::GpuTuple<T, T, T, T, T, T, T, T, T, T, T>;
   constexpr reduction(tuple_type);
   constexpr operator tuple_type() const;
@@ -40,8 +35,6 @@ template <typename T, int D> struct reduction {
 
   constexpr T avg() const noexcept { return sum / vol; }
   constexpr T sdv() const noexcept {
-    // Splitting pow2(sum/vol) improves floating-point accuracy
-    // return sqrt(max1(T(0), sum2 / vol - pow2(sum / vol)));
     return sqrt(max1(T(0), sum2 / vol - pow2(sum) / pow2(vol)));
   }
   constexpr T norm0() const noexcept { return vol; }
@@ -62,7 +55,6 @@ constexpr reduction<T, D>::reduction(tuple_type tuple)
       sum(amrex::get<2>(tuple)), sum2(amrex::get<3>(tuple)),
       vol(amrex::get<4>(tuple)), maxabs(amrex::get<5>(tuple)),
       sumabs(amrex::get<6>(tuple)), sum2abs(amrex::get<7>(tuple)),
-      // `minloc` and `maxloc` are unknown here; the caller fills them in
       minloc(vect<T, D>::pure(0.0 / 0.0)), maxloc(vect<T, D>::pure(0.0 / 0.0)),
       sumloc{amrex::get<8>(tuple), amrex::get<9>(tuple),
              amrex::get<10>(tuple)} {
@@ -88,8 +80,6 @@ constexpr reduction<T, D>::reduction(const vect<T, D> &p, const T &V,
                                      const T &x)
     : min(x), max(x), sum(V * x), sum2(V * pow2(x)), vol(V), maxabs(fabs(x)),
       sumabs(V * fabs(x)), sum2abs(V * pow2(fabs(x))), minloc(p), maxloc(p),
-      // `sumloc` carries the volume element, as `sum` does, so that
-      // `com() == sumloc / sum` is the volume-weighted centre of mass
       sumloc(V * x * p) {}
 
 template <typename T, int D>
@@ -148,4 +138,4 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl);
 
 } // namespace CarpetX
 
-#endif // #ifndef CARPETX_CARPETX_REDUCTION_HXX
+#endif

@@ -16,8 +16,6 @@ namespace StaggeredWaveToyX {
 
 constexpr int dim = 3;
 
-// u(t,x,y,z) =
-//   A cos(2 π omega t) cos(2 π kx x) cos(2 π ky y) cos(2 π kz z)
 template <typename T>
 constexpr void standing_wave(const T A, const Arith::vect<T, dim> &k, const T t,
                              const Arith::vect<T, dim> &x, T &u, T &ft) {
@@ -33,8 +31,6 @@ constexpr void standing_wave(const T A, const Arith::vect<T, dim> &k, const T t,
        cos(2 * pi * k[2] * x[2]);
 }
 
-// u(t,r) = (f(t-r) - f(t+r)) / r
-// f(v) = A exp(-1/2 (r/W)^2)
 template <typename T>
 constexpr void gaussian(const T A, const T W, const T t,
                         const Arith::vect<T, dim> &x, T &u, T &ft) {
@@ -47,7 +43,6 @@ constexpr void gaussian(const T A, const T W, const T t,
   };
 
   if (r < sqrt(std::numeric_limits<T>::epsilon())) {
-    // L'Hôpital
     u = 2 / pow(W, 2) * f(t) * t;
     ft = -2 / pow(W, 4) * f(t) * (pow(t, 2) - pow(W, 2));
   } else {
@@ -206,8 +201,6 @@ extern "C" void StaggeredWaveToyX_RHS(CCTK_ARGUMENTS) {
 
 extern "C" void StaggeredWaveToyX_Boundaries(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_StaggeredWaveToyX_Boundaries;
-
-  // Do nothing
 }
 
 extern "C" void StaggeredWaveToyX_Constraints(CCTK_ARGUMENTS) {

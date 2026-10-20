@@ -20,8 +20,6 @@
 
 namespace Arith {
 
-// Symmetries
-
 enum class symm_t : int { full, symm, anti };
 constexpr symm_t FULL = symm_t::full;
 constexpr symm_t SYMM = symm_t::symm;
@@ -53,24 +51,6 @@ inline std::ostream &operator<<(std::ostream &os, const symm_t symm) {
   return os << if_symm(symm, "", "s", "a");
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-// A small vector.
-
-// There are two small vector classes, `vect` and `vec`. The former
-// (`vect`) is a drop-in replacement for `std::array` or `Arith::arr`
-// which supports arithmetic operations. The latter (`vec`, defined
-// here) is a rank-1 tensor compatible with `mat`, `ten3`, and `rten`.
-// While similar, these classes have different APIs because they are
-// used differently.
-//
-// The rule of thumb is: If you are looking for a type similar to a
-// C++ array, use `vect`. If you are looking for a type for a physics
-// quantity, use `vec`.
-//
-// It might be possible to unify these two types. In practice, there
-// is little confusion, so this is not urgent.
-
 template <typename T, int D> struct vec;
 
 template <typename T> struct is_vec : std::false_type {};
@@ -96,7 +76,6 @@ private:
   }
 
 public:
-  // initializes all elements to nan
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST vec()
       : elts(nan<vect<T, N> >()) {}
 
@@ -118,9 +97,6 @@ public:
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   vec(std::array<T, N> x)
       : elts(std::move(x)) {}
-  // explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST vec(const vector<T>
-  // &x) : elts(x) {} explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
-  // vec(vector<T> &&x) : elts(std::move(x)) {}
 
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   operator vect<T, N>() const {
@@ -174,15 +150,6 @@ public:
     return fmap([&](const T &var, const U &x) { return var(arg1, arg2, x); },
                 *this, val);
   }
-  // template <typename... Args, typename U, typename T1 = T,
-  //           typename = decltype(declval<T1>().store(declval<Args>()...,
-  //                                                   declval<U>()))>
-  // ARITH_INLINE ARITH_DEVICE ARITH_HOST void store(const Args &...args,
-  //                         const vec<U, D> &val) const {
-  //   fmap_([&](const auto &var, const auto &x) { return var.store(args..., x);
-  //   },
-  //        val);
-  // }
   template <typename Arg1, typename Arg2, typename U, typename T1 = T,
             typename = decltype(std::declval<T1>().store(
                 std::declval<Arg1>(), std::declval<Arg2>(), std::declval<U>()))>
@@ -270,22 +237,22 @@ public:
   }
 
   template <typename U>
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator==(const vec<T, D> &x, const vec<U, D> &y) {
     return all(x.elts == y.elts);
   }
   template <typename U>
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator!=(const vec<T, D> &x, const vec<U, D> &y) {
     return !(x == y);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   all(const vec &x) {
     return all(x.elts);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   any(const vec &x) {
     return any(x.elts);
   }
@@ -300,7 +267,7 @@ public:
     return anyisnan(x.elts);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*vec<bool, D>*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   isnan(const vec &x) {
     return isnan(x.elts);
   }
@@ -327,7 +294,6 @@ public:
 
 template <typename T, int D> struct zero<vec<T, D> > {
   typedef vec<T, D> value_type;
-  // static constexpr value_type value = vec<T, D>::pure(zero<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return vec<T, D>::pure(zero<T>());
   }
@@ -338,7 +304,6 @@ template <typename T, int D> struct zero<vec<T, D> > {
 
 template <typename T, int D> struct nan<vec<T, D> > {
   typedef vec<T, D> value_type;
-  // static constexpr value_type value = vec<T, D>::pure(nan<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return vec<T, D>::pure(nan<T>());
   }
@@ -346,8 +311,6 @@ template <typename T, int D> struct nan<vec<T, D> > {
     return vec<T, D>::pure(nan<T>());
   }
 };
-
-////////////////////////////////////////////////////////////////////////////////
 
 template <typename T, int D>
 constexpr vec<simd<T>, D> if_else(const simdl<T> &cond,
@@ -367,4 +330,4 @@ constexpr vec<dual<simd<T>, U>, D> if_else(const simdl<T> &cond,
 
 } // namespace Arith
 
-#endif // #ifndef CARPETX_ARITH_VEC_HXX
+#endif

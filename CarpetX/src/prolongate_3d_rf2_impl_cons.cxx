@@ -2,8 +2,6 @@
 
 namespace CarpetX {
 
-// Conservative interpolation
-
 static prolongate_3d_rf2<VC, VC, VC, CONS, CONS, CONS, 0, 0, 0, FB_NONE>
     prolongate_cons_3d_rf2_c000_o0;
 static prolongate_3d_rf2<VC, VC, CC, CONS, CONS, CONS, 0, 0, 0, FB_NONE>

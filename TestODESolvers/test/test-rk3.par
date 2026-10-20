@@ -27,7 +27,6 @@ Cactus::cctk_itlast = 10
 
 ODESolvers::method = "rk3"
 
-# test something not exactly solvable by method
 TestODESolvers::order = 3 + 1
 
 IO::out_dir = $parfile
@@ -39,10 +38,8 @@ CarpetX::out_metadata = no
 CarpetX::out_norm_omit_unstable = yes
 CarpetX::out_norm_omit_sumloc_for_backward_compatibility = yes
 
-# TestODESolvers::corder requires larger tolerances (~1e-5)
 CarpetX::out_norm_vars = "
     CarpetXRegrid::regrid_error
-    # TestODESolvers::corder
     TestODESolvers::error
     TestODESolvers::error2
     TestODESolvers::rhs

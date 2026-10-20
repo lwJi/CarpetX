@@ -2,8 +2,6 @@
 
 namespace CarpetX {
 
-// Hermite interpolation
-
 static prolongate_3d_rf2<VC, VC, VC, HERMITE, HERMITE, HERMITE, 1, 1, 1,
                          FB_NONE>
     prolongate_hermite_3d_rf2_c000_o1;

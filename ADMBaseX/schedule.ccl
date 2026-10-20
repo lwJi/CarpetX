@@ -1,5 +1,3 @@
-# Schedule definitions for thorn ADMBaseX
-
 if (CCTK_IsThornActive("ODESolvers")) {
 
   SCHEDULE GROUP ADMBaseX_InitialData IN ODESolvers_Initial
@@ -107,9 +105,6 @@ if (CCTK_EQUALS(initial_dtshift, "zero")) {
 
 
 if (noise_amplitude != 0) {
-  # TODO: Also add noise during evolution?
-  # TODO: Noise should be added by a separate thorn.
-
   SCHEDULE ADMBaseX_add_noise IN ADMBaseX_PostInitial
   {
     LANG: C

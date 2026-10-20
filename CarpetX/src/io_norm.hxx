@@ -9,4 +9,4 @@ void OutputNorms(const cGH *restrict cctkGH);
 
 }
 
-#endif // #define CARPETX_CARPETX_IO_NORM_HXX
+#endif

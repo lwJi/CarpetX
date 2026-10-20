@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestODESolvers2
-
 STORAGE: state rhs error order
 
 

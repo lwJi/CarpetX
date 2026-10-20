@@ -1,5 +1,3 @@
-# Schedule definitions for thorn BoxInBox
-
 SCHEDULE BoxInBox_Init AT initial
 {
   LANG: C

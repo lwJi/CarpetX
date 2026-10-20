@@ -1,5 +1,3 @@
-# Parameter definitions for thorn TestInterpolate
-
 BOOLEAN test_cell_interpolation "Test cell interpolation"
 {
 } "no"

@@ -7,7 +7,7 @@
 #include "sum.hxx"
 #include "vect.hxx"
 
-#include "vec.hxx" // for symm_t
+#include "vec.hxx"
 
 #include <cctk.h>
 
@@ -22,9 +22,6 @@
 
 namespace Arith {
 
-// A matrix, i.e. a rank-2 tensor. It can have no symmetry (full
-// storage), or be symmetric, or anti-symmetric.
-// Elements are stored in row-major order (standard C order).
 template <typename T, int D, symm_t symm> struct gmat {
   constexpr static int Nfull = D * D;
   constexpr static int Nsymm = D * (D + 1) / 2;
@@ -85,7 +82,6 @@ private:
   }
 
 public:
-  // initializes all elements to nan
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST gmat()
       : elts(nan<vect<T, N> >()) {}
 
@@ -108,9 +104,6 @@ public:
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   gmat(std::array<T, N> x)
       : elts(std::move(x)) {}
-  // explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST gmat(const
-  // vector<T> &x) : elts(x) {} explicit constexpr ARITH_INLINE ARITH_DEVICE
-  // ARITH_HOST gmat(vector<T> &&x) : elts(std::move(x)) {}
 
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   operator vect<T, N>() const {
@@ -194,15 +187,6 @@ public:
     return fmap([&](const T &var, const U &x) { return var(arg1, arg2, x); },
                 *this, val);
   }
-  // template <typename... Args, typename U, typename T1 = T,
-  //           typename = decltype(declval<T1>().store(declval<Args>()...,
-  //                                                   declval<U>()))>
-  // ARITH_INLINE ARITH_DEVICE ARITH_HOST void store(const Args &...args,
-  //                         const gmat<U, D, symm> &val) const {
-  //   fmap_([&](const auto &var, const auto &x) { return var.store(args..., x);
-  //   },
-  //        val);
-  // }
   template <typename Arg1, typename Arg2, typename U, typename T1 = T,
             typename = decltype(std::declval<T1>().store(
                 std::declval<Arg1>(), std::declval<Arg2>(), std::declval<U>()))>
@@ -288,21 +272,21 @@ public:
     return *this = *this % a;
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator==(const gmat<T, D, symm> &x, const gmat<T, D, symm> &y) {
     return all(x.elts == y.elts);
   }
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator!=(const gmat<T, D, symm> &x, const gmat<T, D, symm> &y) {
     return !(x == y);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   all(const gmat &x) {
     return all(x.elts);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   any(const gmat &x) {
     return any(x.elts);
   }
@@ -318,7 +302,7 @@ public:
   }
 
   friend constexpr
-      ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*gmat<bool, D, symm>*/
+      ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
       isnan(const gmat &x) {
     return isnan(x.elts);
   }
@@ -362,7 +346,6 @@ template <typename T, int D, symm_t symm> struct zero<gmat<T, D, symm> > {
   }
 };
 
-// Full and symmetric gmatrices have a unit, antisymmetric gmatrices don't
 template <typename T, int D> struct one<gmat<T, D, symm_t::full> > {
   typedef gmat<T, D, symm_t::full> value_type;
   static constexpr value_type value = gmat<T, D, symm_t::full>(
@@ -376,8 +359,6 @@ template <typename T, int D> struct one<gmat<T, D, symm_t::full> > {
 };
 template <typename T, int D> struct one<gmat<T, D, symm_t::symm> > {
   typedef gmat<T, D, symm_t::symm> value_type;
-  // static constexpr value_type value = gmat<T, D, symm_t::symm>(
-  //     [](int i, int j) { return i == j; });
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return gmat<T, D, symm_t::symm>(
         [](int i, int j) { return i == j ? one<T>()() : zero<T>()(); });
@@ -390,8 +371,6 @@ template <typename T, int D> struct one<gmat<T, D, symm_t::symm> > {
 
 template <typename T, int D, symm_t symm> struct nan<gmat<T, D, symm> > {
   typedef gmat<T, D, symm> value_type;
-  // static constexpr value_type value =
-  //     gmat<T, D, symm>::pure(nan<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return gmat<T, D, symm>::pure(nan<T>());
   }
@@ -400,13 +379,9 @@ template <typename T, int D, symm_t symm> struct nan<gmat<T, D, symm> > {
   }
 };
 
-////////////////////////////////////////////////////////////////////////////////
-
 template <typename T, int D> using mat = gmat<T, D, symm_t::full>;
 template <typename T, int D> using smat = gmat<T, D, symm_t::symm>;
 template <typename T, int D> using amat = gmat<T, D, symm_t::anti>;
-
-////////////////////////////////////////////////////////////////////////////////
 
 template <typename T, int D, symm_t symm>
 constexpr gmat<simd<T>, D, symm> if_else(const simdl<T> &cond,
@@ -700,4 +675,4 @@ calc_inv(const mat<T, 4> &g, const T &detg) {
 
 } // namespace Arith
 
-#endif // #ifndef CARPETX_ARITH_MAT_HXX
+#endif

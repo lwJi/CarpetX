@@ -7,4 +7,4 @@ namespace CarpetX {
 std::string logo();
 } // namespace CarpetX
 
-#endif // #ifndef CARPETX_CARPETX_LOGO_HXX
+#endif

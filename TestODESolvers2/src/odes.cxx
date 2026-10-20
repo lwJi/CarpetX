@@ -11,24 +11,6 @@
 namespace TestODESolvers2 {
 using namespace std;
 
-#if 0
-// pos(t) = sin(omega t)
-// vel(t) = omega cos(omega t)
-
-// d/dt pos = vel
-// d/dt vel = -omega^2 pos
-
-const CCTK_REAL omega = 1;
-#endif
-
-// u(t) = (1 + t)^p
-// d/dt u = p (1 + t)^(p-1) = p u(t)^((p-1) / p)
-
-// v(t) = exp alpha t
-// d/dt v = alpha exp alpha t = alpha v
-
-////////////////////////////////////////////////////////////////////////////////
-
 extern "C" void TestODESolvers2_Initial(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_TestODESolvers2_Initial;
   DECLARE_CCTK_PARAMETERS;
@@ -49,8 +31,6 @@ extern "C" void TestODESolvers2_Initial(CCTK_ARGUMENTS) {
 extern "C" void TestODESolvers2_Boundary(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_TestODESolvers2_Boundary;
   DECLARE_CCTK_PARAMETERS;
-
-  // do nothing
 }
 
 extern "C" void TestODESolvers2_RHS(CCTK_ARGUMENTS) {
@@ -96,13 +76,11 @@ extern "C" void TestODESolvers2_Error(CCTK_ARGUMENTS) {
     time_err_(p.I) = time_(p.I) - cctk_time;
     poly_err_(p.I) = poly_(p.I) - pow(1 + cctk_time, porder);
     if (cctk_iteration == 0) {
-      exp_order_(p.I) = 0; // undefined
+      exp_order_(p.I) = 0;
     } else {
       const CCTK_REAL exp1_err = exp1_(p.I) - exp(cctk_time);
       const CCTK_REAL exp2_err = exp2_(p.I) - exp(cctk_time / 2);
       const CCTK_REAL order = log(exp1_err / exp2_err) / log(CCTK_REAL(2)) - 1;
-      // Re-map the order so that the error is of the same magnitude as the
-      // floating-point epsilon instead of cctk_delta_time
       const CCTK_REAL order1 = pow(order - porder, porder + 2) + porder;
       exp_order_(p.I) = order1;
       CCTK_VINFO("exp1_err=%.17g exp2_err=%.17g order=%.17g", double(exp1_err),

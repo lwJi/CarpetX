@@ -13,8 +13,6 @@ namespace VGFWaveToyX {
 
 constexpr int dim = 3;
 
-// u(t,x,y,z) =
-//   A cos(2 pi omega t) sin(2 pi kx x) sin(2 pi ky y) sin(2 pi kz z)
 template <typename T>
 constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
                              const T t, const T x, const T y, const T z, T &u,
@@ -30,8 +28,6 @@ constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
         cos(2 * pi * ky * y) * cos(2 * pi * kz * z);
 }
 
-// u(t,r) = (f(t-r) - f(t+r)) / r
-// f(v) = A exp(-1/2 (r/W)^2)
 template <typename T>
 constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
                         const T z, T &u, T &rho) {
@@ -44,7 +40,6 @@ constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
   };
 
   if (r < sqrt(std::numeric_limits<T>::epsilon())) {
-    // L'Hôpital
     u = 2 / pow(W, 2) * f(t) * t;
     rho = -2 / pow(W, 4) * f(t) * (pow(t, 2) - pow(W, 2));
   } else {
@@ -57,8 +52,6 @@ extern "C" void VGFWaveToyX_Initial(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_VGFWaveToyX_Initial;
   DECLARE_CCTK_PARAMETERS;
 
-  // Array parameters cannot be accessed on a device, we need to copy them into
-  // local variables
   Arith::vect<CCTK_REAL, 10> amplitude1, standing_wave_kx1, standing_wave_ky1,
       standing_wave_kz1, gaussian_width1;
   for (int n = 0; n < nvars; ++n) {
@@ -122,8 +115,6 @@ extern "C" void VGFWaveToyX_RHS(CCTK_ARGUMENTS) {
 extern "C" void VGFWaveToyX_Boundaries(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_VGFWaveToyX_Boundaries;
   DECLARE_CCTK_PARAMETERS;
-
-  // Do nothing
 }
 
 extern "C" void VGFWaveToyX_Energy(CCTK_ARGUMENTS) {
@@ -155,8 +146,6 @@ extern "C" void VGFWaveToyX_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_VGFWaveToyX_Error;
   DECLARE_CCTK_PARAMETERS;
 
-  // Array parameters cannot be accessed on a device, we need to copy them into
-  // local variables
   Arith::vect<CCTK_REAL, 10> amplitude1, standing_wave_kx1, standing_wave_ky1,
       standing_wave_kz1, gaussian_width1;
   for (int n = 0; n < nvars; ++n) {

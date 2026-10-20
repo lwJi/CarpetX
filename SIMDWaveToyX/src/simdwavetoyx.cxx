@@ -16,8 +16,6 @@ namespace SIMDWaveToyX {
 
 constexpr int dim = 3;
 
-// u(t,x,y,z) =
-//   A cos(2 pi omega t) sin(2 pi kx x) sin(2 pi ky y) sin(2 pi kz z)
 template <typename T, typename VT>
 constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
                              const T t, const VT x, const T y, const T z, VT &u,
@@ -34,8 +32,6 @@ constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
         cos(2 * pi * ky * y) * cos(2 * pi * kz * z);
 }
 
-// u(t,r) = (f(t-r) - f(t+r)) / r
-// f(v) = A exp(-1/2 (r/W)^2)
 template <typename T, typename VT>
 constexpr void gaussian(const T A, const T W, const T t, const VT x, const T y,
                         const T z, VT &u, VT &rho) {
@@ -46,7 +42,6 @@ constexpr void gaussian(const T A, const T W, const T t, const VT x, const T y,
 
   const auto f = [&](const VT v) { return A * exp(-pow2(v) / (2 * pow2(W))); };
 
-  // L'Hôpital
   u = if_else(r < sqrt(std::numeric_limits<T>::epsilon()),
               2 / pow2(W) * f(t) * t, (f(t - r) - f(t + r)) / r);
   rho = if_else(r < sqrt(std::numeric_limits<T>::epsilon()),
@@ -125,8 +120,6 @@ extern "C" void SIMDWaveToyX_RHS(CCTK_ARGUMENTS) {
 extern "C" void SIMDWaveToyX_Boundaries(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_SIMDWaveToyX_Boundaries;
   DECLARE_CCTK_PARAMETERS;
-
-  // Do nothing
 }
 
 extern "C" void SIMDWaveToyX_Energy(CCTK_ARGUMENTS) {

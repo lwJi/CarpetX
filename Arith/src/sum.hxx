@@ -8,14 +8,6 @@
 
 namespace Arith {
 
-// Functions for summing over expressions. Multi-dimensional sums be
-// symmetric, which reduces their cost.
-
-// Use e.g. as
-//   sum_symm<3>([&](int a, int b) { return gtu(a, b) * At(a, b); })
-// for a sum in 3 dimensions over two indices with a symmetric
-// summand.
-
 template <int D, typename F>
 constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
     std::remove_cv_t<std::remove_reference_t<std::result_of_t<F(int)> > >
@@ -107,4 +99,4 @@ sum_symm(F f) {
 
 } // namespace Arith
 
-#endif // #ifndef CARPETX_ARITH_SUM_HXX
+#endif

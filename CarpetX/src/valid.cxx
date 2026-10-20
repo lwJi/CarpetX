@@ -20,8 +20,6 @@
 
 namespace CarpetX {
 
-////////////////////////////////////////////////////////////////////////////////
-
 std::string valid_t::explanation() const {
   const auto valstr = [](bool v) { return v ? "valid" : "invalid"; };
   std::ostringstream buf;
@@ -93,11 +91,6 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml, const why_valid_t &why) {
   return yaml;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-// valid/invalid flags
-
-// Ensure grid functions are valid
 void error_if_invalid(const GHExt::PatchData::LevelData::GroupData &groupdata,
                       int vi, int tl, const valid_t &required,
                       const std::function<std::string()> &msg) {
@@ -124,7 +117,6 @@ void warn_if_invalid(const GHExt::PatchData::LevelData::GroupData &groupdata,
                groupdata.valid.at(tl).at(vi).explanation().c_str());
 }
 
-// Ensure arrays are valid
 void error_if_invalid(const GHExt::GlobalData::ArrayGroupData &groupdata,
                       int vi, int tl, const valid_t &required,
                       const std::function<std::string()> &msg) {
@@ -149,11 +141,6 @@ void warn_if_invalid(const GHExt::GlobalData::ArrayGroupData &groupdata, int vi,
         groupdata.valid.at(tl).at(vi).explanation().c_str());
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-// Poison values to catch uninitialized variables
-
-// Poison grid functions
 void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
                        const int vi, const int tl) {
   DECLARE_CCTK_PARAMETERS;
@@ -208,11 +195,9 @@ void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
     }
   });
 
-  // Synchronize because we access GPU memory on the CPU
   synchronize();
 }
 
-// Poison arrays
 void poison_invalid_ga(const int gi, const int vi, const int tl) {
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_values)
@@ -237,7 +222,6 @@ void poison_invalid_ga(const int gi, const int vi, const int tl) {
     int n_elems = 1;
     for (int i = 0; i < dimension; i++)
       n_elems *= gsh[i];
-    // TODO: use AnyScalarTypeRef for this?
     assert(group.vartype == CCTK_VARIABLE_COMPLEX ||
            group.vartype == CCTK_VARIABLE_REAL ||
            group.vartype == CCTK_VARIABLE_INT);
@@ -264,7 +248,6 @@ void poison_invalid_ga(const int gi, const int vi, const int tl) {
   }
 }
 
-// Ensure grid functions are not poisoned
 void check_valid_gf(const active_levels_t &active_levels, const int gi,
                     const int vi, const int tl,
                     const nan_handling_t nan_handling1,
@@ -474,7 +457,6 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
               groupdata0.valid.at(tl).at(vi).explanation().c_str());
 }
 
-// Ensure arrays are not poisoned
 void check_valid_ga(const int gi, const int vi, const int tl,
                     const nan_handling_t nan_handling1,
                     const std::function<std::string()> &msg) {
@@ -489,7 +471,6 @@ void check_valid_ga(const int gi, const int vi, const int tl,
   auto &restrict arraygroupdata = *globaldata.arraygroupdata.at(gi);
   const valid_t &valid = arraygroupdata.valid.at(tl).at(vi).get();
 
-  // arrays have no boundary so we expect them to alway be valid
   assert(valid.valid_outer && valid.valid_ghosts);
   if (!valid.valid_int)
     return;
@@ -509,7 +490,6 @@ void check_valid_ga(const int gi, const int vi, const int tl,
   int n_elems = 1;
   for (int i = 0; i < dimension; i++)
     n_elems *= gsh[i];
-  // TODO: use AnyScalarTypeRef for this?
   switch (group.vartype) {
   case CCTK_VARIABLE_COMPLEX: {
     const poison_value_t<CCTK_COMPLEX> poison_value;
@@ -558,10 +538,6 @@ void check_valid_ga(const int gi, const int vi, const int tl,
               tl, arraygroupdata.valid.at(tl).at(vi).explanation().c_str());
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-// Checksums to catch illegal modifications
-
 checksums_t calculate_checksums(
     const std::vector<std::vector<std::vector<valid_t> > > &will_write) {
   DECLARE_CCTK_PARAMETERS;
@@ -594,14 +570,11 @@ checksums_t calculate_checksums(
           const tiletag_t tiletag(patch, level, component, gi, vi, tl);
 
           const auto &valid = groupdata.valid.at(tl).at(vi).get();
-          // No information given for this timelevel; assume not written
           if (tl >= int(will_write.at(groupdata.groupindex).at(vi).size()))
             continue;
           const auto &wr = will_write.at(groupdata.groupindex).at(vi).at(tl);
           valid_t to_check = valid & ~wr;
 
-          // Check only those variables which are valid, and where
-          // some part (but not everything) is written
           if (!(wr.valid_any() && to_check.valid_any()))
             continue;
 

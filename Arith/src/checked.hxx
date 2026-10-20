@@ -2,8 +2,6 @@
 #include <stdexcept>
 #include <type_traits>
 
-// Authored mostly by claude.ai
-
 namespace Arith {
 
 namespace {
@@ -11,8 +9,6 @@ namespace {
 [[noreturn]] void on_overflow() {
   throw std::overflow_error{"integer overflow"};
 }
-
-// ── helpers ─────────────────────────────────────────────────────────────────
 
 template <typename I> constexpr bool would_add_overflow(I x, I y) noexcept {
   if constexpr (std::is_signed_v<I>) {
@@ -28,7 +24,7 @@ template <typename I> constexpr bool would_sub_overflow(I x, I y) noexcept {
     using L = std::numeric_limits<I>;
     return (y < 0 && x > L::max() + y) || (y > 0 && x < L::min() + y);
   } else {
-    return x < y; // unsigned: wraps below zero
+    return x < y;
   }
 }
 
@@ -42,13 +38,13 @@ template <typename I> constexpr bool would_mul_overflow(I x, I y) noexcept {
     if (x > 0) {
       if (y > 0) {
         return x > L::max() / y;
-      } else { // y < 0
+      } else {
         return y < L::min() / x;
       }
-    } else { // x < 0
+    } else {
       if (y > 0) {
         return x < L::min() / y;
-      } else { // y < 0
+      } else {
         return x < L::max() / y;
       }
     }
@@ -59,15 +55,11 @@ template <typename I> constexpr bool would_mul_overflow(I x, I y) noexcept {
 
 } // namespace
 
-// ── checked operations ───────────────────────────────────────────────────────
-
 template <typename I> constexpr I checked_pos(I x) noexcept {
   return +x;
-} // always a no-op
+}
 
 template <typename I> constexpr I checked_neg(I x) {
-  // For unsigned: -0 == 0 is the only representable result.
-  // For signed:   INT_MIN has no positive counterpart.
   if constexpr (std::is_signed_v<I>) {
     if (x == std::numeric_limits<I>::min())
       on_overflow();

@@ -4,10 +4,6 @@ namespace Derivs {
 using namespace Arith;
 using namespace Loop;
 
-////////////////////////////////////////////////////////////////////////////////
-
-// Tile-based multi-dimensional derivative operators
-
 template <int CI, int CJ, int CK, typename T>
 CCTK_ATTRIBUTE_NOINLINE void
 calc_copy(const GF3D5<T> &gf, const GF3D5layout layout,
@@ -61,7 +57,6 @@ calc_derivs(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
         grid.nghostzones,
         [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           const vbool mask = mask_for_loop_tail<vbool>(p.i, p.imax);
-          // Take ghost points into account
           const vbool mask1 = mask_for_loop_tail<vbool>(p.i, p.imax + 2 / 2);
           const GF3D5index index(layout, p.I);
           const auto val = gf0(mask, p.I);
@@ -76,7 +71,6 @@ calc_derivs(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
         grid.nghostzones,
         [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           const vbool mask = mask_for_loop_tail<vbool>(p.i, p.imax);
-          // Take ghost points into account
           const vbool mask1 = mask_for_loop_tail<vbool>(p.i, p.imax + 4 / 2);
           const GF3D5index index(layout, p.I);
           const auto val = gf0(mask, p.I);
@@ -91,7 +85,6 @@ calc_derivs(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
         grid.nghostzones,
         [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           const vbool mask = mask_for_loop_tail<vbool>(p.i, p.imax);
-          // Take ghost points into account
           const vbool mask1 = mask_for_loop_tail<vbool>(p.i, p.imax + 6 / 2);
           const GF3D5index index(layout, p.I);
           const auto val = gf0(mask, p.I);
@@ -106,7 +99,6 @@ calc_derivs(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
         grid.nghostzones,
         [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           const vbool mask = mask_for_loop_tail<vbool>(p.i, p.imax);
-          // Take ghost points into account
           const vbool mask1 = mask_for_loop_tail<vbool>(p.i, p.imax + 8 / 2);
           const GF3D5index index(layout, p.I);
           const auto val = gf0(mask, p.I);
@@ -162,7 +154,6 @@ calc_derivs2(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
         grid.nghostzones,
         [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           const vbool mask = mask_for_loop_tail<vbool>(p.i, p.imax);
-          // Take ghost points into account
           const vbool mask1 = mask_for_loop_tail<vbool>(p.i, p.imax + 2 / 2);
           const GF3D5index index(layout, p.I);
           const auto val = gf0(mask, p.I);
@@ -179,7 +170,6 @@ calc_derivs2(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
         grid.nghostzones,
         [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           const vbool mask = mask_for_loop_tail<vbool>(p.i, p.imax);
-          // Take ghost points into account
           const vbool mask1 = mask_for_loop_tail<vbool>(p.i, p.imax + 4 / 2);
           const GF3D5index index(layout, p.I);
           const auto val = gf0(mask, p.I);
@@ -196,7 +186,6 @@ calc_derivs2(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
         grid.nghostzones,
         [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           const vbool mask = mask_for_loop_tail<vbool>(p.i, p.imax);
-          // Take ghost points into account
           const vbool mask1 = mask_for_loop_tail<vbool>(p.i, p.imax + 6 / 2);
           const GF3D5index index(layout, p.I);
           const auto val = gf0(mask, p.I);
@@ -213,7 +202,6 @@ calc_derivs2(const GF3D5<T> &gf, const vec<GF3D5<T>, dim> &dgf,
         grid.nghostzones,
         [=] CCTK_DEVICE(const PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
           const vbool mask = mask_for_loop_tail<vbool>(p.i, p.imax);
-          // Take ghost points into account
           const vbool mask1 = mask_for_loop_tail<vbool>(p.i, p.imax + 8 / 2);
           const GF3D5index index(layout, p.I);
           const auto val = gf0(mask, p.I);
@@ -252,10 +240,6 @@ CCTK_ATTRIBUTE_NOINLINE void calc_derivs2(
       calc_derivs2<CI, CJ, CK>(gf(a, b), dgf(a, b), ddgf(a, b), layout, grid,
                                gf0(a, b), dx, deriv_order);
 }
-
-////////////////////////////////////////////////////////////////////////////////
-
-// Template instantiations
 
 using T = CCTK_REAL;
 

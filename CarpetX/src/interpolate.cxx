@@ -29,7 +29,6 @@ using Arith::pown;
 
 namespace {
 
-// Interpolate a grid function at one point, dimensionally recursive
 template <typename T, int order, int centering> struct interpolator {
   static constexpr vect<bool, dim> indextype{(centering & 0b100) != 0,
                                              (centering & 0b010) != 0,
@@ -46,7 +45,6 @@ template <typename T, int order, int centering> struct interpolator {
 #endif
   const amrex::Array4<const T> &vars;
   const vect<int, dim> &derivs;
-  // Allow outer boundaries as interpolation sources
   const vect<vect<bool, dim>, 2> allowed_boundaries;
 
   interpolator(const GridDescBase &grid, CCTK_ATTRIBUTE_UNUSED const int gi,
@@ -69,9 +67,6 @@ template <typename T, int order, int centering> struct interpolator {
     return pow(std::numeric_limits<T>::epsilon(), T(3) / 4);
   }
 
-  // TODO: Check whether interpolated variables are valid
-
-  // Base case: only access a grid point
   template <int dir>
   std::enable_if_t<(dir == -1), T>
   interpolate(const vect<int, dim> &i, const vect<CCTK_REAL, dim> &di) const {
@@ -100,21 +95,13 @@ template <typename T, int order, int centering> struct interpolator {
     return val;
   }
 
-  // General case: interpolate in one direction, then recurse
   template <int dir>
   std::enable_if_t<(dir >= 0), T>
   interpolate(const vect<int, dim> &i, const vect<CCTK_REAL, dim> &di) const {
     static_assert(dir < dim);
     const auto DI = vect<int, dim>::unit(dir);
 
-    // Ignore the centering for interpolation
-    // switch ((centering >> (2 - dir)) & 1)
-
     const T x = di[dir] - order / T(2);
-    // #ifdef CCTK_DEBUG
-    //     using std::fabs;
-    //     assert(fabs(x) <= T(0.5) + eps());
-    // #endif
 
     switch (order) {
     case 0: {
@@ -234,14 +221,13 @@ template <typename T, int order, int centering> struct interpolator {
     }
     default:
       assert(0);
-    } // switch order
+    }
   }
 
   template <typename Particles>
   void interpolate3d(const Particles &particles,
                      std::vector<T> &varresult) const {
     const auto x0 = grid.x0 + (2 * grid.lbnd - !indextype) * grid.dx / 2;
-    // const auto x1 = x0 + (grid.lsh - 1 - indextype) * grid.dx;
     const auto dx = grid.dx;
 
     assert(amrex::ubound(vars).x - amrex::lbound(vars).x + 1 ==
@@ -251,24 +237,6 @@ template <typename T, int order, int centering> struct interpolator {
     assert(amrex::ubound(vars).z - amrex::lbound(vars).z + 1 ==
            grid.lsh[2] - indextype[2]);
 
-    // We assume that the input is synchronized, i.e. that all ghost
-    // zones are valid, but all outer boundaries are invalid.
-
-    // The point must lie inside the domain. At outer boundaries the
-    // point may be in the boundary region, but at ghost boundaries
-    // the point cannot be in the ghost region. We define as "ghost"
-    // region here the interpolation stencil size which is `order /
-    // 2`.
-    // const auto x0_allowed =
-    //     x0 +
-    //     (!allowed_boundaries[0] * grid.nghostzones + (order - 1) / T(2)) * dx
-    //     - eps();
-    // const auto x1_allowed =
-    //     x1 -
-    //     (!allowed_boundaries[1] * grid.nghostzones + (order - 1) / T(2)) * dx
-    //     + eps();
-
-    // The allowed index range is [i0, i1)
     const auto i0_allowed = !allowed_boundaries[0] * grid.nghostzones;
     const auto i1_allowed =
         grid.lsh - (!allowed_boundaries[1] * grid.nghostzones + order);
@@ -279,10 +247,7 @@ template <typename T, int order, int centering> struct interpolator {
     for (int n = 0; n < np; ++n) {
       const vect<T, dim> x{particles[n].rdata(0), particles[n].rdata(1),
                            particles[n].rdata(2)};
-      // // Ensure the point is inside the domain
-      // assert(all(x >= x0_allowed && x <= x1_allowed));
 
-      // Find stencil anchor (i.e. the leftmost stencil point)
       const auto qi = (x - x0) / dx;
       const auto lrint1 = [](auto a) {
         using std::lrint;
@@ -290,10 +255,8 @@ template <typename T, int order, int centering> struct interpolator {
       };
       auto i = fmap(lrint1, qi - order / T(2));
       auto di = qi - i;
-      // Consistency check
       assert(all(i >= 0 && i + order < grid.lsh));
 
-      // Push point away from boundaries if they are just a little outside
       for (int d = 0; d < dim; ++d) {
         if (i[d] + order / 2 < i0_allowed[d] &&
             di[d] - order / T(2) >= +T(0.5) - eps()) {
@@ -306,7 +269,6 @@ template <typename T, int order, int centering> struct interpolator {
         }
       }
 
-      // Avoid points on boundaries
       const bool is_allowed = all(i >= i0_allowed && i < i1_allowed);
 
       if (!is_allowed) {
@@ -334,22 +296,18 @@ template <typename T, int order, int centering> struct interpolator {
 
 } // namespace
 
-int InterpLocalUniform(int /*N_dims*/, int /*param_table_handle*/,
-                       /***** coordinate system *****/
-                       const CCTK_REAL /*coord_origin*/[],
-                       const CCTK_REAL /*coord_delta*/[],
-                       /***** interpolation points *****/
-                       int /*N_interp_points*/, int /*interp_coords_type_code*/,
-                       const void *const /*interp_coords*/[],
-                       /***** input arrays *****/
-                       int /*N_input_arrays*/,
-                       const CCTK_INT /*input_array_dims*/[],
-                       const CCTK_INT /*input_array_type_codes*/[],
-                       const void *const /*input_arrays*/[],
-                       /***** output arrays *****/
-                       int /*N_output_arrays*/,
-                       const CCTK_INT /*output_array_type_codes*/[],
-                       void *const /*output_arrays*/[]) {
+int InterpLocalUniform(int, int,
+                       const CCTK_REAL[],
+                       const CCTK_REAL[],
+                       int, int,
+                       const void *const[],
+                       int,
+                       const CCTK_INT[],
+                       const CCTK_INT[],
+                       const void *const[],
+                       int,
+                       const CCTK_INT[],
+                       void *const[]) {
   CCTK_ERROR("Dummy InterpLocalUniform function called");
 }
 
@@ -360,21 +318,11 @@ extern "C" CCTK_INT CarpetX_InterpGridArrays(
     void const *const coords[], int const N_input_arrays,
     CCTK_INT const input_array_variable_indices[], int const N_output_arrays,
     CCTK_INT const output_array_type_codes[], void *const output_arrays[]) {
-  /* TODO: verify that the interface with SymmetryInterpolate can be simply
-     copied from Carpet like below */
-  //  if (CCTK_IsFunctionAliased("SymmetryInterpolate")) {
-  //    return SymmetryInterpolate(
-  //        cctkGH, N_dims, local_interp_handle, param_table_handle,
-  //        coord_system_handle, N_interp_points, interp_coords_type_code,
-  //        coords, N_input_arrays, input_array_variable_indices,
-  //        N_output_arrays, output_array_type_codes, output_arrays);
-  //  } else {
   return CarpetX_DriverInterpolate(
       cctkGH, N_dims, local_interp_handle, param_table_handle,
       coord_system_handle, N_interp_points, interp_coords_type_code, coords,
       N_input_arrays, input_array_variable_indices, N_output_arrays,
       output_array_type_codes, output_arrays);
-  //  }
 }
 
 extern "C" CCTK_INT CarpetX_DriverInterpolate(
@@ -388,7 +336,6 @@ extern "C" CCTK_INT CarpetX_DriverInterpolate(
     CCTK_POINTER const output_arrays[]) {
   DECLARE_CCTK_PARAMETERS;
 
-  // We do not support local interpolators yet
   const int carpetx_interp_handle = CCTK_InterpHandle("CarpetX");
   assert(carpetx_interp_handle >= 0);
   if (carpetx_interp_handle != local_interp_handle) {
@@ -397,8 +344,6 @@ extern "C" CCTK_INT CarpetX_DriverInterpolate(
                 local_interp_handle, carpetx_interp_handle);
   }
 
-  // This verifies that the order in param_table_handle matches the order of the
-  // runtime parameter from CarpetX
   CCTK_INT order;
   int n_elems = Util_TableGetInt(param_table_handle, &order, "order");
   assert(n_elems == 1);
@@ -454,10 +399,6 @@ CarpetX::InterpolationSetup::InterpolationSetup(
   static const bool have_MultiPatch_GlobalToLocal2 =
       CCTK_IsFunctionAliased("MultiPatch_GlobalToLocal2");
 
-  // Convert global to patch-local coordinates
-  // TODO: Call this only if there is a non-trivial patch system
-  // TODO: Don't call this for multipatch interpolation, precalculate this
-  // instead
   std::vector<CCTK_INT> patches(npoints);
   std::vector<CCTK_REAL> localsx(npoints);
   std::vector<CCTK_REAL> localsy(npoints);
@@ -485,7 +426,6 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     }
   }
 
-  // Apply symmetries to coordinates
   assert(!reflection_x);
   assert(!reflection_y);
   assert(!reflection_upper_x);
@@ -508,12 +448,6 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     }
   }
 
-  // Project particles into the domain for AMReX's distribution
-  // AMReX silently drops particles that are outside the domain. We
-  // can't have this. We thus push them back into the domain. Of
-  // course, these modified coordinates are not useful for
-  // interpolating, so we have both the `local` (true) and the `pos`
-  // (AMReX) coordinates.
   std::vector<CCTK_REAL> posx(npoints);
   std::vector<CCTK_REAL> posy(npoints);
   std::vector<CCTK_REAL> posz(npoints);
@@ -526,38 +460,31 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     const CCTK_REAL *restrict const xmax = geom.ProbHi();
     const CCTK_REAL *restrict const dx = geom.CellSize();
     using std::clamp;
-    // Push the particle at least 1/2 grid spacing into the domain
-    // TODO: push by less because 1/2 is too much if there are many AMR levels
     posx[n] = clamp(localsx[n], xmin[0] + dx[0] / 2, xmax[0] - dx[0] / 2);
     posy[n] = clamp(localsy[n], xmin[1] + dx[1] / 2, xmax[1] - dx[1] / 2);
     posz[n] = clamp(localsz[n], xmin[2] + dx[2] / 2, xmax[2] - dx[2] / 2);
   }
 
-  // Create particle containers
   std::vector<PinnedParticleTile> pinned_particle_tiles(ghext->num_patches());
   for (int patch = 0; patch < ghext->num_patches(); ++patch) {
     PinnedParticleTile &pinned_particle_tile = pinned_particle_tiles.at(patch);
-    // here the two slots represents components in the structure-of-arrays (SoA)
-    // layout
     pinned_particle_tile.define(0, 0);
   }
 
-  // Set particle positions
-  // TODO: parallelize this loop
   const int proc = amrex::ParallelDescriptor::MyProc();
   for (int n = 0; n < npoints; ++n) {
     const int patch = patches.at(n);
     amrex::Particle<3, 2> p;
     p.id() = Particle::NextID();
     p.cpu() = proc;
-    p.pos(0) = posx[n]; // AMReX distribution position
+    p.pos(0) = posx[n];
     p.pos(1) = posy[n];
     p.pos(2) = posz[n];
-    p.rdata(0) = localsx[n]; // actual particle coordinate
+    p.rdata(0) = localsx[n];
     p.rdata(1) = localsy[n];
     p.rdata(2) = localsz[n];
-    p.idata(0) = proc; // source process
-    p.idata(1) = n;    // source index
+    p.idata(0) = proc;
+    p.idata(1) = n;
     pinned_particle_tiles.at(patch).push_back(p);
   }
 
@@ -571,8 +498,6 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     const int level = 0;
     const auto &restrict leveldata = patchdata.leveldata.at(level);
     const amrex::MFIter mfi(*leveldata.fab);
-    // The mfi can be invalid if the number of processes does not evenly divide
-    // the number of blocks
     if (!mfi.isValid()) {
       continue;
     }
@@ -587,7 +512,6 @@ CarpetX::InterpolationSetup::InterpolationSetup(
                          pinned_particle_tile.numParticles());
   }
 
-  // Send particles to interpolation points
   for (auto &container : containers) {
 #ifdef CCTK_DEBUG
     const int patch = int(&container - containers.data());
@@ -658,15 +582,13 @@ void CarpetX::InterpolationSetup::Interpolate(
     const CCTK_INT nvars, const CCTK_INT *restrict const varinds,
     const CCTK_INT *restrict const operations,
     const std::vector<Arith::vect<Arith::vect<bool, 3>, 2> >
-        &allowed_boundaries, //  [patch][face][direction]
+        &allowed_boundaries,
     const CCTK_POINTER resultptrs_) const {
   DECLARE_CCTK_PARAMETERS;
 
-  // Define result variables
   const int nprocs = amrex::ParallelDescriptor::NProcs();
-  std::vector<std::vector<CCTK_REAL> > results(nprocs); // [nprocs]
+  std::vector<std::vector<CCTK_REAL> > results(nprocs);
 
-  // Interpolate
   constexpr int tl = 0;
   struct givi_t {
     int gi, vi;
@@ -687,19 +609,11 @@ void CarpetX::InterpolationSetup::Interpolate(
     for (const auto &leveldata : patchdata.leveldata) {
       const int level = leveldata.level;
 
-      // TODO: use OpenMP
       for (amrex::ParConstIter<3, 2> pti(containers.at(patch), level);
            pti.isValid(); ++pti) {
         const MFPointer mfp(pti);
         const GridDesc grid(leveldata, mfp);
-        // const int component = mfp.index();
 
-        // Derive per-box stencil-anchor permissions. bbox[f][d] is true when
-        // the box face touches the patch's AMReX domain boundary (both physical
-        // outer boundaries and inter-patch boundaries). Interior intra-patch
-        // faces (bbox=false) unconditionally allow anchoring because AMReX
-        // guarantees their ghost zones are filled. See function comment above
-        // for the semantics of allowed_boundaries.
         vect<vect<bool, dim>, 2> patch_allowed_boundaries;
         for (int f = 0; f < 2; ++f)
           for (int d = 0; d < dim; ++d)
@@ -711,8 +625,6 @@ void CarpetX::InterpolationSetup::Interpolate(
 
         std::vector<std::vector<CCTK_REAL> > varresults(nvars);
 
-        // TODO: Don't re-calculate interpolation coefficients for each
-        // variable
         for (int v = 0; v < nvars; ++v) {
           const int gi = givis.at(v).gi;
           const int vi = givis.at(v).vi;
@@ -738,8 +650,6 @@ void CarpetX::InterpolationSetup::Interpolate(
 
           switch (centering) {
           case 0b000: {
-            // Vertex centering
-
             switch (interpolation_order) {
             case 0: {
               const interpolator<CCTK_REAL, 0, 0b000> interp{
@@ -781,13 +691,11 @@ void CarpetX::InterpolationSetup::Interpolate(
                           "yet supported",
                           int(interpolation_order), groupdata.indextype[0],
                           groupdata.indextype[1], groupdata.indextype[2]);
-            } // switch interpolation_order
+            }
             break;
-          } // case 0b000
+          }
 
           case 0b111: {
-            // Cell centering
-
             switch (interpolation_order) {
             case 0: {
               const interpolator<CCTK_REAL, 0, 0b111> interp{
@@ -829,17 +737,16 @@ void CarpetX::InterpolationSetup::Interpolate(
                           "yet supported",
                           int(interpolation_order), groupdata.indextype[0],
                           groupdata.indextype[1], groupdata.indextype[2]);
-            } // switch interpolation_order
+            }
             break;
-          } // case 0b111
+          }
 
           default:
             CCTK_VERROR("Centering [%d,%d,%d] not yet supported",
                         groupdata.indextype[0], groupdata.indextype[1],
                         groupdata.indextype[2]);
-          } // switch centering
-
-        } // for var
+          }
+        }
 
         for (int n = 0; n < np; ++n) {
           const int proc = particles[n].idata(0);
@@ -853,7 +760,6 @@ void CarpetX::InterpolationSetup::Interpolate(
     }
   }
 
-  // Collect particles back
   const MPI_Comm comm = amrex::ParallelDescriptor::Communicator();
   const MPI_Datatype datatype = mpi_datatype<CCTK_REAL>::value;
 
@@ -878,7 +784,6 @@ void CarpetX::InterpolationSetup::Interpolate(
 
   std::vector<CCTK_REAL> sendbuf(total_sendcount);
   for (int p = 0; p < nprocs; ++p) {
-    // TODO: Don't copy, store data here right away
     assert(p >= 0);
     assert(p < int(results.size()));
     const auto &result = results.at(p);
@@ -894,7 +799,6 @@ void CarpetX::InterpolationSetup::Interpolate(
                 recvbuf.data(), recvcounts.data(), recvdispls.data(), datatype,
                 comm);
 #ifdef CCTK_DEBUG
-  // Check consistency of received ids
   std::vector<bool> idxs(npoints, false);
   for (int n = 0; n < npoints; ++n) {
     const int offset = (nvars + 1) * n;
@@ -906,7 +810,6 @@ void CarpetX::InterpolationSetup::Interpolate(
     assert(idxs.at(n));
 #endif
 
-  // Set result
   CCTK_REAL *const restrict *const restrict resultptrs =
       static_cast<CCTK_REAL *const *>(resultptrs_);
   if (int(recvbuf.size()) != (nvars + 1) * npoints)
@@ -918,7 +821,6 @@ void CarpetX::InterpolationSetup::Interpolate(
       resultptrs[v][idx] = recvbuf.at(offset + 1 + v);
   }
 
-  // Apply symmetries to interpolated values
   assert(!reflection_x);
   assert(!reflection_y);
   assert(!reflection_upper_x);
@@ -926,14 +828,9 @@ void CarpetX::InterpolationSetup::Interpolate(
   assert(!reflection_upper_z);
 
   if (reflection_z) {
-    // The code below is only valid for Psi4
     assert(nvars == 2);
     assert(varinds[0] == CCTK_VarIndex("Weyl::Psi4re"));
     assert(varinds[1] == CCTK_VarIndex("Weyl::Psi4im"));
-    // l^a = et^a + er^a
-    // n^a = et^a - er^a
-    // m^a = etheta^a + i ephi^a
-    // Psi4 = C_abcd m-bar^b n^b m-bar^c n^d
     for (int n = 0; n < npoints; ++n) {
       if (symmetry_reflected_z[n]) {
         resultptrs[0][n] = -resultptrs[0][n];
@@ -957,9 +854,6 @@ extern "C" void CarpetX_Interpolate(const CCTK_POINTER_TO_CONST cctkGH_,
 
   const InterpolationSetup setup(cctkGH, npoints, globalsx, globalsy, globalsz);
 
-  // Replicate original behaviour:
-  // allow_boundaries=true  -> allow stencil on all faces
-  // allow_boundaries=false -> forbid stencil on all bbox faces
   const int npatches = ghext->num_patches();
   const vect<vect<bool, dim>, 2> uniform{
       {{bool(allow_boundaries), bool(allow_boundaries), bool(allow_boundaries)},

@@ -1,5 +1,3 @@
-# Schedule definitions for thorn MovingBoxToy
-
 SCHEDULE MovingBoxToy_MoveBoxes AT postinitial BEFORE EstimateError
 {
   LANG: C

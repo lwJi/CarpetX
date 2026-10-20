@@ -17,8 +17,6 @@ template <typename T, std::size_t N> class arr {
   T elts[N];
 
 public:
-  // Member types
-
   using value_type = T;
   using size_type = std::size_t;
   using difference_type = std::ptrdiff_t;
@@ -61,8 +59,6 @@ public:
       other.ptr = tmp;
     }
 
-    // LegacyIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST reference operator*() const {
       return *ptr;
     }
@@ -76,8 +72,6 @@ public:
       ++*this;
       return tmp;
     }
-
-    // LegacyInputIterator
 
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST pointer operator->() const {
       return &**this;
@@ -93,10 +87,6 @@ public:
       return !(*this == other);
     }
 
-    // LegacyForwardIterator
-
-    // LegacyBidirectionalIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST iterator &operator--() {
       --ptr;
       return *this;
@@ -106,8 +96,6 @@ public:
       --*this;
       return tmp;
     }
-
-    // LegacyRandomAccessIterator
 
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST iterator &
     operator+=(difference_type n) {
@@ -201,8 +189,6 @@ public:
       other.ptr = tmp;
     }
 
-    // LegacyIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST reference operator*() const {
       return *ptr;
     }
@@ -219,8 +205,6 @@ public:
       return tmp;
     }
 
-    // LegacyInputIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST pointer operator->() const {
       return &**this;
     }
@@ -235,10 +219,6 @@ public:
       return !(*this == other);
     }
 
-    // LegacyForwardIterator
-
-    // LegacyBidirectionalIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST const_iterator &
     operator--() {
       --ptr;
@@ -250,8 +230,6 @@ public:
       --*this;
       return tmp;
     }
-
-    // LegacyRandomAccessIterator
 
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST const_iterator &
     operator+=(difference_type n) {
@@ -345,8 +323,6 @@ public:
       other.ptr = tmp;
     }
 
-    // LegacyIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST reference operator*() const {
       return *(ptr - 1);
     }
@@ -363,8 +339,6 @@ public:
       return tmp;
     }
 
-    // LegacyInputIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST pointer operator->() const {
       return &**this;
     }
@@ -379,10 +353,6 @@ public:
       return !(*this == other);
     }
 
-    // LegacyForwardIterator
-
-    // LegacyBidirectionalIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST reverse_iterator &
     operator--() {
       ++ptr;
@@ -394,8 +364,6 @@ public:
       --*this;
       return tmp;
     }
-
-    // LegacyRandomAccessIterator
 
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST reverse_iterator &
     operator+=(difference_type n) {
@@ -491,8 +459,6 @@ public:
       other.ptr = tmp;
     }
 
-    // LegacyIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST reference operator*() const {
       return *(ptr - 1);
     }
@@ -509,8 +475,6 @@ public:
       return tmp;
     }
 
-    // LegacyInputIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST pointer operator->() const {
       return &**this;
     }
@@ -525,10 +489,6 @@ public:
       return !(*this == other);
     }
 
-    // LegacyForwardIterator
-
-    // LegacyBidirectionalIterator
-
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST const_reverse_iterator &
     operator--() {
       ++ptr;
@@ -540,8 +500,6 @@ public:
       --*this;
       return tmp;
     }
-
-    // LegacyRandomAccessIterator
 
     constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST const_reverse_iterator &
     operator+=(difference_type n) {
@@ -606,17 +564,8 @@ public:
     }
   };
 
-  // Member functions
-
-  // Constructors
-
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST arr() : elts{} {}
-  // constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
-  // arr(std::initializer_list<T> x) {
-  //   assert(x.size() == N);
-  //   for (std::size_t i = 0; i < N; ++i)
-  //     elts[i] = x.begin()[i];
-  // }
+
 private:
   template <std::size_t... Is>
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST arr(std::initializer_list<T> x,
@@ -651,12 +600,9 @@ public:
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST arr &
   operator=(arr &&) = default;
 
-  // Element access
-
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST reference at(size_type pos) {
     if (CCTK_BUILTIN_EXPECT(pos >= N, false))
 #if defined __CUDACC__ || defined __HIPCC__
-      // asm("trap;");
       assert(0);
 #else
       throw std::out_of_range("arr");
@@ -667,7 +613,6 @@ public:
   at(size_type pos) const {
     if (CCTK_BUILTIN_EXPECT(pos >= N, false))
 #if defined __CUDACC__ || defined __HIPCC__
-      // asm("trap;");
       assert(0);
 #else
       throw std::out_of_range("arr");
@@ -705,8 +650,6 @@ public:
   data() const noexcept {
     return elts;
   }
-
-  // Iterators
 
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST iterator begin() noexcept {
     return iterator(&elts[0]);
@@ -758,8 +701,6 @@ public:
     return const_reverse_iterator(&elts[0]);
   }
 
-  // Capacity
-
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST bool empty() const noexcept {
     return N == 0;
   }
@@ -774,15 +715,12 @@ public:
     return N;
   }
 
-  // Operations
-
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST void fill(const T &value) {
     for (std::size_t i = 0; i < N; ++i)
       elts[i] = value;
   }
 
-  // We might not have a device-function std::swap
-  /*constexpr*/ ARITH_INLINE /*ARITH_DEVICE*/ ARITH_HOST void
+  ARITH_INLINE ARITH_HOST void
   swap(arr &other) noexcept {
     if (this == &other)
       return;
@@ -883,15 +821,6 @@ constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto array_push(arr<T, N> &&a,
   return detail::array_push<T>(std::move(a), std::make_index_sequence<N>(), e);
 }
 
-// template <typename T, std::size_t N, typename F>
-// constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST arr<T, N>
-// construct_array(const F &f) {
-//   if constexpr (N == 0)
-//     return arr<T, N>();
-//   if constexpr (N > 0)
-//     return array_push<T>(construct_array<T, N - 1>(f), f(N - 1));
-// }
-
 } // namespace Arith
 
-#endif // #ifndef CARPETX_ARITH_ARR_HXX
+#endif

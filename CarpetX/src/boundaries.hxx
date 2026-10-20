@@ -8,8 +8,6 @@ namespace CarpetX {
 
 namespace boundaries_detail {
 
-// TODO: Move these functions to loop.hxx
-
 template <typename F>
 CCTK_ATTRIBUTE_NOINLINE __attribute__((__flatten__, __hot__)) void
 loop_region(const F &f, const Arith::vect<int, dim> &imin,
@@ -28,19 +26,15 @@ loop_region(const F &f, const Arith::vect<int, dim> &imin,
 } // namespace boundaries_detail
 using namespace boundaries_detail;
 
-////////////////////////////////////////////////////////////////////////////////
-
 struct BoundaryCondition {
   const GHExt::PatchData::LevelData::GroupData &groupdata;
   const GHExt::PatchData &patchdata;
   const amrex::Geometry &geom;
   amrex::FArrayBox &dest;
 
-  // Interior of the domain: Do not set any points in this region
   Arith::vect<int, dim> imin, imax;
   Arith::vect<CCTK_REAL, dim> xmin, xmax, dx;
 
-  // Destination region
   Arith::vect<int, dim> dmin, dmax;
 
   Loop::GF3D2layout layout;
@@ -75,4 +69,4 @@ struct BoundaryCondition {
 
 } // namespace CarpetX
 
-#endif // #ifndef CARPETX_CARPETX_BOUNDARIES_HXX
+#endif

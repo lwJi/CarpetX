@@ -10,7 +10,6 @@ $blocking_factor = 2
 
 Cactus::cctk_show_schedule = "no"
 Cactus::presync_mode = "mixed-error"
-#Cactus::cctk_full_warnings = "yes"
 
 Cactus::cctk_itlast = 0
 
@@ -46,7 +45,7 @@ CarpetX::dtfac = 0.5
 
 CarpetX::prolongation_type = "ddf"
 CarpetX::prolongation_order = 3
-CarpetX::ghost_size = 2  # 1 extra for diss operator
+CarpetX::ghost_size = 2
 
 TestDerivs::deriv_order = 2
 TestDerivs::kxx = 1.0

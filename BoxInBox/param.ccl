@@ -1,15 +1,9 @@
-# Parameter definitions for thorn BoxInBox
-
 CCTK_INT num_regions "Number of refined regions"
 {
   0:3 :: ""
 } 0
 
 
-
-################################################################################
-
-# Box 1
 
 KEYWORD shape_1 "Shape of refined region"
 {
@@ -75,10 +69,6 @@ CCTK_REAL radius_z_1[30] "z-radius of refined region for this level"
 
 
 
-################################################################################
-
-# Box 2
-
 KEYWORD shape_2 "Shape of refined region"
 {
   "cube" :: "cube"
@@ -142,10 +132,6 @@ CCTK_REAL radius_z_2[30] "z-radius of refined region for this level"
 } -1.0
 
 
-
-################################################################################
-
-# Box 3
 
 KEYWORD shape_3 "Shape of refined region"
 {

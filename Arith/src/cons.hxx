@@ -107,4 +107,4 @@ struct tuple_element<1, Arith::cons<T1, T2> > {
 
 } // namespace std
 
-#endif // #ifndef CARPETX_ARITH_CONS_HXX
+#endif

@@ -17,10 +17,7 @@ constexpr bool eqm(const gten3<T, D, symm> &x, const gten3<T, D, symm> &y) {
   return all(fmap([](const auto &a, const auto &b) { return eq(a, b); }, x, y));
 }
 
-// This function is compiled, but not executed. The tests are "run" at
-// compile time. If this function compiles, the tests pass.
 void TestTen3() {
-  // nvcc V11.1.74 doesn't accept this as "constexpr" values
 #if !defined __CUDACC__ && !defined __HIPCC__
   using T3D = sten3<CCTK_REAL, 3>;
 
@@ -107,7 +104,6 @@ void TestTen3() {
   static_assert(eqm(3 * x, {213, 270, 42, 150, 123, 195, 243, 54, 183, 66}));
   static_assert(eqm(x * 3, {213, 270, 42, 150, 123, 195, 243, 54, 183, 66}));
 
-  // TODO: Complete this test
   static_assert(
       eq(ten3<CCTK_REAL, 3>({1,  2,  3,  4,  5,  6,  7,  8,  9,
                              10, 11, 12, 13, 14, 15, 16, 17, 18,
@@ -164,7 +160,6 @@ void TestTen3() {
                     {0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1,
                      2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2}));
 
-  // TODO: Convert this test to 4D
   static_assert(eq(aten3<CCTK_REAL, 3>({1})(0, 0, 0), 0));
   static_assert(eq(aten3<CCTK_REAL, 3>({1})(0, 0, 1), 0));
   static_assert(eq(aten3<CCTK_REAL, 3>({1})(0, 0, 2), 0));

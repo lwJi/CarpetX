@@ -15,15 +15,12 @@ namespace FluxWaveToyX {
 
 constexpr int dim = 3;
 
-// Average from cells to faces ("reconstruction")
 template <typename T>
 CCTK_DEVICE CCTK_HOST inline CCTK_ATTRIBUTE_ALWAYS_INLINE auto
 average(const Loop::GF3D2<T> &var, const Loop::PointDesc &p, const int dir) {
   return (var(p.I - p.DI[dir]) + var(p.I)) / 2;
 }
 
-// Flux divergence
-// Expects fluxes on faces, calculates divergence in cell
 template <typename T>
 CCTK_DEVICE CCTK_HOST inline CCTK_ATTRIBUTE_ALWAYS_INLINE auto
 flux_div(const Loop::GF3D2<T> &flux_x, const Loop::GF3D2<T> &flux_y,
@@ -33,15 +30,12 @@ flux_div(const Loop::GF3D2<T> &flux_x, const Loop::GF3D2<T> &flux_y,
          (flux_z(p.I + p.DI[2]) - flux_z(p.I)) / p.DX[2];
 }
 
-// Derivative
 template <typename T>
 CCTK_DEVICE CCTK_HOST inline CCTK_ATTRIBUTE_ALWAYS_INLINE auto
 deriv(const Loop::GF3D2<T> &var, const Loop::PointDesc &p, const int dir) {
   return (var(p.I + p.DI[dir]) - var(p.I - p.DI[dir])) / (2 * p.DX[dir]);
 }
 
-// u(t,x,y,z) =
-//   A cos(2 pi omega t) cos(2 pi kx x) cos(2 pi ky y) cos(2 pi kz z)
 template <typename T>
 constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
                              const T t, const T x, const T y, const T z, T &u,
@@ -63,8 +57,6 @@ constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
        cos(2 * pi * ky * y) * sin(2 * pi * kz * z);
 }
 
-// u(t,r) = (f(t-r) - f(t+r)) / r
-// f(v) = A exp(-1/2 (r/W)^2)
 template <typename T>
 constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
                         const T z, T &u, T &ft, T &fx, T &fy, T &fz) {
@@ -77,7 +69,6 @@ constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
   };
 
   if (r < sqrt(std::numeric_limits<T>::epsilon())) {
-    // L'Hôpital
     u = 2 / pow(W, 2) * f(t) * t;
     ft = -2 / pow(W, 4) * f(t) * (pow(t, 2) - pow(W, 2));
     fx = 0;
@@ -141,10 +132,6 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
 
   const bc_t bc = get_bc();
 
-  // "Reconstructing" at the cell interface is just averaging here, and flux
-  // limiting is not necessary since the solution is smooth
-
-  // Calculate x-flux
   grid.loop_int_device<0, 1, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -174,7 +161,6 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
         }
       });
 
-  // Calculate y-flux
   grid.loop_int_device<1, 0, 1>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -204,7 +190,6 @@ extern "C" void FluxWaveToyX_Fluxes(CCTK_ARGUMENTS) {
         }
       });
 
-  // Calculate z-flux
   grid.loop_int_device<1, 1, 0>(
       grid.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -253,8 +238,6 @@ extern "C" void FluxWaveToyX_RHS(CCTK_ARGUMENTS) {
 extern "C" void FluxWaveToyX_Boundaries(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_FluxWaveToyX_Boundaries;
   DECLARE_CCTK_PARAMETERS;
-
-  // Do nothing
 }
 
 extern "C" void FluxWaveToyX_Constraints(CCTK_ARGUMENTS) {

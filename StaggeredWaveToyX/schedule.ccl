@@ -1,5 +1,3 @@
-# Schedule definitions for thorn StaggeredWaveToyX
-
 STORAGE: ustate fxstate fystate fzstate
 
 SCHEDULE StaggeredWaveToyX_Initial AT initial
@@ -45,7 +43,6 @@ SCHEDULE StaggeredWaveToyX_RHS AT analysis
   WRITES: fxrhs(interior)
   WRITES: fyrhs(interior)
   WRITES: fzrhs(interior)
-  # Sync for test output
   SYNC: urhs
   SYNC: fxrhs
   SYNC: fyrhs

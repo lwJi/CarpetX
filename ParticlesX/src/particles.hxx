@@ -13,11 +13,11 @@ namespace ParticlesX {
 constexpr int dim = 3;
 
 struct Particle {
-  CCTK_REAL id;                    // id (integer)
-  CCTK_REAL tau;                   // eigentime
-  Arith::vect<CCTK_REAL, dim> pos; // position
-  Arith::vect<CCTK_REAL, dim> vel; // velocity
-  Arith::vect<CCTK_REAL, dim> acc; // acceleration
+  CCTK_REAL id;
+  CCTK_REAL tau;
+  Arith::vect<CCTK_REAL, dim> pos;
+  Arith::vect<CCTK_REAL, dim> vel;
+  Arith::vect<CCTK_REAL, dim> acc;
 };
 
 extern "C" void ParticlesX_output(CCTK_ARGUMENTS);
@@ -50,4 +50,4 @@ Particles &get_particles();
 
 } // namespace ParticlesX
 
-#endif // #ifndef PARTICLESX_HXX
+#endif

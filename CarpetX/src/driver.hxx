@@ -34,10 +34,6 @@ using Loop::dim;
 
 using rat64 = rational<int64_t>;
 
-// TODO: It seems that AMReX now also has `RB90`, `RB180`, and
-// `PolarB` boundary conditions. Make these available as well.
-
-// Symmetries are domain properties
 enum class symmetry_t {
   none,
   interpatch,
@@ -46,8 +42,6 @@ enum class symmetry_t {
 };
 std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry);
 
-// Boundary conditions are group properties. They are valid only for faces where
-// the domain symmetry is `none`.
 enum class boundary_t {
   none,
   symmetry_boundary,
@@ -64,9 +58,6 @@ static_assert(AMREX_SPACEDIM == dim,
 static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
               "AMReX's Real type must be the same as Cactus's CCTK_REAL");
 
-////////////////////////////////////////////////////////////////////////////////
-
-// AMR driver
 class CactusAmrCore final : public amrex::AmrCore {
   int patch;
 
@@ -107,7 +98,6 @@ public:
   virtual void ClearLevel(int level) override;
 };
 
-// Cactus grid hierarchy extension
 struct GHExt {
 
   GHExt() = default;
@@ -131,7 +121,7 @@ struct GHExt {
   };
 
   cctkGHptr global_cctkGH;
-  std::vector<cctkGHptr> level_cctkGHs; // [reflevel]
+  std::vector<cctkGHptr> level_cctkGHs;
 
   struct CommonGroupData {
     std::string groupname;
@@ -139,24 +129,19 @@ struct GHExt {
     int firstvarindex;
     int numvars;
 
-    bool do_checkpoint; // whether to checkpoint
-    bool do_restrict;   // whether to restrict
+    bool do_checkpoint;
+    bool do_restrict;
 
-    std::vector<std::vector<why_valid_t> > valid; // [time level][var index]
-
-    // TODO: add poison_invalid and check_valid functions
+    std::vector<std::vector<why_valid_t> > valid;
 
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const CommonGroupData &commongroupdata);
   };
 
   struct GlobalData {
-    // all data that exists on all levels
-
     class AnyTypeVector {
 
     public:
-      // access to a single element of a AnyTypeVector
       class AnyTypeScalarRef {
       public:
         AnyTypeScalarRef() = delete;
@@ -183,7 +168,6 @@ struct GHExt {
         assert(_count == count_);
         assert(_data != nullptr);
       };
-      // Noncopyable for now
       AnyTypeVector(const AnyTypeVector &) = delete;
       AnyTypeVector &operator=(const AnyTypeVector &) = delete;
       AnyTypeVector &operator=(AnyTypeVector &&other) {
@@ -286,13 +270,9 @@ struct GHExt {
       void *_data;
     };
 
-    // For subcycling in time, there really should be one copy of each
-    // integrated grid scalar per level. We don't do that yet; instead,
-    // we assume that grid scalars only hold "analysis" data.
-
     struct ArrayGroupData : public CommonGroupData {
       std::vector<AnyTypeVector>
-          data; // [time level][var index + grid point index]
+          data;
       int array_size;
       int dimension;
       int activetimelevels;
@@ -322,9 +302,8 @@ struct GHExt {
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const ArrayGroupData &arraygroupdata);
     };
-    // TODO: right now this is sized for the total number of groups
     std::vector<std::unique_ptr<ArrayGroupData> >
-        arraygroupdata; // [group index]
+        arraygroupdata;
 
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const GlobalData &globaldata);
@@ -346,8 +325,6 @@ struct GHExt {
 
     std::array<std::array<symmetry_t, dim>, 2> symmetries;
 
-    // AMReX grid structure
-    // TODO: convert this from unique_ptr to optional
     std::unique_ptr<CactusAmrCore> amrcore;
 
     struct LevelData {
@@ -363,20 +340,14 @@ struct GHExt {
 
       int patch, level;
 
-      // This level uses subcycling with respect to the next coarser
-      // level. (Ignored for the coarsest level.)
       bool is_subcycling_level;
 
-      // Iteration and time at which this cycle level is valid
       rat64 iteration, delta_iteration;
 
-      // Fabamrex::ArrayBase object holding a cell-centred BoxArray for
-      // iterating over grid functions. This stores the grid structure
-      // and its distribution over all processes, but holds no data.
       std::unique_ptr<amrex::FabArrayBase> fab;
 
       cctkGHptr patch_cctkGH;
-      std::vector<cctkGHptr> local_cctkGHs; // [component]
+      std::vector<cctkGHptr> local_cctkGHs;
 
       cGH *get_patch_cctkGH() const { return patch_cctkGH.get(); }
       cGH *get_local_cctkGH(const int component) const {
@@ -408,25 +379,13 @@ struct GHExt {
         std::vector<CCTK_REAL> robin_values;
         amrex::Vector<amrex::BCRec> bcrecs;
 
-        // Apply outer (physical) boundary conditions to a MultiFab
         void apply_boundary_conditions(amrex::MultiFab &mfab) const;
 
-        // each amrex::MultiFab has numvars components
-        std::vector<std::unique_ptr<amrex::MultiFab> > mfab; // [time level]
+        std::vector<std::unique_ptr<amrex::MultiFab> > mfab;
 
-        // flux register between this and the next coarser level
         std::unique_ptr<amrex::FluxRegister> freg;
-        // associated flux group indices
-        std::array<int, dim> fluxes; // [dir]
+        std::array<int, dim> fluxes;
 
-        // CarpetX can allocate and free (temporary) multifabs that
-        // are associated with a Cactus grid function group. These
-        // multifabs remain allocated when they are freed, which makes
-        // it efficient when they are re-allocated later. However,
-        // they are freed when the current level changes during
-        // regridding (and the shape of the multifab presumably
-        // changes). This is used e.g. by ODESolvers for its
-        // temporaries.
       private:
         mutable std::vector<std::unique_ptr<amrex::MultiFab> > tmp_mfabs;
         mutable std::size_t next_tmp_mfab;
@@ -439,18 +398,17 @@ struct GHExt {
         friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                          const GroupData &groupdata);
       };
-      // TODO: right now this is sized for the total number of groups
-      std::vector<std::unique_ptr<GroupData> > groupdata; // [group index]
+      std::vector<std::unique_ptr<GroupData> > groupdata;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const LevelData &leveldata);
     };
-    std::vector<LevelData> leveldata; // [reflevel]
+    std::vector<LevelData> leveldata;
 
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const PatchData &patchdata);
   };
-  std::vector<PatchData> patchdata; // [patch]
+  std::vector<PatchData> patchdata;
 
   int num_patches() const { return patchdata.size(); }
   int num_levels(const int patch) const {
@@ -485,12 +443,10 @@ struct GHExt {
 
 extern std::unique_ptr<GHExt> ghext;
 
-// Monotonically increasing counter. Incremented whenever the AMR grid
-// hierarchy is invalidated (regridding, recovery). Starts at 0.
 extern std::atomic<CCTK_INT> carpetx_epoch;
 
 extern "C" CCTK_INT CarpetX_GetEpoch(void);
 
 } // namespace CarpetX
 
-#endif // #ifndef CARPETX_CARPETX_DRIVER_HXX
+#endif

@@ -1,5 +1,3 @@
-# Interface definition for thorn TestODESolvers2
-
 IMPLEMENTS: TestODESolvers2
 
 USES INCLUDE HEADER: loop.hxx

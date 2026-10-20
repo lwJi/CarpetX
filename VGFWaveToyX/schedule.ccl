@@ -1,5 +1,3 @@
-# Schedule definitions for thorn VGFWaveToyX
-
 STORAGE: state
 
 SCHEDULE VGFWaveToyX_Initial AT initial
@@ -27,7 +25,6 @@ SCHEDULE VGFWaveToyX_RHS AT analysis
   LANG: C
   READS: state(everywhere)
   WRITES: rhs(interior)
-  # Sync for test output
   SYNC: rhs
 } "Calculate scalar wave RHS (so that it can be output)"
 

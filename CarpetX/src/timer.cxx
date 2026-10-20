@@ -38,8 +38,6 @@ void Timer::print() const {
   {
     const int is_running = CCTK_TimerIsRunningI(handle);
     assert(is_running >= 0);
-    // We need to stop timers before printing them; running timers
-    // cannot be printed
     if (is_running)
       CCTK_TimerStopI(handle);
     const int num_clocks = CCTK_NumClocks();

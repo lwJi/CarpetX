@@ -15,10 +15,7 @@ constexpr bool eqm(const gmat<T, D, symm> &x, const gmat<T, D, symm> &y) {
   return all(fmap([](const auto &a, const auto &b) { return eq(a, b); }, x, y));
 }
 
-// This function is compiled, but not executed. The tests are "run" at
-// compile time. If this function compiles, the tests pass.
 void TestMat() {
-  // nvcc V11.1.74 doesn't accept this as "constexpr" values
 #if !defined __CUDACC__ && !defined __HIPCC__
   using M3D = smat<CCTK_REAL, 3>;
 

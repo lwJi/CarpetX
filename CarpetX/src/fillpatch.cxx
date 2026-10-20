@@ -14,20 +14,6 @@ using namespace amrex;
 using namespace amrex::detail;
 #endif
 
-// The code in this file is written in a "coroutine style"
-// <https://en.wikipedia.org/wiki/Coroutine>. That is, each function
-// returns another function that describes what to do next. This
-// allows the caller to interleave many function calls, for example to
-// schedule many calls to `MPI_Irecv` and `MPI_Isend` simultaneously.
-//
-// This programming style is obviously quite tedious. C++20 will have
-// special support for this via `co_yield` etc.
-// <https://en.cppreference.com/w/cpp/coroutine>, and the functions in
-// this file will then look like normal functions.
-//
-// Coroutines were popularized in the "Modula" language in the 1980s.
-// Welcome to the future, C++, you're only 40 years behind.
-
 void FillPatch_Sync(task_manager &tasks2,
                     const GHExt::PatchData::LevelData::GroupData &groupdata,
                     MultiFab &mfab, const Geometry &geom) {
@@ -59,37 +45,25 @@ void FillPatch_ProlongateGhosts(
   const FabArrayBase::FPinfo &fpc = FabArrayBase::TheFPinfo(
       mfab, mfab, nghosts, coarsener, fgeom, cgeom, index_space);
 
-  // Synchronize
   mfab.FillBoundary_nowait(0, mfab.nComp(), mfab.nGrowVect(),
                            fgeom.periodicity());
 
   if (fpc.ba_crse_patch.empty()) {
-    // There is no coarser level for our boundaries, i.e. there is no
-    // prolongation. Apply the boundary conditions right away.
-
     tasks2.submit_serially([&groupdata, &mfab]() {
-      // Finish synchronizing
       mfab.FillBoundary_finish();
 
-      // Apply symmetry and boundary conditions
       groupdata.apply_boundary_conditions(mfab);
     });
     return;
   }
 
-  // Prolongate from the next coarser level. Apply the boundary
-  // conditions after the prolongation is done (because symmetry
-  // boundary conditions might require prolongated points).
-
-  // Copy parts of coarse grid into temporary buffer
   MultiFab *const mfab_crse_patch_ptr =
       new MultiFab(make_mf_crse_patch<MultiFab>(fpc, ncomps));
   MultiFab &mfab_crse_patch = *mfab_crse_patch_ptr;
   mf_set_domain_bndry(mfab_crse_patch, cgeom);
 
-  // This is not local
   mfab_crse_patch.ParallelCopy_nowait(
-      cmfab, 0, 0, ncomps, IntVect{0} /* don't use coarse ghosts */,
+      cmfab, 0, 0, ncomps, IntVect{0},
       mfab_crse_patch.nGrowVect(), cgeom.periodicity());
 
   tasks2.submit_serially([&tasks3, &groupdata, &coarsegroupdata, &mfab, &cgeom,
@@ -100,10 +74,8 @@ void FillPatch_ProlongateGhosts(
     const IntVect ratio{2, 2, 2};
     MultiFab &mfab_crse_patch = *mfab_crse_patch_ptr;
 
-    // Finish synchronizing
     mfab.FillBoundary_finish();
 
-    // Finish copying parts of coarse grid into temporary buffer
     mfab_crse_patch.ParallelCopy_finish();
 
     coarsegroupdata.apply_boundary_conditions(mfab_crse_patch);
@@ -112,24 +84,20 @@ void FillPatch_ProlongateGhosts(
         new MultiFab(make_mf_fine_patch<MultiFab>(fpc, ncomps));
     MultiFab &mfab_fine_patch = *mfab_fine_patch_ptr;
 
-    // Interpolate coarse buffer into fine buffer (in space, local)
     FillPatchInterp(mfab_fine_patch, 0, mfab_crse_patch, 0, ncomps,
-                    IntVect{0} /* don't add any new ghosts */, cgeom, fgeom,
+                    IntVect{0}, cgeom, fgeom,
                     grow(convert(fgeom.Domain(), mfab.ixType()), nghosts),
                     ratio, mapper, bcrecs, 0);
 
-    // Copy fine buffer into destination
     mfab.ParallelCopy_nowait(
         mfab_fine_patch, 0, 0, ncomps,
-        IntVect{0} /* don't use any ghosts from the buffer */, nghosts);
+        IntVect{0}, nghosts);
 
     delete mfab_crse_patch_ptr;
 
     tasks3.submit_serially([&groupdata, &mfab, mfab_fine_patch_ptr]() {
-      // Finish copying fine buffer into destination
       mfab.ParallelCopy_finish();
 
-      // Apply symmetry and boundary conditions
       groupdata.apply_boundary_conditions(mfab);
 
       delete mfab_fine_patch_ptr;
@@ -146,7 +114,6 @@ void FillPatch_NewLevel(
   const int ncomps = mfab.nComp();
   const IntVect ratio{2, 2, 2};
   const IntVect &nghosts = mfab.nGrowVect();
-  // const EB2::IndexSpace *const index_space = nullptr;
 
   const InterpolaterBoxCoarsener &coarsener = mapper->BoxCoarsener(ratio);
 
@@ -156,7 +123,6 @@ void FillPatch_NewLevel(
   const IndexType &ixtype = ba.ixType();
   assert(ixtype == cmfab.boxArray().ixType());
 
-  // Suffix `_g` is for "with ghosts added"
   Box fdomain_g(amrex::convert(fgeom.Domain(), mfab.ixType()));
   for (int d = 0; d < dim; ++d)
     if (fgeom.isPeriodic(d))
@@ -203,25 +169,24 @@ void FillPatch_RemakeLevel(
     mf_set_domain_bndry(mfab_crse_patch, cgeom);
 
     mfab_crse_patch.ParallelCopy(
-        cmfab, 0, 0, ncomps, IntVect{0} /* don't use coarse ghosts */,
+        cmfab, 0, 0, ncomps, IntVect{0},
         mfab_crse_patch.nGrowVect(), cgeom.periodicity());
     coarsegroupdata.apply_boundary_conditions(mfab_crse_patch);
 
     MultiFab mfab_fine_patch = make_mf_fine_patch<MultiFab>(fpc, ncomps);
 
-    // In space, local
     FillPatchInterp(mfab_fine_patch, 0, mfab_crse_patch, 0, ncomps,
-                    IntVect{0} /* don't add any new ghosts */, cgeom, fgeom,
+                    IntVect{0}, cgeom, fgeom,
                     grow(convert(fgeom.Domain(), mfab.ixType()), nghosts),
                     ratio, mapper, bcrecs, 0);
 
     mfab.ParallelCopy_nowait(
         mfab_fine_patch, 0, 0, ncomps,
-        IntVect{0} /* don't use any ghosts from the buffer */, nghosts);
+        IntVect{0}, nghosts);
     mfab.ParallelCopy_finish();
   }
 
-  mfab.ParallelCopy(fmfab, 0, 0, ncomps, IntVect{0} /* don't use old ghosts */,
+  mfab.ParallelCopy(fmfab, 0, 0, ncomps, IntVect{0},
                     nghosts, fgeom.periodicity());
   groupdata.apply_boundary_conditions(mfab);
 }

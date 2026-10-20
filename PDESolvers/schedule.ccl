@@ -1,5 +1,3 @@
-# Schedule definitions for thorn PDESolvers
-
 SCHEDULE PDESolvers_Setup AT wragh
 {
   LANG: C

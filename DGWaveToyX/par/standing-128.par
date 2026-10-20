@@ -35,20 +35,6 @@ CarpetX::periodic_x = yes
 CarpetX::periodic_y = yes
 CarpetX::periodic_z = yes
 
-# CarpetX::reflection_x = yes
-# CarpetX::reflection_y = yes
-# CarpetX::reflection_z = yes
-# CarpetX::reflection_upper_x = yes
-# CarpetX::reflection_upper_y = yes
-# CarpetX::reflection_upper_z = yes
-
-# CarpetX::boundary_x = "dirichlet"
-# CarpetX::boundary_y = "dirichlet"
-# CarpetX::boundary_z = "dirichlet"
-# CarpetX::boundary_upper_x = "dirichlet"
-# CarpetX::boundary_upper_y = "dirichlet"
-# CarpetX::boundary_upper_z = "dirichlet"
-
 CarpetX::ghost_size = 1
 
 CarpetX::max_num_levels = 1
@@ -61,7 +47,7 @@ CarpetX::dtfac = 0.5
 IO::out_dir = $parfile
 IO::out_every = $ncells
 
-CarpetX::out_norm_every = $ncells/32   #TODO $ncells
+CarpetX::out_norm_every = $ncells/32
 CarpetX::out_norm_vars = "
     DGCoordinatesX::coords
     DGCoordinatesX::volume
@@ -74,7 +60,7 @@ CarpetX::out_norm_vars = "
     DGWaveToyX::f_error
 "
 
-CarpetX::out_tsv_every = $ncells/32   #TODO $ncells
+CarpetX::out_tsv_every = $ncells/32
 CarpetX::out_tsv_header = "plain"
 CarpetX::out_tsv_vars = "
     DGCoordinatesX::coords

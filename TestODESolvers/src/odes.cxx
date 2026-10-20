@@ -42,9 +42,6 @@ extern "C" void TestODESolvers_RHS(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_TestODESolvers_RHS;
   DECLARE_CCTK_PARAMETERS;
 
-  // I want to step state2 with twice the stepsize, so need to adjust the time
-  // at the RK substeps to have t_(k) = t0 + k dt * 2
-  // TODO: this will break when using more than 1 thread
   static int last_it = -1;
   static CCTK_REAL original_time;
 #pragma omp critical
@@ -53,9 +50,6 @@ extern "C" void TestODESolvers_RHS(CCTK_ARGUMENTS) {
     original_time = cctk_time;
   }
   const CCTK_REAL cctk_time2 = original_time + 2 * (cctk_time - original_time);
-
-  // u(t) = (1+t)^p
-  // d/dt u = p (1+t)^(p-1)
 
   const int imin = cctk_tile_min[0];
   const int jmin = cctk_tile_min[1];
@@ -74,10 +68,8 @@ extern "C" void TestODESolvers_RHS(CCTK_ARGUMENTS) {
     for (int j = jmin; j < jmax; ++j) {
       for (int i = imin; i < imax; ++i) {
         int ind = i * di + j * dj + k * dk;
-        // solving u(t) for (1 + t)^(order - 1) = u_inverse gives:
         const CCTK_REAL u_inverse =
             pow(state[ind], (order - 1) / CCTK_REAL(order));
-        // mix in some of the state vector and some of the analytic RHS
         rhs[ind] = 0.5 * order * (u_inverse + pow(1 + cctk_time, order - 1));
 
         if (cctk_iteration % 2) {
@@ -94,7 +86,6 @@ extern "C" void TestODESolvers_RHS(CCTK_ARGUMENTS) {
 }
 
 extern "C" void TestODESolvers_PostStep(CCTK_ARGUMENTS) {
-  // Do nothing
 }
 
 extern "C" void TestODESolvers_Error(CCTK_ARGUMENTS) {
@@ -125,7 +116,6 @@ extern "C" void TestODESolvers_Error(CCTK_ARGUMENTS) {
         error2[ind] = state2[ind] - u0;
 
         if (error[ind] == 0 || error2[ind] == 0) {
-          // happens reliably at cctk_time == cctk_initial_time
           corder[ind] = 0;
         } else {
           using std::abs, std::log;

@@ -22,9 +22,6 @@
 
 namespace Loop {
 
-// The struct GridDescBaseDevice is very similar to GridDescBase, except that it
-// requires AMReX include files, and thus "REQUIRES CarpetX" in the using
-// thorns' configuration.ccl file.
 struct GridDescBaseDevice : GridDescBase {
 
 protected:
@@ -38,7 +35,6 @@ public:
 
   GridDescBaseDevice(const cGH *cctkGH) : GridDescBase(cctkGH) {}
 
-  // Loop over a given box
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   void loop_box_device(const vect<int, dim> &restrict bnd_min,
@@ -52,7 +48,6 @@ public:
                                                       loop_min, loop_max, f);
 
 #else
-    // Run on GPU
 
     static_assert(CI == 0 || CI == 1);
     static_assert(CJ == 0 || CJ == 1);
@@ -66,14 +61,11 @@ public:
     if (N == 0 || any(loop_max <= loop_min))
       return;
 
-    // For some reason, the arguments loop_min and loop_max cannot be captured
-    // correctly in CUDA, but copies of them can
     const auto bnd_min1 = bnd_min;
     const auto bnd_max1 = bnd_max;
     const auto loop_min1 = loop_min;
     const auto loop_max1 = loop_max;
 
-    // Convert to AMReX box
     const amrex::Box box(
         amrex::IntVect(loop_min[0], loop_min[1], loop_min[2]),
         amrex::IntVect(loop_max[0] - 1, loop_max[1] - 1, loop_max[2] - 1),
@@ -88,9 +80,6 @@ public:
           const vect<int, dim> NI =
               vect<int, dim>(I > bnd_max1 - 1) - vect<int, dim>(I < bnd_min1);
           const vect<int, dim> I0 =
-              // If NI<0,   return bnd_min1
-              // If NI>0,   return bnd_max1-1
-              // If NI==0,  return 0
               if_else(NI == 0, 0, if_else(NI < 0, bnd_min1, bnd_max1 - 1));
           const vect<int, dim> BI =
               vect<int, dim>(I == bnd_max1 - 1) - vect<int, dim>(I == bnd_min1);
@@ -117,7 +106,6 @@ public:
 #endif
   }
 
-  // Loop over all points
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
@@ -129,7 +117,6 @@ public:
     loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
   }
 
-  // Loop over all interior points
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
@@ -141,8 +128,6 @@ public:
     loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin, imax, f);
   }
 
-  // Loop over a part of the domain. Loop over the interior first,
-  // then faces, then edges, then corners.
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
@@ -171,15 +156,15 @@ public:
                 vect<int, dim> imin, imax;
                 for (int d = 0; d < dim; ++d) {
                   switch (inormal[d]) {
-                  case -1: // lower boundary
+                  case -1:
                     imin[d] = all_min[d];
                     imax[d] = int_min[d];
                     break;
-                  case 0: // interior
+                  case 0:
                     imin[d] = int_min[d];
                     imax[d] = int_max[d];
                     break;
-                  case +1: // upper boundary
+                  case +1:
                     imin[d] = int_max[d];
                     imax[d] = all_max[d];
                     break;
@@ -195,17 +180,13 @@ public:
                 loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin,
                                                        imax, f);
               }
-            } // if rank
+            }
           }
         }
       }
-
-    } // for rank
+    }
   }
 
-  // Loop over all outer boundary points. This excludes ghost faces, but
-  // includes ghost edges/corners on non-ghost faces. Loop over faces first,
-  // then edges, then corners.
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
@@ -232,15 +213,15 @@ public:
                 vect<int, dim> imin, imax;
                 for (int d = 0; d < dim; ++d) {
                   switch (inormal[d]) {
-                  case -1: // lower boundary
+                  case -1:
                     imin[d] = all_min[d];
                     imax[d] = int_min[d];
                     break;
-                  case 0: // interior
+                  case 0:
                     imin[d] = int_min[d];
                     imax[d] = int_max[d];
                     break;
-                  case +1: // upper boundary
+                  case +1:
                     imin[d] = int_max[d];
                     imax[d] = all_max[d];
                     break;
@@ -256,59 +237,30 @@ public:
                 loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin,
                                                        imax, f);
               }
-            } // if rank
+            }
           }
         }
       }
-
-    } // for rank
+    }
   }
 
-  // Loop over the outermost "boundary" points in the interior. They correspond
-  // to points that are shifted inwards by = cctk_nghostzones[3] from those that
-  // CarpetX identifies as boundary points. From the perspective of CarpetX (or
-  // AMReX), these do not belong in the outer boundary, but rather the interior.
-  // This excludes ghost faces, but includes ghost edges/corners on non-ghost
-  // faces. Loop over faces first, then edges, then corners. Modified from
-  // loop_bnd_device. The additional argument is_sym_bnd is used to indicate
-  // whether each boundary is a symmetry boundary. This symmetry information can
-  // be provided by the PatchData object in the CarpetX driver.
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
   loop_outermost_int_device(const vect<int, dim> &group_nghostzones,
                             const vect<vect<bool, dim>, 2> &is_sym_bnd,
                             const F &f) const {
-    // boundary_box sets bnd_min and bnd_max
     vect<int, dim> bnd_min, bnd_max;
-    // if on (Carpetx) boundary points, then
-    //   bnd_min = nghostzones - lbnd
-    //   bnd_max = gsh - offset - nghostzones - lbnd
-    //   where lbnd : an array of cctk dim integers containing the lowest index
-    //   (in each direction) of the local grid, as seen on the global grid
-    // else,
-    //   bnd_min = -100000000
-    //   bnd_max = gsh + 1000000
-    // where cctk_gsh : an array of cctk dim integers with the global grid size
     boundary_box<CI, CJ, CK>(group_nghostzones, bnd_min, bnd_max);
 
-    // domain_boxes sets all_min, all_max, int_min and int_max
     vect<int, dim> all_min, all_max, int_min, int_max;
-    // Indices for the entire grid
-    //   all_min = ghost_offset;
-    //   all_max = lsh - offset - ghost_offset;
-    // Indices for the interior
-    //   int_min = nghostzones;
-    //   int_max = lsh - offset - nghostzones;
     domain_boxes<CI, CJ, CK>(group_nghostzones, all_min, all_max, int_min,
                              int_max);
 
-    // Check that the actual number of ghost zones isn't overridden
     for (int d = 0; d < dim; ++d) {
       assert(group_nghostzones[d] == nghostzones[d]);
     }
 
-    // Shift the indices towards the interior by nghostzones
     all_min += nghostzones;
     int_min += nghostzones;
     bnd_min += nghostzones;
@@ -316,22 +268,12 @@ public:
     int_max -= nghostzones;
     bnd_max -= nghostzones;
 
-    // rank selects: faces, edges, corners
-    // rank(interior) = 3
-    // rank(face)     = 2
-    // rank(edge)     = 1
-    // rank(corner)   = 0
     for (int rank = dim - 1; rank >= 0; --rank) {
 
-      // Nested loops that determine {ni,nj,nk} components of the normal vector
       for (int nk = -1; nk <= +1; ++nk) {
         for (int nj = -1; nj <= +1; ++nj) {
           for (int ni = -1; ni <= +1; ++ni) {
-            // True when the normal vector is normal to a {face, edge, corner}
             if ((ni == 0) + (nj == 0) + (nk == 0) == rank) {
-              // True when point is on left/right boundary,
-              // and vector is not parallel to a {face,corner,edge}
-              // In either of the 3 directions
               if ((ni != 0 && bbox[ni < 0 ? 0 : 1][0] &&
                    !is_sym_bnd[ni < 0 ? 0 : 1][0]) ||
                   (nj != 0 && bbox[nj < 0 ? 0 : 1][1] &&
@@ -339,20 +281,20 @@ public:
                   (nk != 0 && bbox[nk < 0 ? 0 : 1][2] &&
                    !is_sym_bnd[nk < 0 ? 0 : 1][2])) {
 
-                const vect<int, dim> inormal{ni, nj, nk}; // normal vector
+                const vect<int, dim> inormal{ni, nj, nk};
 
                 vect<int, dim> imin, imax;
                 for (int d = 0; d < dim; ++d) {
                   switch (inormal[d]) {
-                  case -1: // lower boundary
+                  case -1:
                     imin[d] = all_min[d];
                     imax[d] = int_min[d];
                     break;
-                  case 0: // interior
+                  case 0:
                     imin[d] = int_min[d];
                     imax[d] = int_max[d];
                     break;
-                  case +1: // upper boundary
+                  case +1:
                     imin[d] = int_max[d];
                     imax[d] = all_max[d];
                     break;
@@ -361,7 +303,6 @@ public:
                   }
 
                   using std::min, std::max;
-                  // Adjust loop_box index range according to tile min, max
                   imin[d] = max(tmin[d], imin[d]);
                   imax[d] = min(tmax[d], imax[d]);
                 }
@@ -369,79 +310,13 @@ public:
                 loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin,
                                                        imax, f);
               }
-            } // if rank
+            }
           }
         }
       }
-
-    } // for rank
+    }
   }
 
-#if 0
-  // Loop over all outer ghost points. This includes ghost edges/corners on
-  // non-ghost faces. Loop over faces first, then edges, then corners.
-  template <int CI, int CJ, int CK, int N = 1, int VS = 1,
-            int NT = AMREX_GPU_MAX_THREADS, typename F>
-  inline CCTK_KERNEL void
-  loop_ghosts_inclusive_device(const vect<int, dim> &group_nghostzones,
-                               const F &f) const {
-    constexpr vect<int, dim> offset{CI, CJ, CK};
-
-    for (int rank = dim - 1; rank >= 0; --rank) {
-
-      for (int nk = -1; nk <= +1; ++nk) {
-        for (int nj = -1; nj <= +1; ++nj) {
-          for (int ni = -1; ni <= +1; ++ni) {
-            if ((ni == 0) + (nj == 0) + (nk == 0) == rank) {
-
-              if ((ni != 0 && !bbox[ni < 0 ? 0 : 1][0]) ||
-                  (nj != 0 && !bbox[nj < 0 ? 0 : 1][1]) ||
-                  (nk != 0 && !bbox[nk < 0 ? 0 : 1][2])) {
-
-                const vect<int, dim> inormal{ni, nj, nk};
-
-                vect<int, dim> imin, imax;
-                for (int d = 0; d < dim; ++d) {
-                  const int ghost_offset =
-                      nghostzones[d] - group_nghostzones[d];
-                  const int begin_bnd = ghost_offset;
-                  const int begin_int = nghostzones[d];
-                  const int end_int = lsh[d] - offset[d] - nghostzones[d];
-                  const int end_bnd = lsh[d] - offset[d] - ghost_offset;
-                  switch (inormal[d]) {
-                  case -1: // lower boundary
-                    imin[d] = begin_bnd;
-                    imax[d] = begin_int;
-                    break;
-                  case 0: // interior
-                    imin[d] = begin_int;
-                    imax[d] = end_int;
-                    break;
-                  case +1: // upper boundary
-                    imin[d] = end_int;
-                    imax[d] = end_bnd;
-                    break;
-                  default:
-                    assert(0);
-                  }
-
-                  imin[d] = std::max(tmin[d], imin[d]);
-                  imax[d] = std::min(tmax[d], imax[d]);
-                }
-
-                loop_box_boundary_device<CI, CJ, CK, VS, N, NT>(imin, imax,
-                                                                inormal, f);
-              }
-            } // if rank
-          }
-        }
-      }
-    } // for rank
-  }
-#endif
-
-  // Loop over all outer ghost points. This excludes ghost edges/corners on
-  // non-ghost faces. Loop over faces first, then edges, then corners.
   template <int CI, int CJ, int CK, int VS = 1, int N = 1,
             int NT = AMREX_GPU_MAX_THREADS, typename F>
   inline CCTK_KERNEL void
@@ -469,15 +344,15 @@ public:
                 vect<int, dim> imin, imax;
                 for (int d = 0; d < dim; ++d) {
                   switch (inormal[d]) {
-                  case -1: // lower boundary
+                  case -1:
                     imin[d] = all_min[d];
                     imax[d] = int_min[d];
                     break;
-                  case 0: // interior
+                  case 0:
                     imin[d] = int_min[d];
                     imax[d] = int_max[d];
                     break;
-                  case +1: // upper boundary
+                  case +1:
                     imin[d] = int_max[d];
                     imax[d] = all_max[d];
                     break;
@@ -493,11 +368,11 @@ public:
                 loop_box_device<CI, CJ, CK, VS, N, NT>(bnd_min, bnd_max, imin,
                                                        imax, f);
               }
-            } // if rank
+            }
           }
         }
       }
-    } // for rank
+    }
   }
 
   template <int CI, int CJ, int CK, where_t where, typename F>
@@ -515,14 +390,6 @@ public:
   loop_device(const vect<int, dim> &group_nghostzones, const F &f) const {
     loop_bnd_device<CI, CJ, CK>(group_nghostzones, f);
   }
-#if 0
-  template <int CI, int CJ, int CK, where_t where, typename F>
-  inline CCTK_KERNEL
-      std::enable_if_t<(where == where_t::ghosts_inclusive), void>
-      loop_device(const vect<int, dim> &group_nghostzones, const F &f) const {
-    loop_ghosts_inclusive_device<CI, CJ, CK>(group_nghostzones, f);
-  }
-#endif
   template <int CI, int CJ, int CK, where_t where, typename F>
   inline CCTK_KERNEL std::enable_if_t<(where == where_t::ghosts), void>
   loop_device(const vect<int, dim> &group_nghostzones, const F &f) const {
@@ -620,4 +487,4 @@ loop_device_idx(const cGH *cctkGH, const vect<int, dim> &indextype,
 #undef CCTK_CENTERING_GRID
 #define CCTK_CENTERING_GRID const Loop::GridDescBaseDevice cctk_grid(cctkGH)
 
-#endif // #ifndef CARPETX_LOOP_LOOP_DEVICE_HXX
+#endif

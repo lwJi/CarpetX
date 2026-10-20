@@ -8,16 +8,6 @@ namespace CarpetX {
 
 std::string logo() {
 
-  // buf << "                                                               \n";
-  // buf << "    ██████╗ █████╗ ██████╗ ██████╗ ███████╗████████╗██╗  ██╗   \n";
-  // buf << "   ██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔════╝╚══██╔══╝╚██╗██╔╝   \n";
-  // buf << "   ██║     ███████║██████╔╝██████╔╝█████╗     ██║    ╚███╔╝    \n";
-  // buf << "   ██║     ██╔══██║██╔══██╗██╔═══╝ ██╔══╝     ██║    ██╔██╗    \n";
-  // buf << "   ╚██████╗██║  ██║██║  ██║██║     ███████╗   ██║   ██╔╝ ██╗   \n";
-  // buf << "    ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚══════╝   ╚═╝   ╚═╝  ╚═╝   \n";
-  // buf << "                                                               \n";
-
-  // colours
   const std::string blk{"\e[30m"};
   const std::string red{"\e[31m"};
   const std::string grn{"\e[32m"};
@@ -28,7 +18,6 @@ std::string logo() {
   const std::string whi{"\e[37m"};
   const std::string reset{"\e[39m"};
 
-  // lines and boxes
   const std::string space{"  "};
   const std::string vline{"▕▏"};
   const std::string hline{"──"};

@@ -48,8 +48,6 @@ extern "C" void BoxInBox_Init(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_BoxInBox_Init;
   DECLARE_CCTK_PARAMETERS;
 
-  // Copy parameters into grid scalars
-
   {
     const int region = 0;
     active[region] = active_1;
@@ -100,7 +98,6 @@ extern "C" void BoxInBox_Setup(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_BoxInBox_Setup;
   DECLARE_CCTK_PARAMETERS;
 
-  // Refine only patch 0
   if (cctk_patch != 0)
     return;
 
@@ -114,7 +111,6 @@ extern "C" void BoxInBox_Setup(CCTK_ARGUMENTS) {
   const vect<shape_t, max_num_regions> shapes = {
       get_shape(shape_1), get_shape(shape_2), get_shape(shape_3)};
 
-  // The level about which we're deciding on, i.e. the current level + 1
   using std::ilogb;
   const int level = ilogb(CCTK_REAL(cctk_levfac[0])) + 1;
 
@@ -160,8 +156,6 @@ extern "C" void BoxInBox_Setup(CCTK_ARGUMENTS) {
             if (level < num_levels1[region]) {
               const auto position = positions2[region];
               const auto radii = radii1[region];
-              // Decrease the box radius by one grid spacing since AMReX seems
-              // to expand the refined region by one cell
               const auto Rmax = radii - p.DX;
               const bool sr =
                   should_refine(shapes[region], p.X - position, Rmax);

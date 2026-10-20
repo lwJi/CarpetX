@@ -1,4 +1,3 @@
-// TODO: Don't include files from other thorns; create a proper interface
 #include "../../CarpetX/src/driver.hxx"
 #include "../../CarpetX/src/schedule.hxx"
 #include "../../CarpetX/src/timer.hxx"
@@ -37,8 +36,6 @@ static inline int omp_get_max_threads() { return 1; }
 
 namespace ODESolvers {
 
-////////////////////////////////////////////////////////////////////////////////
-
 // Taken from <https://en.cppreference.com/w/cpp/experimental/make_array>
 namespace details {
 template <class> struct is_ref_wrapper : std::false_type {};
@@ -67,16 +64,12 @@ constexpr details::return_type<D, Types...> make_array(Types &&...t) {
   return {std::forward<Types>(t)...};
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-// A state vector component, with mfabs for each level, group, and variable
 struct statecomp_t {
   statecomp_t() = default;
 
   statecomp_t(statecomp_t &&) = default;
   statecomp_t &operator=(statecomp_t &&) = default;
 
-  // Don't allow copies because we might own stuff
   statecomp_t(const statecomp_t &) = delete;
   statecomp_t &operator=(const statecomp_t &) = delete;
 
@@ -126,9 +119,6 @@ struct statecomp_t {
 template <std::size_t N> using reals = std::array<CCTK_REAL, N>;
 template <std::size_t N> using states = std::array<const statecomp_t *, N>;
 
-////////////////////////////////////////////////////////////////////////////////
-
-// Initialize the temporary mfab mechanism
 void statecomp_t::init_tmp_mfabs() {
   assert(CarpetX::active_levels);
   CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
@@ -141,7 +131,6 @@ void statecomp_t::init_tmp_mfabs() {
   });
 }
 
-// Free all temporary mfabs that we might have allocated
 void statecomp_t::free_tmp_mfabs() {
   assert(CarpetX::active_levels);
   CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
@@ -154,7 +143,6 @@ void statecomp_t::free_tmp_mfabs() {
   });
 }
 
-// State that the state vector has valid data in the interior
 void statecomp_t::set_valid(const CarpetX::valid_t valid) const {
   for (auto groupdata : groupdatas) {
     for (int vi = 0; vi < groupdata->numvars; ++vi) {
@@ -177,8 +165,6 @@ void statecomp_t::set_valid(const CarpetX::valid_t valid) const {
             << (valid.valid_int ? "valid" : "invalid");
         return buf.str();
       });
-      // TODO: Parallelize over patches, levels, group, variables, and
-      // timelevels
       const CarpetX::active_levels_t active_levels(
           groupdata->level, groupdata->level + 1, groupdata->patch,
           groupdata->patch + 1);
@@ -187,7 +173,6 @@ void statecomp_t::set_valid(const CarpetX::valid_t valid) const {
   }
 }
 
-// Combine validity information from several sources
 template <std::size_t N>
 void statecomp_t::combine_valids(const statecomp_t &dst, const CCTK_REAL scale,
                                  const std::array<CCTK_REAL, N> &factors,
@@ -232,15 +217,12 @@ void statecomp_t::combine_valids(const statecomp_t &dst, const CCTK_REAL scale,
   }
 }
 
-// Ensure a state vector has valid data in the interior
 void statecomp_t::check_valid(const CarpetX::valid_t required,
                               const std::function<std::string()> &why) const {
   for (const auto groupdata : groupdatas) {
     for (int vi = 0; vi < groupdata->numvars; ++vi) {
       const int tl = 0;
       CarpetX::error_if_invalid(*groupdata, vi, tl, required, why);
-      // TODO: Parallelize over pathces, levels, group, variables, and
-      // timelevels
       const CarpetX::active_levels_t active_levels(
           groupdata->level, groupdata->level + 1, groupdata->patch,
           groupdata->patch + 1);
@@ -250,7 +232,6 @@ void statecomp_t::check_valid(const CarpetX::valid_t required,
   }
 }
 
-// Copy state vector into newly allocated memory
 statecomp_t statecomp_t::copy(const CarpetX::valid_t where) const {
   const std::size_t size = mfabs.size();
   statecomp_t result;
@@ -258,29 +239,11 @@ statecomp_t statecomp_t::copy(const CarpetX::valid_t where) const {
   result.mfabs.reserve(size);
   for (std::size_t n = 0; n < size; ++n) {
     const auto groupdata = groupdatas.at(n);
-    // This global nan-check doesn't work since we don't care about the
-    // boundaries
-    // #ifdef CCTK_DEBUG
-    //     const auto &x = mfabs.at(n);
-    //     if (x->contains_nan())
-    //       CCTK_VERROR("statecomp_t::copy.x: Group %s contains nans",
-    //                   groupdata->groupname.c_str());
-    // #endif
     auto y = groupdata->alloc_tmp_mfab();
     result.groupdatas.push_back(groupdata);
     result.mfabs.push_back(y);
   }
   lincomb(result, 0, make_array(CCTK_REAL(1)), make_array(this), where);
-  // This global nan-check doesn't work since we don't care about the boundaries
-  // #ifdef CCTK_DEBUG
-  //   for (std::size_t n = 0; n < size; ++n) {
-  //     const auto groupdata = result.groupdatas.at(n);
-  //     const auto &y = result.mfabs.at(n);
-  //     if (y->contains_nan())
-  //       CCTK_VERROR("statecomp_t::copy.y: Group %s contains nans",
-  //                   groupdata->groupname.c_str());
-  //   }
-  // #endif
   return result;
 }
 
@@ -313,8 +276,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
   std::vector<std::function<void()> > tasks;
 #endif
 
-  // TODO: Poison ghosts/boundaries
-
   for (std::size_t m = 0; m < size; ++m) {
     const std::ptrdiff_t ncomps = dst.mfabs.at(m)->nComp();
     const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync();
@@ -323,8 +284,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
       std::array<amrex::Array4<const CCTK_REAL>, N> srcvars;
       for (std::size_t n = 0; n < N; ++n)
         srcvars[n] = srcs[n]->mfabs.at(m)->const_array(mfi);
-      // Array4's public stride members were replaced by get_stride() in
-      // AMReX 26.02
 #if AMREX_RELEASE_NUMBER >= 260200
       for (std::size_t n = 0; n < N; ++n) {
         assert(srcvars[n].template get_stride<1>() == dstvar.get_stride<1>());
@@ -348,7 +307,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
         srcptrs[n] = srcvars[n].dataPtr();
 
 #ifndef AMREX_USE_GPU
-      // CPU
 
       const std::ptrdiff_t ntiles = omp_get_max_threads();
       const std::ptrdiff_t tile_size = Arith::align_ceil(
@@ -359,8 +317,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
         const std::ptrdiff_t imax = min(npoints, imin + tile_size);
 
         if (!read_dst && N == 1 && factors[0] == 1) {
-          // Copy
-
           auto task = [=]() {
             std::memcpy(&dstptr[imin], &srcptrs[0][imin],
                         (imax - imin) * sizeof *dstptr);
@@ -368,8 +324,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           tasks.push_back(std::move(task));
 
         } else if (!read_dst && N >= 1 && factors[0] == 1) {
-          // Write without scaling
-
           auto task = [=]() {
 #pragma omp simd
             for (std::ptrdiff_t i = imin; i < imax; ++i) {
@@ -382,8 +336,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           tasks.push_back(std::move(task));
 
         } else if (!read_dst) {
-          // Write
-
           auto task = [=]() {
 #pragma omp simd
             for (std::ptrdiff_t i = imin; i < imax; ++i) {
@@ -396,8 +348,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           tasks.push_back(std::move(task));
 
         } else if (scale == 1) {
-          // Update without scaling
-
           auto task = [=]() {
 #pragma omp simd
             for (std::ptrdiff_t i = imin; i < imax; ++i) {
@@ -410,8 +360,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           tasks.push_back(std::move(task));
 
         } else {
-          // Update
-
           auto task = [=]() {
 #pragma omp simd
             for (std::ptrdiff_t i = imin; i < imax; ++i) {
@@ -423,10 +371,9 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
           };
           tasks.push_back(std::move(task));
         }
-      } // for imin
+      }
 
 #else
-      // GPU
 
       const CCTK_REAL scale1 = scale;
       assert(npoints < INT_MAX);
@@ -441,13 +388,7 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
             box, [=] CCTK_DEVICE(const amrex::Box &box) __attribute__((
                      __always_inline__, __flatten__)) {
               const int i = box.smallEnd()[0];
-              // const int j = box.smallEnd()[1];
-              // const int k = box.smallEnd()[2];
               CCTK_REAL accum = 0;
-              // The ROCM 6.2 compiler can't handle
-              // `std::array::operator[]`, so we avoid it via pointers:
-              // for (std::size_t n = 0; n < N; ++n)
-              //   accum += factors[n] * srcptrs[n][i];
               const CCTK_REAL *restrict const factors_ptr = factors.data();
               const CCTK_REAL *restrict const *restrict const srcptrs_ptr =
                   srcptrs.data();
@@ -462,13 +403,7 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
             box, [=] CCTK_DEVICE(const amrex::Box &box) __attribute__((
                      __always_inline__, __flatten__)) {
               const int i = box.smallEnd()[0];
-              // const int j = box.smallEnd()[1];
-              // const int k = box.smallEnd()[2];
               CCTK_REAL accum = scale1 * dstptr[i];
-              // The ROCM 6.2 compiler can't handle
-              // `std::array::operator[]`, so we avoid it via pointers:
-              // for (std::size_t n = 0; n < N; ++n)
-              //   accum += factors[n] * srcptrs[n][i];
               const CCTK_REAL *restrict const factors_ptr = factors.data();
               const CCTK_REAL *restrict const *restrict const srcptrs_ptr =
                   srcptrs.data();
@@ -483,12 +418,10 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
   }
 
 #ifndef AMREX_USE_GPU
-  // run all tasks
 #pragma omp parallel for schedule(dynamic)
   for (std::size_t i = 0; i < tasks.size(); ++i)
     tasks[i]();
 #else
-  // wait for all tasks
   amrex::Gpu::synchronize();
   AMREX_GPU_ERROR_CHECK();
 #endif
@@ -569,11 +502,7 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 int groupindex(const int other_gi, std::string gn) {
-  // If the group name does not contain a colon, then prefix the current group's
-  // implementation or thorn name
   if (gn.find(':') == std::string::npos) {
     const char *const thorn_or_impl = CCTK_GroupImplementationI(other_gi);
     assert(thorn_or_impl);
@@ -605,16 +534,15 @@ int get_group_rhs(const int gi) {
   const int iret =
       Util_TableGetString(tags, rhs_buf.size(), rhs_buf.data(), "rhs");
   if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
-    rhs_buf[0] = '\0'; // default: empty (no RHS)
+    rhs_buf[0] = '\0';
   } else if (iret >= 0) {
-    // do nothing
   } else {
     assert(0);
   }
 
   const std::string str(rhs_buf.data());
   if (str.empty())
-    return -1; // No RHS specified
+    return -1;
 
   const int rhs = groupindex(gi, str);
   if (rhs < 0)
@@ -634,9 +562,8 @@ std::vector<int> get_group_dependents(const int gi) {
   const int iret = Util_TableGetString(tags, dependents_buf.size(),
                                        dependents_buf.data(), "dependents");
   if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
-    dependents_buf[0] = '\0'; // default: empty (no DEPENDENTS)
+    dependents_buf[0] = '\0';
   } else if (iret >= 0) {
-    // do nothing
   } else {
     assert(0);
   }
@@ -645,12 +572,10 @@ std::vector<int> get_group_dependents(const int gi) {
   const std::string str(dependents_buf.data());
   std::size_t pos = 0;
   for (;;) {
-    // Skip white space
     while (pos < str.size() && std::isspace(str[pos]))
       ++pos;
     if (pos == str.size())
       break;
-    // Read group name
     const std::size_t group_begin = pos;
     while (pos < str.size() && !std::isspace(str[pos]))
       ++pos;
@@ -668,12 +593,10 @@ std::vector<int> get_group_dependents(const int gi) {
   return dependents;
 }
 
-// Mark groups as invalid
 void mark_invalid(const std::vector<int> &groups) {
   CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
     for (const int gi : groups) {
       auto &groupdata = *leveldata.groupdata.at(gi);
-      // Invalidate all variables of the current time level
       const int tl = 0;
       for (auto &why_valid : groupdata.valid.at(tl))
         why_valid = CarpetX::why_valid_t(
@@ -681,8 +604,6 @@ void mark_invalid(const std::vector<int> &groups) {
     }
   });
 }
-
-///////////////////////////////////////////////////////////////////////////////
 
 extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_InitConstants;
@@ -716,7 +637,6 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
   assert(CarpetX::active_levels);
   CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
     for (const auto &groupdataptr : leveldata.groupdata) {
-      // TODO: add support for evolving grid scalars
       if (groupdataptr == nullptr)
         continue;
 
@@ -759,7 +679,6 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     assert(last == rhs_groups.end());
   }
 
-  // Add RHS variables to dependent variables
   dep_groups.insert(dep_groups.end(), rhs_groups.begin(), rhs_groups.end());
 
   {
@@ -801,8 +720,6 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     rhs.check_valid(CarpetX::make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
   };
-  // t = t_0 + c
-  // var = a_0 * var + \Sum_i a_i * var_i
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
                               const CCTK_REAL a0, const auto &as,
                               const auto &vars) {
@@ -827,23 +744,12 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
   if (CCTK_EQUALS(method, "constant")) {
 
-    // y1 = y0
-
-    // do nothing
-
   } else if (CCTK_EQUALS(method, "Euler")) {
-
-    // k1 = f(y0)
-    // y1 = y0 + h k1
 
     calcrhs(1);
     calcupdate(1, dt, 1.0, reals<1>{dt}, states<1>{&rhs});
 
   } else if (CCTK_EQUALS(method, "RK2")) {
-
-    // k1 = f(y0)
-    // k2 = f(y0 + h/2 k1)
-    // y1 = y0 + h k2
 
     const auto old = copy_state(var, CarpetX::make_valid_all());
 
@@ -854,11 +760,6 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     calcupdate(2, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
 
   } else if (CCTK_EQUALS(method, "RK3")) {
-
-    // k1 = f(y0)
-    // k2 = f(y0 + h/2 k1)
-    // k3 = f(y0 - h k1 + 2 h k2)
-    // y1 = y0 + h/6 k1 + 2/3 h k2 + h/6 k3
 
     const auto old = copy_state(var, CarpetX::make_valid_all());
 
@@ -877,11 +778,6 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
   } else if (CCTK_EQUALS(method, "SSPRK3")) {
 
-    // k1 = f(y0)
-    // k2 = f(y0 + h k1)
-    // k3 = f(y0 + h/4 k1 + h/4 k2)
-    // y1 = y0 + h/6 k1 + h/6 k2 + 2/3 h k3
-
     const auto old = copy_state(var, CarpetX::make_valid_all());
 
     calcrhs(1);
@@ -898,12 +794,6 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
                states<4>{&old, &k1, &k2, &rhs});
 
   } else if (CCTK_EQUALS(method, "RK4")) {
-
-    // k1 = f(y0)
-    // k2 = f(y0 + h/2 k1)
-    // k3 = f(y0 + h/2 k2)
-    // k4 = f(y0 + h k3)
-    // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
     const auto old = copy_state(var, CarpetX::make_valid_all());
 
@@ -939,47 +829,35 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
                      std::vector<T> >
         tableau{
             {
-                {/* 1 */ 0, {}},                                           //
-                {/* 2 */ R(2, 27), {R(2, 27)}},                            //
-                {/* 3 */ R(1, 9), {R(1, 36), R(3, 36)}},                   //
-                {/* 4 */ R(1, 6), {R(1, 24), 0, R(3, 24)}},                //
-                {/* 5 */ R(5, 12), {R(20, 48), 0, R(-75, 48), R(75, 48)}}, //
-                {/* 6 */ R(1, 2), {R(1, 20), 0, 0, R(5, 20), R(4, 20)}},   //
-                {/* 7 */ R(5, 6),
+                {0, {}},                                           //
+                {R(2, 27), {R(2, 27)}},                            //
+                {R(1, 9), {R(1, 36), R(3, 36)}},                   //
+                {R(1, 6), {R(1, 24), 0, R(3, 24)}},                //
+                {R(5, 12), {R(20, 48), 0, R(-75, 48), R(75, 48)}}, //
+                {R(1, 2), {R(1, 20), 0, 0, R(5, 20), R(4, 20)}},   //
+                {R(5, 6),
                  {R(-25, 108), 0, 0, R(125, 108), R(-260, 108),
                   R(250, 108)}}, //
-                {/* 8 */ R(1, 6),
+                {R(1, 6),
                  {R(31, 300), 0, 0, 0, R(61, 225), R(-2, 9), R(13, 900)}}, //
-                {/* 9 */ R(2, 3),
+                {R(2, 3),
                  {2, 0, 0, R(-53, 6), R(704, 45), R(-107, 9), R(67, 90), 3}}, //
-                {/* 10 */ R(1, 3),
+                {R(1, 3),
                  {R(-91, 108), 0, 0, R(23, 108), R(-976, 135), R(311, 54),
                   R(-19, 60), R(17, 6), R(-1, 12)}}, //
-                {/* 11 */ 1,
+                {1,
                  {R(2383, 4100), 0, 0, R(-341, 164), R(4496, 1025), R(-301, 82),
                   R(2133, 4100), R(45, 82), R(45, 164),
                   R(18, 41)}}, //
-                               // {/* 12 */ 0,
-                //  {R(3, 205), 0, 0, 0, 0, R(-6, 41), R(-3, 205), R(-3, 41),
-                //  R(3, 41),
-                //   R(6, 41)}}, //
-                // {/* 13 */ 1,
-                //  {R(-1777, 4100), 0, 0, R(-341, 164), R(4496, 1025), R(-289,
-                //  82),
-                //   R(2193, 4100), R(51, 82), R(33, 164), R(12, 41), 0, 1}}, //
             },
             {
                 R(41, 840), 0, 0, 0, 0, R(34, 105), R(9, 35), R(9, 35),
                 R(9, 280), R(9, 280), R(41, 840),
-                // 0,
-                // 0,
             }};
 
-    // Check Butcher tableau
     const std::size_t nsteps = std::get<0>(tableau).size();
     {
       for (std::size_t step = 0; step < nsteps; ++step) {
-        // TODO: Could allow <=
         assert(std::get<1>(std::get<0>(tableau).at(step)).size() == step);
         const auto &c = std::get<0>(std::get<0>(tableau).at(step));
         const auto &as = std::get<1>(std::get<0>(tableau).at(step));
@@ -988,7 +866,6 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
           x += a;
         assert(fabs(x - c) <= 10 * std::numeric_limits<T>::epsilon());
       }
-      // TODO: Could allow <=
       assert(std::get<1>(tableau).size() == nsteps);
       const auto &bs = std::get<1>(tableau);
       T x = 0;
@@ -1002,12 +879,10 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     std::vector<statecomp_t> ks;
     ks.reserve(nsteps);
     for (std::size_t step = 0; step < nsteps; ++step) {
-      // Skip the first state vector calculation, it is always trivial
       if (step > 0) {
         const auto &c = std::get<0>(std::get<0>(tableau).at(step));
         const auto &as = std::get<1>(std::get<0>(tableau).at(step));
 
-        // Add scaled RHS to state vector
         std::vector<CCTK_REAL> factors;
         std::vector<const statecomp_t *> srcs;
         factors.reserve(as.size() + 1);
@@ -1021,14 +896,12 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
           }
         }
         calcupdate(step, c * dt, 0.0, factors, srcs);
-        // TODO: Deallocate ks that are not needed any more
       }
 
       calcrhs(step + 1);
       ks.push_back(copy_state(rhs, CarpetX::make_valid_int()));
     }
 
-    // Calculate new state vector
     const auto &bs = std::get<1>(tableau);
     std::vector<CCTK_REAL> factors;
     std::vector<const statecomp_t *> srcs;
@@ -1048,40 +921,36 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     typedef CCTK_REAL T;
     const auto R = [](T x, T y) { return x / y; };
-    // These coefficients are taken from the Einstein Toolkit, thorn
-    // CactusNumerical/MoL, file RK87.c, written by Peter Diener,
-    // following P. J. Prince and J. R. Dormand, Journal of
-    // Computational and Applied Mathematics, volume 7, no 1, 1981
     const std::tuple<std::vector<std::vector<T> >, std::vector<T> > tableau{
         {
-            {/*1*/},                                    //
-            {/*2*/ R(1, 18)},                           //
-            {/*3*/ R(1, 48), R(1, 16)},                 //
-            {/*4*/ R(1, 32), 0, R(3, 32)},              //
-            {/*5*/ R(5, 16), 0, -R(75, 64), R(75, 64)}, //
-            {/*6*/ R(3, 80), 0, 0, R(3, 16), R(3, 20)}, //
-            {/*7*/ R(29443841, 614563906), 0, 0, R(77736538, 692538347),
+            {},                                    //
+            {R(1, 18)},                           //
+            {R(1, 48), R(1, 16)},                 //
+            {R(1, 32), 0, R(3, 32)},              //
+            {R(5, 16), 0, -R(75, 64), R(75, 64)}, //
+            {R(3, 80), 0, 0, R(3, 16), R(3, 20)}, //
+            {R(29443841, 614563906), 0, 0, R(77736538, 692538347),
              -R(28693883, 1125000000), R(23124283, 1800000000)}, //
-            {/*8*/ R(16016141, 946692911), 0, 0, R(61564180, 158732637),
+            {R(16016141, 946692911), 0, 0, R(61564180, 158732637),
              R(22789713, 633445777), R(545815736, 2771057229),
              -R(180193667, 1043307555)}, //
-            {/*9*/ R(39632708, 573591083), 0, 0, -R(433636366, 683701615),
+            {R(39632708, 573591083), 0, 0, -R(433636366, 683701615),
              -R(421739975, 2616292301), R(100302831, 723423059),
              R(790204164, 839813087), R(800635310, 3783071287)}, //
-            {/*10*/ R(246121993, 1340847787), 0, 0,
+            {R(246121993, 1340847787), 0, 0,
              -R(37695042795, 15268766246), -R(309121744, 1061227803),
              -R(12992083, 490766935), R(6005943493, 2108947869),
              R(393006217, 1396673457), R(123872331, 1001029789)}, //
-            {/*11*/ -R(1028468189, 846180014), 0, 0, R(8478235783, 508512852),
+            {-R(1028468189, 846180014), 0, 0, R(8478235783, 508512852),
              R(1311729495, 1432422823), -R(10304129995, 1701304382),
              -R(48777925059, 3047939560), R(15336726248, 1032824649),
              -R(45442868181, 3398467696), R(3065993473, 597172653)}, //
-            {/*12*/ R(185892177, 718116043), 0, 0, -R(3185094517, 667107341),
+            {R(185892177, 718116043), 0, 0, -R(3185094517, 667107341),
              -R(477755414, 1098053517), -R(703635378, 230739211),
              R(5731566787, 1027545527), R(5232866602, 850066563),
              -R(4093664535, 808688257), R(3962137247, 1805957418),
              R(65686358, 487910083)}, //
-            {/*13*/ R(403863854, 491063109), 0, 0, -R(5068492393, 434740067),
+            {R(403863854, 491063109), 0, 0, -R(5068492393, 434740067),
              -R(411421997, 543043805), R(652783627, 914296604),
              R(11173962825, 925320556), -R(13158990841, 6184727034),
              R(3936647629, 1978049680), -R(160528059, 685178525),
@@ -1092,13 +961,10 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
          -R(1041891430, 1371343529), R(760417239, 1151165299),
          R(118820643, 751138087), -R(528747749, 2220607170), R(1, 4)}};
 
-    // Check Butcher tableau
     const std::size_t nsteps = std::get<0>(tableau).size();
     {
       for (std::size_t step = 0; step < nsteps; ++step)
-        // TODO: Could allow <=
         assert(std::get<0>(tableau).at(step).size() == step);
-      // TODO: Could allow <=
       assert(std::get<1>(tableau).size() == nsteps);
       const auto &bs = std::get<1>(tableau);
       T x = 0;
@@ -1112,14 +978,12 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     std::vector<statecomp_t> ks;
     ks.reserve(nsteps);
     for (std::size_t step = 0; step < nsteps; ++step) {
-      // Skip the first state vector calculation, it is always trivial
       if (step > 0) {
         const auto &as = std::get<0>(tableau).at(step);
         T c = 0;
         for (const auto &a : as)
           c += a;
 
-        // Add scaled RHS to state vector
         std::vector<CCTK_REAL> factors;
         std::vector<const statecomp_t *> srcs;
         factors.reserve(as.size() + 1);
@@ -1133,14 +997,12 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
           }
         }
         calcupdate(step, c * dt, 0.0, factors, srcs);
-        // TODO: Deallocate ks that are not needed any more
       }
 
       calcrhs(step + 1);
       ks.push_back(copy_state(rhs, CarpetX::make_valid_int()));
     }
 
-    // Calculate new state vector
     const auto &bs = std::get<1>(tableau);
     std::vector<CCTK_REAL> factors;
     std::vector<const statecomp_t *> srcs;
@@ -1158,21 +1020,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
   } else if (CCTK_EQUALS(method, "IMEX122") ||
              CCTK_EQUALS(method, "Implicit Euler")) {
-    // Implicit definition:
-    //   y1 = y0 + h/2 f(y0) + h/2 g(y1)
-    //   y2 = y0 + h f(y1) + h g(y1)
-
-    // Implicit RHS:
-    //   u1 = G(u0, h)   where   u1 = u0 + h g(u1)
-
-    // Explicit definition:
-    //   k1 = f(y0)
-    //   y1 = G(y0 + h/2 k1, h/2)
-    //   k'2 = (y1 - y0 - h/2 k1) / (h/2)
-    //   k2 = f(y1)
-    //   y2 = y0 + h k2 + h k'2
-
-    const auto y0 = var.copy(CarpetX::make_valid_int /*all*/ ());
+    const auto y0 = var.copy(CarpetX::make_valid_int());
 
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
     if (verbose)
@@ -1198,7 +1046,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt;
     CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
-    const auto y1 = var.copy(CarpetX::make_valid_int /*all*/ ());
+    const auto y1 = var.copy(CarpetX::make_valid_int());
 
     statecomp_t kprime2;
     statecomp_t::lincomb(kprime2, 0,
@@ -1228,10 +1076,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     statecomp_t::free_tmp_mfabs();
   }
 
-  // Reset current time
   *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = saved_time;
-
-  // TODO: Update time here, and not during time level cycling in the driver
 }
 
 } // namespace ODESolvers

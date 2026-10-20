@@ -1,5 +1,3 @@
-# ParticlesX
-
 SCHEDULE ParticlesX_setup AT basegrid
 {
   LANG: C
