@@ -23,8 +23,6 @@ using std::result_of_t;
 
 constexpr int dim = 3;
 
-// u(t,x,y,z) =
-//   A cos(2 pi omega t) sin(2 pi kx x) sin(2 pi ky y) sin(2 pi kz z)
 template <typename T>
 constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
                              const T t, const T x, const T y, const T z, T &u,
@@ -40,8 +38,6 @@ constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
         cos(2 * pi * ky * y) * cos(2 * pi * kz * z);
 }
 
-// u(t,r) = (f(t-r) - f(t+r)) / r
-// f(v) = A exp(-1/2 (r/W)^2)
 template <typename T>
 constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
                         const T z, T &u, T &rho) {
@@ -53,7 +49,6 @@ constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
   };
 
   if (r < sqrt(std::numeric_limits<T>::epsilon())) {
-    // L'Hôpital
     u = 2 / pow(W, 2) * f(t) * t;
     rho = -2 / pow(W, 4) * f(t) * (pow(t, 2) - pow(W, 2));
   } else {
@@ -61,12 +56,6 @@ constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
     rho = -(f(t - r) * (t - r) - f(t + r) * (t + r)) / (pow(W, 2) * r);
   }
 }
-
-////////////////////////////////////////////////////////////////////////////////
-
-// The two state groups solve the same problem and differ only in their
-// prolongation tags. Each routine is written once, over the grid functions of
-// one (state, rhs, error) triple, and scheduled once per triple.
 
 void initial(const GridDescBaseDevice &grid, const CCTK_REAL time,
              const GF3D2<CCTK_REAL> &u, const GF3D2<CCTK_REAL> &rho) {
@@ -103,10 +92,8 @@ void rhs(const cGH *const cctkGH, const GridDescBaseDevice &grid,
 
   vect<int, dim> imin, imax;
   GridDescBase(cctkGH).box_int<0, 0, 0>(grid.nghostzones, imin, imax);
-  // suffix 5: without ghost zones
   const GF3D5layout layout5(imin, imax);
 
-  // Tile variables for derivatives and so on
   const int ntmps = 10;
   GF3D5vector<CCTK_REAL> tmps(layout5, ntmps);
   int itmp = 0;
@@ -143,7 +130,6 @@ void rhs(const cGH *const cctkGH, const GridDescBaseDevice &grid,
             tl_ddu(0, 0)(index5) + tl_ddu(1, 1)(index5) + tl_ddu(2, 2)(index5);
       });
 
-  // dissipation
   const auto apply_diss = [&](const GF3D2<const CCTK_REAL> &gf_,
                               const GF3D2<CCTK_REAL> &gf_rhs_) {
     grid.loop_int_device<0, 0, 0>(
@@ -164,7 +150,6 @@ void error(const GridDescBaseDevice &grid, const CCTK_REAL time,
            const GF3D2<CCTK_REAL> &u_err, const GF3D2<CCTK_REAL> &rho_err) {
   DECLARE_CCTK_PARAMETERS;
 
-  // Pointwise, so computed everywhere instead of SYNCed (see schedule.ccl)
   if (CCTK_EQUALS(initial_condition, "standing wave")) {
 
     grid.loop_all_device<0, 0, 0>(
@@ -193,8 +178,6 @@ void error(const GridDescBaseDevice &grid, const CCTK_REAL time,
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
 extern "C" void TestSubcyclingMixedProlong_Initial_lo(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMixedProlong_Initial_lo;
   initial(grid, cctk_time, u_lo, rho_lo);
@@ -216,7 +199,6 @@ extern "C" void TestSubcyclingMixedProlong_RHS_hi(CCTK_ARGUMENTS) {
 }
 
 extern "C" void TestSubcyclingMixedProlong_Sync(CCTK_ARGUMENTS) {
-  // do nothing
 }
 
 extern "C" void TestSubcyclingMixedProlong_Error_lo(CCTK_ARGUMENTS) {
