@@ -7,8 +7,6 @@
 extern "C" {
 #endif
 
-// This file must mimic the GridDescBase in loop.hxx.
-
 #define LC_DIM 3
 
 typedef struct {
@@ -25,15 +23,6 @@ typedef struct {
 
 GridDescBase_t LC_CreateGridDesc(const cGH *cctkGH);
 
-// Replicate looping constructs in loop.hxx as good as we can, given that there
-// is only one CCTK_LOOP macro that cannot distinguish between cell- and
-// vertex-centred variables.
-//
-// This is not quite the way LoopControl does it, which would involve changing
-// LC_LOOP3STROFF_NORMAL, which no longer knows what it needs to loop over and
-// is only given the imin/imax ranges that Cactus thinks are required, but has
-// no idea about tiles.
-
 #define LC_LOOP3_BOX(name, i, j, k, grid, imin, imax, inormal)                 \
   do {                                                                         \
     for (int k = imin[2]; k < imax[2]; ++k) {                                  \
@@ -47,7 +36,6 @@ GridDescBase_t LC_CreateGridDesc(const cGH *cctkGH);
   }                                                                            \
   while (0)
 
-// Replace CCTK_LOOP macros
 #if !defined CCTK_LOOP3STROFF_NORMAL || !defined CCTK_ENDLOOP3STROFF_NORMAL
 #error "internal error"
 #endif
@@ -83,4 +71,4 @@ GridDescBase_t LC_CreateGridDesc(const cGH *cctkGH);
 }
 #endif
 
-#endif // CARPETX_LOOP_LOOPCONTROL_H
+#endif
