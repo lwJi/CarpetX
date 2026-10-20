@@ -6,7 +6,20 @@ import sys
 from collections import Counter
 from typing import Iterable, Optional
 
-from files import PROJECT, Lang, changed, covered, is_regular, merge_base, parallel, read_text, repo_name, show, untracked
+from files import (
+    PROJECT,
+    Lang,
+    changed,
+    covered,
+    is_regular,
+    merge_base,
+    merged_tips,
+    parallel,
+    read_text,
+    repo_name,
+    show,
+    untracked,
+)
 from lex_clang import ToolMissing
 from report import render
 from rules import check, comment_lines, lex, may_hold_comments, regions_of
@@ -126,10 +139,14 @@ def branch_changes(root: str, base: Optional[str] = None) -> list[tuple[str, Opt
 
 
 def added_since(root: str, base: Optional[str] = None) -> list:
+    base = merge_base(root) if base is None else base
+    tips = merged_tips(root, base)
+
     def judge(item):
         base, old, name, lang = item
+        befores = [show(root, base, old)] + [show(root, tip, name) or show(root, tip, old) for tip in tips]
         after = read_text(os.path.join(root, name))
-        return [(name, v) for v in added([show(root, base, old)], after, lang)]
+        return [(name, v) for v in added(befores, after, lang)]
 
     return [entry for entries in parallel(judge, branch_changes(root, base)) for entry in entries]
 

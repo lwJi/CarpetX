@@ -7,7 +7,19 @@ import unittest
 from unittest import mock
 
 import files
-from files import EMPTY_TREE, Lang, changed, covered, lang_of, list_tree, merge_base, show, thorns_in, untracked
+from files import (
+    EMPTY_TREE,
+    Lang,
+    changed,
+    covered,
+    lang_of,
+    list_tree,
+    merge_base,
+    merged_tips,
+    show,
+    thorns_in,
+    untracked,
+)
 
 ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
@@ -146,6 +158,25 @@ class Git(unittest.TestCase):
         self.assertEqual(untracked(self.root), ["T/untracked.ccl"])
         self.assertEqual(show(self.root, base, "T/c.ccl"), "c\n" * 20)
         self.assertEqual(show(self.root, base, "T/nope.ccl"), "")
+
+    def test_merged_tips_are_the_other_parents_of_each_first_parent_merge(self):
+        self.assertEqual(merged_tips(self.root, EMPTY_TREE), [])
+        base = self.commit({"T/a.ccl": "a\n"})
+        git(self.root, "switch", "-q", "-c", "work")
+        self.commit({"T/b.ccl": "b\n"})
+        self.assertEqual(merged_tips(self.root, base), [])
+        git(self.root, "switch", "-q", "-c", "x", base)
+        self.commit({"T/x.ccl": "x\n"})
+        git(self.root, "switch", "-q", "-c", "side", base)
+        self.commit({"T/s.ccl": "s\n"})
+        git(self.root, "merge", "--no-ff", "-q", "-m", "m", "x")
+        side = git(self.root, "rev-parse", "HEAD").strip()
+        git(self.root, "switch", "-q", "-c", "y", base)
+        y = self.commit({"T/y.ccl": "y\n"})
+        git(self.root, "switch", "-q", "work")
+        git(self.root, "merge", "--no-ff", "-q", "-m", "m", "side", "y")
+        self.assertEqual(merged_tips(self.root, base), [side, y])
+        self.assertEqual(merged_tips(self.root, "HEAD"), [])
 
     def test_deleted_files_are_not_listed(self):
         base = self.commit({"T/a.ccl": "a\n", "T/b.ccl": "b\n"})

@@ -169,6 +169,13 @@ def merge_base(root: str, refs: tuple = BASE_REFS) -> str:
     return base or head
 
 
+def merged_tips(root: str, base: str) -> list[str]:
+    if base == EMPTY_TREE:
+        return []
+    out = decode(git(root, "rev-list", "--first-parent", "--merges", "--parents", f"{base}..HEAD"))
+    return [parent for line in out.splitlines() for parent in line.split()[2:]]
+
+
 def changed(root: str, base: str) -> list[tuple[Optional[str], str]]:
     out = split_z(git(root, "diff", "-z", "--name-status", "-M", "--no-ext-diff", "--no-color", base))
     found = []

@@ -305,6 +305,16 @@ class HookStop(unittest.TestCase):
         git(self.root, "add", "-A")
         git(self.root, "commit", "-q", "-m", "c")
 
+    def merge(self, branch):
+        git(self.root, "merge", "--no-ff", "-q", "-m", "m", branch)
+
+    def merge_upstream(self, files):
+        git(self.root, "switch", "-q", "-c", "upstream", "dev")
+        self.commit(files)
+        git(self.root, "switch", "-q", "work")
+        self.commit({"Thorn/test/t.par": "Thorn::n = 3\n"})
+        self.merge("upstream")
+
     def append(self, name, text):
         with open(os.path.join(self.root, name), "a") as f:
             f.write(text)
@@ -364,6 +374,44 @@ class HookStop(unittest.TestCase):
         self.assertEqual(self.run_hook(), "")
         self.append("Thorn/test/test.ccl", "# new\n")
         self.assertEqual(self.blocked(self.run_hook())[0], "Thorn/test/test.ccl:6   # new")
+
+    def test_comments_merged_in_from_another_branch_are_not_reported(self):
+        self.merge_upstream({
+            "Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"] + "# upstream\n",
+            "Thorn/schedule.ccl": "# upstream schedule\n",
+        })
+        self.assertEqual(self.run_hook(), "")
+
+    def test_the_merge_resolution_itself_is_judged(self):
+        self.merge_upstream({"Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"] + "# upstream\n"})
+        with open(os.path.join(self.root, "Thorn/param.ccl")) as f:
+            merged = f.read()
+        write_files(self.root, {"Thorn/param.ccl": merged.replace("} 1\n", "} 1 # resolution\n")})
+        git(self.root, "commit", "-q", "--amend", "--no-edit", "-a")
+        lines = self.blocked(self.run_hook())
+        self.assertEqual(lines[0], "Thorn/param.ccl:5   # resolution")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 comment")
+
+    def test_a_merge_on_the_branch_s_own_history_is_walked_first_parent(self):
+        git(self.root, "switch", "-q", "-c", "side")
+        self.commit({"Thorn/test/t.par": "Thorn::n = 2 # side\n"})
+        git(self.root, "switch", "-q", "work")
+        self.commit({"Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"].replace("} 1\n", "} 1 # work\n")})
+        self.merge("side")
+        lines = self.blocked(self.run_hook())
+        self.assertEqual(lines[0], "Thorn/param.ccl:5   # work")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 comment")
+
+    def test_a_merged_in_comment_is_found_under_the_file_s_old_name(self):
+        git(self.root, "switch", "-q", "-c", "upstream", "dev")
+        self.commit({"Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"] + "# upstream\n"})
+        git(self.root, "switch", "-q", "work")
+        git(self.root, "mv", "Thorn/param.ccl", "Thorn/test/test.ccl")
+        git(self.root, "commit", "-q", "-m", "rename")
+        self.merge("upstream")
+        with open(os.path.join(self.root, "Thorn/test/test.ccl")) as f:
+            self.assertIn("# upstream\n", f.read())
+        self.assertEqual(self.run_hook(), "")
 
     def test_files_that_are_not_covered_or_are_gone_are_skipped(self):
         self.append("Thorn/README", "# not covered\n")
@@ -601,6 +649,21 @@ class CheckSince(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/test/t.par:2   # why")
         self.assertEqual(self.run_tool("check", "--since", "HEAD").returncode, 0)
+
+    def test_a_merged_in_comment_passes_and_a_resolution_comment_fails(self):
+        git(self.root, "switch", "-q", "-c", "upstream", self.base)
+        self.append("Thorn/param.ccl", "# upstream\n")
+        git(self.root, "commit", "-q", "-am", "upstream")
+        git(self.root, "switch", "-q", "dev")
+        git(self.root, "merge", "--no-ff", "-q", "-m", "m", "upstream")
+        result = self.run_tool("check", "--since", self.base)
+        self.assertEqual((result.returncode, result.stdout), (0, "✓ no-comments: 0 comments\n"), result.stderr)
+        self.append("Thorn/test/t.par", "Thorn::n = 3 # resolution\n")
+        git(self.root, "commit", "-q", "--amend", "--no-edit", "-a")
+        result = self.run_tool("check", "--since", self.base)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout.split("\n")[0], "Thorn/test/t.par:2   # resolution")
+        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment")
 
     def test_an_unknown_rev_exits_2(self):
         result = self.run_tool("check", "--since", "nonsense")
