@@ -6,17 +6,6 @@ ActiveThorns = "
     TestRestrictTags
 "
 
-# Two levels without subcycling and with CarpetX::restrict_during_sync = yes,
-# so that the driver restricts only when a group is SYNCed. The run stops
-# after the initial data (cctk_itlast = 0); the end-of-step restriction is
-# skipped, so every restriction comes from the CCTK_POSTINITIAL SYNC of all
-# six groups and from the explicit RestrictNoPoison before it.
-# TestRestrictTags_Check aborts the run at CCTK_ANALYSIS unless the coarse
-# interior under level 1 holds fine_value for exactly the groups in
-# TestRestrictTags::restricted_groups: the three that the SYNC restricts by
-# their tags (ckpt_no too, which has no restrict tag), and nr_explicit. The
-# SYNC must leave nr and nr_ckpt_no alone (issue #183).
-
 Cactus::cctk_show_schedule = no
 Cactus::presync_mode = "mixed-error"
 Cactus::cctk_itlast = 0
@@ -37,9 +26,6 @@ CarpetX::restrict_during_sync = yes
 CarpetX::prolongation_type = "interpolate"
 CarpetX::prolongation_order = 1
 
-# A fixed cube at the origin; with BoxInBox's one-cell allowance for the cell
-# that AMReX adds around the tagged region, level 1 covers exactly
-# [-0.5, 0.5]^3. The run regrids only while it builds the initial levels.
 BoxInBox::num_regions = 1
 BoxInBox::shape_1 = "cube"
 BoxInBox::num_levels_1 = 2
