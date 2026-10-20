@@ -23,3 +23,153 @@ e29ab7a3bc2c4a21524aaf15ba0ea015eb9806df
 
 # ODESolvers: clang-format after removing comments
 7d4a0a1dd9d724065fe6ac9b43144df5d9312ce3
+
+# Arith: remove comments
+78101d96255207ae3437a3e7240a93319f1ee26f
+
+# Arith: clang-format after removing comments
+130175c637207c2d76858871c4015a6aaad4fe18
+
+# Loop: remove comments
+5a07dceaa3bf36613d9404e92d847f1ef48d4fc3
+
+# Derivs: remove comments
+25c0fa94b3a027a170b53fe6ef2116e8e8a4d7ca
+
+# ADMBaseX: remove comments
+1fc9cd19827d7cff94e94ab5eb5ea8d4d3a1313d
+
+# PoissonX: remove comments
+eff0a6b3d37cf02156bacf6f14b6b90b45f0ed7b
+
+# TmunuBaseX: remove comments
+3615b9c63c8aa4300b704028b7a5ae0a26762cdc
+
+# HydroBaseX: remove comments
+f56755bab31bc1cedd1fdf9a4144d004b9bbcc5f
+
+# CoordinatesX: remove comments
+8f00371e89eac20765f6b08fa02e6be9129ed882
+
+# CarpetXRegrid: remove comments
+79871ce123d5c5057a3ead0d6a3f5e8100d17c2a
+
+# ErrorEstimator: remove comments
+0da0977707ba4b33cd0560915e7fde428d434d06
+
+# MovingBoxToy: remove comments
+cb34a2cd622012cc76be9a5b71482cae01c34d1a
+
+# ParticlesX: remove comments
+9d66172672ddf6c1b272d57b38c44ce316fa1e6c
+
+# SIMDWaveToyX: remove comments
+dc5530adb22c847bc9c27a37dada2e0d6079d85d
+
+# SpacetimeWaveToyX: remove comments
+84420d3ca3fdec1f325124359b11bcba59ffd5f3
+
+# StaggeredWaveToyX: remove comments
+c33965935c5679ab313129ff12c05098bc12e64e
+
+# VGFWaveToyX: remove comments
+acad3ad64ebb37ff59916777aa2a02b57316b8cc
+
+# FluxWaveToyX: remove comments
+7df4ef264694613a5cba56a9869e729b1b100bd2
+
+# DGCoordinatesX: remove comments
+b2f1e4e556200bea029ec2a3a7e82475f419baad
+
+# DGWaveToyX: remove comments
+a79e0c968e5ddef3f8795d4dbf642cf13e33b75b
+
+# PDESolvers: remove comments
+057624a9fc02f2c179168c235e3cf67fe567820f
+
+# PDESolvers: clang-format after removing comments
+91b396261c01943eeb6acbc392ae9e18baef0e81
+
+# TestODESolvers: remove comments
+d95efeae1269d57492350ca53374216345be042d
+
+# TestODESolvers: clang-format after removing comments
+6a75dafc93ae0faa152e26f29620a7f331aab42f
+
+# TestODESolvers2: remove comments
+f6e5553ef158f36f7db7abfd57c75a0f14cb3f37
+
+# TestArrayGroup: remove comments
+419e9c40b634b7ef2c0551d8f7b5d94ef42e620a
+
+# TestBoundaries: remove comments
+6a1ecdd8b4a088d8ce65fb742dadacef31c6ccba
+
+# TestBoxInBox: remove comments
+008992c7f21dbeb45696b15016dc7d3ce32148ad
+
+# TestDerivs: remove comments
+6da3718fbab0135189623ec307e0ece7a9e8f6ef
+
+# TestInterpolate: remove comments
+c1db60eea7c7cd930bda4d6c40f7f4701d232a18
+
+# TestLoopX: remove comments
+50d2185e318883cd8dbfda10538816def73ff54d
+
+# TestNorms: remove comments
+05b750be82d21070db36d2e065a922b3cb6b0e0a
+
+# TestOutput: remove comments
+d77aebb98277c6581dd5381f1c0df45dbd9dec91
+
+# TestPersistentGroups: remove comments
+c4b4d8e044824738b902ad4450ef025cfeb8bf4f
+
+# TestProlongate: remove comments
+bff0fd6f74587ad8c9444f74473f562a0825a9af
+
+# TestRestrictTags: remove comments
+2837a4690cc717c10c7d627d55a10e2dde8deb3b
+
+# TestRestrictTags: clang-format after removing comments
+2ba851ccae0602c442cd2dd44ff7773ddba30b55
+
+# TestStorageKeyword: remove comments
+9cc22507eec5e4593daa78fe6cc3cccd49434be4
+
+# TestSubcycleStepping: remove comments
+f02a344ed8edc31dd0dca1e4b97e6d19099dacef
+
+# TestSubcyclingCC: remove comments
+3f03dcacdd222d0e4de6ec4863bb2c3537e41a19
+
+# TestSubcyclingCC: clang-format after removing comments
+94298f0dd2203150ab53da15e1f839efbe91130c
+
+# TestSubcyclingMC2: remove comments
+f84a3f4d71cfa541a41b68080ce4babde0079fc7
+
+# TestSubcyclingMC2: clang-format after removing comments
+951e46495144bb6fb180e5d789eca7eda061affa
+
+# TestSubcyclingMixedProlong: remove comments
+0e638200f7a282d1d3fb9b2750943a9ab075f7b6
+
+# TestSubcyclingMixedProlong: clang-format after removing comments
+822ca24f1f6dd0fb7317383a1377fcb32146adce
+
+# TestSubcyclingNoRestrict: remove comments
+3e2c6a4c63cd30472917a293c5f7603b75934064
+
+# TestSubcyclingNoRestrict: clang-format after removing comments
+e40efc6563e96b07d7c4cf05bc5ffa99ce8fd660
+
+# TestSubcyclingProlong: remove comments
+d56fc8ad9db08004e4c71434d439831c2c3fb3dc
+
+# TestSubcyclingProlong: clang-format after removing comments
+ad642cadcbb06e59ed4f5164cc4af12cf9536745
+
+# TestSymmetries: remove comments
+0c8b714675c480cd87bf1b1aa35ff55a647a4684
