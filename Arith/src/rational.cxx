@@ -9,8 +9,6 @@ template <typename I> constexpr bool isgood(const rational<I> &x) {
   return x.den >= 0 && gcd(x.num, x.den) == 1;
 }
 
-// This function is compiled, but not executed. The tests are "run" at
-// compile time. If this function compiles, the tests pass.
 void TestRational() {
   using rat64 = rational<int64_t>;
   static_assert(rat64().num == 0);

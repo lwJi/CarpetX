@@ -20,8 +20,6 @@
 
 namespace Arith {
 
-// Rational numbers
-
 template <typename I> struct rational {
   I num, den;
 
@@ -167,7 +165,6 @@ template <typename I> struct rational {
   }
 
   friend constexpr rational abs(const rational &x) {
-    // std::abs is not constexpr
     return rational(x.num >= 0 ? checked_pos(x.num) : checked_neg(x.num),
                     x.den);
   }
@@ -283,4 +280,4 @@ template <typename I> struct rational {
 
 } // namespace Arith
 
-#endif // #ifndef CARPETX_ARITH_RATIONAL_HXX
+#endif

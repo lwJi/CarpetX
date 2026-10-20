@@ -27,10 +27,6 @@ void test_spvect() {
   z.emplace_back(1, 20);
   z.emplace_back(4, 24);
 
-  // std::cout << "x=" << x << "\n";
-  // std::cout << "y=" << y << "\n";
-  // std::cout << "z=" << z << "\n";
-
   const R a = -2;
   const R b = -3;
 
@@ -70,8 +66,8 @@ void test_dual_spvect() {
   xv.emplace_back(0, 1);
   yv.emplace_back(1, 1);
 
-  const DR x(3, xv); // x=3
-  const DR y(4, yv); // y=4
+  const DR x(3, xv);
+  const DR y(4, yv);
 
   assert((x + y).val == 7);
   assert((x + y).eps == xv + yv);
@@ -80,7 +76,6 @@ void test_dual_spvect() {
   assert(pow2(x).eps == 2 * 3 * xv);
 
   assert(sqrt(pow2(x) + pow2(y)).val == 5);
-  // Multiply by 5 to avoid round-off errors
   assert(maximum(abs(sqrt(pow2(x) + pow2(y)).eps - (3 * xv + 4 * yv) / 5)) <=
          10 * std::numeric_limits<R>::epsilon());
 }

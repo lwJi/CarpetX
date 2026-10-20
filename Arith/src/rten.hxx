@@ -19,18 +19,11 @@
 
 namespace Arith {
 
-// A rank-4 tensor with the same symmetries as the Riemann tensor
 template <typename T, int D> struct rten {
 
-  // template <typename, int> friend class rten;
-
-  // We omit the first Bianchi identity
-  //   R_abcd = - R_abdc
-  //   R_abcd = - R_bacd
-  //   R_abcd = + R_cdab
   constexpr static int N0 =
-      D * (D - 1) / 2; // antisymmetric within each index pair
-  constexpr static int N = N0 * (N0 + 1) / 2; // symmetric index pairs
+      D * (D - 1) / 2;
+  constexpr static int N = N0 * (N0 + 1) / 2;
   vect<T, N> elts;
 
 public:
@@ -58,8 +51,8 @@ private:
     assert(i1 >= 0 && i1 < j1 && j1 < D);
     assert(k1 >= 0 && k1 < l1 && l1 < D);
 #endif
-    const int ij = i1 * (2 * D - 3 - i1) / 2 + j1 - 1; // antisymmetric
-    const int kl = k1 * (2 * D - 3 - k1) / 2 + l1 - 1; // antisymmetric
+    const int ij = i1 * (2 * D - 3 - i1) / 2 + j1 - 1;
+    const int kl = k1 * (2 * D - 3 - k1) / 2 + l1 - 1;
 #ifdef CCTK_DEBUG
     assert(ij >= 0 && ij < N0);
     assert(kl >= 0 && kl < N0);
@@ -69,7 +62,7 @@ private:
 #ifdef CCTK_DEBUG
     assert(ij1 >= 0 && ij1 <= kl1 && kl1 < N0);
 #endif
-    const int n = ij1 * (2 * N0 - 1 - ij1) / 2 + kl1; // symmetric
+    const int n = ij1 * (2 * N0 - 1 - ij1) / 2 + kl1;
 #ifdef CCTK_DEBUG
     assert(n >= 0 && n < N);
 #endif
@@ -83,7 +76,6 @@ private:
   }
 
 public:
-  // initializes all elements to nan
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST rten()
       : elts(nan<vect<T, N> >()) {}
 
@@ -106,9 +98,6 @@ public:
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   rten(std::array<T, N> x)
       : elts(std::move(x)) {}
-  // explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST rten(const
-  // vector<T> &x) : elts(x) {} explicit constexpr ARITH_INLINE ARITH_DEVICE
-  // ARITH_HOST rten(vector<T> &&x) : elts(std::move(x)) {}
 
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   operator vect<T, N>() const {
@@ -198,16 +187,6 @@ public:
     return fmap([&](const T &var, const U &x) { return var(arg1, arg2, x); },
                 *this, val);
   }
-  // template <typename... Args, typename U, typename T1 = T,
-  //           typename = decltype(declval<T1>().store(declval<Args>()...,
-  //                                                   declval<U>()))>
-  // ARITH_INLINE ARITH_DEVICE ARITH_HOST void store(const Args &...args,
-  //                         const rten<U> &val)
-  //                         const {
-  //   fmap_([&](const auto &var, const auto &x) { return var.store(args..., x);
-  //   },
-  //        val);
-  // }
   template <typename Arg1, typename Arg2, typename U, typename T1 = T,
             typename = decltype(std::declval<T1>().store(
                 std::declval<Arg1>(), std::declval<Arg2>(), std::declval<U>()))>
@@ -291,36 +270,36 @@ public:
     return *this = *this % a;
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator==(const rten<T, D> &x, const rten<T, D> &y) {
     return all(x.elts == y.elts);
   }
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator!=(const rten<T, D> &x, const rten<T, D> &y) {
     return !(x == y);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   all(const rten &x) {
     return all(x.elts);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   any(const rten &x) {
     return any(x.elts);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   allisfinite(const rten &x) {
     return allisfinite(x.elts);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   anyisnan(const rten &x) {
     return anyisnan(x.elts);
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*rten<bool, D>*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   isnan(const rten &x) {
     return isnan(x.elts);
   }
@@ -348,8 +327,6 @@ public:
 
 template <typename T, int D> struct zero<rten<T, D> > {
   typedef rten<T, D> value_type;
-  // static constexpr value_type value =
-  //     rten<T, D>::pure(zero<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return rten<T, D>::pure(zero<T>());
   }
@@ -360,8 +337,6 @@ template <typename T, int D> struct zero<rten<T, D> > {
 
 template <typename T, int D> struct nan<rten<T, D> > {
   typedef rten<T, D> value_type;
-  // static constexpr value_type value =
-  //     rten<T, D>::pure(nan<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return rten<T, D>::pure(nan<T>());
   }
@@ -369,8 +344,6 @@ template <typename T, int D> struct nan<rten<T, D> > {
     return rten<T, D>::pure(nan<T>());
   }
 };
-
-////////////////////////////////////////////////////////////////////////////////
 
 template <typename T, int D>
 constexpr rten<simd<T>, D> if_else(const simdl<T> &cond,
@@ -382,4 +355,4 @@ constexpr rten<simd<T>, D> if_else(const simdl<T> &cond,
 
 } // namespace Arith
 
-#endif // #ifndef CARPETX_ARITH_RTEN_HXX
+#endif

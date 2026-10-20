@@ -14,10 +14,7 @@ using namespace std;
 
 namespace Arith {
 
-// This function is compiled, but not executed. The tests are "run" at
-// compile time. If this function compiles, the tests pass.
 void TestCplx() {
-  // nvcc V11.1.74 doesn't accept this as "constexpr" values
 #ifndef __CUDACC__
   typedef cplx<CCTK_REAL> CREAL;
   constexpr equal_to<CCTK_REAL> eq;
@@ -34,9 +31,6 @@ void TestCplx() {
 
   static_assert(eqc(CREAL(1, 2), CREAL(1, 2)));
   static_assert(!eqc(CREAL(1, 2), CREAL(2, 3)));
-  // `operator==` must consider both components too, not just the real part.
-  // (`eqc` is `std::equal_to`, which is specialised separately and already
-  // compared both, so it would not have caught this.)
   static_assert(CREAL(1, 2) == CREAL(1, 2));
   static_assert(CREAL(1, 2) != CREAL(1, 3));
   static_assert(CREAL(1, 2) != CREAL(2, 2));
@@ -53,9 +47,6 @@ void TestCplx() {
   static_assert(eqc(CREAL(2, 3) * CREAL(4, 5), CREAL(-7, 22)));
   static_assert(eqc(CREAL(4, 5) / CREAL(3, 4), CREAL(1.28, -0.04)));
 
-  // The transcendental functions cannot be checked here because `std::sqrt`
-  // and friends are not constexpr; see `test_cplx` below.
-
   static_assert(eqc(pow2(CREAL(1, 2)), CREAL(1, 2) * CREAL(1, 2)));
 
   static_assert(eqc(pow(CREAL(1, 2), 0), CREAL(1, 0)));
@@ -64,7 +55,6 @@ void TestCplx() {
   static_assert(eqc(pow(CREAL(1, 2), 3), CREAL(1, 2) * pow2(CREAL(1, 2))));
   static_assert(eqc(pow(CREAL(1, 2), 4), pow2(pow2(CREAL(1, 2)))));
 
-  // Negative exponents invert
   static_assert(eqc(pow(CREAL(0, 2), -1), CREAL(0, -0.5)));
   static_assert(eqc(pow(CREAL(0, 2), -2), CREAL(-0.25, 0)));
   static_assert(eqc(pow(CREAL(1, 0), -3), CREAL(1, 0)));
@@ -73,31 +63,22 @@ void TestCplx() {
 
 namespace {
 
-// Compiled, but not executed. Instantiates every `cplx` function for both a
-// scalar and a SIMD element type. Comparisons on SIMD types yield masks rather
-// than booleans, so all of these have to be branch-free; if this compiles,
-// they are.
 template <typename T> void instantiate_cplx(const cplx<T> &z, const int n) {
   const cplx<T> r = exp(z) + sqrt(z) + cos(z) + sin(z) + cbrt(z) + conj(z) +
                     pow2(z) + pow(z, n);
   const cplx<T> s(abs(z) + arg(z) + norm(z) + real(z) + imag(z));
-  // Consume both results
   if (!allisfinite(r) && anyisnan(s))
     CCTK_ERROR("never reached");
 }
 
 using std::complex;
 
-// Relative error, absolute for small values
 CCTK_REAL relerr(const complex<CCTK_REAL> &got,
                  const complex<CCTK_REAL> &want) {
   return std::abs(got - want) / std::max(CCTK_REAL(1), std::abs(want));
 }
 complex<CCTK_REAL> conv(const cplx<CCTK_REAL> &z) { return {z.real, z.imag}; }
 
-// Check the transcendental functions against `std::complex`, which defines the
-// branch cuts we want. `std::complex` is the reference, not the
-// implementation: `cplx` has to work for SIMD element types as well.
 void test_cplx() {
   typedef CCTK_REAL R;
   typedef cplx<R> C;
@@ -119,8 +100,6 @@ void test_cplx() {
       assert(relerr(conv(cos(z)), std::cos(w)) <= 16 * eps);
       assert(relerr(conv(sin(z)), std::sin(w)) <= 16 * eps);
 
-      // `std::complex` has no `cbrt`, so check the defining property and the
-      // choice of branch instead
       const C c = cbrt(z);
       assert(relerr(conv(c * c * c), w) <= 64 * eps);
       assert(std::abs(std::arg(conv(c))) <= pi / 3 + 16 * eps);
@@ -133,8 +112,6 @@ void test_cplx() {
     }
   }
 
-  // Exact values, including the principal branch of `sqrt` and its cut along
-  // the negative real axis
   assert(sqrt(C(0, 0)) == C(0, 0));
   assert(sqrt(C(4, 0)) == C(2, 0));
   assert(sqrt(C(-1, 0)) == C(0, 1));
@@ -155,7 +132,6 @@ extern "C" void Test_cplx(CCTK_ARGUMENTS) {
 #endif
 }
 
-// Referenced so that `instantiate_cplx` is compiled for both element types
 void InstantiateCplx(const cplx<CCTK_REAL> &z, const cplx<simd<CCTK_REAL> > &vz,
                      const int n) {
   instantiate_cplx(z, n);

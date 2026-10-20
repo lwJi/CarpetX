@@ -136,7 +136,6 @@ public:
 
 private:
   CCTK_ATTRIBUTE_NOINLINE ARITH_DEVICE ARITH_HOST void do_make_sorted() const {
-    // sort
 #ifndef __CUDACC__
     std::sort(elts.begin(), elts.end(), [](const auto &elt1, const auto &elt2) {
       return std::less<I>()(elt1.first, elt2.first);
@@ -147,7 +146,6 @@ private:
                    return std::less<I>()(elt1.first, elt2.first);
                  });
 #endif
-    // combine elements
     std::size_t iwrite = 0, iread = 0;
     while (iread < elts.size()) {
       if (iread > iwrite)
@@ -168,10 +166,8 @@ public:
     } else {
       const auto &lastidx = elts.back().first;
       if (std::equal_to<I>()(idx, lastidx)) {
-        // add
         elts.back().second += val;
       } else {
-        // emplace
         sorted &= std::less<I>()(lastidx, idx);
         elts.emplace_back(idx, val);
       }
@@ -278,12 +274,6 @@ public:
     return foldmap([](const auto &a) { return a == 0; },
                    [](const bool r, const bool a) { return r && a; }, true, x);
   }
-  // nvcc @11.2.2 does not find this function when it is a friend
-  // friend ARITH_DEVICE ARITH_HOST T maximum(const spvect &x) {
-  //   return fold(
-  //       [] ARITH_DEVICE ARITH_HOST(const T r, const T a) { return max1(r, a);
-  //       }, -std::numeric_limits<T>::infinity(), x);
-  // }
   friend ARITH_DEVICE ARITH_HOST T minimum(const spvect &x) {
     return fold([](const T r, const T a) { return min1(r, a); },
                 std::numeric_limits<T>::infinity(), x);
@@ -338,7 +328,6 @@ struct zero<spvect<I, T, V> > {
 template <typename I, typename T, template <typename> typename V>
 struct nan<spvect<I, T, V> > {
   typedef spvect<I, T, V> value_type;
-  // static constexpr value_type value = spvect<I,T,V>::pure(nan_v<T>);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return spvect<I, T, V>::pure(nan<T>()());
   }
@@ -349,4 +338,4 @@ struct nan<spvect<I, T, V> > {
 
 } // namespace Arith
 
-#endif // #ifndef CARPETX_ARITH_SPVECT_HXX
+#endif

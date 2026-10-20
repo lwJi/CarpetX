@@ -117,13 +117,10 @@ template <typename T> struct cplx {
     return !(x < y);
   }
 
-  // Modulus |z|. Returns a real number, as `std::abs` does for
-  // `std::complex`. `hypot` avoids the overflow of `sqrt(norm(x))`.
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST T abs(const cplx &x) {
     using std::hypot;
     return hypot(x.real, x.imag);
   }
-  // Argument arg(z), in (-pi, pi]
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST T arg(const cplx &x) {
     using std::atan2;
     return atan2(x.imag, x.real);
@@ -136,9 +133,6 @@ template <typename T> struct cplx {
   anyisnan(const cplx &x) {
     return anyisnan(x.real) || anyisnan(x.imag);
   }
-  // Principal cube root, i.e. the root with the argument closest to zero.
-  // (`std::complex` offers no `cbrt`; this is `exp(log(z)/3)`, evaluated in
-  // polar form.)
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST cplx
   cbrt(const cplx &x) {
     using std::cbrt, std::cos, std::sin;
@@ -150,13 +144,11 @@ template <typename T> struct cplx {
   conj(const cplx &x) {
     return {x.real, -x.imag};
   }
-  // cos(z) = cos(re) cosh(im) - i sin(re) sinh(im)
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST cplx
   cos(const cplx &x) {
     using std::cos, std::cosh, std::sin, std::sinh;
     return {cos(x.real) * cosh(x.imag), -(sin(x.real) * sinh(x.imag))};
   }
-  // exp(z) = exp(re) (cos(im) + i sin(im))
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST cplx
   exp(const cplx &x) {
     using std::cos, std::exp, std::sin;
@@ -174,18 +166,12 @@ template <typename T> struct cplx {
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST T norm(const cplx &x) {
     return x.real * x.real + x.imag * x.imag;
   }
-  // Exponentiation by squaring, spelled iteratively as `pown` in defs.hxx is.
-  // It must not recurse: this function is ARITH_INLINE, and GCC rejects
-  // `always_inline` on a recursive call it cannot unroll -- which is exactly
-  // what happens once `n` is not a compile-time constant.
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST cplx pow(cplx x,
                                                                  int n) {
     const bool invert = n < 0;
-    // Negating `n` would overflow for INT_MIN, so take the magnitude unsigned
     unsigned m = invert ? -static_cast<unsigned>(n) : static_cast<unsigned>(n);
     cplx r = cplx(one<T>()());
     cplx y = x;
-    // invariant: initial(x)^m == r * y^m
     while (m) {
       if (m & 1)
         r = r * y;
@@ -201,18 +187,11 @@ template <typename T> struct cplx {
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST T real(const cplx &x) {
     return x.real;
   }
-  // sin(z) = sin(re) cosh(im) + i cos(re) sinh(im)
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST cplx
   sin(const cplx &x) {
     using std::cos, std::cosh, std::sin, std::sinh;
     return {sin(x.real) * cosh(x.imag), cos(x.real) * sinh(x.imag)};
   }
-  // Principal square root, i.e. the root with non-negative real part.
-  // Evaluated via w = sqrt((|z| + |re|) / 2) so that neither component
-  // suffers cancellation:
-  //   re >= 0:  sqrt(z) = w + i im / (2 w)
-  //   re <  0:  sqrt(z) = |im| / (2 w) + i copysign(w, im)
-  // Written branch-free because `T` may be a SIMD vector.
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST cplx
   sqrt(const cplx &x) {
     using std::copysign, std::fabs, std::sqrt;
@@ -220,7 +199,6 @@ template <typename T> struct cplx {
     const auto nonneg = x.real >= T(0);
     const T re = if_else(nonneg, w, fabs(x.imag) / (T(2) * w));
     const T im = if_else(nonneg, x.imag / (T(2) * w), copysign(w, x.imag));
-    // sqrt(0) = 0, where the expressions above evaluate to 0/0
     const auto is_zero = w == T(0);
     return {if_else(is_zero, T(0), re), if_else(is_zero, T(0), im)};
   }
@@ -232,8 +210,6 @@ template <typename T> struct cplx {
 
 template <typename T> struct zero<cplx<T> > {
   typedef cplx<T> value_type;
-  // static constexpr value_type value = cplx<T>(zero<T>::value,
-  // zero<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return cplx<T>(zero<T>(), zero<T>());
   }
@@ -244,7 +220,6 @@ template <typename T> struct zero<cplx<T> > {
 
 template <typename T> struct one<cplx<T> > {
   typedef cplx<T> value_type;
-  // static constexpr value_type value = cplx<T>(one<T>::value, zero<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return cplx<T>(one<T>(), zero<T>());
   }
@@ -255,7 +230,6 @@ template <typename T> struct one<cplx<T> > {
 
 template <typename T> struct nan<cplx<T> > {
   typedef cplx<T> value_type;
-  // static constexpr value_type value = cplx<T>(nan<T>::value, nan<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return cplx<T>(nan<T>(), nan<T>());
   }
@@ -266,13 +240,6 @@ template <typename T> struct nan<cplx<T> > {
 
 } // namespace Arith
 namespace std {
-// These are the comparisons the standard containers use: `equal_to` and
-// `hash` consider both components, `less` orders lexicographically. Note that
-// `cplx::operator<` and friends compare only the real part -- complex numbers
-// have no natural order, and that operator exists only so that a `cplx` can be
-// branched on like a number. `std::less<cplx<T>>` is therefore deliberately
-// *not* the same relation as `operator<`; use it, not the operator, whenever an
-// ordering has to be a strict weak ordering (`std::map`, `std::sort`).
 template <typename T> struct equal_to<Arith::cplx<T> > {
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST bool
   operator()(const Arith::cplx<T> &x, const Arith::cplx<T> &y) const {
@@ -295,7 +262,6 @@ template <typename T> struct less<Arith::cplx<T> > {
   }
 };
 
-// Consistent with `equal_to` above, i.e. it hashes both components
 template <typename T> struct hash<Arith::cplx<T> > {
   std::size_t operator()(const Arith::cplx<T> &x) const {
     const std::size_t h = hash<T>()(x.real);
@@ -304,4 +270,4 @@ template <typename T> struct hash<Arith::cplx<T> > {
 };
 } // namespace std
 
-#endif // #ifndef CARPETX_ARITH_CPLX_HXX
+#endif

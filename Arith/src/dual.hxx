@@ -16,10 +16,7 @@ namespace Arith {
 template <typename T, typename U = T> struct dual;
 
 template <typename T, typename U> struct dual {
-  // `T` is the value type.
   T val;
-  // `U` is either `T`, or a vector (in the mathematical sense) of
-  // `T`.
   U eps;
 
   constexpr ARITH_INLINE dual(const dual &) = default;
@@ -101,35 +98,34 @@ template <typename T, typename U> struct dual {
     return *this = *this / x;
   }
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator==(const dual & x, const dual & y) {
     return x.val == y.val;
   };
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator<(const dual & x, const dual & y) {
     return x.val < y.val;
   };
 
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator!=(const dual & x, const dual & y) {
     return !(x == y);
   }
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator>(const dual & x, const dual & y) {
     return y < x;
   }
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator<=(const dual & x, const dual & y) {
     return !(x > y);
   }
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   operator>=(const dual & x, const dual & y) {
     return !(x < y);
   }
 
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST dual
   abs(const dual &x) {
-    // return sqrt(pow2(x));
     using std::abs, std::copysign;
     return {abs(x.val), copysign(T{1}, x.val) * x.eps};
   }
@@ -162,11 +158,10 @@ template <typename T, typename U> struct dual {
   }
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST dual
   fabs(const dual &x) {
-    // return sqrt(pow2(x));
     using std::abs, std::copysign;
     return {abs(x.val), copysign(T{1}, x.val) * x.eps};
   }
-  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto /*bool*/
+  friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto
   isnan(const dual &x) {
     using std::isnan;
     return isnan(x.val) ||
@@ -228,7 +223,6 @@ template <typename T, typename U> struct dual {
 
 template <typename T, typename U> struct zero<dual<T, U> > {
   typedef dual<T, U> value_type;
-  // static constexpr value_type value = dual<T, U>(zero<T>(), zero<U>());
   constexpr ARITH_INLINE operator value_type() const {
     return dual<T, U>(zero<T>()(), zero<U>()());
   }
@@ -239,7 +233,6 @@ template <typename T, typename U> struct zero<dual<T, U> > {
 
 template <typename T, typename U> struct one<dual<T, U> > {
   typedef dual<T, U> value_type;
-  // static constexpr value_type value = dual<T, U>(one<T>(), zero<U>());
   constexpr ARITH_INLINE operator value_type() const {
     return dual<T, U>(one<T>()(), zero<U>()());
   }
@@ -250,7 +243,6 @@ template <typename T, typename U> struct one<dual<T, U> > {
 
 template <typename T, typename U> struct nan<dual<T, U> > {
   typedef dual<T, U> value_type;
-  // static constexpr value_type value = dual<T, U>(nan<T>(), nan<U>());
   constexpr ARITH_INLINE operator value_type() const {
     return dual<T, U>(nan<T>()(), nan<U>()());
   }
@@ -261,14 +253,6 @@ template <typename T, typename U> struct nan<dual<T, U> > {
 
 } // namespace Arith
 namespace std {
-// These are the comparisons the standard containers use: `equal_to` and `hash`
-// consider both the value and the derivative, `less` orders lexicographically.
-// Note that `dual::operator==` and `dual::operator<` compare only the value,
-// ignoring the derivative, so that a `dual` can be branched on like a number.
-// The function objects here are therefore deliberately *not* the same relations
-// as the operators; use them, not the operators, whenever a comparison has to
-// tell duals apart structurally (`std::map`, `std::unordered_map`) or has to be
-// a strict weak ordering (`std::sort`).
 template <typename T, typename U> struct equal_to<Arith::dual<T, U> > {
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST bool
   operator()(const Arith::dual<T, U> &x, const Arith::dual<T, U> &y) const {
@@ -291,7 +275,6 @@ template <typename T, typename U> struct less<Arith::dual<T, U> > {
   }
 };
 
-// Consistent with `equal_to` above, i.e. it hashes both components
 template <typename T, typename U> struct hash<Arith::dual<T, U> > {
   std::size_t operator()(const Arith::dual<T, U> &x) const {
     const std::size_t h = hash<T>()(x.val);
@@ -301,8 +284,6 @@ template <typename T, typename U> struct hash<Arith::dual<T, U> > {
 } // namespace std
 
 namespace Arith {
-
-////////////////////////////////////////////////////////////////////////////////
 
 template <typename T, typename U>
 constexpr dual<simd<T>, U> if_else(const simdl<T> &cond,
@@ -334,4 +315,4 @@ if_else(const simdl<T> &cond, const dual<simd<T>, U> &x, const simd<T> &y) {
 
 } // namespace Arith
 
-#endif // #ifndef CARPETX_ARITH_DUAL_HXX
+#endif

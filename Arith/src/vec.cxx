@@ -17,10 +17,7 @@ constexpr bool eqv(const vec<T, D> &x, const vec<T, D> &y) {
   return all(fmap([](const auto &a, const auto &b) { return eq(a, b); }, x, y));
 }
 
-// This function is compiled, but not executed. The tests are "run" at
-// compile time. If this function compiles, the tests pass.
 void TestVec() {
-  // nvcc V11.1.74 doesn't accept this as "constexpr" values
 #if !defined __CUDACC__ && !defined __HIPCC__
   using V3D = vec<CCTK_REAL, 3>;
 

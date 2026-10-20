@@ -1,18 +1,6 @@
 #ifndef CARPETX_ARITH_SIMD_HXX
 #define CARPETX_ARITH_SIMD_HXX
 
-// This does not work -- when this file `simd.hxx` is `#include`d from
-// other thorns, then `HAVE_CAPABILITY_NSIMD` will not be defined.
-// This needs to be handled in a configuration script instead.
-
-// // Disable SIMD when the `NSIMD` library is not available
-// #ifndef HAVE_CAPABILITY_NSIMD
-// #ifndef SIMD_DISABLE
-// #define SIMD_DISABLE
-// #endif
-// #endif
-
-// Accept `SIMD_CPU` as well for backward compatibility
 #ifdef SIMD_CPU
 #define SIMD_DISABLE
 #endif
@@ -21,7 +9,7 @@
 
 #ifndef SIMD_DISABLE
 #include <nsimd/nsimd-all.hpp>
-#undef vec // This should arguably not be defined in C++
+#undef vec
 #else
 #endif
 
@@ -68,25 +56,12 @@ template <typename T> using float_type = typename reinterpret<T>::float_type;
 } // namespace detail
 #endif
 
-////////////////////////////////////////////////////////////////////////////////
-
 extern std::size_t flop_count, memop_count;
 #pragma omp threadprivate(flop_count, memop_count)
 
 void reset_counts();
 std::size_t get_flop_count();
 std::size_t get_memop_count();
-
-////////////////////////////////////////////////////////////////////////////////
-
-// A SIMD vector, holding elements of type `T`. `T` can be a
-// floating-point or an integer type. To represent logical values
-// (i.e. booleans), see `simdl` below.
-
-// This class is based on NSIMD
-// <https://github.com/agenium-scale/nsimd>. The NSIMD library is very
-// close to what we need; with a few bugs corrected or features added,
-// this wrapper class here might be avoided.
 
 template <typename T> struct simd {
   using value_type = T;
@@ -707,20 +682,14 @@ template <typename T> struct simd {
   }
 
   friend constexpr ARITH_DEVICE ARITH_HOST simdl<T> isfinite(const simd &x) {
-    // using std::isfinite;
-    // return isfinite(x.elts);
     return !isnan(x) && !isinf(x);
   }
 
   friend constexpr ARITH_DEVICE ARITH_HOST simdl<T> isinf(const simd &x) {
-    // using std::isinf;
-    // return isinf(x.elts);
     return fabs(x) == std::numeric_limits<T>::infinity();
   }
 
   friend constexpr ARITH_DEVICE ARITH_HOST simdl<T> isnan(const simd &x) {
-    // using std::isnan;
-    // return isnan(x.elts);
     return x != x;
   }
 
@@ -1087,22 +1056,7 @@ template <typename T> struct simd {
     mask_storeu(mask.elts, ptr, x.elts);
 #else
     if (mask.elts) {
-#if 0 && defined __CUDACC__
-      // __stwb: Cache write-back all coherent levels
-      // __stcg: Cache at global level (cache in L2 and below, not L1)
-      // __stcs: Cache streaming, likely to be accessed once
-      // __stwt: Cache write-through (to system memory)
-      __stwt(ptr, x.elts);
-#elif 0 && defined __HIPCC__
-      __builtin_nontemporal_store(x.elts, ptr);
-#else
-      // CPU
-#if 0 && defined __llvm__
-      __builtin_nontemporal_store(x.elts, ptr);
-#else
       *ptr = x.elts;
-#endif
-#endif
     }
 #endif
   }
@@ -1129,7 +1083,6 @@ namespace Arith {
 
 template <typename T> struct zero<simd<T> > {
   typedef simd<T> value_type;
-  // static constexpr value_type value = simd<T>(zero_v<T>);
   constexpr ARITH_INLINE operator value_type() const {
     return simd<T>(zero<T>());
   }
@@ -1140,7 +1093,6 @@ template <typename T> struct zero<simd<T> > {
 
 template <typename T> struct one<simd<T> > {
   typedef simd<T> value_type;
-  // static constexpr value_type value = simd<T>(one_v<T>);
   constexpr ARITH_INLINE operator value_type() const {
     return simd<T>(one<T>());
   }
@@ -1151,7 +1103,6 @@ template <typename T> struct one<simd<T> > {
 
 template <typename T> struct nan<simd<T> > {
   typedef simd<T> value_type;
-  // static constexpr value_type value = simd<T>(nan_v<T>);
   constexpr ARITH_INLINE operator value_type() const {
     return simd<T>(nan<T>());
   }
@@ -1268,19 +1219,6 @@ masko_loadu(const simdl<T> &mask, const T *ptr, const U &other) {
 #endif
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-// A SIMD vector of booleans, usable with `simd<T>`.
-//
-// Booleans are special in SIMD operations. There is not just one
-// boolean type, but rather one boolean type for each (floating-point
-// or integer) type `T`. The reason is that SIMD operations do not
-// like changing the number of bits, and hence there are 64-bit
-// booleans, 32-bit booleans, 16-bit booleans, etc.
-//
-// This is described in the NSIMD documentation
-// <https://github.com/agenium-scale/nsimd>.
-
 template <typename T> struct simdl {
   typedef T value_type;
 #ifndef SIMD_DISABLE
@@ -1314,7 +1252,6 @@ template <typename T> struct simdl {
   constexpr ARITH_DEVICE ARITH_HOST bool
   operator[](const std::ptrdiff_t n) const {
 #ifndef SIMD_DISABLE
-    // TOOD: Introduce `to_mask` for simd/simdl
     return simd<T>(nsimd::to_mask(elts))[n];
 #else
     return elts;
@@ -1572,7 +1509,6 @@ namespace Arith {
 
 template <typename T> struct zero<simdl<T> > {
   typedef simdl<T> value_type;
-  // static constexpr value_type value = simdl<T>(false);
   constexpr ARITH_INLINE operator value_type() const { return simdl<T>(false); }
   constexpr ARITH_INLINE value_type operator()() const {
     return simdl<T>(false);
@@ -1581,7 +1517,6 @@ template <typename T> struct zero<simdl<T> > {
 
 template <typename T> struct one<simdl<T> > {
   typedef simdl<T> value_type;
-  // static constexpr value_type value = simdl<T>(true);
   constexpr ARITH_INLINE operator value_type() const { return simdl<T>(true); }
   constexpr ARITH_INLINE value_type operator()() const {
     return simdl<T>(true);
@@ -1589,9 +1524,8 @@ template <typename T> struct one<simdl<T> > {
 };
 } // namespace Arith
 
-// Put these three things into the fake Cactus namespace
 using CCTK_BOOLVEC = Arith::simdl<CCTK_REAL>;
 using CCTK_REALVEC = Arith::simd<CCTK_REAL>;
 constexpr std::size_t CCTK_VECSIZE = std::tuple_size_v<CCTK_REALVEC>;
 
-#endif // #ifndef CARPETX_ARITH_SIMD_HXX
+#endif
