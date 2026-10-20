@@ -46,8 +46,6 @@ void map_centering_parity(const cGH *restrict const cctkGH,
       get_parameter("reflection_upper_z", "CarpetX"),
   };
 
-  // We assume the domain is [-1; +1]
-
   const auto makevalue =
       [=] CCTK_DEVICE CCTK_HOST(const vect<CCTK_REAL, Loop::dim> &x)
           CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -60,7 +58,6 @@ void map_centering_parity(const cGH *restrict const cctkGH,
                 val = cos(pi * (x[d] + CCTK_REAL(1) / 8));
               } else {
                 if (parity[d] > 0) {
-                  // even parity (scalar): f(x) = f(-x)
                   if (!reflection_lower[d] && !reflection_upper[d])
                     val = x[d] + 2;
                   else if (reflection_lower[d] && !reflection_upper[d])
@@ -70,7 +67,6 @@ void map_centering_parity(const cGH *restrict const cctkGH,
                   else
                     val = cos(pi * (x[d] + 1));
                 } else {
-                  // odd parity (normal vector): f(x) = -f(-x)
                   if (!reflection_lower[d] && !reflection_upper[d])
                     val = x[d] + 2;
                   else if (reflection_lower[d] && !reflection_upper[d])
@@ -86,9 +82,7 @@ void map_centering_parity(const cGH *restrict const cctkGH,
             return value;
           };
 
-  // Test makevalue function
   {
-    // Test symmetries
     for (int k = -3; k <= 3; ++k) {
       for (int j = -3; j <= 3; ++j) {
         for (int i = -3; i <= 3; ++i) {
@@ -96,7 +90,6 @@ void map_centering_parity(const cGH *restrict const cctkGH,
                                      CCTK_REAL(0.5) * k};
           vect<CCTK_REAL, 3> x0 = x;
           CCTK_REAL f = makevalue(x);
-          // map f back into the domain
           for (int d = 0; d < 3; ++d) {
             if (periodic[d]) {
               x0[d] = x0[d] < -1 ? x0[d] + 2 : x0[d] >= +1 ? x0[d] - 2 : x0[d];
@@ -118,7 +111,7 @@ void map_centering_parity(const cGH *restrict const cctkGH,
                 assert(x0[d] <= +1);
               }
             }
-          } // for d
+          }
           {
             const CCTK_REAL f0 = makevalue(x0);
             using std::abs;
@@ -131,10 +124,9 @@ void map_centering_parity(const cGH *restrict const cctkGH,
             assert(abs(f - f0) <=
                    10 * std::numeric_limits<CCTK_REAL>::epsilon());
           }
-        } // for i
-      } // for j
-    } // for k
-    // Test that the function is not just zero
+        }
+      }
+    }
     for (int k = -5; k <= 5; ++k) {
       for (int j = -5; j <= 5; ++j) {
         for (int i = -5; i <= 5; ++i) {
@@ -207,7 +199,6 @@ void map_centering_all_parities(const cGH *restrict const cctkGH, const F &f) {
       for (int pi = -1; pi <= +1; pi += 2) {
         const vect<int, 3> parity{pi, pj, pk};
 
-        // Other parities are not (yet?) implemented and tested
         if (!((pi < 0 && pj < 0 && pk < 0) || (pi > 0 && pj > 0 && pk > 0)))
           continue;
 
@@ -253,8 +244,6 @@ extern "C" void TestSymmetries_Boundaries(CCTK_ARGUMENTS) {
 extern "C" void TestSymmetries_Sync(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSymmetries_Sync;
   DECLARE_CCTK_PARAMETERS;
-
-  // Do nothing
 }
 
 int check;
