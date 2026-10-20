@@ -288,6 +288,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
   } else if (CCTK_EQUALS(method, "SSPRK3")) {
 
+    // doi:10.1016/0021-9991(88)90177-5
+
     // Low-storage Shu-Osher form (Shu & Osher 1988):
     //   u1 = u0 + h L(u0)
     //   u2 = 3/4 u0 + 1/4 u1 + 1/4 h L(u1)
@@ -471,10 +473,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     typedef CCTK_REAL T;
     const auto R = [](T x, T y) { return x / y; };
-    // These coefficients are taken from the Einstein Toolkit, thorn
-    // CactusNumerical/MoL, file RK87.c, written by Peter Diener,
-    // following P. J. Prince and J. R. Dormand, Journal of
-    // Computational and Applied Mathematics, volume 7, no 1, 1981
+    // doi:10.1016/0771-050X(81)90010-3
     const tuple<vector<vector<T> >, vector<T> > tableau{
         {
             {/*1*/},                                    //
