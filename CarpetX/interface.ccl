@@ -150,23 +150,6 @@ PROVIDES FUNCTION GetEpoch WITH CarpetX_GetEpoch LANGUAGE C
 
 
 
-#TODO: This will be needed for interface with SymmetryInterpolate
-#CCTK_INT FUNCTION SymmetryInterpolate(
-#  CCTK_POINTER_TO_CONST IN cctkGH,
-#  CCTK_INT IN N_dims,
-#  CCTK_INT IN local_interp_handle,
-#  CCTK_INT IN param_table_handle,
-#  CCTK_INT IN coord_system_handle,
-#  CCTK_INT IN N_interp_points,
-#  CCTK_INT IN interp_coords_type,
-#  CCTK_POINTER_TO_CONST ARRAY IN interp_coords,
-#  CCTK_INT IN N_input_arrays,
-#  CCTK_INT ARRAY IN input_array_indices,
-#  CCTK_INT IN N_output_arrays,
-#  CCTK_INT ARRAY IN output_array_types,
-#  CCTK_POINTER ARRAY IN output_arrays)
-#USES FUNCTION SymmetryInterpolate
-
 void FUNCTION MultiPatch_GlobalToLocal2( \
   CCTK_INT IN npoints, \
   CCTK_REAL ARRAY IN globalsx, \
