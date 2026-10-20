@@ -6,7 +6,6 @@ subroutine TestArrayGroup_CompareF(CCTK_ARGUMENTS)
   DECLARE_CCTK_PARAMETERS
   DECLARE_CCTK_ARGUMENTS
 
-  !// test array group
   integer, parameter :: imax = 5
   integer, parameter :: jmax = 6
   integer, parameter :: nmax = 4
@@ -25,7 +24,6 @@ subroutine TestArrayGroup_CompareF(CCTK_ARGUMENTS)
   do n = 1,nmax
     do j = 1,jmax
       do i = 1,imax
-        ! -1 is due to data being filled by C code counting from 0
         if (test1(i,j,n) /= 1 + i * j * n) then
           array_real_error_count(1) = array_real_error_count(1) + 1
         end if
@@ -79,7 +77,6 @@ subroutine TestArrayGroup_CompareF(CCTK_ARGUMENTS)
     end if
   end do
 
-  ! test grid scalar
   if(test_scalar /= 1) then
     call CCTK_WARN(CCTK_WARN_ALERT, "TestArrayGroup: CCTK_REAL grid scalar failed")
     call TestArrayGroup_FoundError()
