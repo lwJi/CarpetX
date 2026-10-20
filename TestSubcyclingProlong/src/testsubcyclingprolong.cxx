@@ -54,5 +54,4 @@ extern "C" void TestSubcyclingProlong_Error(CCTK_ARGUMENTS) {
   });
 }
 
-extern "C" void TestSubcyclingProlong_Sync(CCTK_ARGUMENTS) {
-}
+extern "C" void TestSubcyclingProlong_Sync(CCTK_ARGUMENTS) {}
