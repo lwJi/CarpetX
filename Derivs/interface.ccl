@@ -1,5 +1,3 @@
-# Interface definition for thorn Derivs
-
 IMPLEMENTS: Derivs
 
 INCLUDES HEADER: derivs.hxx IN derivs.hxx

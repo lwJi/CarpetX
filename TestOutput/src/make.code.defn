@@ -1,7 +1,3 @@
-# Main make.code.defn file for thorn TestOutput
-
-# Source files in this directory
 SRCS = TestOutput.cxx
 
-# Subdirectories containing source files
 SUBDIRS =

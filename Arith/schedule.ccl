@@ -1,5 +1,3 @@
-# Schedule definitions for thorn Arith
-
 SCHEDULE Test_cplx AT wragh
 {
   LANG: C

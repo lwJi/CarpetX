@@ -1,5 +1,3 @@
-# Configuration definitions for thorn TestArrayGroup
-
 REQUIRES Loop
 
 PROVIDES TestArrayGroup

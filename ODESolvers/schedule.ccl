@@ -1,5 +1,3 @@
-# Schedule definitions for thorn ODESolvers
-
 STORAGE: do_substeps
 
 SCHEDULE ODESolvers_InitConstants AT WRAGH

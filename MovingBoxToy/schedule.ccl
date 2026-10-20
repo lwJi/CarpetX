@@ -1,5 +1,3 @@
-# Schedule definitions for thorn MovingBoxToy
-
 # Each level's error estimate must see the box positions at that level's own
 # time: move the boxes before every error estimate, including the one after a
 # restart, which recomputes each level's estimate as at the end of its last

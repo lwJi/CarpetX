@@ -1,5 +1,3 @@
-# Interface definition for thorn ADMBaseX
-
 IMPLEMENTS: ADMBaseX
 
 USES INCLUDE HEADER: loop_device.hxx

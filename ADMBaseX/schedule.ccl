@@ -1,5 +1,3 @@
-# Schedule definitions for thorn ADMBaseX
-
 STORAGE: lapse[lapse_timelevels]
 STORAGE: shift[shift_timelevels]
 STORAGE: metric[metric_timelevels] curv[metric_timelevels]

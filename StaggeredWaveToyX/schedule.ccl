@@ -1,5 +1,3 @@
-# Schedule definitions for thorn StaggeredWaveToyX
-
 STORAGE: ustate fxstate fystate fzstate
 STORAGE: urhs fxrhs fyrhs fzrhs
 STORAGE: curlfx curlfy curlfz

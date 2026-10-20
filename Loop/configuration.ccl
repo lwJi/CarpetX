@@ -1,5 +1,3 @@
-# Configuration definitions for thorn Loop
-
 REQUIRES AMReX
 
 REQUIRES Arith

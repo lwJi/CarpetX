@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestRestrictTags
-
 STORAGE: untagged ckpt_no nr nr_ckpt_no ry_ckpt_no nr_explicit
 
 SCHEDULE TestRestrictTags_Init AT initial

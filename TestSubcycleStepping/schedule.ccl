@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestSubcycleStepping
-
 STORAGE: iteration postrestrict prerestrict tail_context recovery_counts
 
 schedule TestSubcycleStepping_Init AT INITIAL

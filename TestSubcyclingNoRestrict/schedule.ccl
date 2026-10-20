@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestSubcyclingNoRestrict
-
 STORAGE: state state_nr rhs rhs_nr error
 
 

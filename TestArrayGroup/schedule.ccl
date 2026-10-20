@@ -1,5 +1,3 @@
-# Schedule definitions for thorn CarpetX
-
 STORAGE: test_scalar test_array test_gf
 STORAGE: test_scalar_int test_array_int
 STORAGE: test_scalar_complex test_array_complex

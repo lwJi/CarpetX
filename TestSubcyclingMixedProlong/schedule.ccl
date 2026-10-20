@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestSubcyclingMixedProlong
-
 STORAGE: state_lo[timelevels] state_hi[timelevels]
 STORAGE: rhs_lo rhs_hi error_lo error_hi
 
