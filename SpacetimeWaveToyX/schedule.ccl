@@ -1,5 +1,3 @@
-# Schedule definitions for thorn SpacetimeWaveToyX
-
 STORAGE: ustate ftstate fxstate fystate fzstate
 STORAGE: curlfx curlfy curlfz
 STORAGE: energy
@@ -23,9 +21,7 @@ SCHEDULE SpacetimeWaveToyX_Initial AT initial
 SCHEDULE SpacetimeWaveToyX_Evol1 AT evol
 {
   LANG: C
-  # inputs
   READS: ftstate(interior)
-  # modified
   READS: ustate(interior)
   READS: fxstate(interior)
   READS: fystate(interior)
@@ -43,19 +39,14 @@ SCHEDULE SpacetimeWaveToyX_Evol1 AT evol
 SCHEDULE SpacetimeWaveToyX_Evol2 AT evol AFTER SpacetimeWaveToyX_Evol1
 {
   LANG: C
-  # inputs
   READS: fxstate(everywhere)
   READS: fystate(everywhere)
   READS: fzstate(everywhere)
-  # modified
   READS: ftstate(interior)
   WRITES: ftstate(interior)
   SYNC: ftstate
 } "Evolve scalar wave, part 2"
 
-# The diagnostics in this group are not checkpointed, and a level that lags
-# its parent SYNCs them from the parent: compute them at the end of each step,
-# and again after a restart, once the state's ghosts are refilled
 SCHEDULE GROUP SpacetimeWaveToyX_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"
@@ -109,9 +100,6 @@ SCHEDULE SpacetimeWaveToyX_Error IN SpacetimeWaveToyX_Diagnostics
   SYNC: fzerror
 } "Calculate error in scalar wave state"
 
-# Recovery. Checkpoints carry the interior only, so restore the state's ghosts
-# with a SYNC; the evolution reads only the interior, but the energy reads the
-# ghosts.
 SCHEDULE SpacetimeWaveToyX_Sync AT post_recover_variables
 {
   LANG: C
