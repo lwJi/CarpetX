@@ -11,6 +11,7 @@ from files import (
     EMPTY_TREE,
     Lang,
     changed,
+    common_ancestor,
     covered,
     lang_of,
     list_tree,
@@ -142,6 +143,19 @@ class Git(unittest.TestCase):
         head = self.commit({"T/interface.ccl": ""})
         git(self.root, "branch", "-q", "-m", "dev", "main")
         self.assertEqual(merge_base(self.root), head)
+
+    def test_common_ancestor_is_where_head_left_rev_or_none_without_shared_history(self):
+        first = self.commit({"T/a.ccl": ""})
+        git(self.root, "switch", "-q", "-c", "work")
+        second = self.commit({"T/b.ccl": ""})
+        git(self.root, "switch", "-q", "dev")
+        third = self.commit({"T/c.ccl": ""})
+        git(self.root, "switch", "-q", "work")
+        self.assertEqual(common_ancestor(self.root, first), first)
+        self.assertEqual(common_ancestor(self.root, third), first)
+        self.assertEqual(common_ancestor(self.root, second), second)
+        unrelated = git(self.root, "commit-tree", "HEAD^{tree}", "-m", "unrelated").strip()
+        self.assertIsNone(common_ancestor(self.root, unrelated))
 
     def test_changed_lists_commits_and_the_working_tree(self):
         base = self.commit({"T/a.ccl": "a\n", "T/b.ccl": "b\n", "T/c.ccl": "c\n" * 20})

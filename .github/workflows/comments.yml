@@ -17,8 +17,8 @@ jobs:
   no-comments:
     runs-on: ubuntu-latest
     env:
-      # The commit the change is judged against: the PR's base, or the tip
-      # `dev` had before this push.
+      # The tip of the PR's base branch, or the tip `dev` had before this push.
+      # The check judges the change from the merge base of this and HEAD.
       BASE: ${{github.event.pull_request.base.sha || github.event.before}}
     steps:
       - uses: actions/checkout@v4

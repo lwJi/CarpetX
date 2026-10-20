@@ -665,6 +665,34 @@ class CheckSince(unittest.TestCase):
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/test/t.par:2   # resolution")
         self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment")
 
+    def test_a_base_that_moved_on_is_judged_from_the_merge_base(self):
+        write_files(self.root, {"Thorn/test/u.par": "# dev deletes this later\nThorn::n = 4\n"})
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "an existing comment")
+        git(self.root, "switch", "-q", "-c", "work")
+        self.append("Thorn/test/t.par", "Thorn::n = 3 # why\n")
+        git(self.root, "commit", "-q", "-am", "work adds a comment")
+        git(self.root, "switch", "-q", "dev")
+        write_files(
+            self.root,
+            {
+                "Thorn/test/u.par": "Thorn::n = 4\n",
+                "Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"].replace("# old prose", "# reworded prose"),
+            },
+        )
+        git(self.root, "commit", "-q", "-am", "dev deletes one comment and rewords another")
+        git(self.root, "switch", "-q", "work")
+        result = self.run_tool("check", "--since", "dev")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout.split("\n")[0], "Thorn/test/t.par:2   # why")
+        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment")
+
+    def test_a_rev_with_no_common_ancestor_exits_2(self):
+        unrelated = git(self.root, "commit-tree", "HEAD^{tree}", "-m", "unrelated").strip()
+        result = self.run_tool("check", "--since", unrelated)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("and HEAD have no common ancestor", result.stderr)
+
     def test_an_unknown_rev_exits_2(self):
         result = self.run_tool("check", "--since", "nonsense")
         self.assertEqual(result.returncode, 2)

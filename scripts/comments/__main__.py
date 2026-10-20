@@ -13,7 +13,7 @@ class FileFailed(RuntimeError):
 
 
 def run_check(paths: list[str], since: str | None = None) -> int:
-    from files import PROJECT, GitError, list_covered, list_tree, parallel, read_text, resolve
+    from files import PROJECT, GitError, common_ancestor, list_covered, list_tree, parallel, read_text, resolve
     from lex_clang import LexError, ToolMissing
     from report import render
     from rules import check_text
@@ -29,9 +29,12 @@ def run_check(paths: list[str], since: str | None = None) -> int:
         if since is not None:
             from hooks import added_since
 
-            base = resolve(PROJECT, since)
-            if base is None:
+            rev = resolve(PROJECT, since)
+            if rev is None:
                 raise GitError(f"{since!r} is not a commit in this repository")
+            base = common_ancestor(PROJECT, rev)
+            if base is None:
+                raise GitError(f"{since!r} and HEAD have no common ancestor")
             found = added_since(PROJECT, base)
         else:
             files = list_covered(paths) if paths else list_tree()
@@ -64,7 +67,9 @@ def main(argv: list[str] | None = None) -> int:
     check = commands.add_parser("check", help="report every comment outside the allow-list")
     check.add_argument("paths", nargs="*", metavar="PATH", help="files or directories to check (default: the whole tree)")
     check.add_argument(
-        "--since", metavar="REV", help="report only the comments the working tree added since REV (what CI checks)"
+        "--since",
+        metavar="REV",
+        help="report only the comments the working tree added since its merge base with REV (what CI checks)",
     )
     commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a comment")
     commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a comment")
@@ -74,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "hook-stop":
         return run_hook("hook_stop")
     if args.since is not None and args.paths:
-        parser.error("--since takes no PATH: it judges every thorn file the tree changed since REV")
+        parser.error("--since takes no PATH: it judges every thorn file the tree changed since its merge base with REV")
     try:
         return run_check(args.paths, args.since)
     except Exception:

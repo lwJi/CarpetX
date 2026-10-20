@@ -169,6 +169,10 @@ def merge_base(root: str, refs: tuple = BASE_REFS) -> str:
     return base or head
 
 
+def common_ancestor(root: str, rev: str) -> Optional[str]:
+    return decode(git(root, "merge-base", rev, "HEAD", check=False)).strip() or None
+
+
 def merged_tips(root: str, base: str) -> list[str]:
     if base == EMPTY_TREE:
         return []
