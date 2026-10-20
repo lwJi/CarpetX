@@ -1,11 +1,3 @@
-# Schedule definitions for thorn ErrorEstimator
-
-
-
-# The next regrid reads regrid_error, which is not checkpointed: estimate it
-# after initial data, at the end of every step, and again after a restart.
-# The group carries the alias EstimateError, so that other thorns can order
-# their box updates before it in each bin.
 SCHEDULE GROUP ErrorEstimator_EstimateError AS EstimateError AT postinitial
 {
 } "Estimate error"

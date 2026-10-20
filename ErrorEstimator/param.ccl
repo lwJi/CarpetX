@@ -1,5 +1,3 @@
-# Parameter definitions for thorn ErrorEstimator
-
 KEYWORD region_shape "Shape of refined region" STEERABLE=always
 {
   "sphere" :: ""
