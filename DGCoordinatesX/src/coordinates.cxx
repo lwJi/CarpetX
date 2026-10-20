@@ -20,8 +20,6 @@ extern "C" void DGCoordinatesX_Setup(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_DGCoordinatesX_Setup;
   DECLARE_CCTK_PARAMETERS;
 
-  // The `grid` variable stores vertex-centred metadata which are one grid point
-  // larger than the cell-centred metadata we need.
   CCTK_VINFO("DG setup:");
   CCTK_VINFO("  dg_npoints=%d", dg_npoints);
   CCTK_VINFO("  nghostzones=[%d,%d,%d]", grid.nghostzones[0],

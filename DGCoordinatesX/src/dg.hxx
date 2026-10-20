@@ -13,20 +13,10 @@ using namespace Loop;
 
 template <typename T, int N> struct dg_basis;
 
-// Collocation points are in the range [-1; +1].
-// Derivative coefficients include 1 ghost point.
-
-// The derivative operator is non-zero for ghosts only for the boundary points,
-// and is zero on the diagonal.
-
 template <typename T> struct dg_basis<T, 2> {
-  // Element size
   static constexpr int N = 2;
-  // Collocation points
   static constexpr std::array<T, N> coords{-1, 1};
-  // Collocation point weights for integration; the weights sum to 2
   static constexpr std::array<T, N> vols{1, 1};
-  // Derivative stencils for each collocation point
   using ATN2 = std::array<T, N + 2>;
   static constexpr std::array<ATN2, N> deriv{ATN2{-0.5, 0, 0.5, 0},
                                              ATN2{0, -0.5, 0, 0.5}};
@@ -210,8 +200,6 @@ template <typename T> struct dg_basis<T, 8> {
       }};
 };
 
-////////////////////////////////////////////////////////////////////////////////
-
 template <typename T, int N> struct get_coords {
   vect<T, dim> coord;
   T vol;
@@ -255,4 +243,4 @@ vect<T, dim> get_derivs(const Loop::GridDescBase &grid,
 
 } // namespace DG
 
-#endif // #ifndef DG_HXX
+#endif
