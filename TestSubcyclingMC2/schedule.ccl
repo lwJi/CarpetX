@@ -1,12 +1,6 @@
-# Schedule definitions for thorn TestSubcyclingMC2
-
 STORAGE: state[timelevels] rhs error
 
 
-# Each level's error estimate must see the box position at that level's own
-# time: move the box before every error estimate, including the one after a
-# restart, which recomputes each level's estimate as at the end of its last
-# step
 SCHEDULE GROUP TestSubcyclingMC2_UpdateBoxes AT postinitial BEFORE EstimateError
 {
 } "Move the refined box along a linear drift from the origin"
@@ -26,9 +20,6 @@ SCHEDULE TestSubcyclingMC2_MoveBox IN TestSubcyclingMC2_UpdateBoxes
   WRITES: BoxInBox::positions
 } "Move the refined box along a linear drift from the origin"
 
-# The next regrid reads num_levels: after a restart, each level's error
-# estimate must see the value of that level's own iteration, as at the end of
-# its last step
 SCHEDULE GROUP TestSubcyclingMC2_UpdateLevels AT poststep BEFORE EstimateError
 {
 } "Ask for one more refinement level from add_level_at_iteration on"
@@ -86,11 +77,6 @@ SCHEDULE TestSubcyclingMC2_RHS IN ODESolvers_RHS
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-# error is not checkpointed: compute it at the end of each step, and again after
-# a restart, once the state's ghosts are refilled. This group runs in every
-# iteration, and under subcycling an end-of-step bin may SYNC only when its
-# window holds every level, so there the pointwise error is written everywhere;
-# without subcycling it is written on the interior and SYNCed
 SCHEDULE GROUP TestSubcyclingMC2_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"

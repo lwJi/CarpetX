@@ -23,8 +23,6 @@ using std::result_of_t;
 
 constexpr int dim = 3;
 
-// u(t,x,y,z) =
-//   A cos(2 pi omega t) sin(2 pi kx x) sin(2 pi ky y) sin(2 pi kz z)
 template <typename T>
 constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
                              const T t, const T x, const T y, const T z, T &u,
@@ -40,8 +38,6 @@ constexpr void standing_wave(const T A, const T kx, const T ky, const T kz,
         cos(2 * pi * ky * y) * cos(2 * pi * kz * z);
 }
 
-// u(t,r) = (f(t-r) - f(t+r)) / r
-// f(v) = A exp(-1/2 (r/W)^2)
 template <typename T>
 constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
                         const T z, T &u, T &rho) {
@@ -53,7 +49,6 @@ constexpr void gaussian(const T A, const T W, const T t, const T x, const T y,
   };
 
   if (r < sqrt(std::numeric_limits<T>::epsilon())) {
-    // L'Hôpital
     u = 2 / pow(W, 2) * f(t) * t;
     rho = -2 / pow(W, 4) * f(t) * (pow(t, 2) - pow(W, 2));
   } else {
@@ -92,12 +87,9 @@ extern "C" void TestSubcyclingMC2_MoveBox(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_MoveBox;
   DECLARE_CCTK_PARAMETERS;
 
-  // Strict no-op at zero velocity: do not touch BoxInBox::positions, so every
-  // existing (static-box) test is byte-for-byte unchanged.
   if (box_velocity_x == 0 && box_velocity_y == 0 && box_velocity_z == 0)
     return;
 
-  // Linear drift of region 0, anchored at the origin (center == origin at t=0).
   position_x[0] = box_velocity_x * cctk_time;
   position_y[0] = box_velocity_y * cctk_time;
   position_z[0] = box_velocity_z * cctk_time;
@@ -107,21 +99,15 @@ extern "C" void TestSubcyclingMC2_AddLevel(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_AddLevel;
   DECLARE_CCTK_PARAMETERS;
 
-  // Strict no-op by default: do not touch BoxInBox::num_levels, so every
-  // existing test is byte-for-byte unchanged.
   if (add_level_at_iteration < 0)
     return;
 
-  // BoxInBox::num_levels_1, read by name since it is private to BoxInBox
   int type;
   const void *const ptr = CCTK_ParameterGet("num_levels_1", "BoxInBox", &type);
   assert(ptr);
   assert(type == PARAMETER_INT);
   const CCTK_INT num_levels_1 = *static_cast<const CCTK_INT *>(ptr);
 
-  // A function of cctk_iteration alone, so that recomputing it after a
-  // restart in each clock group's context gives what that group's error
-  // estimate saw at the end of its last step
   num_levels[0] = num_levels_1 + (cctk_iteration >= add_level_at_iteration);
 }
 
@@ -140,11 +126,9 @@ extern "C" void TestSubcyclingMC2_RHS(CCTK_ARGUMENTS) {
                                        cctk_nghostzones[2]};
   vect<int, dim> imin, imax;
   GridDescBase(cctkGH).box_int<0, 0, 0>(nghostzones, imin, imax);
-  // suffix 2: with ghost zones, suffix 5: without ghost zones
   const GF3D2layout layout2(cctkGH, indextype);
   const GF3D5layout layout5(imin, imax);
 
-  // Tile variables for derivatives and so on
   const int ntmps = 10;
   GF3D5vector<CCTK_REAL> tmps(layout5, ntmps);
   int itmp = 0;
@@ -181,7 +165,6 @@ extern "C" void TestSubcyclingMC2_RHS(CCTK_ARGUMENTS) {
             tl_ddu(0, 0)(index5) + tl_ddu(1, 1)(index5) + tl_ddu(2, 2)(index5);
       });
 
-  // dissipation
   const auto apply_diss = [&](const GF3D2<const CCTK_REAL> &gf_,
                               const GF3D2<CCTK_REAL> &gf_rhs_) {
     grid.loop_int_device<0, 0, 0>(
@@ -205,17 +188,12 @@ extern "C" void TestSubcyclingMC2_Probe(CCTK_ARGUMENTS) {
 }
 
 extern "C" void TestSubcyclingMC2_Sync(CCTK_ARGUMENTS) {
-  // do nothing
 }
 
 extern "C" void TestSubcyclingMC2_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_Error;
   DECLARE_CCTK_PARAMETERS;
 
-  // Under subcycling the end-of-step bins may SYNC only when their window
-  // holds every level, and this runs in every iteration, so this pointwise
-  // error is computed everywhere; without subcycling it is computed on the
-  // interior and SYNCed (see schedule.ccl)
   const auto loop = [&](const auto &kernel) {
     if (use_subcycling)
       grid.loop_all_device<0, 0, 0>(grid.nghostzones, kernel);
