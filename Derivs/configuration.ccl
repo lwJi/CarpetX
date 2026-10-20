@@ -1,5 +1,3 @@
-# Configuration definitions for thorn Derivs
-
 REQUIRES Arith Loop
 
 PROVIDES Derivs
