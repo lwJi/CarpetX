@@ -16,20 +16,14 @@ namespace TestPersistentGroups {
 using Loop::dim;
 using vect3 = Arith::vect<int, dim>;
 
-// The tested groups, in the order of the stale_count / stale_step scalars
 constexpr int num_tested = 2;
 constexpr const char *tested_names[num_tested] = {
     "TestPersistentGroups::persist_default",
     "TestPersistentGroups::persist_noevolve"};
 
-// Stale points found by the current check pass, per level and tested group,
-// on this rank. The check runs in local mode, so the count is accumulated
-// here (the level is known only there) and reduced over ranks in global mode
-// by TestPersistentGroups_Reduce.
 constexpr int max_levels = 32;
 long long stale_points[max_levels][num_tested];
 
-// CarpetX::max_num_levels, read by name since it is private to the driver
 int get_max_num_levels() {
   int type;
   const void *const ptr = CCTK_ParameterGet("max_num_levels", "CarpetX", &type);
@@ -40,17 +34,12 @@ int get_max_num_levels() {
   return max_num_levels;
 }
 
-// Number of finest-level steps one step of level `level` spans
 int level_step(const int level) {
   const int lmax = get_max_num_levels();
   assert(level >= 0 && level < lmax);
   return 1 << (lmax - 1 - level);
 }
 
-// Stamp both tested groups on the interior with the current time, counted in
-// finest-level steps. Under subcycling CarpetX sets cctk_time to
-// cctk_delta_time (the coarse step) times the level's rational iteration, so
-// the stamp is an exact integer.
 void write_stamp(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestPersistentGroups_Write;
 
@@ -72,7 +61,6 @@ extern "C" void TestPersistentGroups_Write(CCTK_ARGUMENTS) {
   write_stamp(cctkGH);
 }
 
-// Empty: the SYNC in the schedule restores the ghosts after recovery
 extern "C" void TestPersistentGroups_Sync(CCTK_ARGUMENTS) {}
 
 extern "C" void TestPersistentGroups_Zero(CCTK_ARGUMENTS) {
@@ -92,15 +80,6 @@ extern "C" void TestPersistentGroups_ZeroStep(CCTK_ARGUMENTS) {
   *stale_step_noevolve = 0;
 }
 
-// Every point of the tile, interior and ghosts, must hold the level's own
-// stamp; a ghost on a refined level may instead hold the parent's stamp (a
-// coarse-fine ghost prolongated from the parent, which is either aligned in
-// time or one step of this level ahead; with a single timelevel there is no
-// time interpolation). Prolongating a constant is exact, so any other value
-// is stale: left over from an earlier prolongation. The allowed stamps are
-// derived from the level's own interior value, not from cctk_time, so that
-// the check also holds where cctk_time is not this level's time (after a
-// regrid, after recovery).
 extern "C" void TestPersistentGroups_Check(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestPersistentGroups_Check;
 
@@ -114,7 +93,6 @@ extern "C" void TestPersistentGroups_Check(CCTK_ARGUMENTS) {
   vect3 bnd_min, bnd_max;
   grid.boundary_box<0, 0, 0>(grid.nghostzones, bnd_min, bnd_max);
 
-  // The level's own stamp, read at the tile's first interior point
   const vect3 I_own = max(int_min, vect3(grid.tmin));
   assert(all(I_own < min(int_max, vect3(grid.tmax))));
 
@@ -124,8 +102,6 @@ extern "C" void TestPersistentGroups_Check(CCTK_ARGUMENTS) {
   const auto check = [&](const int n, const auto &gf) {
     const CCTK_REAL v_own = gf(I_own);
     const long v_own_int = std::lrint(v_own);
-    // Parent's stamp: equal to ours if aligned with the parent, otherwise the
-    // parent has already taken the step that this level is catching up to
     const CCTK_REAL v_crse =
         v_own_int % r_crse == 0 ? v_own : CCTK_REAL(v_own_int + r_own);
 
@@ -134,7 +110,6 @@ extern "C" void TestPersistentGroups_Check(CCTK_ARGUMENTS) {
       for (int j = imin[1]; j < imax[1]; ++j) {
         for (int i = imin[0]; i < imax[0]; ++i) {
           const vect3 I{i, j, k};
-          // Outer boundary points belong to the boundary conditions
           if (any(I < bnd_min || I >= bnd_max))
             continue;
           const bool interior = all(I >= int_min && I < int_max);
@@ -151,7 +126,6 @@ extern "C" void TestPersistentGroups_Check(CCTK_ARGUMENTS) {
     stale_points[cctk_level][n] += count;
   };
 
-  // In the order of tested_names
   check(0, persist_default);
   check(1, persist_noevolve);
 }
