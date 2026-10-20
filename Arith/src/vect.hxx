@@ -27,7 +27,6 @@ namespace Arith {
 namespace detail {
 template <typename T, std::size_t... I>
 decltype(auto) make_tuple_type(const T &t, std::index_sequence<I...>) {
-  // return std_make_tuple((I, t)...);
   return std_make_tuple(std::enable_if_t<(I || true), T>(t)...);
 }
 } // namespace detail
@@ -799,7 +798,6 @@ template <typename T, int D> struct vect {
 
 template <typename T, int D> struct zero<vect<T, D> > {
   typedef vect<T, D> value_type;
-  // static constexpr value_type value = vect<T, D>::pure(zero_v<T>);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return vect<T, D>::pure(zero<T>()());
   }
@@ -810,7 +808,6 @@ template <typename T, int D> struct zero<vect<T, D> > {
 
 template <typename T, int D> struct nan<vect<T, D> > {
   typedef vect<T, D> value_type;
-  // static constexpr value_type value = vect<T, D>::pure(nan_v<T>);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return vect<T, D>::pure(nan<T>()());
   }
@@ -824,8 +821,6 @@ namespace std {
 template <typename T, int D> struct equal_to<Arith::vect<T, D> > {
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST bool
   operator()(const Arith::vect<T, D> &lhs, const Arith::vect<T, D> &rhs) const {
-    // This is not yet constexpr in C++17
-    // return equal_to<array<T, D> >()(lhs.elts, rhs.elts);
     for (int d = 0; d < D; ++d)
       if (!equal_to<T>()(lhs.elts[d], rhs.elts[d]))
         return false;
@@ -836,7 +831,6 @@ template <typename T, int D> struct equal_to<Arith::vect<T, D> > {
 template <typename T, int D> struct less<Arith::vect<T, D> > {
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST bool
   operator()(const Arith::vect<T, D> &lhs, const Arith::vect<T, D> &rhs) const {
-    // return less()(lhs.elts, rhs.elts);
     for (int d = 0; d < D; ++d) {
       if (less<T>()(lhs.elts[d], rhs.elts[d]))
         return true;

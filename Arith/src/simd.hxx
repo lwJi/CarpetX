@@ -5,13 +5,6 @@
 // other thorns, then `HAVE_CAPABILITY_NSIMD` will not be defined.
 // This needs to be handled in a configuration script instead.
 
-// // Disable SIMD when the `NSIMD` library is not available
-// #ifndef HAVE_CAPABILITY_NSIMD
-// #ifndef SIMD_DISABLE
-// #define SIMD_DISABLE
-// #endif
-// #endif
-
 // Accept `SIMD_CPU` as well for backward compatibility
 #ifdef SIMD_CPU
 #define SIMD_DISABLE
@@ -707,20 +700,14 @@ template <typename T> struct simd {
   }
 
   friend constexpr ARITH_DEVICE ARITH_HOST simdl<T> isfinite(const simd &x) {
-    // using std::isfinite;
-    // return isfinite(x.elts);
     return !isnan(x) && !isinf(x);
   }
 
   friend constexpr ARITH_DEVICE ARITH_HOST simdl<T> isinf(const simd &x) {
-    // using std::isinf;
-    // return isinf(x.elts);
     return fabs(x) == std::numeric_limits<T>::infinity();
   }
 
   friend constexpr ARITH_DEVICE ARITH_HOST simdl<T> isnan(const simd &x) {
-    // using std::isnan;
-    // return isnan(x.elts);
     return x != x;
   }
 
@@ -1129,7 +1116,6 @@ namespace Arith {
 
 template <typename T> struct zero<simd<T> > {
   typedef simd<T> value_type;
-  // static constexpr value_type value = simd<T>(zero_v<T>);
   constexpr ARITH_INLINE operator value_type() const {
     return simd<T>(zero<T>());
   }
@@ -1140,7 +1126,6 @@ template <typename T> struct zero<simd<T> > {
 
 template <typename T> struct one<simd<T> > {
   typedef simd<T> value_type;
-  // static constexpr value_type value = simd<T>(one_v<T>);
   constexpr ARITH_INLINE operator value_type() const {
     return simd<T>(one<T>());
   }
@@ -1151,7 +1136,6 @@ template <typename T> struct one<simd<T> > {
 
 template <typename T> struct nan<simd<T> > {
   typedef simd<T> value_type;
-  // static constexpr value_type value = simd<T>(nan_v<T>);
   constexpr ARITH_INLINE operator value_type() const {
     return simd<T>(nan<T>());
   }
@@ -1572,7 +1556,6 @@ namespace Arith {
 
 template <typename T> struct zero<simdl<T> > {
   typedef simdl<T> value_type;
-  // static constexpr value_type value = simdl<T>(false);
   constexpr ARITH_INLINE operator value_type() const { return simdl<T>(false); }
   constexpr ARITH_INLINE value_type operator()() const {
     return simdl<T>(false);
@@ -1581,7 +1564,6 @@ template <typename T> struct zero<simdl<T> > {
 
 template <typename T> struct one<simdl<T> > {
   typedef simdl<T> value_type;
-  // static constexpr value_type value = simdl<T>(true);
   constexpr ARITH_INLINE operator value_type() const { return simdl<T>(true); }
   constexpr ARITH_INLINE value_type operator()() const {
     return simdl<T>(true);

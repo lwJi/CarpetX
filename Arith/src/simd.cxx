@@ -119,8 +119,6 @@ void TestSIMD() {
   check(isapprox(atan(a), atan(s)));
   check(isapprox(atanh(a), atanh(s)));
   check(isapprox(cbrt(a), cbrt(s)));
-  // check(isapprox(cis(a), cis(s)));
-  // check(isapprox(cispi(a), cispi(s)));
   check(isapprox(copysign(a, b), copysign(s, t)));
   check(isapprox(cos(a), cos(s)));
   check(isapprox(cosh(a), cosh(s)));
@@ -188,7 +186,6 @@ void TestSIMD() {
   check(isapprox(sqrt(a), sqrt(s)));
   check(isapprox(tan(a), tan(s)));
   check(isapprox(tanh(a), tanh(s)));
-  // check(isapprox(tanpi(a), tanpi(s)));
 
 #endif
 }

@@ -124,9 +124,6 @@ public:
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   gten3(std::array<T, N> x)
       : elts(std::move(x)) {}
-  // explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST gten3(const
-  // vector<T> &x) : elts(x) {} explicit constexpr ARITH_INLINE ARITH_DEVICE
-  // ARITH_HOST gten3(vector<T> &&x) : elts(std::move(x)) {}
 
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   operator vect<T, N>() const {
@@ -220,16 +217,6 @@ public:
     return fmap([&](const T &var, const U &x) { return var(arg1, arg2, x); },
                 *this, val);
   }
-  // template <typename... Args, typename U, typename T1 = T,
-  //           typename = decltype(declval<T1>().store(declval<Args>()...,
-  //                                                   declval<U>()))>
-  // ARITH_INLINE ARITH_DEVICE ARITH_HOST void store(const Args &...args,
-  //                         const gten3<U, D, symm> &val)
-  //                         const {
-  //   fmap_([&](const auto &var, const auto &x) { return var.store(args..., x);
-  //   },
-  //        val);
-  // }
   template <typename Arg1, typename Arg2, typename U, typename T1 = T,
             typename = decltype(std::declval<T1>().store(
                 std::declval<Arg1>(), std::declval<Arg2>(), std::declval<U>()))>
@@ -399,8 +386,6 @@ template <typename T, int D, symm_t symm> struct zero<gten3<T, D, symm> > {
 
 template <typename T, int D, symm_t symm> struct nan<gten3<T, D, symm> > {
   typedef gten3<T, D, symm> value_type;
-  // static constexpr value_type value =
-  //     gten3<T, D, symm>::pure(nan<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return gten3<T, D, symm>::pure(nan<T>());
   }
