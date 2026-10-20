@@ -2,8 +2,6 @@
 
 IMPLEMENTS: PDESolvers
 
-# INHERITS: CoordinatesX
-
 INCLUDES HEADER: pdesolvers.hxx IN pdesolvers.hxx
 
 USES INCLUDE HEADER: arr.hxx
