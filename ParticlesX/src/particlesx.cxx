@@ -70,7 +70,6 @@ extern "C" void ParticlesX_setup(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 
   const int myproc = CCTK_MyProc(cctkGH);
-  // const int nprocs = CCTK_nProcs(cctkGH);
   const int nparticles = myproc == 0 ? num_particles : 0;
 
   particles_ptr = std::make_unique<Particles>(nparticles);
