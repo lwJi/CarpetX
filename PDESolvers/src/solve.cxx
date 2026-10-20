@@ -380,8 +380,7 @@ void enumerate_points(
 
   component_offsets.resize(patchdata.leveldata.size());
   component_sizes.resize(patchdata.leveldata.size());
-  component_prolongated_offsets.resize(
-      patchdata.leveldata.size());
+  component_prolongated_offsets.resize(patchdata.leveldata.size());
   component_prolongated_sizes.resize(patchdata.leveldata.size());
   for (std::size_t level = 0; level < patchdata.leveldata.size(); ++level) {
     assert(level_maxcomponents.at(level) + 1 == level_sizes.at(level));
