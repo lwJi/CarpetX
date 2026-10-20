@@ -1,5 +1,3 @@
-# Schedule definitions for thorn SIMDWaveToyX
-
 STORAGE: state rhs energy error
 
 SCHEDULE SIMDWaveToyX_Initial AT initial
@@ -22,9 +20,6 @@ SCHEDULE SIMDWaveToyX_RHS IN ODESolvers_RHS
   WRITES: rhs(interior)
 } "Calculate scalar wave RHS"
 
-# The diagnostics in this group are not checkpointed, and a level that lags
-# its parent SYNCs them from the parent: compute them at the end of each step,
-# and again after a restart, once the state's ghosts are refilled
 SCHEDULE GROUP SIMDWaveToyX_Diagnostics AT analysis
 {
 } "Calculate scalar wave diagnostics"
