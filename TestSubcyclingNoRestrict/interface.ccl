@@ -1,5 +1,3 @@
-# Interface definition for thorn TestSubcyclingNoRestrict
-
 IMPLEMENTS: TestSubcyclingNoRestrict
 
 INHERITS: BoxInBox
@@ -13,17 +11,12 @@ USES INCLUDE HEADER: derivs.hxx
 
 
 
-# Restricted: the driver overwrites its coarse-fine ghosts on time-aligned
-# levels of a restricted window by spatial prolongation
 CCTK_REAL state TYPE=gf TAGS='rhs="rhs" dependents="error"'
 {
   u
   rho
 } "Scalar wave state vector"
 
-# Restriction disabled: the parent's interior is never overwritten by fine
-# data, but under subcycling the driver still overwrites its coarse-fine
-# ghosts on time-aligned levels of a restricted window, as for state
 CCTK_REAL state_nr TYPE=gf TAGS='rhs="rhs_nr" restrict="no"'
 {
   u_nr
