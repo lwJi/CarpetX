@@ -22,5 +22,3 @@ CCTK_REAL var_cvv_mmm TYPE=gf CENTERING={cvv} TAGS="parities={-1 -1 -1}" "var_cv
 CCTK_REAL var_cvc_mmm TYPE=gf CENTERING={cvc} TAGS="parities={-1 -1 -1}" "var_cvc_mmm"
 CCTK_REAL var_ccv_mmm TYPE=gf CENTERING={ccv} TAGS="parities={-1 -1 -1}" "var_ccv_mmm"
 CCTK_REAL var_ccc_mmm TYPE=gf CENTERING={ccc} TAGS="parities={-1 -1 -1}" "var_ccc_mmm"
-
-# CCTK_REAL check TYPE=scalar "Error check"

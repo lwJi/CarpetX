@@ -73,7 +73,6 @@ SCHEDULE TestSymmetries_CheckInit AT initial AFTER TestSymmetries_Sync
 {
   LANG: C
   OPTIONS: global
-  # WRITES: check
 } "Check variables (init)"
 
 SCHEDULE TestSymmetries_Check AT initial AFTER TestSymmetries_CheckInit
@@ -95,13 +94,10 @@ SCHEDULE TestSymmetries_Check AT initial AFTER TestSymmetries_CheckInit
   READS: var_cvc_mmm(everywhere)
   READS: var_ccv_mmm(everywhere)
   READS: var_ccc_mmm(everywhere)
-  # READS: check
-  # WRITES: check
 } "Check variables"
 
 SCHEDULE TestSymmetries_CheckFinalize AT initial AFTER TestSymmetries_Check
 {
   LANG: C
   OPTIONS: global
-  # READS: check
 } "Check variables (finalize)"
