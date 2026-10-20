@@ -54,13 +54,6 @@ void statecomp_t::set_valid(const valid_t valid) const {
             << (valid.valid_int ? "valid" : "invalid");
         return buf.str();
       });
-      // // TODO: Parallelize over patches, levels, group, variables, and
-      // // timelevels
-      // const active_levels_t active_levels(
-      //     groupdata->level, groupdata->level + 1, groupdata->patch,
-      //     groupdata->patch + 1);
-      // CarpetX::poison_invalid_gf(active_levels, groupdata->groupindex, vi,
-      // tl);
     }
   }
 }
@@ -137,29 +130,11 @@ statecomp_t statecomp_t::copy(const CarpetX::valid_t where) const {
   result.mfabs.reserve(size);
   for (std::size_t n = 0; n < size; ++n) {
     const auto groupdata = groupdatas.at(n);
-    // This global nan-check doesn't work since we don't care about the
-    // boundaries
-    // #ifdef CCTK_DEBUG
-    //     const auto &x = mfabs.at(n);
-    //     if (x->contains_nan())
-    //       CCTK_VERROR("statecomp_t::copy.x: Group %s contains nans",
-    //                   groupdata->groupname.c_str());
-    // #endif
     auto y = groupdata->alloc_tmp_mfab();
     result.groupdatas.push_back(groupdata);
     result.mfabs.push_back(y);
   }
   lincomb(result, 0, make_array(CCTK_REAL(1)), make_array(this), where);
-  // This global nan-check doesn't work since we don't care about the boundaries
-  // #ifdef CCTK_DEBUG
-  //   for (std::size_t n = 0; n < size; ++n) {
-  //     const auto groupdata = result.groupdatas.at(n);
-  //     const auto &y = result.mfabs.at(n);
-  //     if (y->contains_nan())
-  //       CCTK_VERROR("statecomp_t::copy.y: Group %s contains nans",
-  //                   groupdata->groupname.c_str());
-  //   }
-  // #endif
   return result;
 }
 
@@ -321,13 +296,7 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
             [=] CCTK_DEVICE(const amrex::Box &box)
                 __attribute__((__always_inline__, __flatten__)) {
                   const int i = box.smallEnd()[0];
-                  // const int j = box.smallEnd()[1];
-                  // const int k = box.smallEnd()[2];
                   CCTK_REAL accum = 0;
-                  // The ROCM 6.2 compiler can't handle
-                  // `std::array::operator[]`, so we avoid it via pointers:
-                  // for (std::size_t n = 0; n < N; ++n)
-                  //   accum += factors[n] * srcptrs[n][i];
                   const CCTK_REAL *restrict const factors_ptr = factors.data();
                   const CCTK_REAL *restrict const *restrict const srcptrs_ptr =
                       srcptrs.data();
@@ -343,13 +312,7 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
             [=] CCTK_DEVICE(const amrex::Box &box)
                 __attribute__((__always_inline__, __flatten__)) {
                   const int i = box.smallEnd()[0];
-                  // const int j = box.smallEnd()[1];
-                  // const int k = box.smallEnd()[2];
                   CCTK_REAL accum = scale1 * dstptr[i];
-                  // The ROCM 6.2 compiler can't handle
-                  // `std::array::operator[]`, so we avoid it via pointers:
-                  // for (std::size_t n = 0; n < N; ++n)
-                  //   accum += factors[n] * srcptrs[n][i];
                   const CCTK_REAL *restrict const factors_ptr = factors.data();
                   const CCTK_REAL *restrict const *restrict const srcptrs_ptr =
                       srcptrs.data();
