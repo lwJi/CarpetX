@@ -213,10 +213,6 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
   {
   } "Apply boundary conditions to state vector, and project if necessary"
   
-  # SCHEDULE GROUP ODESolvers_RHS AT postinitial AFTER ODESolvers_PostStep
-  # {
-  # } "Evaluate RHS for of state vector everywhere on the grid"
-
   SCHEDULE GROUP ODESolvers_EstimateError AT postinitial AFTER (ODESolvers_PostStep, ODESolvers_RHS)
   {
   } "Estimate discretization error (for regridding)"
@@ -226,10 +222,6 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
   SCHEDULE GROUP ODESolvers_PostStep AT post_recover_variables
   {
   } "Apply boundary conditions to state vector, and project if necessary"
-
-  # SCHEDULE GROUP ODESolvers_RHS AT post_recover_variables AFTER ODESolvers_PostStep
-  # {
-  # } "Evaluate RHS for of state vector everywhere on the grid"
 
   SCHEDULE GROUP ODESolvers_EstimateError AT post_recover_variables AFTER (ODESolvers_PostStep, ODESolvers_RHS)
   {
@@ -242,16 +234,6 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
   } "Apply boundary conditions to state vector, and project if necessary"
 
 # Time evolution
-
-  # # This group will also be scheduled dynamically from ODESolvers_solve
-  # SCHEDULE GROUP ODESolvers_PostStep AT poststep
-  # {
-  # } "Apply boundary conditions to state vector, and project if necessary"
-  
-  # # This group will also be scheduled dynamically from ODESolvers_solve
-  # SCHEDULE GROUP ODESolvers_RHS AT poststep AFTER ODESolvers_PostStep
-  # {
-  # } "Evaluate the RHS for of state vector everywhere on the grid"
 
   # TODO: this does not yet handle "IMEX122" correctly
   # this group never actually executes since do_subseteps == 0 always, it is
