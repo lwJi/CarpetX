@@ -187,8 +187,7 @@ extern "C" void TestSubcyclingMC2_Probe(CCTK_ARGUMENTS) {
   }
 }
 
-extern "C" void TestSubcyclingMC2_Sync(CCTK_ARGUMENTS) {
-}
+extern "C" void TestSubcyclingMC2_Sync(CCTK_ARGUMENTS) {}
 
 extern "C" void TestSubcyclingMC2_Error(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingMC2_Error;
