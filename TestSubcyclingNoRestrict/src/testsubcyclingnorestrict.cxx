@@ -56,8 +56,7 @@ extern "C" void TestSubcyclingNoRestrict_Initial(CCTK_ARGUMENTS) {
       });
 }
 
-extern "C" void TestSubcyclingNoRestrict_Sync(CCTK_ARGUMENTS) {
-}
+extern "C" void TestSubcyclingNoRestrict_Sync(CCTK_ARGUMENTS) {}
 
 extern "C" void TestSubcyclingNoRestrict_Floor(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestSubcyclingNoRestrict_Floor;
