@@ -13,13 +13,15 @@ from regions import directive_regions
 from rules import check, lex
 from strip import strip, unifdef_k
 from tokens import Kind, Placement, join
+from upstream import TRAILER, newest_strip
 from verify import PEGS, verify_files
 
-ET0 = "6c59144364fb5e65c7355d4a445530b8503460db"
+STRIPPED = newest_strip(PROJECT)
+CORPUS = resolve(PROJECT, STRIPPED + "^1") if STRIPPED else None
+NEEDS_CORPUS = f"needs an upstream strip commit, one with a {TRAILER}: trailer, in the history of HEAD"
 HAVE_CLANG = shutil.which(lex_clang.CLANG) is not None
 HAVE_UNIFDEF = shutil.which("unifdef") is not None
 HAVE_CLANG_FORMAT = shutil.which("clang-format") is not None
-HAVE_ET0 = resolve(PROJECT, ET0) == ET0
 REFERENCE_PUNCTUATION = {"&", "&&", "*"}
 FLESH = os.environ.get("CACTUSX")
 HAVE_FLESH = (
@@ -38,11 +40,11 @@ def corpus(rev: str) -> list[tuple[str, Lang, str]]:
 
 
 @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
-@unittest.skipUnless(HAVE_ET0, f"needs ET0 ({ET0[:9]}) in the repository's history")
-class Et0(unittest.TestCase):
+@unittest.skipUnless(CORPUS is not None, NEEDS_CORPUS)
+class Corpus(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.files = corpus(ET0)
+        cls.files = corpus(CORPUS)
 
         def lexed(item):
             name, lang, text = item
@@ -164,8 +166,8 @@ class LayoutComparison(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_CLANG and HAVE_UNIFDEF, "needs clang++ and unifdef on PATH")
-@unittest.skipUnless(HAVE_ET0, f"needs ET0 ({ET0[:9]}) in the repository's history")
-class Et0Strip(unittest.TestCase):
+@unittest.skipUnless(CORPUS is not None, NEEDS_CORPUS)
+class CorpusStrip(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         def stripped(item):
@@ -175,7 +177,7 @@ class Et0Strip(unittest.TestCase):
             except Exception as e:
                 return name, lang, text, None, f"{type(e).__name__}: {e}"
 
-        cls.results = parallel(stripped, corpus(ET0))
+        cls.results = parallel(stripped, corpus(CORPUS))
         cls.changed = [(n, lang, a, b) for n, lang, a, b, why in cls.results if b is not None and b != a]
 
     def test_every_file_strips(self):
