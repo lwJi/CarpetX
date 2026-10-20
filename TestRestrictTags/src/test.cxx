@@ -69,8 +69,7 @@ extern "C" void TestRestrictTags_RestrictExplicit(CCTK_ARGUMENTS) {
                             CarpetX::active_levels->max_level, groups);
 }
 
-extern "C" void TestRestrictTags_Sync(CCTK_ARGUMENTS) {
-}
+extern "C" void TestRestrictTags_Sync(CCTK_ARGUMENTS) {}
 
 extern "C" void TestRestrictTags_Check(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestRestrictTags_Check;
