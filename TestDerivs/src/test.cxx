@@ -133,7 +133,6 @@ extern "C" void TestDerivs_Set(CCTK_ARGUMENTS) {
 
 extern "C" void TestDerivs_Sync(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestDerivs_Sync;
-  // do nothing
 }
 
 extern "C" void TestDerivs_CalcDerivs(CCTK_ARGUMENTS) {
@@ -145,12 +144,10 @@ extern "C" void TestDerivs_CalcDerivs(CCTK_ARGUMENTS) {
       cctk_nghostzones[0], cctk_nghostzones[1], cctk_nghostzones[2]};
   Arith::vect<int, dim> imin, imax;
   GridDescBase(cctkGH).box_int<0, 0, 0>(nghostzones, imin, imax);
-  // Suffix 2: with ghost zones, suffix 5: without ghost zones
   const GF3D2layout layout2(cctkGH, indextype);
   const GF3D5layout layout5(imin, imax);
   const GF3D2<const CCTK_REAL> gf2_chi(layout2, chi);
 
-  /* Define temp tail vars */
   constexpr int nvars = 10;
   GF3D5vector<CCTK_REAL> vars(layout5, nvars);
 
