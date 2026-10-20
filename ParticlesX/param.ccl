@@ -1,5 +1,3 @@
-# ParticlesX
-
 INT num_particles "Number of particles"
 {
   0:* :: ""

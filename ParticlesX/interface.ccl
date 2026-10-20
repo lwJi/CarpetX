@@ -1,5 +1,3 @@
-# ParticlesX
-
 IMPLEMENTS: ParticlesX
 
 INCLUDES HEADER: particles.hxx IN particles.hxx
