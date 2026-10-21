@@ -26,14 +26,8 @@ class Token:
 
 
 class Placement(Enum):
-    WHOLE_LINE = "whole-line"
-    TRAILING = "trailing"
-    INLINE = "inline"
     GUARD = "constant guard"
     MESSAGE = "compile-time message"
-
-
-DIRECTIVE_PLACEMENTS = (Placement.GUARD, Placement.MESSAGE)
 
 
 @dataclass(frozen=True)
@@ -46,10 +40,6 @@ class Region:
     @property
     def line(self) -> int:
         return self.tokens[0].line
-
-    @property
-    def comments(self) -> tuple:
-        return tuple(t for t in self.tokens if t.kind is Kind.COMMENT)
 
     @property
     def text(self) -> str:

@@ -72,7 +72,7 @@ class Added(unittest.TestCase):
         return self.texts_from([before], after)
 
     def texts_from(self, befores, after):
-        return [(v.line, v.token.text) for v in added(befores, after, Lang.CXX)]
+        return [(u.line, u.text) for u in added(befores, after, Lang.CXX)]
 
     def test_a_new_comment_is_added(self):
         self.assertEqual(self.texts("int a;\n", "int a; // why\n"), [(1, "// why")])
@@ -81,23 +81,26 @@ class Added(unittest.TestCase):
         self.assertEqual(self.texts("// one\nint x;\n// two\nint y;\n", "// one\nint x;\nint y;\n"), [])
         self.assertEqual(self.texts("// one\nint x;\n", "{\n  // one\n  int x;\n}\n"), [])
 
-    def test_a_reflowed_paragraph_is_not_added(self):
-        before = "// The finest clock group: the finest\n// level, widened down to every coarser\nint x;\n"
-        after = "{\n  //   The finest clock group: the\n  //   finest level, widened down to\n  //   every coarser\n  int x;\n}\n"
-        self.assertEqual(self.texts(before, after), [])
+    def test_spacing_and_opener_changes_add_nothing(self):
         self.assertEqual(self.texts("int a;      // x y\n", "int a; // x  y\n"), [])
-        self.assertEqual(self.texts("/* one two\n   three */\nint x;\n", "/* one\n * two three */\nint x;\n"), [])
+        self.assertEqual(self.texts("// one\n// two\nint x;\n", "/* one\n * two */\nint x;\n"), [])
 
-    def test_a_moved_paragraph_is_not_added(self):
+    def test_re_wrapping_a_comment_adds_its_new_lines(self):
+        before = "// The finest clock group: the finest\n// level, widened down to every coarser\nint x;\n"
+        after = "// The finest clock group:\n// the finest level, widened down to every coarser\nint x;\n"
+        self.assertEqual(self.texts(before, after),
+                         [(1, "// The finest clock group:"), (2, "// the finest level, widened down to every coarser")])
+
+    def test_a_moved_comment_is_not_added(self):
         self.assertEqual(self.texts("// one\n// two\nint x;\nint y;\n", "int x;\n// one\n// two\nint y;\n"), [])
         self.assertEqual(self.texts("int x; // one\n", "// one\nint x;\n"), [])
 
-    def test_a_reworded_paragraph_is_added(self):
+    def test_a_reworded_or_appended_line_is_added(self):
         before = "// one two\n// three\nint x;\n"
         self.assertEqual(self.texts(before, "// one too\n// three\nint x;\n"), [(1, "// one too")])
-        self.assertEqual(self.texts(before, "// one two\n// three\n// four\nint x;\n"), [(1, "// one two")])
+        self.assertEqual(self.texts(before, "// one two\n// three\n// four\nint x;\n"), [(3, "// four")])
 
-    def test_a_trimmed_paragraph_is_not_added(self):
+    def test_deleting_lines_adds_nothing(self):
         before = "// one\n// two\n// three\nint x;\n"
         self.assertEqual(self.texts(before, "// one\n// three\nint x;\n"), [])
         self.assertEqual(self.texts(before, "// two\n// three\nint x;\n"), [])
@@ -107,33 +110,27 @@ class Added(unittest.TestCase):
         self.assertEqual(self.texts(code, "// Copy in one go\nint x;\n"), [])
         self.assertEqual(self.texts_from(["int x;\n", before], "// one\nint x;\n"), [])
 
-    def test_a_trimmed_and_reworded_paragraph_is_added(self):
+    def test_deleting_some_lines_and_rewording_another_adds_the_reworded_one(self):
         before = "// one two\n// three\n// four\nint x;\n"
-        self.assertEqual(self.texts(before, "// one two\n// four!\nint x;\n"), [(1, "// one two")])
+        self.assertEqual(self.texts(before, "// one two\n// four!\nint x;\n"), [(2, "// four!")])
         self.assertEqual(self.texts(before, "// one\n// four\nint x;\n"), [(1, "// one")])
 
-    def test_a_reordered_paragraph_is_added(self):
-        before = "// one two\n// three\n// four\nint x;\n"
-        self.assertEqual(self.texts(before, "// four\n// one two\nint x;\n"), [(1, "// four")])
-
-    def test_an_unchanged_paragraph_keeps_its_match_before_a_trim(self):
-        before = "// a\n// b\nint x;\n"
-        self.assertEqual(self.texts(before, "// a\nint y;\n\n// a\n// b\nint x;\n"), [(1, "// a")])
-
-    def test_trims_share_out_the_old_paragraphs(self):
+    def test_code_edits_around_comments_add_nothing(self):
+        self.assertEqual(self.texts("// a\n// b\n", "// a\nint y;\n// b\n"), [])
+        self.assertEqual(self.texts("// a\nint x;\n// b\n", "// a\n// b\n"), [])
+        self.assertEqual(self.texts("// one two\n// three\n// four\nint x;\n", "// four\n// one two\nint x;\n"), [])
         before = "// a\n// c\nint x;\n// a\n// b\nint y;\n"
-        self.assertEqual(self.texts(before, "// a\nint x;\n// c\nint y;\n"), [])
-        self.assertEqual(self.texts(before, "// a\nint x;\n// c\nint y;\n// b\n"), [(5, "// b")])
+        self.assertEqual(self.texts(before, "// a\nint x;\n// c\nint y;\n// b\n"), [])
 
-    def test_an_added_citation_does_not_take_a_paragraph_s_match(self):
+    def test_a_line_beyond_the_old_count_is_added_once(self):
+        before = "// a\n// b\nint x;\n"
+        self.assertEqual(self.texts(before, "// a\nint y;\n\n// a\n// b\nint x;\n"), [(4, "// a")])
+        before = "// a\n// c\nint x;\n// a\n// b\nint y;\n"
+        self.assertEqual(self.texts(before, "// a\nint x;\n// c\nint y;\n// b\n// b\n"), [(6, "// b")])
+
+    def test_an_added_citation_does_not_take_a_line_s_match(self):
         before = "// See arXiv:1111.2177\n// for the stencil\nint x;\n"
         self.assertEqual(self.texts(before, "// See arXiv:1111.2177\nint y;\n" + before), [])
-
-    def test_a_split_paragraph_is_added(self):
-        self.assertEqual(self.texts("// a\n// b\n", "// a\nint y;\n// b\n"), [(3, "// b")])
-
-    def test_a_joined_paragraph_is_added(self):
-        self.assertEqual(self.texts("// a\nint x;\n// b\n", "// a\n// b\n"), [(1, "// a")])
 
     def test_a_comment_in_any_starting_tree_is_not_added(self):
         befores = ["// a\nint x;\n", "int x;\n// b\nint y;\n"]
@@ -158,8 +155,8 @@ class Added(unittest.TestCase):
         self.assertEqual(self.texts("int a;\n", "namespace X {\nint a;\n} // namespace X\n"), [])
 
     def test_a_new_guard_or_message_is_added(self):
-        self.assertEqual(self.texts("int a;\n", "#if 0\nint a;\n#endif\n"), [(1, "#")])
-        self.assertEqual(self.texts("int a;\n", '#warning "x"\nint a;\n'), [(1, "#")])
+        self.assertEqual(self.texts("int a;\n", "#if 0\nint a;\n#endif\n"), [(1, "#if 0")])
+        self.assertEqual(self.texts("int a;\n", '#warning "x"\nint a;\n'), [(1, '#warning "x"')])
         self.assertEqual(len(added(["#if 0\nint a;\n#endif\n"], "#if 0\nint a;\n#endif\n#if 0\n#endif\n", Lang.CXX)), 1)
 
     def test_an_existing_guard_is_not_the_edit_s(self):
@@ -172,33 +169,37 @@ class Added(unittest.TestCase):
         self.assertEqual(len(added(["#if X\n#endif\n"], "#if 1\n#endif\n", Lang.CXX)), 1)
         self.assertEqual(len(added(['#warning "x"\n'], '#warning "y"\n', Lang.CXX)), 1)
 
+    def test_a_comment_cannot_excuse_a_directive(self):
+        self.assertEqual(self.texts("// # if 0\n", "#if 0\n#endif\n"), [(1, "#if 0")])
+
 
 class AddedHash(unittest.TestCase):
     def texts(self, before, after, lang):
-        return [(v.line, v.token.text) for v in added([before], after, lang)]
+        return [(u.line, u.text) for u in added([before], after, lang)]
 
     def test_only_new_hash_comments_are_added(self):
         before = "# header\nINT a \"a\"\n{\n} 1\n"
         self.assertEqual(self.texts(before, before + "# x\n", Lang.PARAM), [(5, "# x")])
         self.assertEqual(self.texts(before, before.replace("1\n", "2\n"), Lang.PARAM), [])
 
-    def test_a_reflowed_hash_paragraph_is_not_added(self):
+    def test_re_indenting_adds_nothing_and_re_wrapping_adds_the_new_lines(self):
         param = "INT a \"a\"\n{\n} 1\n"
         before = "# one two\n# three\n" + param
-        self.assertEqual(self.texts(before, "#   one\n#   two three\n" + param, Lang.PARAM), [])
+        self.assertEqual(self.texts(before, "#   one two\n  #   three\n" + param, Lang.PARAM), [])
+        self.assertEqual(self.texts(before, "# one\n# two three\n" + param, Lang.PARAM), [(1, "# one"), (2, "# two three")])
         self.assertEqual(self.texts(before, "# one too\n# three\n" + param, Lang.PARAM), [(1, "# one too")])
         fortran = "! one two\n! three\nx = 1\n"
-        self.assertEqual(self.texts(fortran, "  ! one\n  ! two three\nx = 1\n", Lang.FORTRAN), [])
-        self.assertEqual(self.texts(fortran, "! one two\nx = 1\n! three\n", Lang.FORTRAN), [(3, "! three")])
+        self.assertEqual(self.texts(fortran, "  ! one two\n  ! three\nx = 1\n", Lang.FORTRAN), [])
+        self.assertEqual(self.texts(fortran, "! one two\nx = 1\n! three\n", Lang.FORTRAN), [])
 
-    def test_a_trimmed_hash_paragraph_is_not_added(self):
+    def test_deleting_hash_comment_lines_adds_nothing(self):
         param = "INT a \"a\"\n{\n} 1\n"
         before = "# one\n# two\n# three\n" + param
         self.assertEqual(self.texts(before, "# one\n# three\n" + param, Lang.PARAM), [])
-        self.assertEqual(self.texts(before, "# one\n# thre\n" + param, Lang.PARAM), [(1, "# one")])
+        self.assertEqual(self.texts(before, "# one\n# thre\n" + param, Lang.PARAM), [(2, "# thre")])
         fortran = "! one\n! two\n! three\nx = 1\n"
         self.assertEqual(self.texts(fortran, "! two\n! three\nx = 1\n", Lang.FORTRAN), [])
-        self.assertEqual(self.texts(fortran, "! three\n! one\nx = 1\n", Lang.FORTRAN), [(1, "! three")])
+        self.assertEqual(self.texts(fortran, "! three\n! one\nx = 1\n", Lang.FORTRAN), [])
 
 
 class Project(unittest.TestCase):
@@ -245,7 +246,7 @@ class HookEdit(Project):
     def test_denies_an_added_comment(self):
         lines = self.denied(self.edit("Thorn/src/a.cxx", "int a = 1;\n", "int a = 1; // why\n"))
         self.assertEqual(lines[0], "Thorn/src/a.cxx:2   // why")
-        self.assertEqual(lines[-1], "✗ no-comments: 1 comment")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 comment line")
 
     def test_allows_an_edit_without_a_new_comment(self):
         self.assertEqual(self.edit("Thorn/src/a.cxx", "int a = 1;\n", "int a = 2;\n"), "")
@@ -259,6 +260,11 @@ class HookEdit(Project):
         self.assertEqual(self.edit("Thorn/src/c.cxx", "// two\n", ""), "")
         self.assertEqual(self.edit("Thorn/src/c.cxx", "// one\n// two\n", "// one\n"), "")
         self.denied(self.edit("Thorn/src/c.cxx", "// two\n", "// too\n"))
+
+    def test_an_edit_to_the_code_between_comments_is_allowed(self):
+        write_files(self.root, {"Thorn/src/c.cxx": "// one\nsync();\n// two\napply();\n"})
+        self.assertEqual(self.edit("Thorn/src/c.cxx", "sync();\n", ""), "")
+        self.assertEqual(self.edit("Thorn/src/c.cxx", "// two\n", "// two\nprepare();\n"), "")
 
     def test_write(self):
         self.denied(self.write("Thorn/src/new.cxx", "/* why */\nint n;\n"))
@@ -281,7 +287,7 @@ class HookEdit(Project):
         self.assertEqual(self.edit("Thorn/src/a.cxx", "int nope;\n", "int nope; // why\n"), "")
 
     def test_a_tool_failure_is_a_system_message(self):
-        with mock.patch("hooks.lex", side_effect=RuntimeError("lexer crash")):
+        with mock.patch("rules.lex", side_effect=RuntimeError("lexer crash")):
             output = self.edit("Thorn/src/a.cxx", "int a = 1;\n", "int a = 1; // why\n")
         self.assertEqual(self.skipped(output), "comment check skipped: RuntimeError: lexer crash")
 
@@ -388,7 +394,7 @@ class HookStop(unittest.TestCase):
         self.append("Thorn/param.ccl", "# x\n")
         lines = self.blocked(self.run_hook())
         self.assertEqual(lines[0], "Thorn/param.ccl:6   # x")
-        self.assertEqual(lines[-1], "✗ no-comments: 1 comment")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 comment line")
 
     def test_stop_hook_active_allows_the_stop(self):
         self.append("Thorn/param.ccl", "# x\n")
@@ -436,7 +442,7 @@ class HookStop(unittest.TestCase):
         git(self.root, "commit", "-q", "--amend", "--no-edit", "-a")
         lines = self.blocked(self.run_hook())
         self.assertEqual(lines[0], "Thorn/param.ccl:5   # resolution")
-        self.assertEqual(lines[-1], "✗ no-comments: 1 comment")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 comment line")
 
     def test_a_merge_on_the_branch_s_own_history_is_walked_first_parent(self):
         git(self.root, "switch", "-q", "-c", "side")
@@ -446,7 +452,7 @@ class HookStop(unittest.TestCase):
         self.merge("side")
         lines = self.blocked(self.run_hook())
         self.assertEqual(lines[0], "Thorn/param.ccl:5   # work")
-        self.assertEqual(lines[-1], "✗ no-comments: 1 comment")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 comment line")
 
     def test_a_merged_in_comment_is_found_under_the_file_s_old_name(self):
         git(self.root, "switch", "-q", "-c", "upstream", "dev")
@@ -549,9 +555,9 @@ class Cli(Project):
         result = self.run_tool(["check", os.path.join(self.root, "Thorn")])
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/src/c.cxx:1   // why")
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment")
+        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment line")
         result = self.run_tool(["check", os.path.join(self.root, "Thorn/src/a.cxx")])
-        self.assertEqual((result.returncode, result.stdout), (0, "✓ no-comments: 0 comments\n"))
+        self.assertEqual((result.returncode, result.stdout), (0, "✓ no-comments: 0 comment lines\n"))
 
     def test_check_without_clang_exits_2(self):
         result = self.run_tool(["check", os.path.join(self.root, "Thorn")], env=dict(os.environ, PATH=""))
@@ -567,7 +573,7 @@ class Cli(Project):
         result = self.run_tool(["check"])
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[:2], ["Thorn/param.ccl:1   # p", "Thorn/src/c.cxx:1   // why"])
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 2 comments")
+        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 2 comment lines")
 
     def test_a_file_clang_rejects_names_the_file(self):
         write_files(self.root, {"Thorn/src/c.cxx": "int c; // why\n"})
@@ -680,13 +686,13 @@ class CheckSince(unittest.TestCase):
 
     def test_old_comments_pass_and_added_ones_fail(self):
         result = self.run_tool("check", "--since", self.base)
-        self.assertEqual((result.returncode, result.stdout), (0, "✓ no-comments: 0 comments\n"), result.stderr)
+        self.assertEqual((result.returncode, result.stdout), (0, "✓ no-comments: 0 comment lines\n"), result.stderr)
         self.append("Thorn/param.ccl", "# x\n")
         self.append("Thorn/test/t.par", "Thorn::n = 3\n")
         result = self.run_tool("check", "--since", self.base)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/param.ccl:6   # x")
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment")
+        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment line")
 
     def test_a_comment_committed_since_the_base_fails(self):
         self.append("Thorn/test/t.par", "# why\n")
@@ -703,13 +709,13 @@ class CheckSince(unittest.TestCase):
         git(self.root, "switch", "-q", "dev")
         git(self.root, "merge", "--no-ff", "-q", "-m", "m", "upstream")
         result = self.run_tool("check", "--since", self.base)
-        self.assertEqual((result.returncode, result.stdout), (0, "✓ no-comments: 0 comments\n"), result.stderr)
+        self.assertEqual((result.returncode, result.stdout), (0, "✓ no-comments: 0 comment lines\n"), result.stderr)
         self.append("Thorn/test/t.par", "Thorn::n = 3 # resolution\n")
         git(self.root, "commit", "-q", "--amend", "--no-edit", "-a")
         result = self.run_tool("check", "--since", self.base)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/test/t.par:2   # resolution")
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment")
+        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment line")
 
     def test_a_base_that_moved_on_is_judged_from_the_merge_base(self):
         write_files(self.root, {"Thorn/test/u.par": "# dev deletes this later\nThorn::n = 4\n"})
@@ -731,7 +737,7 @@ class CheckSince(unittest.TestCase):
         result = self.run_tool("check", "--since", "dev")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/test/t.par:2   # why")
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment")
+        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment line")
 
     def test_a_rev_with_no_common_ancestor_exits_2(self):
         unrelated = git(self.root, "commit-tree", "HEAD^{tree}", "-m", "unrelated").strip()

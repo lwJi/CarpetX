@@ -22,8 +22,7 @@ from files import (
 )
 from lex_clang import ToolMissing
 from report import render
-from rules import check, comment_lines, lex, may_hold_comments, regions_of
-from tokens import DIRECTIVE_PLACEMENTS, Kind, Region
+from rules import Unit, units
 
 
 def emit(out, message: dict) -> None:
@@ -53,74 +52,23 @@ def simulate_edit(tool_name: str, tool_input: dict, before: Optional[str]) -> Op
     return before.replace(old, new, -1 if replace_all else 1)
 
 
-def region_lines(region: Region) -> tuple[str, ...]:
-    return tuple(" ".join(line.split()) for token in region.comments for line in comment_lines(token) if line.split())
-
-
-def region_key(region: Region) -> tuple[bool, str]:
-    if region.placement in DIRECTIVE_PLACEMENTS:
-        return True, " ".join(t.text for t in region.tokens if t.kind in (Kind.CODE, Kind.DIRECTIVE))
-    return False, " ".join(region_lines(region))
-
-
-def starting_point(befores: Iterable[str], lang: Lang) -> tuple[Counter, dict]:
-    keys: Counter = Counter()
-    shapes: dict = {}
+def added(befores: Iterable[str], after: str, lang: Lang) -> list[Unit]:
+    mine = units(after, lang)
+    if all(u.allowed for u in mine):
+        return []
+    old: Counter = Counter()
     for text in befores:
-        if not may_hold_comments(text, lang):
+        old |= Counter(u.key for u in units(text, lang))
+    old -= Counter(u.key for u in mine if u.allowed)
+    found = []
+    for u in mine:
+        if u.allowed:
             continue
-        regions = regions_of(lex(text, lang), lang)
-        keys |= Counter(region_key(r) for r in regions)
-        for r in regions:
-            if r.placement not in DIRECTIVE_PLACEMENTS:
-                shapes.setdefault(region_key(r), set()).add(region_lines(r))
-    return keys, shapes
-
-
-def is_trim(lines: tuple, shape: tuple) -> bool:
-    rest = iter(shape)
-    return bool(lines) and all(line in rest for line in lines)
-
-
-def untrimmed(found: list, old: Counter, shapes: dict) -> list:
-    units = [key for key, count in old.items() if not key[0] for _ in range(count)]
-    edges = []
-    for v in found:
-        lines = () if v.region.placement in DIRECTIVE_PLACEMENTS else region_lines(v.region)
-        edges.append([u for u, key in enumerate(units) if any(is_trim(lines, shape) for shape in shapes[key])])
-    owner: dict = {}
-
-    def take(i: int, seen: set) -> bool:
-        for u in edges[i]:
-            if u not in seen:
-                seen.add(u)
-                if u not in owner or take(owner[u], seen):
-                    owner[u] = i
-                    return True
-        return False
-
-    return [v for i, v in enumerate(found) if not take(i, set())]
-
-
-def added(befores: Iterable[str], after: str, lang: Lang) -> list:
-    if not may_hold_comments(after, lang):
-        return []
-    tokens = lex(after, lang)
-    found = check(tokens, lang)
-    if not found:
-        return []
-    flagged = {v.region.first for v in found}
-    kept = Counter(region_key(r) for r in regions_of(tokens, lang) if r.first not in flagged)
-    old, shapes = starting_point(befores, lang)
-    old -= kept
-    unmatched = []
-    for v in found:
-        key = region_key(v.region)
-        if old[key] > 0:
-            old[key] -= 1
+        if old[u.key] > 0:
+            old[u.key] -= 1
         else:
-            unmatched.append(v)
-    return untrimmed(unmatched, old, shapes)
+            found.append(u)
+    return found
 
 
 def hook_edit(raw, out=None, root: str = PROJECT) -> int:
@@ -141,7 +89,7 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
         found = added([before or ""], after, lang)
         if not found:
             return 0
-        reason = render([(name, v) for v in found])
+        reason = render([(name, u) for u in found])
     except Exception as e:
         return skipped(out, e)
     emit(
@@ -179,7 +127,7 @@ def added_since(root: str, base: Optional[str] = None) -> list:
         base, old, name, lang = item
         befores = [show(root, base, old)] + [show(root, tip, name) or show(root, tip, old) for tip in tips]
         after = read_text(os.path.join(root, name))
-        return [(name, v) for v in added(befores, after, lang)]
+        return [(name, u) for u in added(befores, after, lang)]
 
     return [entry for entries in parallel(judge, branch_changes(root, base)) for entry in entries]
 

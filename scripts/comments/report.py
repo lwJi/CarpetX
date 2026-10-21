@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from rules import Violation
-from tokens import DIRECTIVE_PLACEMENTS
+from rules import Unit
 
 RULE = (
     "Don't add comments to thorn files (see \"Code comments\" in CLAUDE.md).\n"
@@ -10,28 +9,22 @@ RULE = (
 EXCERPT_WIDTH = 72
 
 
-def excerpt(v: Violation) -> str:
-    if v.region.placement in DIRECTIVE_PLACEMENTS:
-        code = v.region.code
-        return code[:EXCERPT_WIDTH] + ("…" if len(code) > EXCERPT_WIDTH else "")
-    lines = v.token.text.strip().splitlines() or [""]
-    first = lines[0].strip()
-    more = len(lines) > 1 or len(first) > EXCERPT_WIDTH or v.region.text.strip() != v.token.text.strip()
-    return first[:EXCERPT_WIDTH] + ("…" if more else "")
+def excerpt(u: Unit) -> str:
+    return u.text[:EXCERPT_WIDTH] + ("…" if len(u.text) > EXCERPT_WIDTH else "")
 
 
 def summary(count: int) -> str:
     mark = "✗" if count else "✓"
-    noun = "comment" if count == 1 else "comments"
+    noun = "comment line" if count == 1 else "comment lines"
     return f"{mark} no-comments: {count} {noun}"
 
 
-def render(found: list[tuple[str, Violation]]) -> str:
+def render(found: list[tuple[str, Unit]]) -> str:
     if not found:
         return summary(0)
-    places = [f"{path}:{v.line}" for path, v in found]
+    places = [f"{path}:{u.line}" for path, u in found]
     width = max(len(p) for p in places)
-    out = [f"{place.ljust(width)}   {excerpt(v)}" for place, (_, v) in zip(places, found)]
+    out = [f"{place.ljust(width)}   {excerpt(u)}" for place, (_, u) in zip(places, found)]
     out.extend(RULE.split("\n"))
     out.append(summary(len(found)))
     return "\n".join(out)

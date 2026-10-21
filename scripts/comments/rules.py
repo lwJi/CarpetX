@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Iterable, Optional
 
 import lex_clang
 import lex_hash
 from files import Lang
-from regions import comment_regions, directive_regions
-from tokens import DIRECTIVE_PLACEMENTS, Kind, Placement, Region, Token
+from regions import directive_regions
+from tokens import Kind, Token
 
 CXX_HINT = re.compile(r"/[/*]|\\[ \t\f\v]*[\r\n]|_Pragma|(?:#|%:)[ \t\f\v]*(?:if|elif|warning|pragma)\b")
 NAMESPACE_CLOSER = re.compile(r"// namespace(?: [A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)?")
@@ -20,89 +20,49 @@ EQUATIONS = r"(?:\((?:eqs?\. ?)?\d+[a-z]?(?: ?[-–,] ?\d+[a-z]?)*\)|eqs?\. ?\d+
 CITATION = re.compile(
     rf"(?:(?:See|From|Taken from|cf\.) )?(?:{URL}|{ARXIV}|{DOI})(?: \[[\w.-]+\])?(?:,? {EQUATIONS})?\.?"
 )
+LINE_BREAK = re.compile(r"\r\n|\r|\n")
 LINE_OPENER = re.compile(r"^(?://+|#+|!+)")
-BLOCK_OPENER = re.compile(r"^/\*+")
-BLOCK_CLOSER = re.compile(r"\*+/$")
-BLOCK_LEADER = re.compile(r"^\*+")
+CODE_KINDS = (Kind.CODE, Kind.DIRECTIVE)
 
 
 @dataclass(frozen=True)
-class Violation:
-    region: Region
-
-    @property
-    def token(self) -> Token:
-        if self.region.placement in DIRECTIVE_PLACEMENTS:
-            return self.region.tokens[0]
-        return self.region.comments[0]
-
-    @property
-    def line(self) -> int:
-        return self.token.line
+class Unit:
+    line: int
+    key: tuple
+    text: str
+    allowed: bool
 
 
-def is_formatter_marker(token: Token) -> bool:
-    return bool(FORMATTER_MARKER.fullmatch(token.text.rstrip()))
-
-
-def previous_code(tokens: list[Token], index: int) -> Optional[Token]:
-    for k in range(index - 1, -1, -1):
-        token = tokens[k]
-        if token.kind is Kind.NEWLINE:
-            return None
-        if token.kind not in (Kind.SPACE, Kind.COMMENT):
-            return token
-    return None
-
-
-def comment_lines(token: Token) -> list[str]:
-    text = token.text.rstrip()
+def comment_words(text: str) -> list[str]:
+    text = text.rstrip()
     if text.startswith("/*"):
-        lines = BLOCK_CLOSER.sub("", BLOCK_OPENER.sub("", text)).splitlines()
-        lines = lines[:1] + [BLOCK_LEADER.sub("", line.strip()) for line in lines[1:]]
+        body = text[2:-2] if len(text) >= 4 and text.endswith("*/") else text[2:]
+        lines = [line.strip().strip("*") for line in LINE_BREAK.split(body)]
     else:
-        lines = LINE_OPENER.sub("", text).splitlines()
-    return [line.strip() for line in lines]
+        lines = LINE_BREAK.split(LINE_OPENER.sub("", text))
+    return [" ".join(line.split()) for line in lines]
 
 
-def is_citation(region: Region) -> bool:
-    lines = [line for token in region.comments for line in comment_lines(token) if line]
-    return bool(lines) and all(CITATION.fullmatch(line) for line in lines)
-
-
-def is_tool_marker(region: Region, tokens: list[Token]) -> bool:
-    comments = region.comments
-    if len(comments) != 1:
-        return False
-    [comment] = comments
-    text = comment.text.rstrip()
+def is_tool_marker(token: Token, before: Optional[str]) -> bool:
+    text = token.text.rstrip()
     if FORMATTER_MARKER.fullmatch(text):
         return True
-    if region.placement is not Placement.TRAILING:
-        return False
-    if text == "//":
-        return True
-    before = previous_code(tokens, region.first)
-    return bool(NAMESPACE_CLOSER.fullmatch(text)) and before is not None and before.text == "}"
+    return bool(NAMESPACE_CLOSER.fullmatch(text)) and before is not None and before.endswith("}")
 
 
-def allowed(region: Region, tokens: list[Token], lang: Lang) -> bool:
-    if region.placement in DIRECTIVE_PLACEMENTS:
-        return False
-    if lang is Lang.CXX and is_tool_marker(region, tokens):
-        return True
-    return is_citation(region)
+def comment_units(token: Token, before: Optional[str], lang: Lang) -> Iterable[Unit]:
+    shown = LINE_BREAK.split(token.text.rstrip())
+    marker = lang is Lang.CXX and is_tool_marker(token, before)
+    for offset, words in enumerate(comment_words(token.text)):
+        if words:
+            allowed = marker or bool(CITATION.fullmatch(words))
+            yield Unit(token.line + offset, ("comment", words), shown[offset].strip(), allowed)
 
 
-def regions_of(tokens: list[Token], lang: Lang) -> list[Region]:
-    if lang is not Lang.CXX:
-        return comment_regions(tokens)
-    found = comment_regions(tokens, is_formatter_marker) + directive_regions(tokens)
-    return sorted(found, key=lambda r: (r.first, r.placement in DIRECTIVE_PLACEMENTS))
-
-
-def check(tokens: list[Token], lang: Lang) -> list[Violation]:
-    return [Violation(r) for r in regions_of(tokens, lang) if not allowed(r, tokens, lang)]
+def directive_units(tokens: list[Token]) -> Iterable[Unit]:
+    for r in directive_regions(tokens):
+        code = " ".join(t.text for t in r.tokens if t.kind in CODE_KINDS)
+        yield Unit(r.line, ("directive", code), r.code, False)
 
 
 def lex(text: str, lang: Lang) -> list[Token]:
@@ -117,7 +77,19 @@ def may_hold_comments(text: str, lang: Lang) -> bool:
     return lex_hash.may_hold_comments(text, lang)
 
 
-def check_text(text: str, lang: Lang) -> list[Violation]:
+def units(text: str, lang: Lang) -> list[Unit]:
     if not may_hold_comments(text, lang):
         return []
-    return check(lex(text, lang), lang)
+    tokens = lex(text, lang)
+    found: list[Unit] = []
+    before: Optional[str] = None
+    for token in tokens:
+        if token.kind is Kind.NEWLINE:
+            before = None
+        elif token.kind is Kind.COMMENT:
+            found.extend(comment_units(token, before, lang))
+        elif token.kind in CODE_KINDS:
+            before = token.text
+    if lang is Lang.CXX:
+        found.extend(directive_units(tokens))
+    return sorted(found, key=lambda u: u.line)

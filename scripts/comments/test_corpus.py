@@ -7,7 +7,7 @@ from collections import Counter
 
 import lex_clang
 from files import PROJECT, Lang, decode, lang_of, parallel, resolve, split_z, thorns_in
-from rules import check, lex
+from rules import lex, units
 from tokens import Kind, join
 
 ET0 = "6c59144364fb5e65c7355d4a445530b8503460db"
@@ -54,7 +54,7 @@ class Et0(unittest.TestCase):
             name, lang, text = item
             try:
                 tokens = lex(text, lang)
-                return name, lang, text, tokens, check(tokens, lang), None
+                return name, lang, text, tokens, units(text, lang), None
             except Exception as e:
                 return name, lang, text, None, None, f"{type(e).__name__}: {e}"
 
