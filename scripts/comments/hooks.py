@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Optional
+from typing import Iterator, Optional
 
 from files import (
     PROJECT,
@@ -18,7 +18,7 @@ from files import (
     repo_name,
     show,
 )
-from judge import Verdict, judge, judge_all
+from judge import Verdict, judge_all
 from report import render_change
 
 
@@ -69,16 +69,15 @@ def judge_since(root: str, base: Optional[str] = None) -> list[tuple[str, Verdic
 
 
 def judge_edit(root: str, name: str, before: str, after: str, lang: Lang) -> Verdict:
-    verdict = judge(before, after, lang)
-    if not verdict:
-        return verdict
-    try:
-        others = [judge(show(root, rev, changes_since(root, rev).get(name, name)), after, lang) for rev in starts(root)]
-    except Exception:
-        return verdict
-    for other in others:
-        verdict = verdict.within(other)
-    return verdict
+    def befores() -> Iterator[str]:
+        yield before
+        try:
+            starting = [show(root, rev, changes_since(root, rev).get(name, name)) for rev in starts(root)]
+        except Exception:
+            return
+        yield from starting
+
+    return judge_all(befores(), after, lang)
 
 
 def hook_edit(raw, out=None, root: str = PROJECT) -> int:

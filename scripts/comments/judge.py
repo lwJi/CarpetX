@@ -108,10 +108,10 @@ def judge(before: str, after: str, lang: Lang) -> Verdict:
 
 
 def judge_all(befores: Iterable[str], after: str, lang: Lang) -> Verdict:
-    verdicts = (judge(before, after, lang) for before in befores)
-    verdict = next(verdicts, Verdict())
-    for other in verdicts:
+    verdict = None
+    for before in befores:
+        other = judge(before, after, lang)
+        verdict = other if verdict is None else verdict.within(other)
         if not verdict:
             break
-        verdict = verdict.within(other)
-    return verdict
+    return Verdict() if verdict is None else verdict
