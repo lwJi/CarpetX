@@ -3,3 +3,7 @@ Author(s)    : Erik Schnetter <schnetter@gmail.com>
 Maintainer(s): Erik Schnetter <schnetter@gmail.com>
 Licence      : LGPL
 --------------------------------------------------------------------------
+
+1. Subcycling
+
+The initial subcycling implementation applied prolongation to time derivatives rather than the state vector itself, causing issues during hydrodynamic evolution. This bug was identified by Jay Kalinani and fixed in PR #114 (https://github.com/lwJi/CarpetX/pull/114). The current codebase features a reimplementation of this fix.

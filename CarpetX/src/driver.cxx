@@ -2121,7 +2121,6 @@ std::ostream &operator<<(std::ostream &os, const GHExt &ghext) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Start driver
 extern "C" int CarpetX_Startup() {
   DECLARE_CCTK_PARAMETERS;
 
@@ -2129,7 +2128,6 @@ extern "C" int CarpetX_Startup() {
 #pragma omp critical
     CCTK_VINFO("Startup");
 
-  // Output a startup message
   const std::vector<std::string> features{
 #ifdef AMREX_USE_MPI
       "MPI",
@@ -2154,14 +2152,12 @@ extern "C" int CarpetX_Startup() {
   };
   std::ostringstream buf;
   buf << logo();
-  buf << "AMR driver provided by CarpetX,\n"
-      << "using AMReX " << amrex::Version() << " (";
+  buf << "   AMR driver using AMReX " << amrex::Version() << "\n   ";
   auto sep = "";
   for (const auto &feature : features) {
     buf << sep << feature;
     sep = ", ";
   }
-  buf << ")";
   int ierr = CCTK_RegisterBanner(buf.str().c_str());
   assert(!ierr);
 
