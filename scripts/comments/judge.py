@@ -7,7 +7,7 @@ from typing import Iterable
 
 from files import Lang
 from rules import Unit, may_hold_comments
-from spans import Comment, layout
+from spans import Comment, Layout, layout
 
 
 @dataclass(frozen=True)
@@ -82,12 +82,18 @@ def judge(before: str, after: str, lang: Lang) -> Verdict:
                 return True
         return False
 
+    def fingerprint(lay: Layout, c: Comment) -> tuple:
+        words = tuple(lay.units[i].key for i in c.units)
+        return words, tuple(code for code, _ in lay.rows[c.first - 1 : c.end] if code)
+
     touched = []
     for c in new.comments:
         known = [new.units[i] for i in c.units if i not in fresh]
         if all(u.allowed for u in known):
             continue
         sources = {old.at[same[u.line]] for u in known if same.get(u.line) in old.at}
+        if len(sources) == 1 and fingerprint(new, c) == fingerprint(old, next(iter(sources))):
+            continue
         hit = any(i in moved for i in c.units) or any(
             code_edited_under(b, c) or any(old.units[i].line not in kept for i in b.units) for b in sources
         )
