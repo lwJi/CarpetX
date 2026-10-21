@@ -114,7 +114,6 @@ extern "C" void BoxInBox_Setup(CCTK_ARGUMENTS) {
   const vect<shape_t, max_num_regions> shapes = {
       get_shape(shape_1), get_shape(shape_2), get_shape(shape_3)};
 
-  // The level about which we're deciding on, i.e. the current level + 1
   using std::ilogb;
   const int finer_level = ilogb(CCTK_REAL(cctk_levfac[0])) + 1;
 
