@@ -556,6 +556,16 @@ class HookEditOnABranch(Branch):
         self.assertEqual(lines[0], "Thorn/schedule.ccl:1   # old prose")
         self.assertEqual(lines[-1], "✗ no-comments: 1 comment line")
 
+    def test_a_comment_moved_away_and_then_put_back_is_a_copy(self):
+        write_files(self.root, {
+            "Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"].replace("# old prose\n", ""),
+            "Thorn/schedule.ccl": "# old prose\n",
+        })
+        self.assertEqual(self.stop(), "")
+        lines = self.denied(self.edit("Thorn/param.ccl", "} 1\n", "} 1\n# old prose\n"))
+        self.assertEqual(lines[0], "Thorn/param.ccl:5   # old prose")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 comment line")
+
     def test_a_comment_the_branch_deleted_can_be_put_back(self):
         self.commit({"Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"].replace("# old prose\n", "")})
         self.assertEqual(self.edit("Thorn/param.ccl", "} 1\n", "} 1\n# old prose\n"), "")
