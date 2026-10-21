@@ -10,9 +10,10 @@ import files
 from files import (
     EMPTY_TREE,
     Lang,
-    changed,
     common_ancestor,
     covered,
+    covered_in,
+    differing,
     lang_of,
     list_tree,
     merge_base,
@@ -157,7 +158,7 @@ class Git(unittest.TestCase):
         unrelated = git(self.root, "commit-tree", "HEAD^{tree}", "-m", "unrelated").strip()
         self.assertIsNone(common_ancestor(self.root, unrelated))
 
-    def test_changed_lists_commits_and_the_working_tree(self):
+    def test_differing_lists_commits_the_working_tree_and_both_names_of_a_rename(self):
         base = self.commit({"T/a.ccl": "a\n", "T/b.ccl": "b\n", "T/c.ccl": "c\n" * 20})
         git(self.root, "switch", "-q", "-c", "work")
         self.commit({"T/a.ccl": "a2\n"})
@@ -166,8 +167,7 @@ class Git(unittest.TestCase):
         git(self.root, "add", "T/new.ccl")
         write_files(self.root, {"T/untracked.ccl": "u\n"})
         self.assertEqual(
-            sorted(changed(self.root, base), key=lambda pair: pair[1]),
-            [("T/a.ccl", "T/a.ccl"), ("T/b.ccl", "T/b.ccl"), ("T/c.ccl", "T/moved.ccl"), (None, "T/new.ccl")],
+            sorted(differing(self.root, base)), ["T/a.ccl", "T/b.ccl", "T/c.ccl", "T/moved.ccl", "T/new.ccl"]
         )
         self.assertEqual(untracked(self.root), ["T/untracked.ccl"])
         self.assertEqual(show(self.root, base, "T/c.ccl"), "c\n" * 20)
@@ -192,10 +192,25 @@ class Git(unittest.TestCase):
         self.assertEqual(merged_tips(self.root, base), [side, y])
         self.assertEqual(merged_tips(self.root, "HEAD"), [])
 
-    def test_deleted_files_are_not_listed(self):
+    def test_deleted_files_are_listed(self):
         base = self.commit({"T/a.ccl": "a\n", "T/b.ccl": "b\n"})
         os.remove(os.path.join(self.root, "T/a.ccl"))
-        self.assertEqual(changed(self.root, base), [])
+        self.assertEqual(differing(self.root, base), ["T/a.ccl"])
+
+    def test_staged_files_differ_from_the_empty_tree(self):
+        write_files(self.root, {"T/a.ccl": "a\n", "T/b.ccl": "b\n"})
+        git(self.root, "add", "T/a.ccl")
+        self.assertEqual(differing(self.root, EMPTY_TREE), ["T/a.ccl"])
+
+    def test_covered_in_counts_a_thorn_that_only_a_starting_tree_has(self):
+        base = self.commit({"Old/interface.ccl": "", "Old/src/a.cxx": "int a;\n", "Not/src/b.cxx": "int b;\n"})
+        git(self.root, "mv", "Old", "New")
+        names = ["New/src/a.cxx", "Not/src/b.cxx", "Old/README", "Old/src/a.cxx"]
+        self.assertEqual(covered_in(names, self.root, [EMPTY_TREE]), [("New/src/a.cxx", Lang.CXX)])
+        self.assertEqual(
+            covered_in(names, self.root, [EMPTY_TREE, base]),
+            [("New/src/a.cxx", Lang.CXX), ("Old/src/a.cxx", Lang.CXX)],
+        )
 
     def test_list_tree_lists_tracked_and_untracked_files_but_not_ignored_ones(self):
         self.commit({"T/interface.ccl": "", "T/src/a.cxx": "", ".gitignore": "*.par\n"})

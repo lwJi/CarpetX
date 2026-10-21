@@ -180,21 +180,30 @@ def merged_tips(root: str, base: str) -> list[str]:
     return [parent for line in out.splitlines() for parent in line.split()[2:]]
 
 
-def changed(root: str, base: str) -> list[tuple[Optional[str], str]]:
-    out = split_z(git(root, "diff", "-z", "--name-status", "-M", "--no-ext-diff", "--no-color", base))
+def differing(root: str, rev: str) -> list[str]:
+    return split_z(git(root, "diff", "-z", "--name-only", "--no-renames", "--no-ext-diff", rev))
+
+
+def exists(root: str, rev: str, name: str) -> bool:
+    proc = subprocess.run(
+        ["git", "-C", root, "cat-file", "-e", f"{rev}:{name}"], stdin=subprocess.DEVNULL, capture_output=True
+    )
+    return proc.returncode == 0
+
+
+def covered_in(names: Iterable[str], root: str, revs: Iterable[str]) -> list[tuple[str, Lang]]:
+    revs = [rev for rev in revs if rev != EMPTY_TREE]
+    thorns: dict = {}
     found = []
-    i = 0
-    while i < len(out):
-        status = out[i]
-        if status[:1] in ("R", "C"):
-            old, new = out[i + 1], out[i + 2]
-            found.append((old if status[0] == "R" else None, new))
-            i += 3
+    for name in names:
+        lang = lang_of(name)
+        if lang is None:
             continue
-        path = out[i + 1]
-        if status[:1] != "D":
-            found.append((None if status[:1] == "A" else path, path))
-        i += 2
+        top = PurePosixPath(name).parts[0]
+        if top not in thorns:
+            thorns[top] = is_thorn(root, top) or any(exists(root, rev, f"{top}/interface.ccl") for rev in revs)
+        if thorns[top]:
+            found.append((name, lang))
     return found
 
 

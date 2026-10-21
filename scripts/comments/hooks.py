@@ -4,13 +4,14 @@ import json
 import os
 import sys
 from collections import Counter
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from files import (
     PROJECT,
     Lang,
-    changed,
     covered,
+    covered_in,
+    differing,
     is_regular,
     merge_base,
     merged_tips,
@@ -23,6 +24,8 @@ from files import (
 from lex_clang import ToolMissing
 from report import render
 from rules import Unit, units
+
+Tree = Callable[[str], str]
 
 
 def emit(out, message: dict) -> None:
@@ -52,23 +55,96 @@ def simulate_edit(tool_name: str, tool_input: dict, before: Optional[str]) -> Op
     return before.replace(old, new, -1 if replace_all else 1)
 
 
-def added(befores: Iterable[str], after: str, lang: Lang) -> list[Unit]:
-    mine = units(after, lang)
-    if all(u.allowed for u in mine):
-        return []
+def counts(found: Iterable[Unit]) -> Counter:
+    return Counter(u.key for u in found)
+
+
+def surplus(befores: Iterable[Counter], after: list[Unit]) -> list[int]:
     old: Counter = Counter()
-    for text in befores:
-        old |= Counter(u.key for u in units(text, lang))
-    old -= Counter(u.key for u in mine if u.allowed)
+    for count in befores:
+        old |= count
+    old -= counts(u for u in after if u.allowed)
     found = []
-    for u in mine:
+    for i, u in enumerate(after):
         if u.allowed:
             continue
         if old[u.key] > 0:
             old[u.key] -= 1
         else:
-            found.append(u)
+            found.append(i)
     return found
+
+
+def added(befores: Iterable[str], after: str, lang: Lang) -> list[Unit]:
+    mine = units(after, lang)
+    if all(u.allowed for u in mine):
+        return []
+    return [mine[i] for i in surplus((counts(units(text, lang)) for text in befores), mine)]
+
+
+def added_across(names: list[tuple[str, Lang]], befores: list[Tree], after: Tree) -> list[tuple[str, Unit]]:
+    def judge(item):
+        name, lang = item
+        texts = [read(name) for read in befores]
+        text = after(name)
+        lexed = {t: units(t, lang) for t in {*texts, text}}
+        olds = [counts(lexed[t]) for t in texts]
+        own = set(surplus(olds, lexed[text]))
+        return olds, [(i in own, name, u) for i, u in enumerate(lexed[text])]
+
+    judged = parallel(judge, names)
+    pools = [sum((olds[k] for olds, _ in judged), Counter()) for k in range(len(befores))]
+    entries = sorted((e for _, es in judged for e in es), key=lambda e: (e[0], e[1], e[2].line))
+    mine = [u for _, _, u in entries]
+    found = [(entries[i][1], entries[i][2]) for i in surplus(pools, mine)]
+    return sorted(found, key=lambda e: (e[0], e[1].line))
+
+
+def at(root: str, rev: str) -> Tree:
+    return lambda name: show(root, rev, name)
+
+
+def working(root: str) -> Tree:
+    def read(name: str) -> str:
+        path = os.path.join(root, name)
+        return read_text(path) if is_regular(path) else ""
+
+    return read
+
+
+def starts(root: str, base: Optional[str] = None) -> list[str]:
+    base = merge_base(root) if base is None else base
+    return [base] + merged_tips(root, base)
+
+
+def change(root: str, revs: list[str], extra: Iterable[str] = ()) -> list[tuple[str, Lang]]:
+    names = set(extra).union(untracked(root), *(differing(root, rev) for rev in revs))
+    return covered_in(sorted(names), root, revs)
+
+
+def added_since(root: str, base: Optional[str] = None) -> list[tuple[str, Unit]]:
+    revs = starts(root, base)
+    return added_across(change(root, revs), [at(root, rev) for rev in revs], working(root))
+
+
+def added_by_edit(root: str, name: str, after: str, found: list[Unit]) -> list[Unit]:
+    now = working(root)
+
+    def edited(other: str) -> str:
+        return after if other == name else now(other)
+
+    try:
+        revs = starts(root)
+        trees = [at(root, rev) for rev in revs] + [now]
+        budget = counts(u for _, u in added_across(change(root, revs, [name]), trees, edited))
+    except Exception:
+        return found
+    kept = []
+    for u in reversed(found):
+        if budget[u.key] > 0:
+            budget[u.key] -= 1
+            kept.append(u)
+    return kept[::-1]
 
 
 def hook_edit(raw, out=None, root: str = PROJECT) -> int:
@@ -87,6 +163,8 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
         if after is None:
             return 0
         found = added([before or ""], after, lang)
+        if found:
+            found = added_by_edit(root, name, after, found)
         if not found:
             return 0
         reason = render([(name, u) for u in found])
@@ -103,33 +181,6 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
         },
     )
     return 0
-
-
-def branch_changes(root: str, base: Optional[str] = None) -> list[tuple[str, Optional[str], str, Lang]]:
-    base = merge_base(root) if base is None else base
-    pairs = {new: old for old, new in changed(root, base)}
-    for name in untracked(root):
-        pairs.setdefault(name, None)
-    found = []
-    for name in sorted(pairs):
-        path = os.path.join(root, name)
-        lang = covered(name, root)
-        if lang is not None and is_regular(path):
-            found.append((base, pairs[name], name, lang))
-    return found
-
-
-def added_since(root: str, base: Optional[str] = None) -> list:
-    base = merge_base(root) if base is None else base
-    tips = merged_tips(root, base)
-
-    def judge(item):
-        base, old, name, lang = item
-        befores = [show(root, base, old)] + [show(root, tip, name) or show(root, tip, old) for tip in tips]
-        after = read_text(os.path.join(root, name))
-        return [(name, u) for u in added(befores, after, lang)]
-
-    return [entry for entries in parallel(judge, branch_changes(root, base)) for entry in entries]
 
 
 def hook_stop(raw, out=None, root: str = PROJECT) -> int:

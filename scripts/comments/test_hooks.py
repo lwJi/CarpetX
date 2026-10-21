@@ -340,7 +340,7 @@ STOP_FILES = {
 }
 
 
-class HookStop(unittest.TestCase):
+class Branch(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -371,6 +371,8 @@ class HookStop(unittest.TestCase):
         with open(os.path.join(self.root, name), "a") as f:
             f.write(text)
 
+
+class HookStop(Branch):
     def run_hook(self, payload=None):
         out = io.StringIO()
         payload = {"hook_event_name": "Stop", "stop_hook_active": False} if payload is None else payload
@@ -465,6 +467,37 @@ class HookStop(unittest.TestCase):
             self.assertIn("# upstream\n", f.read())
         self.assertEqual(self.run_hook(), "")
 
+    def test_a_comment_moved_to_another_file_is_not_reported(self):
+        self.commit({
+            "Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"].replace("# old prose\n", ""),
+            "Thorn/schedule.ccl": "# old prose\n",
+        })
+        self.assertEqual(self.run_hook(), "")
+
+    def test_a_copy_is_reported_where_it_was_written(self):
+        self.append("Thorn/interface.ccl", "# old prose\n")
+        self.commit({"Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"].replace("} 1", "} 2")})
+        lines = self.blocked(self.run_hook())
+        self.assertEqual(lines[0], "Thorn/interface.ccl:2   # old prose")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 comment line")
+
+    def test_a_renamed_and_rewritten_file_keeps_its_old_comments(self):
+        git(self.root, "mv", "Thorn/param.ccl", "Thorn/test/test.ccl")
+        write_files(self.root, {"Thorn/test/test.ccl": "# old prose\nTEST t\n{\n  NPROCS 2\n}\n"})
+        self.assertEqual(self.run_hook(), "")
+
+    def test_a_file_merged_in_and_then_renamed_keeps_its_comments(self):
+        self.merge_upstream({"Thorn/schedule.ccl": "# upstream schedule\n"})
+        git(self.root, "mv", "Thorn/schedule.ccl", "Thorn/test/test.ccl")
+        git(self.root, "commit", "-q", "-m", "rename")
+        self.assertEqual(self.run_hook(), "")
+
+    def test_a_renamed_thorn_keeps_its_comments(self):
+        git(self.root, "mv", "Thorn", "Renamed")
+        self.assertEqual(self.run_hook(), "")
+        self.append("Renamed/param.ccl", "# new\n")
+        self.assertEqual(self.blocked(self.run_hook())[0], "Renamed/param.ccl:6   # new")
+
     def test_files_that_are_not_covered_or_are_gone_are_skipped(self):
         self.append("Thorn/README", "# not covered\n")
         write_files(self.root, {"scripts/x.par": "# not a thorn\n", "Other/param.ccl": "# no interface.ccl\n"})
@@ -504,6 +537,68 @@ class HookStop(unittest.TestCase):
             out = io.StringIO()
             hooks.hook_stop(json.dumps({"stop_hook_active": False}), out, root=other)
             self.assertIn("systemMessage", json.loads(out.getvalue()))
+
+
+class HookEditOnABranch(Branch):
+    def run_edit(self, tool_name, tool_input):
+        out = io.StringIO()
+        payload = {"tool_name": tool_name, "tool_input": tool_input, "cwd": self.root}
+        self.assertEqual(hooks.hook_edit(json.dumps(payload), out, root=self.root), 0)
+        if out.getvalue():
+            return out.getvalue()
+        path = os.path.join(self.root, tool_input["file_path"])
+        before = None
+        if os.path.isfile(path):
+            with open(path) as f:
+                before = f.read()
+        write_files(self.root, {tool_input["file_path"]: hooks.simulate_edit(tool_name, tool_input, before)})
+        return ""
+
+    def edit(self, name, old, new):
+        return self.run_edit("Edit", {"file_path": name, "old_string": old, "new_string": new})
+
+    def write(self, name, content):
+        return self.run_edit("Write", {"file_path": name, "content": content})
+
+    def denied(self, output):
+        self.assertTrue(output, "the hook printed nothing")
+        return json.loads(output)["hookSpecificOutput"]["permissionDecisionReason"].split("\n")
+
+    def stop(self):
+        out = io.StringIO()
+        hooks.hook_stop(json.dumps({"stop_hook_active": False}), out, root=self.root)
+        return out.getvalue()
+
+    def test_a_comment_moved_by_two_edits_is_allowed(self):
+        self.assertEqual(self.edit("Thorn/param.ccl", "# old prose\n", ""), "")
+        self.assertEqual(self.edit("Thorn/param.ccl", "} 1\n", "} 1\n# old prose\n"), "")
+        self.assertEqual(self.stop(), "")
+
+    def test_a_comment_moved_to_another_file_by_two_edits_is_allowed(self):
+        self.assertEqual(self.edit("Thorn/param.ccl", "# old prose\n", ""), "")
+        self.assertEqual(self.write("Thorn/schedule.ccl", "# old prose\n"), "")
+        self.assertEqual(self.stop(), "")
+
+    def test_a_copy_is_denied(self):
+        lines = self.denied(self.write("Thorn/schedule.ccl", "# old prose\n"))
+        self.assertEqual(lines[0], "Thorn/schedule.ccl:1   # old prose")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 comment line")
+
+    def test_a_comment_the_branch_deleted_can_be_put_back(self):
+        self.commit({"Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"].replace("# old prose\n", "")})
+        self.assertEqual(self.edit("Thorn/param.ccl", "} 1\n", "} 1\n# old prose\n"), "")
+
+    def test_the_report_names_only_the_edit_s_own_lines(self):
+        write_files(self.root, {"Thorn/schedule.ccl": "# written by a shell command\n"})
+        lines = self.denied(self.edit("Thorn/param.ccl", "} 1\n", "} 1\n# written by a shell command\n# new\n"))
+        self.assertEqual(lines[:2], ["Thorn/param.ccl:6   # written by a shell command", "Thorn/param.ccl:7   # new"])
+        self.assertEqual(lines[-1], "✗ no-comments: 2 comment lines")
+
+    def test_without_the_branch_the_edit_is_judged_alone(self):
+        self.assertEqual(self.edit("Thorn/param.ccl", "# old prose\n", ""), "")
+        with mock.patch("hooks.merge_base", side_effect=RuntimeError("git crashed")):
+            lines = self.denied(self.edit("Thorn/param.ccl", "} 1\n", "} 1\n# old prose\n"))
+        self.assertEqual(lines[0], "Thorn/param.ccl:5   # old prose")
 
 
 def copy_tool(root):
