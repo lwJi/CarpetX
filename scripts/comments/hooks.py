@@ -21,7 +21,6 @@ from files import (
     show,
     untracked,
 )
-from lex_clang import ToolMissing
 from report import render
 from rules import Unit, units
 
@@ -33,8 +32,7 @@ def emit(out, message: dict) -> None:
 
 
 def skipped(out, e: Exception) -> int:
-    why = str(e) if isinstance(e, ToolMissing) else f"{type(e).__name__}: {e}"
-    emit(out, {"systemMessage": f"comment check skipped: {why}"})
+    emit(out, {"systemMessage": f"comment check skipped: {type(e).__name__}: {e}"})
     return 0
 
 

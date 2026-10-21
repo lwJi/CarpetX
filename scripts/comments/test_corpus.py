@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
 import unittest
 from collections import Counter
 
-import lex_clang
 from files import PROJECT, Lang, decode, lang_of, parallel, resolve, split_z, thorns_in
 from rules import lex, units
 from tokens import Kind, join
 
 ET0 = "6c59144364fb5e65c7355d4a445530b8503460db"
-HAVE_CLANG = shutil.which(lex_clang.CLANG) is not None
 HAVE_ET0 = resolve(PROJECT, ET0) == ET0
 
 
@@ -43,7 +40,6 @@ def corpus(rev: str) -> list[tuple[str, Lang, str]]:
     return [(name, lang, texts[name]) for name, lang in covered]
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 @unittest.skipUnless(HAVE_ET0, f"needs ET0 ({ET0[:9]}) in the repository's history")
 class Et0(unittest.TestCase):
     @classmethod

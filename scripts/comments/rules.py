@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-import lex_clang
+import lex_cxx
 import lex_hash
 from files import Lang
 from tokens import Kind, Token
@@ -97,7 +97,7 @@ def directive_units(tokens: list[Token]) -> Iterable[Unit]:
 
 def lex(text: str, lang: Lang) -> list[Token]:
     if lang is Lang.CXX:
-        return lex_clang.lex(text)
+        return lex_cxx.lex(text)
     return lex_hash.lex(text, lang)
 
 

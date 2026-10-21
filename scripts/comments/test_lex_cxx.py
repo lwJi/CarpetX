@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-import os
-import shutil
 import unittest
-from unittest import mock
 
-import lex_clang
-from lex_clang import ToolMissing, lex
+from lex_cxx import lex
 from tokens import Kind, join
-
-HAVE_CLANG = shutil.which(lex_clang.CLANG) is not None
 
 
 def kinds(text):
@@ -20,7 +14,6 @@ def comments(text):
     return [t.text for t in lex(text) if t.kind is Kind.COMMENT]
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class Tiling(unittest.TestCase):
     def test_the_tokens_join_back_into_the_file(self):
         for text in [
@@ -64,7 +57,6 @@ class Tiling(unittest.TestCase):
         self.assertEqual(lex("﻿// c\n")[0].kind, Kind.SPACE)
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class Comments(unittest.TestCase):
     def test_line_and_block_comments(self):
         self.assertEqual(comments("int a; // x\n/* y */ int b;\n"), ["// x", "/* y */"])
@@ -86,11 +78,6 @@ class Comments(unittest.TestCase):
         self.assertEqual(comments('auto s = R"x(a )" // b)x"; // c\n'), ["// c"])
         self.assertEqual(comments('auto s = u8R"(\n// not a comment\n)"; // c\n'), ["// c"])
 
-    def test_a_raw_string_that_looks_like_a_dump_record(self):
-        text = 'auto s = R"x(\ncomment \'// x\'\t\tLoc=<src.cxx:1:1>\nhash \'#\'\t [StartOfLine]\tLoc=<src.cxx:2:1>\n)x"; // c\n'
-        self.assertEqual(comments(text), ["// c"])
-        self.assertEqual(join(lex(text)), text)
-
     def test_char_literals_and_digit_separators(self):
         self.assertEqual(comments("char c = '\"'; // real\n"), ["// real"])
         self.assertEqual(comments("char a = '/', b = '*';\n"), [])
@@ -110,11 +97,24 @@ class Comments(unittest.TestCase):
         self.assertEqual(comments("/* a\n b */ int x;\n"), ["/* a\n b */"])
         self.assertEqual(comments("int a; /* b\nc\n"), ["/* b\nc\n"])
 
+    def test_a_comment_right_after_a_line_splice(self):
+        self.assertEqual(comments("#define X(a) f(a, \\\n/* note */ 1)\nint y;\n"), ["/* note */"])
+        self.assertEqual(comments("#define Y \\\n// note\nint y;\n"), ["// note"])
+        self.assertEqual(kinds("#define Z(a) a)\\\nb\n"),
+                         [(Kind.DIRECTIVE, t) for t in ("#", "define", "Z", "(", "a", ")", "a", ")", "b")])
+
+    def test_prefixed_literals(self):
+        self.assertEqual(comments('auto s = u8"// a", t = L"/* b */"; auto c = U\'/\'; // c\n'), ["// c"])
+        self.assertEqual(comments('auto s = LR"x(// a)x"; // b\n'), ["// b"])
+        self.assertEqual(comments('auto Ru = 1; // c\n'), ["// c"])
+
+    def test_an_unterminated_literal_ends_at_the_line_end(self):
+        self.assertEqual(comments('#error "don\'t\nint a; // c\n'), ["// c"])
+
     def test_crlf_is_not_part_of_the_comment(self):
         self.assertEqual(comments("int a; // c\r\nint b;\r\n"), ["// c"])
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class Directives(unittest.TestCase):
     def test_a_directive_line_is_directive_tokens(self):
         self.assertEqual(
@@ -137,7 +137,6 @@ class Directives(unittest.TestCase):
         self.assertEqual(kinds("int b; /*\n*/ #define Z 3\n")[4], (Kind.CODE, "#"))
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class HeaderNames(unittest.TestCase):
     def test_a_header_name_is_one_token(self):
         self.assertEqual(kinds("#include <a//b>\n"), [(Kind.DIRECTIVE, "#"), (Kind.DIRECTIVE, "include"),
@@ -167,13 +166,6 @@ class HeaderNames(unittest.TestCase):
         text = "#include <a/*b>\n#include <c//d> // e\nint x; /* f */\n"
         self.assertEqual(comments(text), ["// e", "/* f */"])
         self.assertEqual(join(lex(text)), text)
-
-
-class Missing(unittest.TestCase):
-    def test_no_clang_raises_tool_missing(self):
-        with mock.patch.dict(os.environ, {"PATH": ""}):
-            with self.assertRaises(ToolMissing):
-                lex("int a; // x\n")
 
 
 if __name__ == "__main__":

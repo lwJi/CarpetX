@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import shutil
 import unittest
 
-import lex_clang
 from files import Lang
 from report import RULE, excerpt, render, summary
 from rules import units
-
-HAVE_CLANG = shutil.which(lex_clang.CLANG) is not None
 
 
 def found(path, text):
@@ -25,7 +21,6 @@ class Summary(unittest.TestCase):
         self.assertEqual(render([]), "✓ no-comments: 0 comment lines")
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class Render(unittest.TestCase):
     def test_the_report_shape(self):
         text = "\n" * 811 + "// Must run before the restriction.\nint a;\n"

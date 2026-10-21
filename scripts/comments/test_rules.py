@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import shutil
 import unittest
 from unittest import mock
 
-import lex_clang
 from files import Lang
 from rules import comment_words, is_constant, units
-
-HAVE_CLANG = shutil.which(lex_clang.CLANG) is not None
 
 
 def reported(text, lang=Lang.CXX):
@@ -46,7 +42,6 @@ class CommentWords(unittest.TestCase):
                 self.assertEqual(comment_words(text), [""])
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class ToolMarkers(unittest.TestCase):
     def test_namespace_closers(self):
         self.assertEqual(reported("namespace CarpetX {\nint a;\n} // namespace CarpetX\n"), [])
@@ -77,7 +72,6 @@ class ToolMarkers(unittest.TestCase):
         self.assertEqual(reported("// NOLINTNEXTLINE(x)\nint d;\n"), ["// NOLINTNEXTLINE(x)"])
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class EmptyComments(unittest.TestCase):
     def test_a_comment_with_no_words_is_not_reported(self):
         for text in ["f(a, //\n  b);\n", "f(a, //  \n  b);\n", "int a;\n//\nint b;\n", "int a; /* */\n", "int a; /**/\n"]:
@@ -89,7 +83,6 @@ class EmptyComments(unittest.TestCase):
         self.assertEqual(units("x = 1\n!\n", Lang.FORTRAN), [])
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class EachLine(unittest.TestCase):
     def test_every_line_of_a_comment_is_judged_alone(self):
         text = (
@@ -117,7 +110,6 @@ class EachLine(unittest.TestCase):
         self.assertEqual(a.key, b.key)
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class Citations(unittest.TestCase):
     def test_a_citation_is_allowed(self):
         for comment in [
@@ -160,7 +152,6 @@ class Citations(unittest.TestCase):
                 self.assertEqual(len(reported(in_a_function(comment))), 1)
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class EverythingElse(unittest.TestCase):
     def test_prose_todo_labels_and_disabled_code(self):
         self.assertEqual(reported("// Must run before the restriction.\nint a;\n"), ["// Must run before the restriction."])
@@ -172,7 +163,7 @@ class EverythingElse(unittest.TestCase):
     def test_non_ascii_prose(self):
         self.assertEqual(reported("double v; // m s⁻¹\n"), ["// m s⁻¹"])
 
-    def test_no_comment_opener_skips_clang(self):
+    def test_no_comment_opener_skips_the_lexer(self):
         with mock.patch("rules.lex", side_effect=AssertionError("lexed")):
             self.assertEqual(units("int a = b / c * d;\n", Lang.CXX), [])
 
@@ -197,7 +188,6 @@ class ConstantConditions(unittest.TestCase):
                 self.assertFalse(is_constant(condition))
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class Guards(unittest.TestCase):
     def test_constant_guards_and_messages_are_reported(self):
         found = units('#if 0\nint a;\n#endif\n#warning "TODO: Restrict"\n#pragma message("x")\n', Lang.CXX)
@@ -241,7 +231,6 @@ class Guards(unittest.TestCase):
         self.assertEqual(a.key, b.key)
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class Messages(unittest.TestCase):
     def test_compile_time_messages(self):
         text = (

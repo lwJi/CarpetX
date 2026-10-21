@@ -26,11 +26,6 @@ jobs:
           fetch-depth: 0
           ref: ${{github.event.pull_request.head.sha || github.sha}}
 
-      - name: Install clang
-        run: |
-          command -v clang++ || { sudo apt-get update && sudo apt-get install --yes --no-install-recommends clang; }
-          clang++ --version
-
       - name: Test scripts/comments
         run: python3 -m unittest discover -s scripts/comments
 

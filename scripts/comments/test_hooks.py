@@ -11,12 +11,10 @@ import unittest
 from unittest import mock
 
 import hooks
-import lex_clang
 from files import PROJECT, Lang
 from hooks import added, simulate_edit
 from test_files import ISOLATED_GIT, git
 
-HAVE_CLANG = shutil.which(lex_clang.CLANG) is not None
 TOOL = os.path.dirname(os.path.abspath(__file__))
 SETTINGS = os.path.join(PROJECT, ".claude", "settings.json")
 FILES = {
@@ -66,7 +64,6 @@ class SimulateEdit(unittest.TestCase):
             simulate_edit("NotebookEdit", {}, None)
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class Added(unittest.TestCase):
     def texts(self, before, after):
         return self.texts_from([before], after)
@@ -241,7 +238,6 @@ class Project(unittest.TestCase):
         return message["systemMessage"]
 
 
-@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
 class HookEdit(Project):
     def test_denies_an_added_comment(self):
         lines = self.denied(self.edit("Thorn/src/a.cxx", "int a = 1;\n", "int a = 1; // why\n"))
@@ -291,33 +287,24 @@ class HookEdit(Project):
             output = self.edit("Thorn/src/a.cxx", "int a = 1;\n", "int a = 1; // why\n")
         self.assertEqual(self.skipped(output), "comment check skipped: RuntimeError: lexer crash")
 
-
-class HookEditWithoutClang(Project):
     def test_files_that_are_not_covered_pass_untouched(self):
-        with mock.patch.dict(os.environ, {"PATH": ""}):
-            self.assertEqual(self.edit("Thorn/README", "not covered\n", "// still not covered\n"), "")
-            self.assertEqual(self.write("Other/src/b.cxx", "int b; // no interface.ccl\n"), "")
-            self.assertEqual(self.write("Thorn/test/x.py", "# python\n"), "")
-            self.assertEqual(self.write("Thorn/a.cxx", "// not under src\n"), "")
-            self.assertEqual(self.write("Thorn/src/a.cxx.orig", "// not a C/C++ suffix\n"), "")
-            with tempfile.TemporaryDirectory() as other:
-                self.assertEqual(self.edit(None, "", "// why\n", path=os.path.join(other, "Thorn", "src", "a.cxx")), "")
+        self.assertEqual(self.edit("Thorn/README", "not covered\n", "// still not covered\n"), "")
+        self.assertEqual(self.write("Other/src/b.cxx", "int b; // no interface.ccl\n"), "")
+        self.assertEqual(self.write("Thorn/test/x.py", "# python\n"), "")
+        self.assertEqual(self.write("Thorn/a.cxx", "// not under src\n"), "")
+        self.assertEqual(self.write("Thorn/src/a.cxx.orig", "// not a C/C++ suffix\n"), "")
+        with tempfile.TemporaryDirectory() as other:
+            self.assertEqual(self.edit(None, "", "// why\n", path=os.path.join(other, "Thorn", "src", "a.cxx")), "")
 
-    def test_no_clang_is_a_system_message(self):
-        with mock.patch.dict(os.environ, {"PATH": ""}):
-            output = self.edit("Thorn/src/a.cxx", "int a = 1;\n", "int a = 1; // why\n")
-        self.assertEqual(self.skipped(output), "comment check skipped: clang++ not found on PATH")
-
-    def test_hash_languages_are_judged_without_clang(self):
+    def test_hash_languages_and_fortran_are_judged(self):
         write_files(self.root, {"Thorn/param.ccl": "# old\nINT n \"n\"\n{\n} 1\n"})
-        with mock.patch.dict(os.environ, {"PATH": ""}):
-            lines = self.denied(self.edit("Thorn/param.ccl", "} 1\n", "} 1 # why\n"))
-            self.assertEqual(lines[0], "Thorn/param.ccl:4   # why")
-            self.assertEqual(self.edit("Thorn/param.ccl", "} 1\n", "} 2\n"), "")
-            self.denied(self.write("Thorn/test/t.par", "A::b = 1\n# why\n"))
-            self.denied(self.write("Thorn/src/make.code.defn", "# why\nSRCS = a.cxx\n"))
-            self.denied(self.write("Thorn/src/f.F90", "x = 1 ! why\n"))
-            self.assertEqual(self.write("Thorn/test/t.par", "A::b = \"# not a comment\"\n"), "")
+        lines = self.denied(self.edit("Thorn/param.ccl", "} 1\n", "} 1 # why\n"))
+        self.assertEqual(lines[0], "Thorn/param.ccl:4   # why")
+        self.assertEqual(self.edit("Thorn/param.ccl", "} 1\n", "} 2\n"), "")
+        self.denied(self.write("Thorn/test/t.par", "A::b = 1\n# why\n"))
+        self.denied(self.write("Thorn/src/make.code.defn", "# why\nSRCS = a.cxx\n"))
+        self.denied(self.write("Thorn/src/f.F90", "x = 1 ! why\n"))
+        self.assertEqual(self.write("Thorn/test/t.par", "A::b = \"# not a comment\"\n"), "")
 
     def test_a_bad_payload_is_a_system_message(self):
         for payload in [
@@ -408,7 +395,6 @@ class HookStop(Branch):
         self.commit({"Thorn/test/t.par": "Thorn::n = 2 # why\n"})
         self.assertEqual(self.blocked(self.run_hook())[0], "Thorn/test/t.par:1   # why")
 
-    @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
     def test_every_kind_of_file_is_checked(self):
         self.append("Thorn/src/a.cxx", "#if 0\n#endif\n")
         self.append("Thorn/src/make.code.defn", "# m\n")
@@ -417,7 +403,6 @@ class HookStop(Branch):
         self.assertEqual(lines[:4], ["Thorn/schedule.ccl:1         /* s */", "Thorn/src/a.cxx:4            #if 0",
                                      "Thorn/src/make.code.defn:2   # m", "Thorn/src/new.cxx:1          // n"])
 
-    @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
     def test_comments_that_dev_already_has_are_not_reported(self):
         self.append("Thorn/src/a.cxx", "int b = 2;\n")
         self.commit({"Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"] + "INT m \"m\"\n{\n} 1\n"})
@@ -515,19 +500,6 @@ class HookStop(Branch):
         self.assertEqual(self.run_hook(), "")
         self.append("Thorn/test/t.par", "# x\n")
         self.assertEqual(self.blocked(self.run_hook())[0], "Thorn/test/t.par:2   # x")
-
-    def test_no_clang_is_a_system_message_only_for_c_and_c_plus_plus(self):
-        self.append("Thorn/param.ccl", "# x\n")
-        only_git = os.path.join(self.root, ".bin")
-        os.makedirs(only_git)
-        os.symlink(shutil.which("git"), os.path.join(only_git, "git"))
-        with open(os.path.join(self.root, ".git", "info", "exclude"), "a") as f:
-            f.write(".bin/\n")
-        with mock.patch.dict(os.environ, {"PATH": only_git}):
-            self.blocked(self.run_hook())
-            self.append("Thorn/src/a.cxx", "int b; // y\n")
-            output = self.run_hook()
-        self.assertEqual(json.loads(output), {"systemMessage": "comment check skipped: clang++ not found on PATH"})
 
     def test_a_bad_payload_or_no_repository_is_a_system_message(self):
         for payload in ["not json", "[]"]:
@@ -628,23 +600,16 @@ class Cli(Project):
         super().setUp()
         copy_tool(self.root)
 
-    @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
     def test_hook_edit_denies(self):
         result = self.run_tool(["hook-edit"], json.dumps(edit_payload(self.root)))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
-
-    def test_hook_edit_without_clang_exits_0_with_a_system_message(self):
-        result = self.run_tool(["hook-edit"], json.dumps(edit_payload(self.root)), env=dict(os.environ, PATH=""))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), {"systemMessage": "comment check skipped: clang++ not found on PATH"})
 
     def test_hook_edit_with_a_bad_payload_exits_0(self):
         result = self.run_tool(["hook-edit"], "not json")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("systemMessage", json.loads(result.stdout))
 
-    @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
     def test_check_exit_codes(self):
         write_files(self.root, {"Thorn/src/c.cxx": "int c; // why\n"})
         result = self.run_tool(["check", os.path.join(self.root, "Thorn")])
@@ -654,15 +619,9 @@ class Cli(Project):
         result = self.run_tool(["check", os.path.join(self.root, "Thorn/src/a.cxx")])
         self.assertEqual((result.returncode, result.stdout), (0, "✓ no-comments: 0 comment lines\n"))
 
-    def test_check_without_clang_exits_2(self):
-        result = self.run_tool(["check", os.path.join(self.root, "Thorn")], env=dict(os.environ, PATH=""))
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("clang++ not found on PATH", result.stderr)
-
     def test_check_of_a_missing_path_exits_2(self):
         self.assertEqual(self.run_tool(["check", os.path.join(self.root, "nope")]).returncode, 2)
 
-    @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
     def test_check_without_a_path_scans_the_whole_tree(self):
         write_files(self.root, {"Thorn/param.ccl": "# p\n", "Thorn/src/c.cxx": "int c; // why\n", "scripts/x.par": "# no\n"})
         result = self.run_tool(["check"])
@@ -670,16 +629,13 @@ class Cli(Project):
         self.assertEqual(result.stdout.split("\n")[:2], ["Thorn/param.ccl:1   # p", "Thorn/src/c.cxx:1   // why"])
         self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 2 comment lines")
 
-    def test_a_file_clang_rejects_names_the_file(self):
-        write_files(self.root, {"Thorn/src/c.cxx": "int c; // why\n"})
-        fake = os.path.join(self.root, "bin")
-        os.makedirs(fake)
-        with open(os.path.join(fake, "clang++"), "w") as f:
-            f.write("#!/bin/sh\necho 'error: boom' >&2\nexit 1\n")
-        os.chmod(os.path.join(fake, "clang++"), 0o755)
-        result = self.run_tool(["check", os.path.join(self.root, "Thorn")], env=dict(os.environ, PATH=fake + os.pathsep + os.environ["PATH"]))
+    @unittest.skipIf(os.geteuid() == 0, "root reads a file without read permission")
+    def test_a_file_that_cannot_be_read_names_the_file(self):
+        write_files(self.root, {"Thorn/src/c.cxx": "int c;\n"})
+        os.chmod(self.path("Thorn/src/c.cxx"), 0)
+        result = self.run_tool(["check", os.path.join(self.root, "Thorn")])
         self.assertEqual(result.returncode, 2)
-        self.assertRegex(result.stderr, r"^comments check: Thorn/src/[ac]\.cxx: clang\+\+ exited with status 1: error: boom")
+        self.assertRegex(result.stderr, r"^comments check: Thorn/src/c\.cxx: \[Errno 13\] Permission denied")
 
     def test_hook_stop_with_a_bad_payload_exits_0(self):
         result = self.run_tool(["hook-stop"], "not json")
@@ -717,7 +673,6 @@ class Settings(Project):
             result = self.run_command(command, project, edit_payload(self.root))
             self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""), project)
 
-    @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
     def test_the_command_runs_the_project_s_tool(self):
         [(_, command)] = configured_pretooluse()
         copy_tool(self.root)

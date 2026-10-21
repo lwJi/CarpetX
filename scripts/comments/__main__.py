@@ -15,8 +15,8 @@ class FileFailed(RuntimeError):
 def run_check(paths: list[str], since: str | None = None) -> int:
     from files import PROJECT, GitError, common_ancestor, list_covered, list_tree, parallel, read_text, resolve
     from hooks import added
-    from lex_clang import LexError, ToolMissing
     from report import render
+    from tokens import LexError
 
     def judge(item):
         name, path, lang = item
@@ -39,7 +39,7 @@ def run_check(paths: list[str], since: str | None = None) -> int:
         else:
             files = list_covered(paths) if paths else list_tree()
             found = [entry for entries in parallel(judge, files) for entry in entries]
-    except (ToolMissing, FileNotFoundError, FileFailed, GitError) as e:
+    except (FileNotFoundError, FileFailed, GitError) as e:
         print(f"comments check: {e}", file=sys.stderr)
         return EXIT_ERROR
     sys.stdout.reconfigure(errors="backslashreplace")
