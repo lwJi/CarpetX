@@ -103,6 +103,16 @@ class TouchedComments(unittest.TestCase):
         self.assertEqual(check("// a\nint x;\n\nint y;\n", "// a\nint x;\nint z;\n\nint y;\n"), [("touched", 1, 1)])
         self.assertEqual(check("// a\nint x;\n\nint y;\n", "// a\nint x;\n\nint z;\nint y;\n"), [])
 
+    def test_code_inserted_inside_the_code_under_a_comment_wherever_it_lands(self):
+        before = "// a\nint x;\nint y;\n"
+        self.assertEqual(check(before, "// a\nint x;\n\nint z;\nint y;\n"), [("touched", 1, 1)])
+        self.assertEqual(check(before, "// a\nint x;\n\nint z;\n\nint y;\n"), [("touched", 1, 1)])
+        self.assertEqual(check(before, "// a\nint x;\n//\nint z;\nint y;\n"), [("touched", 1, 1)])
+        self.assertEqual(check(before, "// a\nint x;\n// doi:10.1000/x\nint z;\nint y;\n"), [("touched", 1, 1)])
+
+    def test_a_blank_line_inside_the_code_under_a_comment_changes_no_code(self):
+        self.assertEqual(check("// a\nint x;\nint y;\n", "// a\nint x;\n\nint y;\n"), [])
+
     def test_a_function_added_after_the_block_under_a_comment(self):
         before = "// a\nint f() {\n  return 1;\n}\n\nint h1;\nint h2;\nint h3;\nint h4;\n"
         after = before.replace("}\n", "}\n\nint g() {\n  return 2;\n}\n", 1)

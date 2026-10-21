@@ -77,8 +77,11 @@ def judge(before: str, after: str, lang: Lang) -> Verdict:
             if any(b.first <= line <= b.end for line in removed):
                 return True
             inserted = [line for line in range(j1 + 1, j2 + 1) if new_code[line - 1]]
-            anchored = b.first <= i1 < b.end or (i1 == b.end and not b.inline)
-            if not removed and anchored and any(c.first <= line <= c.end for line in inserted):
+            if removed or not inserted:
+                continue
+            if b.first <= i1 < b.end:
+                return True
+            if i1 == b.end and not b.inline and any(c.first <= line <= c.end for line in inserted):
                 return True
         return False
 
