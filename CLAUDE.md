@@ -34,7 +34,9 @@ The first in-sandbox `build.sh` configures and compiles from scratch (~13 min â€
 
 Don't add comments to thorn files. A thorn is a top-level directory with an `interface.ccl`, and its files are the C, C++ and Fortran sources under `src/`, every `.ccl`, every `.par` and `.par-DISABLED`, and `make.code.defn`. Repo tooling (`scripts/`, `agent_scripts/`, `docker/`, workflows, option lists) is not covered, and neither is `BenchX/`.
 
-A hook refuses an Edit or Write that adds a comment line, a Stop hook blocks the turn once if the branch added one since `dev`, and the `no-comments` check fails a PR that adds one; `python3 scripts/comments check --since origin/dev` shows what it would report. Each comment line is judged by its words: deleting, moving or re-indenting a line adds nothing, and a line whose words are new is added. A comment that is already in a file is not yours to keep in sync: treat it as a claim to check against the code, delete it when it is wrong or says what the code says, and never cite it as the reason for a change.
+A hook refuses an Edit or Write that adds a comment line, a Stop hook blocks the turn once if the branch added one since `dev`, and the `no-comments` check fails a PR that adds one; `python3 scripts/comments check --since origin/dev` shows what it would report. Each comment line is judged by its words: deleting, moving or re-indenting a line adds nothing, and a line whose words are new is added.
+
+A comment that is already in a file is not yours to keep in sync. Treat it as a claim to check against the code, and never cite it as the reason for a change. Delete it when your change makes it false, or when it only restates code your change edits; don't go through a file looking for others to delete. Delete a comment whole: dropping some of its lines can leave the rest saying something new, and the edit hook adds a note when an edit does that. A line that stands alone, such as one TODO, one `\param` entry or a line of commented-out code, can go by itself. When part of a comment you delete is still true, put that part in code or in your commit message.
 
 A new comment line is allowed only if it is one of these:
 
@@ -43,7 +45,7 @@ A new comment line is allowed only if it is one of these:
 
 Everything else is refused, however short: prose, TODO and FIXME, `/*arg=*/` labels, line references into other code bases, commented-out code and `.par` settings, `#if 0` / `#if 1` blocks, and compile-time messages (`#warning`, `#pragma message`). There is no way to exempt a line or a file. CCL description strings and runtime messages are not comments, but don't move comment prose into them.
 
-Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message, never in a comment.
+Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message, never in a comment. When the code doesn't explain itself, read the file's `git log`; `git log -S '<words>'` lists the commits that added or deleted a comment line. History describes the code as it was at that commit: check it against the current code before relying on it.
 
 ## Commit & Pull Request Guidelines
 
