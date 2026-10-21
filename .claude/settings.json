@@ -5,6 +5,37 @@
     "sessionUrl": false
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=\"$CLAUDE_PROJECT_DIR/scripts/comments\"; [ -f \"$d/__main__.py\" ] || exit 0; python3 \"$d\" hook-edit"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=\"$CLAUDE_PROJECT_DIR/scripts/comments\"; [ -f \"$d/__main__.py\" ] || exit 0; python3 \"$d\" hook-stop"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "d=\"$CLAUDE_PROJECT_DIR/scripts/comments\"; [ -f \"$d/__main__.py\" ] || exit 0; python3 \"$d\" hook-stop"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",

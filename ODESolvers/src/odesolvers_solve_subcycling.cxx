@@ -315,6 +315,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
   *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
 
+  static_assert(
+      rk_methods_detail::subcycling_ok_rows_are({"constant", "RK4", "SSPRK3"}),
+      "rk_methods: the subcycling_ok rows must be the methods "
+      "ODESolvers_Solve_Subcycling has a branch for");
+
   if (CCTK_EQUALS(method, "constant")) {
 
     // y1 = y0
@@ -468,29 +473,6 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   if (setup.nvars == 0)
     return;
 
-  // Refill each recovered fine level's refinement-boundary (cf) ghosts the
-  // way the uninterrupted run last wrote them. Recovery traverses
-  // CCTK_POST_RECOVER_VARIABLES once per clock group, and this routine runs
-  // first in each traversal, so the window is one clock group, the window in
-  // which its levels last ran their end of step. Its levels other than its
-  // coarsest are aligned with their parents. Its coarsest level, unless it is
-  // level 0, lags its parent: it is mid-cycle. The ghosts were last written
-  //  - at the virtual end of the level's last substep (calcys_rmbnd) by dense
-  //    output from its source bands, which hold the parent's last step. The
-  //    checkpoint restored them; its reader has already refused a mid-cycle
-  //    checkpoint that lacks bands still needed here. fill_rk_boundary at the
-  //    same point, with the parent's step taken from the clocks, reproduces
-  //    these ghosts;
-  //  - or, on an aligned level of a window the driver restricted at that end
-  //    of step (CarpetX::window_is_restricted: the finest clock group), after
-  //    that by spatial prolongation from the restricted parent
-  //    (ProlongateAfterRestriction), for every evolved group, restricted or
-  //    not. The parent's tl=0 still holds that state, and
-  //    SyncGroupsByDirIProlongateOnlyAligned repeats the prolongation. These
-  //    are exactly the levels that need no bands: a time-aligned checkpoint
-  //    carries none.
-  // The ODESolvers_PostStep SYNC that follows then only exchanges ghosts
-  // between boxes of the same level.
   if (var_groups.size() > 0) {
     var.check_valid(make_valid_int(),
                     "ODESolvers_Solve_Subcycling_Recovery requires the tl=0 "
@@ -508,6 +490,10 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
     active_levels->loop_coarse_to_fine([&](const auto &leveldata) {
       if (leveldata.level == 0)
         return;
+      assert(aligned_with_parent(leveldata) ==
+                 (leveldata.level > active_levels->min_level) &&
+             "recovery traverses POST_RECOVER_VARIABLES once per clock "
+             "group, so only the group's coarsest level lags its parent");
       // Prolongated in space above
       if (restricted && aligned_with_parent(leveldata))
         return;
@@ -535,24 +521,27 @@ extern "C" void ODESolvers_CheckTimelevels(CCTK_ARGUMENTS) {
   }
 }
 
-// Reject at PARAMCHECK, instead of at the first CCTK_EVOL, a method the
-// configuration cannot run (rk_methods.hxx):
-//  - under subcycling, one the subcycling solver does not implement; only
-//    the implemented ones have a stage count that fits the driver's band
-//    arrays and a b row the flux registers can be fed with;
-//  - in a run that may refine (CarpetX::max_num_levels > 1), an implicit
-//    (IMEX) method when some group gets a flux register: the driver would
-//    allocate the register on every refined level, and only an explicit
-//    method hands every stage's flux to it with a known weight
-//    (ODESolvers_Solve's calcrhs). A unigrid run owns no register (they
-//    live on levels > 0), so an implicit method is fine there even with
-//    CarpetX::do_reflux = yes.
-// Runs after WRAGH, where ODESolvers_InitConstants publishes
-// rk_integrated_group, so CarpetX::group_has_flux_register (the predicate
-// that register allocation uses) already gives its final answer.
 extern "C" void ODESolvers_CheckMethod(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckMethod;
   DECLARE_CCTK_PARAMETERS;
+
+  const cParamData *const method_param =
+      CCTK_ParameterData("method", "ODESolvers");
+  assert(method_param);
+  for (const t_range *keyword = method_param->range; keyword;
+       keyword = keyword->next) {
+    if (!CCTK_Equals(keyword->origin, "ODESolvers"))
+      continue;
+    const bool has_row = std::any_of(
+        rk_methods.begin(), rk_methods.end(), [&](const rk_method_t &row) {
+          return CCTK_Equals(keyword->range, row.name);
+        });
+    if (!has_row)
+      CCTK_VERROR("ODESolvers::method keyword \"%s\" (ODESolvers/param.ccl) "
+                  "has no row in the RK method table "
+                  "(ODESolvers/src/rk_methods.hxx)",
+                  keyword->range);
+  }
 
   const rk_method_t &rk = rk_method(method);
 

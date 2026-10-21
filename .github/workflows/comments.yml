@@ -1,0 +1,34 @@
+name: Comments
+
+on:
+  pull_request:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{github.workflow}}-${{github.head_ref || github.ref}}
+  cancel-in-progress: ${{github.event_name == 'pull_request'}}
+
+jobs:
+  no-comments:
+    runs-on: ubuntu-latest
+    env:
+      # The tip of the PR's base branch, or the tip `dev` had before this push.
+      # The check judges the change from the merge base of this and HEAD.
+      BASE: ${{github.event.pull_request.base.sha || github.event.before}}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{github.event.pull_request.head.sha || github.sha}}
+
+      - name: Test scripts/comments
+        run: python3 -m unittest discover -s scripts/comments
+
+      - name: Check the comments this change adds to thorn files
+        if: ${{!cancelled() && env.BASE != '0000000000000000000000000000000000000000'}}
+        run: python3 scripts/comments check --since "$BASE"

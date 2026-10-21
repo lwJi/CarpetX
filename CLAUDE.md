@@ -30,9 +30,15 @@ agent_scripts/sandbox/setup.sh                                     # in-sandbox,
 
 The first in-sandbox `build.sh` configures and compiles from scratch (~13 min — give it a 30-minute timeout); the named sandbox persists the build across stop/start, so later builds are incremental (~10 s) and the testsuite takes ~25 s.
 
+## Code comments
+
+Comments in thorn files can only be deleted. Don't add a comment line or change one, and when your change edits the code under a comment (its paragraph, or the whole block that code opens), delete the whole comment. Hooks and the `no-comments` CI check enforce this, and `python3 scripts/comments check --since origin/dev` shows what they would report. The full rule, including what counts as a thorn file and the few allowed comment lines, is in `agent_docs/code-comments.md`.
+
+A comment already in a file is a claim to check against the code, never the reason for a change. When your change makes a comment false that the check can't see, such as one on a declaration in a header, delete it too. Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message, never in a comment; `git log -S '<words>'` finds what deleted comments said.
+
 ## Commit & Pull Request Guidelines
 
-Recent history favors short subject lines with a thorn prefix, for example `ODESolvers: update comments` or `CarpetX: add par poison_undefined_arrays`. Keep commits focused on one thorn or one behavior change. PRs should explain the scientific or runtime impact, list the tests run, and link the relevant issue or discussion. Include plots or output snippets when a change affects diagnostics, IO, or visible simulation results.
+Recent history favors short subject lines with a thorn prefix, for example `ODESolvers: check more of the RK method table at compile time` or `CarpetX: add par poison_undefined_arrays`. Keep commits focused on one thorn or one behavior change. PRs should explain the scientific or runtime impact, list the tests run, and link the relevant issue or discussion. Include plots or output snippets when a change affects diagnostics, IO, or visible simulation results.
 
 ## Further Reading
 
