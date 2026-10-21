@@ -394,10 +394,6 @@ template <typename T> struct coeffs1d<CC, ENO, /*order*/ 4, T> {
 // 1D interpolation operators
 
 template <centering_t CENT, interpolation_t INTP, int ORDER> struct interp1d;
-// static constexpr int required_ghosts;
-// constexpr std::array<int, 2> stencil_radius(int shift, int off) const;
-// template <typename F>
-// T operator()(const F& crse, int shift, int off) const;
 
 // off=0: on coarse point
 // off=1: between coarse points
@@ -759,7 +755,6 @@ struct undivided_difference_1d {
 template <int ORDER> struct undivided_difference_1d<CC, ENO, ORDER> {
   static_assert(ORDER > 0);
   static_assert(ORDER % 2 == 0);
-  // static constexpr int required_ghosts = ORDER;
   template <typename F, typename T = std::invoke_result_t<F, int> >
   CCTK_DEVICE CCTK_HOST inline __attribute__((__always_inline__, __flatten__)) T
   operator()(const F &crse) const {
@@ -817,10 +812,6 @@ template <int ORDER> struct interp1d<CC, ENO, ORDER> {
     // See above in `stencil_radius`
     assert(-(ORDER / 2) <= shift && shift <= +(ORDER / 2));
 #endif
-    // For off=1, use the reversed stencil for the opposite shift
-    // const std::array<T, ORDER + 1> cs =
-    //     coeffs1d<CC, ENO, ORDER, T>::
-    //     coeffs[ORDER / 2 + (off == 0 ? +1 : -1) * shift];
     constexpr int N = ORDER + 1;
     const std::array<std::array<T, N>, N> css =
         coeffs1d<CC, ENO, ORDER, T>::coeffs;
@@ -976,7 +967,6 @@ template <int ORDER, typename T> struct test_interp1d<VC, HERMITE, ORDER, T> {
         // cannot be a problem here
         using std::isfinite;
         assert(isfinite(y1));
-        // assert(y1 == y);
         const T eps = std::numeric_limits<T>::epsilon();
         const T scale = std::max(std::abs(y), T(1.0));
         assert(std::abs(y1 - y) <= 100 * eps * scale);
@@ -997,9 +987,6 @@ template <int ORDER, typename T> struct test_interp1d<CC, CONS, ORDER, T> {
     T *restrict const ys = &ysarr[i0];
 
     for (int order = 0; order <= ORDER; ++order) {
-      // Function f, a polynomial
-      // const auto f{[&](T x) __attribute__((__always_inline__, __flatten__)) {
-      // return (order + 1) * pown(x, order); }}; Integral of f (antiderivative)
       const auto fint = [&](T x)
           __attribute__((__always_inline__, __flatten__)) {
         return pown(x, order + 1);
@@ -1017,7 +1004,6 @@ template <int ORDER, typename T> struct test_interp1d<CC, CONS, ORDER, T> {
             ys[i] = 0 / T(0);
           } else {
             T x = i + int(CC) / T(2);
-            // T y = f(x);
             const T dx = 1;
             const T xlo = x - dx / 2;
             const T xhi = x + dx / 2;
@@ -1071,10 +1057,6 @@ template <int ORDER, typename T> struct test_interp1d<CC, ENO, ORDER, T> {
     static_assert(ORDER % 2 == 0);
     for (int shift = -ORDER / 2; shift <= +ORDER / 2; ++shift) {
       for (int order = 0; order <= ORDER; ++order) {
-        // Function f, a polynomial
-        // const auto f{[&](T x) __attribute__((__always_inline__, __flatten__))
-        // { return (order + 1) * pown(x, order); }}; Integral of f
-        // (antiderivative)
         const auto fint = [&](T x)
             __attribute__((__always_inline__, __flatten__)) {
           return pown(x, order + 1);
@@ -1092,7 +1074,6 @@ template <int ORDER, typename T> struct test_interp1d<CC, ENO, ORDER, T> {
               ys[i + 1] = 0 / T(0);
             } else {
               T x = (i - i0) + int(CC) / T(2);
-              // T y = f(x);
               const T dx = 1;
               const T xlo = x - dx / 2;
               const T xhi = x + dx / 2;
@@ -1133,10 +1114,6 @@ template <typename T> struct test_interp1d<CC, MINMOD, 1, T> {
     std::array<T, n + 2> xs, ys;
 
     for (int order = 0; order <= 1; ++order) {
-      // Function f, a polynomial
-      // const auto f{[&](T x) __attribute__((__always_inline__, __flatten__))
-      // { return (order + 1) * pown(x, order); }}; Integral of f
-      // (antiderivative)
       const auto fint = [&](T x)
           __attribute__((__always_inline__, __flatten__)) {
         return pown(x, order + 1);
@@ -1154,7 +1131,6 @@ template <typename T> struct test_interp1d<CC, MINMOD, 1, T> {
             ys[i + 1] = 0 / T(0);
           } else {
             T x = (i - i0) + int(CC) / T(2);
-            // T y = f(x);
             const T dx = 1;
             const T xlo = x - dx / 2;
             const T xhi = x + dx / 2;
@@ -1303,7 +1279,6 @@ void prolongate_3d_rf2<
 
   for (int d = 0; d < dim; ++d)
     assert(ratio.getVect()[d] == 2);
-  // ??? assert(gpu_or_cpu == RunOn::Cpu);
 
   assert(actual_comp == 0);  // ???
   assert(actual_state == 0); // ???
@@ -1693,10 +1668,6 @@ void prolongate_3d_rf2<
 
   } // for comp
 
-  // #ifdef __CUDACC__
-  //   amrex::Gpu::synchronize();
-  //   AMREX_GPU_ERROR_CHECK();
-  // #endif
 }
 
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
@@ -1741,7 +1712,6 @@ void prolongate_3d_rf2<
 
   for (int d = 0; d < dim; ++d)
     assert(ratio.getVect()[d] == 2);
-  // ??? assert(gpu_or_cpu == RunOn::Cpu);
 
   assert(actual_comp == 0);  // ???
   assert(actual_state == 0); // ???
@@ -2039,19 +2009,10 @@ void prolongate_3d_rf2<
               for (int comp = 0; comp < ncomps; ++comp) {
                 for (int dk = sradk[0]; dk <= sradk[1]; ++dk) {
                   for (int dj = sradj[0]; dj <= sradj[1]; ++dj) {
-                    // using std::signbit;
-                    // const bool s0 = signbit(
-                    //     crse(icrse[0] + 1, icrse[1] + dj, icrse[2] + dk) -
-                    //     crse(icrse[0] + 0, icrse[1] + dj, icrse[2] + dk));
                     const CCTK_REAL s0 =
                         crse(icrse[0] + 1, icrse[1] + dj, icrse[2] + dk, comp) -
                         crse(icrse[0] + 0, icrse[1] + dj, icrse[2] + dk, comp);
                     for (int di = sradi[0] + 2; di <= sradi[1]; ++di) {
-                      // const bool s = signbit(
-                      //     crse(icrse[0] + di, icrse[1] + dj, icrse[2] + dk) -
-                      //     crse(icrse[0] + (di - 1), icrse[1] + dj,
-                      //          icrse[2] + dk));
-                      // need_fallback_i |= s != s0;
                       const CCTK_REAL s =
                           crse(icrse[0] + di, icrse[1] + dj, icrse[2] + dk,
                                comp) -
@@ -2070,19 +2031,10 @@ void prolongate_3d_rf2<
               for (int comp = 0; comp < ncomps; ++comp) {
                 for (int dk = sradk[0]; dk <= sradk[1]; ++dk) {
                   for (int di = sradi[0]; di <= sradi[1]; ++di) {
-                    // using std::signbit;
-                    // const bool s0 = signbit(
-                    //     crse(icrse[0] + di, icrse[1] + 1, icrse[2] + dk) -
-                    //     crse(icrse[0] + di, icrse[1] + 0, icrse[2] + dk));
                     const CCTK_REAL s0 =
                         crse(icrse[0] + di, icrse[1] + 1, icrse[2] + dk, comp) -
                         crse(icrse[0] + di, icrse[1] + 0, icrse[2] + dk, comp);
                     for (int dj = sradj[0] + 2; dj <= sradj[1]; ++dj) {
-                      // const bool s = signbit(
-                      //     crse(icrse[0] + di, icrse[1] + dj, icrse[2] + dk) -
-                      //     crse(icrse[0] + di, icrse[1] + (dj - 1),
-                      //          icrse[2] + dk));
-                      // need_fallback_j |= s != s0;
                       const CCTK_REAL s =
                           crse(icrse[0] + di, icrse[1] + dj, icrse[2] + dk,
                                comp) -
@@ -2101,19 +2053,10 @@ void prolongate_3d_rf2<
               for (int comp = 0; comp < ncomps; ++comp) {
                 for (int dj = sradj[0]; dj <= sradj[1]; ++dj) {
                   for (int di = sradi[0]; di <= sradi[1]; ++di) {
-                    // using std::signbit;
-                    // const bool s0 = signbit(
-                    //     crse(icrse[0] + di, icrse[1] + dj, icrse[2] + 1) -
-                    //     crse(icrse[0] + di, icrse[1] + dj, icrse[2] + 0));
                     const CCTK_REAL s0 =
                         crse(icrse[0] + di, icrse[1] + dj, icrse[2] + 1, comp) -
                         crse(icrse[0] + di, icrse[1] + dj, icrse[2] + 0, comp);
                     for (int dk = sradk[0] + 2; dk <= sradk[1]; ++dk) {
-                      // const bool s = signbit(
-                      //     crse(icrse[0] + di, icrse[1] + dj, icrse[2] + dk) -
-                      //     crse(icrse[0] + di, icrse[1] + dj,
-                      //          icrse[2] + (dk - 1)));
-                      // need_fallback_k |= s != s0;
                       const CCTK_REAL s = crse(icrse[0] + di, icrse[1] + dj,
                                                icrse[2] + dk, comp) -
                                           crse(icrse[0] + di, icrse[1] + dj,
@@ -2169,10 +2112,6 @@ void prolongate_3d_rf2<
                          });
 #endif
 
-  // #ifdef __CUDACC__
-  //   amrex::Gpu::synchronize();
-  //   AMREX_GPU_ERROR_CHECK();
-  // #endif
 }
 
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,

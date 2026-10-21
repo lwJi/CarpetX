@@ -129,7 +129,6 @@ template <typename T, typename U> struct dual {
 
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST dual
   abs(const dual &x) {
-    // return sqrt(pow2(x));
     using std::abs, std::copysign;
     return {abs(x.val), copysign(T{1}, x.val) * x.eps};
   }
@@ -162,7 +161,6 @@ template <typename T, typename U> struct dual {
   }
   friend constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST dual
   fabs(const dual &x) {
-    // return sqrt(pow2(x));
     using std::abs, std::copysign;
     return {abs(x.val), copysign(T{1}, x.val) * x.eps};
   }
@@ -228,7 +226,6 @@ template <typename T, typename U> struct dual {
 
 template <typename T, typename U> struct zero<dual<T, U> > {
   typedef dual<T, U> value_type;
-  // static constexpr value_type value = dual<T, U>(zero<T>(), zero<U>());
   constexpr ARITH_INLINE operator value_type() const {
     return dual<T, U>(zero<T>()(), zero<U>()());
   }
@@ -239,7 +236,6 @@ template <typename T, typename U> struct zero<dual<T, U> > {
 
 template <typename T, typename U> struct one<dual<T, U> > {
   typedef dual<T, U> value_type;
-  // static constexpr value_type value = dual<T, U>(one<T>(), zero<U>());
   constexpr ARITH_INLINE operator value_type() const {
     return dual<T, U>(one<T>()(), zero<U>()());
   }
@@ -250,7 +246,6 @@ template <typename T, typename U> struct one<dual<T, U> > {
 
 template <typename T, typename U> struct nan<dual<T, U> > {
   typedef dual<T, U> value_type;
-  // static constexpr value_type value = dual<T, U>(nan<T>(), nan<U>());
   constexpr ARITH_INLINE operator value_type() const {
     return dual<T, U>(nan<T>()(), nan<U>()());
   }

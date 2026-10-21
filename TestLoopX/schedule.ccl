@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestLoopX
-
 STORAGE: testloop_gf testloop_gf_fx testloop_gf_fy testloop_gf_fz
 STORAGE: testloop_gf_n1 testloop_gf_n2
 STORAGE: testloop_gf_m1 testloop_gf_m2 testloop_gf_m3 testloop_gf_m4 

@@ -1,5 +1,3 @@
-# Parameter definitions for thorn PDESolvers
-
 # -snes_monitor ascii
 # -ksp_monitor
 # -ksp_type {bcgs|bcgsl|gmres|...}   <https://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/KSP/KSPType.html>

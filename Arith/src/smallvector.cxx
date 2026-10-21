@@ -34,10 +34,6 @@ void test_smallvector() {
   const VR y{0, 12, 0, 14, 0};
   const VR z{0, 20, 0, 0, 24};
 
-  // std::cout << "x=" << x << "\n";
-  // std::cout << "y=" << y << "\n";
-  // std::cout << "z=" << z << "\n";
-
   const R a = -2;
   const R b = -3;
 
@@ -83,10 +79,6 @@ void test_spvect() {
   y.emplace_back(4, 14);
   z.emplace_back(1, 20);
   z.emplace_back(4, 24);
-
-  // std::cout << "x=" << x << "\n";
-  // std::cout << "y=" << y << "\n";
-  // std::cout << "z=" << z << "\n";
 
   const R a = -2;
   const R b = -3;

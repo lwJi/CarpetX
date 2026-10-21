@@ -22,8 +22,6 @@ namespace Arith {
 // A rank-4 tensor with the same symmetries as the Riemann tensor
 template <typename T, int D> struct rten {
 
-  // template <typename, int> friend class rten;
-
   // We omit the first Bianchi identity
   //   R_abcd = - R_abdc
   //   R_abcd = - R_bacd
@@ -106,9 +104,6 @@ public:
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   rten(std::array<T, N> x)
       : elts(std::move(x)) {}
-  // explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST rten(const
-  // vector<T> &x) : elts(x) {} explicit constexpr ARITH_INLINE ARITH_DEVICE
-  // ARITH_HOST rten(vector<T> &&x) : elts(std::move(x)) {}
 
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   operator vect<T, N>() const {
@@ -198,16 +193,6 @@ public:
     return fmap([&](const T &var, const U &x) { return var(arg1, arg2, x); },
                 *this, val);
   }
-  // template <typename... Args, typename U, typename T1 = T,
-  //           typename = decltype(declval<T1>().store(declval<Args>()...,
-  //                                                   declval<U>()))>
-  // ARITH_INLINE ARITH_DEVICE ARITH_HOST void store(const Args &...args,
-  //                         const rten<U> &val)
-  //                         const {
-  //   fmap_([&](const auto &var, const auto &x) { return var.store(args..., x);
-  //   },
-  //        val);
-  // }
   template <typename Arg1, typename Arg2, typename U, typename T1 = T,
             typename = decltype(std::declval<T1>().store(
                 std::declval<Arg1>(), std::declval<Arg2>(), std::declval<U>()))>
@@ -348,8 +333,6 @@ public:
 
 template <typename T, int D> struct zero<rten<T, D> > {
   typedef rten<T, D> value_type;
-  // static constexpr value_type value =
-  //     rten<T, D>::pure(zero<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return rten<T, D>::pure(zero<T>());
   }
@@ -360,8 +343,6 @@ template <typename T, int D> struct zero<rten<T, D> > {
 
 template <typename T, int D> struct nan<rten<T, D> > {
   typedef rten<T, D> value_type;
-  // static constexpr value_type value =
-  //     rten<T, D>::pure(nan<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return rten<T, D>::pure(nan<T>());
   }

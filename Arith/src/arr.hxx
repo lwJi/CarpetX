@@ -611,12 +611,6 @@ public:
   // Constructors
 
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST arr() : elts{} {}
-  // constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
-  // arr(std::initializer_list<T> x) {
-  //   assert(x.size() == N);
-  //   for (std::size_t i = 0; i < N; ++i)
-  //     elts[i] = x.begin()[i];
-  // }
 private:
   template <std::size_t... Is>
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST arr(std::initializer_list<T> x,
@@ -656,7 +650,6 @@ public:
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST reference at(size_type pos) {
     if (CCTK_BUILTIN_EXPECT(pos >= N, false))
 #if defined __CUDACC__ || defined __HIPCC__
-      // asm("trap;");
       assert(0);
 #else
       throw std::out_of_range("arr");
@@ -667,7 +660,6 @@ public:
   at(size_type pos) const {
     if (CCTK_BUILTIN_EXPECT(pos >= N, false))
 #if defined __CUDACC__ || defined __HIPCC__
-      // asm("trap;");
       assert(0);
 #else
       throw std::out_of_range("arr");
@@ -882,15 +874,6 @@ constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST auto array_push(arr<T, N> &&a,
                                                                const U &e) {
   return detail::array_push<T>(std::move(a), std::make_index_sequence<N>(), e);
 }
-
-// template <typename T, std::size_t N, typename F>
-// constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST arr<T, N>
-// construct_array(const F &f) {
-//   if constexpr (N == 0)
-//     return arr<T, N>();
-//   if constexpr (N > 0)
-//     return array_push<T>(construct_array<T, N - 1>(f), f(N - 1));
-// }
 
 } // namespace Arith
 

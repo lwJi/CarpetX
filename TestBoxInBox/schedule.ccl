@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestBoxInBox
-
 # Each level's error estimate must see the grid structure of that level's own
 # iteration: update it before every error estimate, including the one after a
 # restart, which recomputes each level's estimate as at the end of its last

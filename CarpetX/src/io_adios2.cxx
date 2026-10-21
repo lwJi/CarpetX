@@ -139,9 +139,6 @@ struct carpetx_adios2_t {
     } else {
       const int v0 = CCTK_FirstVarIndexI(gi);
       varname = CCTK_FullVarName(v0 + vi);
-      // varname = regex_replace(varname, regex("::"), "-");
-      // for (auto &ch : varname)
-      //   ch = tolower(ch);
     }
     std::ostringstream buf;
     buf << varname;
@@ -206,8 +203,6 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
   try {
 
-    // const MPI_Comm mpi_comm = MPI_COMM_WORLD;
-    // const int myproc = CCTK_MyProc(cctkGH);
     const int nprocs = CCTK_nProcs(cctkGH);
 
     if (!io) {
@@ -248,8 +243,6 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       });
       buf << output_dir << "/" << output_file << ".bp5";
       const std::string filename = buf.str();
-      // This just confirms the default
-      // io.SetEngine("BP5");
       engine = io.Open(filename, adios2::Mode::Write);
 
 #ifdef ADIOS2_HAVE_BLOSC2
@@ -283,15 +276,10 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
               assert(cgroup.grouptype == CCTK_GF);
               assert(cgroup.vartype == CCTK_VARIABLE_REAL);
               assert(cgroup.dim == 3);
-              // cGroupDynamicData cgroupdynamicdata;
-              // ierr = CCTK_GroupDynamicData(cctkGH, gi, &cgroupdynamicdata);
-              // assert(!ierr);
-              // TODO: Check whether data are valid
 
               const auto &groupdata = *leveldata.groupdata.at(gi);
               if (groupdata.mfab.empty())
                 continue;
-              // const int firstvarindex = groupdata.firstvarindex;
               const int numvars = groupdata.numvars;
 
               const int tl = 0;
@@ -328,7 +316,6 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                   if (io_verbose)
                     CCTK_VINFO("      Defining variable %s...",
                                varname.c_str());
-                  // const adios2::Variable<CCTK_REAL> var =
                   io.DefineVariable<CCTK_REAL>(varname, {}, {}, {1});
 
                 } // if combine_components
@@ -370,21 +357,14 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             assert(cgroup.grouptype == CCTK_GF);
             assert(cgroup.vartype == CCTK_VARIABLE_REAL);
             assert(cgroup.dim == 3);
-            // cGroupDynamicData cgroupdynamicdata;
-            // ierr = CCTK_GroupDynamicData(cctkGH, gi, &cgroupdynamicdata);
-            // assert(!ierr);
-            // TODO: Check whether data are valid
 
             const auto &groupdata = *leveldata.groupdata.at(gi);
             if (groupdata.mfab.empty())
               continue;
-            // const int firstvarindex = groupdata.firstvarindex;
             const int numvars = groupdata.numvars;
             const int tl = 0;
             const amrex::MultiFab &mfab = *groupdata.mfab[tl];
             const amrex::IndexType &indextype = mfab.ixType();
-            // const amrex::IntVect &ngrow = mfab.nGrowVect();
-            // const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
             const amrex::Geometry &geom =
                 patchdata.amrcore->Geom(leveldata.level);

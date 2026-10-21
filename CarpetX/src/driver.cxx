@@ -972,7 +972,6 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   if (parities.empty()) {
     std::array<int, dim> parity;
     for (int d = 0; d < dim; ++d)
-      // parity[d] = indextype[d] == 0 ? +1 : -1;
       parity[d] = +1;
     parities.resize(numvars, parity);
   }
@@ -1617,11 +1616,6 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
             groupdata.valid.at(tl).at(vi).set_all(
                 make_valid_int() | make_valid_ghosts() | outer_valid,
                 []() { return "MakeNewLevelFromCoarse after prolongation"; });
-            // This cannot be called because it would access the data
-            // with old metadata
-            // check_valid_gf(active_levels, gi, vi, tl, []() {
-            //   return "MakeNewLevelFromCoarse after prolongation";
-            // });
           }
         } else {
           // Data already poisoned by SetupLevel
@@ -2368,9 +2362,6 @@ int ScheduleTraverseGH(cGH *restrict cctkGH, const char *where) {
                where);
 
   int ierr = CCTK_ScheduleTraverse(where, cctkGH, CallFunction);
-  //   if (ierr == 2)
-  // #pragma omp critical
-  //       CCTK_VINFO("Schedule item \"%s\" not found", where);
   assert(ierr == 0 || ierr == 2);
 
   return 0; // unused

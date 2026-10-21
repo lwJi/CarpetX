@@ -46,8 +46,6 @@ public:
 
   constexpr ARITH_DEVICE ARITH_HOST smallvector() : elts{}, sz(0) {}
 
-  // constexpr smallvector(const std::initializer_list<T> &lst)
-  //     : elts(arr<T, N>(vect<T, N>(lst))), sz(lst.size()) {}
   constexpr ARITH_DEVICE ARITH_HOST
   smallvector(const std::initializer_list<T> &lst)
       : elts(construct_array<T, N>([&lst](const size_type i) {
@@ -122,11 +120,6 @@ public:
   ARITH_DEVICE ARITH_HOST iterator end() { return elts.end(); }
   ARITH_DEVICE ARITH_HOST const_iterator end() const { return elts.end(); }
   ARITH_DEVICE ARITH_HOST const_iterator cend() const { return elts.cend(); }
-
-  // constexpr const T *rbegin() const { return &elts[0]; }
-  // constexpr T *rbegin() { return &elts[0]; }
-  // constexpr const T *rend() const { return &elts[sz]; }
-  // constexpr T *rend() { return &elts[sz]; }
 
   ARITH_DEVICE ARITH_HOST void clear() { sz = 0; }
 
@@ -305,7 +298,6 @@ public:
 
 template <typename T, std::size_t N> struct zero<smallvector<T, N> > {
   typedef smallvector<T, N> value_type;
-  // static constexpr value_type value = smallvector<T, N>::pure(zero_v<T>);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return smallvector<T, N>::pure(zero<T>()());
   }
@@ -316,7 +308,6 @@ template <typename T, std::size_t N> struct zero<smallvector<T, N> > {
 
 template <typename T, std::size_t N> struct nan<smallvector<T, N> > {
   typedef smallvector<T, N> value_type;
-  // static constexpr value_type value = smallvector<T, N>::pure(nan_v<T>);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return smallvector<T, N>::pure(nan<T>()());
   }

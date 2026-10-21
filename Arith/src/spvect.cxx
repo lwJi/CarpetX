@@ -27,10 +27,6 @@ void test_spvect() {
   z.emplace_back(1, 20);
   z.emplace_back(4, 24);
 
-  // std::cout << "x=" << x << "\n";
-  // std::cout << "y=" << y << "\n";
-  // std::cout << "z=" << z << "\n";
-
   const R a = -2;
   const R b = -3;
 

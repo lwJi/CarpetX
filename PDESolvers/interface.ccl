@@ -1,8 +1,4 @@
-# Interface definition for thorn PDESolvers
-
 IMPLEMENTS: PDESolvers
-
-# INHERITS: CoordinatesX
 
 INCLUDES HEADER: pdesolvers.hxx IN pdesolvers.hxx
 

@@ -1,5 +1,3 @@
-# Schedule definitions for thorn DGWaveToyX
-
 SCHEDULE DGWaveToyX_Init IN ODESolvers_Initial
 {
   LANG: C

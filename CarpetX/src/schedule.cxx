@@ -177,9 +177,6 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
                    const MFPointer &mfp) {
   DECLARE_CCTK_PARAMETERS;
 
-  // The number of ghostzones in each direction
-  // for (int d = 0; d < dim; ++d)
-  //   nghostzones[d] = mfp.nGrowVect()[d];
   nghostzones = {ghost_size >= 0 ? ghost_size : ghost_size_x,
                  ghost_size >= 0 ? ghost_size : ghost_size_y,
                  ghost_size >= 0 ? ghost_size : ghost_size_z};
@@ -594,10 +591,6 @@ void update_cctkGH(cGH *const cctkGH, const cGH *const sourceGH) {
   cctkGH->cctk_timefac = sourceGH->cctk_timefac;
   cctkGH->cctk_time = sourceGH->cctk_time;
   cctkGH->cctk_delta_time = sourceGH->cctk_delta_time;
-  // for (int d = 0; d < dim; ++d)
-  //   cctkGH->cctk_origin_space[d] = sourceGH->cctk_origin_space[d];
-  // for (int d = 0; d < dim; ++d)
-  //   cctkGH->cctk_delta_space[d] = sourceGH->cctk_delta_space[d];
 }
 
 // Set cctkGH entries for global mode
@@ -1620,7 +1613,6 @@ int Initialise(tFleshConfig *config) {
       assert(!active_levels);
       active_levels = std::make_optional<active_levels_t>(0, 1);
       CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
-      // CCTK_Traverse(cctkGH, "CCTK_POSTREGRID");
       active_levels = std::optional<active_levels_t>();
     }
 
@@ -1658,9 +1650,6 @@ int Initialise(tFleshConfig *config) {
                      double(x1[1]), double(x1[2]));
           CCTK_VINFO("    base dx=[%.17g,%.17g,%.17g]", double(dx[0]),
                      double(dx[1]), double(dx[2]));
-          // CCTK_VINFO("  Time stepping:");
-          // CCTK_VINFO("    t0=%.17g", double(patchGH->cctk_time));
-          // CCTK_VINFO("    dt=%.17g", double(patchGH->cctk_delta_time));
         }
       }
     }

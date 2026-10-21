@@ -434,14 +434,6 @@ void enumerate_points(
   assert(v0_pt >= 0);
   const int vi_pt = vn_pt - v0_pt;
   assert(vi_pt >= 0);
-  // const int vn_vcx = CCTK_VarIndex("CoordinatesX::vcoordx");
-  // assert(vn_vcx >= 0);
-  // const int gi_vcx = CCTK_GroupIndexFromVarI(vn_vcx);
-  // assert(gi_vcx >= 0);
-  // const int v0_vcx = CCTK_FirstVarIndexI(gi_vcx);
-  // assert(v0_vcx >= 0);
-  // const int vi_vcx = vn_vcx - v0_vcx;
-  // assert(vi_vcx >= 0);
 
   // Determine number of components per level
   assert(CarpetX::ghext->num_patches() == 1);
@@ -716,8 +708,6 @@ void enumerate_points(
               layout1, static_cast<const CCTK_REAL *>(
                            CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
           const CarpetX::GridDescBase grid(cctkGH);
-          // Arith::vect<int, 3> imin, imax;
-          // grid.box_all<0, 0, 0>(grid.nghostzones, imin, imax);
           const auto offset = amrex_origin;
 
           std::vector<std::tuple<int, Arith::vect<int, 3> > > locs;
@@ -748,16 +738,11 @@ void enumerate_points(
     // their Jacobian indices
     std::vector<std::vector<std::vector<int> > > indices(
         patchdata.leveldata.size());
-    // std::vector<std::vector<std::vector<CCTK_REAL> > > vcoordxs(
-    //     patchdata.leveldata.size());
     for (int level = 0; level < int(patchdata.leveldata.size()); ++level) {
       indices.at(level).resize(level_sizes.at(level));
-      // vcoordxs.at(level).resize(level_sizes.at(level));
       for (int component = 0; component < level_sizes.at(level); ++component) {
         indices.at(level).at(component).resize(
             locations.at(level).at(component).size(), 0x80000000U);
-        // vcoordxs.at(level).at(component).resize(
-        //     locations.at(level).at(component).size(), -1.0 / 0.0);
       }
     }
     CarpetX::active_levels->loop_parallel(
@@ -779,10 +764,6 @@ void enumerate_points(
           const Loop::GF3D2<const CCTK_REAL> gf_idx(
               layout1, static_cast<const CCTK_REAL *>(
                            CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
-          // const Loop::GF3D2<const CCTK_REAL> gf_vcoordx(
-          //     layout1,
-          //     static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl,
-          //     vn_vcx)));
           const CarpetX::GridDescBase grid(cctkGH);
           Arith::vect<int, 3> imin, imax;
           grid.box_all<0, 0, 0>(grid.nghostzones, imin, imax);
@@ -794,7 +775,6 @@ void enumerate_points(
                  ++component1) {
               const auto &locs = locations.at(level1).at(component1);
               auto &idxs = indices.at(level1).at(component1);
-              // auto &vcxs = vcoordxs.at(level1).at(component1);
               for (int n = 0; n < int(locs.size()); ++n) {
                 const auto &loc = locs.at(n);
                 const auto &cL = std::get<0>(loc);
@@ -809,9 +789,6 @@ void enumerate_points(
                     int &idxn = idxs.at(n);
 #pragma omp atomic write
                     idxn = idx;
-                    // CCTK_REAL &vcxn = vcxs.at(n);
-                    // #pragma omp atomic write
-                    // vcxn = gf_vcoordx(I);
                   }
                 }
               }
@@ -823,8 +800,6 @@ void enumerate_points(
       for (int component = 0; component < level_sizes.at(level); ++component) {
         for (const auto &idx : indices.at(level).at(component))
           assert(idx != int(0x80000000U));
-        // for (const auto &vcx : vcoordxs.at(level).at(component))
-        //   assert(vcx != -1.0 / 0.0);
       }
     }
 
@@ -855,18 +830,12 @@ void enumerate_points(
           const Loop::GF3D2<const CCTK_REAL> gf_idx(
               layout1, static_cast<const CCTK_REAL *>(
                            CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
-          // const Loop::GF3D2<const CCTK_REAL> gf_vcoordx(
-          //     layout1,
-          //     static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl,
-          //     vn_vcx)));
           const CarpetX::GridDescBase grid(cctkGH);
           const auto offset = amrex_origin;
 
           const auto &locs = locations.at(level).at(component);
           const auto &idxs = indices.at(level).at(component);
-          // const auto &vcxs = vcoordxs.at(level).at(component);
           assert(idxs.size() == locs.size());
-          // assert(vcxs.size() == locs.size());
           int n = 0;
           std::vector<std::tuple<int, int, CCTK_REAL> > Jpvals;
           Jpvals.reserve(locs.size());
@@ -903,10 +872,6 @@ void enumerate_points(
                     }
                   }
 
-                  // if (all(cIm == Arith::vect<int, 3>::pure(0))) {
-                  //   const CCTK_REAL vcx = gf_vcoordx(p.I);
-                  //   assert(vcxs.at(n) == vcx);
-                  // }
                 }
               });
           assert(n == int(locs.size()));

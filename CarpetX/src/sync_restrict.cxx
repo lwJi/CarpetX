@@ -424,10 +424,6 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
     // Restrict only the groups the restrict tag allows; the ghost fill below
     // still covers all of `groups`
     Restrict(cctkGH, min_level, max_level, sync_restrict_groups(groups));
-    // FIXME: cannot call POSTRESTRICT since this could contain a SYNC leading
-    // to an infinite loop. This means that outer boundaries will be left
-    // invalid after an implicit restrict
-    // CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
   }
 
   static const bool have_multipatch_boundaries =
@@ -506,20 +502,6 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
       const int ntls = groupdata.mfab.size();
       const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
 
-      // const int level = leveldata.level;
-      // const auto &restrict coarseleveldata =
-      //     level == 0
-      //         ? ghext->patchdata.at(leveldata.patch).leveldata.at(level)
-      //         : ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
-      // const int rhs_key_exists = Util_TableQueryValueInfo(
-      //     CCTK_GroupTagsTableI(gi), nullptr, nullptr, "rhs");
-
-      // const bool exchange_ghost_only =
-      //     level == 0 ||
-      //     (rhs_key_exists && leveldata.iteration !=
-      //     coarseleveldata.iteration);
-
-      // if (exchange_ghost_only) {
       if (leveldata.level == 0) {
         // Copy from adjacent boxes on same level
 

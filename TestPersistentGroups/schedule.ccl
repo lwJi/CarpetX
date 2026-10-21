@@ -1,5 +1,3 @@
-# Schedule definitions for thorn TestPersistentGroups
-
 STORAGE: persist_default persist_noevolve stale_count stale_step
 
 

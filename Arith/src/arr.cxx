@@ -35,7 +35,6 @@ void TestArr() {
   static_assert(&*d4.begin() == d4.data() + 0);
   static_assert(&*d4.rbegin() == d4.data() + 3);
   static_assert(&*d4.end() == d4.data() + 4);
-  // static_assert(&*d4.rend() == d4.data() - 1);
   static_assert(&*(d4.begin() + 1) == d4.data() + 1);
   static_assert(&*(d4.rbegin() + 1) == d4.data() + 2);
   static_assert(&*(d4.end() - 1) == d4.data() + 3);

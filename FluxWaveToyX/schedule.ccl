@@ -1,5 +1,3 @@
-# Schedule definitions for thorn FluxWaveToyX
-
 STORAGE: state cons flux_x flux_y flux_z rhs energy error
 STORAGE: mass mass_flux_x mass_flux_y mass_flux_z
 STORAGE: prerestrict_energy

@@ -108,9 +108,6 @@ public:
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   gmat(std::array<T, N> x)
       : elts(std::move(x)) {}
-  // explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST gmat(const
-  // vector<T> &x) : elts(x) {} explicit constexpr ARITH_INLINE ARITH_DEVICE
-  // ARITH_HOST gmat(vector<T> &&x) : elts(std::move(x)) {}
 
   explicit constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST
   operator vect<T, N>() const {
@@ -194,15 +191,6 @@ public:
     return fmap([&](const T &var, const U &x) { return var(arg1, arg2, x); },
                 *this, val);
   }
-  // template <typename... Args, typename U, typename T1 = T,
-  //           typename = decltype(declval<T1>().store(declval<Args>()...,
-  //                                                   declval<U>()))>
-  // ARITH_INLINE ARITH_DEVICE ARITH_HOST void store(const Args &...args,
-  //                         const gmat<U, D, symm> &val) const {
-  //   fmap_([&](const auto &var, const auto &x) { return var.store(args..., x);
-  //   },
-  //        val);
-  // }
   template <typename Arg1, typename Arg2, typename U, typename T1 = T,
             typename = decltype(std::declval<T1>().store(
                 std::declval<Arg1>(), std::declval<Arg2>(), std::declval<U>()))>
@@ -376,8 +364,6 @@ template <typename T, int D> struct one<gmat<T, D, symm_t::full> > {
 };
 template <typename T, int D> struct one<gmat<T, D, symm_t::symm> > {
   typedef gmat<T, D, symm_t::symm> value_type;
-  // static constexpr value_type value = gmat<T, D, symm_t::symm>(
-  //     [](int i, int j) { return i == j; });
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return gmat<T, D, symm_t::symm>(
         [](int i, int j) { return i == j ? one<T>()() : zero<T>()(); });
@@ -390,8 +376,6 @@ template <typename T, int D> struct one<gmat<T, D, symm_t::symm> > {
 
 template <typename T, int D, symm_t symm> struct nan<gmat<T, D, symm> > {
   typedef gmat<T, D, symm> value_type;
-  // static constexpr value_type value =
-  //     gmat<T, D, symm>::pure(nan<T>::value);
   constexpr ARITH_INLINE ARITH_DEVICE ARITH_HOST operator value_type() const {
     return gmat<T, D, symm>::pure(nan<T>());
   }

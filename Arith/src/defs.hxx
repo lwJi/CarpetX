@@ -37,7 +37,6 @@ namespace Arith {
 
 // Return the value zero for a given type
 template <typename T> struct zero;
-// template <typename T> inline constexpr T zero_v = zero<T>::value;
 
 template <> struct zero<bool> : std::integral_constant<bool, 0> {};
 template <> struct zero<short> : std::integral_constant<short, 0> {};
@@ -69,7 +68,6 @@ template <> struct zero<double> {
 
 // Return the value one for a given type
 template <typename T> struct one;
-// template <typename T> inline constexpr T one_v = one<T>::value;
 
 template <> struct one<bool> : std::integral_constant<bool, 1> {};
 template <> struct one<short> : std::integral_constant<short, 1> {};
@@ -100,7 +98,6 @@ template <> struct one<double> {
 
 // Return the value nan for a given type
 template <typename T> struct nan;
-// template <typename T> inline constexpr T nan_v = nan<T>::value;
 
 template <>
 struct nan<bool>

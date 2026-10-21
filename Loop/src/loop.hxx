@@ -1100,9 +1100,6 @@ template <typename T> struct GF3D2 {
     CCTK_DEVICE CCTK_HOST operator value_type() const {
       return Arith::maskz_loadu(mask, ptr);
     }
-    // CCTK_DEVICE CCTK_HOST value_type operator()() const {
-    //   return Arith::maskz_loadu(mask, ptr);
-    // }
     template <typename U>
     CCTK_DEVICE CCTK_HOST simd_reference
     operator=(const Arith::simd<U> &value) {
@@ -1473,8 +1470,6 @@ template <typename T> struct GF3D5 {
                                          const Arith::simdl<U> &mask)
         : ptr(ptr), mask(mask) {}
     simd_reference() = delete;
-    // simd_reference(const simd_reference &) = default;
-    // simd_reference(simd_reference &&) = default;
     simd_reference(const simd_reference &) = delete;
     simd_reference(simd_reference &&) = delete;
     simd_reference &operator=(const simd_reference &) = delete;
@@ -1482,9 +1477,6 @@ template <typename T> struct GF3D5 {
     CCTK_DEVICE CCTK_HOST operator value_type() const {
       return Arith::maskz_loadu(mask, ptr);
     }
-    // CCTK_DEVICE CCTK_HOST value_type operator()() const {
-    //   return Arith::maskz_loadu(mask, ptr);
-    // }
     template <typename U>
     CCTK_DEVICE CCTK_HOST simd_reference
     operator=(const Arith::simd<U> &value) {

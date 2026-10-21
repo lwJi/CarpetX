@@ -10,7 +10,6 @@ $blocking_factor = 2
 
 Cactus::cctk_show_schedule = "no"
 Cactus::presync_mode = "mixed-error"
-#Cactus::cctk_full_warnings = "yes"
 
 Cactus::cctk_itlast = 0
 

@@ -24,12 +24,6 @@ CarpetX::dtfac = 0.5
 IO::out_dir = $parfile
 IO::out_every = $ncells * 2 ** ($nlevels - 1) / 2
 
-# CarpetX::out_adios2_vars = "
-#     WaveToyCarpetX::state
-#     WaveToyCarpetX::energy
-#     WaveToyCarpetX::err
-# "
-
 CarpetX::out_silo_vars = "
     WaveToyCarpetX::state
     WaveToyCarpetX::energy

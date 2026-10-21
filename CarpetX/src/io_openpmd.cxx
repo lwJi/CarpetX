@@ -422,7 +422,6 @@ struct carpetx_openpmd_t {
 
   std::optional<std::string> filename;
   std::optional<openPMD::Series> series;
-  // std::optional<openPMD::ReadIterations> read_iters;
   std::optional<openPMD::Iteration> read_iter;
   std::optional<openPMD::WriteIterations> write_iters;
 
@@ -554,7 +553,6 @@ int carpetx_openpmd_t::InputOpenPMDParameters(const std::string &input_dir,
   }
   assert(filename);
   assert(series);
-  // assert(read_iters);
   assert(read_iter);
 
   CCTK_VINFO("Recovering parameters from checkpoint file \"%s\" iteration %d",
@@ -593,7 +591,6 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
 
   assert(filename);
   assert(series);
-  // assert(read_iters);
   assert(read_iter);
 
   cctkGH->cctk_iteration = input_iteration;
@@ -771,7 +768,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
   }
   assert(filename);
   assert(series);
-  // assert(read_iters);
   assert(read_iter);
 
   CCTK_VINFO("  iteration: %d", cctkGH->cctk_iteration);
@@ -916,10 +912,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             continue;
           assert(cgroup.vartype == CCTK_VARIABLE_REAL);
           assert(cgroup.dim == 3);
-          // cGroupDynamicData cgroupdynamicdata;
-          // ierr = CCTK_GroupDynamicData(cctkGH, gi, &cgroupdynamicdata);
-          // assert(!ierr);
-          // TODO: Check whether data are valid
 
           if (io_verbose)
             CCTK_VINFO("Reading group %s...", CCTK_FullGroupName(gi));
@@ -927,7 +919,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           auto &groupdata = *leveldata.groupdata.at(gi);
           if (groupdata.mfab.empty())
             continue;
-          // const int firstvarindex = groupdata.firstvarindex;
           const int numvars = groupdata.numvars;
 
           const int tl_count =
@@ -1008,7 +999,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               const int np = box.size();
               assert(int(count.at(0) * count.at(1) * count.at(2)) == np);
               for (int d = 0; d < 3; ++d)
-                // assert(start.at(d) >= 0);
                 assert(start.at(d) <
                        std::numeric_limits<std::remove_reference_t<decltype(
                                start.at(d))> >::max() /
@@ -1037,7 +1027,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                   constexpr int amrex_di = 1;
                   const int amrex_dj = amrex_di * amrex_shape[0];
                   const int amrex_dk = amrex_dj * amrex_shape[1];
-                  // const int amrex_np = amrex_dk * amrex_shape[2];
                   CCTK_REAL *const amrex_ptr =
                       amrex_var_ptr + amrex_di * amrex_offset[0] +
                       amrex_dj * amrex_offset[1] + amrex_dk * amrex_offset[2];
@@ -1253,7 +1242,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         auto &groupdata = *ghext->globaldata.arraygroupdata.at(gi);
         if (groupdata.data.empty())
           continue;
-        // const int firstvarindex = groupdata.firstvarindex;
         const int numvars = groupdata.numvars;
         const int tl = 0;
 
@@ -1320,7 +1308,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         const int np = box.size();
         assert(int(count.at(0) * count.at(1) * count.at(2)) == np);
         for (int d = 0; d < 3; ++d)
-          // assert(start.at(d) >= 0);
           assert(start.at(d) <
                  std::numeric_limits<
                      std::remove_reference_t<decltype(start.at(d))> >::max() /
@@ -1569,15 +1556,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       if (author[0])
         series->setAuthor(author);
     }
-    // Software is always "openPMD-api"
-    // series->setSoftware("Einstein Toolkit <https://einsteintoolkit.org>");
-    // series->setSoftwareVersion("...");
-    // Date is set automatically
-    // const std::time_t t = std::time(nullptr);
-    // char date[100];
-    // std::strftime(date, sizeof date, "%Y-%m-%dT%H:%M:%S",
-    // std::localtime(&t)); series->setDate(date);
-    // series->setSoftwareDependencies("...");
     {
       char hostname[1000];
       Util_GetHostName(hostname, sizeof hostname);
@@ -1764,10 +1742,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             continue;
           assert(cgroup.vartype == CCTK_VARIABLE_REAL);
           assert(cgroup.dim == 3);
-          // cGroupDynamicData cgroupdynamicdata;
-          // ierr = CCTK_GroupDynamicData(cctkGH, gi, &cgroupdynamicdata);
-          // assert(!ierr);
-          // TODO: Check whether data are valid
 
           if (io_verbose)
             CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
@@ -1775,7 +1749,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
           const auto &groupdata = *leveldata.groupdata.at(gi);
           if (groupdata.mfab.empty())
             continue;
-          // const int firstvarindex = groupdata.firstvarindex;
           const int numvars = groupdata.numvars;
 
           const int tl_count =
@@ -1806,9 +1779,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                               rdomain.hi - rdomain.lo, idomain.shape() - 1))));
             mesh.setGridGlobalOffset(to_vector<double>(reversed(rdomain.lo)));
             mesh.setGridUnitSI(Unit::length);
-            // const std::map<openPMD::UnitDimension, double> unitDimension{
-            //     {openPMD::UnitDimension::L, 1}};
-            // mesh.setUnitDimension(unitDimension);
             mesh.setTimeOffset(CCTK_REAL(0)); // TODO: check interface.ccl
 
             // Cell centred grids are offset by 1/2
@@ -1926,7 +1896,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
               const int np = box.size();
               assert(int(count.at(0) * count.at(1) * count.at(2)) == np);
               for (int d = 0; d < 3; ++d)
-                // assert(start.at(d) >= 0);
                 assert(start.at(d) <
                        std::numeric_limits<std::remove_reference_t<decltype(
                                start.at(d))> >::max() /
@@ -2093,7 +2062,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         const auto &groupdata = *ghext->globaldata.arraygroupdata.at(gi);
         if (groupdata.data.empty())
           continue;
-        // const int firstvarindex = groupdata.firstvarindex;
         const int numvars = groupdata.numvars;
         const int tl = 0;
 
@@ -2126,21 +2094,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         const std::string meshname = make_meshname(gi, -1, -1);
         openPMD::Mesh mesh = write_iter.meshes[meshname];
 
-        // mesh.setGeometry(openPMD::Mesh::Geometry::cartesian);
-        // mesh.setAxisLabels(reversed(std::vector<std::string>{"x", "y",
-        // "z"}));
-        // mesh.setGridSpacing(to_vector<CCTK_REAL>(
-        //     reversed(fmap([](auto x, auto y) { return x / CCTK_REAL(y); },
-        //                   rdomain.hi - rdomain.lo, idomain.shape() - 1))));
-        // mesh.setGridGlobalOffset(to_vector<double>(reversed(rdomain.lo)));
-        // mesh.setGridUnitSI(Unit::length);
-        // // const std::map<openPMD::UnitDimension, double> unitDimension{
-        // //     {openPMD::UnitDimension::L, 1}};
-        // // mesh.setUnitDimension(unitDimension);
         mesh.setTimeOffset(CCTK_REAL(0)); // TODO: check interface.ccl
-
-        // // Cell centred grids are offset by 1/2
-        // const Arith::vect<double, 3> position{0, 0, 0};
 
         // Define tensor components
 
@@ -2150,8 +2104,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         for (int vi = 0; vi < numvars; ++vi) {
           const std::string componentname = make_componentname(gi, vi);
           record_components.push_back(mesh[componentname]);
-          // auto &record_component = record_components.back();
-          // record_component.setPosition(to_vector<double>(reversed(position)));
         }
         assert(int(record_components.size()) == numvars);
 
@@ -2183,7 +2135,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         const int np = box.size();
         assert(int(count.at(0) * count.at(1) * count.at(2)) == np);
         for (int d = 0; d < 3; ++d)
-          // assert(start.at(d) >= 0);
           assert(start.at(d) <
                  std::numeric_limits<
                      std::remove_reference_t<decltype(start.at(d))> >::max() /

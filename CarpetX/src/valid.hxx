@@ -264,9 +264,6 @@ public:
   poison_value_t() = default;
 
   CCTK_HOST CCTK_DEVICE bool is_poison(const T &val) const {
-    // no memcmp on CUDA :-(
-    // return std::memcmp(&val, &ipoison.value, sizeof(val)) == 0;
-
     typedef decltype(ipoison.value) array_type;
     typedef typename std::remove_extent<array_type>::type const_type;
     const size_t array_size = std::extent<array_type>::value;

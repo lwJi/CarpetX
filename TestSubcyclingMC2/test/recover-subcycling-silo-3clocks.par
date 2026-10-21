@@ -69,19 +69,12 @@ Driver::regrid_every = 128
 Driver::regrid_error_threshold = 0.9
 
 CarpetX::prolongation_type = "ddf"
-#CarpetX::prolongation_order = 5
 CarpetX::ghost_size = 3
 CarpetX::dtfac = 0.25
 
 CarpetX::blocking_factor_x = 2
 CarpetX::blocking_factor_y = 2
 CarpetX::blocking_factor_z = 2
-#CarpetX::max_grid_size_x = 10000000
-#CarpetX::max_grid_size_y = 10000000
-#CarpetX::max_grid_size_z = 10000000
-#CarpetX::max_tile_size_x = 10000000
-#CarpetX::max_tile_size_y = 10000000
-#CarpetX::max_tile_size_z = 10000000
 
 BoxInBox::num_regions = 1
 # Region 1
@@ -90,11 +83,9 @@ BoxInBox::num_levels_1 = $nlevels
 BoxInBox::radius_1 = [ -1.0, 1.0, 0.5 ]
 
 Cactus::terminate = "iteration"
-#Cactus::cctk_final_time = 2.0
 Cactus::cctk_itlast = 8
 
 ODESolvers::method = "RK4"
-#ODESolvers::verbose = yes
 
 IO::out_dir = $parfile
 IO::out_every = $out_every

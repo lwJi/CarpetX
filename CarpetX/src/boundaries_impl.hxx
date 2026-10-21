@@ -363,10 +363,6 @@ void BoundaryCondition::apply_on_face_symbcxyz(
                    boundaries[d] == boundary_t::none) {
           // this direction is not a boundary; do nothing
         } else {
-          // std::cerr << " dst=" << dst << " d=" << d
-          //           << " boundaries=" << boundaries
-          //           << " symmetries=" << symmetries <<
-          //           "\n";
           assert(0);
         }
       }
@@ -426,10 +422,6 @@ void BoundaryCondition::apply_on_face_symbcxyz(
       }
     };
 
-    // Note: Calling `loop_region` is much slower than calling `ParallelFor`
-    // directly.
-    // Maybe the `attribute(noinline)` is to blame?
-    // loop_region(kernel, bmin, bmax);
     const amrex::Box box(amrex::IntVect(bmin[0], bmin[1], bmin[2]),
                          amrex::IntVect(bmax[0] - 1, bmax[1] - 1, bmax[2] - 1));
     amrex::ParallelFor(
@@ -455,7 +447,6 @@ extern template void BoundaryCondition::apply_on_face<NEG, NEG, INT>() const;
 extern template void BoundaryCondition::apply_on_face<INT, NEG, INT>() const;
 extern template void BoundaryCondition::apply_on_face<POS, NEG, INT>() const;
 extern template void BoundaryCondition::apply_on_face<NEG, INT, INT>() const;
-// extern template void BoundaryCondition::apply_on_face<INT, INT, INT>() const;
 extern template void BoundaryCondition::apply_on_face<POS, INT, INT>() const;
 extern template void BoundaryCondition::apply_on_face<NEG, POS, INT>() const;
 extern template void BoundaryCondition::apply_on_face<INT, POS, INT>() const;

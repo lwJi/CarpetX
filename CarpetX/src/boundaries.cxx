@@ -1,12 +1,9 @@
 #include "boundaries.hxx"
 #include "boundaries_impl.hxx"
-// #include "timer.hxx"
 
 #include <vect.hxx>
 
 #include <AMReX.H>
-
-// #include <omp.h>
 
 #include <algorithm>
 #include <cmath>
@@ -54,27 +51,11 @@ BoundaryCondition::BoundaryCondition(
       dmax{dest.box().bigEnd(0) + 1, dest.box().bigEnd(1) + 1,
            dest.box().bigEnd(2) + 1},
       layout(dmin, dmax), destptr(dest.dataPtr()) {
-  // static std::vector<Timer> timers = [&]() {
-  //   std::vector<Timer> timers;
-  //   timers.reserve(omp_get_max_threads());
-  //   for (int t = 0; t < omp_get_max_threads(); ++t) {
-  //     std::ostringstream buf;
-  //     buf << "BoundaryCondition::BoundaryCondition#" << t;
-  //     timers.emplace_back(buf.str());
-  //   }
-  //   return timers;
-  // }();
-  // Interval interval(timers.at(omp_get_thread_num()));
 
   // Check centering
   for (int d = 0; d < dim; ++d)
     assert((dest.box().type(d) == amrex::IndexType::CELL) ==
            groupdata.indextype[d]);
-
-  // Ensure we have enough ghost zones
-  // TODO: Implement this
-  // for (int d = 0; d < dim; ++d)
-  //   assert(... <= groupdata.nghostzones[d]);
 
   // Ensure the destination array is large enough
   for (int d = 0; d < dim; ++d) {
@@ -98,7 +79,6 @@ void BoundaryCondition::apply() const {
   apply_on_face<INT, NEG, INT>();
   apply_on_face<POS, NEG, INT>();
   apply_on_face<NEG, INT, INT>();
-  // apply_on_face<INT, INT, INT>();
   apply_on_face<POS, INT, INT>();
   apply_on_face<NEG, POS, INT>();
   apply_on_face<INT, POS, INT>();

@@ -69,8 +69,6 @@ struct active_levels_t {
   int min_level, max_level;
   int min_patch, max_patch;
 
-  // active_levels_t() = delete;
-
   active_levels_t(const int min_level, const int max_level, const int min_patch,
                   const int max_patch);
   active_levels_t(const int min_level, const int max_level);
@@ -98,11 +96,6 @@ public:
       const {
     loop_coarse_to_fine(kernel);
   }
-
-  // // Loop over all active patches of all active levels in parallel
-  // void loop_parallel(
-  //     const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
-  //     const;
 
   // Loop over all components of all active patches of all active
   // levels in parallel
@@ -149,7 +142,6 @@ struct MFPointer {
   }
 
   const amrex::Box growntilebox(const amrex::IntVect &ng) const noexcept {
-    // return m_growntilebox;
     amrex::Box bx = tilebox();
     const amrex::Box &vbx = validbox();
     for (int d = 0; d < AMREX_SPACEDIM; ++d) {
