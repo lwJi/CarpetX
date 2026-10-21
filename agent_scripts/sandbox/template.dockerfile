@@ -108,7 +108,6 @@ RUN apt-get update && \
         rsync \
         subversion \
         tar \
-        unifdef \
         vim \
         wget \
         xz-utils \

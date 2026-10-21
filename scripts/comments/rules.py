@@ -7,7 +7,6 @@ from typing import Iterable, Optional
 import lex_clang
 import lex_hash
 from files import Lang
-from regions import directive_regions
 from tokens import Kind, Token
 
 CXX_HINT = re.compile(r"/[/*]|\\[ \t\f\v]*[\r\n]|_Pragma|(?:#|%:)[ \t\f\v]*(?:if|elif|warning|pragma)\b")
@@ -23,6 +22,16 @@ CITATION = re.compile(
 LINE_BREAK = re.compile(r"\r\n|\r|\n")
 LINE_OPENER = re.compile(r"^(?://+|#+|!+)")
 CODE_KINDS = (Kind.CODE, Kind.DIRECTIVE)
+WORD = re.compile(r"[A-Za-z_]\w*|\.?\d[\w.']*|\S")
+NUMBER = re.compile(r"\.?\d")
+NAME = re.compile(r"[A-Za-z_]")
+DEFINED = re.compile(r"\bdefined\s*(?:\(\s*[A-Za-z_]\w*\s*\)|[A-Za-z_]\w*)")
+GUARD = re.compile(r"\s*(?:#|%:)\s*(?:if|elif)\b(.*)", re.S)
+MESSAGE = re.compile(
+    r"\s*(?:#|%:)\s*(?:warning\b|pragma\s+(?:message|GCC\s+warning)\b)"
+    r'|.*?\b_Pragma\s*\(\s*(?:u8|u|U|L)?(?:R"[^(]*\(|")\s*(?:message|GCC\s+warning)\b',
+    re.S,
+)
 
 
 @dataclass(frozen=True)
@@ -59,10 +68,31 @@ def comment_units(token: Token, before: Optional[str], lang: Lang) -> Iterable[U
             yield Unit(token.line + offset, ("comment", words), shown[offset].strip(), allowed)
 
 
+def is_constant(condition: str) -> bool:
+    words = WORD.findall(DEFINED.sub(" ", condition))
+    return any(NUMBER.match(w) for w in words) and not any(NAME.match(w) for w in words)
+
+
+def logical_lines(tokens: list[Token]) -> Iterable[tuple[int, str]]:
+    line: Optional[int] = None
+    pieces: list[str] = []
+    for token in tokens + [Token(Kind.NEWLINE, "", -1, -1)]:
+        if token.kind is Kind.NEWLINE:
+            if line is not None:
+                yield line, "".join(pieces)
+            line, pieces = None, []
+        elif token.kind in CODE_KINDS:
+            line = token.line if line is None else line
+            pieces.append(token.text)
+        else:
+            pieces.append(" ")
+
+
 def directive_units(tokens: list[Token]) -> Iterable[Unit]:
-    for r in directive_regions(tokens):
-        code = " ".join(t.text for t in r.tokens if t.kind in CODE_KINDS)
-        yield Unit(r.line, ("directive", code), r.code, False)
+    for line, code in logical_lines(tokens):
+        guard = GUARD.match(code)
+        if (guard and is_constant(guard.group(1))) or MESSAGE.match(code):
+            yield Unit(line, ("directive", " ".join(WORD.findall(code))), " ".join(code.split()), False)
 
 
 def lex(text: str, lang: Lang) -> list[Token]:

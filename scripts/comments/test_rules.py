@@ -6,7 +6,7 @@ from unittest import mock
 
 import lex_clang
 from files import Lang
-from rules import comment_words, units
+from rules import comment_words, is_constant, units
 
 HAVE_CLANG = shutil.which(lex_clang.CLANG) is not None
 
@@ -17,6 +17,10 @@ def reported(text, lang=Lang.CXX):
 
 def placed(text, lang=Lang.CXX):
     return [(u.line, u.text) for u in units(text, lang) if not u.allowed]
+
+
+def directives(text):
+    return [(u.line, u.text) for u in units(text, Lang.CXX) if u.key[0] == "directive"]
 
 
 def in_a_function(comment):
@@ -173,13 +177,56 @@ class EverythingElse(unittest.TestCase):
             self.assertEqual(units("int a = b / c * d;\n", Lang.CXX), [])
 
 
+class ConstantConditions(unittest.TestCase):
+    def test_numbers_and_defined_tests_only(self):
+        for condition in [
+            "0", "1", "(0)", "!1", "-1", "~0", "+1", "0x1F", "010", "0L", "1u", "1'000", "1 - 1", "2 > 1", "1 << 2",
+            "0 ? 1 : 0", "0 && defined X", "defined X && 0", "defined(X) || 1", "1 || defined X", "defined ( X ) && 0",
+            "0 || defined X", "1 && defined X",
+        ]:
+            with self.subTest(condition=condition):
+                self.assertTrue(is_constant(condition))
+
+    def test_a_macro_name_or_no_number(self):
+        for condition in [
+            "", "X", "!X", "F(1, 2)", "defined X", "!defined X", "defined(X) || defined(Y)", "X == 1", "true",
+            "__cplusplus >= 201703L", "0 && X", "0 && F(1, 2)", "0 && __has_include(<x.h>)", "0 && defined",
+            "0 && defined(X",
+        ]:
+            with self.subTest(condition=condition):
+                self.assertFalse(is_constant(condition))
+
+
 @unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
-class GuardsAndMessages(unittest.TestCase):
+class Guards(unittest.TestCase):
     def test_constant_guards_and_messages_are_reported(self):
         found = units('#if 0\nint a;\n#endif\n#warning "TODO: Restrict"\n#pragma message("x")\n', Lang.CXX)
         self.assertEqual([(u.line, u.text, u.key[0], u.allowed) for u in found],
                          [(1, "#if 0", "directive", False), (4, '#warning "TODO: Restrict"', "directive", False),
                           (5, '#pragma message("x")', "directive", False)])
+
+    def test_constant_if_and_elif(self):
+        text = "#if 0\na\n#endif\n#if X\nb\n#elif 1\nc\n#endif\n#if 0 && defined __CUDACC__\nd\n#elif 0 && defined Y\ne\n#else\n#if 0 && defined Z\nf\n#endif\n#endif\n"
+        self.assertEqual(directives(text), [(1, "#if 0"), (6, "#elif 1"), (9, "#if 0 && defined __CUDACC__"),
+                                            (11, "#elif 0 && defined Y"), (14, "#if 0 && defined Z")])
+
+    def test_conditions_that_depend_on_a_macro_are_not_guards(self):
+        self.assertEqual(directives("#if X\n#elif defined Y\n#endif\n#ifdef Z\n#endif\n#ifndef W\n#endif\n#if 0\n#endif\n"),
+                         [(8, "#if 0")])
+
+    def test_every_constant_guard_is_reported_even_inside_disabled_code(self):
+        self.assertEqual(directives("#if 0\n#if 0\na\n#endif\n#endif\n"), [(1, "#if 0"), (2, "#if 0")])
+        self.assertEqual(directives("#if 1\n#elif 0\n#endif\n"), [(1, "#if 1"), (2, "#elif 0")])
+
+    def test_comments_layout_splices_and_digraphs(self):
+        self.assertEqual(directives("  #  if /* c */ 0 // d\n#endif\n"), [(1, "# if 0")])
+        self.assertEqual(directives("/* c */ #if 0\n#endif\n"), [(1, "#if 0")])
+        self.assertEqual(directives("#if 1 /* multi\nline */\nA\n#endif\n"), [(1, "#if 1")])
+        self.assertEqual(directives("#if \\\n 0\n#endif\n"), [(1, "#if 0")])
+        self.assertEqual(directives("%:if 0\n%:endif\n"), [(1, "%:if 0")])
+
+    def test_a_hash_after_code_is_not_a_directive(self):
+        self.assertEqual(directives("int b; /*\n*/ #if 0\n#endif\n"), [])
 
     def test_comments_in_and_on_a_guard_are_reported_too(self):
         self.assertEqual(placed("#if 0 // old\n// int a;\n#endif\n"), [(1, "// old"), (1, "#if 0"), (2, "// int a;")])
@@ -187,12 +234,51 @@ class GuardsAndMessages(unittest.TestCase):
     def test_a_citation_does_not_excuse_a_guard(self):
         self.assertEqual(placed("#if 0 // arXiv:1111.2177\n#endif\n"), [(1, "#if 0")])
 
-    def test_error_and_other_pragmas_stay(self):
-        self.assertEqual(reported('#error "Particles requires MPI support for I/O"\n#pragma omp parallel\n'), [])
+    def test_the_key_ignores_layout(self):
+        [a] = units("#if 0\n#endif\n", Lang.CXX)
+        [b] = units("  #  if   0\n#endif\n", Lang.CXX)
+        self.assertEqual(a.key, ("directive", "# if 0"))
+        self.assertEqual(a.key, b.key)
 
-    def test_a_file_with_only_a_guard_is_lexed(self):
+
+@unittest.skipUnless(HAVE_CLANG, "needs clang++ on PATH")
+class Messages(unittest.TestCase):
+    def test_compile_time_messages(self):
+        text = (
+            '#warning "TODO: Restrict"\n'
+            "#warning                \\\n"
+            '    "TODO: Allow different restriction operators"\n'
+            '#pragma message("why")\n'
+            '#pragma GCC warning "why"\n'
+            '_Pragma("message(\\"why\\")") int a;\n'
+            '#define W _Pragma("GCC warning \\"why\\"")\n'
+            'int b = 1; _Pragma(R"(message("why"))")\n'
+        )
+        found = directives(text)
+        self.assertEqual([line for line, _ in found], [1, 2, 4, 5, 6, 7, 8])
+        self.assertEqual(found[1][1], '#warning "TODO: Allow different restriction operators"')
+
+    def test_what_is_not_a_message(self):
+        text = (
+            '#error "Particles requires MPI support for I/O"\n'
+            "#pragma omp parallel for\n"
+            '#pragma GCC error "stop"\n'
+            '_Pragma("omp parallel") int a;\n'
+            '#pragma clang diagnostic push\n'
+            'auto s = "#warning not a directive";\n'
+        )
+        self.assertEqual(directives(text), [])
+
+    def test_a_message_inside_disabled_code_is_reported_too(self):
+        text = '#if 0\n#warning "a"\n_Pragma("message(\\"b\\")")\n#else\n#warning "c"\n#endif\n'
+        self.assertEqual([line for line, _ in directives(text)], [1, 2, 3, 5])
+
+    def test_a_file_with_only_a_guard_or_message_is_lexed(self):
         self.assertEqual(len(units("#if 0\nint a;\n#endif\n", Lang.CXX)), 1)
         self.assertEqual(len(units('_Pragma("message(\\"x\\")")\n', Lang.CXX)), 1)
+
+    def test_error_and_other_pragmas_stay(self):
+        self.assertEqual(reported('#error "Particles requires MPI support for I/O"\n#pragma omp parallel\n'), [])
 
 
 class HashLanguages(unittest.TestCase):
