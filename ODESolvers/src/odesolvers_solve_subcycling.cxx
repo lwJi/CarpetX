@@ -473,29 +473,6 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
   if (setup.nvars == 0)
     return;
 
-  // Refill each recovered fine level's refinement-boundary (cf) ghosts the
-  // way the uninterrupted run last wrote them. Recovery traverses
-  // CCTK_POST_RECOVER_VARIABLES once per clock group, and this routine runs
-  // first in each traversal, so the window is one clock group, the window in
-  // which its levels last ran their end of step. Its levels other than its
-  // coarsest are aligned with their parents. Its coarsest level, unless it is
-  // level 0, lags its parent: it is mid-cycle. The ghosts were last written
-  //  - at the virtual end of the level's last substep (calcys_rmbnd) by dense
-  //    output from its source bands, which hold the parent's last step. The
-  //    checkpoint restored them; its reader has already refused a mid-cycle
-  //    checkpoint that lacks bands still needed here. fill_rk_boundary at the
-  //    same point, with the parent's step taken from the clocks, reproduces
-  //    these ghosts;
-  //  - or, on an aligned level of a window the driver restricted at that end
-  //    of step (CarpetX::window_is_restricted: the finest clock group), after
-  //    that by spatial prolongation from the restricted parent
-  //    (ProlongateAfterRestriction), for every evolved group, restricted or
-  //    not. The parent's tl=0 still holds that state, and
-  //    SyncGroupsByDirIProlongateOnlyAligned repeats the prolongation. These
-  //    are exactly the levels that need no bands: a time-aligned checkpoint
-  //    carries none.
-  // The ODESolvers_PostStep SYNC that follows then only exchanges ghosts
-  // between boxes of the same level.
   if (var_groups.size() > 0) {
     var.check_valid(make_valid_int(),
                     "ODESolvers_Solve_Subcycling_Recovery requires the tl=0 "
@@ -544,21 +521,6 @@ extern "C" void ODESolvers_CheckTimelevels(CCTK_ARGUMENTS) {
   }
 }
 
-// Reject at PARAMCHECK, instead of at the first CCTK_EVOL, a method the
-// configuration cannot run (rk_methods.hxx):
-//  - under subcycling, one the subcycling solver does not implement; only
-//    the implemented ones have a stage count that fits the driver's band
-//    arrays and a b row the flux registers can be fed with;
-//  - in a run that may refine (CarpetX::max_num_levels > 1), an implicit
-//    (IMEX) method when some group gets a flux register: the driver would
-//    allocate the register on every refined level, and only an explicit
-//    method hands every stage's flux to it with a known weight
-//    (ODESolvers_Solve's calcrhs). A unigrid run owns no register (they
-//    live on levels > 0), so an implicit method is fine there even with
-//    CarpetX::do_reflux = yes.
-// Runs after WRAGH, where ODESolvers_InitConstants publishes
-// rk_integrated_group, so CarpetX::group_has_flux_register (the predicate
-// that register allocation uses) already gives its final answer.
 extern "C" void ODESolvers_CheckMethod(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckMethod;
   DECLARE_CCTK_PARAMETERS;
