@@ -1,27 +1,16 @@
-# [CarpetX](https://github.com/eschnett/CarpetX)
+# CarpetX
 
-<img
-src="https://github.com/eschnett/CarpetX/blob/main/figures/carpetx.png"
-width="200" />
+```
+   _______ _______  ______  _____  _______ _______ _     _
+   |       |_____| |_____/ |_____] |______    |     \___/
+   |_____  |     | |    \_ |       |______    |    _/   \_
+   a g e n t   f i r s t
+```
 
-**CarpetX** is a [Cactus](https://cactuscode.org/) driver based on
-[AMReX](https://amrex-codes.github.io), a software framework for
-block-structured AMR (adaptive mesh refinement). CarpetX is intended
-for the [Einstein Toolkit](https://einsteintoolkit.org/).
+[![CI](https://github.com/lwJi/CarpetX/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/lwJi/CarpetX/actions/workflows/ci.yml?query=branch%3Adev)
 
-* [![GitHub
-  CI](https://github.com/eschnett/CarpetX/workflows/CI/badge.svg)](https://github.com/eschnett/CarpetX/actions)
-
-## Overview
-
-CarpetX is ready for production. You are welcome to give it a try, to look at what changes your code might need to benefit from CarpetX's new features, and to give us feedback.
-
-The recorded talk "[Using CarpetX: A Guide for Early Adopters](http://einsteintoolkit.org/seminars/2021_03_18/index.html)". This presentation provides an overview of the current capabilities of CarpetX and showcases how to write Cactus code using it.
+**Agent first.** CarpetX is a [Cactus](https://www.cactuscode.org/) driver for block-structured adaptive mesh refinement (AMR), built on [AMReX](https://amrex-codes.github.io) and running on CPUs and GPUs, for the [Einstein Toolkit](https://einsteintoolkit.org/). This fork of [EinsteinToolkit/CarpetX](https://github.com/EinsteinToolkit/CarpetX) is developed with coding agents.
 
 ## Getting started
 
-Instructions for downloading the Einstein Toolkit including CarpetX, building, and running an example are available on the [Wiki](https://github.com/eschnett/CarpetX/wiki/Getting-Started).
-
-## Subcycling
-
-The initial subcycling implementation applied prolongation to time derivatives rather than the state vector itself, causing issues during hydrodynamic evolution. This bug was identified by Jay Kalinani (jaykalinani@gmail.com) and fixed in [PR #114](https://github.com/lwJi/CarpetX/pull/114). The current codebase features a reimplementation of this fix.
+The upstream [Getting Started](https://github.com/EinsteinToolkit/CarpetX/wiki/Getting-Started) page explains how to download the Einstein Toolkit with CarpetX, build it, and run an example. To use this fork instead, point the CarpetX entry in your thornlist at this repository: `!URL = https://github.com/lwJi/CarpetX` and `!REPO_BRANCH = dev`.
