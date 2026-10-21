@@ -346,7 +346,6 @@ int InterpLocalUniform(int /*N_dims*/, int /*param_table_handle*/,
                        const CCTK_INT /*input_array_dims*/[],
                        const CCTK_INT /*input_array_type_codes*/[],
                        const void *const /*input_arrays*/[],
-                       /***** output arrays *****/
                        int /*N_output_arrays*/,
                        const CCTK_INT /*output_array_type_codes*/[],
                        void *const /*output_arrays*/[]) {
