@@ -109,14 +109,6 @@ int WidenMinLevel(int initial_min_level, rat64 target_iteration) {
   return min_level;
 }
 
-// The clock groups, coarse to fine: maximal runs [min_level, max_level) of
-// adjacent levels that share one clock. Each is the window WidenMinLevel
-// produces from the group's finest level, i.e. the window in which the
-// group's levels last stepped. Only the finest group has also run its end of
-// step there (it is finalized); a coarser group is ahead of the finest level
-// and has not been finalized at its clock yet. Without subcycling every level
-// shares one clock, so there is a single group [0, num_levels). Reads only
-// patch 0, like WidenMinLevel.
 std::vector<std::pair<int, int> > ClockGroups() {
   std::vector<std::pair<int, int> > groups;
   int max_level = ghext->num_levels();
@@ -133,13 +125,6 @@ std::vector<std::pair<int, int> > ClockGroups() {
   return groups;
 }
 
-// The finest clock group: the finest level, widened down to every coarser
-// level that shares its clock, i.e. the last of ClockGroups. This is the
-// end-of-step window. Derived from the clocks, so that no caller inherits it
-// from Evolve's batch loop. Each caller opens and closes it itself: Evolve
-// and the fresh-start tail of Initialise finalize it (FinalizeWindow) and run
-// the end-of-step bins on it, and Shutdown traverses CCTK_TERMINATE on it.
-// Reads only patch 0, like WidenMinLevel.
 std::pair<int, int> FinestClockGroup() {
   const int max_level = ghext->num_levels();
   const rat64 finest_clock =
@@ -1301,16 +1286,8 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
                 checkpoint_iteration, finest_last_step_iteration);
 }
 
-// Rebuild the hierarchy and its state from the checkpoint: the grid
-// structure, CCTK_BASEGRID (and the initial-data bins in relaxed recovery
-// mode), the checkpointed data and CCTK_RECOVER_VARIABLES. These run exactly
-// once, over every level, while every level clock is still 0 and
-// cctk_delta_time is not set. Then restore the level clocks and last-step
-// iterations, enable regridding and compute cctk_delta_time, which
-// the per-group recomputation needs.
 static void RecoverHierarchy(cGH *restrict const cctkGH) {
   RecoverGridStructure(cctkGH);
-  // RecoverGridStructure has set cctk_iteration to the checkpoint's
   assert(ghext->recovered_iteration == -1);
   ghext->recovered_iteration = cctkGH->cctk_iteration;
 
