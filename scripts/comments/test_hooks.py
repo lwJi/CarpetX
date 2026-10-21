@@ -12,7 +12,9 @@ from unittest import mock
 
 import hooks
 from files import PROJECT, Lang
-from hooks import added, simulate_edit
+from hooks import added, simulate_edit, trimmed
+from report import TRIM_RULE, trim_head
+from rules import units
 from test_files import ISOLATED_GIT, git
 
 TOOL = os.path.dirname(os.path.abspath(__file__))
@@ -170,6 +172,73 @@ class Added(unittest.TestCase):
         self.assertEqual(self.texts("// # if 0\n", "#if 0\n#endif\n"), [(1, "#if 0")])
 
 
+class Trimmed(unittest.TestCase):
+    def trims(self, before, after, lang=Lang.CXX):
+        return [[u.text for u in gone] for gone in trimmed(units(before, lang), units(after, lang))]
+
+    def test_deleting_some_lines_of_a_comment_is_a_trim(self):
+        before = "// `tl = -1` syncs every timelevel\n// except the oldest.\nint f(int tl = -1);\n"
+        self.assertEqual(self.trims(before, "// `tl = -1` syncs every timelevel\nint f(int tl = -1);\n"),
+                         [["// except the oldest."]])
+
+    def test_trims_come_in_file_order_with_their_old_lines(self):
+        before = "// a\n// b\nint x;\n// c d e\n// f g h\n// i\nint y;\n"
+        found = trimmed(units(before, Lang.CXX), units("// a\nint x;\n// c d e\n// i\nint y;\n", Lang.CXX))
+        self.assertEqual([[(u.line, u.text) for u in gone] for gone in found], [[(2, "// b")], [(5, "// f g h")]])
+
+    def test_deleting_moving_or_keeping_a_whole_comment_is_not(self):
+        before = "// one\n// two\nint x;\n"
+        self.assertEqual(self.trims(before, "int x;\n"), [])
+        self.assertEqual(self.trims(before, "int y;\n// one\n// two\nint x;\n"), [])
+        self.assertEqual(self.trims(before, "{\n  // one\n  // two\n  int x;\n}\n"), [])
+        self.assertEqual(self.trims(before, "int x;\n// one\n// two\nint y;\n"), [])
+
+    def test_splitting_a_comment_or_moving_one_of_its_lines_is_not(self):
+        before = "// one\n// two\n// three\nint x;\n"
+        self.assertEqual(self.trims(before, "// one\nint y;\n// two\n// three\nint x;\n"), [])
+        self.assertEqual(self.trims(before, "// one\n// three\nint x;\n// two\nint y;\n"), [])
+
+    def test_deleting_one_of_two_copies_is_not(self):
+        copy = "// The ROCm compiler can't handle\n// operator[], so we use pointers\n"
+        self.assertEqual(self.trims(copy + "int x;\n" + copy + "int y;\n", "int x;\n" + copy + "int y;\n"), [])
+
+    def test_a_trim_of_one_of_two_copies_is_found(self):
+        copy = "// The ROCm compiler can't handle\n// operator[], so we use pointers\n"
+        after = "// The ROCm compiler can't handle\nint x;\n" + copy + "int y;\n"
+        self.assertEqual(self.trims(copy + "int x;\n" + copy + "int y;\n", after),
+                         [["// operator[], so we use pointers"]])
+
+    def test_a_whole_deletion_takes_a_line_another_comment_shares(self):
+        before = "// We sync every direction.\n// We don't sync the\n// oldest.\nint a;\n// We don't restrict the\n// oldest.\nint b;\n"
+        self.assertEqual(self.trims(before, "int a;\n// We don't restrict the\n// oldest.\nint b;\n"), [])
+        before = "// oldest.\nint a;\n// We don't restrict the\n// oldest.\nint b;\n"
+        self.assertEqual(self.trims(before, "// oldest.\nint a;\nint b;\n"), [])
+
+    def test_commented_out_code_counts_like_prose(self):
+        before = "// Copy in one go\n// int y = x;\nint x;\n"
+        self.assertEqual(self.trims(before, "// Copy in one go\nint x;\n"), [["// int y = x;"]])
+
+    def test_a_citation_can_stay_alone(self):
+        before = "// See arXiv:1111.2177\n// for the stencil\nint x;\n"
+        self.assertEqual(self.trims(before, "// See arXiv:1111.2177\nint x;\n"), [])
+
+    def test_the_lines_of_a_block_comment(self):
+        self.assertEqual(self.trims("/* one\n   two\n   three */\nint x;\n", "/* one\n   three */\nint x;\n"),
+                         [["two"]])
+
+    def test_a_trailing_comment_and_the_lines_below_it_are_one_comment(self):
+        before = "int a = 1; // one\n           // two\nint b;\n"
+        self.assertEqual(self.trims(before, "int a = 1; // one\nint b;\n"), [["// two"]])
+        self.assertEqual(self.trims("int a; // one\nint b; // two\n", "int a; // one\nint b;\n"), [])
+
+    def test_hash_languages(self):
+        before = "# The grid spacing\n# on the coarsest level\nREAL dx \"dx\"\n{\n} 1\n"
+        self.assertEqual(self.trims(before, "# The grid spacing\nREAL dx \"dx\"\n{\n} 1\n", Lang.PARAM),
+                         [["# on the coarsest level"]])
+        before = "! The flux\n! at the face\nx = 1\n"
+        self.assertEqual(self.trims(before, "! The flux\nx = 1\n", Lang.FORTRAN), [["! at the face"]])
+
+
 class AddedHash(unittest.TestCase):
     def texts(self, before, after, lang):
         return [(u.line, u.text) for u in added([before], after, lang)]
@@ -237,6 +306,13 @@ class Project(unittest.TestCase):
         self.assertTrue(message["systemMessage"].startswith("comment check skipped: "), message)
         return message["systemMessage"]
 
+    def noted(self, output):
+        self.assertTrue(output, "the hook printed nothing")
+        decision = json.loads(output)["hookSpecificOutput"]
+        self.assertEqual(sorted(decision), ["additionalContext", "hookEventName"])
+        self.assertEqual(decision["hookEventName"], "PreToolUse")
+        return decision["additionalContext"].split("\n")
+
 
 class HookEdit(Project):
     def test_denies_an_added_comment(self):
@@ -251,11 +327,30 @@ class HookEdit(Project):
             "",
         )
 
-    def test_an_edit_that_deletes_a_line_of_a_comment_is_allowed(self):
+    def test_an_edit_that_deletes_a_line_of_a_comment_is_allowed_with_a_note(self):
         write_files(self.root, {"Thorn/src/c.cxx": "// one\n// two\n// three\nint c;\n"})
-        self.assertEqual(self.edit("Thorn/src/c.cxx", "// two\n", ""), "")
-        self.assertEqual(self.edit("Thorn/src/c.cxx", "// one\n// two\n", "// one\n"), "")
+        self.assertEqual(self.noted(self.edit("Thorn/src/c.cxx", "// two\n", ""))[1], "  // two")
+        self.assertEqual(self.noted(self.edit("Thorn/src/c.cxx", "// one\n// two\n", "// one\n"))[1], "  // two")
+        self.assertEqual(self.edit("Thorn/src/c.cxx", "// one\n// two\n// three\n", ""), "")
         self.denied(self.edit("Thorn/src/c.cxx", "// two\n", "// too\n"))
+
+    def test_the_note_lists_the_deleted_lines(self):
+        text = "// `tl = -1` syncs every timelevel\n// except the oldest\n// and the one before.\nint f(int tl = -1);\n"
+        write_files(self.root, {"Thorn/src/c.cxx": text})
+        lines = self.noted(self.edit("Thorn/src/c.cxx", "// except the oldest\n// and the one before.\n", ""))
+        self.assertEqual(lines, [trim_head("Thorn/src/c.cxx", 1), "  // except the oldest", "  // and the one before."]
+                         + TRIM_RULE.split("\n"))
+
+    def test_a_denied_edit_carries_no_note(self):
+        write_files(self.root, {"Thorn/src/c.cxx": "// one\n// two\nint c;\n"})
+        output = self.edit("Thorn/src/c.cxx", "// two\nint c;\n", "int c; // why\n")
+        self.denied(output)
+        self.assertNotIn("additionalContext", json.loads(output)["hookSpecificOutput"])
+
+    def test_a_write_that_trims_a_comment_is_noted(self):
+        write_files(self.root, {"Thorn/param.ccl": "# The grid spacing\n# on the coarsest level\nREAL dx \"dx\"\n{\n} 1\n"})
+        lines = self.noted(self.write("Thorn/param.ccl", "# The grid spacing\nREAL dx \"dx\"\n{\n} 1\n"))
+        self.assertEqual(lines[:2], [trim_head("Thorn/param.ccl", 1), "  # on the coarsest level"])
 
     def test_an_edit_to_the_code_between_comments_is_allowed(self):
         write_files(self.root, {"Thorn/src/c.cxx": "// one\nsync();\n// two\napply();\n"})
@@ -516,15 +611,16 @@ class HookEditOnABranch(Branch):
         out = io.StringIO()
         payload = {"tool_name": tool_name, "tool_input": tool_input, "cwd": self.root}
         self.assertEqual(hooks.hook_edit(json.dumps(payload), out, root=self.root), 0)
-        if out.getvalue():
-            return out.getvalue()
+        output = out.getvalue()
+        if output and "permissionDecision" in json.loads(output).get("hookSpecificOutput", {}):
+            return output
         path = os.path.join(self.root, tool_input["file_path"])
         before = None
         if os.path.isfile(path):
             with open(path) as f:
                 before = f.read()
         write_files(self.root, {tool_input["file_path"]: hooks.simulate_edit(tool_name, tool_input, before)})
-        return ""
+        return output
 
     def edit(self, name, old, new):
         return self.run_edit("Edit", {"file_path": name, "old_string": old, "new_string": new})
@@ -565,6 +661,18 @@ class HookEditOnABranch(Branch):
         lines = self.denied(self.edit("Thorn/param.ccl", "} 1\n", "} 1\n# old prose\n"))
         self.assertEqual(lines[0], "Thorn/param.ccl:5   # old prose")
         self.assertEqual(lines[-1], "✗ no-comments: 1 comment line")
+
+    def test_a_trimmed_comment_is_noted_at_the_edit_and_not_at_the_stop(self):
+        git(self.root, "switch", "-q", "dev")
+        self.commit({"Thorn/param.ccl": "# The grid spacing\n# on the coarsest level\n" + STOP_FILES["Thorn/param.ccl"]})
+        git(self.root, "switch", "-q", "work")
+        git(self.root, "merge", "-q", "--ff-only", "dev")
+        output = self.edit("Thorn/param.ccl", "# on the coarsest level\n", "")
+        note = json.loads(output)["hookSpecificOutput"]["additionalContext"].split("\n")
+        self.assertEqual(note[:2], [trim_head("Thorn/param.ccl", 1), "  # on the coarsest level"])
+        with open(os.path.join(self.root, "Thorn/param.ccl")) as f:
+            self.assertNotIn("coarsest", f.read())
+        self.assertEqual(self.stop(), "")
 
     def test_a_comment_the_branch_deleted_can_be_put_back(self):
         self.commit({"Thorn/param.ccl": STOP_FILES["Thorn/param.ccl"].replace("# old prose\n", "")})

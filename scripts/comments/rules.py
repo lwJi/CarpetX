@@ -40,6 +40,7 @@ class Unit:
     key: tuple
     text: str
     allowed: bool
+    comment: int = -1
 
 
 def comment_words(text: str) -> list[str]:
@@ -59,13 +60,13 @@ def is_tool_marker(token: Token, before: Optional[str]) -> bool:
     return bool(NAMESPACE_CLOSER.fullmatch(text)) and before is not None and before.endswith("}")
 
 
-def comment_units(token: Token, before: Optional[str], lang: Lang) -> Iterable[Unit]:
+def comment_units(token: Token, before: Optional[str], lang: Lang, comment: int) -> Iterable[Unit]:
     shown = LINE_BREAK.split(token.text.rstrip())
     marker = lang is Lang.CXX and is_tool_marker(token, before)
     for offset, words in enumerate(comment_words(token.text)):
         if words:
             allowed = marker or bool(CITATION.fullmatch(words))
-            yield Unit(token.line + offset, ("comment", words), shown[offset].strip(), allowed)
+            yield Unit(token.line + offset, ("comment", words), shown[offset].strip(), allowed, comment)
 
 
 def is_constant(condition: str) -> bool:
@@ -113,11 +114,15 @@ def units(text: str, lang: Lang) -> list[Unit]:
     tokens = lex(text, lang)
     found: list[Unit] = []
     before: Optional[str] = None
+    comment, last_line = -1, -2
     for token in tokens:
         if token.kind is Kind.NEWLINE:
             before = None
         elif token.kind is Kind.COMMENT:
-            found.extend(comment_units(token, before, lang))
+            if before is not None or token.line > last_line + 1:
+                comment += 1
+            last_line = token.line + len(LINE_BREAK.findall(token.text))
+            found.extend(comment_units(token, before, lang, comment))
         elif token.kind in CODE_KINDS:
             before = token.text
     if lang is Lang.CXX:

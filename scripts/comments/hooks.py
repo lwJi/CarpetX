@@ -21,7 +21,7 @@ from files import (
     show,
     untracked,
 )
-from report import render
+from report import render, render_trims
 from rules import Unit, units
 
 Tree = Callable[[str], str]
@@ -78,6 +78,31 @@ def added(befores: Iterable[str], after: str, lang: Lang) -> list[Unit]:
     if all(u.allowed for u in mine):
         return []
     return [mine[i] for i in surplus((counts(units(text, lang)) for text in befores), mine)]
+
+
+def trimmed(old: list[Unit], new: list[Unit]) -> list[list[Unit]]:
+    lost = counts(old) - counts(new)
+    comments: dict[int, list[Unit]] = {}
+    for u in old:
+        if u.key[0] == "comment" and not u.allowed:
+            comments.setdefault(u.comment, []).append(u)
+    partly = []
+    for comment in sorted(comments.values(), key=len, reverse=True):
+        whole = counts(comment)
+        if whole - lost:
+            partly.append(comment)
+        else:
+            lost -= whole
+    found = []
+    for comment in sorted(partly, key=lambda c: c[0].line):
+        gone = []
+        for u in comment:
+            if lost[u.key] > 0:
+                lost[u.key] -= 1
+                gone.append(u)
+        if 0 < len(gone) < len(comment):
+            found.append(gone)
+    return found
 
 
 def added_across(names: list[tuple[str, Lang]], befores: list[Tree], after: Tree) -> list[tuple[str, Unit]]:
@@ -160,10 +185,16 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
         after = simulate_edit(tool_name, tool_input, before)
         if after is None:
             return 0
-        found = added([before or ""], after, lang)
+        mine = units(after, lang)
+        old = units(before, lang) if before and not all(u.allowed for u in mine) else []
+        found = [mine[i] for i in surplus([counts(old)], mine)]
         if found:
             found = added_by_edit(root, name, after, found)
         if not found:
+            trims = trimmed(old, mine)
+            if trims:
+                note = render_trims(name, trims)
+                emit(out, {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": note}})
             return 0
         reason = render([(name, u) for u in found])
     except Exception as e:

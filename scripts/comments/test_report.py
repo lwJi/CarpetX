@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from files import Lang
-from report import RULE, excerpt, render, summary
+from report import RULE, TRIM_RULE, excerpt, render, render_trims, summary, trim_head
 from rules import units
 
 
@@ -54,6 +54,25 @@ class Render(unittest.TestCase):
             ["A/src/a.cxx:2   #if 0",
              'A/src/a.cxx:5   #warning "TODO: Allow different restriction operators, and ensure this i…'],
         )
+
+
+class RenderTrims(unittest.TestCase):
+    def lines(self, text):
+        return [u for _, u in found("A/src/a.cxx", text)]
+
+    def test_one_comment(self):
+        self.assertEqual(
+            render_trims("A/src/a.cxx", [self.lines("// except the oldest\n// and the one before.\n")]).split("\n"),
+            ["This edit deletes some lines of a comment in A/src/a.cxx and keeps the rest "
+             "(see \"Code comments\" in CLAUDE.md):",
+             "  // except the oldest",
+             "  // and the one before."] + TRIM_RULE.split("\n"),
+        )
+
+    def test_several_comments_are_set_apart(self):
+        note = render_trims("A/src/a.cxx", [self.lines("// one\n"), self.lines("// two\n")]).split("\n")
+        self.assertEqual(note[:4], [trim_head("A/src/a.cxx", 2), "  // one", "", "  // two"])
+        self.assertIn("of 2 comments in A/src/a.cxx", note[0])
 
 
 if __name__ == "__main__":

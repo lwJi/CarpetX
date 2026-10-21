@@ -270,6 +270,30 @@ class Messages(unittest.TestCase):
         self.assertEqual(reported('#error "Particles requires MPI support for I/O"\n#pragma omp parallel\n'), [])
 
 
+class Comments(unittest.TestCase):
+    def ids(self, text, lang=Lang.CXX):
+        return [(u.line, u.comment) for u in units(text, lang)]
+
+    def test_adjacent_comment_lines_are_one_comment(self):
+        self.assertEqual(self.ids("// a\n// b\n//\n// c\nint x;\n"), [(1, 0), (2, 0), (4, 0)])
+
+    def test_a_blank_line_or_code_starts_a_new_one(self):
+        self.assertEqual(self.ids("// a\n\n// b\nint x;\n// c\n"), [(1, 0), (3, 1), (5, 2)])
+
+    def test_a_trailing_comment_starts_one_that_the_lines_below_continue(self):
+        self.assertEqual(self.ids("int a; // a\nint b; // b\n       // c\n"), [(1, 0), (2, 1), (3, 1)])
+
+    def test_a_block_comment_is_one_comment(self):
+        self.assertEqual(self.ids("/* a\n   b */\n// c\nint x; /* d\n e */\n"), [(1, 0), (2, 0), (3, 0), (4, 1), (5, 1)])
+
+    def test_hash_languages(self):
+        self.assertEqual(self.ids("# a\n# b\nSRCS = x.cxx # c\n", Lang.MAKE), [(1, 0), (2, 0), (3, 1)])
+        self.assertEqual(self.ids("! a\n  ! b\nx = 1 ! c\n", Lang.FORTRAN), [(1, 0), (2, 0), (3, 1)])
+
+    def test_guards_belong_to_no_comment(self):
+        self.assertEqual([u.comment for u in units("#if 0\n#endif\n", Lang.CXX)], [-1])
+
+
 class HashLanguages(unittest.TestCase):
     def test_every_comment_line_is_reported(self):
         self.assertEqual(reported("# Parameter definitions\nINT a \"a\"\n{\n} 1 # why\n", Lang.PARAM),
