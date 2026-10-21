@@ -180,35 +180,26 @@ def merged_tips(root: str, base: str) -> list[str]:
     return [parent for line in out.splitlines() for parent in line.split()[2:]]
 
 
-def differing(root: str, rev: str) -> list[str]:
-    return split_z(git(root, "diff", "-z", "--name-only", "--no-renames", "--no-ext-diff", rev))
-
-
-def exists(root: str, rev: str, name: str) -> bool:
-    proc = subprocess.run(
-        ["git", "-C", root, "cat-file", "-e", f"{rev}:{name}"], stdin=subprocess.DEVNULL, capture_output=True
-    )
-    return proc.returncode == 0
-
-
-def covered_in(names: Iterable[str], root: str, revs: Iterable[str]) -> list[tuple[str, Lang]]:
-    revs = [rev for rev in revs if rev != EMPTY_TREE]
-    thorns: dict = {}
-    found = []
-    for name in names:
-        lang = lang_of(name)
-        if lang is None:
-            continue
-        top = PurePosixPath(name).parts[0]
-        if top not in thorns:
-            thorns[top] = is_thorn(root, top) or any(exists(root, rev, f"{top}/interface.ccl") for rev in revs)
-        if thorns[top]:
-            found.append((name, lang))
-    return found
-
-
 def untracked(root: str) -> list[str]:
     return split_z(git(root, "ls-files", "-z", "--others", "--exclude-standard"))
+
+
+def changes_since(root: str, rev: str) -> dict[str, Optional[str]]:
+    fields = split_z(git(root, "diff", "-z", "--name-status", "-M", "--no-ext-diff", rev))
+    found: dict[str, Optional[str]] = {}
+    i = 0
+    while i < len(fields):
+        status = fields[i][:1]
+        if status in ("R", "C"):
+            found[fields[i + 2]] = fields[i + 1]
+            i += 3
+            continue
+        if status != "D":
+            found[fields[i + 1]] = None if status == "A" else fields[i + 1]
+        i += 2
+    for name in untracked(root):
+        found.setdefault(name, None)
+    return found
 
 
 def show(root: str, rev: str, name: Optional[str]) -> str:

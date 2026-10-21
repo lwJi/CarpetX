@@ -5,7 +5,8 @@ import unittest
 from collections import Counter
 
 from files import PROJECT, Lang, decode, lang_of, parallel, resolve, split_z, thorns_in
-from rules import lex, units
+from rules import lex
+from spans import layout
 from tokens import Kind, join
 
 ET0 = "6c59144364fb5e65c7355d4a445530b8503460db"
@@ -50,7 +51,7 @@ class Et0(unittest.TestCase):
             name, lang, text = item
             try:
                 tokens = lex(text, lang)
-                return name, lang, text, tokens, units(text, lang), None
+                return name, lang, text, tokens, layout(text, lang), None
             except Exception as e:
                 return name, lang, text, None, None, f"{type(e).__name__}: {e}"
 
@@ -81,6 +82,21 @@ class Et0(unittest.TestCase):
                     break
                 offset += len(t.text.encode("utf-8", "surrogateescape"))
                 line += t.text.count("\n")
+        self.assertEqual(wrong, [])
+
+    def test_every_comment_line_belongs_to_one_comment_that_ends_after_it(self):
+        wrong = []
+        for name, _, text, _, found, _ in self.results:
+            if found is None:
+                continue
+            lines = len(found.rows)
+            owned = [i for c in found.comments for i in c.units]
+            comment_lines = [i for i, u in enumerate(found.units) if u.key[0] == "comment"]
+            if sorted(owned) != comment_lines:
+                wrong.append(f"{name}: comment lines outside a comment")
+            for c in found.comments:
+                if not 1 <= c.first <= c.last <= c.end <= lines:
+                    wrong.append(f"{name}:{c.first}-{c.last} covers up to line {c.end} of {lines}")
         self.assertEqual(wrong, [])
 
     def test_comment_tokens_start_with_an_opener(self):

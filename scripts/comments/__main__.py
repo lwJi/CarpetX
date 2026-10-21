@@ -14,20 +14,20 @@ class FileFailed(RuntimeError):
 
 def run_check(paths: list[str], since: str | None = None) -> int:
     from files import PROJECT, GitError, common_ancestor, list_covered, list_tree, parallel, read_text, resolve
-    from hooks import added
-    from report import render
+    from report import render, render_change
+    from rules import units
     from tokens import LexError
 
-    def judge(item):
+    def listed(item):
         name, path, lang = item
         try:
-            return [(name, u) for u in added([], read_text(path), lang)]
+            return [(name, u) for u in units(read_text(path), lang) if not u.allowed]
         except (LexError, UnicodeError, OSError) as e:
             raise FileFailed(f"{name}: {e}") from e
 
     try:
         if since is not None:
-            from hooks import added_since
+            from hooks import judge_since
 
             rev = resolve(PROJECT, since)
             if rev is None:
@@ -35,15 +35,17 @@ def run_check(paths: list[str], since: str | None = None) -> int:
             base = common_ancestor(PROJECT, rev)
             if base is None:
                 raise GitError(f"{since!r} and HEAD have no common ancestor")
-            found = added_since(PROJECT, base)
+            found = judge_since(PROJECT, base)
+            report = render_change(found)
         else:
             files = list_covered(paths) if paths else list_tree()
-            found = [entry for entries in parallel(judge, files) for entry in entries]
-    except (FileNotFoundError, FileFailed, GitError) as e:
+            found = [entry for entries in parallel(listed, files) for entry in entries]
+            report = render(found)
+    except (FileNotFoundError, FileFailed, GitError, LexError) as e:
         print(f"comments check: {e}", file=sys.stderr)
         return EXIT_ERROR
     sys.stdout.reconfigure(errors="backslashreplace")
-    print(render(found))
+    print(report)
     return EXIT_FOUND if found else EXIT_CLEAN
 
 
@@ -61,18 +63,18 @@ def run_hook(name: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 scripts/comments",
-        description="Keep comments out of thorn files (see \"Code comments\" in CLAUDE.md).",
+        description="Comments in thorn files can only be deleted (see \"Code comments\" in CLAUDE.md).",
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    check = commands.add_parser("check", help="report every comment line outside the allow-list")
+    check = commands.add_parser("check", help="list every comment line outside the allow-list")
     check.add_argument("paths", nargs="*", metavar="PATH", help="files or directories to check (default: the whole tree)")
     check.add_argument(
         "--since",
         metavar="REV",
-        help="report only the comment lines the working tree added since its merge base with REV (what CI checks)",
+        help="report the comments the working tree added or touched since its merge base with REV (what CI checks)",
     )
-    commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a comment line")
-    commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a comment line")
+    commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds or touches a comment")
+    commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added or touched a comment")
     args = parser.parse_args(argv)
     if args.command == "hook-edit":
         return run_hook("hook_edit")

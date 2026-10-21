@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from judge import Verdict
 from rules import Unit
 
 RULE = (
-    "Don't add comments to thorn files (see \"Code comments\" in CLAUDE.md).\n"
-    "Put a true invariant in code (assert, name, CCTK_VERROR) or in the commit message."
+    "Comments in thorn files can only be deleted (see \"Code comments\" in CLAUDE.md).\n"
+    "Put what is still true in code (assert, name, CCTK_VERROR) or in the commit message."
 )
-TRIM_RULE = (
-    "Read what is left: without the deleted lines it can say something new. If it does, delete the whole comment\n"
-    "and put what is still true in code (assert, name, CCTK_VERROR) or in the commit message.\n"
-    "A line that stands alone, such as a TODO, a \\param entry or commented-out code, can go by itself."
+CHANGE_RULE = (
+    "new: a comment line the change adds; take it out.\n"
+    "touched: the change edits the code under this comment or deletes some of its lines; delete the whole comment.\n"
+    + RULE
 )
+REDO = "Redo the edit so that it adds none of the new lines and deletes each touched comment whole."
 EXCERPT_WIDTH = 72
 
 
@@ -18,10 +20,13 @@ def excerpt(u: Unit) -> str:
     return u.text[:EXCERPT_WIDTH] + ("…" if len(u.text) > EXCERPT_WIDTH else "")
 
 
+def plural(count: int, noun: str) -> str:
+    return f"{count} {noun}" + ("" if count == 1 else "s")
+
+
 def summary(count: int) -> str:
     mark = "✗" if count else "✓"
-    noun = "comment line" if count == 1 else "comment lines"
-    return f"{mark} no-comments: {count} {noun}"
+    return f"{mark} no-comments: {plural(count, 'comment line')}"
 
 
 def render(found: list[tuple[str, Unit]]) -> str:
@@ -35,16 +40,30 @@ def render(found: list[tuple[str, Unit]]) -> str:
     return "\n".join(out)
 
 
-def trim_head(path: str, count: int) -> str:
-    what = "a comment" if count == 1 else f"{count} comments"
-    return f"This edit deletes some lines of {what} in {path} and keeps the rest (see \"Code comments\" in CLAUDE.md):"
+def change_summary(found: list[tuple[str, Verdict]]) -> str:
+    new = sum(len(v.added) for _, v in found)
+    touched = sum(len(v.touched) for _, v in found)
+    if not new and not touched:
+        return "✓ no-comments: no new or touched comments"
+    parts = ([plural(new, "new comment line")] if new else []) + ([plural(touched, "touched comment")] if touched else [])
+    return "✗ no-comments: " + ", ".join(parts)
 
 
-def render_trims(path: str, trims: list[list[Unit]]) -> str:
-    out = [trim_head(path, len(trims))]
-    for i, gone in enumerate(trims):
-        if i:
-            out.append("")
-        out.extend(f"  {excerpt(u)}" for u in gone)
-    out.extend(TRIM_RULE.split("\n"))
+def render_change(found: list[tuple[str, Verdict]], edit: bool = False) -> str:
+    entries = []
+    for path, verdict in found:
+        entries.extend((path, u.line, f"{path}:{u.line}", "new", u) for u in verdict.added)
+        entries.extend(
+            (path, t.first, f"{path}:{t.first}" + (f"-{t.last}" if t.last > t.first else ""), "touched", t.unit)
+            for t in verdict.touched
+        )
+    if not entries:
+        return change_summary(found)
+    entries.sort(key=lambda e: (e[0], e[1]))
+    width = max(len(e[2]) for e in entries)
+    out = [f"{place.ljust(width)}   {kind.ljust(7)}   {excerpt(u)}" for _, _, place, kind, u in entries]
+    out.extend(CHANGE_RULE.split("\n"))
+    if edit:
+        out.append(REDO)
+    out.append(change_summary(found))
     return "\n".join(out)

@@ -3,15 +3,13 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections import Counter
-from typing import Callable, Iterable, Optional
+from typing import Optional
 
 from files import (
     PROJECT,
     Lang,
+    changes_since,
     covered,
-    covered_in,
-    differing,
     is_regular,
     merge_base,
     merged_tips,
@@ -19,12 +17,9 @@ from files import (
     read_text,
     repo_name,
     show,
-    untracked,
 )
-from report import render, render_trims
-from rules import Unit, units
-
-Tree = Callable[[str], str]
+from judge import Verdict, judge, judge_all
+from report import render_change
 
 
 def emit(out, message: dict) -> None:
@@ -53,121 +48,37 @@ def simulate_edit(tool_name: str, tool_input: dict, before: Optional[str]) -> Op
     return before.replace(old, new, -1 if replace_all else 1)
 
 
-def counts(found: Iterable[Unit]) -> Counter:
-    return Counter(u.key for u in found)
-
-
-def surplus(befores: Iterable[Counter], after: list[Unit]) -> list[int]:
-    old: Counter = Counter()
-    for count in befores:
-        old |= count
-    old -= counts(u for u in after if u.allowed)
-    found = []
-    for i, u in enumerate(after):
-        if u.allowed:
-            continue
-        if old[u.key] > 0:
-            old[u.key] -= 1
-        else:
-            found.append(i)
-    return found
-
-
-def added(befores: Iterable[str], after: str, lang: Lang) -> list[Unit]:
-    mine = units(after, lang)
-    if all(u.allowed for u in mine):
-        return []
-    return [mine[i] for i in surplus((counts(units(text, lang)) for text in befores), mine)]
-
-
-def trimmed(old: list[Unit], new: list[Unit]) -> list[list[Unit]]:
-    lost = counts(old) - counts(new)
-    comments: dict[int, list[Unit]] = {}
-    for u in old:
-        if u.key[0] == "comment" and not u.allowed:
-            comments.setdefault(u.comment, []).append(u)
-    partly = []
-    for comment in sorted(comments.values(), key=len, reverse=True):
-        whole = counts(comment)
-        if whole - lost:
-            partly.append(comment)
-        else:
-            lost -= whole
-    found = []
-    for comment in sorted(partly, key=lambda c: c[0].line):
-        gone = []
-        for u in comment:
-            if lost[u.key] > 0:
-                lost[u.key] -= 1
-                gone.append(u)
-        if 0 < len(gone) < len(comment):
-            found.append(gone)
-    return found
-
-
-def added_across(names: list[tuple[str, Lang]], befores: list[Tree], after: Tree) -> list[tuple[str, Unit]]:
-    def judge(item):
-        name, lang = item
-        texts = [read(name) for read in befores]
-        text = after(name)
-        lexed = {t: units(t, lang) for t in {*texts, text}}
-        olds = [counts(lexed[t]) for t in texts]
-        own = set(surplus(olds, lexed[text]))
-        return olds, [(i in own, name, u) for i, u in enumerate(lexed[text])]
-
-    judged = parallel(judge, names)
-    pools = [sum((olds[k] for olds, _ in judged), Counter()) for k in range(len(befores))]
-    entries = sorted((e for _, es in judged for e in es), key=lambda e: (e[0], e[1], e[2].line))
-    mine = [u for _, _, u in entries]
-    found = [(entries[i][1], entries[i][2]) for i in surplus(pools, mine)]
-    return sorted(found, key=lambda e: (e[0], e[1].line))
-
-
-def at(root: str, rev: str) -> Tree:
-    return lambda name: show(root, rev, name)
-
-
-def working(root: str) -> Tree:
-    def read(name: str) -> str:
-        path = os.path.join(root, name)
-        return read_text(path) if is_regular(path) else ""
-
-    return read
-
-
 def starts(root: str, base: Optional[str] = None) -> list[str]:
     base = merge_base(root) if base is None else base
     return [base] + merged_tips(root, base)
 
 
-def change(root: str, revs: list[str], extra: Iterable[str] = ()) -> list[tuple[str, Lang]]:
-    names = set(extra).union(untracked(root), *(differing(root, rev) for rev in revs))
-    return covered_in(sorted(names), root, revs)
-
-
-def added_since(root: str, base: Optional[str] = None) -> list[tuple[str, Unit]]:
+def judge_since(root: str, base: Optional[str] = None) -> list[tuple[str, Verdict]]:
     revs = starts(root, base)
-    return added_across(change(root, revs), [at(root, rev) for rev in revs], working(root))
+    renames = [changes_since(root, rev) for rev in revs]
+    names = sorted(set(renames[0]).intersection(*renames[1:]))
+    items = [(name, lang) for name in names for lang in [covered(name, root)] if lang is not None]
+
+    def judged(item: tuple[str, Lang]) -> tuple[str, Verdict]:
+        name, lang = item
+        path = os.path.join(root, name)
+        after = read_text(path) if is_regular(path) else ""
+        return name, judge_all((show(root, rev, old[name]) for rev, old in zip(revs, renames)), after, lang)
+
+    return [(name, verdict) for name, verdict in parallel(judged, items) if verdict]
 
 
-def added_by_edit(root: str, name: str, after: str, found: list[Unit]) -> list[Unit]:
-    now = working(root)
-
-    def edited(other: str) -> str:
-        return after if other == name else now(other)
-
+def judge_edit(root: str, name: str, before: str, after: str, lang: Lang) -> Verdict:
+    verdict = judge(before, after, lang)
+    if not verdict:
+        return verdict
     try:
-        revs = starts(root)
-        trees = [at(root, rev) for rev in revs] + [now]
-        budget = counts(u for _, u in added_across(change(root, revs, [name]), trees, edited))
+        others = [judge(show(root, rev, changes_since(root, rev).get(name, name)), after, lang) for rev in starts(root)]
     except Exception:
-        return found
-    kept = []
-    for u in reversed(found):
-        if budget[u.key] > 0:
-            budget[u.key] -= 1
-            kept.append(u)
-    return kept[::-1]
+        return verdict
+    for other in others:
+        verdict = verdict.within(other)
+    return verdict
 
 
 def hook_edit(raw, out=None, root: str = PROJECT) -> int:
@@ -185,18 +96,10 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
         after = simulate_edit(tool_name, tool_input, before)
         if after is None:
             return 0
-        mine = units(after, lang)
-        old = units(before, lang) if before and not all(u.allowed for u in mine) else []
-        found = [mine[i] for i in surplus([counts(old)], mine)]
-        if found:
-            found = added_by_edit(root, name, after, found)
-        if not found:
-            trims = trimmed(old, mine)
-            if trims:
-                note = render_trims(name, trims)
-                emit(out, {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": note}})
+        verdict = judge_edit(root, name, before or "", after, lang)
+        if not verdict:
             return 0
-        reason = render([(name, u) for u in found])
+        reason = render_change([(name, verdict)], edit=True)
     except Exception as e:
         return skipped(out, e)
     emit(
@@ -220,10 +123,10 @@ def hook_stop(raw, out=None, root: str = PROJECT) -> int:
             raise ValueError("the hook payload is not a JSON object")
         if payload.get("stop_hook_active"):
             return 0
-        found = added_since(root)
+        found = judge_since(root)
         if not found:
             return 0
-        reason = render(found)
+        reason = render_change(found)
     except Exception as e:
         return skipped(out, e)
     emit(out, {"decision": "block", "reason": reason})

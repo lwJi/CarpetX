@@ -3,12 +3,17 @@ from __future__ import annotations
 import unittest
 
 from files import Lang
-from report import RULE, TRIM_RULE, excerpt, render, render_trims, summary, trim_head
-from rules import units
+from judge import Touched, Verdict, judge
+from report import CHANGE_RULE, REDO, RULE, change_summary, excerpt, render, render_change, summary
+from rules import Unit, units
 
 
 def found(path, text):
     return [(path, u) for u in units(text, Lang.CXX) if not u.allowed]
+
+
+def unit(line, text):
+    return Unit(line, ("comment", text[3:]), text, False)
 
 
 class Summary(unittest.TestCase):
@@ -20,6 +25,14 @@ class Summary(unittest.TestCase):
     def test_clean(self):
         self.assertEqual(render([]), "✓ no-comments: 0 comment lines")
 
+    def test_change_counts(self):
+        self.assertEqual(change_summary([]), "✓ no-comments: no new or touched comments")
+        one = Verdict((unit(1, "// a"),), ())
+        self.assertEqual(change_summary([("A/src/a.cxx", one)]), "✗ no-comments: 1 new comment line")
+        both = Verdict((unit(1, "// a"), unit(2, "// b")), (Touched(5, 6, unit(5, "// c")),))
+        self.assertEqual(change_summary([("A/src/a.cxx", both), ("A/src/b.cxx", Verdict((), both.touched))]),
+                         "✗ no-comments: 2 new comment lines, 2 touched comments")
+
 
 class Render(unittest.TestCase):
     def test_the_report_shape(self):
@@ -27,8 +40,8 @@ class Render(unittest.TestCase):
         self.assertEqual(
             render(found("CarpetX/src/driver.cxx", text)),
             "CarpetX/src/driver.cxx:812   // Must run before the restriction.\n"
-            "Don't add comments to thorn files (see \"Code comments\" in CLAUDE.md).\n"
-            "Put a true invariant in code (assert, name, CCTK_VERROR) or in the commit message.\n"
+            "Comments in thorn files can only be deleted (see \"Code comments\" in CLAUDE.md).\n"
+            "Put what is still true in code (assert, name, CCTK_VERROR) or in the commit message.\n"
             "✗ no-comments: 1 comment line",
         )
 
@@ -38,10 +51,6 @@ class Render(unittest.TestCase):
         self.assertEqual(lines[:3], ["A/src/a.cxx:1    // x", "A/src/a.cxx:11   // y", "A/src/bb.cxx:1   // z"])
         self.assertEqual(lines[3:5], RULE.split("\n"))
         self.assertEqual(lines[-1], "✗ no-comments: 3 comment lines")
-
-    def test_each_line_of_a_comment_is_its_own_entry(self):
-        report = render(found("A/src/a.cxx", "// first line\n// second line\nint b;\n"))
-        self.assertEqual(report.split("\n")[:2], ["A/src/a.cxx:1   // first line", "A/src/a.cxx:2   // second line"])
 
     def test_long_comments_are_cut(self):
         [(_, u)] = found("A/src/a.cxx", "// " + "x" * 100 + "\n")
@@ -56,23 +65,32 @@ class Render(unittest.TestCase):
         )
 
 
-class RenderTrims(unittest.TestCase):
-    def lines(self, text):
-        return [u for _, u in found("A/src/a.cxx", text)]
-
-    def test_one_comment(self):
+class RenderChange(unittest.TestCase):
+    def test_the_report_shape(self):
+        before = "// The clock groups,\n// coarse to fine.\nint g = 1;\n"
+        after = "// The clock groups,\n// coarse to fine.\nint g = 2;\n" + "\n" * 8 + "int h; // why\n"
         self.assertEqual(
-            render_trims("A/src/a.cxx", [self.lines("// except the oldest\n// and the one before.\n")]).split("\n"),
-            ["This edit deletes some lines of a comment in A/src/a.cxx and keeps the rest "
-             "(see \"Code comments\" in CLAUDE.md):",
-             "  // except the oldest",
-             "  // and the one before."] + TRIM_RULE.split("\n"),
+            render_change([("CarpetX/src/schedule.cxx", judge(before, after, Lang.CXX))]).split("\n"),
+            ["CarpetX/src/schedule.cxx:1-2   touched   // The clock groups,",
+             "CarpetX/src/schedule.cxx:12    new       // why"] + CHANGE_RULE.split("\n")
+            + ["✗ no-comments: 1 new comment line, 1 touched comment"],
         )
 
-    def test_several_comments_are_set_apart(self):
-        note = render_trims("A/src/a.cxx", [self.lines("// one\n"), self.lines("// two\n")]).split("\n")
-        self.assertEqual(note[:4], [trim_head("A/src/a.cxx", 2), "  // one", "", "  // two"])
-        self.assertIn("of 2 comments in A/src/a.cxx", note[0])
+    def test_entries_come_in_path_and_line_order(self):
+        report = render_change([
+            ("B/src/b.cxx", Verdict((unit(3, "// b"),), ())),
+            ("A/src/a.cxx", Verdict((unit(9, "// y"),), (Touched(2, 2, unit(2, "// x")),))),
+        ])
+        self.assertEqual(report.split("\n")[:3], ["A/src/a.cxx:2   touched   // x",
+                                                  "A/src/a.cxx:9   new       // y",
+                                                  "B/src/b.cxx:3   new       // b"])
+
+    def test_an_edit_is_told_to_redo_itself(self):
+        lines = render_change([("A/src/a.cxx", Verdict((unit(1, "// a"),), ()))], edit=True).split("\n")
+        self.assertEqual(lines[-2:], [REDO, "✗ no-comments: 1 new comment line"])
+
+    def test_clean(self):
+        self.assertEqual(render_change([]), "✓ no-comments: no new or touched comments")
 
 
 if __name__ == "__main__":

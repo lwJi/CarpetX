@@ -40,7 +40,6 @@ class Unit:
     key: tuple
     text: str
     allowed: bool
-    comment: int = -1
 
 
 def comment_words(text: str) -> list[str]:
@@ -60,13 +59,13 @@ def is_tool_marker(token: Token, before: Optional[str]) -> bool:
     return bool(NAMESPACE_CLOSER.fullmatch(text)) and before is not None and before.endswith("}")
 
 
-def comment_units(token: Token, before: Optional[str], lang: Lang, comment: int) -> Iterable[Unit]:
+def comment_units(token: Token, before: Optional[str], lang: Lang) -> Iterable[Unit]:
     shown = LINE_BREAK.split(token.text.rstrip())
     marker = lang is Lang.CXX and is_tool_marker(token, before)
     for offset, words in enumerate(comment_words(token.text)):
         if words:
             allowed = marker or bool(CITATION.fullmatch(words))
-            yield Unit(token.line + offset, ("comment", words), shown[offset].strip(), allowed, comment)
+            yield Unit(token.line + offset, ("comment", words), shown[offset].strip(), allowed)
 
 
 def is_constant(condition: str) -> bool:
@@ -108,21 +107,17 @@ def may_hold_comments(text: str, lang: Lang) -> bool:
     return lex_hash.may_hold_comments(text, lang)
 
 
-def units(text: str, lang: Lang) -> list[Unit]:
+def units(text: str, lang: Lang, tokens: Optional[list[Token]] = None) -> list[Unit]:
     if not may_hold_comments(text, lang):
         return []
-    tokens = lex(text, lang)
+    tokens = lex(text, lang) if tokens is None else tokens
     found: list[Unit] = []
     before: Optional[str] = None
-    comment, last_line = -1, -2
     for token in tokens:
         if token.kind is Kind.NEWLINE:
             before = None
         elif token.kind is Kind.COMMENT:
-            if before is not None or token.line > last_line + 1:
-                comment += 1
-            last_line = token.line + len(LINE_BREAK.findall(token.text))
-            found.extend(comment_units(token, before, lang, comment))
+            found.extend(comment_units(token, before, lang))
         elif token.kind in CODE_KINDS:
             before = token.text
     if lang is Lang.CXX:
