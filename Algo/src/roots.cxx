@@ -109,9 +109,6 @@ extern "C" void Test_roots(CCTK_ARGUMENTS) {
     CCTK_REAL delta = std::scalbn(CCTK_REAL(1), -minbits);
     assert(fn(x - delta) * fn(x + delta) < 0);
 
-    // Schroder and Halley must not be the same iteration. On `x^2-2` they
-    // happen to land on the same double, so separate them on a function where
-    // the two methods genuinely take different paths.
     auto expfn = [](CCTK_REAL x) {
       using std::exp;
       return std::make_tuple(exp(x) - 3, exp(x), exp(x));
