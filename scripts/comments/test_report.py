@@ -40,7 +40,7 @@ class Render(unittest.TestCase):
         self.assertEqual(
             render(found("CarpetX/src/driver.cxx", text)),
             "CarpetX/src/driver.cxx:812   // Must run before the restriction.\n"
-            "Comments in thorn files can only be deleted (see \"Code comments\" in CLAUDE.md).\n"
+            "Comments in thorn files can only be deleted (see agent_docs/code-comments.md).\n"
             "Put what is still true in code (assert, name, CCTK_VERROR) or in the commit message.\n"
             "✗ no-comments: 1 comment line",
         )

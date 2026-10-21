@@ -63,7 +63,7 @@ def run_hook(name: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 scripts/comments",
-        description="Comments in thorn files can only be deleted (see \"Code comments\" in CLAUDE.md).",
+        description="Comments in thorn files can only be deleted (see agent_docs/code-comments.md).",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     check = commands.add_parser("check", help="list every comment line outside the allow-list")

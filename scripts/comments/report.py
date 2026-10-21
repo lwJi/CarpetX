@@ -4,7 +4,7 @@ from judge import Verdict
 from rules import Unit
 
 RULE = (
-    "Comments in thorn files can only be deleted (see \"Code comments\" in CLAUDE.md).\n"
+    "Comments in thorn files can only be deleted (see agent_docs/code-comments.md).\n"
     "Put what is still true in code (assert, name, CCTK_VERROR) or in the commit message."
 )
 CHANGE_RULE = (
