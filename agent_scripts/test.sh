@@ -21,6 +21,13 @@ if ! (
 fi
 
 if [ -f "$summary" ] && grep -Eq 'Number failed *-> *0' "$summary"; then
+  # The parfiles under <Thorn>/test/errors must abort with the text of
+  # their .expect sidecar; the testsuite cannot express that
+  repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  if ! python3 "$repo/scripts/expect-error.py" "$CACTUSX/exe/cactus_carpetx" "$repo"/*/test/errors; then
+    echo "✗ test: an expected-failure parfile did not fail as expected" >&2
+    exit 1
+  fi
   echo "✓ test"
   exit 0
 fi

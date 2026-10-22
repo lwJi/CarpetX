@@ -1,0 +1,13 @@
+STORAGE: state
+
+SCHEDULE TestCarpetXAPI_Fill AT initial
+{
+  LANG: C
+  OPTIONS: global
+} "Fill state through the public CarpetX API as TestCarpetXAPI::mode says"
+
+SCHEDULE TestCarpetXAPI_Check AT initial AFTER TestCarpetXAPI_Fill
+{
+  LANG: C
+  READS: state(everywhere)
+} "Abort unless state holds the written function everywhere, ghosts included"

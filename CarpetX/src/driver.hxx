@@ -111,7 +111,6 @@ public:
   virtual void ClearLevel(int level) override;
 };
 
-// Cactus grid hierarchy extension
 struct GHExt {
 
   GHExt() = default;
@@ -442,6 +441,7 @@ struct GHExt {
                   const std::function<std::string()> &why);
 
         int patch, level;
+        int open_writes = 0;
 
         std::array<int, dim> indextype;
         std::array<int, dim> nghostzones;

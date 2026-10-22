@@ -1,0 +1,11 @@
+KEYWORD mode "What TestCarpetXAPI_Fill does at CCTK_INITIAL"
+{
+  "write-scope"       :: "write the interior of state through a write scope that states interior validity, then sync; TestCarpetXAPI_Check reads state everywhere"
+  "sync-during-write" :: "call CarpetX::sync on state while a write scope on it is open; CarpetX aborts the run"
+  "require-invalid"   :: "require valid ghosts of state before anything has filled them; CarpetX aborts the run"
+} "write-scope"
+
+CCTK_REAL tolerance "Largest absolute difference between state and the function the fill wrote that TestCarpetXAPI_Check accepts"
+{
+  0:* :: ""
+} 1.0e-10

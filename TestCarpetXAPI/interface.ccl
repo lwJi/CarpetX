@@ -1,0 +1,6 @@
+IMPLEMENTS: TestCarpetXAPI
+
+USES INCLUDE HEADER: carpetx.hxx
+USES INCLUDE HEADER: loop.hxx
+
+CCTK_REAL state TYPE=GF CENTERING={CCC} "Grid function that TestCarpetXAPI_Fill writes through CarpetX::write and fills through CarpetX::sync"

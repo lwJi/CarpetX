@@ -1,6 +1,11 @@
 #ifndef CARPETX_CARPETX_FILLPATCH_HXX
 #define CARPETX_CARPETX_FILLPATCH_HXX
 
+#ifndef CARPETX_INTERNAL
+#error                                                                         \
+    "CarpetX internal header; include <carpetx.hxx> instead (see agent_docs/carpetx-public-api.md)"
+#endif
+
 #include "driver.hxx"
 #include "task_manager.hxx"
 

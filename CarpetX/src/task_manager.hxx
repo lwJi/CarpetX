@@ -1,6 +1,11 @@
 #ifndef TASK_MANAGER_HXX
 #define TASK_MANAGER_HXX
 
+#ifndef CARPETX_INTERNAL
+#error                                                                         \
+    "CarpetX internal header; include <carpetx.hxx> instead (see agent_docs/carpetx-public-api.md)"
+#endif
+
 #include <functional>
 #include <vector>
 #include <utility>

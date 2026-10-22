@@ -170,6 +170,7 @@ CarpetX/StaggeredWaveToyX
 CarpetX/TestArrayGroup
 CarpetX/TestBoundaries
 CarpetX/TestBoxInBox
+CarpetX/TestCarpetXAPI
 CarpetX/TestDerivs
 CarpetX/TestInterpolate
 CarpetX/TestLoopX

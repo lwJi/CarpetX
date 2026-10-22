@@ -28,8 +28,22 @@ Each later slice adds its rows. "Before" names what a thorn reached through the 
 | `active_levels->loop_parallel(f)` | `CarpetX::active_window().loop_parallel(f)` | `f(level_t, index, component, cctkGH)` |
 | `active_levels_t(min, max, pmin, pmax)` built by hand | `CarpetX::window_t{min, max, pmin, pmax}`, `CarpetX::all_levels()` | |
 | `active_levels->min_level`, `->max_level` | `CarpetX::active_window().min_level`, `.max_level` | |
-| `CarpetX::RestrictNoPoison(cctkGH, min, max, groups)` | `CarpetX::restrict_no_poison(window, groups)` | groups must be grid-function groups |
+| `CarpetX::RestrictNoPoison(cctkGH, min, max, groups)` | `CarpetX::restrict_no_poison(window, groups)` | groups must be grid-function groups; `CCTK_VERROR` while a write scope on one of them is open |
 | `CarpetX::synchronize()` | `CarpetX::synchronize()` | unchanged |
+| `groupdata.numvars`, `.indextype`, `.nghostzones` | `CarpetX::numvars(group)`, `indextype(group)`, `nghostzones(group)` | `group_t{level, gi}` |
+| `*groupdata.mfab.at(tl)` (read) | `CarpetX::data(group, tl)` | `const amrex::MultiFab &`; AMReX's const overloads give `Array4<const T>` and `const T *` |
+| `*groupdata.mfab.at(tl)` (write), then `valid.at(tl).at(vi).set_all(...)` by hand | `auto w = CarpetX::write(group, tl, leaves_valid, "what"); w.mfab()` | move-only scope; when it is destroyed every variable of the group at `tl` gets exactly `leaves_valid`, reason `"what (iteration N)"`; a communication operation, `invalidate` or a scheduled function that reads, writes or syncs the group while a scope is open is a `CCTK_VERROR` |
+| `valid_t`, `make_valid_int/outer/ghosts/all` | the same names in `carpetx.hxx` | `why_valid_t` stays private |
+| `groupdata.valid.at(tl).at(vi).get()` | `CarpetX::valid(group, tl, vi)` | |
+| `error_if_invalid(groupdata, vi, tl, where, msg)` + `check_valid_gf(...)` | `CarpetX::require_valid(group, tl, where, "why")` | every variable of the group; raises the error with CarpetX's explanation and runs the poison and NaN scan |
+| `why_valid = why_valid_t(...)` / `set_all(valid_t(), ...)` to revoke | `CarpetX::invalidate(window, groups, tl, "why")` | all bits of every variable at `tl` |
+| `SyncGroupsByDirI[Subcycling](cctkGH, n, groups, nullptr)` | `CarpetX::sync(window, groups)` | picks the subcycling variant when `use_subcycling`; every timelevel but the oldest, as a scheduled SYNC; sets the ghost (and outer) bits it fills |
+| `SyncGroupsByDirIGhostOnly(cctkGH, n, groups, nullptr, tl)`, a `FillPatch_Sync` pipeline | `CarpetX::sync_ghosts_only(window, groups, tl = -1)` | same-level copy only; `tl = -1` is every timelevel but the oldest |
+| `SyncGroupsByDirIProlongateOnly(...)`, a `FillPatch_Prolongate*` pipeline | `CarpetX::prolongate_ghosts(window, groups, tl = -1)` | coarse-to-fine interpolation only |
+| `SyncGroupsByDirIProlongateOnlyAligned(...)` | `CarpetX::prolongate_aligned(window, groups, tl = -1)` | under subcycling only into levels time-aligned with their parent |
+| `average_down*` by index-type rank over every level pair | `CarpetX::restrict_no_poison(window, groups)` | the rank dispatch is CarpetX's |
+| `task_manager`, `FillPatch_Sync`, `FillPatch_ProlongateGhosts`, `FillPatch_ProlongateOnly` | the five operations above | the primitives stay private |
+| `CarpetX::reduce(gi, vi, tl)`, `reduction<T, D>` | the same names in `carpetx.hxx` | moved verbatim; `reduction.hxx` is no longer exported and keeps only the MPI and OpenMP glue |
 
 ## External thorns
 

@@ -2414,7 +2414,6 @@ static void check_storage_clauses(const cFunctionData *restrict attribute) {
                 offender_count, offender_count == 1 ? "" : "s");
 }
 
-// Call a scheduled function
 int CallFunction(void *function, cFunctionData *restrict attribute,
                  void *data) {
   DECLARE_CCTK_PARAMETERS;
@@ -2484,6 +2483,33 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     if (!sync_set.empty()) {
       std::vector<int> sync_vec(sync_set.begin(), sync_set.end());
       SyncGroupsByDirI(cctkGH, sync_vec.size(), sync_vec.data(), nullptr);
+    }
+  }
+
+  {
+    std::set<int> touched;
+    for (const rdwr_t rdwr : {rdwr_t::read, rdwr_t::write})
+      for (const auto &clause : decode_clauses(attribute, rdwr))
+        touched.insert(clause.gi);
+    for (int n = 0; n < attribute->n_SyncGroups; ++n)
+      touched.insert(attribute->SyncGroups[n]);
+    for (const int gi : touched) {
+      if (CCTK_GroupTypeI(gi) != CCTK_GF ||
+          ghext->active_timelevels.at(gi) == 0)
+        continue;
+      active_levels->loop_serially([&](const auto &restrict leveldata) {
+        const auto &restrict groupdata = *leveldata.groupdata.at(gi);
+        if (groupdata.open_writes > 0)
+          CCTK_VERROR("CallFunction iteration %d %s: %s::%s reads, writes or "
+                      "syncs group %s, which has %d open write scope%s "
+                      "(CarpetX::write) on patch %d, refinement level %d; "
+                      "destroy the write_t before scheduling the function",
+                      cctkGH->cctk_iteration, attribute->where,
+                      attribute->thorn, attribute->routine,
+                      groupdata.groupname.c_str(), groupdata.open_writes,
+                      groupdata.open_writes == 1 ? "" : "s", groupdata.patch,
+                      groupdata.level);
+      });
     }
   }
 
