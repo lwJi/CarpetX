@@ -5,153 +5,70 @@ using namespace std;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Initialize the temporary mfab mechanism
-void statecomp_t::init_tmp_mfabs() {
-  assert(CarpetX::active_levels);
-  CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
-    for (const auto &groupdataptr : leveldata.groupdata) {
-      if (groupdataptr == nullptr)
-        continue;
-      const auto &groupdata = *groupdataptr;
-      groupdata.init_tmp_mfabs();
-    }
-  });
+void statecomp_t::require_valid(const CarpetX::valid_t where,
+                                const char *const why) const {
+  for (const entry_t &entry : entries)
+    if (!entry.tmp)
+      CarpetX::require_valid(entry.group, timelevel, where, why);
 }
 
-// Free all temporary mfabs that we might have allocated
-void statecomp_t::free_tmp_mfabs() {
-  assert(CarpetX::active_levels);
-  CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
-    for (const auto &groupdataptr : leveldata.groupdata) {
-      if (groupdataptr == nullptr)
-        continue;
-      const auto &groupdata = *groupdataptr;
-      groupdata.free_tmp_mfabs();
-    }
-  });
-}
-
-// State that the state vector has valid data in the interior
-void statecomp_t::set_valid(const valid_t valid) const {
-  const int tl = this->timelevel;
-  for (auto groupdata : groupdatas) {
-    for (int vi = 0; vi < groupdata->numvars; ++vi) {
-      groupdata->valid.at(tl).at(vi).set_int(valid.valid_int, [=]() {
-        std::ostringstream buf;
-        buf << "ODESolvers after lincomb: Mark interior as "
-            << (valid.valid_int ? "valid" : "invalid");
-        return buf.str();
-      });
-      groupdata->valid.at(tl).at(vi).set_outer(valid.valid_outer, [=]() {
-        std::ostringstream buf;
-        buf << "ODESolvers after lincomb: Mark outer boundary as "
-            << (valid.valid_outer ? "valid" : "invalid");
-        return buf.str();
-      });
-      groupdata->valid.at(tl).at(vi).set_ghosts(valid.valid_ghosts, [=]() {
-        std::ostringstream buf;
-        buf << "ODESolvers after lincomb: Mark ghosts as "
-            << (valid.valid_int ? "valid" : "invalid");
-        return buf.str();
-      });
-    }
-  }
-}
-
-// Combine validity information from several sources
-template <std::size_t N>
-void statecomp_t::combine_valids(const statecomp_t &dst, const CCTK_REAL scale,
-                                 const std::array<CCTK_REAL, N> &factors,
-                                 const std::array<const statecomp_t *, N> &srcs,
-                                 const CarpetX::valid_t where) {
-  const int ngroups = dst.groupdatas.size();
-  for (const auto &src : srcs)
-    assert(int(src->groupdatas.size()) == ngroups);
-  for (int group = 0; group < ngroups; ++group) {
-    const auto &dstgroup = dst.groupdatas.at(group);
-    const int nvars = dstgroup->numvars;
-    for (const auto &src : srcs) {
-      const auto &srcgroup = src->groupdatas.at(group);
-      assert(srcgroup->numvars == nvars);
-    }
-  }
-
-  const int dst_tl = dst.timelevel;
-  for (int group = 0; group < ngroups; ++group) {
-    const auto &dstgroup = dst.groupdatas.at(group);
-    const int nvars = dstgroup->numvars;
-    for (int vi = 0; vi < nvars; ++vi) {
-      CarpetX::valid_t valid = where;
-      bool did_set_valid = false;
-      if (scale != 0) {
-        valid &= dstgroup->valid.at(dst_tl).at(vi).get();
-        did_set_valid = true;
-      }
-      for (std::size_t m = 0; m < srcs.size(); ++m) {
-        if (factors.at(m) != 0) {
-          const auto &src = srcs.at(m);
-          const auto &srcgroup = src->groupdatas.at(group);
-          valid &= srcgroup->valid.at(src->timelevel).at(vi).get();
-          did_set_valid = true;
-        }
-      }
-      if (!did_set_valid)
-        valid = valid_t(false);
-      dstgroup->valid.at(dst_tl).at(vi) =
-          why_valid_t(valid, []() { return "Set from RHS in ODESolvers"; });
-    }
-  }
-}
-
-// Ensure a state vector has valid data in the interior
-void statecomp_t::check_valid(const valid_t required,
-                              const function<string()> &why) const {
-  const int tl = this->timelevel;
-  for (const auto groupdata : groupdatas) {
-    for (int vi = 0; vi < groupdata->numvars; ++vi) {
-      CarpetX::error_if_invalid(*groupdata, vi, tl, required, why);
-      // TODO: Parallelize over pathces, levels, group, variables, and
-      // timelevels
-      const CarpetX::active_levels_t active_levels(
-          groupdata->level, groupdata->level + 1, groupdata->patch,
-          groupdata->patch + 1);
-      CarpetX::check_valid_gf(active_levels, groupdata->groupindex, vi, tl,
-                              why);
-    }
-  }
-}
-
-// Copy state vector into newly allocated memory
-statecomp_t statecomp_t::copy(const CarpetX::valid_t where) const {
-  const std::size_t size = mfabs.size();
+statecomp_t statecomp_t::copy() const {
   statecomp_t result;
-  result.timelevel = this->timelevel;
-  result.groupdatas.reserve(size);
-  result.mfabs.reserve(size);
-  for (std::size_t n = 0; n < size; ++n) {
-    const auto groupdata = groupdatas.at(n);
-    auto y = groupdata->alloc_tmp_mfab();
-    result.groupdatas.push_back(groupdata);
-    result.mfabs.push_back(y);
-  }
-  lincomb(result, 0, make_array(CCTK_REAL(1)), make_array(this), where);
+  result.timelevel = timelevel;
+  result.entries.reserve(entries.size());
+  for (const entry_t &entry : entries)
+    result.entries.push_back(
+        entry_t{entry.group, CarpetX::scratch(entry.group)});
+  lincomb(result, 0, make_array(CCTK_REAL(1)), make_array(this),
+          CarpetX::valid_t());
   return result;
 }
 
+namespace {
+
+const amrex::MultiFab &source(const statecomp_t &src, const std::size_t m) {
+  const statecomp_t::entry_t &entry = src.entries.at(m);
+  if (entry.tmp)
+    return entry.tmp->mfab();
+  return CarpetX::data(entry.group, src.timelevel);
+}
+
+} // namespace
+
 template <std::size_t N>
-void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
+void statecomp_t::lincomb(statecomp_t &dst, const CCTK_REAL scale,
                           const std::array<CCTK_REAL, N> &factors,
                           const std::array<const statecomp_t *, N> &srcs,
                           const CarpetX::valid_t where) {
-  const std::size_t size = dst.mfabs.size();
+  const std::size_t size = dst.entries.size();
   for (std::size_t n = 0; n < N; ++n)
-    assert(srcs[n]->mfabs.size() == size);
+    assert(srcs[n]->entries.size() == size);
+
+  std::vector<CarpetX::write_t> writes;
+  std::vector<amrex::MultiFab *> dstmfabs;
+  std::vector<std::array<const amrex::MultiFab *, N> > srcmfabs;
+  dstmfabs.reserve(size);
+  srcmfabs.reserve(size);
   for (std::size_t m = 0; m < size; ++m) {
-    const auto ncomp = dst.mfabs.at(m)->nComp();
-    const auto ngrowvect = dst.mfabs.at(m)->nGrowVect();
+    entry_t &entry = dst.entries.at(m);
+    if (entry.tmp) {
+      dstmfabs.push_back(&entry.tmp->mfab());
+    } else {
+      writes.push_back(CarpetX::write(entry.group, dst.timelevel, where,
+                                      "ODESolvers::statecomp_t::lincomb"));
+      dstmfabs.push_back(&writes.back().mfab());
+    }
+    std::array<const amrex::MultiFab *, N> sources;
+    for (std::size_t n = 0; n < N; ++n)
+      sources[n] = &source(*srcs[n], m);
+    srcmfabs.push_back(sources);
+  }
+  for (std::size_t m = 0; m < size; ++m) {
+    const auto ncomp = dstmfabs.at(m)->nComp();
+    const auto ngrowvect = dstmfabs.at(m)->nGrowVect();
     for (std::size_t n = 0; n < N; ++n) {
-      assert(srcs[n]->mfabs.at(m)->nComp() == ncomp);
-      assert(srcs[n]->mfabs.at(m)->nGrowVect() == ngrowvect);
+      assert(srcmfabs.at(m)[n]->nComp() == ncomp);
+      assert(srcmfabs.at(m)[n]->nGrowVect() == ngrowvect);
     }
   }
 
@@ -161,8 +78,6 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
   for (std::size_t n = 0; n < N; ++n)
     assert(isfinite(factors[n]));
 
-  statecomp_t::combine_valids(dst, scale, factors, srcs, where);
-
 #ifndef AMREX_USE_GPU
   std::vector<std::function<void()> > tasks;
 #endif
@@ -170,13 +85,14 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
   // TODO: Poison ghosts/boundaries
 
   for (std::size_t m = 0; m < size; ++m) {
-    const std::ptrdiff_t ncomps = dst.mfabs.at(m)->nComp();
+    amrex::MultiFab &dstmfab = *dstmfabs.at(m);
+    const std::ptrdiff_t ncomps = dstmfab.nComp();
     const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync();
-    for (amrex::MFIter mfi(*dst.mfabs.at(m), mfitinfo); mfi.isValid(); ++mfi) {
-      const amrex::Array4<CCTK_REAL> dstvar = dst.mfabs.at(m)->array(mfi);
+    for (amrex::MFIter mfi(dstmfab, mfitinfo); mfi.isValid(); ++mfi) {
+      const amrex::Array4<CCTK_REAL> dstvar = dstmfab.array(mfi);
       std::array<amrex::Array4<const CCTK_REAL>, N> srcvars;
       for (std::size_t n = 0; n < N; ++n)
-        srcvars[n] = srcs[n]->mfabs.at(m)->const_array(mfi);
+        srcvars[n] = srcmfabs.at(m)[n]->const_array(mfi);
       // Array4's public stride members were replaced by get_stride() in
       // AMReX 26.02
 #if AMREX_RELEASE_NUMBER >= 260200
@@ -340,7 +256,7 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
 
 namespace detail {
 template <std::size_t N>
-void call_lincomb(const statecomp_t &dst, const CCTK_REAL scale,
+void call_lincomb(statecomp_t &dst, const CCTK_REAL scale,
                   const std::vector<CCTK_REAL> &factors,
                   const std::vector<const statecomp_t *> &srcs,
                   const std::vector<std::size_t> &indices,
@@ -356,7 +272,7 @@ void call_lincomb(const statecomp_t &dst, const CCTK_REAL scale,
 }
 } // namespace detail
 
-void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
+void statecomp_t::lincomb(statecomp_t &dst, const CCTK_REAL scale,
                           const std::vector<CCTK_REAL> &factors,
                           const std::vector<const statecomp_t *> &srcs,
                           const CarpetX::valid_t where) {
@@ -413,76 +329,62 @@ void statecomp_t::lincomb(const statecomp_t &dst, const CCTK_REAL scale,
   }
 }
 
-template void statecomp_t::lincomb<1>(const statecomp_t &dst, CCTK_REAL scale,
+template void statecomp_t::lincomb<1>(statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 1> &factors,
                                       const array<const statecomp_t *, 1> &srcs,
-                                      const valid_t where);
-template void statecomp_t::lincomb<2>(const statecomp_t &dst, CCTK_REAL scale,
+                                      const CarpetX::valid_t where);
+template void statecomp_t::lincomb<2>(statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 2> &factors,
                                       const array<const statecomp_t *, 2> &srcs,
-                                      const valid_t where);
-template void statecomp_t::lincomb<3>(const statecomp_t &dst, CCTK_REAL scale,
+                                      const CarpetX::valid_t where);
+template void statecomp_t::lincomb<3>(statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 3> &factors,
                                       const array<const statecomp_t *, 3> &srcs,
-                                      const valid_t where);
-template void statecomp_t::lincomb<4>(const statecomp_t &dst, CCTK_REAL scale,
+                                      const CarpetX::valid_t where);
+template void statecomp_t::lincomb<4>(statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 4> &factors,
                                       const array<const statecomp_t *, 4> &srcs,
-                                      const valid_t where);
-template void statecomp_t::lincomb<5>(const statecomp_t &dst, CCTK_REAL scale,
+                                      const CarpetX::valid_t where);
+template void statecomp_t::lincomb<5>(statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 5> &factors,
                                       const array<const statecomp_t *, 5> &srcs,
-                                      const valid_t where);
-template void statecomp_t::lincomb<6>(const statecomp_t &dst, CCTK_REAL scale,
+                                      const CarpetX::valid_t where);
+template void statecomp_t::lincomb<6>(statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 6> &factors,
                                       const array<const statecomp_t *, 6> &srcs,
-                                      const valid_t where);
-template void statecomp_t::lincomb<7>(const statecomp_t &dst, CCTK_REAL scale,
+                                      const CarpetX::valid_t where);
+template void statecomp_t::lincomb<7>(statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 7> &factors,
                                       const array<const statecomp_t *, 7> &srcs,
-                                      const valid_t where);
-template void statecomp_t::lincomb<8>(const statecomp_t &dst, CCTK_REAL scale,
+                                      const CarpetX::valid_t where);
+template void statecomp_t::lincomb<8>(statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 8> &factors,
                                       const array<const statecomp_t *, 8> &srcs,
-                                      const valid_t where);
-template void statecomp_t::lincomb<9>(const statecomp_t &dst, CCTK_REAL scale,
+                                      const CarpetX::valid_t where);
+template void statecomp_t::lincomb<9>(statecomp_t &dst, CCTK_REAL scale,
                                       const array<CCTK_REAL, 9> &factors,
                                       const array<const statecomp_t *, 9> &srcs,
-                                      const valid_t where);
-template void
-statecomp_t::lincomb<10>(const statecomp_t &dst, CCTK_REAL scale,
-                         const array<CCTK_REAL, 10> &factors,
-                         const array<const statecomp_t *, 10> &srcs,
-                         const valid_t where);
-template void
-statecomp_t::lincomb<11>(const statecomp_t &dst, CCTK_REAL scale,
-                         const array<CCTK_REAL, 11> &factors,
-                         const array<const statecomp_t *, 11> &srcs,
-                         const valid_t where);
-template void
-statecomp_t::lincomb<12>(const statecomp_t &dst, CCTK_REAL scale,
-                         const array<CCTK_REAL, 12> &factors,
-                         const array<const statecomp_t *, 12> &srcs,
-                         const valid_t where);
-template void
-statecomp_t::lincomb<13>(const statecomp_t &dst, CCTK_REAL scale,
-                         const array<CCTK_REAL, 13> &factors,
-                         const array<const statecomp_t *, 13> &srcs,
-                         const valid_t where);
-template void
-statecomp_t::lincomb<14>(const statecomp_t &dst, CCTK_REAL scale,
-                         const array<CCTK_REAL, 14> &factors,
-                         const array<const statecomp_t *, 14> &srcs,
-                         const valid_t where);
-template void
-statecomp_t::lincomb<15>(const statecomp_t &dst, CCTK_REAL scale,
-                         const array<CCTK_REAL, 15> &factors,
-                         const array<const statecomp_t *, 15> &srcs,
-                         const valid_t where);
-template void
-statecomp_t::lincomb<16>(const statecomp_t &dst, CCTK_REAL scale,
-                         const array<CCTK_REAL, 16> &factors,
-                         const array<const statecomp_t *, 16> &srcs,
-                         const valid_t where);
+                                      const CarpetX::valid_t where);
+template void statecomp_t::lincomb<10>(
+    statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, 10> &factors,
+    const array<const statecomp_t *, 10> &srcs, const CarpetX::valid_t where);
+template void statecomp_t::lincomb<11>(
+    statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, 11> &factors,
+    const array<const statecomp_t *, 11> &srcs, const CarpetX::valid_t where);
+template void statecomp_t::lincomb<12>(
+    statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, 12> &factors,
+    const array<const statecomp_t *, 12> &srcs, const CarpetX::valid_t where);
+template void statecomp_t::lincomb<13>(
+    statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, 13> &factors,
+    const array<const statecomp_t *, 13> &srcs, const CarpetX::valid_t where);
+template void statecomp_t::lincomb<14>(
+    statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, 14> &factors,
+    const array<const statecomp_t *, 14> &srcs, const CarpetX::valid_t where);
+template void statecomp_t::lincomb<15>(
+    statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, 15> &factors,
+    const array<const statecomp_t *, 15> &srcs, const CarpetX::valid_t where);
+template void statecomp_t::lincomb<16>(
+    statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, 16> &factors,
+    const array<const statecomp_t *, 16> &srcs, const CarpetX::valid_t where);
 
 } // namespace ODESolvers

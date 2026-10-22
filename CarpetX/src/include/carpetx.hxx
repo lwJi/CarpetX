@@ -13,6 +13,10 @@
 #include <AMReX_MultiFab.H>
 #include <AMReX_Tuple.H>
 
+#ifdef __CUDACC__
+#include <nvtx3/nvToolsExt.h>
+#endif
+
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -165,6 +169,26 @@ private:
 
 write_t write(group_t group, int tl, valid_t leaves_valid, const char *what);
 
+class scratch_t {
+public:
+  scratch_t(scratch_t &&other) noexcept;
+  scratch_t(const scratch_t &) = delete;
+  scratch_t &operator=(const scratch_t &) = delete;
+  scratch_t &operator=(scratch_t &&) = delete;
+  ~scratch_t();
+
+  amrex::MultiFab &mfab();
+  const amrex::MultiFab &mfab() const;
+
+private:
+  struct impl;
+  impl *p;
+  explicit scratch_t(impl *p) noexcept;
+  friend scratch_t scratch(group_t group);
+};
+
+scratch_t scratch(group_t group);
+
 valid_t valid(group_t group, int tl, int vi);
 void require_valid(group_t group, int tl, valid_t where, const char *why);
 void invalidate(window_t window, const std::vector<int> &groups, int tl,
@@ -285,6 +309,47 @@ std::ostream &operator<<(std::ostream &os, const reduction<T, D> &red) {
 }
 
 reduction<CCTK_REAL, Loop::dim> reduce(int gi, int vi, int tl);
+
+class Interval;
+
+class Timer {
+public:
+  std::string name;
+
+private:
+  int handle;
+#ifdef __CUDACC__
+  nvtxRangeId_t range;
+#endif
+
+public:
+  Timer() = delete;
+  Timer(const Timer &) = delete;
+  Timer &operator=(const Timer &) = delete;
+  Timer(Timer &&) = default;
+  Timer &operator=(Timer &&) = default;
+
+  Timer(const std::string &name);
+
+  void start();
+  void stop();
+
+  void print() const;
+};
+
+class Interval {
+  Timer &timer;
+
+public:
+  Interval() = delete;
+  Interval(const Interval &) = delete;
+  Interval(Interval &&) = delete;
+  Interval &operator=(const Interval &) = delete;
+  Interval &operator=(Interval &&) = delete;
+
+  Interval(Timer &timer) : timer(timer) { timer.start(); }
+  ~Interval() { timer.stop(); }
+};
 
 } // namespace CarpetX
 

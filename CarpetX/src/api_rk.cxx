@@ -4,7 +4,7 @@
 #include "driver.hxx"
 #include "schedule.hxx"
 #include "subcycling.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 
 #include <cctk.h>
 #include <cctk_Parameters.h>

@@ -9,7 +9,7 @@
 #include "prolongate_3d_rf2.hxx"
 #include "schedule.hxx"
 #include "subcycling.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 
 #include <cctk.h>
 #include <cctk_Arguments.h>
@@ -929,7 +929,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     const int patch, const int level, const int gi, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm,
     const std::function<std::string()> &why)
-    : patch(patch), level(level), next_tmp_mfab(0) {
+    : patch(patch), level(level) {
   cGroup group;
   int ierr = CCTK_GroupData(gi, &group);
   assert(!ierr);
@@ -1142,28 +1142,6 @@ amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
     assert(0);
   }
   return nullptr;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-void GHExt::PatchData::LevelData::GroupData::init_tmp_mfabs() const {
-  assert(next_tmp_mfab == 0);
-}
-
-amrex::MultiFab *
-GHExt::PatchData::LevelData::GroupData::alloc_tmp_mfab() const {
-  assert(next_tmp_mfab <= tmp_mfabs.size());
-  if (next_tmp_mfab == tmp_mfabs.size()) {
-    const auto &mfab0 = *mfab.at(0);
-    tmp_mfabs.emplace_back(std::make_unique<amrex::MultiFab>(
-        mfab0.boxArray(), mfab0.DistributionMap(), mfab0.nComp(),
-        mfab0.nGrowVect()));
-  }
-  return tmp_mfabs.at(next_tmp_mfab++).get();
-}
-
-void GHExt::PatchData::LevelData::GroupData::free_tmp_mfabs() const {
-  next_tmp_mfab = 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

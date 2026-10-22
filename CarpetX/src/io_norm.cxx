@@ -4,7 +4,7 @@
 #include "io_meta.hxx"
 #include "loop.hxx"
 #include "reduction.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 
 #include <cctk.h>
 #include <cctk_Arguments.h>

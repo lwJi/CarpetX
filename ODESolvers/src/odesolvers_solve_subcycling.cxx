@@ -32,38 +32,29 @@ CCTK_REAL substep_start(const CarpetX::level_t level) {
   return aligned_with_parent(level) ? 0.5 : 0.0;
 }
 
-// Collect evolved groups into statecomp_t bundles. The old-state anchor is now
-// a scratch copy of var(tl=0) made by the solver (no extra timelevel); the RK
-// k-stages live as coarse-fine bands on the child level's GroupData. Operates
-// on CarpetX::active_levels; no cGH needed.
-solve_setup_t collect_solve_setup() {
+solve_setup_t collect_solve_setup(const CarpetX::window_t window) {
   solve_setup_t s;
   s.var.timelevel = 0;
   s.rhs.timelevel = 0;
   bool do_accumulate_nvars = true;
-  assert(CarpetX::active_levels);
-  CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
-    for (const auto &groupdataptr : leveldata.groupdata) {
-      // TODO: add support for evolving grid scalars
-      if (groupdataptr == nullptr)
+  window.loop_serially([&](const CarpetX::level_t level) {
+    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+      if (CCTK_GroupTypeI(gi) != CCTK_GF)
         continue;
-
-      auto &groupdata = *groupdataptr;
-      const int rhs_gi = get_group_rhs(groupdata.groupindex);
+      const int rhs_gi = get_group_rhs(gi);
       if (rhs_gi >= 0) {
-        assert(rhs_gi != groupdata.groupindex);
-        auto &rhs_groupdata = *leveldata.groupdata.at(rhs_gi);
-        assert(rhs_groupdata.numvars == groupdata.numvars);
-        s.var.groupdatas.push_back(&groupdata);
-        s.var.mfabs.push_back(groupdata.mfab.at(0).get());
-        s.rhs.groupdatas.push_back(&rhs_groupdata);
-        s.rhs.mfabs.push_back(rhs_groupdata.mfab.at(0).get());
+        assert(rhs_gi != gi);
+        const CarpetX::group_t group{level, gi};
+        const CarpetX::group_t rhs_group{level, rhs_gi};
+        assert(CarpetX::numvars(rhs_group) == CarpetX::numvars(group));
+        s.var.entries.push_back({group, std::nullopt});
+        s.rhs.entries.push_back({rhs_group, std::nullopt});
 
         if (do_accumulate_nvars) {
-          s.nvars += groupdata.numvars;
-          s.var_groups.push_back(groupdata.groupindex);
+          s.nvars += CarpetX::numvars(group);
+          s.var_groups.push_back(gi);
           s.rhs_groups.push_back(rhs_gi);
-          const auto &dependents = get_group_dependents(groupdata.groupindex);
+          const auto &dependents = get_group_dependents(gi);
           s.dep_groups.insert(s.dep_groups.end(), dependents.begin(),
                               dependents.end());
         }
@@ -115,15 +106,17 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     CCTK_VINFO("Integrator is %s", method);
   did_output = true;
 
-  static Timer timer("ODESolvers::Solve");
-  Interval interval(timer);
+  static CarpetX::Timer timer("ODESolvers::Solve");
+  CarpetX::Interval interval(timer);
 
   const CCTK_REAL dt = CCTK_DELTA_TIME;
 
-  static Timer timer_setup("ODESolvers::Solve::setup");
-  std::optional<Interval> interval_setup(timer_setup);
+  static CarpetX::Timer timer_setup("ODESolvers::Solve::setup");
+  std::optional<CarpetX::Interval> interval_setup(timer_setup);
 
-  auto setup = collect_solve_setup();
+  const CarpetX::window_t window = CarpetX::active_window();
+
+  auto setup = collect_solve_setup(window);
   auto &var = setup.var;
   auto &rhs = setup.rhs;
   auto &dep_groups = setup.dep_groups;
@@ -135,23 +128,16 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
   interval_setup.reset();
 
-  {
-    static Timer timer_alloc_temps("ODESolvers::Solve::alloc_temps");
-    Interval interval_alloc_temps(timer_alloc_temps);
-    statecomp_t::init_tmp_mfabs();
-  }
-
   const CCTK_REAL old_time = cctkGH->cctk_time - dt;
   CCTK_REAL t = old_time;
 
-  static Timer timer_lincomb("ODESolvers::Solve::lincomb");
-  static Timer timer_rhs("ODESolvers::Solve::rhs");
-  static Timer timer_poststep("ODESolvers::Solve::poststep");
+  static CarpetX::Timer timer_lincomb("ODESolvers::Solve::lincomb");
+  static CarpetX::Timer timer_rhs("ODESolvers::Solve::rhs");
+  static CarpetX::Timer timer_poststep("ODESolvers::Solve::poststep");
 
   const rk_method_t &rk = rk_method(method);
   assert(rk.subcycling_ok);
 
-  const CarpetX::window_t window = CarpetX::active_window();
   std::vector<CarpetX::level_t> levels;
   std::vector<CarpetX::rk_step_t> steps;
   std::vector<CarpetX::rk_stage_t> stages;
@@ -161,38 +147,39 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
       levels.push_back(level);
       steps.push_back(CarpetX::open_rk_step(level));
     });
-    synchronize();
+    CarpetX::synchronize();
   };
   const auto calcrhs = [&](const int n) {
-    Interval interval_rhs(timer_rhs);
+    CarpetX::Interval interval_rhs(timer_rhs);
     if (verbose)
       CCTK_VINFO("Calculating RHS #%d at t=%g", n, double(t));
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", t,
                                    cctkGH->cctk_delta_time);
-    rhs.check_valid(make_valid_int(),
-                    "ODESolvers after calling ODESolvers_RHS");
+    rhs.require_valid(CarpetX::make_valid_int(),
+                      "ODESolvers after calling ODESolvers_RHS");
     assert(stages.empty());
     stages.reserve(steps.size());
     for (CarpetX::rk_step_t &step : steps)
       stages.push_back(step.stage(n));
     for (CarpetX::rk_stage_t &stage : stages)
       stage.rhs_computed(rk.b.at(n - 1) * dt);
-    synchronize();
+    CarpetX::synchronize();
   };
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
                               const CCTK_REAL a0, const auto &as,
                               const auto &vars) {
-    Interval interval_lincomb(timer_lincomb);
+    CarpetX::Interval interval_lincomb(timer_lincomb);
     if (verbose)
       CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
-    statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
-    var.check_valid(make_valid_int(),
-                    "ODESolvers after defining new state vector");
-    mark_invalid(dep_groups);
+    statecomp_t::lincomb(var, a0, as, vars, CarpetX::make_valid_int());
+    var.require_valid(CarpetX::make_valid_int(),
+                      "ODESolvers after defining new state vector");
+    CarpetX::invalidate(window, dep_groups, 0,
+                        "ODESolvers updated the state vector");
     t = old_time + c;
   };
   const auto calcpoststep = [&]() {
-    Interval interval_poststep(timer_poststep);
+    CarpetX::Interval interval_poststep(timer_poststep);
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", t,
                                    cctkGH->cctk_delta_time);
   };
@@ -210,7 +197,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                                       parent_step(cctkGH, level));
     }
     stages.clear();
-    synchronize();
+    CarpetX::synchronize();
   };
 
   static_assert(
@@ -235,29 +222,26 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // The table row must describe the sequence below
     assert(rk.nstages == 4);
 
-    // Scratch copy of u(t_n) = var(tl=0), the RK4 interior anchor y0. At one
-    // timelevel var(tl=0) holds the previous step's result, so no init copy is
-    // needed (mirrors the non-subcycling solver).
-    const auto old = var.copy(make_valid_all());
+    const auto old = var.copy();
 
     open_steps();
 
     calcrhs(1);
-    const auto kaccum = rhs.copy(make_valid_int());
+    auto kaccum = rhs.copy();
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
     calcys_rmbnd();
     calcpoststep();
 
     calcrhs(2);
     statecomp_t::lincomb(kaccum, 1.0, reals<1>{2.0}, states<1>{&rhs},
-                         make_valid_int());
+                         CarpetX::make_valid_int());
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
     calcys_rmbnd();
     calcpoststep();
 
     calcrhs(3);
     statecomp_t::lincomb(kaccum, 1.0, reals<1>{2.0}, states<1>{&rhs},
-                         make_valid_int());
+                         CarpetX::make_valid_int());
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
     calcys_rmbnd();
     calcpoststep();
@@ -278,19 +262,18 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // The table row must describe the sequence below
     assert(rk.nstages == 3);
 
-    // Scratch copy of u(t_n) = var(tl=0), the SSPRK3 interior anchor y0.
-    const auto old = var.copy(make_valid_all());
+    const auto old = var.copy();
 
     open_steps();
 
     calcrhs(1);
-    const auto k1 = rhs.copy(make_valid_int());
+    const auto k1 = rhs.copy();
     calcupdate(1, dt, 1.0, reals<1>{dt}, states<1>{&rhs}); // var = y0 + dt*k1
     calcys_rmbnd();
     calcpoststep();
 
     calcrhs(2);
-    const auto k2 = rhs.copy(make_valid_int());
+    const auto k2 = rhs.copy();
     calcupdate(2, dt / 2, 0.0, reals<3>{1.0, dt / 4, dt / 4},
                states<3>{&old, &k1, &k2});
     calcys_rmbnd();
@@ -309,14 +292,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                 "rk_methods.hxx but has no branch in the subcycling solver",
                 method);
   }
-
-  {
-    static Timer timer_free_temps("ODESolvers::Solve::free_temps");
-    Interval interval_free_temps(timer_free_temps);
-    statecomp_t::free_tmp_mfabs();
-  }
-
-  // TODO: Update time here, and not during time level cycling in the driver
 }
 
 extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
@@ -329,21 +304,22 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
                "window, dense output from the level's restored source bands "
                "otherwise)");
 
-  static Timer timer("ODESolvers::Solve_Subcycling_Recovery");
-  Interval interval(timer);
+  static CarpetX::Timer timer("ODESolvers::Solve_Subcycling_Recovery");
+  CarpetX::Interval interval(timer);
 
-  auto setup = collect_solve_setup();
+  const CarpetX::window_t window = CarpetX::active_window();
+
+  auto setup = collect_solve_setup(window);
   auto &var = setup.var;
   auto &var_groups = setup.var_groups;
   if (setup.nvars == 0)
     return;
 
   if (var_groups.size() > 0) {
-    var.check_valid(make_valid_int(),
-                    "ODESolvers_Solve_Subcycling_Recovery requires the tl=0 "
-                    "interior to be populated by checkpoint recovery");
+    var.require_valid(CarpetX::make_valid_int(),
+                      "ODESolvers_Solve_Subcycling_Recovery requires the tl=0 "
+                      "interior to be populated by checkpoint recovery");
 
-    const CarpetX::window_t window = CarpetX::active_window();
     const bool restricted = CarpetX::window_is_restricted(window);
 
     if (restricted)
@@ -360,7 +336,7 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
       CarpetX::rk_recover_boundary(level, substep_start(level),
                                    parent_step(cctkGH, level));
     });
-    synchronize();
+    CarpetX::synchronize();
   }
 }
 

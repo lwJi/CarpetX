@@ -1,10 +1,7 @@
 #ifndef CARPETX_ODESOLVERS_SOLVE_HXX
 #define CARPETX_ODESOLVERS_SOLVE_HXX
 
-// TODO: Don't include files from other thorns; create a proper interface
-#include "../../CarpetX/src/driver.hxx"
-#include "../../CarpetX/src/schedule.hxx"
-#include "../../CarpetX/src/timer.hxx"
+#include <carpetx.hxx>
 
 #include <cctk.h>
 #include <cctk_Parameters.h>
@@ -73,7 +70,6 @@ constexpr details::return_type<D, Types...> make_array(Types &&...t) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// A state vector component, with mfabs for each level, group, and variable
 struct statecomp_t {
 
   statecomp_t() = default;
@@ -85,48 +81,35 @@ struct statecomp_t {
   statecomp_t(const statecomp_t &) = delete;
   statecomp_t &operator=(const statecomp_t &) = delete;
 
-  vector<GHExt::PatchData::LevelData::GroupData *> groupdatas;
-  vector<amrex::MultiFab *> mfabs;
-  // Timelevel of every mfab/groupdata entry. Subcycling aliases the previous
-  // step at tl=1; all other paths use tl=0.
+  struct entry_t {
+    CarpetX::group_t group;
+    std::optional<CarpetX::scratch_t> tmp;
+  };
+  vector<entry_t> entries;
   int timelevel = 0;
 
-  static void init_tmp_mfabs();
-  static void free_tmp_mfabs();
+  void require_valid(CarpetX::valid_t where, const char *why) const;
 
-  void set_valid(const valid_t valid) const;
-  template <size_t N>
-  static void combine_valids(const statecomp_t &dst, const CCTK_REAL scale,
-                             const array<CCTK_REAL, N> &factors,
-                             const array<const statecomp_t *, N> &srcs,
-                             const valid_t where);
-  void check_valid(const valid_t required, const function<string()> &why) const;
-  void check_valid(const valid_t required, const string &why) const {
-    check_valid(required, [=]() { return why; });
-  }
-
-  statecomp_t copy(const valid_t where) const;
+  statecomp_t copy() const;
 
   template <size_t N>
-  static void lincomb(const statecomp_t &dst, CCTK_REAL scale,
-                      const array<CCTK_REAL, N> &factors,
-                      const array<const statecomp_t *, N> &srcs,
-                      const valid_t where);
+  static void
+  lincomb(statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, N> &factors,
+          const array<const statecomp_t *, N> &srcs, CarpetX::valid_t where);
   template <size_t N>
-  static void lincomb(const statecomp_t &dst, CCTK_REAL scale,
-                      const array<CCTK_REAL, N> &factors,
-                      const array<statecomp_t *, N> &srcs,
-                      const valid_t where) {
+  static void
+  lincomb(statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, N> &factors,
+          const array<statecomp_t *, N> &srcs, const CarpetX::valid_t where) {
     array<const statecomp_t *, N> srcs1;
     for (size_t n = 0; n < N; ++n)
       srcs1[n] = srcs[n];
     lincomb(dst, scale, factors, srcs1, where);
   }
 
-  static void lincomb(const statecomp_t &dst, CCTK_REAL scale,
+  static void lincomb(statecomp_t &dst, CCTK_REAL scale,
                       const vector<CCTK_REAL> &factors,
                       const vector<const statecomp_t *> &srcs,
-                      const valid_t where);
+                      CarpetX::valid_t where);
 };
 
 template <std::size_t N> using reals = std::array<CCTK_REAL, N>;
@@ -229,20 +212,6 @@ inline std::vector<int> get_group_dependents(const int gi) {
   }
 
   return dependents;
-}
-
-// Mark groups as invalid
-inline void mark_invalid(const std::vector<int> &groups) {
-  CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
-    for (const int gi : groups) {
-      auto &groupdata = *leveldata.groupdata.at(gi);
-      // Invalidate all variables of the current time level
-      const int tl = 0;
-      for (auto &why_valid : groupdata.valid.at(tl))
-        why_valid =
-            why_valid_t([] { return "ODESolvers updated the state vector"; });
-    }
-  });
 }
 
 } // namespace ODESolvers

@@ -1,6 +1,6 @@
 #include "driver.hxx"
 #include "schedule.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 #include "valid.hxx"
 
 #include <loop_device.hxx>

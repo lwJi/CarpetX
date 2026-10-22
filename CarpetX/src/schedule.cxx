@@ -6,7 +6,7 @@
 #include "subcycling.hxx"
 #include "sync_restrict_internal.hxx"
 #include "task_manager.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 #include "valid.hxx"
 
 #include <cctk.h>

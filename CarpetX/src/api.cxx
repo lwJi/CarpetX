@@ -6,6 +6,8 @@
 
 #include <cctk.h>
 
+#include <cstddef>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -247,6 +249,73 @@ write_t write(const group_t group, const int tl, const valid_t leaves_valid,
   require_timelevel("CarpetX::write", groupdata, tl);
   ++groupdata.open_writes;
   return write_t(new write_t::impl{group, tl, leaves_valid, reason(what)});
+}
+
+struct scratch_t::impl {
+  group_t group;
+  std::size_t slot;
+};
+
+namespace {
+
+GHExt::PatchData::LevelData::GroupData::scratch_slot_t &
+resolve_scratch(const char *const what, const group_t group,
+                const std::size_t slot) {
+  auto &pool = resolve(what, group).scratch_pool;
+  if (slot >= pool.size() || !pool.at(slot).in_use)
+    CCTK_VERROR("%s: scratch buffer %d of group %s on patch %d, refinement "
+                "level %d no longer exists: the level was remade while the "
+                "scratch_t was held",
+                what, int(slot), CCTK_FullGroupName(group.gi),
+                group.level.patch, group.level.level);
+  return pool.at(slot);
+}
+
+} // namespace
+
+scratch_t::scratch_t(impl *const p) noexcept : p(p) {}
+
+scratch_t::scratch_t(scratch_t &&other) noexcept : p(other.p) {
+  other.p = nullptr;
+}
+
+amrex::MultiFab &scratch_t::mfab() {
+  if (!p)
+    CCTK_ERROR("CarpetX::scratch_t::mfab() called on a moved-from scratch "
+               "buffer");
+  return *resolve_scratch("CarpetX::scratch_t::mfab", p->group, p->slot).mfab;
+}
+
+const amrex::MultiFab &scratch_t::mfab() const {
+  if (!p)
+    CCTK_ERROR("CarpetX::scratch_t::mfab() called on a moved-from scratch "
+               "buffer");
+  return *resolve_scratch("CarpetX::scratch_t::mfab", p->group, p->slot).mfab;
+}
+
+scratch_t::~scratch_t() {
+  if (!p)
+    return;
+  resolve_scratch("CarpetX::scratch_t::~scratch_t", p->group, p->slot).in_use =
+      false;
+  delete p;
+}
+
+scratch_t scratch(const group_t group) {
+  auto &groupdata = resolve("CarpetX::scratch", group);
+  auto &pool = groupdata.scratch_pool;
+  std::size_t slot = 0;
+  while (slot < pool.size() && pool.at(slot).in_use)
+    ++slot;
+  if (slot == pool.size()) {
+    const amrex::MultiFab &mfab0 = *groupdata.mfab.at(0);
+    pool.push_back({std::make_unique<amrex::MultiFab>(
+                        mfab0.boxArray(), mfab0.DistributionMap(),
+                        mfab0.nComp(), mfab0.nGrowVect()),
+                    false});
+  }
+  pool.at(slot).in_use = true;
+  return scratch_t(new scratch_t::impl{group, slot});
 }
 
 valid_t valid(const group_t group, const int tl, const int vi) {

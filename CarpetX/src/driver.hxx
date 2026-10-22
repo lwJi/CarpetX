@@ -1,6 +1,11 @@
 #ifndef CARPETX_CARPETX_DRIVER_HXX
 #define CARPETX_CARPETX_DRIVER_HXX
 
+#ifndef CARPETX_INTERNAL
+#error                                                                         \
+    "CarpetX internal header; include <carpetx.hxx> instead (see agent_docs/carpetx-public-api.md)"
+#endif
+
 #include "loop.hxx"
 #include "valid.hxx"
 
@@ -511,22 +516,11 @@ struct GHExt {
         // associated flux group indices
         std::array<int, dim> fluxes; // [dir]
 
-        // CarpetX can allocate and free (temporary) multifabs that
-        // are associated with a Cactus grid function group. These
-        // multifabs remain allocated when they are freed, which makes
-        // it efficient when they are re-allocated later. However,
-        // they are freed when the current level changes during
-        // regridding (and the shape of the multifab presumably
-        // changes). This is used e.g. by ODESolvers for its
-        // temporaries.
-      private:
-        mutable std::vector<std::unique_ptr<amrex::MultiFab> > tmp_mfabs;
-        mutable std::size_t next_tmp_mfab;
-
-      public:
-        void init_tmp_mfabs() const;
-        amrex::MultiFab *alloc_tmp_mfab() const;
-        void free_tmp_mfabs() const;
+        struct scratch_slot_t {
+          std::unique_ptr<amrex::MultiFab> mfab;
+          bool in_use = false;
+        };
+        std::vector<scratch_slot_t> scratch_pool;
 
         friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                          const GroupData &groupdata);

@@ -36,41 +36,37 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     CCTK_VINFO("ODE integrator is %s", method);
   did_output = true;
 
-  static Timer timer("ODESolvers::Solve");
-  Interval interval(timer);
+  static CarpetX::Timer timer("ODESolvers::Solve");
+  CarpetX::Interval interval(timer);
 
   const CCTK_REAL dt = cctk_delta_time;
-  const int tl = 0;
 
-  static Timer timer_setup("ODESolvers::Solve::setup");
-  std::optional<Interval> interval_setup(timer_setup);
+  static CarpetX::Timer timer_setup("ODESolvers::Solve::setup");
+  std::optional<CarpetX::Interval> interval_setup(timer_setup);
+
+  const CarpetX::window_t window = CarpetX::active_window();
 
   statecomp_t var, rhs;
   std::vector<int> var_groups, rhs_groups, dep_groups;
   int nvars = 0;
   bool do_accumulate_nvars = true;
-  assert(CarpetX::active_levels);
-  CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
-    for (const auto &groupdataptr : leveldata.groupdata) {
-      // TODO: add support for evolving grid scalars
-      if (groupdataptr == nullptr)
+  window.loop_serially([&](const CarpetX::level_t level) {
+    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+      if (CCTK_GroupTypeI(gi) != CCTK_GF)
         continue;
-
-      auto &groupdata = *groupdataptr;
-      const int rhs_gi = get_group_rhs(groupdata.groupindex);
+      const int rhs_gi = get_group_rhs(gi);
       if (rhs_gi >= 0) {
-        assert(rhs_gi != groupdata.groupindex);
-        auto &rhs_groupdata = *leveldata.groupdata.at(rhs_gi);
-        assert(rhs_groupdata.numvars == groupdata.numvars);
-        var.groupdatas.push_back(&groupdata);
-        var.mfabs.push_back(groupdata.mfab.at(tl).get());
-        rhs.groupdatas.push_back(&rhs_groupdata);
-        rhs.mfabs.push_back(rhs_groupdata.mfab.at(tl).get());
+        assert(rhs_gi != gi);
+        const CarpetX::group_t group{level, gi};
+        const CarpetX::group_t rhs_group{level, rhs_gi};
+        assert(CarpetX::numvars(rhs_group) == CarpetX::numvars(group));
+        var.entries.push_back({group, std::nullopt});
+        rhs.entries.push_back({rhs_group, std::nullopt});
         if (do_accumulate_nvars) {
-          nvars += groupdata.numvars;
-          var_groups.push_back(groupdata.groupindex);
+          nvars += CarpetX::numvars(group);
+          var_groups.push_back(gi);
           rhs_groups.push_back(rhs_gi);
-          const auto &dependents = get_group_dependents(groupdata.groupindex);
+          const auto &dependents = get_group_dependents(gi);
           dep_groups.insert(dep_groups.end(), dependents.begin(),
                             dependents.end());
         }
@@ -113,18 +109,12 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
   interval_setup.reset();
 
-  {
-    static Timer timer_alloc_temps("ODESolvers::Solve::alloc_temps");
-    Interval interval_alloc_temps(timer_alloc_temps);
-    statecomp_t::init_tmp_mfabs();
-  }
-
   const CCTK_REAL old_time = cctkGH->cctk_time - dt;
   CCTK_REAL t = old_time;
 
-  static Timer timer_lincomb("ODESolvers::Solve::lincomb");
-  static Timer timer_rhs("ODESolvers::Solve::rhs");
-  static Timer timer_poststep("ODESolvers::Solve::poststep");
+  static CarpetX::Timer timer_lincomb("ODESolvers::Solve::lincomb");
+  static CarpetX::Timer timer_rhs("ODESolvers::Solve::rhs");
+  static CarpetX::Timer timer_poststep("ODESolvers::Solve::poststep");
 
   // The method's row in the RK method table (rk_methods.hxx): its stage
   // count, at which the step is complete, and the effective weight b_s of
@@ -135,45 +125,43 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
   // take their b from their local tableaus below instead.
   const rk_method_t &rk = rk_method(method);
 
-  const auto copy_state = [](const auto &var, const valid_t where) {
-    return var.copy(where);
-  };
+  const auto copy_state = [](const statecomp_t &state) { return state.copy(); };
   std::vector<CarpetX::rk_step_t> steps;
   const auto open_steps = [&]() {
-    CarpetX::active_window().loop_coarse_to_fine(
-        [&](const CarpetX::level_t level) {
-          steps.push_back(CarpetX::open_rk_step(level));
-        });
-    synchronize();
+    window.loop_coarse_to_fine([&](const CarpetX::level_t level) {
+      steps.push_back(CarpetX::open_rk_step(level));
+    });
+    CarpetX::synchronize();
   };
   const auto calcrhs = [&](const int n, const CCTK_REAL b_n) {
-    Interval interval_rhs(timer_rhs);
+    CarpetX::Interval interval_rhs(timer_rhs);
     if (verbose)
       CCTK_VINFO("Calculating RHS #%d at t=%g", n, double(t));
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", t, dt);
-    rhs.check_valid(make_valid_int(),
-                    "ODESolvers after calling ODESolvers_RHS");
+    rhs.require_valid(CarpetX::make_valid_int(),
+                      "ODESolvers after calling ODESolvers_RHS");
     for (CarpetX::rk_step_t &step : steps)
       step.stage(n).rhs_computed(b_n * dt);
-    synchronize();
+    CarpetX::synchronize();
   };
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
                               const CCTK_REAL a0, const auto &as,
                               const auto &vars) {
     {
-      Interval interval_lincomb(timer_lincomb);
-      statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
-      var.check_valid(make_valid_int(),
-                      "ODESolvers after defining new state vector");
-      mark_invalid(dep_groups);
+      CarpetX::Interval interval_lincomb(timer_lincomb);
+      statecomp_t::lincomb(var, a0, as, vars, CarpetX::make_valid_int());
+      var.require_valid(CarpetX::make_valid_int(),
+                        "ODESolvers after defining new state vector");
+      CarpetX::invalidate(window, dep_groups, 0,
+                          "ODESolvers updated the state vector");
     }
     if (n == rk.nstages) {
-      static Timer timer_reflux("ODESolvers::Solve::reflux");
-      Interval interval_reflux(timer_reflux);
+      static CarpetX::Timer timer_reflux("ODESolvers::Solve::reflux");
+      CarpetX::Interval interval_reflux(timer_reflux);
       CarpetX::reflux(CarpetX::all_levels());
     }
     {
-      Interval interval_poststep(timer_poststep);
+      CarpetX::Interval interval_poststep(timer_poststep);
       t = old_time + c;
       CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", t, dt);
       if (verbose)
@@ -207,7 +195,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     assert(rk.nstages == 2);
 
-    const auto old = copy_state(var, make_valid_all());
+    const auto old = copy_state(var);
 
     open_steps();
 
@@ -226,16 +214,16 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     assert(rk.nstages == 3);
 
-    const auto old = copy_state(var, make_valid_all());
+    const auto old = copy_state(var);
 
     open_steps();
 
     calcrhs(1, rk.b.at(0));
-    const auto k1 = copy_state(rhs, make_valid_int());
+    const auto k1 = copy_state(rhs);
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&k1});
 
     calcrhs(2, rk.b.at(1));
-    const auto k2 = copy_state(rhs, make_valid_int());
+    const auto k2 = copy_state(rhs);
     calcupdate(2, dt, 0.0, reals<3>{1.0, -dt, 2 * dt},
                states<3>{&old, &k1, &k2});
 
@@ -255,7 +243,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     assert(rk.nstages == 3);
 
-    const auto old = copy_state(var, make_valid_all());
+    const auto old = copy_state(var);
 
     open_steps();
 
@@ -280,27 +268,27 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     assert(rk.nstages == 4);
 
-    const auto old = copy_state(var, make_valid_all());
+    const auto old = copy_state(var);
 
     open_steps();
 
     calcrhs(1, rk.b.at(0));
-    const auto kaccum = copy_state(rhs, make_valid_int());
+    auto kaccum = copy_state(rhs);
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&kaccum});
 
     calcrhs(2, rk.b.at(1));
     {
-      Interval interval_lincomb(timer_lincomb);
+      CarpetX::Interval interval_lincomb(timer_lincomb);
       statecomp_t::lincomb(kaccum, 1.0, reals<1>{2.0}, states<1>{&rhs},
-                           make_valid_int());
+                           CarpetX::make_valid_int());
     }
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
 
     calcrhs(3, rk.b.at(2));
     {
-      Interval interval_lincomb(timer_lincomb);
+      CarpetX::Interval interval_lincomb(timer_lincomb);
       statecomp_t::lincomb(kaccum, 1.0, reals<1>{2.0}, states<1>{&rhs},
-                           make_valid_int());
+                           CarpetX::make_valid_int());
     }
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
 
@@ -380,7 +368,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
       assert(fabs(x - 1) <= 10 * numeric_limits<T>::epsilon());
     }
 
-    const auto old = copy_state(var, make_valid_all());
+    const auto old = copy_state(var);
 
     open_steps();
 
@@ -414,7 +402,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
       }
 
       calcrhs(step + 1, bs.at(step));
-      ks.push_back(copy_state(rhs, make_valid_int()));
+      ks.push_back(copy_state(rhs));
     }
 
     // Calculate new state vector
@@ -494,7 +482,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
       assert(fabs(x - 1) <= 10 * numeric_limits<T>::epsilon());
     }
 
-    const auto old = copy_state(var, make_valid_all());
+    const auto old = copy_state(var);
 
     open_steps();
 
@@ -530,7 +518,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
       }
 
       calcrhs(step + 1, bs.at(step));
-      ks.push_back(copy_state(rhs, make_valid_int()));
+      ks.push_back(copy_state(rhs));
     }
 
     // Calculate new state vector
@@ -564,18 +552,19 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     //   k2 = f(y1)
     //   y2 = y0 + h k2 + h k'2
 
-    const auto y0 = var.copy(make_valid_int /*all*/ ());
+    const auto y0 = var.copy();
 
     if (verbose)
       CCTK_VINFO("Calculating RHS #1 at t=%g", double(old_time));
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", old_time, dt);
-    const auto k1 = rhs.copy(make_valid_int());
+    const auto k1 = rhs.copy();
 
     statecomp_t::lincomb(var, 1, make_array(dt / 2), make_array(&rhs),
-                         make_valid_int());
-    var.check_valid(make_valid_int(),
-                    "ODESolvers after defining new state vector");
-    mark_invalid(dep_groups);
+                         CarpetX::make_valid_int());
+    var.require_valid(CarpetX::make_valid_int(),
+                      "ODESolvers after defining new state vector");
+    CarpetX::invalidate(window, dep_groups, 0,
+                        "ODESolvers updated the state vector");
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep",
                                    old_time + dt / 2, dt);
 
@@ -587,35 +576,29 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", old_time + dt,
                                    dt);
-    const auto y1 = var.copy(make_valid_int /*all*/ ());
+    const auto y1 = var.copy();
 
     statecomp_t kprime2;
     statecomp_t::lincomb(kprime2, 0,
                          make_array(-CCTK_REAL(1), +CCTK_REAL(1), -dt / 2),
-                         make_array(&y0, &y1, &k1), make_valid_int());
+                         make_array(&y0, &y1, &k1), CarpetX::make_valid_int());
 
     if (verbose)
       CCTK_VINFO("Calculating RHS #2 at t=%g", double(old_time + dt));
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", old_time + dt, dt);
-    const auto k2 = rhs.copy(make_valid_int());
+    const auto k2 = rhs.copy();
 
     statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt, dt),
-                         make_array(&y0, &k2, &kprime2), make_valid_int());
-    var.check_valid(make_valid_int(),
-                    "ODESolvers after defining new state vector");
-    mark_invalid(dep_groups);
+                         make_array(&y0, &k2, &kprime2),
+                         CarpetX::make_valid_int());
+    var.require_valid(CarpetX::make_valid_int(),
+                      "ODESolvers after defining new state vector");
+    CarpetX::invalidate(window, dep_groups, 0,
+                        "ODESolvers updated the state vector");
 
   } else {
     assert(0);
   }
-
-  {
-    static Timer timer_free_temps("ODESolvers::Solve::free_temps");
-    Interval interval_free_temps(timer_free_temps);
-    statecomp_t::free_tmp_mfabs();
-  }
-
-  // TODO: Update time here, and not during time level cycling in the driver
 }
 
 } // namespace ODESolvers

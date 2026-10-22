@@ -2,7 +2,7 @@
 
 A thorn reaches CarpetX through two headers exported by `CarpetX/interface.ccl` from `CarpetX/src/include/`: `carpetx.hxx` for everything a general thorn needs, and `carpetx_rk.hxx` for the time integrator's opt-in RK contract. Every other header under `CarpetX/src/` is private: it opens with `#ifndef CARPETX_INTERNAL` / `#error`, and only CarpetX's own `src/make.code.defn` defines `CARPETX_INTERNAL`, so a translation unit of any other thorn that includes a private header by any path (the old exported name, `../../CarpetX/src/...`, `../../../CarpetX/CarpetX/src/...`) stops at that `#error`. The public headers include nothing under `CarpetX/src/`; if one ever did, every client would fail to build, so they cannot leak the driver's internals transitively.
 
-`python3 scripts/boundary check` lists every `#include` outside `CarpetX/src/` whose path reaches into `CarpetX/src`, and every `CARPETX_INTERNAL` that is not CarpetX's own `make.code.defn` line or a private header's `#ifndef` guard. `check --since REV` reports only the lines added since the merge base with `REV`, which is what the `Comments` workflow runs on every PR. The whole-tree check still lists the ODESolvers and PDESolvers includes until those thorns move over; the `--since` check is clean from the first slice on.
+`python3 scripts/boundary check` lists every `#include` outside `CarpetX/src/` whose path reaches into `CarpetX/src`, and every `CARPETX_INTERNAL` that is not CarpetX's own `make.code.defn` line or a private header's `#ifndef` guard. `check --since REV` reports only the lines added since the merge base with `REV`, which is what the `Comments` workflow runs on every PR. The whole-tree check is clean: no thorn in this repository includes a private CarpetX header, and `driver.hxx`, `schedule.hxx`, `reduction.hxx` and `timer.hxx` are no longer exported (`timer.hxx` no longer exists; `Timer` and `Interval` live in `carpetx.hxx`).
 
 ## Using the header
 
@@ -12,7 +12,7 @@ A handle is a name made of indices, resolved on every call: `level_t{patch, leve
 
 ## Symbol map
 
-Each later slice adds its rows. "Before" names what a thorn reached through the old exports or by relative include.
+"Before" names what a thorn reached through the old exports or by relative include. The table covers every symbol the research catalog (`.tasks/carpetx-public-api/02-research-carpetx-public-api.md`, sections 2, 6 and 7) found a client using; the section after it lists the private names a client could reach through the old headers that have no public counterpart, and why.
 
 | Before | After | Notes |
 |---|---|---|
@@ -44,6 +44,34 @@ Each later slice adds its rows. "Before" names what a thorn reached through the 
 | `average_down*` by index-type rank over every level pair | `CarpetX::restrict_no_poison(window, groups)` | the rank dispatch is CarpetX's |
 | `task_manager`, `FillPatch_Sync`, `FillPatch_ProlongateGhosts`, `FillPatch_ProlongateOnly` | the five operations above | the primitives stay private |
 | `CarpetX::reduce(gi, vi, tl)`, `reduction<T, D>` | the same names in `carpetx.hxx` | moved verbatim; `reduction.hxx` is no longer exported and keeps only the MPI and OpenMP glue |
+| `groupdata.init_tmp_mfabs()`, `alloc_tmp_mfab()`, `free_tmp_mfabs()` | `auto tmp = CarpetX::scratch(group); tmp.mfab()` | a move-only buffer with the boxes, distribution, components and ghosts of `data(group, 0)`, drawn from a per-group pool that CarpetX keeps from call to call and that dies with the level on a regrid; the destructor returns the buffer to the pool, so there is no init or free call, and a `scratch_t` that outlives its level is a `CCTK_VERROR` instead of a dangling pointer; it has no validity bits |
+| `CarpetX::Timer`, `CarpetX::Interval` from `timer.hxx` | the same names in `carpetx.hxx` | moved verbatim; `timer.hxx` is gone |
+| `CarpetX::rat64` | the same name in `carpetx.hxx` | `Arith::rational<std::int64_t>`, the type of `iteration` and `delta_iteration` |
+| `ghext->use_subcycling`, `ghext->do_reflux`, `CCTK_ParameterGet("max_num_levels", "CarpetX")` | `SHARES: Driver` / `USES BOOLEAN use_subcycling` in `param.ccl`; `CCTK_ParameterGet(name, "CarpetX", &type)` | the flesh's parameter channel, not a CarpetX internal; the one read an integrator needed (`max_num_levels` for the reflux check) is done by `register_integrator` |
+| `patchdata.amrcore->GetParGDB()`, `->finestLevel()`, `->refRatio(level)` | `CarpetX::num_levels(patch)`, `CarpetX::geometry(level)`, `CarpetX::data(group, tl).boxArray()` / `.DistributionMap()` | the BoxArray and DistributionMapping of a level are those of any group's MultiFab on it; `refRatio` is 2 between every pair of levels (`CarpetX::geometry` of parent and child give the cell sizes) |
+| `*groupdata.mfab.at(tl)` then `mfab.FillBoundary(...)` by hand | `CarpetX::sync_ghosts_only(window, groups, tl)` | the same-level ghost exchange, with the ghost bits set by CarpetX |
+| `Arith::synchronize()`, `Arith::update_cctkGH(...)` (RITHandOffX, resolved through the `namespace std` route) | `CarpetX::synchronize()`; the `cctkGH` argument of `window_t::loop_parallel` | the headers add nothing to `namespace std` or `namespace Arith`, so these spellings no longer resolve |
+| `CarpetX::GridDescBase`, `Loop::GridDescBase` through `schedule.hxx` | `Loop::GridDescBase` from `<loop.hxx>` (`USES INCLUDE HEADER: loop.hxx`), or `DECLARE_CCTK_ARGUMENTSX_*` | a Loop type; no CarpetX header is needed |
+| `CallScheduleGroup(cctkGH, "G")` (aliased function) | unchanged | the eleven aliased functions in `CarpetX/interface.ccl` are not part of this change; `run_schedule_group_at` is for a group that must run at another time or step |
+
+## Private names with no public counterpart
+
+Everything else the four old headers declared is driver-internal, and a thorn that named it was reaching past the driver's contract. The replacement is the operation CarpetX performs with it.
+
+| Private name | Why there is no public form |
+|---|---|
+| `GHExt`, `PatchData`, `LevelData`, `GroupData`, `CommonGroupData`, `GlobalData`, `ArrayGroupData`, `ghext`, `active_levels`, `active_levels_t` | the data model; `level_t`, `group_t` and `window_t` name its parts, every public call resolves them |
+| `CactusAmrCore`, `boundary_t`, `GroupData::interpolator`, `bcrecs`, `boundaries`, `parities`, `dirichlet_values`, `robin_values`, `fluxes`, `freg`, `freg_scratch`, `ks_source_band`, `old_source_band`, `rk_crse_patch`, `rk_fine_patch`, `face_area`, `cell_volume` | AMReX plumbing, group tags CarpetX parses, and the RK and flux buffers the RK step and `reflux` manage |
+| `is_subcycling_level`, `last_step_iteration`, `last_finalized_iteration`, `recovered_iteration`, `recovered_levels`, `in_recovery_traversal`, `tail_bin`, `last_called_function`, `storage_frozen`, `active_timelevels`, `all_levels_synchronized`, `recovered_finer_level_is_behind` | traversal and recovery bookkeeping; `iteration`, `delta_iteration` and `window_is_restricted` answer what a client asked of them |
+| `warn_inert_flux_tags`, `band_kind`, `subcycling_band_tag`, `rk_source_band` | the driver's own startup check and the checkpoint readers' view of the RK bands |
+| `carpetx_epoch`, `CarpetX_GetEpoch` | the aliased function `GetEpoch` in `CarpetX/interface.ccl` |
+| `Initialise`, `Evolve`, `Shutdown`, `CallFunction`, `GroupStorageIncrease`, `GroupStorageDecrease`, `EnableGroupStorage`, `DisableGroupStorage`, `QueryGroupStorageB`, `enter_*_mode`, `leave_*_mode`, `update_cctkGH`, `update_cctkGHs` | the flesh's driver callbacks; storage goes through `CCTK_EnableGroupStorage` and the schedule's `STORAGE:` lines, a group runs through `CallScheduleGroup` or `run_schedule_group_at`, and `loop_parallel` hands out the component's cGH |
+| `MFPointer`, `GridDesc`, `GridPtrDesc`, `GridPtrDesc1` | how CarpetX builds the per-component `cGH` and `DECLARE_CCTK_ARGUMENTSX_*`; a thorn uses the result |
+| `why_valid_t`, `error_if_invalid`, `warn_if_invalid`, `poison_invalid_gf`, `poison_invalid_ga`, `check_valid_gf`, `check_valid_ga`, `checksum_t`, `tiletag_t`, `checksums_t`, `calculate_checksums`, `check_checksums`, `ipoison_t`, `poison_value_t` | validity bookkeeping; `valid`, `require_valid`, `invalidate` and the write scope are the four things a client does with it, and CarpetX poisons and checksums around every scheduled call itself |
+| `FillPatch_Sync`, `FillPatch_Prolongate`, `FillPatch_ProlongateGhosts`, `FillPatch_ProlongateOnly`, `Prolongate_Start`, `Prolongate_Finish`, `FillPatch_NewLevel`, `FillPatch_RemakeLevel`, `task_t`, `task_manager`, `average_down*` over level pairs | the pipelines behind the five communication operations and the regrid |
+| `EnsureRKBuffers`, `StoreRKOldState`, `StoreRKStage`, `FillRKBoundary`, `AccumulateFluxes`, `EnsureFluxGeometry`, `Reflux`, `group_is_integrated`, `group_has_flux_register`, `num_rk_stages`, `rk_integrated_group` | the RK step object, `rk_recover_boundary`, `reflux` and `register_integrator` |
+| `combine`, `reduction_CCTK_REAL`, the `omp declare reduction` and MPI type and op of `reduction.hxx` | glue of `reduce`; `reduction::operator+` combines two results in C++ |
+| `symmetries` on `PatchData` | `CarpetX::symmetries(level)` |
 
 ## The integrator's contract: `carpetx_rk.hxx`
 
@@ -69,4 +97,17 @@ Under subcycling the SYNC of an integrated group on a refined level at iteration
 
 ## External thorns
 
-AsterX, MCNuX, BNSTools (VolumeIntegrals_GRMHDX, VolumeIntegrals_vacuumX, TriggerX), CapyrX_MultiPatch, SpacetimeX/NewRadX, RITHandOffX/ReadInterpTransformX and CurvBase include CarpetX's private headers today. Their builds stop at the `#error` once the headers they include are guarded; this guide's symbol map is the migration path, and it grows with each slice (scratch buffers and timers).
+AsterX, MCNuX, BNSTools (VolumeIntegrals_GRMHDX, VolumeIntegrals_vacuumX, TriggerX), CapyrX_MultiPatch, SpacetimeX/NewRadX, RITHandOffX/ReadInterpTransformX and CurvBase include CarpetX's private headers, by the old exported names or by relative path. Their builds stop at the `#error` at their next CarpetX update; the symbol map above is the migration path, and this table names the replacement for each thorn's use.
+
+| Thorn | What it reaches today | Public replacement |
+|---|---|---|
+| AsterX (`src/sync.cxx`) | `FillPatch_Sync` in a `task_manager` pipeline, `RestrictNoPoison`, `SyncGroupsByDirIGhostOnly`, `SyncGroupsByDirIProlongateOnly`, `synchronize`, `active_levels->loop_serially` and `min_level`/`max_level`, `ghext->patchdata ... mfab.at(tl)` with `FillBoundary`, `amrcore->Geom`, `num_patches` | `sync_ghosts_only`, `restrict_no_poison`, `prolongate_ghosts`, `synchronize`, `active_window().loop_serially` and `.min_level`/`.max_level`, `geometry`, `num_patches`; a write that fills data by other means is a `write` scope stating what it leaves valid |
+| MCNuX (`mcnux_cadence.cxx`, `mcnux_gather.hxx`, `mcnux_srcterms.cxx`) | the `ghext` tree walked by hand down to `mfab.at(0)->array(box)` in particle kernels, deposits into `Array4`s, `amrcore->Geom`/`GetParGDB`/`finestLevel`, `reduce` | `all_levels().loop_serially` or `level_t{p, l}` with `num_levels(patch)`, `data(group, tl)` for gathers (`const_array`), a `write` scope per deposited group stating interior validity, `geometry`, `data(...).boxArray()`/`.DistributionMap()` for the particle container, `reduce` |
+| BNSTools VolumeIntegrals_GRMHDX, VolumeIntegrals_vacuumX | relative `driver.hxx`, `reduction.hxx` for `reduce` and `reduction<>` | `#include <carpetx.hxx>`; the names are unchanged |
+| BNSTools TriggerX | exported `reduction.hxx` for `reduce` and every `reduction` field | `USES INCLUDE HEADER: carpetx.hxx`, `#include <carpetx.hxx>`; the names are unchanged, and the `namespace CarpetX { using Loop::dim; }` prelude is no longer needed |
+| CapyrX_MultiPatch | relative `schedule.hxx`, `timer.hxx` for a hand-built `active_levels_t().loop_parallel`, `Timer`, `Interval`, and `GridDescBase` | `all_levels().loop_parallel` (or `active_window()`), `Timer` and `Interval` from `carpetx.hxx`, `Loop::GridDescBase` from `<loop.hxx>` |
+| SpacetimeX/NewRadX | exported `driver.hxx` for `symmetry_t` and `ghext->patchdata.at(cctk_patch).symmetries` | `USES INCLUDE HEADER: carpetx.hxx`; `CarpetX::symmetries(level_t{cctk_patch, cctk_level})` and `symmetry_t` from `carpetx.hxx` |
+| RITHandOffX/ReadInterpTransformX | exported `schedule.hxx` for `active_levels->loop_parallel`, `GridDescBase`, `Arith::synchronize()`, `Arith::update_cctkGH()` | `USES INCLUDE HEADER: carpetx.hxx`; `active_window().loop_parallel`, `Loop::GridDescBase`, `CarpetX::synchronize()`, and the component cGH the kernel receives |
+| CurvBase | `USES INCLUDE HEADER: driver.hxx`, `schedule.hxx` in `interface.ccl`, used by no source | delete the two lines |
+
+Patches to the repositories under this fork's control (AsterX, SpacetimeX, MCNuX, CurvBase) are follow-up work; BNSTools, CapyrX and RITHandOffX receive this guide.
