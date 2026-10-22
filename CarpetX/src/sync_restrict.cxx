@@ -766,12 +766,11 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
                            "integrated group on a refined level";
                   },
                   []() {
-                    return "  With CarpetX::use_subcycling = yes the time "
-                           "integrator owns the coarse-fine ghosts of the "
-                           "groups it integrates at iteration > 0: "
-                           "CarpetX::rk_stage_t::fill_next_boundary after "
-                           "each RK stage, and CarpetX::rk_recover_boundary "
-                           "or CarpetX::prolongate_aligned after a recovery, "
+                    return "  With CarpetX::use_subcycling = yes the RK step "
+                           "owns the coarse-fine ghosts of the groups the "
+                           "time integrator registered at iteration > 0: "
+                           "CarpetX::rk_step_t::state_updated after each RK "
+                           "stage, and the driver's refill after a recovery, "
                            "fill and mark them before any SYNC.\n"
                            "  The SYNC copies only the same-level ghosts of "
                            "such a group and requires its ghosts to be marked "

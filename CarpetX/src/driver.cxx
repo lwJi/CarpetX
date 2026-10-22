@@ -505,6 +505,11 @@ int num_rk_stages() {
   return integrator ? integrator->nstages : max_num_rk_stages;
 }
 
+rk_dense_output_t registered_dense_output() {
+  const std::optional<rk_config_t> &integrator = ghext->rk();
+  return integrator ? integrator->dense_output : rk_dense_output_t::none;
+}
+
 bool group_has_flux_register(const int gi) {
   assert(gi >= 0 && gi < CCTK_NumGroups());
   return ghext->do_reflux && CCTK_GroupTypeI(gi) == CCTK_GF &&

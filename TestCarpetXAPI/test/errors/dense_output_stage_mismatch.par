@@ -34,7 +34,7 @@ CarpetX::ghost_size = 2
 CarpetX::use_subcycling = yes
 CarpetX::restrict_during_sync = no
 
-TestCarpetXAPI::mode = "stages-not-3-or-4"
+TestCarpetXAPI::mode = "dense-output-stage-mismatch"
 
 IO::out_dir = $parfile
 IO::parfile_write = no

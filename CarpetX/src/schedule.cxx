@@ -1418,24 +1418,9 @@ void FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
 }
 } // namespace
 
-// Traverse CCTK_POST_RECOVER_VARIABLES once per clock group, coarse to fine.
-// Each traversal sees the group's levels in the context of their last step
-// during evolution: cctk_iteration is the group's last_step_iteration,
-// and cctk_time and cctk_timefac are what Evolve set when the group's finest
-// level last stepped (SetStepTime). No coarser level has changed since then,
-// so a routine sees the state the group held then. For the finest group,
-// which the last end-of-step window covered, that reproduces what the
-// end-of-step bins computed during evolution. A coarser group is provisional
-// (it has stepped but not yet been finalized at its clock), so diagnostics
-// recomputed here may differ from the uninterrupted run's, which still show
-// the group's last finalized time, until a later window finalizes it.
-// Global-mode routines run once per group. Logs one line per group and a
-// closing note whatever CarpetX::verbose is set to.
 static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
   const recovery_traversal_scope scope;
 
-  // Bind inside the body: nvcc's cudafe++ misplaces a #pragma that follows a
-  // range-for with structured bindings, which breaks the omp critical below
   for (const auto &group : ClockGroups()) {
     const auto &[min_level, max_level] = group;
     const auto &finest = ghext->patchdata.at(0).leveldata.at(max_level - 1);
@@ -1452,6 +1437,7 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
                min_level, max_level, cctkGH->cctk_iteration,
                double(cctkGH->cctk_time), cctkGH->cctk_timefac);
 
+    RecoverRKBoundary(cctkGH);
     CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
 
     active_levels = std::optional<active_levels_t>();

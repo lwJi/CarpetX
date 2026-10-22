@@ -1,1 +1,1 @@
-CarpetX::rk_stage_t::rhs_computed on patch 0, refinement level 0, RK stage 1 of 4: called twice
+CarpetX::rk_step_t::rhs_computed on patches [0, 1), refinement levels [0, 1), RK stage 1 of 4: the stage already has its right-hand side; expected state_updated

@@ -631,6 +631,7 @@ struct GHExt {
 extern std::unique_ptr<GHExt> ghext;
 
 int num_rk_stages();
+rk_dense_output_t registered_dense_output();
 
 std::array<int, dim> get_group_fluxes(int gi);
 

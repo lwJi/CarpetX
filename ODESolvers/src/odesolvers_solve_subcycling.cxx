@@ -18,20 +18,6 @@ struct solve_setup_t {
   int nvars = 0;
 };
 
-bool aligned_with_parent(const CarpetX::level_t level) {
-  return CarpetX::iteration(level) ==
-         CarpetX::iteration(CarpetX::parent(level));
-}
-
-CCTK_REAL parent_step(const cGH *cctkGH, const CarpetX::level_t level) {
-  return cctkGH->cctk_delta_time *
-         CCTK_REAL(CarpetX::delta_iteration(CarpetX::parent(level)));
-}
-
-CCTK_REAL substep_start(const CarpetX::level_t level) {
-  return aligned_with_parent(level) ? 0.5 : 0.0;
-}
-
 solve_setup_t collect_solve_setup(const CarpetX::window_t window) {
   solve_setup_t s;
   s.var.timelevel = 0;
@@ -136,18 +122,12 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   static CarpetX::Timer timer_poststep("ODESolvers::Solve::poststep");
 
   const rk_method_t &rk = rk_method(method);
-  assert(rk.subcycling_ok);
+  assert(rk.dense_output != CarpetX::rk_dense_output_t::none);
 
-  std::vector<CarpetX::level_t> levels;
-  std::vector<CarpetX::rk_step_t> steps;
-  std::vector<CarpetX::rk_stage_t> stages;
+  std::optional<CarpetX::rk_step_t> step;
 
-  const auto open_steps = [&]() {
-    window.loop_coarse_to_fine([&](const CarpetX::level_t level) {
-      levels.push_back(level);
-      steps.push_back(CarpetX::open_rk_step(level));
-    });
-    CarpetX::synchronize();
+  const auto open_step = [&]() {
+    step.emplace(CarpetX::open_rk_step(window));
   };
   const auto calcrhs = [&](const int n) {
     CarpetX::Interval interval_rhs(timer_rhs);
@@ -157,13 +137,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                                    cctkGH->cctk_delta_time);
     rhs.require_valid(CarpetX::make_valid_int(),
                       "ODESolvers after calling ODESolvers_RHS");
-    assert(stages.empty());
-    stages.reserve(steps.size());
-    for (CarpetX::rk_step_t &step : steps)
-      stages.push_back(step.stage(n));
-    for (CarpetX::rk_stage_t &stage : stages)
-      stage.rhs_computed(rk.b.at(n - 1) * dt);
-    CarpetX::synchronize();
+    step.value().rhs_computed(rk.b.at(n - 1) * dt);
   };
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
                               const CCTK_REAL a0, const auto &as,
@@ -187,22 +161,12 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     if (verbose)
       CCTK_VINFO("Fill refinement boundary ghost zones using Ys at t=%g",
                  double(t));
-    assert(stages.size() == levels.size());
-    for (std::size_t i = 0; i < stages.size(); ++i) {
-      const CarpetX::level_t level = levels.at(i);
-      if (level.level == 0)
-        continue;
-      assert(parent_step(cctkGH, level) == dt * 2);
-      stages.at(i).fill_next_boundary(substep_start(level),
-                                      parent_step(cctkGH, level));
-    }
-    stages.clear();
-    CarpetX::synchronize();
+    step.value().state_updated();
   };
 
   static_assert(
-      rk_methods_detail::subcycling_ok_rows_are({"constant", "RK4", "SSPRK3"}),
-      "rk_methods: the subcycling_ok rows must be the methods "
+      rk_methods_detail::dense_output_rows_are({"constant", "RK4", "SSPRK3"}),
+      "rk_methods: the rows with a dense output must be the methods "
       "ODESolvers_Solve_Subcycling has a branch for");
 
   if (CCTK_EQUALS(method, "constant")) {
@@ -224,7 +188,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
     const auto old = var.copy();
 
-    open_steps();
+    open_step();
 
     calcrhs(1);
     auto kaccum = rhs.copy();
@@ -264,7 +228,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
     const auto old = var.copy();
 
-    open_steps();
+    open_step();
 
     calcrhs(1);
     const auto k1 = rhs.copy();
@@ -286,57 +250,9 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     calcpoststep();
 
   } else {
-    // Unreachable: rk.subcycling_ok is asserted above, and the table marks
-    // only the methods implemented here as subcycling_ok
-    CCTK_VERROR("ODESolvers::method = \"%s\" is marked subcycling_ok in "
-                "rk_methods.hxx but has no branch in the subcycling solver",
+    CCTK_VERROR("ODESolvers::method = \"%s\" has a dense output in "
+                "rk_methods.hxx but no branch in the subcycling solver",
                 method);
-  }
-}
-
-extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_Solve_Subcycling_Recovery;
-  DECLARE_CCTK_PARAMETERS;
-
-  if (verbose)
-    CCTK_VINFO("Subcycling recovery: refilling refinement-boundary ghosts "
-               "(spatial prolongation on time-aligned levels of a restricted "
-               "window, dense output from the level's restored source bands "
-               "otherwise)");
-
-  static CarpetX::Timer timer("ODESolvers::Solve_Subcycling_Recovery");
-  CarpetX::Interval interval(timer);
-
-  const CarpetX::window_t window = CarpetX::active_window();
-
-  auto setup = collect_solve_setup(window);
-  auto &var = setup.var;
-  auto &var_groups = setup.var_groups;
-  if (setup.nvars == 0)
-    return;
-
-  if (var_groups.size() > 0) {
-    var.require_valid(CarpetX::make_valid_int(),
-                      "ODESolvers_Solve_Subcycling_Recovery requires the tl=0 "
-                      "interior to be populated by checkpoint recovery");
-
-    const bool restricted = CarpetX::window_is_restricted(window);
-
-    if (restricted)
-      CarpetX::prolongate_aligned(window, var_groups, 0);
-
-    window.loop_coarse_to_fine([&](const CarpetX::level_t level) {
-      if (level.level == 0)
-        return;
-      assert(aligned_with_parent(level) == (level.level > window.min_level) &&
-             "recovery traverses POST_RECOVER_VARIABLES once per clock "
-             "group, so only the group's coarsest level lags its parent");
-      if (restricted && aligned_with_parent(level))
-        return;
-      CarpetX::rk_recover_boundary(level, substep_start(level),
-                                   parent_step(cctkGH, level));
-    });
-    CarpetX::synchronize();
   }
 }
 

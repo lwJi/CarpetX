@@ -31,7 +31,10 @@ CarpetX::max_grid_size_z = 8
 CarpetX::max_num_levels = 1
 CarpetX::ghost_size = 2
 
-TestCarpetXAPI::mode = "fill-before-rhs"
+CarpetX::use_subcycling = yes
+CarpetX::restrict_during_sync = no
+
+TestCarpetXAPI::mode = "subcycling-without-dense-output"
 
 IO::out_dir = $parfile
 IO::parfile_write = no

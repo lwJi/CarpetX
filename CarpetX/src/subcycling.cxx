@@ -208,19 +208,19 @@ void rk_dense_output(amrex::MultiFab &crse_patch,
                      const amrex::MultiFab &old_band,
                      const std::array<std::unique_ptr<amrex::MultiFab>,
                                       max_num_rk_stages> &ks_bands,
-                     const int num_rk_stages, const int stage,
+                     const rk_dense_output_t dense_output, const int stage,
                      const CCTK_REAL xsi, const CCTK_REAL dtc) {
-  switch (num_rk_stages) {
-  case 3:
+  switch (dense_output) {
+  case rk_dense_output_t::ssprk3:
     rk_dense_output_impl<3>(crse_patch, old_band, ks_bands, stage, xsi, dtc);
     break;
-  case 4:
+  case rk_dense_output_t::rk4:
     rk_dense_output_impl<4>(crse_patch, old_band, ks_bands, stage, xsi, dtc);
     break;
   default:
-    CCTK_VERROR("Subcycling dense output supports 3 (SSPRK3) or 4 (RK4) RK "
-                "stages, but the registered integrator has %d",
-                num_rk_stages);
+    CCTK_ERROR("Subcycling dense output: the registered integrator has no "
+               "dense output (CarpetX::register_integrator refuses that under "
+               "CarpetX::use_subcycling)");
   }
 }
 
@@ -406,7 +406,7 @@ void FillRKBoundary(const int patch, const int level,
   const auto &coarseleveldata = patchdata.leveldata.at(level - 1);
   const auto &fgeom = patchdata.amrcore->Geom(level);
   const auto &cgeom = patchdata.amrcore->Geom(level - 1);
-  const int num_rk_stages = CarpetX::num_rk_stages();
+  const rk_dense_output_t dense_output = registered_dense_output();
 
   // We need to loop over groups in a definite order so that AMReX's
   // communication pattern does not get confused (as in
@@ -449,15 +449,10 @@ void FillRKBoundary(const int patch, const int level,
     amrex::MultiFab &crse_patch = *groupdata.rk_crse_patch;
     amrex::MultiFab &fine_patch = *groupdata.rk_fine_patch;
 
-    // Coarse state at the fine stage time, evaluated on the bands straight
-    // into the coarse patch buffer: both have the geometry
-    // fpc.ba_crse_patch / fpc.dm_patch. Every point of the buffer is
-    // overwritten. Points outside the domain hold whatever the bands hold
-    // there; the coarse boundary conditions overwrite them next.
     tasks1.submit_serially(
-        [&groupdata, &crse_patch, &old_band, num_rk_stages, stage, xsi, dtc]() {
+        [&groupdata, &crse_patch, &old_band, dense_output, stage, xsi, dtc]() {
           rk_dense_output(crse_patch, old_band, groupdata.ks_source_band,
-                          num_rk_stages, stage, xsi, dtc);
+                          dense_output, stage, xsi, dtc);
         });
 
     // Coarse BC on the combined state, spatial interpolation with the group's

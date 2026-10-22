@@ -43,11 +43,12 @@ int group(const char *const name) {
 }
 
 CarpetX::rk_config_t integrator(const char *const state, const char *const rhs,
-                                const int nstages, const bool subcycling_ok,
+                                const int nstages,
+                                const CarpetX::rk_dense_output_t dense_output,
                                 const bool reflux_ok) {
   CarpetX::rk_config_t config;
   config.nstages = nstages;
-  config.subcycling_ok = subcycling_ok;
+  config.dense_output = dense_output;
   config.reflux_ok = reflux_ok;
   config.integrated.push_back(CarpetX::rk_pair_t{group(state), group(rhs)});
   return config;
@@ -55,15 +56,12 @@ CarpetX::rk_config_t integrator(const char *const state, const char *const rhs,
 
 CarpetX::rk_config_t valid_integrator() {
   return integrator("TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", 4,
-                    true, true);
+                    CarpetX::rk_dense_output_t::rk4, true);
 }
 
 bool rk_step_mode(const char *const mode) {
-  return CCTK_EQUALS(mode, "stage-out-of-order") ||
-         CCTK_EQUALS(mode, "rhs-repeated") ||
-         CCTK_EQUALS(mode, "fill-before-rhs") ||
-         CCTK_EQUALS(mode, "step-closed-early") ||
-         CCTK_EQUALS(mode, "fill-skipped-under-subcycling");
+  return CCTK_EQUALS(mode, "rhs-repeated") ||
+         CCTK_EQUALS(mode, "step-closed-early");
 }
 
 extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
@@ -76,29 +74,31 @@ extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
     CarpetX::register_integrator(valid_integrator());
     CCTK_ERROR("CarpetX::register_integrator accepted a second registration");
   }
-  if (CCTK_EQUALS(mode, "stages-not-3-or-4")) {
-    CarpetX::register_integrator(integrator(
-        "TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", 2, true, true));
-    CCTK_ERROR("CarpetX::register_integrator accepted 2 RK stages under "
-               "subcycling");
+  if (CCTK_EQUALS(mode, "dense-output-stage-mismatch")) {
+    CarpetX::register_integrator(
+        integrator("TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", 2,
+                   CarpetX::rk_dense_output_t::rk4, true));
+    CCTK_ERROR("CarpetX::register_integrator accepted 2 RK stages with the "
+               "RK4 dense output");
   }
   if (CCTK_EQUALS(mode, "reflux-without-reflux-ok")) {
-    CarpetX::register_integrator(integrator("TestCarpetXAPI::conserved",
-                                            "TestCarpetXAPI::conserved_rhs", 2,
-                                            false, false));
+    CarpetX::register_integrator(
+        integrator("TestCarpetXAPI::conserved", "TestCarpetXAPI::conserved_rhs",
+                   2, CarpetX::rk_dense_output_t::none, false));
     CCTK_ERROR("CarpetX::register_integrator accepted reflux_ok = false for a "
                "flux-tagged integrated group under CarpetX::do_reflux");
   }
-  if (CCTK_EQUALS(mode, "subcycling-without-subcycling-ok")) {
-    CarpetX::register_integrator(integrator(
-        "TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", 4, false, true));
-    CCTK_ERROR("CarpetX::register_integrator accepted subcycling_ok = false "
-               "under subcycling");
+  if (CCTK_EQUALS(mode, "subcycling-without-dense-output")) {
+    CarpetX::register_integrator(
+        integrator("TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", 4,
+                   CarpetX::rk_dense_output_t::none, true));
+    CCTK_ERROR("CarpetX::register_integrator accepted an integrator without "
+               "a dense output under subcycling");
   }
   if (CCTK_EQUALS(mode, "integrated-not-checkpointed")) {
-    CarpetX::register_integrator(integrator("TestCarpetXAPI::unsaved",
-                                            "TestCarpetXAPI::unsaved_rhs", 4,
-                                            true, true));
+    CarpetX::register_integrator(
+        integrator("TestCarpetXAPI::unsaved", "TestCarpetXAPI::unsaved_rhs", 4,
+                   CarpetX::rk_dense_output_t::rk4, true));
     CCTK_ERROR("CarpetX::register_integrator accepted an integrated group "
                "tagged checkpoint=\"no\"");
   }
@@ -142,25 +142,15 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
                "CCTK_INITIAL, after the driver read its integrator record");
   }
   if (CCTK_EQUALS(mode, "unregistered-rk-call")) {
-    CarpetX::reflux(CarpetX::all_levels());
-    CCTK_ERROR("CarpetX::reflux ran without a registered integrator");
+    const CarpetX::rk_step_t step =
+        CarpetX::open_rk_step(CarpetX::all_levels());
+    CCTK_ERROR("CarpetX::open_rk_step ran without a registered integrator");
   }
 
   const int gi = state_group();
   const std::vector<int> groups{gi};
   const CarpetX::window_t window = CarpetX::active_window();
 
-  if (CCTK_EQUALS(mode, "fill-skipped-under-subcycling") &&
-      window.max_level >= 2) {
-    const CarpetX::level_t refined{0, 1};
-    CarpetX::rk_step_t step = CarpetX::open_rk_step(refined);
-    {
-      CarpetX::rk_stage_t stage = step.stage(1);
-      stage.rhs_computed(0);
-    }
-    CCTK_ERROR("CarpetX::rk_stage_t closed on a refined level under "
-               "subcycling without fill_next_boundary");
-  }
   if (window.min_level != 0 || window.max_level != 1)
     return;
 
@@ -237,31 +227,18 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
                 "domain of positive volume",
                 double(red.min), double(red.max), double(red.vol));
 
-  const CarpetX::level_t coarsest{0, 0};
-  if (CCTK_EQUALS(mode, "stage-out-of-order")) {
-    CarpetX::rk_step_t step = CarpetX::open_rk_step(coarsest);
-    const CarpetX::rk_stage_t stage = step.stage(2);
-    CCTK_ERROR("CarpetX::rk_step_t::stage(2) ran before stage 1");
-  }
   if (CCTK_EQUALS(mode, "rhs-repeated")) {
-    CarpetX::rk_step_t step = CarpetX::open_rk_step(coarsest);
-    CarpetX::rk_stage_t stage = step.stage(1);
-    stage.rhs_computed(0);
-    stage.rhs_computed(0);
-    CCTK_ERROR("CarpetX::rk_stage_t::rhs_computed ran twice on one stage");
-  }
-  if (CCTK_EQUALS(mode, "fill-before-rhs")) {
-    CarpetX::rk_step_t step = CarpetX::open_rk_step(coarsest);
-    CarpetX::rk_stage_t stage = step.stage(1);
-    stage.fill_next_boundary(0, 1);
-    CCTK_ERROR("CarpetX::rk_stage_t::fill_next_boundary ran before "
-               "rhs_computed");
+    CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
+    step.rhs_computed(0);
+    step.rhs_computed(0);
+    CCTK_ERROR("CarpetX::rk_step_t::rhs_computed ran twice without "
+               "state_updated in between");
   }
   if (CCTK_EQUALS(mode, "step-closed-early")) {
     {
-      CarpetX::rk_step_t step = CarpetX::open_rk_step(coarsest);
-      CarpetX::rk_stage_t stage = step.stage(1);
-      stage.rhs_computed(0);
+      CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
+      step.rhs_computed(0);
+      step.state_updated();
     }
     CCTK_ERROR("CarpetX::rk_step_t closed after 1 of 4 stages");
   }

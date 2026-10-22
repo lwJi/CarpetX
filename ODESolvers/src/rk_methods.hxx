@@ -32,7 +32,7 @@ namespace ODESolvers {
 struct rk_method_t {
   const char *name;
   int nstages;
-  bool subcycling_ok; // implemented by ODESolvers_Solve_Subcycling
+  CarpetX::rk_dense_output_t dense_output;
   bool reflux_ok;
   bool explicit_b; // b below is meaningful (false: IMEX rows, and the
                    // RKF78/DP87 rows whose b lives in their local tableau
@@ -40,26 +40,42 @@ struct rk_method_t {
   std::array<CCTK_REAL, CarpetX::max_num_rk_stages> b; // final-update weights
 };
 
-// One row per value of the ODESolvers::method keyword (param.ccl).
-//
-// "constant" keeps 4 stages so that the subcycling band machinery sizes its
-// buffers as for RK4; its weights are zero because the state never changes
-// (and the solvers never evaluate a stage, so no register is ever fed).
-// RKF78 runs the 11-stage tableau in odesolvers_solve.cxx (the two embedded
-// error-estimate stages are commented out there), DP87 the 13-stage one; both
-// exceed max_num_rk_stages, so their b stays in the local tableau and they
-// are not available under subcycling.
 inline constexpr std::array<rk_method_t, 10> rk_methods{{
-    {"constant", 4, true, true, true, {0, 0, 0, 0}},
-    {"Euler", 1, false, true, true, {1, 0, 0, 0}},
-    {"RK2", 2, false, true, true, {0, 1, 0, 0}},
-    {"RK3", 3, false, true, true, {1.0 / 6, 2.0 / 3, 1.0 / 6, 0}},
-    {"SSPRK3", 3, true, true, true, {1.0 / 6, 1.0 / 6, 2.0 / 3, 0}},
-    {"RK4", 4, true, true, true, {1.0 / 6, 1.0 / 3, 1.0 / 3, 1.0 / 6}},
-    {"RKF78", 11, false, true, false, {0, 0, 0, 0}},
-    {"DP87", 13, false, true, false, {0, 0, 0, 0}},
-    {"IMEX122", 2, false, false, false, {0, 0, 0, 0}},
-    {"Implicit Euler", 2, false, false, false, {0, 0, 0, 0}},
+    {"constant", 4, CarpetX::rk_dense_output_t::rk4, true, true, {0, 0, 0, 0}},
+    {"Euler", 1, CarpetX::rk_dense_output_t::none, true, true, {1, 0, 0, 0}},
+    {"RK2", 2, CarpetX::rk_dense_output_t::none, true, true, {0, 1, 0, 0}},
+    {"RK3",
+     3,
+     CarpetX::rk_dense_output_t::none,
+     true,
+     true,
+     {1.0 / 6, 2.0 / 3, 1.0 / 6, 0}},
+    {"SSPRK3",
+     3,
+     CarpetX::rk_dense_output_t::ssprk3,
+     true,
+     true,
+     {1.0 / 6, 1.0 / 6, 2.0 / 3, 0}},
+    {"RK4",
+     4,
+     CarpetX::rk_dense_output_t::rk4,
+     true,
+     true,
+     {1.0 / 6, 1.0 / 3, 1.0 / 3, 1.0 / 6}},
+    {"RKF78", 11, CarpetX::rk_dense_output_t::none, true, false, {0, 0, 0, 0}},
+    {"DP87", 13, CarpetX::rk_dense_output_t::none, true, false, {0, 0, 0, 0}},
+    {"IMEX122",
+     2,
+     CarpetX::rk_dense_output_t::none,
+     false,
+     false,
+     {0, 0, 0, 0}},
+    {"Implicit Euler",
+     2,
+     CarpetX::rk_dense_output_t::none,
+     false,
+     false,
+     {0, 0, 0, 0}},
 }};
 
 namespace rk_methods_detail {
@@ -67,12 +83,12 @@ namespace rk_methods_detail {
 constexpr bool row_consistent(const rk_method_t &rk) {
   if (rk.nstages < 1)
     return false;
-  // Everything the subcycling solver runs must fit into the band arrays
-  if (rk.subcycling_ok && rk.nstages > CarpetX::max_num_rk_stages)
+  const bool has_dense_output =
+      rk.dense_output != CarpetX::rk_dense_output_t::none;
+  if (has_dense_output &&
+      rk.nstages != CarpetX::rk_dense_output_stages(rk.dense_output))
     return false;
-  // A row with meaningful weights is explicit; the subcycling solver only
-  // implements explicit methods
-  if ((rk.explicit_b || rk.subcycling_ok) && !rk.reflux_ok)
+  if ((rk.explicit_b || has_dense_output) && !rk.reflux_ok)
     return false;
   CCTK_REAL sum = 0;
   bool all_zero = true;
@@ -124,21 +140,14 @@ constexpr bool explicit_b_rows_fit() {
   return true;
 }
 
-constexpr bool subcycling_rows_have_dense_output() {
-  for (const auto &rk : rk_methods)
-    if (rk.subcycling_ok && rk.nstages != 3 && rk.nstages != 4)
-      return false;
-  return true;
-}
-
 constexpr bool
-subcycling_ok_rows_are(const std::initializer_list<const char *> methods) {
+dense_output_rows_are(const std::initializer_list<const char *> methods) {
   std::size_t listed_rows = 0;
   for (const auto &rk : rk_methods) {
     bool listed = false;
     for (const char *const method : methods)
       listed = listed || names_equal(rk.name, method);
-    if (listed != rk.subcycling_ok)
+    if (listed != (rk.dense_output != CarpetX::rk_dense_output_t::none))
       return false;
     listed_rows += listed;
   }
@@ -149,18 +158,16 @@ subcycling_ok_rows_are(const std::initializer_list<const char *> methods) {
 
 static_assert(rk_methods_detail::table_consistent(),
               "rk_methods: a row's b must sum to 1 (or be all zero), vanish "
-              "beyond nstages, and be zero when explicit_b is false; a "
-              "subcycling_ok row must fit into max_num_rk_stages; an "
-              "explicit_b or subcycling_ok row must be reflux_ok");
+              "beyond nstages, and be zero when explicit_b is false; a row "
+              "with a dense output must have that method's stage count "
+              "(CarpetX::rk_dense_output_stages); an explicit_b row or a row "
+              "with a dense output must be reflux_ok");
 static_assert(rk_methods_detail::names_distinct(),
               "rk_methods: rk_method finds a row by its name, compared "
               "case-insensitively, so no two rows may share a name");
 static_assert(rk_methods_detail::explicit_b_rows_fit(),
               "rk_methods: an explicit_b row must fit its b into "
               "max_num_rk_stages; a longer method keeps b in its own tableau");
-static_assert(rk_methods_detail::subcycling_rows_have_dense_output(),
-              "rk_methods: a subcycling_ok row must have 3 or 4 stages, the "
-              "counts CarpetX's subcycling dense output implements");
 
 // Look up the row for the given ODESolvers::method (case-insensitive, like
 // CCTK_EQUALS). Every keyword value has a row; a missing one is a hard error.
