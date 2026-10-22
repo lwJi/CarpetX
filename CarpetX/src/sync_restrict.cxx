@@ -18,6 +18,7 @@
 #include <cassert>
 #include <memory>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -282,6 +283,29 @@ SyncGroupsByDirIProlongateOnly_impl(const cGH *restrict cctkGH, int numgroups,
 
   std::vector<int> groups = sync_filter_groups(numgroups, groups0);
 
+  const auto prolongates_into =
+      [prolongate_on_same_iteration](
+          const GHExt::PatchData::LevelData &leveldata) {
+        if (leveldata.level == 0)
+          return false;
+        if (ghext->use_subcycling && prolongate_on_same_iteration) {
+          const auto &restrict coarseleveldata =
+              ghext->patchdata.at(leveldata.patch)
+                  .leveldata.at(leveldata.level - 1);
+          return leveldata.iteration == coarseleveldata.iteration;
+        }
+        return true;
+      };
+  const auto timelevels_to_fill =
+      [tl_arg](const GHExt::PatchData::LevelData::GroupData &groupdata) {
+        const int ntls = groupdata.mfab.size();
+        const int tl_lo = (tl_arg < 0) ? 0 : tl_arg;
+        const int tl_hi =
+            (tl_arg < 0) ? (ntls > 1 ? ntls - 1 : ntls) : (tl_arg + 1);
+        assert(tl_lo >= 0 && tl_hi <= ntls);
+        return std::make_pair(tl_lo, tl_hi);
+      };
+
   // We need to loop over groups, patches, and levels in a definite
   // order so that AMReX's communication pattern does not get
   // confused. Therefore all the loops here are serial. The only
@@ -297,31 +321,14 @@ SyncGroupsByDirIProlongateOnly_impl(const cGH *restrict cctkGH, int numgroups,
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
-      // We always sync all directions.
-      // tl_arg >= 0 syncs only that timelevel; tl_arg = -1 syncs every
-      // timelevel except the oldest (or the only one, if ntls == 1).
-      // TODO: during evolution, sync only one time level
-      const int ntls = groupdata.mfab.size();
-      const int tl_lo = (tl_arg < 0) ? 0 : tl_arg;
-      const int tl_hi =
-          (tl_arg < 0) ? (ntls > 1 ? ntls - 1 : ntls) : (tl_arg + 1);
-      assert(tl_lo >= 0 && tl_hi <= ntls);
+      const auto [tl_lo, tl_hi] = timelevels_to_fill(groupdata);
 
-      if (leveldata.level == 0) {
-        // Level 0 requires no interpolation, so return early
+      if (!prolongates_into(leveldata))
         return;
-      }
-
-      // For levels greater than 0, interpolate from the next coarser level
 
       const int level = leveldata.level;
       const auto &restrict coarseleveldata =
           ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
-
-      if (ghext->use_subcycling && prolongate_on_same_iteration) {
-        if (leveldata.iteration != coarseleveldata.iteration)
-          return;
-      }
 
       auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
       assert(!coarsegroupdata.mfab.empty());
@@ -353,6 +360,28 @@ SyncGroupsByDirIProlongateOnly_impl(const cGH *restrict cctkGH, int numgroups,
   synchronize();
   tasks3.run_tasks_serially();
   synchronize();
+
+  for (const int gi : groups) {
+    active_levels->loop_serially([&](auto &restrict leveldata) {
+      if (!prolongates_into(leveldata))
+        return;
+      auto &restrict groupdata = *leveldata.groupdata.at(gi);
+      const auto [tl_lo, tl_hi] = timelevels_to_fill(groupdata);
+      for (int tl = tl_lo; tl < tl_hi; ++tl) {
+        for (int vi = 0; vi < groupdata.numvars; ++vi) {
+          groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
+            return "SyncGroupsByDirIProlongateOnly after prolongating: "
+                   "Mark ghost zones as valid";
+          });
+          if (groupdata.all_faces_have_symmetries_or_boundaries())
+            groupdata.valid.at(tl).at(vi).set_outer(true, []() {
+              return "SyncGroupsByDirIProlongateOnly after prolongating: "
+                     "Mark outer boundaries as valid";
+            });
+        }
+      }
+    });
+  }
 
   sync_multipatch_postcheck(cctkGH, groups, "SyncGroupsByDirIProlongateOnly");
 
@@ -651,6 +680,13 @@ static void error_if_sync_in_tail(const cGH *restrict const cctkGH,
       min_level, min_level - 1);
 }
 
+static bool
+integrator_owns_coarse_fine_ghosts(const GHExt::PatchData::LevelData &leveldata,
+                                   const int gi) {
+  return leveldata.level > 0 && group_is_integrated(gi) &&
+         leveldata.iteration > 0;
+}
+
 int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
                                const int *groups0, const int *directions) {
   DECLARE_CCTK_PARAMETERS;
@@ -717,16 +753,30 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
         assert(!coarsegroupdata.mfab.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
-        // During evolution the time integrator owns the coarse-fine ghosts of
-        // the groups it integrates: FillRKBoundary refills them from the
-        // parent's dense output after each RK stage, and ODESolvers marks
-        // them valid. Every other group -- evolved or not -- gets them here.
         const bool integrated_subiter =
-            group_is_integrated(gi) && leveldata.iteration > 0;
+            integrator_owns_coarse_fine_ghosts(leveldata, gi);
 
         if (integrated_subiter) {
-          // Copy from adjacent boxes on same level only; FillRKBoundary owns
-          // the coarse-fine ghosts
+          for (int tl = 0; tl < sync_tl; ++tl)
+            for (int vi = 0; vi < groupdata.numvars; ++vi)
+              error_if_invalid(
+                  groupdata, vi, tl, make_valid_ghosts(),
+                  []() {
+                    return "SyncGroupsByDirISubcycling before syncing an "
+                           "integrated group on a refined level";
+                  },
+                  []() {
+                    return "  With CarpetX::use_subcycling = yes the time "
+                           "integrator owns the coarse-fine ghosts of the "
+                           "groups it integrates at iteration > 0: "
+                           "CarpetX::rk_stage_t::fill_next_boundary after "
+                           "each RK stage, and CarpetX::rk_recover_boundary "
+                           "or CarpetX::prolongate_aligned after a recovery, "
+                           "fill and mark them before any SYNC.\n"
+                           "  The SYNC copies only the same-level ghosts of "
+                           "such a group and requires its ghosts to be marked "
+                           "valid already.\n";
+                  });
           for (int tl = 0; tl < sync_tl; ++tl) {
             tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
               FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
@@ -799,7 +849,6 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
   tasks3.run_tasks_serially();
   synchronize();
 
-  // Check postconditions
   for (const int gi : groups) {
     const auto &patchdata0 = ghext->patchdata.at(0);
     const auto &leveldata0 = patchdata0.leveldata.at(0);
@@ -816,10 +865,8 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
-      // Must match the branch above: the ghosts of an integrated group are
-      // marked valid by the integrator after FillRKBoundary, not here.
       const bool integrated_subiter =
-          group_is_integrated(gi) && leveldata.iteration > 0;
+          integrator_owns_coarse_fine_ghosts(leveldata, gi);
 
       for (int tl = 0; tl < sync_tl0; ++tl) {
         for (int vi = 0; vi < groupdata.numvars; ++vi) {

@@ -27,14 +27,6 @@ namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
 
-// crse_patch = u0 + dtc * P_stage(xsi; k_1..k_RKSTAGES), evaluated with one
-// fused amrex::ParallelFor over the coarse source-band geometry. The
-// coefficient tables are AMReX's FillPatcher::fillRK dense-output formulas
-// (AMReX_FillPatcher.H: RK3 table around lines 474-527, RK4 table around
-// 530-605), with the coarse-to-fine step ratio r fixed at 1/2.
-//
-// The kernel walks `crse_patch` and the bands box by box, so they must share
-// one BoxArray and one DistributionMapping (see EnsureRKBuffers).
 template <int RKSTAGES>
 void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                           const amrex::MultiFab &old_band,
@@ -46,8 +38,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                 "rk_dense_output only supports RKSTAGES == 3 or 4");
   assert(stage > 0 && stage <= RKSTAGES);
 
-  // ratio between coarse and fine time step (2:1 refinement)
-  constexpr CCTK_REAL r = 0.5;
+  constexpr CCTK_REAL r = rk_substep_ratio;
 
   const int nvars = crse_patch.nComp();
   assert(old_band.nComp() == nvars);
@@ -389,8 +380,6 @@ void StoreRKStage(const int patch, const int level,
   const amrex::Periodicity &period =
       patchdata.amrcore->Geom(level).periodicity();
 
-  // rhs_groups[i] and var_groups[i] are paired by sort order; the k-stage
-  // bands live on the evolved group's GroupData on the child level.
   for (size_t i = 0; i < var_groups.size(); ++i) {
     const GroupData &childgroupdata =
         *childleveldata.groupdata.at(var_groups[i]);

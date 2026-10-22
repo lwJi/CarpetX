@@ -1,20 +1,16 @@
 #include "rk_methods.hxx"
 #include "solve.hxx"
 
-// Driver primitives for the state-based refinement-boundary fill
-// (StoreRKOldState, StoreRKStage, FillRKBoundary, window_is_restricted).
-// TODO: Don't include files from other thorns; create a proper interface.
-#include "../../CarpetX/src/subcycling.hxx"
-
-#include <AMReX_MultiFab.H>
+#include <carpetx.hxx>
+#include <carpetx_rk.hxx>
 
 #include <array>
+#include <cstddef>
+#include <vector>
 
 namespace ODESolvers {
 
 namespace {
-
-using LevelData = CarpetX::GHExt::PatchData::LevelData;
 
 struct solve_setup_t {
   statecomp_t var, rhs;
@@ -22,73 +18,18 @@ struct solve_setup_t {
   int nvars = 0;
 };
 
-// The parent level of a refined level
-const LevelData &parent_leveldata(const LevelData &leveldata) {
-  assert(leveldata.level > 0);
-  return CarpetX::ghext->patchdata.at(leveldata.patch)
-      .leveldata.at(leveldata.level - 1);
+bool aligned_with_parent(const CarpetX::level_t level) {
+  return CarpetX::iteration(level) ==
+         CarpetX::iteration(CarpetX::parent(level));
 }
 
-// Because Evolve advances the fine counter before CCTK_EVOL, a fine level is
-// aligned with its parent (its clock equals the parent's) exactly during its
-// second substep, which lands on the parent's time. During its first substep
-// it lags its parent.
-bool aligned_with_parent(const LevelData &leveldata) {
-  return leveldata.iteration == parent_leveldata(leveldata).iteration;
-}
-
-// The parent's step, taken from the clocks: cctk_delta_time is the coarse
-// step, and the parent's delta_iteration is its fraction of a coarse step.
-// Inside an evolution batch (the window is one level L, with cctk_timefac =
-// 2^L) this equals CCTK_DELTA_TIME * 2 bit for bit, since both scale
-// cctk_delta_time by the same power of two. Unlike CCTK_DELTA_TIME * 2, it
-// does not depend on cctk_timefac, so it is also the parent's step in a
-// window that spans several levels.
-CCTK_REAL parent_step(const cGH *cctkGH, const LevelData &leveldata) {
+CCTK_REAL parent_step(const cGH *cctkGH, const CarpetX::level_t level) {
   return cctkGH->cctk_delta_time *
-         CCTK_REAL(parent_leveldata(leveldata).delta_iteration);
+         CCTK_REAL(CarpetX::delta_iteration(CarpetX::parent(level)));
 }
 
-// Where within the parent's step the dense-output polynomial is evaluated for
-// a fine level's refinement-boundary fill. This is the only place the
-// evaluation-point convention lives.
-struct dense_output_point_t {
-  CCTK_REAL xsi;
-  int stage;
-};
-
-int num_rk_stages() {
-  DECLARE_CCTK_PARAMETERS;
-  return rk_method(method).nstages;
-}
-
-dense_output_point_t dense_output_point(const LevelData &leveldata,
-                                        const int stage) {
-  const int virtual_end = num_rk_stages() + 1;
-  assert(stage >= 1 && stage <= virtual_end);
-  const CCTK_REAL xsi = aligned_with_parent(leveldata) ? 0.5 : 0.0;
-  if (stage == virtual_end)
-    return {xsi + 0.5, 1};
-  return {xsi, stage};
-}
-
-// Fill the refinement-boundary (coarse-fine) ghosts of var(tl=0) of `groups`
-// on a level > 0 for the given stage of its current substep: the driver
-// evaluates the dense-output polynomial on the level's own source bands (the
-// parent's old state + k-stages) at dense_output_point and prolongates that
-// single coarse state in space, with the parent's step as dtc. The bands are
-// all it reads, so even at the end of the parent's step it needs neither the
-// parent's tl=0 nor the communication of a spatial prolongation from it.
-// Evolution (calcys_rmbnd) calls it at every stage, the virtual end-of-step
-// included, and recovery (ODESolvers_Solve_Subcycling_Recovery) at the
-// virtual end-of-step, so recovery reproduces that fill by construction.
-// Validity is left to the caller.
-void fill_rk_boundary(const cGH *cctkGH, const LevelData &leveldata,
-                      const std::vector<int> &groups, const int stage) {
-  const auto [xsi, stage0] = dense_output_point(leveldata, stage);
-  CarpetX::FillRKBoundary(leveldata.patch, leveldata.level, groups,
-                          /*tl=*/0, stage0, xsi,
-                          parent_step(cctkGH, leveldata));
+CCTK_REAL substep_start(const CarpetX::level_t level) {
+  return aligned_with_parent(level) ? 0.5 : 0.0;
 }
 
 // Collect evolved groups into statecomp_t bundles. The old-state anchor is now
@@ -185,8 +126,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   auto setup = collect_solve_setup();
   auto &var = setup.var;
   auto &rhs = setup.rhs;
-  auto &var_groups = setup.var_groups;
-  auto &rhs_groups = setup.rhs_groups;
   auto &dep_groups = setup.dep_groups;
   const int nvars = setup.nvars;
   if (verbose)
@@ -212,6 +151,18 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   const rk_method_t &rk = rk_method(method);
   assert(rk.subcycling_ok);
 
+  const CarpetX::window_t window = CarpetX::active_window();
+  std::vector<CarpetX::level_t> levels;
+  std::vector<CarpetX::rk_step_t> steps;
+  std::vector<CarpetX::rk_stage_t> stages;
+
+  const auto open_steps = [&]() {
+    window.loop_coarse_to_fine([&](const CarpetX::level_t level) {
+      levels.push_back(level);
+      steps.push_back(CarpetX::open_rk_step(level));
+    });
+    synchronize();
+  };
   const auto calcrhs = [&](const int n) {
     Interval interval_rhs(timer_rhs);
     if (verbose)
@@ -220,10 +171,12 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                                    cctkGH->cctk_delta_time);
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
-    CarpetX::active_window().loop_coarse_to_fine(
-        [&](const CarpetX::level_t level) {
-          CarpetX::accumulate_fluxes(level, n, rk.b.at(n - 1) * dt);
-        });
+    assert(stages.empty());
+    stages.reserve(steps.size());
+    for (CarpetX::rk_step_t &step : steps)
+      stages.push_back(step.stage(n));
+    for (CarpetX::rk_stage_t &stage : stages)
+      stage.rhs_computed(rk.b.at(n - 1) * dt);
     synchronize();
   };
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
@@ -243,46 +196,20 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", t,
                                    cctkGH->cctk_delta_time);
   };
-  const auto calcys_rmbnd = [&](const int stage) {
+  const auto calcys_rmbnd = [&]() {
     if (verbose)
-      CCTK_VINFO(
-          "Fill refinement boundary ghost zones using Ys for stage #%d at t=%g",
-          stage, double(t));
-
-    active_levels->loop_coarse_to_fine([&](auto &leveldata) {
-      if (leveldata.level == 0)
-        return;
-      // In an evolution batch the window is this one level, so the parent's
-      // step is also twice this level's dt
-      assert(parent_step(cctkGH, leveldata) == dt * 2);
-      fill_rk_boundary(cctkGH, leveldata, var_groups, stage);
-    });
-    synchronize();
-    var.set_valid(make_valid_all());
-  };
-  const auto setks = [&](const int stage) {
-    if (verbose)
-      CCTK_VINFO(
-          "Set interior Ks for stage #%d at t=%g, to be prolongated later",
-          stage, double(t));
-    active_levels->loop_coarse_to_fine([&](const auto &restrict leveldata) {
-      CarpetX::StoreRKStage(leveldata.patch, leveldata.level, var_groups,
-                            rhs_groups, stage);
-    });
-    synchronize();
-  };
-  // Capture u(t_n) = var(tl=0) of each level into the old_source_band of its
-  // child level, which owns the bands (interior only, levels with children
-  // only), once per step before the RK stages overwrite var. This is also
-  // where the child's RK buffers are (lazily) allocated: that reads the
-  // next-finer level, so it must run once all levels exist, and it warms an
-  // AMReX cache and opens its own MFIter/OpenMP region, so it must run
-  // single-threaded (loop_serially).
-  const auto store_old = [&]() {
-    active_levels->loop_serially([&](const auto &restrict leveldata) {
-      CarpetX::StoreRKOldState(leveldata.patch, leveldata.level, var_groups,
-                               /*tl=*/0);
-    });
+      CCTK_VINFO("Fill refinement boundary ghost zones using Ys at t=%g",
+                 double(t));
+    assert(stages.size() == levels.size());
+    for (std::size_t i = 0; i < stages.size(); ++i) {
+      const CarpetX::level_t level = levels.at(i);
+      if (level.level == 0)
+        continue;
+      assert(parent_step(cctkGH, level) == dt * 2);
+      stages.at(i).fill_next_boundary(substep_start(level),
+                                      parent_step(cctkGH, level));
+    }
+    stages.clear();
     synchronize();
   };
 
@@ -313,54 +240,33 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // needed (mirrors the non-subcycling solver).
     const auto old = var.copy(make_valid_all());
 
-    // Capture u(t_n) into the old source bands (and allocate the bands) before
-    // the RK stages overwrite var.
-    if (var_groups.size() > 0)
-      store_old();
+    open_steps();
 
-    // k1 = f(Y1)
     calcrhs(1);
-    setks(1); // interior only
     const auto kaccum = rhs.copy(make_valid_int());
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
-    calcys_rmbnd(2); // refinement boundary only
+    calcys_rmbnd();
     calcpoststep();
 
-    // k2 = f(Y2)
     calcrhs(2);
-    setks(2); // interior only
     statecomp_t::lincomb(kaccum, 1.0, reals<1>{2.0}, states<1>{&rhs},
                          make_valid_int());
     calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
-    calcys_rmbnd(3); // refinement boundary only
+    calcys_rmbnd();
     calcpoststep();
 
-    // k3 = f(Y3)
     calcrhs(3);
-    setks(3); // interior only
     statecomp_t::lincomb(kaccum, 1.0, reals<1>{2.0}, states<1>{&rhs},
                          make_valid_int());
     calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
-    calcys_rmbnd(4); // refinement boundary only
+    calcys_rmbnd();
     calcpoststep();
 
-    // k4 = f(Y4)
     calcrhs(4);
-    setks(4); // interior only
     calcupdate(4, dt, 0.0, reals<3>{1.0, dt / 6, dt / 6},
                states<3>{&old, &kaccum, &rhs});
-    calcys_rmbnd(5); // refinement boundary only
+    calcys_rmbnd();
     calcpoststep();
-
-    // No calcys_rmbnd(1) here: stage 1 of the next substep reads the
-    // refinement-boundary ghosts as they stand, and the subcycling SYNC
-    // leaves them alone. After a lagging substep they hold the virtual
-    // end-of-step fill, which is that stage's dense output. After an aligned
-    // substep the driver refills them for every evolved group before the
-    // parent's next step, when it restricts a window that holds the level, by
-    // spatial prolongation from the restricted parent
-    // (ProlongateAfterRestriction). The post-recovery case is handled by
-    // ODESolvers_Solve_Subcycling_Recovery at CCTK_POST_RECOVER_VARIABLES.
 
   } else if (CCTK_EQUALS(method, "SSPRK3")) {
 
@@ -375,34 +281,25 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // Scratch copy of u(t_n) = var(tl=0), the SSPRK3 interior anchor y0.
     const auto old = var.copy(make_valid_all());
 
-    // Capture u(t_n) into the old source bands (and allocate the bands) before
-    // the RK stages overwrite var.
-    if (var_groups.size() > 0)
-      store_old();
+    open_steps();
 
-    // k1 = f(Y1)
     calcrhs(1);
-    setks(1); // interior only
     const auto k1 = rhs.copy(make_valid_int());
     calcupdate(1, dt, 1.0, reals<1>{dt}, states<1>{&rhs}); // var = y0 + dt*k1
-    calcys_rmbnd(2); // refinement boundary only
+    calcys_rmbnd();
     calcpoststep();
 
-    // k2 = f(Y2)
     calcrhs(2);
-    setks(2); // interior only
     const auto k2 = rhs.copy(make_valid_int());
     calcupdate(2, dt / 2, 0.0, reals<3>{1.0, dt / 4, dt / 4},
                states<3>{&old, &k1, &k2});
-    calcys_rmbnd(3); // refinement boundary only
+    calcys_rmbnd();
     calcpoststep();
 
-    // k3 = f(Y3)
     calcrhs(3);
-    setks(3); // interior only
     calcupdate(3, dt, 0.0, reals<4>{1.0, dt / 6, dt / 6, 2 * dt / 3},
                states<4>{&old, &k1, &k2, &rhs});
-    calcys_rmbnd(4); // virtual end-of-step (num_rk_stages + 1)
+    calcys_rmbnd();
     calcpoststep();
 
   } else {
@@ -446,29 +343,24 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
                     "ODESolvers_Solve_Subcycling_Recovery requires the tl=0 "
                     "interior to be populated by checkpoint recovery");
 
-    const bool restricted = CarpetX::window_is_restricted(
-        active_levels->min_level, active_levels->max_level);
+    const CarpetX::window_t window = CarpetX::active_window();
+    const bool restricted = CarpetX::window_is_restricted(window);
 
-    // Skips level 0 and every level that lags its parent
     if (restricted)
-      CarpetX::SyncGroupsByDirIProlongateOnlyAligned(
-          cctkGH, var_groups.size(), var_groups.data(), nullptr, /*tl=*/0);
+      CarpetX::prolongate_aligned(window, var_groups, 0);
 
-    const int virtual_end = num_rk_stages() + 1;
-    active_levels->loop_coarse_to_fine([&](const auto &leveldata) {
-      if (leveldata.level == 0)
+    window.loop_coarse_to_fine([&](const CarpetX::level_t level) {
+      if (level.level == 0)
         return;
-      assert(aligned_with_parent(leveldata) ==
-                 (leveldata.level > active_levels->min_level) &&
+      assert(aligned_with_parent(level) == (level.level > window.min_level) &&
              "recovery traverses POST_RECOVER_VARIABLES once per clock "
              "group, so only the group's coarsest level lags its parent");
-      // Prolongated in space above
-      if (restricted && aligned_with_parent(leveldata))
+      if (restricted && aligned_with_parent(level))
         return;
-      fill_rk_boundary(cctkGH, leveldata, var_groups, virtual_end);
+      CarpetX::rk_recover_boundary(level, substep_start(level),
+                                   parent_step(cctkGH, level));
     });
     synchronize();
-    var.set_valid(make_valid_all());
   }
 }
 

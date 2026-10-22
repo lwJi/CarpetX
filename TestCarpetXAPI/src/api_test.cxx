@@ -58,9 +58,19 @@ CarpetX::rk_config_t valid_integrator() {
                     true, true);
 }
 
+bool rk_step_mode(const char *const mode) {
+  return CCTK_EQUALS(mode, "stage-out-of-order") ||
+         CCTK_EQUALS(mode, "rhs-repeated") ||
+         CCTK_EQUALS(mode, "fill-before-rhs") ||
+         CCTK_EQUALS(mode, "step-closed-early") ||
+         CCTK_EQUALS(mode, "fill-skipped-under-subcycling");
+}
+
 extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 
+  if (rk_step_mode(mode))
+    CarpetX::register_integrator(valid_integrator());
   if (CCTK_EQUALS(mode, "register-twice")) {
     CarpetX::register_integrator(valid_integrator());
     CarpetX::register_integrator(valid_integrator());
@@ -140,6 +150,20 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   const std::vector<int> groups{gi};
   const CarpetX::window_t window = CarpetX::active_window();
 
+  if (CCTK_EQUALS(mode, "fill-skipped-under-subcycling") &&
+      window.max_level >= 2) {
+    const CarpetX::level_t refined{0, 1};
+    CarpetX::rk_step_t step = CarpetX::open_rk_step(refined);
+    {
+      CarpetX::rk_stage_t stage = step.stage(1);
+      stage.rhs_computed(0);
+    }
+    CCTK_ERROR("CarpetX::rk_stage_t closed on a refined level under "
+               "subcycling without fill_next_boundary");
+  }
+  if (window.min_level != 0 || window.max_level != 1)
+    return;
+
   window.loop_serially([&](const CarpetX::level_t level) {
     const CarpetX::group_t group{level, gi};
     if (CarpetX::numvars(group) != 1)
@@ -212,6 +236,35 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
                 "TestCarpetXAPI::state; expected a product of cosines on a "
                 "domain of positive volume",
                 double(red.min), double(red.max), double(red.vol));
+
+  const CarpetX::level_t coarsest{0, 0};
+  if (CCTK_EQUALS(mode, "stage-out-of-order")) {
+    CarpetX::rk_step_t step = CarpetX::open_rk_step(coarsest);
+    const CarpetX::rk_stage_t stage = step.stage(2);
+    CCTK_ERROR("CarpetX::rk_step_t::stage(2) ran before stage 1");
+  }
+  if (CCTK_EQUALS(mode, "rhs-repeated")) {
+    CarpetX::rk_step_t step = CarpetX::open_rk_step(coarsest);
+    CarpetX::rk_stage_t stage = step.stage(1);
+    stage.rhs_computed(0);
+    stage.rhs_computed(0);
+    CCTK_ERROR("CarpetX::rk_stage_t::rhs_computed ran twice on one stage");
+  }
+  if (CCTK_EQUALS(mode, "fill-before-rhs")) {
+    CarpetX::rk_step_t step = CarpetX::open_rk_step(coarsest);
+    CarpetX::rk_stage_t stage = step.stage(1);
+    stage.fill_next_boundary(0, 1);
+    CCTK_ERROR("CarpetX::rk_stage_t::fill_next_boundary ran before "
+               "rhs_computed");
+  }
+  if (CCTK_EQUALS(mode, "step-closed-early")) {
+    {
+      CarpetX::rk_step_t step = CarpetX::open_rk_step(coarsest);
+      CarpetX::rk_stage_t stage = step.stage(1);
+      stage.rhs_computed(0);
+    }
+    CCTK_ERROR("CarpetX::rk_step_t closed after 1 of 4 stages");
+  }
 }
 
 extern "C" void TestCarpetXAPI_Check(CCTK_ARGUMENTS) {

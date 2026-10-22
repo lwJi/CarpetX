@@ -33,7 +33,47 @@ void register_integrator(const rk_config_t &config);
 void run_schedule_group_at(const cGH *cctkGH, const char *group, CCTK_REAL time,
                            CCTK_REAL delta_time);
 
-void accumulate_fluxes(level_t level, int stage, CCTK_REAL weight);
+class rk_step_t;
+
+class rk_stage_t {
+public:
+  rk_stage_t(rk_stage_t &&other) noexcept;
+  rk_stage_t(const rk_stage_t &) = delete;
+  rk_stage_t &operator=(const rk_stage_t &) = delete;
+  rk_stage_t &operator=(rk_stage_t &&) = delete;
+  ~rk_stage_t();
+
+  void rhs_computed(CCTK_REAL flux_weight);
+  void fill_next_boundary(CCTK_REAL xsi, CCTK_REAL dtc);
+
+private:
+  struct impl;
+  impl *p;
+  explicit rk_stage_t(impl *p) noexcept;
+  friend class rk_step_t;
+};
+
+class rk_step_t {
+public:
+  rk_step_t(rk_step_t &&other) noexcept;
+  rk_step_t(const rk_step_t &) = delete;
+  rk_step_t &operator=(const rk_step_t &) = delete;
+  rk_step_t &operator=(rk_step_t &&) = delete;
+  ~rk_step_t();
+
+  rk_stage_t stage(int n);
+
+private:
+  struct impl;
+  impl *p;
+  explicit rk_step_t(impl *p) noexcept;
+  friend rk_step_t open_rk_step(level_t level);
+  friend class rk_stage_t;
+};
+
+rk_step_t open_rk_step(level_t level);
+void rk_recover_boundary(level_t level, CCTK_REAL xsi, CCTK_REAL dtc);
+
 void reflux(window_t window);
 bool window_is_restricted(window_t window);
 

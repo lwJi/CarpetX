@@ -138,6 +138,14 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
   const auto copy_state = [](const auto &var, const valid_t where) {
     return var.copy(where);
   };
+  std::vector<CarpetX::rk_step_t> steps;
+  const auto open_steps = [&]() {
+    CarpetX::active_window().loop_coarse_to_fine(
+        [&](const CarpetX::level_t level) {
+          steps.push_back(CarpetX::open_rk_step(level));
+        });
+    synchronize();
+  };
   const auto calcrhs = [&](const int n, const CCTK_REAL b_n) {
     Interval interval_rhs(timer_rhs);
     if (verbose)
@@ -145,10 +153,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", t, dt);
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
-    CarpetX::active_window().loop_coarse_to_fine(
-        [&](const CarpetX::level_t level) {
-          CarpetX::accumulate_fluxes(level, n, b_n * dt);
-        });
+    for (CarpetX::rk_step_t &step : steps)
+      step.stage(n).rhs_computed(b_n * dt);
     synchronize();
   };
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
@@ -188,6 +194,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     assert(rk.nstages == 1);
 
+    open_steps();
+
     calcrhs(1, rk.b.at(0));
     calcupdate(1, dt, 1.0, reals<1>{dt}, states<1>{&rhs});
 
@@ -200,6 +208,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     assert(rk.nstages == 2);
 
     const auto old = copy_state(var, make_valid_all());
+
+    open_steps();
 
     calcrhs(1, rk.b.at(0));
     calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
@@ -217,6 +227,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     assert(rk.nstages == 3);
 
     const auto old = copy_state(var, make_valid_all());
+
+    open_steps();
 
     calcrhs(1, rk.b.at(0));
     const auto k1 = copy_state(rhs, make_valid_int());
@@ -245,6 +257,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     const auto old = copy_state(var, make_valid_all());
 
+    open_steps();
+
     calcrhs(1, rk.b.at(0));
     calcupdate(1, dt, 1.0, reals<1>{dt}, states<1>{&rhs});
 
@@ -267,6 +281,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     assert(rk.nstages == 4);
 
     const auto old = copy_state(var, make_valid_all());
+
+    open_steps();
 
     calcrhs(1, rk.b.at(0));
     const auto kaccum = copy_state(rhs, make_valid_int());
@@ -365,6 +381,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     }
 
     const auto old = copy_state(var, make_valid_all());
+
+    open_steps();
 
     // Final-update weights: this tableau's b, not the method table's row
     // (rk_methods.hxx), which has no room for this many stages
@@ -477,6 +495,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     }
 
     const auto old = copy_state(var, make_valid_all());
+
+    open_steps();
 
     // Final-update weights: this tableau's b, not the method table's row
     // (rk_methods.hxx), which has no room for this many stages

@@ -1,32 +1,18 @@
 #ifndef CARPETX_CARPETX_SUBCYCLING_HXX
 #define CARPETX_CARPETX_SUBCYCLING_HXX
 
-// Driver primitives for subcycling-in-time. The RK dense-output fill of the
-// refinement-boundary ghosts follows AMReX's FillPatcher::fillRK order of
-// operations: the coarse level's start-of-step state and stage derivatives are
-// kept on zero-ghost "source bands" (the coarse cells underneath the refined
-// level's coarse-fine ghost footprint), the time polynomial is evaluated on
-// the coarse side to produce a single coarse *state* at the fine stage time,
-// and only that state is prolongated in space into the fine ghost halo.
-//
-// The refined level owns everything the fill needs, per evolved group: the
-// source bands, which the coarse level fills during its own step
-// (StoreRKOldState, StoreRKStage), and the fill's two work buffers
-// (GroupData::rk_crse_patch and rk_fine_patch). All of them have the geometry
-// of one FPinfo, are allocated together (EnsureRKBuffers) and stay allocated
-// from regrid to regrid, so that a fill in steady state allocates nothing.
-//
-// All entry points are C++-only and operate on one (patch, level) like the
-// driver's other internals. StoreRKOldState, StoreRKStage and FillRKBoundary
-// are called by ODESolvers, which owns the RK tableau and the choice of
-// (stage, xsi) evaluation points; EnsureRKBuffers is called by StoreRKOldState
-// and by the recovery path (RecoverGH).
+#ifndef CARPETX_INTERNAL
+#error                                                                         \
+    "CarpetX internal header; include <carpetx.hxx> instead (see agent_docs/carpetx-public-api.md)"
+#endif
 
 #include <cctk.h>
 
 #include <vector>
 
 namespace CarpetX {
+
+inline constexpr CCTK_REAL rk_substep_ratio = 0.5;
 
 // Allocate (lazily, idempotently) all RK buffers of group gi on the refined
 // level (patch, level >= 1): old_source_band, ks_source_band[0..num_rk_stages),
@@ -97,35 +83,6 @@ void EnsureFluxGeometry(int patch, int level);
 
 void AccumulateFluxes(int patch, int level, int stage, CCTK_REAL weight);
 
-// Flux-register (reflux) correction of every level pair (level, level + 1)
-// with both levels in [min_level, max_level), finest pair first: the coarse
-// state's time level 0 receives register / volume on the interior cells next
-// to the coarse-fine boundary. Only the registers are applied: no ghost,
-// outer boundary point or validity flag is touched, so the corrected cells'
-// copies in same-level ghosts (including periodic images), in the outer
-// boundary and in inter-patch ghosts keep their old values, and so do the
-// state's dependents= groups. Defined in sync_restrict.cxx.
-//
-// Two callers, one per solver, each at the point where it knows a pair's
-// step is complete, and each followed by an ODESolvers_PostStep on the
-// corrected levels before the state is read again. That traversal's SYNC
-// carries the correction into the ghosts, the outer boundary and the
-// inter-patch ghosts, and it recomputes the dependents:
-//  - ODESolvers_Solve without subcycling, with [0, num_levels), in its
-//    final stage after the state update, right before that stage's
-//    PostStep (which, with restrict_during_sync, also restricts); the state
-//    is valid on the interior only there;
-//  - the driver's evolve loop under subcycling, with the widened
-//    time-aligned window, once per coarse step in the restrict block, after
-//    CarpetX_PreRestrict and immediately before restriction. The PostStep
-//    is the one at POSTRESTRICT. Until then the state's ghost flags stay set
-//    over stale copies, exactly as they do after the restriction itself
-//    (RestrictNoPoison), and nothing in between reads them: restriction
-//    reads fine interior cells only, and ProlongateAfterRestriction copies
-//    no coarse ghost. Clearing the flags instead would not work: the
-//    subcycling SYNC never re-marks an evolved group's ghosts valid at
-//    iteration > 0 (the solver does, after each refinement-boundary fill).
-// No-op with do_reflux = no and for pairs without a register.
 void Reflux(const cGH *cctkGH, int min_level, int max_level);
 
 } // namespace CarpetX

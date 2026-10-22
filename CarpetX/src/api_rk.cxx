@@ -9,9 +9,18 @@
 #include <cctk.h>
 #include <cctk_Parameters.h>
 
+#if defined _OPENMP
+#include <omp.h>
+#else
+static inline int omp_in_parallel() { return 0; }
+#endif
+
 #include <algorithm>
 #include <cstddef>
+#include <functional>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace CarpetX {
 
@@ -157,15 +166,252 @@ void run_schedule_group_at(const cGH *const cctkGH_, const char *const group,
                 group, double(time), ierr);
 }
 
-void accumulate_fluxes(const level_t level, const int stage,
-                       const CCTK_REAL weight) {
-  const rk_config_t &config = require_integrator("CarpetX::accumulate_fluxes");
-  resolve(level);
-  if (stage < 1 || stage > config.nstages)
-    CCTK_VERROR("CarpetX::accumulate_fluxes: RK stage %d is not one of the "
-                "registered integrator's stages 1..%d",
-                stage, config.nstages);
-  AccumulateFluxes(level.patch, level.level, stage, weight);
+namespace {
+
+using GroupData = GHExt::PatchData::LevelData::GroupData;
+
+constexpr int rk_tl = 0;
+
+void require_serial_context(const char *const what) {
+  if (omp_in_parallel())
+    CCTK_VERROR("%s must run outside an OpenMP parallel region: it opens its "
+                "own MFIter and OpenMP regions and warms AMReX's FPinfo cache",
+                what);
+}
+
+void require_subcycling(const char *const what) {
+  if (!driver().use_subcycling)
+    CCTK_VERROR("%s fills the refinement boundary from the RK source bands, "
+                "which exist only with CarpetX::use_subcycling = yes",
+                what);
+}
+
+void require_refined_level(const char *const what, const level_t level) {
+  if (level.level == 0)
+    CCTK_VERROR("%s: level 0 of patch %d has no refinement boundary to fill",
+                what, level.patch);
+}
+
+void require_evaluation_point(const char *const what, const CCTK_REAL xsi,
+                              const CCTK_REAL dtc) {
+  if (!(xsi >= 0 && xsi + rk_substep_ratio <= 1))
+    CCTK_VERROR("%s: the substep starts at xsi = %g of the parent's step, "
+                "but a fine substep of length %g must start within [0, %g]",
+                what, double(xsi), double(rk_substep_ratio),
+                double(1 - rk_substep_ratio));
+  if (!(dtc > 0))
+    CCTK_VERROR("%s: the parent's time step dtc = %g is not positive", what,
+                double(dtc));
+}
+
+struct integrated_groups_t {
+  std::vector<int> states, rhss;
+};
+
+integrated_groups_t integrated_groups_with_storage(const char *const what,
+                                                   const level_t level,
+                                                   const rk_config_t &config) {
+  const GHExt::PatchData::LevelData &leveldata = resolve(level);
+  integrated_groups_t groups;
+  for (const rk_pair_t &pair : config.integrated) {
+    const GroupData *const state = leveldata.groupdata.at(pair.state_gi).get();
+    if (!state || state->mfab.empty())
+      continue;
+    const GroupData *const rhs = leveldata.groupdata.at(pair.rhs_gi).get();
+    if (!rhs || rhs->mfab.empty())
+      CCTK_VERROR("%s: integrated group %s has storage on patch %d, refinement "
+                  "level %d, but its right-hand side %s has none",
+                  what, CCTK_FullGroupName(pair.state_gi), level.patch,
+                  level.level, CCTK_FullGroupName(pair.rhs_gi));
+    groups.states.push_back(pair.state_gi);
+    groups.rhss.push_back(pair.rhs_gi);
+  }
+  return groups;
+}
+
+void mark_refinement_boundary_filled(const level_t level,
+                                     const std::vector<int> &states,
+                                     const std::function<std::string()> &why) {
+  GHExt::PatchData::LevelData &leveldata = resolve(level);
+  for (const int gi : states) {
+    GroupData &groupdata = *leveldata.groupdata.at(gi);
+    for (why_valid_t &why_valid : groupdata.valid.at(rk_tl)) {
+      why_valid.set_ghosts(true, why);
+      if (groupdata.all_faces_have_symmetries_or_boundaries())
+        why_valid.set_outer(true, why);
+    }
+  }
+}
+
+} // namespace
+
+struct rk_step_t::impl {
+  level_t level;
+  int nstages;
+  integrated_groups_t groups;
+  int next = 1;
+  bool stage_open = false;
+};
+
+struct rk_stage_t::impl {
+  rk_step_t::impl *step;
+  int n;
+  bool rhs_done = false;
+  bool fill_done = false;
+};
+
+rk_step_t open_rk_step(const level_t level) {
+  const rk_config_t &config = require_integrator("CarpetX::open_rk_step");
+  require_serial_context("CarpetX::open_rk_step");
+  integrated_groups_t groups =
+      integrated_groups_with_storage("CarpetX::open_rk_step", level, config);
+  const GHExt::PatchData::LevelData &leveldata = resolve(level);
+  for (const int gi : groups.states) {
+    const GroupData &groupdata = *leveldata.groupdata.at(gi);
+    for (int vi = 0; vi < groupdata.numvars; ++vi)
+      error_if_invalid(groupdata, vi, rk_tl, make_valid_int(), []() {
+        return "CarpetX::open_rk_step: the RK step starts from the state's "
+               "current time level";
+      });
+  }
+  StoreRKOldState(level.patch, level.level, groups.states, rk_tl);
+  return rk_step_t(
+      new rk_step_t::impl{level, config.nstages, std::move(groups)});
+}
+
+rk_step_t::rk_step_t(impl *const p) noexcept : p(p) {}
+
+rk_step_t::rk_step_t(rk_step_t &&other) noexcept : p(other.p) {
+  other.p = nullptr;
+}
+
+rk_stage_t rk_step_t::stage(const int n) {
+  if (!p)
+    CCTK_ERROR("CarpetX::rk_step_t::stage called on a moved-from RK step");
+  if (p->stage_open)
+    CCTK_VERROR("CarpetX::rk_step_t::stage(%d) on patch %d, refinement level "
+                "%d: stage %d is still open; destroy its rk_stage_t first",
+                n, p->level.patch, p->level.level, p->next - 1);
+  if (p->next > p->nstages)
+    CCTK_VERROR("CarpetX::rk_step_t::stage(%d) on patch %d, refinement level "
+                "%d: all %d stages of this step have run; destroy the "
+                "rk_step_t and open the next step",
+                n, p->level.patch, p->level.level, p->nstages);
+  if (n != p->next)
+    CCTK_VERROR("CarpetX::rk_step_t::stage(%d) on patch %d, refinement level "
+                "%d: expected stage %d of %d; the stages of a step run in "
+                "order, each exactly once",
+                n, p->level.patch, p->level.level, p->next, p->nstages);
+  p->stage_open = true;
+  ++p->next;
+  return rk_stage_t(new rk_stage_t::impl{p, n});
+}
+
+rk_step_t::~rk_step_t() {
+  if (!p)
+    return;
+  if (p->stage_open)
+    CCTK_VERROR("CarpetX::rk_step_t on patch %d, refinement level %d destroyed "
+                "while stage %d of %d is still open",
+                p->level.patch, p->level.level, p->next - 1, p->nstages);
+  if (p->next != p->nstages + 1)
+    CCTK_VERROR("CarpetX::rk_step_t on patch %d, refinement level %d destroyed "
+                "after %d of its %d stages; every stage of a step runs before "
+                "the step closes",
+                p->level.patch, p->level.level, p->next - 1, p->nstages);
+  delete p;
+}
+
+rk_stage_t::rk_stage_t(impl *const p) noexcept : p(p) {}
+
+rk_stage_t::rk_stage_t(rk_stage_t &&other) noexcept : p(other.p) {
+  other.p = nullptr;
+}
+
+void rk_stage_t::rhs_computed(const CCTK_REAL flux_weight) {
+  if (!p)
+    CCTK_ERROR("CarpetX::rk_stage_t::rhs_computed called on a moved-from RK "
+               "stage");
+  const rk_step_t::impl &step = *p->step;
+  if (p->rhs_done)
+    CCTK_VERROR("CarpetX::rk_stage_t::rhs_computed on patch %d, refinement "
+                "level %d, RK stage %d of %d: called twice; expected "
+                "fill_next_boundary",
+                step.level.patch, step.level.level, p->n, step.nstages);
+  AccumulateFluxes(step.level.patch, step.level.level, p->n, flux_weight);
+  StoreRKStage(step.level.patch, step.level.level, step.groups.states,
+               step.groups.rhss, p->n);
+  p->rhs_done = true;
+}
+
+void rk_stage_t::fill_next_boundary(const CCTK_REAL xsi, const CCTK_REAL dtc) {
+  if (!p)
+    CCTK_ERROR("CarpetX::rk_stage_t::fill_next_boundary called on a "
+               "moved-from RK stage");
+  const rk_step_t::impl &step = *p->step;
+  if (!p->rhs_done)
+    CCTK_VERROR("CarpetX::rk_stage_t::fill_next_boundary on patch %d, "
+                "refinement level %d, RK stage %d of %d: expected "
+                "rhs_computed first",
+                step.level.patch, step.level.level, p->n, step.nstages);
+  if (p->fill_done)
+    CCTK_VERROR("CarpetX::rk_stage_t::fill_next_boundary on patch %d, "
+                "refinement level %d, RK stage %d of %d: called twice; the "
+                "stage is complete, destroy it",
+                step.level.patch, step.level.level, p->n, step.nstages);
+  require_subcycling("CarpetX::rk_stage_t::fill_next_boundary");
+  require_refined_level("CarpetX::rk_stage_t::fill_next_boundary", step.level);
+  require_evaluation_point("CarpetX::rk_stage_t::fill_next_boundary", xsi, dtc);
+  const bool virtual_end = p->n == step.nstages;
+  FillRKBoundary(step.level.patch, step.level.level, step.groups.states, rk_tl,
+                 virtual_end ? 1 : p->n + 1,
+                 virtual_end ? xsi + rk_substep_ratio : xsi, dtc);
+  const int iteration = driver().get_global_cctkGH()->cctk_iteration;
+  mark_refinement_boundary_filled(
+      step.level, step.groups.states,
+      [n = p->n, nstages = step.nstages, iteration]() {
+        return "CarpetX::rk_stage_t::fill_next_boundary after RK stage " +
+               std::to_string(n) + " of " + std::to_string(nstages) +
+               " (iteration " + std::to_string(iteration) + ")";
+      });
+  p->fill_done = true;
+}
+
+rk_stage_t::~rk_stage_t() {
+  if (!p)
+    return;
+  rk_step_t::impl &step = *p->step;
+  if (!p->rhs_done)
+    CCTK_VERROR("CarpetX::rk_stage_t on patch %d, refinement level %d, RK "
+                "stage %d of %d destroyed before rhs_computed",
+                step.level.patch, step.level.level, p->n, step.nstages);
+  if (!p->fill_done && driver().use_subcycling && step.level.level > 0)
+    CCTK_VERROR("CarpetX::rk_stage_t on patch %d, refinement level %d, RK "
+                "stage %d of %d destroyed before fill_next_boundary; with "
+                "CarpetX::use_subcycling = yes every stage on a refined level "
+                "fills its refinement boundary before it closes",
+                step.level.patch, step.level.level, p->n, step.nstages);
+  step.stage_open = false;
+  delete p;
+}
+
+void rk_recover_boundary(const level_t level, const CCTK_REAL xsi,
+                         const CCTK_REAL dtc) {
+  const rk_config_t &config =
+      require_integrator("CarpetX::rk_recover_boundary");
+  require_serial_context("CarpetX::rk_recover_boundary");
+  require_subcycling("CarpetX::rk_recover_boundary");
+  require_refined_level("CarpetX::rk_recover_boundary", level);
+  require_evaluation_point("CarpetX::rk_recover_boundary", xsi, dtc);
+  const integrated_groups_t groups = integrated_groups_with_storage(
+      "CarpetX::rk_recover_boundary", level, config);
+  FillRKBoundary(level.patch, level.level, groups.states, rk_tl, 1,
+                 xsi + rk_substep_ratio, dtc);
+  const int iteration = driver().get_global_cctkGH()->cctk_iteration;
+  mark_refinement_boundary_filled(level, groups.states, [iteration]() {
+    return "CarpetX::rk_recover_boundary (iteration " +
+           std::to_string(iteration) + ")";
+  });
 }
 
 void reflux(const window_t window) {

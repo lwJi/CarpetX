@@ -1,4 +1,4 @@
-STORAGE: state
+STORAGE: state state_rhs
 
 SCHEDULE TestCarpetXAPI_Register AT wragh
 {
