@@ -1033,13 +1033,11 @@ void EnsureFluxGeometry(const int patch, const int level) {
   assert(have_all_or_none());
 }
 
-// See subcycling.hxx for the contract. Called by both ODESolvers solvers
-// once per RK stage, between ODESolvers_RHS and the state update.
 void AccumulateFluxes(const int patch, const int level, const int stage,
                       const CCTK_REAL weight) {
   if (!ghext->do_reflux)
     return;
-  assert(stage >= 1 && stage <= ghext->num_rk_stages);
+  assert(stage >= 1 && stage <= num_rk_stages());
 
   static Timer timer("AccumulateFluxes");
   Interval interval(timer);

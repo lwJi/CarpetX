@@ -67,26 +67,8 @@ void StoreRKStage(int patch, int level, const std::vector<int> &var_groups,
 void FillRKBoundary(int patch, int level, const std::vector<int> &var_groups,
                     int tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
-// True iff group gi is advanced by the time integrator, i.e. listed in
-// ghext->rk_integrated_group, which ODESolvers publishes at WRAGH (the grid
-// functions with an rhs= tag). An empty vector, as when ODESolvers is not
-// active, means nothing is integrated. This is the one definition of "gi is
-// integrated"; SyncGroupsByDirISubcycling (which skips the refined-level
-// coarse-fine ghosts of exactly these groups during evolution),
-// FillRKBoundary, EnsureRKBuffers, StoreRKOldState, group_has_flux_register,
-// warn_inert_flux_tags and ODESolvers_CheckTags call it. Uses only ghext and
-// no grid structure, so it is valid from PARAMCHECK on, before any level
-// exists. Defined in driver.cxx.
 bool group_is_integrated(int gi);
 
-// True iff group gi gets a flux register on every level > 0: a grid function
-// with a non-empty fluxes= tag, integrated by ODESolvers
-// (group_is_integrated), with CarpetX::do_reflux.
-// This is the one definition of "gi is refluxed"; the GroupData constructor
-// (register allocation), ODESolvers_CheckMethod and the startup warning
-// about inert fluxes= tags (warn_inert_flux_tags, driver.hxx) call it. Uses
-// only tag tables, parameters and ghext, and no grid structure, so it is valid
-// from PARAMCHECK on, before any level exists. Defined in driver.cxx.
 bool group_has_flux_register(int gi);
 
 // True iff the driver restricts the window [min_level, max_level) of
@@ -113,30 +95,6 @@ bool window_is_restricted(int min_level, int max_level);
 // register on either side; defined in sync_restrict.cxx.
 void EnsureFluxGeometry(int patch, int level);
 
-// Flux-register (reflux) accumulation for one RK stage on (patch, level).
-// Called by both ODESolvers solvers once per stage, after ODESolvers_RHS
-// evaluated the fluxes and before the state update consumes them (and marks
-// them invalid as dependents of the state). `weight` is b_stage * dt of
-// this level's step, the stage's effective weight in the update, so that
-// after a full step a register holds exactly the flux combination the state
-// received.
-//
-// For every ODESolvers-integrated GF group with a fluxes= tag (only these
-// own a register; a flux-tagged group outside rk_integrated_group is never
-// touched here; defined in sync_restrict.cxx):
-//  - as the coarse side of the pair (level, level + 1): stage 1 zeroes the
-//    child's register (the coarse step is the reset), then every stage adds
-//    -weight * area_d * flux_d;
-//  - as the fine side of (level - 1, level): every stage adds
-//    +weight * area_d * flux_d into this level's own register.
-// Fluxes are per unit area, following d/dt state + div(flux) = 0; area_d is
-// the level's own face area (the constant of LevelData::face_area[d], see
-// EnsureFluxGeometry), so that the fine faces under a coarse face sum to
-// the coarse face and FluxRegister::Reflux can divide by the coarse cell
-// volume. Reads only interior faces of the flux groups (time level 0, which
-// must be valid there) and updates no valid flag. No-op with do_reflux = no
-// and for groups without a register. Allocates nothing in steady state: the
-// coarse side stages through the child's GroupData::freg_scratch.
 void AccumulateFluxes(int patch, int level, int stage, CCTK_REAL weight);
 
 // Flux-register (reflux) correction of every level pair (level, level + 1)

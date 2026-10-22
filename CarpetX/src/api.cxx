@@ -1,5 +1,6 @@
 #include <carpetx.hxx>
 
+#include "api.hxx"
 #include "driver.hxx"
 #include "schedule.hxx"
 
@@ -10,8 +11,6 @@
 #include <vector>
 
 namespace CarpetX {
-
-namespace {
 
 GHExt &driver() {
   if (!ghext)
@@ -37,6 +36,8 @@ GHExt::PatchData::LevelData &resolve(const level_t level) {
   return patchdata.leveldata.at(level.level);
 }
 
+namespace {
+
 void require_grid_function(const char *const what, const int gi) {
   if (gi < 0 || gi >= CCTK_NumGroups())
     CCTK_VERROR("%s: group index %d does not exist: there are %d groups", what,
@@ -58,11 +59,6 @@ resolve(const char *const what, GHExt::PatchData::LevelData &leveldata,
   return *groupdata;
 }
 
-GHExt::PatchData::LevelData::GroupData &resolve(const char *const what,
-                                                const group_t group) {
-  return resolve(what, resolve(group.level), group.gi);
-}
-
 void require_timelevel(const char *const what,
                        const GHExt::PatchData::LevelData::GroupData &groupdata,
                        const int tl) {
@@ -72,6 +68,21 @@ void require_timelevel(const char *const what,
                 "refinement level %d: it has %d time levels",
                 what, tl, groupdata.groupname.c_str(), groupdata.patch,
                 groupdata.level, ntls);
+}
+
+std::function<std::string()> reason(const char *const why) {
+  const std::string what = why ? why : "";
+  const int iteration = driver().get_global_cctkGH()->cctk_iteration;
+  return [what, iteration]() {
+    return what + " (iteration " + std::to_string(iteration) + ")";
+  };
+}
+
+} // namespace
+
+GHExt::PatchData::LevelData::GroupData &resolve(const char *const what,
+                                                const group_t group) {
+  return resolve(what, resolve(group.level), group.gi);
 }
 
 void require_no_open_write(
@@ -99,17 +110,11 @@ active_levels_t to_active_levels(const window_t window) {
                          window.max_patch);
 }
 
-class window_scope {
-  std::optional<active_levels_t> saved;
+window_scope::window_scope(const window_t window) : saved(active_levels) {
+  active_levels = to_active_levels(window);
+}
 
-public:
-  explicit window_scope(const window_t window) : saved(active_levels) {
-    active_levels = to_active_levels(window);
-  }
-  window_scope(const window_scope &) = delete;
-  window_scope &operator=(const window_scope &) = delete;
-  ~window_scope() { active_levels = saved; }
-};
+window_scope::~window_scope() { active_levels = saved; }
 
 void require_operable(const char *const what, const window_t window,
                       const std::vector<int> &groups) {
@@ -122,16 +127,6 @@ void require_operable(const char *const what, const window_t window,
             require_no_open_write(what, *groupdata);
       });
 }
-
-std::function<std::string()> reason(const char *const why) {
-  const std::string what = why ? why : "";
-  const int iteration = driver().get_global_cctkGH()->cctk_iteration;
-  return [what, iteration]() {
-    return what + " (iteration " + std::to_string(iteration) + ")";
-  };
-}
-
-} // namespace
 
 int num_patches() { return driver().num_patches(); }
 

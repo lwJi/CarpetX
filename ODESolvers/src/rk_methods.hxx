@@ -19,8 +19,7 @@
 // mismatch between b and the update sequence is not caught by any other
 // check and shows up only as a conservation drift.
 
-// TODO: Don't include files from other thorns; create a proper interface
-#include "../../CarpetX/src/driver.hxx"
+#include <carpetx_rk.hxx>
 
 #include <cctk.h>
 
@@ -32,18 +31,12 @@ namespace ODESolvers {
 
 struct rk_method_t {
   const char *name;
-  int nstages;        // stages run per step; published as ghext->num_rk_stages
+  int nstages;
   bool subcycling_ok; // implemented by ODESolvers_Solve_Subcycling
-  bool reflux_ok;     // explicit method: every stage's RHS enters the final
-                      // update with a known weight (b below, or the local
-                      // tableau's b for RKF78/DP87), so ODESolvers_Solve can
-                      // feed the driver's flux registers. False for the IMEX
-                      // rows, whose implicit part has no such weight;
-                      // ODESolvers_CheckMethod rejects them at PARAMCHECK
-                      // when do_reflux and a fluxes= tag would need one.
-  bool explicit_b;    // b below is meaningful (false: IMEX rows, and the
-                      // RKF78/DP87 rows whose b lives in their local tableau
-                      // in odesolvers_solve.cxx)
+  bool reflux_ok;
+  bool explicit_b; // b below is meaningful (false: IMEX rows, and the
+                   // RKF78/DP87 rows whose b lives in their local tableau
+                   // in odesolvers_solve.cxx)
   std::array<CCTK_REAL, CarpetX::max_num_rk_stages> b; // final-update weights
 };
 

@@ -1,4 +1,5 @@
 #include <carpetx.hxx>
+#include <carpetx_rk.hxx>
 #include <loop.hxx>
 
 #include <cctk.h>
@@ -34,6 +35,65 @@ int state_group() {
   return gi;
 }
 
+int group(const char *const name) {
+  const int gi = CCTK_GroupIndex(name);
+  if (gi < 0)
+    CCTK_VERROR("Group %s does not exist", name);
+  return gi;
+}
+
+CarpetX::rk_config_t integrator(const char *const state, const char *const rhs,
+                                const int nstages, const bool subcycling_ok,
+                                const bool reflux_ok) {
+  CarpetX::rk_config_t config;
+  config.nstages = nstages;
+  config.subcycling_ok = subcycling_ok;
+  config.reflux_ok = reflux_ok;
+  config.integrated.push_back(CarpetX::rk_pair_t{group(state), group(rhs)});
+  return config;
+}
+
+CarpetX::rk_config_t valid_integrator() {
+  return integrator("TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", 4,
+                    true, true);
+}
+
+extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (CCTK_EQUALS(mode, "register-twice")) {
+    CarpetX::register_integrator(valid_integrator());
+    CarpetX::register_integrator(valid_integrator());
+    CCTK_ERROR("CarpetX::register_integrator accepted a second registration");
+  }
+  if (CCTK_EQUALS(mode, "stages-not-3-or-4")) {
+    CarpetX::register_integrator(integrator(
+        "TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", 2, true, true));
+    CCTK_ERROR("CarpetX::register_integrator accepted 2 RK stages under "
+               "subcycling");
+  }
+  if (CCTK_EQUALS(mode, "reflux-without-reflux-ok")) {
+    CarpetX::register_integrator(integrator("TestCarpetXAPI::conserved",
+                                            "TestCarpetXAPI::conserved_rhs", 2,
+                                            false, false));
+    CCTK_ERROR("CarpetX::register_integrator accepted reflux_ok = false for a "
+               "flux-tagged integrated group under CarpetX::do_reflux");
+  }
+  if (CCTK_EQUALS(mode, "subcycling-without-subcycling-ok")) {
+    CarpetX::register_integrator(integrator(
+        "TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", 4, false, true));
+    CCTK_ERROR("CarpetX::register_integrator accepted subcycling_ok = false "
+               "under subcycling");
+  }
+  if (CCTK_EQUALS(mode, "integrated-not-checkpointed")) {
+    CarpetX::register_integrator(integrator("TestCarpetXAPI::unsaved",
+                                            "TestCarpetXAPI::unsaved_rhs", 4,
+                                            true, true));
+    CCTK_ERROR("CarpetX::register_integrator accepted an integrated group "
+               "tagged checkpoint=\"no\"");
+  }
+}
+
 void require_flags(const CarpetX::group_t group,
                    const CarpetX::valid_t expected, const char *const when) {
   const CarpetX::valid_t found = CarpetX::valid(group, tl, 0);
@@ -65,6 +125,16 @@ void fill_interior(const CarpetX::level_t level, amrex::MultiFab &mfab) {
 
 extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
+
+  if (CCTK_EQUALS(mode, "register-after-use")) {
+    CarpetX::register_integrator(valid_integrator());
+    CCTK_ERROR("CarpetX::register_integrator accepted a registration at "
+               "CCTK_INITIAL, after the driver read its integrator record");
+  }
+  if (CCTK_EQUALS(mode, "unregistered-rk-call")) {
+    CarpetX::reflux(CarpetX::all_levels());
+    CCTK_ERROR("CarpetX::reflux ran without a registered integrator");
+  }
 
   const int gi = state_group();
   const std::vector<int> groups{gi};

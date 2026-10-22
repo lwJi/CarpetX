@@ -1,6 +1,23 @@
 IMPLEMENTS: TestCarpetXAPI
 
 USES INCLUDE HEADER: carpetx.hxx
+USES INCLUDE HEADER: carpetx_rk.hxx
 USES INCLUDE HEADER: loop.hxx
 
-CCTK_REAL state TYPE=GF CENTERING={CCC} "Grid function that TestCarpetXAPI_Fill writes through CarpetX::write and fills through CarpetX::sync"
+CCTK_REAL state TYPE=GF CENTERING={CCC} "Grid function that TestCarpetXAPI_Fill writes through CarpetX::write and fills through CarpetX::sync; the integrated state of the integrator TestCarpetXAPI_Register registers"
+
+CCTK_REAL state_rhs TYPE=GF CENTERING={CCC} TAGS='checkpoint="no"' "Right-hand side paired with state when TestCarpetXAPI_Register registers an integrator"
+
+CCTK_REAL unsaved TYPE=GF CENTERING={CCC} TAGS='checkpoint="no" rhs="unsaved_rhs"' "Grid function tagged checkpoint=no that mode integrated-not-checkpointed registers as integrated state; CarpetX::register_integrator must refuse it"
+
+CCTK_REAL unsaved_rhs TYPE=GF CENTERING={CCC} TAGS='checkpoint="no"' "Right-hand side of unsaved"
+
+CCTK_REAL conserved TYPE=GF CENTERING={CCC} TAGS='rhs="conserved_rhs" fluxes="flux_x flux_y flux_z"' "Grid function with a fluxes= tag that mode reflux-without-reflux-ok registers as integrated state of an integrator that cannot feed flux registers; CarpetX::register_integrator must refuse it under CarpetX::do_reflux with more than one level"
+
+CCTK_REAL conserved_rhs TYPE=GF CENTERING={CCC} TAGS='checkpoint="no"' "Right-hand side of conserved"
+
+CCTK_REAL flux_x TYPE=GF CENTERING={VCC} TAGS='checkpoint="no"' "Flux of conserved in the x direction"
+
+CCTK_REAL flux_y TYPE=GF CENTERING={CVC} TAGS='checkpoint="no"' "Flux of conserved in the y direction"
+
+CCTK_REAL flux_z TYPE=GF CENTERING={CCV} TAGS='checkpoint="no"' "Flux of conserved in the z direction"

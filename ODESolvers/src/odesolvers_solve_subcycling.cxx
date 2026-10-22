@@ -57,18 +57,14 @@ struct dense_output_point_t {
   int stage;
 };
 
-// During the first substep (lagging the parent) the stages are evaluated at
-// xsi = 0, during the second (aligned) at xsi = 1/2. At the virtual
-// end-of-substep stage (num_rk_stages + 1) the polynomial is evaluated half a
-// fine step later, at xsi + 1/2, with the pure-U (stage 1) combination, which
-// is what the next substep needs at its stage 1. For an aligned level that is
-// the end of the parent's step, xsi = 1, where the polynomial is the parent's
-// RK update. The parent's tl=0 is that update after ODESolvers_PostStep, and
-// after reflux and restriction once its window is restricted, so where those
-// change the state the two differ by more than round-off.
+int num_rk_stages() {
+  DECLARE_CCTK_PARAMETERS;
+  return rk_method(method).nstages;
+}
+
 dense_output_point_t dense_output_point(const LevelData &leveldata,
                                         const int stage) {
-  const int virtual_end = CarpetX::ghext->num_rk_stages + 1;
+  const int virtual_end = num_rk_stages() + 1;
   assert(stage >= 1 && stage <= virtual_end);
   const CCTK_REAL xsi = aligned_with_parent(leveldata) ? 0.5 : 0.0;
   if (stage == virtual_end)
@@ -206,71 +202,52 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     statecomp_t::init_tmp_mfabs();
   }
 
-  const CCTK_REAL saved_time = cctkGH->cctk_time;
   const CCTK_REAL old_time = cctkGH->cctk_time - dt;
+  CCTK_REAL t = old_time;
 
   static Timer timer_lincomb("ODESolvers::Solve::lincomb");
   static Timer timer_rhs("ODESolvers::Solve::rhs");
   static Timer timer_poststep("ODESolvers::Solve::poststep");
 
-  // The method's row in the RK method table (rk_methods.hxx): its stage
-  // count and the effective weight b_s of each stage in the final update,
-  //   y1 = y0 + dt * sum_s b_s f(Y_s),
-  // handed to the driver's flux register so that after a full step it holds
-  // exactly the flux combination the state received. ODESolvers_CheckMethod
-  // rejected at PARAMCHECK any method this solver does not implement.
   const rk_method_t &rk = rk_method(method);
   assert(rk.subcycling_ok);
 
   const auto calcrhs = [&](const int n) {
     Interval interval_rhs(timer_rhs);
     if (verbose)
-      CCTK_VINFO("Calculating RHS #%d at t=%g", n, double(cctkGH->cctk_time));
-    CallScheduleGroup(cctkGH, "ODESolvers_RHS");
+      CCTK_VINFO("Calculating RHS #%d at t=%g", n, double(t));
+    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", t,
+                                   cctkGH->cctk_delta_time);
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
-    // Feed the driver's flux registers with this stage's flux, weighted by
-    // the stage's effective weight and this batch's step, now: the flux
-    // groups hold exactly the flux the update below consumes, and calcupdate
-    // marks them invalid afterwards (they are dependents of the state).
-    active_levels->loop_coarse_to_fine([&](const auto &restrict leveldata) {
-      CarpetX::AccumulateFluxes(leveldata.patch, leveldata.level, n,
-                                rk.b.at(n - 1) * dt);
-    });
+    CarpetX::active_window().loop_coarse_to_fine(
+        [&](const CarpetX::level_t level) {
+          CarpetX::accumulate_fluxes(level, n, rk.b.at(n - 1) * dt);
+        });
     synchronize();
   };
-  // t = t_0 + c
-  // var = a_0 * var + \Sum_i a_i * var_i
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
                               const CCTK_REAL a0, const auto &as,
                               const auto &vars) {
-    {
-      Interval interval_lincomb(timer_lincomb);
-      if (verbose)
-        CCTK_VINFO("Calculated new state #%d at t=%g", n,
-                   double(cctkGH->cctk_time));
-      statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
-      var.check_valid(make_valid_int(),
-                      "ODESolvers after defining new state vector");
-      mark_invalid(dep_groups);
-    }
-    {
-      Interval interval_poststep(timer_poststep);
-      *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
-    }
+    Interval interval_lincomb(timer_lincomb);
+    if (verbose)
+      CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
+    statecomp_t::lincomb(var, a0, as, vars, make_valid_int());
+    var.check_valid(make_valid_int(),
+                    "ODESolvers after defining new state vector");
+    mark_invalid(dep_groups);
+    t = old_time + c;
   };
-  // calling ODESolvers_PostStep Group
   const auto calcpoststep = [&]() {
-    CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+    Interval interval_poststep(timer_poststep);
+    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", t,
+                                   cctkGH->cctk_delta_time);
   };
-  // Fill the refinement-boundary ghosts of var(tl=0) on every fine level for
-  // the given stage, the virtual end-of-step (num_rk_stages + 1) included,
-  // by dense output from the level's own source bands (fill_rk_boundary).
   const auto calcys_rmbnd = [&](const int stage) {
     if (verbose)
       CCTK_VINFO(
           "Fill refinement boundary ghost zones using Ys for stage #%d at t=%g",
-          stage, double(cctkGH->cctk_time));
+          stage, double(t));
 
     active_levels->loop_coarse_to_fine([&](auto &leveldata) {
       if (leveldata.level == 0)
@@ -283,15 +260,11 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     synchronize();
     var.set_valid(make_valid_all());
   };
-  // Store the interior RHS of this stage of each level into the k-stage source
-  // band of its child level, which owns the bands (levels with children only),
-  // to be combined into the children's refinement-boundary fills by
-  // calcys_rmbnd.
   const auto setks = [&](const int stage) {
     if (verbose)
       CCTK_VINFO(
           "Set interior Ks for stage #%d at t=%g, to be prolongated later",
-          stage, double(cctkGH->cctk_time));
+          stage, double(t));
     active_levels->loop_coarse_to_fine([&](const auto &restrict leveldata) {
       CarpetX::StoreRKStage(leveldata.patch, leveldata.level, var_groups,
                             rhs_groups, stage);
@@ -312,8 +285,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     });
     synchronize();
   };
-
-  *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
 
   static_assert(
       rk_methods_detail::subcycling_ok_rows_are({"constant", "RK4", "SSPRK3"}),
@@ -448,9 +419,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     statecomp_t::free_tmp_mfabs();
   }
 
-  // Reset current time
-  *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = saved_time;
-
   // TODO: Update time here, and not during time level cycling in the driver
 }
 
@@ -486,7 +454,7 @@ extern "C" void ODESolvers_Solve_Subcycling_Recovery(CCTK_ARGUMENTS) {
       CarpetX::SyncGroupsByDirIProlongateOnlyAligned(
           cctkGH, var_groups.size(), var_groups.data(), nullptr, /*tl=*/0);
 
-    const int virtual_end = CarpetX::ghext->num_rk_stages + 1;
+    const int virtual_end = num_rk_stages() + 1;
     active_levels->loop_coarse_to_fine([&](const auto &leveldata) {
       if (leveldata.level == 0)
         return;
@@ -541,42 +509,6 @@ extern "C" void ODESolvers_CheckMethod(CCTK_ARGUMENTS) {
                   "has no row in the RK method table "
                   "(ODESolvers/src/rk_methods.hxx)",
                   keyword->range);
-  }
-
-  const rk_method_t &rk = rk_method(method);
-
-  if (CarpetX::ghext->use_subcycling && !rk.subcycling_ok) {
-    std::string supported;
-    for (const auto &row : rk_methods)
-      if (row.subcycling_ok)
-        supported +=
-            (supported.empty() ? "\"" : ", \"") + std::string(row.name) + "\"";
-    CCTK_VERROR("ODESolvers::method = \"%s\" is not supported by the "
-                "subcycling solver (CarpetX::use_subcycling = yes); supported "
-                "methods: %s",
-                method, supported.c_str());
-  }
-
-  // CarpetX::max_num_levels is private to the driver; read it by name
-  int max_num_levels_type;
-  const void *const max_num_levels_p =
-      CCTK_ParameterGet("max_num_levels", "CarpetX", &max_num_levels_type);
-  assert(max_num_levels_p);
-  assert(max_num_levels_type == PARAMETER_INT);
-  const CCTK_INT max_num_levels =
-      *static_cast<const CCTK_INT *>(max_num_levels_p);
-
-  if (CarpetX::ghext->do_reflux && !rk.reflux_ok && max_num_levels > 1) {
-    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      if (!CarpetX::group_has_flux_register(gi))
-        continue;
-      CCTK_VERROR("CarpetX::do_reflux with fluxes= tags and "
-                  "CarpetX::max_num_levels > 1 requires an explicit "
-                  "ODESolvers::method, but \"%s\" is implicit and group "
-                  "\"%s\" (integrated by ODESolvers) carries a fluxes= tag. "
-                  "Choose an explicit method or set CarpetX::do_reflux = no.",
-                  method, CCTK_FullGroupName(gi));
-    }
   }
 }
 

@@ -1,13 +1,10 @@
 IMPLEMENTS: ODESolvers
 
 USES INCLUDE HEADER: div.hxx
+USES INCLUDE HEADER: carpetx.hxx
+USES INCLUDE HEADER: carpetx_rk.hxx
 
 
-
-void FUNCTION CallScheduleGroup(
-  CCTK_POINTER IN cctkGH,
-  CCTK_STRING IN groupname)
-REQUIRES FUNCTION CallScheduleGroup
 
 # these are *always* 0 (false) so that the groups do not execute
 # TODO: this does not handle "IMEX122" yet

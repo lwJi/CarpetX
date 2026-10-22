@@ -1,5 +1,11 @@
 STORAGE: state
 
+SCHEDULE TestCarpetXAPI_Register AT wragh
+{
+  LANG: C
+  OPTIONS: global
+} "Register a time integrator through CarpetX::register_integrator as TestCarpetXAPI::mode says"
+
 SCHEDULE TestCarpetXAPI_Fill AT initial
 {
   LANG: C

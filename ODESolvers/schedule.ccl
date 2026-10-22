@@ -46,13 +46,7 @@ SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
 {
   LANG: C
   OPTIONS: global
-} "Reject method keywords with no row in the RK method table, ODE methods the subcycling solver does not implement, and implicit methods when a flux register would need feeding"
-
-SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
-{
-  LANG: C
-  OPTIONS: global
-} "Reject integrated (rhs=) groups that are not checkpointed or not evolved"
+} "Reject method keywords with no row in the RK method table"
 
 
 
@@ -186,11 +180,6 @@ SCHEDULE ODESolvers_CheckTags AT CCTK_PARAMCHECK
   {
   } "Calculate analysis quantities everywhere"
 
-  # Traversed only by ODESolvers_Solve, in its IMEX122 / "Implicit Euler"
-  # branch (CallScheduleGroup); never scheduled into a bin. Thorns schedule
-  # their implicit solve IN this group; with nothing scheduled the traversal
-  # is empty. The group must be declared: traversing an undeclared group
-  # fails.
   SCHEDULE GROUP ODESolvers_ImplicitStep
   {
   } "Take an implicit step everywhere on the grid"

@@ -1,9 +1,7 @@
 #include "rk_methods.hxx"
 #include "solve.hxx"
 
-// Driver flux-register primitives (AccumulateFluxes, Reflux).
-// TODO: Don't include files from other thorns; create a proper interface.
-#include "../../CarpetX/src/subcycling.hxx"
+#include <carpetx_rk.hxx>
 
 namespace ODESolvers {
 using namespace std;
@@ -14,56 +12,19 @@ extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
 
   *do_substeps = 0;
 
-  // Publish the method's stage count (rk_methods.hxx) for the driver: the
-  // subcycling band machinery (CarpetX::EnsureRKBuffers, the recovery path)
-  // and the stage bound CarpetX::AccumulateFluxes asserts.
-  CarpetX::ghext->num_rk_stages = rk_method(method).nstages;
-
-  // Publish the groups we integrate, i.e. the var_groups the solvers collect:
-  // grid functions that declare a RHS. Only these own subcycling source bands,
-  // and recovery must rebuild bands for exactly these groups.
-  std::vector<bool> &integrated = CarpetX::ghext->rk_integrated_group;
-  integrated.assign(CCTK_NumGroups(), false);
-  for (int gi = 0; gi < CCTK_NumGroups(); ++gi)
-    // TODO: add support for evolving grid scalars
-    integrated.at(gi) =
-        CCTK_GroupTypeI(gi) == CCTK_GF && get_group_rhs(gi) >= 0;
-}
-
-// Reject at PARAMCHECK any group we integrate whose tags would lose its
-// state. Unconditional: with or without subcycling, on any number of levels,
-// and whatever the IO parameters. Runs after WRAGH, where
-// ODESolvers_InitConstants publishes rk_integrated_group, so
-// CarpetX::group_is_integrated is final.
-//
-// - checkpoint="no", whatever the evolve tag: a checkpoint omits the group's
-//   state and, under subcycling, its RK source bands, so recovery could not
-//   restore it.
-// - evolve="no": regrid fills a non-evolved checkpointed group only best
-//   effort, so its state could be left invalid; under subcycling the
-//   dense-output fill of the coarse-fine ghosts also assumes an evolved group.
-//
-// The checkpoint test comes first, so a checkpoint="no" group (whose evolve
-// tag defaults to no) is reported for its root cause.
-extern "C" void ODESolvers_CheckTags(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckTags;
-
+  const rk_method_t &rk = rk_method(method);
+  CarpetX::rk_config_t integrator;
+  integrator.nstages = rk.nstages;
+  integrator.subcycling_ok = rk.subcycling_ok;
+  integrator.reflux_ok = rk.reflux_ok;
   for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-    if (!CarpetX::group_is_integrated(gi))
+    if (CCTK_GroupTypeI(gi) != CCTK_GF)
       continue;
-    if (!CarpetX::get_group_checkpoint_flag(gi))
-      CCTK_VERROR("Group \"%s\" is integrated by ODESolvers (rhs= tag) but "
-                  "not checkpointed (checkpoint=\"no\"). Integrated state "
-                  "must be checkpointed: a checkpoint would omit its state "
-                  "(and, under subcycling, its RK source bands), so recovery "
-                  "could not restore it. Remove checkpoint=\"no\".",
-                  CCTK_FullGroupName(gi));
-    if (!CarpetX::get_group_evolve_flag(gi))
-      CCTK_VERROR("Group \"%s\" is integrated by ODESolvers (rhs= tag) but "
-                  "declared evolve=\"no\". Regrid would not reliably refill "
-                  "its state. Remove evolve=\"no\".",
-                  CCTK_FullGroupName(gi));
+    const int rhs_gi = get_group_rhs(gi);
+    if (rhs_gi >= 0)
+      integrator.integrated.push_back(CarpetX::rk_pair_t{gi, rhs_gi});
   }
+  CarpetX::register_integrator(integrator);
 }
 
 extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
@@ -158,8 +119,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     statecomp_t::init_tmp_mfabs();
   }
 
-  const CCTK_REAL saved_time = cctkGH->cctk_time;
   const CCTK_REAL old_time = cctkGH->cctk_time - dt;
+  CCTK_REAL t = old_time;
 
   static Timer timer_lincomb("ODESolvers::Solve::lincomb");
   static Timer timer_rhs("ODESolvers::Solve::rhs");
@@ -177,27 +138,19 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
   const auto copy_state = [](const auto &var, const valid_t where) {
     return var.copy(where);
   };
-  // Evaluate the RHS of stage n, whose effective weight in the final update
-  // is b_n
   const auto calcrhs = [&](const int n, const CCTK_REAL b_n) {
     Interval interval_rhs(timer_rhs);
     if (verbose)
-      CCTK_VINFO("Calculating RHS #%d at t=%g", n, double(cctkGH->cctk_time));
-    CallScheduleGroup(cctkGH, "ODESolvers_RHS");
+      CCTK_VINFO("Calculating RHS #%d at t=%g", n, double(t));
+    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", t, dt);
     rhs.check_valid(make_valid_int(),
                     "ODESolvers after calling ODESolvers_RHS");
-    // Feed the driver's flux registers with this stage's flux, weighted by
-    // the stage's effective weight and the step, now: the flux groups hold
-    // exactly the flux the update below consumes, and calcupdate marks them
-    // invalid afterwards (they are dependents of the state). No-op without
-    // registers (no fluxes= tag, or do_reflux = no).
-    active_levels->loop_coarse_to_fine([&](const auto &restrict leveldata) {
-      CarpetX::AccumulateFluxes(leveldata.patch, leveldata.level, n, b_n * dt);
-    });
+    CarpetX::active_window().loop_coarse_to_fine(
+        [&](const CarpetX::level_t level) {
+          CarpetX::accumulate_fluxes(level, n, b_n * dt);
+        });
     synchronize();
   };
-  // t = t_0 + c
-  // var = a_0 * var + \Sum_i a_i * var_i
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
                               const CCTK_REAL a0, const auto &as,
                               const auto &vars) {
@@ -209,26 +162,18 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
       mark_invalid(dep_groups);
     }
     if (n == rk.nstages) {
-      // The step is complete on every level (no subcycling: all levels
-      // share one dt): apply every pair's register to its coarse level
-      // before the PostStep below re-syncs ghosts (and, with
-      // restrict_during_sync, restricts), re-applies boundary conditions
-      // and recomputes the dependents of the corrected cells.
       static Timer timer_reflux("ODESolvers::Solve::reflux");
       Interval interval_reflux(timer_reflux);
-      CarpetX::Reflux(cctkGH, 0, CarpetX::ghext->num_levels());
+      CarpetX::reflux(CarpetX::all_levels());
     }
     {
       Interval interval_poststep(timer_poststep);
-      *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + c;
-      CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+      t = old_time + c;
+      CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", t, dt);
       if (verbose)
-        CCTK_VINFO("Calculated new state #%d at t=%g", n,
-                   double(cctkGH->cctk_time));
+        CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
     }
   };
-
-  *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
 
   if (CCTK_EQUALS(method, "constant")) {
 
@@ -601,30 +546,27 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     const auto y0 = var.copy(make_valid_int /*all*/ ());
 
-    *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time;
     if (verbose)
-      CCTK_VINFO("Calculating RHS #1 at t=%g", double(cctkGH->cctk_time));
-    CallScheduleGroup(cctkGH, "ODESolvers_RHS");
+      CCTK_VINFO("Calculating RHS #1 at t=%g", double(old_time));
+    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", old_time, dt);
     const auto k1 = rhs.copy(make_valid_int());
 
-    *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt / 2;
     statecomp_t::lincomb(var, 1, make_array(dt / 2), make_array(&rhs),
                          make_valid_int());
     var.check_valid(make_valid_int(),
                     "ODESolvers after defining new state vector");
     mark_invalid(dep_groups);
-    CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep",
+                                   old_time + dt / 2, dt);
 
-    *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt / 2;
-    *const_cast<CCTK_REAL *>(&cctkGH->cctk_delta_time) = dt / 2;
     if (verbose)
       CCTK_VINFO("Taking implicit step #1 at t=%g with dt=%g",
-                 double(cctkGH->cctk_time), double(cctkGH->cctk_delta_time));
-    CallScheduleGroup(cctkGH, "ODESolvers_ImplicitStep");
-    *const_cast<CCTK_REAL *>(&cctkGH->cctk_delta_time) = dt;
+                 double(old_time + dt / 2), double(dt / 2));
+    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_ImplicitStep",
+                                   old_time + dt / 2, dt / 2);
 
-    *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt;
-    CallScheduleGroup(cctkGH, "ODESolvers_PostStep");
+    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", old_time + dt,
+                                   dt);
     const auto y1 = var.copy(make_valid_int /*all*/ ());
 
     statecomp_t kprime2;
@@ -632,10 +574,9 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
                          make_array(-CCTK_REAL(1), +CCTK_REAL(1), -dt / 2),
                          make_array(&y0, &y1, &k1), make_valid_int());
 
-    *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = old_time + dt;
     if (verbose)
-      CCTK_VINFO("Calculating RHS #2 at t=%g", double(cctkGH->cctk_time));
-    CallScheduleGroup(cctkGH, "ODESolvers_RHS");
+      CCTK_VINFO("Calculating RHS #2 at t=%g", double(old_time + dt));
+    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", old_time + dt, dt);
     const auto k2 = rhs.copy(make_valid_int());
 
     statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt, dt),
@@ -653,9 +594,6 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     Interval interval_free_temps(timer_free_temps);
     statecomp_t::free_tmp_mfabs();
   }
-
-  // Reset current time
-  *const_cast<CCTK_REAL *>(&cctkGH->cctk_time) = saved_time;
 
   // TODO: Update time here, and not during time level cycling in the driver
 }

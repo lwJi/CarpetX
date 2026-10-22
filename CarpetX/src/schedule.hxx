@@ -239,6 +239,7 @@ bool in_global_mode(const cGH *restrict cctkGH);
 bool in_meta_mode(const cGH *restrict cctkGH);
 
 void update_cctkGH(cGH *restrict cctkGH, const cGH *restrict sourceGH);
+void update_cctkGHs(cGH *restrict cctkGH);
 void enter_global_mode(cGH *restrict cctkGH);
 void leave_global_mode(cGH *restrict cctkGH);
 void enter_level_mode(cGH *restrict cctkGH, int level);
