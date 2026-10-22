@@ -32,3 +32,11 @@ jobs:
       - name: Check the comments this change adds to thorn files
         if: ${{!cancelled() && env.BASE != '0000000000000000000000000000000000000000'}}
         run: python3 scripts/comments check --since "$BASE"
+
+      - name: Test scripts/boundary
+        if: ${{!cancelled()}}
+        run: python3 -m unittest discover -s scripts/boundary
+
+      - name: Check the private CarpetX includes this change adds
+        if: ${{!cancelled() && env.BASE != '0000000000000000000000000000000000000000'}}
+        run: python3 scripts/boundary check --since "$BASE"

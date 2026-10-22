@@ -1,6 +1,4 @@
-// TODO: Don't include files from other thorn; create a proper interface
-#include "../../CarpetX/src/driver.hxx"
-
+#include <carpetx.hxx>
 #include <pdesolvers.hxx>
 
 #include <defs.hxx>
@@ -69,9 +67,7 @@ extern "C" void PoissonX_Source(CCTK_ARGUMENTS) {
 extern "C" void PoissonX_ChooseInitialGuess(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_PoissonX_ChooseInitialGuess;
 
-  // Set up an initial guess only when initializing the coarsest
-  // level. Otherwise, keep the data from the previous solve.
-  *need_initial_guess = CarpetX::ghext->num_levels() == 1;
+  *need_initial_guess = CarpetX::num_levels(0) == 1;
 }
 
 extern "C" void PoissonX_Init(CCTK_ARGUMENTS) {

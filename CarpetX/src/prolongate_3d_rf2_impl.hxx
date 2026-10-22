@@ -1,6 +1,11 @@
 #ifndef CARPETX_CARPETX_PROLONGATE_3D_RF2_IMPL_HXX
 #define CARPETX_CARPETX_PROLONGATE_3D_RF2_IMPL_HXX
 
+#ifndef CARPETX_INTERNAL
+#error                                                                         \
+    "CarpetX internal header; include <carpetx.hxx> instead (see agent_docs/carpetx-public-api.md)"
+#endif
+
 #include "prolongate_3d_rf2.hxx"
 
 #include "timer.hxx"

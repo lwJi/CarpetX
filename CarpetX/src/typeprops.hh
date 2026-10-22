@@ -1,6 +1,11 @@
 #ifndef CARPETX_CARPETX_TYPEPROPS_HH
 #define CARPETX_CARPETX_TYPEPROPS_HH
 
+#ifndef CARPETX_INTERNAL
+#error                                                                         \
+    "CarpetX internal header; include <carpetx.hxx> instead (see agent_docs/carpetx-public-api.md)"
+#endif
+
 #include <cctk.h>
 
 namespace CarpetLib {

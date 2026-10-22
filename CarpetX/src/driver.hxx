@@ -4,6 +4,7 @@
 #include "loop.hxx"
 #include "valid.hxx"
 
+#include <carpetx.hxx>
 #include <rational.hxx>
 #include <tuple.hxx>
 
@@ -36,23 +37,12 @@ using namespace Arith;
 
 using Loop::dim;
 
-using rat64 = rational<int64_t>;
-
 // Compile-time capacity of the subcycling band arrays. The runtime-active
 // count lives in GHExt::num_rk_stages (RK4 uses 4, SSPRK3 uses 3).
 inline constexpr int max_num_rk_stages = 4;
 
 // TODO: It seems that AMReX now also has `RB90`, `RB180`, and
 // `PolarB` boundary conditions. Make these available as well.
-
-// Symmetries are domain properties
-enum class symmetry_t {
-  none,
-  interpatch,
-  periodic,
-  reflection,
-};
-std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry);
 
 // Boundary conditions are group properties. They are valid only for faces where
 // the domain symmetry is `none`.

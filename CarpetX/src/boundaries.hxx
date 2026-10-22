@@ -1,6 +1,11 @@
 #ifndef CARPETX_CARPETX_BOUNDARIES_HXX
 #define CARPETX_CARPETX_BOUNDARIES_HXX
 
+#ifndef CARPETX_INTERNAL
+#error                                                                         \
+    "CarpetX internal header; include <carpetx.hxx> instead (see agent_docs/carpetx-public-api.md)"
+#endif
+
 #include "driver.hxx"
 #include "loop_device.hxx"
 
