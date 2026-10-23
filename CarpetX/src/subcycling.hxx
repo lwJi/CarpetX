@@ -57,7 +57,9 @@ bool group_is_integrated(int gi);
 
 bool group_has_flux_register(int gi);
 
-void RecoverRKBoundary(const cGH *cctkGH);
+struct active_levels_t;
+
+void RecoverRKBoundary(const active_levels_t &active_levels, const cGH *cctkGH);
 
 // True iff the driver restricts the window [min_level, max_level) of
 // time-aligned levels at its end of step: the window holds the finest level

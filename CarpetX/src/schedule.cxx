@@ -83,8 +83,14 @@ double gettime() {
 }
 } // namespace
 
-// Used to pass active levels from AMReX's regridding functions
 std::optional<active_levels_t> active_levels;
+
+int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,
+                             const int numgroups, const int *const groups,
+                             const int *const directions) {
+  assert(active_levels);
+  return SyncGroups(*active_levels, cctkGH, numgroups, groups, directions);
+}
 
 namespace {
 // Convert a (direction, face) pair to an AMReX Orientation
@@ -860,14 +866,25 @@ active_levels_t::active_levels_t(const int min_level, const int max_level,
                                  const int min_patch, const int max_patch)
     : min_level(min_level), max_level(max_level), min_patch(min_patch),
       max_patch(max_patch) {
-  assert(min_level >= 0);
-  assert(max_level <= ghext->num_levels());
-  assert(min_patch >= 0);
-  assert(max_patch <= ghext->num_patches());
+  if (min_level < 0 || max_level > ghext->num_levels() || min_level > max_level)
+    CCTK_VERROR("CarpetX window levels [%d, %d) must lie within [0, %d)",
+                min_level, max_level, ghext->num_levels());
+  if (min_patch < 0 || max_patch > ghext->num_patches() ||
+      min_patch > max_patch)
+    CCTK_VERROR("CarpetX window patches [%d, %d) must lie within [0, %d)",
+                min_patch, max_patch, ghext->num_patches());
 }
 active_levels_t::active_levels_t(const int min_level, const int max_level)
     : active_levels_t(min_level, max_level, 0, ghext->num_patches()) {}
 active_levels_t::active_levels_t() : active_levels_t(0, ghext->num_levels()) {}
+
+active_levels_t::active_levels_t(const window_t window)
+    : active_levels_t(window.min_level, window.max_level, window.min_patch,
+                      window.max_patch) {}
+
+window_t active_levels_t::window() const {
+  return window_t{min_level, max_level, min_patch, max_patch};
+}
 
 void active_levels_t::assert_consistent_iterations() const {
   rat64 good_iteration = -1;
@@ -1355,14 +1372,6 @@ void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
   CCTK_Traverse(cctkGH, bin);
 }
 
-// Finalize the active window, which the caller has set to the finest clock
-// group (FinestClockGroup) and keeps active through the end-of-step bins:
-// once per iteration in Evolve, after the batch loop, and once in the
-// fresh-start tail of Initialise. Sets cctk_time and cctk_timefac to the
-// finest level's (SetStepTime). Every level of the window shares that time
-// and has stepped in this iteration; if the window is restricted, it
-// receives here all reflux and restriction for that time. `reflux` requests
-// the flux-register correction below.
 void FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -1411,8 +1420,7 @@ void FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
       RestrictNoPoison(cctkGH, min_level, max_level, groups);
     else
       Restrict(cctkGH, min_level, max_level, groups);
-    // Prolongation
-    ProlongateAfterRestriction(cctkGH);
+    ProlongateAfterRestriction(*active_levels, cctkGH);
     CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
   }
 }
@@ -1437,7 +1445,7 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
                min_level, max_level, cctkGH->cctk_iteration,
                double(cctkGH->cctk_time), cctkGH->cctk_timefac);
 
-    RecoverRKBoundary(cctkGH);
+    RecoverRKBoundary(*active_levels, cctkGH);
     CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
 
     active_levels = std::optional<active_levels_t>();
@@ -1827,7 +1835,6 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
 
   update_cctkGHs(cctkGH);
 
-  // TODO: Parallelize over groups
   const int num_groups = CCTK_NumGroups();
   const bool presync_only = CCTK_EQUALS(presync_mode, "presync-only");
   std::vector<int> presync_groups;
@@ -1947,8 +1954,8 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
 
   } // for gi
   if (!presync_groups.empty()) {
-    SyncGroupsByDirI(cctkGH, presync_groups.size(), presync_groups.data(),
-                     nullptr);
+    SyncGroupsByDirI(*active_levels, cctkGH, presync_groups.size(),
+                     presync_groups.data(), nullptr);
   }
 }
 
@@ -2466,7 +2473,8 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     }
     if (!sync_set.empty()) {
       std::vector<int> sync_vec(sync_set.begin(), sync_set.end());
-      SyncGroupsByDirI(cctkGH, sync_vec.size(), sync_vec.data(), nullptr);
+      SyncGroupsByDirI(*active_levels, cctkGH, sync_vec.size(), sync_vec.data(),
+                       nullptr);
     }
   }
 
@@ -2612,7 +2620,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     }
   }
 
-  // Calculate checksums over variables that are not written
   checksums_t checksums;
   if (poison_undefined_values) {
     const std::vector<clause_t> &writes =
@@ -2633,7 +2640,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       gfs.at(wr.gi).at(wr.vi).at(wr.tl) |= wr.valid;
     }
 
-    checksums = calculate_checksums(gfs);
+    checksums = calculate_checksums(*active_levels, gfs);
   }
 
   const mode_t mode = decode_mode(attribute);
@@ -2661,9 +2668,8 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     assert(0);
   }
 
-  // Check checksums
   if (poison_undefined_values)
-    check_checksums(checksums, [attribute, cctkGH]() {
+    check_checksums(*active_levels, checksums, [attribute, cctkGH]() {
       std::ostringstream buf;
       buf << "CallFunction iteration " << cctkGH->cctk_iteration << " "
           << attribute->where << ": " << attribute->thorn

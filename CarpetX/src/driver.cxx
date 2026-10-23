@@ -2150,10 +2150,7 @@ extern "C" int CarpetX_Startup() {
   CCTK_OverloadGroupStorageDecrease(GroupStorageDecrease);
   CCTK_OverloadQueryGroupStorageB(QueryGroupStorageB);
 
-  if (use_subcycling)
-    CCTK_OverloadSyncGroupsByDirI(SyncGroupsByDirISubcycling);
-  else
-    CCTK_OverloadSyncGroupsByDirI(SyncGroupsByDirI);
+  CCTK_OverloadSyncGroupsByDirI(SyncGroupsOnActiveLevels);
 
   CCTK_OverloadInterpGridArrays(CarpetX_InterpGridArrays);
   CCTK_OverloadArrayGroupSizeB(ArrayGroupSizeB);

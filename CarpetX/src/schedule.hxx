@@ -35,26 +35,34 @@ int Shutdown(tFleshConfig *config);
 void RestrictNoPoison(const cGH *cctkGH, int min_level, int max_level,
                       const std::vector<int> &groups);
 
-int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
+struct active_levels_t;
+
+int SyncGroupsByDirI(const active_levels_t &active_levels,
+                     const cGH *restrict cctkGH, int numgroups,
                      const int *groups, const int *directions);
 
-int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
+int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
+                               const cGH *restrict cctkGH, int numgroups,
                                const int *groups, const int *directions);
 
-// `tl >= 0` syncs only that timelevel; `tl = -1` syncs every timelevel
-// except the oldest.
-int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
+int SyncGroups(const active_levels_t &active_levels, const cGH *restrict cctkGH,
+               int numgroups, const int *groups, const int *directions);
+
+int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,
+                             const int *groups, const int *directions);
+
+int SyncGroupsByDirIProlongateOnly(const active_levels_t &active_levels,
+                                   const cGH *restrict cctkGH, int numgroups,
                                    const int *groups, const int *directions,
                                    int tl = -1);
 
-// Like SyncGroupsByDirIProlongateOnly, but under subcycling only prolongates
-// into a level whose iteration equals its parent's (time-aligned pairs).
-// Without subcycling the two are identical.
-int SyncGroupsByDirIProlongateOnlyAligned(const cGH *restrict cctkGH,
+int SyncGroupsByDirIProlongateOnlyAligned(const active_levels_t &active_levels,
+                                          const cGH *restrict cctkGH,
                                           int numgroups, const int *groups,
                                           const int *directions, int tl = -1);
 
-int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
+int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
+                              const cGH *restrict cctkGH, int numgroups,
                               const int *groups, const int *directions,
                               int tl = -1);
 
@@ -78,6 +86,8 @@ struct active_levels_t {
                   const int max_patch);
   active_levels_t(const int min_level, const int max_level);
   active_levels_t();
+  explicit active_levels_t(window_t window);
+  window_t window() const;
 
 private:
   void assert_consistent_iterations() const;

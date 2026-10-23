@@ -19,15 +19,12 @@ namespace CarpetX {
 // the group selectors in sync_restrict.cxx
 std::vector<int> collect_restrictable_groups();
 
-// Restrict exactly `groups`, every level pair (level, level + 1) with both
-// levels in [min_level, max_level), finest pair first, and mark the coarse
-// ghosts and outer boundaries invalid. Its counterpart without validity
-// tracking, RestrictNoPoison, is exported in schedule.hxx. The reflux,
-// Reflux(cctkGH, min_level, max_level), is declared in subcycling.hxx, which
-// exports it to ODESolvers as well.
+struct active_levels_t;
+
 void Restrict(const cGH *cctkGH, int min_level, int max_level,
               const std::vector<int> &groups);
-void ProlongateAfterRestriction(const cGH *cctkGH);
+void ProlongateAfterRestriction(const active_levels_t &active_levels,
+                                const cGH *cctkGH);
 
 } // namespace CarpetX
 
