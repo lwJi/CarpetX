@@ -1,10 +1,7 @@
 #ifndef CARPETX_CARPETX_DRIVER_HXX
 #define CARPETX_CARPETX_DRIVER_HXX
 
-#ifndef CARPETX_INTERNAL
-#error                                                                         \
-    "CarpetX internal header; include <carpetx.hxx> instead (see agent_docs/carpetx-public-api.md)"
-#endif
+#include "internal.hxx"
 
 #include "loop.hxx"
 #include "valid.hxx"
