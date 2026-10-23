@@ -5,13 +5,6 @@ using namespace std;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void statecomp_t::require_valid(const CarpetX::valid_t where,
-                                const char *const why) const {
-  for (const entry_t &entry : entries)
-    if (!entry.tmp)
-      CarpetX::require_valid(entry.group, timelevel, where, why);
-}
-
 statecomp_t statecomp_t::copy() const {
   statecomp_t result;
   result.timelevel = timelevel;

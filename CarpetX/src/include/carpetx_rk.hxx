@@ -55,7 +55,7 @@ public:
   rk_step_t &operator=(rk_step_t &&) = delete;
   ~rk_step_t();
 
-  void rhs_computed(CCTK_REAL delta_time);
+  void rhs_computed();
   void state_updated();
 
 private:

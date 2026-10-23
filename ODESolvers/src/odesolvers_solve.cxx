@@ -128,9 +128,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     if (verbose)
       CCTK_VINFO("Calculating RHS #%d at t=%g", n, double(t));
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", t, dt);
-    rhs.require_valid(CarpetX::make_valid_int(),
-                      "ODESolvers after calling ODESolvers_RHS");
-    step.value().rhs_computed(dt);
+    step.value().rhs_computed();
   };
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
                               const CCTK_REAL a0, const auto &as,

@@ -359,16 +359,10 @@ rk_step_t::rk_step_t(std::unique_ptr<impl> p) noexcept : p(std::move(p)) {}
 
 rk_step_t::rk_step_t(rk_step_t &&) noexcept = default;
 
-void rk_step_t::rhs_computed(const CCTK_REAL delta_time) {
+void rk_step_t::rhs_computed() {
   if (!p)
     CCTK_ERROR("CarpetX::rk_step_t::rhs_computed called on a moved-from RK "
                "step");
-  using std::isfinite;
-  if (!isfinite(delta_time))
-    CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s: delta_time is %g; "
-                "pass the cctk_delta_time the right-hand side ran with, the "
-                "value given to run_schedule_group_at",
-                describe(p->window).c_str(), double(delta_time));
   if (p->rhs_count > p->update_count)
     CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s, RK stage %d of %d: "
                 "the stage already has its right-hand side; expected "
@@ -381,6 +375,22 @@ void rk_step_t::rhs_computed(const CCTK_REAL delta_time) {
                 describe(p->window).c_str(), p->nstages);
   const int stage = ++p->rhs_count;
   const CCTK_REAL weight = p->b.at(stage - 1);
+  const CCTK_REAL delta_time = driver().get_global_cctkGH()->cctk_delta_time;
+  using std::isfinite;
+  if (!(isfinite(delta_time) && delta_time != 0))
+    CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s, RK stage %d of %d: "
+                "cctk_delta_time is %g",
+                describe(p->window).c_str(), stage, p->nstages,
+                double(delta_time));
+  const std::string why = "CarpetX::rk_step_t::rhs_computed on " +
+                          describe(p->window) + ": RK stage " +
+                          std::to_string(stage) + " of " +
+                          std::to_string(p->nstages) +
+                          " reads the interior of the right-hand side";
+  for (const rk_level_t &entry : p->levels)
+    for (const int gi : entry.groups.rhss)
+      require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),
+                    why.c_str());
   for (const rk_level_t &entry : p->levels) {
     const CCTK_REAL dt =
         delta_time * CCTK_REAL(resolve(entry.level).delta_iteration);

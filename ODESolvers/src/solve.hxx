@@ -88,8 +88,6 @@ struct statecomp_t {
   vector<entry_t> entries;
   int timelevel = 0;
 
-  void require_valid(CarpetX::valid_t where, const char *why) const;
-
   statecomp_t copy() const;
 
   template <size_t N>

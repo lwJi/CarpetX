@@ -200,6 +200,12 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
                                     CarpetX::make_valid_int(),
                                     "TestCarpetXAPI_Fill"));
     fill_interior(level, writes.back().mfab());
+    if (rk_step_mode(mode)) {
+      writes.push_back(CarpetX::write(
+          CarpetX::group_t{level, group("TestCarpetXAPI::state_rhs")}, tl,
+          CarpetX::make_valid_int(), "TestCarpetXAPI_Fill"));
+      fill_interior(level, writes.back().mfab());
+    }
   });
 
   if (CCTK_EQUALS(mode, "sync-during-write")) {
@@ -237,15 +243,15 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
 
   if (CCTK_EQUALS(mode, "rhs-repeated")) {
     CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
-    step.rhs_computed(cctkGH->cctk_delta_time);
-    step.rhs_computed(cctkGH->cctk_delta_time);
+    step.rhs_computed();
+    step.rhs_computed();
     CCTK_ERROR("CarpetX::rk_step_t::rhs_computed ran twice without "
                "state_updated in between");
   }
   if (CCTK_EQUALS(mode, "step-closed-early")) {
     {
       CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
-      step.rhs_computed(cctkGH->cctk_delta_time);
+      step.rhs_computed();
       step.state_updated();
     }
     CCTK_ERROR("CarpetX::rk_step_t closed after 1 of 4 stages");

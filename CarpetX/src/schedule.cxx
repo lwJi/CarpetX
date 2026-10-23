@@ -1158,8 +1158,6 @@ CCTK_REAL get_finest_mindx() {
   return mindx;
 }
 
-// Determine time step size: the coarse level's under subcycling, else the
-// finest level's
 static void SetDeltaTime(cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
   if (CCTK_EQUALS(timestep_choice, "timestep")) {
@@ -1174,6 +1172,7 @@ static void SetDeltaTime(cGH *restrict const cctkGH) {
   }
   using std::isfinite;
   assert(isfinite(cctkGH->cctk_delta_time));
+  update_cctkGHs(cctkGH);
 }
 
 // The time that a window sees once `level` has stepped to `clock` (in coarse
