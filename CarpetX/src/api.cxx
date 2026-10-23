@@ -201,6 +201,15 @@ struct write_t::impl {
   std::function<std::string()> why;
 };
 
+namespace {
+
+active_levels_t one_level(const level_t level) {
+  return active_levels_t(level.level, level.level + 1, level.patch,
+                         level.patch + 1);
+}
+
+} // namespace
+
 write_t::write_t(std::unique_ptr<impl> p) noexcept : p(std::move(p)) {}
 
 write_t::write_t(write_t &&) noexcept = default;
@@ -215,9 +224,10 @@ write_t::~write_t() {
   if (!p)
     return;
   auto &groupdata = resolve("CarpetX::write_t::~write_t", p->group);
+  const active_levels_t level = one_level(p->group.level);
+  for (int vi = 0; vi < groupdata.numvars; ++vi)
+    check_valid_gf(level, p->group.gi, vi, p->tl, p->why);
   --groupdata.open_writes;
-  for (auto &why_valid : groupdata.valid.at(p->tl))
-    why_valid.set_all(p->leaves_valid, p->why);
 }
 
 write_t write(const group_t group, const int tl, const valid_t leaves_valid,
@@ -225,8 +235,14 @@ write_t write(const group_t group, const int tl, const valid_t leaves_valid,
   auto &groupdata = resolve("CarpetX::write", group);
   require_timelevel("CarpetX::write", groupdata, tl);
   ++groupdata.open_writes;
+  const std::function<std::string()> why = reason(what);
+  for (auto &why_valid : groupdata.valid.at(tl))
+    why_valid.set_all(leaves_valid, why);
+  const active_levels_t level = one_level(group.level);
+  for (int vi = 0; vi < groupdata.numvars; ++vi)
+    poison_invalid_gf(level, group.gi, vi, tl);
   return write_t(std::unique_ptr<write_t::impl>(
-      new write_t::impl{group, tl, leaves_valid, reason(what)}));
+      new write_t::impl{group, tl, leaves_valid, why}));
 }
 
 struct scratch_t::impl {
@@ -312,10 +328,9 @@ void require_valid(const group_t group, const int tl, const valid_t where,
   const auto msg = [what]() { return what; };
   for (int vi = 0; vi < groupdata.numvars; ++vi)
     error_if_invalid(groupdata, vi, tl, where, msg);
-  const active_levels_t one_level(group.level.level, group.level.level + 1,
-                                  group.level.patch, group.level.patch + 1);
+  const active_levels_t level = one_level(group.level);
   for (int vi = 0; vi < groupdata.numvars; ++vi)
-    check_valid_gf(one_level, group.gi, vi, tl, msg);
+    check_valid_gf(level, group.gi, vi, tl, msg);
 }
 
 void invalidate(const window_t window, const std::vector<int> &groups,

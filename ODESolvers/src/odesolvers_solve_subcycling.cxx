@@ -146,8 +146,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     if (verbose)
       CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
     statecomp_t::lincomb(var, a0, as, vars, CarpetX::make_valid_int());
-    var.require_valid(CarpetX::make_valid_int(),
-                      "ODESolvers after defining new state vector");
     CarpetX::invalidate(window, dep_groups, 0,
                         "ODESolvers updated the state vector");
     t = old_time + c;

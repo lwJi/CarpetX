@@ -82,8 +82,6 @@ void statecomp_t::lincomb(statecomp_t &dst, const CCTK_REAL scale,
   std::vector<std::function<void()> > tasks;
 #endif
 
-  // TODO: Poison ghosts/boundaries
-
   for (std::size_t m = 0; m < size; ++m) {
     amrex::MultiFab &dstmfab = *dstmfabs.at(m);
     const std::ptrdiff_t ncomps = dstmfab.nComp();
