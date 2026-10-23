@@ -122,9 +122,7 @@ public:
                                const cGH *cctkGH)> &kernel) const;
 };
 
-// The levels CallFunction should traverse
-// TODO: Move this into ghext
-extern std::optional<active_levels_t> active_levels;
+const std::optional<active_levels_t> &scheduled_levels();
 
 ////////////////////////////////////////////////////////////////////////////////
 

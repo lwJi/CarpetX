@@ -64,6 +64,18 @@ bool rk_step_mode(const char *const mode) {
          CCTK_EQUALS(mode, "step-closed-early");
 }
 
+extern "C" int TestCarpetXAPI_Startup() {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (CCTK_EQUALS(mode, "window-outside-traversal")) {
+    const CarpetX::window_t window = CarpetX::active_window();
+    CCTK_VERROR("CarpetX::active_window reported levels [%d,%d) at STARTUP, "
+                "where the driver has not opened a traversal",
+                window.min_level, window.max_level);
+  }
+  return 0;
+}
+
 extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 

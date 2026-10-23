@@ -83,7 +83,13 @@ double gettime() {
 }
 } // namespace
 
+namespace {
 std::optional<active_levels_t> active_levels;
+} // namespace
+
+const std::optional<active_levels_t> &scheduled_levels() {
+  return active_levels;
+}
 
 int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,
                              const int numgroups, const int *const groups,

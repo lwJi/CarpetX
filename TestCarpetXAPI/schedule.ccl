@@ -1,5 +1,11 @@
 STORAGE: state state_rhs
 
+SCHEDULE TestCarpetXAPI_Startup AT startup
+{
+  LANG: C
+  OPTIONS: meta
+} "Call CarpetX::active_window outside any traversal when TestCarpetXAPI::mode says so"
+
 SCHEDULE TestCarpetXAPI_Register AT wragh
 {
   LANG: C
