@@ -220,6 +220,15 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     }
   });
 
+  if (CCTK_EQUALS(mode, "write-twice")) {
+    window.loop_serially([&](const CarpetX::level_t level) {
+      writes.push_back(CarpetX::write(CarpetX::group_t{level, gi}, tl,
+                                      CarpetX::make_valid_int(),
+                                      "TestCarpetXAPI_Fill, second scope"));
+    });
+    CCTK_ERROR("CarpetX::write opened a second scope on a group and time "
+               "level that already had one open");
+  }
   if (CCTK_EQUALS(mode, "sync-during-write")) {
     CarpetX::sync(window, groups);
     CCTK_ERROR("CarpetX::sync ran while a write scope was open");

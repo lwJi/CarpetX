@@ -2496,15 +2496,16 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
         continue;
       active_levels->loop_serially([&](const auto &restrict leveldata) {
         const auto &restrict groupdata = *leveldata.groupdata.at(gi);
-        if (groupdata.open_writes > 0)
+        const int open_writes = groupdata.open_write_count();
+        if (open_writes > 0)
           CCTK_VERROR("CallFunction iteration %d %s: %s::%s reads, writes or "
                       "syncs group %s, which has %d open write scope%s "
                       "(CarpetX::write) on patch %d, refinement level %d; "
                       "destroy the write_t before scheduling the function",
                       cctkGH->cctk_iteration, attribute->where,
                       attribute->thorn, attribute->routine,
-                      groupdata.groupname.c_str(), groupdata.open_writes,
-                      groupdata.open_writes == 1 ? "" : "s", groupdata.patch,
+                      groupdata.groupname.c_str(), open_writes,
+                      open_writes == 1 ? "" : "s", groupdata.patch,
                       groupdata.level);
       });
     }

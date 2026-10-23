@@ -90,12 +90,12 @@ GHExt::PatchData::LevelData::GroupData &resolve(const char *const what,
 void require_no_open_write(
     const char *const what,
     const GHExt::PatchData::LevelData::GroupData &groupdata) {
-  if (groupdata.open_writes > 0)
+  const int open_writes = groupdata.open_write_count();
+  if (open_writes > 0)
     CCTK_VERROR("%s: group %s has %d open write scope%s (CarpetX::write) on "
                 "patch %d, refinement level %d; destroy the write_t first",
-                what, groupdata.groupname.c_str(), groupdata.open_writes,
-                groupdata.open_writes == 1 ? "" : "s", groupdata.patch,
-                groupdata.level);
+                what, groupdata.groupname.c_str(), open_writes,
+                open_writes == 1 ? "" : "s", groupdata.patch, groupdata.level);
 }
 
 active_levels_t require_operable(const char *const what, const window_t window,
@@ -228,14 +228,21 @@ write_t::~write_t() {
   const active_levels_t level = one_level(p->group.level);
   for (int vi = 0; vi < groupdata.numvars; ++vi)
     check_valid_gf(level, p->group.gi, vi, p->tl, p->why);
-  --groupdata.open_writes;
+  --groupdata.open_writes.at(p->tl);
 }
 
 write_t write(const group_t group, const int tl, const valid_t leaves_valid,
               const char *const what) {
   auto &groupdata = resolve("CarpetX::write", group);
   require_timelevel("CarpetX::write", groupdata, tl);
-  ++groupdata.open_writes;
+  const int open_writes = groupdata.open_writes.at(tl);
+  if (open_writes > 0)
+    CCTK_VERROR("CarpetX::write: time level %d of group %s has %d open write "
+                "scope%s (CarpetX::write) on patch %d, refinement level %d; "
+                "destroy that write_t before opening another",
+                tl, groupdata.groupname.c_str(), open_writes,
+                open_writes == 1 ? "" : "s", groupdata.patch, groupdata.level);
+  ++groupdata.open_writes.at(tl);
   const std::function<std::string()> why = reason(what);
   for (auto &why_valid : groupdata.valid.at(tl))
     why_valid.set_all(leaves_valid, why);

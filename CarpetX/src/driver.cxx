@@ -999,11 +999,6 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   }
   bcrecs.resize(numvars, bcrec);
 
-  // Allocate grid hierarchies
-  // Note: CarpetX and AMReX use opposite constants for cell/vertex
-  // data. AMReX uses (AMReX_IndexType.H): enum CellIndex { CELL =
-  // 0, NODE = 1 }, while CarpetX uses indextype = 0 for vertex
-  // (node) and indextype = 1 for cell data.
   const amrex::BoxArray &gba = convert(
       ba, amrex::IndexType(
               indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
@@ -1013,6 +1008,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   assert(ntls >= 0 and ntls <= group.numtimelevels);
   mfab.resize(ntls);
   valid.resize(ntls);
+  open_writes.assign(ntls, 0);
   for (int tl = 0; tl < ntls; ++tl) {
     mfab.at(tl) = std::make_unique<amrex::MultiFab>(
         gba, dm, numvars, amrex::IntVect(nghostzones));

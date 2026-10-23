@@ -442,7 +442,13 @@ struct GHExt {
                   const std::function<std::string()> &why);
 
         int patch, level;
-        int open_writes = 0;
+        std::vector<int> open_writes;
+        int open_write_count() const {
+          int count = 0;
+          for (const int n : open_writes)
+            count += n;
+          return count;
+        }
 
         std::array<int, dim> indextype;
         std::array<int, dim> nghostzones;
