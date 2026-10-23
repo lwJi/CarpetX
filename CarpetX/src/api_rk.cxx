@@ -272,7 +272,7 @@ std::vector<rk_level_t> integrated_levels(const char *const what,
                                           const window_t window,
                                           const rk_config_t &config) {
   std::vector<rk_level_t> levels;
-  to_active_levels(window).loop_coarse_to_fine(
+  active_levels_t(window).loop_coarse_to_fine(
       [&](const GHExt::PatchData::LevelData &leveldata) {
         const level_t level{leveldata.patch, leveldata.level};
         levels.push_back(
@@ -416,7 +416,6 @@ void rk_step_t::state_updated() {
                      " (iteration " + std::to_string(iteration) + ")";
             });
   } else if (stage == p->nstages) {
-    const window_scope scope(p->window);
     Reflux(cctkGH, p->window.min_level, p->window.max_level);
   }
   synchronize();
@@ -432,16 +431,15 @@ rk_step_t::~rk_step_t() {
                 describe(p->window).c_str(), p->update_count, p->nstages);
 }
 
-void RecoverRKBoundary(const cGH *const cctkGH) {
+void RecoverRKBoundary(const active_levels_t &active_levels,
+                       const cGH *const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
   if (!ghext->use_subcycling)
     return;
   const std::optional<rk_config_t> &integrator = ghext->rk();
   if (!integrator || integrator->integrated.empty())
     return;
-  assert(active_levels);
-  const window_t window{active_levels->min_level, active_levels->max_level,
-                        active_levels->min_patch, active_levels->max_patch};
+  const window_t window = active_levels.window();
 
   if (verbose)
     CCTK_VINFO("RecoverRKBoundary on %s: refilling the refinement-boundary "
@@ -469,9 +467,9 @@ void RecoverRKBoundary(const cGH *const cctkGH) {
     for (const rk_pair_t &pair : integrator->integrated)
       states.push_back(pair.state_gi);
     std::sort(states.begin(), states.end());
-    SyncGroupsByDirIProlongateOnlyAligned(ghext->get_global_cctkGH(),
-                                          states.size(), states.data(), nullptr,
-                                          rk_tl);
+    SyncGroupsByDirIProlongateOnlyAligned(
+        active_levels, ghext->get_global_cctkGH(), states.size(), states.data(),
+        nullptr, rk_tl);
   }
 
   const int iteration = cctkGH->cctk_iteration;

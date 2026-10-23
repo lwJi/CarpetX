@@ -164,9 +164,13 @@ struct tiletag_t {
 
 typedef std::map<tiletag_t, checksum_t> checksums_t;
 
+struct active_levels_t;
+
 checksums_t calculate_checksums(
+    const active_levels_t &active_levels,
     const std::vector<std::vector<std::vector<valid_t> > > &will_write);
-void check_checksums(const checksums_t &checksums,
+void check_checksums(const active_levels_t &active_levels,
+                     const checksums_t &checksums,
                      const std::function<std::string()> &where);
 
 ////////////////////////////////////////////////////////////////////////////////
