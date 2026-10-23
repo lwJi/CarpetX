@@ -502,7 +502,7 @@ bool group_is_integrated(const int gi) {
 
 int num_rk_stages() {
   const std::optional<rk_config_t> &integrator = ghext->rk();
-  return integrator ? integrator->nstages : max_num_rk_stages;
+  return integrator ? integrator->nstages() : max_num_rk_stages;
 }
 
 rk_dense_output_t registered_dense_output() {

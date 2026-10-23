@@ -12,7 +12,7 @@ CCTK_REAL unsaved TYPE=GF CENTERING={CCC} TAGS='checkpoint="no" rhs="unsaved_rhs
 
 CCTK_REAL unsaved_rhs TYPE=GF CENTERING={CCC} TAGS='checkpoint="no"' "Right-hand side of unsaved"
 
-CCTK_REAL conserved TYPE=GF CENTERING={CCC} TAGS='rhs="conserved_rhs" fluxes="flux_x flux_y flux_z"' "Grid function with a fluxes= tag that mode reflux-without-reflux-ok registers as integrated state of an integrator that cannot feed flux registers; CarpetX::register_integrator must refuse it under CarpetX::do_reflux with more than one level"
+CCTK_REAL conserved TYPE=GF CENTERING={CCC} TAGS='rhs="conserved_rhs" fluxes="flux_x flux_y flux_z"' "Grid function with a fluxes= tag that mode reflux-without-weights registers as integrated state of an integrator without weights, which cannot feed flux registers; CarpetX::register_integrator must refuse it under CarpetX::do_reflux with more than one level"
 
 CCTK_REAL conserved_rhs TYPE=GF CENTERING={CCC} TAGS='checkpoint="no"' "Right-hand side of conserved"
 

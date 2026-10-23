@@ -137,7 +137,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
                                    cctkGH->cctk_delta_time);
     rhs.require_valid(CarpetX::make_valid_int(),
                       "ODESolvers after calling ODESolvers_RHS");
-    step.value().rhs_computed(rk.b.at(n - 1) * dt);
+    step.value().rhs_computed();
   };
   const auto calcupdate = [&](const int n, const CCTK_REAL c,
                               const CCTK_REAL a0, const auto &as,

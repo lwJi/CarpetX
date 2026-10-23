@@ -29,11 +29,12 @@ struct rk_pair_t {
 };
 
 struct rk_config_t {
-  int nstages;
-  rk_dense_output_t dense_output;
-  bool reflux_ok;
+  rk_dense_output_t dense_output = rk_dense_output_t::none;
+  std::vector<CCTK_REAL> b;
   std::vector<rk_pair_t> integrated;
 
+  int nstages() const { return b.size(); }
+  bool feeds_flux_registers() const { return !b.empty(); }
   bool is_integrated(const int gi) const {
     for (const rk_pair_t &pair : integrated)
       if (pair.state_gi == gi)
@@ -55,7 +56,7 @@ public:
   rk_step_t &operator=(rk_step_t &&) = delete;
   ~rk_step_t();
 
-  void rhs_computed(CCTK_REAL flux_weight);
+  void rhs_computed();
   void state_updated();
 
 private:

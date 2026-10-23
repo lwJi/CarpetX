@@ -28,12 +28,10 @@ CarpetX::max_grid_size_x = 8
 CarpetX::max_grid_size_y = 8
 CarpetX::max_grid_size_z = 8
 
-CarpetX::max_num_levels = 2
+CarpetX::max_num_levels = 1
 CarpetX::ghost_size = 2
 
-CarpetX::do_reflux = yes
-
-TestCarpetXAPI::mode = "reflux-without-reflux-ok"
+TestCarpetXAPI::mode = "weights-sum-mismatch"
 
 IO::out_dir = $parfile
 IO::parfile_write = no
