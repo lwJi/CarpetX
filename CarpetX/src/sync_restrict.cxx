@@ -4,7 +4,7 @@
 #include "subcycling.hxx"
 #include "sync_restrict_internal.hxx"
 #include "task_manager.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 #include "valid.hxx"
 
 #include <cctk.h>
@@ -18,6 +18,7 @@
 #include <cassert>
 #include <memory>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -82,7 +83,8 @@ static std::vector<int> sync_filter_groups(int numgroups, const int *groups0) {
   return groups;
 }
 
-static void sync_multipatch_postcheck(const cGH *cctkGH,
+static void sync_multipatch_postcheck(const active_levels_t &active_levels,
+                                      const cGH *cctkGH,
                                       const std::vector<int> &groups,
                                       const char *label) {
   static const bool have_multipatch_boundaries =
@@ -112,7 +114,7 @@ static void sync_multipatch_postcheck(const cGH *cctkGH,
 
       for (int tl = 0; tl < sync_tl0; ++tl)
         for (int vi = 0; vi < groupdata0.numvars; ++vi)
-          check_valid_gf(*active_levels, gi, vi, tl, [label]() {
+          check_valid_gf(active_levels, gi, vi, tl, [label]() {
             return std::string(label) + " after syncing";
           });
 
@@ -260,11 +262,10 @@ static std::vector<int> sync_restrict_groups(const std::vector<int> &groups) {
 // Sync entry points
 // =======================================================================
 
-static int
-SyncGroupsByDirIProlongateOnly_impl(const cGH *restrict cctkGH, int numgroups,
-                                    const int *groups0, const int *directions,
-                                    const bool prolongate_on_same_iteration,
-                                    const int tl_arg = -1) {
+static int SyncGroupsByDirIProlongateOnly_impl(
+    const active_levels_t &active_levels, const cGH *restrict cctkGH,
+    int numgroups, const int *groups0, const int *directions,
+    const bool prolongate_on_same_iteration, const int tl_arg = -1) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
@@ -282,6 +283,29 @@ SyncGroupsByDirIProlongateOnly_impl(const cGH *restrict cctkGH, int numgroups,
 
   std::vector<int> groups = sync_filter_groups(numgroups, groups0);
 
+  const auto prolongates_into =
+      [prolongate_on_same_iteration](
+          const GHExt::PatchData::LevelData &leveldata) {
+        if (leveldata.level == 0)
+          return false;
+        if (ghext->use_subcycling && prolongate_on_same_iteration) {
+          const auto &restrict coarseleveldata =
+              ghext->patchdata.at(leveldata.patch)
+                  .leveldata.at(leveldata.level - 1);
+          return leveldata.iteration == coarseleveldata.iteration;
+        }
+        return true;
+      };
+  const auto timelevels_to_fill =
+      [tl_arg](const GHExt::PatchData::LevelData::GroupData &groupdata) {
+        const int ntls = groupdata.mfab.size();
+        const int tl_lo = (tl_arg < 0) ? 0 : tl_arg;
+        const int tl_hi =
+            (tl_arg < 0) ? (ntls > 1 ? ntls - 1 : ntls) : (tl_arg + 1);
+        assert(tl_lo >= 0 && tl_hi <= ntls);
+        return std::make_pair(tl_lo, tl_hi);
+      };
+
   // We need to loop over groups, patches, and levels in a definite
   // order so that AMReX's communication pattern does not get
   // confused. Therefore all the loops here are serial. The only
@@ -293,35 +317,18 @@ SyncGroupsByDirIProlongateOnly_impl(const cGH *restrict cctkGH, int numgroups,
   task_manager tasks3;
 
   for (const int gi : groups) {
-    active_levels->loop_serially([&](auto &restrict leveldata) {
+    active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
-      // We always sync all directions.
-      // tl_arg >= 0 syncs only that timelevel; tl_arg = -1 syncs every
-      // timelevel except the oldest (or the only one, if ntls == 1).
-      // TODO: during evolution, sync only one time level
-      const int ntls = groupdata.mfab.size();
-      const int tl_lo = (tl_arg < 0) ? 0 : tl_arg;
-      const int tl_hi =
-          (tl_arg < 0) ? (ntls > 1 ? ntls - 1 : ntls) : (tl_arg + 1);
-      assert(tl_lo >= 0 && tl_hi <= ntls);
+      const auto [tl_lo, tl_hi] = timelevels_to_fill(groupdata);
 
-      if (leveldata.level == 0) {
-        // Level 0 requires no interpolation, so return early
+      if (!prolongates_into(leveldata))
         return;
-      }
-
-      // For levels greater than 0, interpolate from the next coarser level
 
       const int level = leveldata.level;
       const auto &restrict coarseleveldata =
           ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
-
-      if (ghext->use_subcycling && prolongate_on_same_iteration) {
-        if (leveldata.iteration != coarseleveldata.iteration)
-          return;
-      }
 
       auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
       assert(!coarsegroupdata.mfab.empty());
@@ -354,14 +361,38 @@ SyncGroupsByDirIProlongateOnly_impl(const cGH *restrict cctkGH, int numgroups,
   tasks3.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_postcheck(cctkGH, groups, "SyncGroupsByDirIProlongateOnly");
+  for (const int gi : groups) {
+    active_levels.loop_serially([&](auto &restrict leveldata) {
+      if (!prolongates_into(leveldata))
+        return;
+      auto &restrict groupdata = *leveldata.groupdata.at(gi);
+      const auto [tl_lo, tl_hi] = timelevels_to_fill(groupdata);
+      for (int tl = tl_lo; tl < tl_hi; ++tl) {
+        for (int vi = 0; vi < groupdata.numvars; ++vi) {
+          groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
+            return "SyncGroupsByDirIProlongateOnly after prolongating: "
+                   "Mark ghost zones as valid";
+          });
+          if (groupdata.all_faces_have_symmetries_or_boundaries())
+            groupdata.valid.at(tl).at(vi).set_outer(true, []() {
+              return "SyncGroupsByDirIProlongateOnly after prolongating: "
+                     "Mark outer boundaries as valid";
+            });
+        }
+      }
+    });
+  }
+
+  sync_multipatch_postcheck(active_levels, cctkGH, groups,
+                            "SyncGroupsByDirIProlongateOnly");
 
   assert(sync_active);
 
   return numgroups; // number of groups synchronized
 }
 
-int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
+int SyncGroupsByDirI(const active_levels_t &active_levels,
+                     const cGH *restrict cctkGH, int numgroups,
                      const int *groups0, const int *directions) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -380,9 +411,8 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
 
   std::vector<int> groups = sync_filter_groups(numgroups, groups0);
 
-  // Skip groups that have valid ghosts and boundaries
   if (CCTK_EQUALS(presync_mode, "presync-only")) {
-    active_levels->loop_serially([&](auto &restrict leveldata) {
+    active_levels.loop_serially([&](auto &restrict leveldata) {
       std::vector<int> new_groups;
       for (const int gi : groups) {
         auto &restrict groupdata = *leveldata.groupdata.at(gi);
@@ -413,12 +443,9 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
   }
 
   if (restrict_during_sync) {
-    const int min_level = active_levels->min_level;
-    // Every level of the window from its child, including the window's top
-    // level from the next finer level, which lies outside the window after a
-    // regrid (BASEGRID/POSTREGRID SYNCs, whose window is the modified levels)
+    const int min_level = active_levels.min_level;
     const int max_level =
-        std::min(active_levels->max_level + 1, ghext->num_levels());
+        std::min(active_levels.max_level + 1, ghext->num_levels());
     // The do_restrict parameter governs only restriction the driver starts
     assert(do_restrict || max_level - min_level < 2);
     // Restrict only the groups the restrict tag allows; the ghost fill below
@@ -429,7 +456,6 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
   static const bool have_multipatch_boundaries =
       CCTK_IsFunctionAliased("MultiPatch_Interpolate");
 
-  // Check preconditions
   for (const int gi : groups) {
     const auto &patchdata0 = ghext->patchdata.at(0);
     const auto &leveldata0 = patchdata0.leveldata.at(0);
@@ -442,7 +468,7 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
     const int ntls0 = groupdata0.mfab.size();
     const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
 
-    active_levels->loop_serially([&](auto &restrict leveldata) {
+    active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
@@ -465,7 +491,7 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
       } // for tl
     });
 
-    active_levels_t active_fine_levels = *active_levels;
+    active_levels_t active_fine_levels = active_levels;
     using std::max;
     active_fine_levels.min_level = max(active_fine_levels.min_level, 1);
     for (int tl = 0; tl < sync_tl0; ++tl) {
@@ -473,8 +499,8 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
         check_valid_gf(active_fine_levels, gi, vi, tl, []() {
           return "SyncGroupsByDirI on coarse level before prolongation";
         });
-        poison_invalid_gf(*active_levels, gi, vi, tl);
-        check_valid_gf(*active_levels, gi, vi, tl,
+        poison_invalid_gf(active_levels, gi, vi, tl);
+        check_valid_gf(active_levels, gi, vi, tl,
                        []() { return "SyncGroupsByDirI before syncing"; });
       }
     } // for tl
@@ -491,7 +517,7 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
   task_manager tasks3;
 
   for (const int gi : groups) {
-    active_levels->loop_serially([&](auto &restrict leveldata) {
+    active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
@@ -553,7 +579,6 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
   tasks3.run_tasks_serially();
   synchronize();
 
-  // Check postconditions
   for (const int gi : groups) {
     const auto &patchdata0 = ghext->patchdata.at(0);
     const auto &leveldata0 = patchdata0.leveldata.at(0);
@@ -566,7 +591,7 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
     const int ntls0 = groupdata0.mfab.size();
     const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
 
-    active_levels->loop_serially([&](auto &restrict leveldata) {
+    active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
@@ -587,44 +612,28 @@ int SyncGroupsByDirI(const cGH *restrict cctkGH, int numgroups,
 
     for (int tl = 0; tl < sync_tl0; ++tl) {
       for (int vi = 0; vi < groupdata0.numvars; ++vi) {
-        poison_invalid_gf(*active_levels, gi, vi, tl);
-        // TODO: Check after applying multi-patch boundaries
+        poison_invalid_gf(active_levels, gi, vi, tl);
         if (!have_multipatch_boundaries)
-          check_valid_gf(*active_levels, gi, vi, tl,
+          check_valid_gf(active_levels, gi, vi, tl,
                          []() { return "SyncGroupsByDirI after syncing"; });
       }
     } // for tl
   } // for gi
 
-  sync_multipatch_postcheck(cctkGH, groups, "SyncGroupsByDirI");
+  sync_multipatch_postcheck(active_levels, cctkGH, groups, "SyncGroupsByDirI");
 
   assert(sync_active);
 
   return numgroups; // number of groups synchronized
 }
 
-// Abort if a sync is requested while the driver traverses a bin on the
-// end-of-step window (GHExt::tail_bin: CCTK_POSTSTEP, CCTK_ANALYSIS,
-// CCTK_CHECKPOINT or CCTK_TERMINATE) under subcycling, unless the window holds
-// every level.
-// The levels of the window share one time, so a sync among them is sound. A
-// window that starts above level 0 has a coarser neighbour outside it that
-// has stepped ahead and has not been finalized, and syncing the window's
-// coarsest level would fill its coarse-fine ghosts from that level's data of
-// another time. This is the condition under which interpolation across
-// levels aborts too. Under subcycling every sync passes through
-// SyncGroupsByDirISubcycling: a SYNC clause, an explicit CCTK_SyncGroup*
-// call, and a sync in a nested schedule group (Initialise rejects
-// presync-only mode, whose syncs would bypass it). The check runs before the
-// groups are filtered, so that a SYNC of a group without storage or of a
-// non-GF group aborts too.
-static void error_if_sync_in_tail(const cGH *restrict const cctkGH,
+static void error_if_sync_in_tail(const active_levels_t &active_levels,
+                                  const cGH *restrict const cctkGH,
                                   const int numgroups, const int *groups0) {
   if (!ghext->tail_bin || numgroups == 0)
     return;
-  assert(active_levels);
-  const int min_level = active_levels->min_level;
-  const int max_level = active_levels->max_level;
+  const int min_level = active_levels.min_level;
+  const int max_level = active_levels.max_level;
   if (min_level == 0)
     return;
   std::ostringstream groupnames;
@@ -651,13 +660,21 @@ static void error_if_sync_in_tail(const cGH *restrict const cctkGH,
       min_level, min_level - 1);
 }
 
-int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
+static bool
+integrator_owns_coarse_fine_ghosts(const GHExt::PatchData::LevelData &leveldata,
+                                   const int gi) {
+  return leveldata.level > 0 && group_is_integrated(gi) &&
+         leveldata.iteration > 0;
+}
+
+int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
+                               const cGH *restrict cctkGH, int numgroups,
                                const int *groups0, const int *directions) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 
-  error_if_sync_in_tail(cctkGH, numgroups, groups0);
+  error_if_sync_in_tail(active_levels, cctkGH, numgroups, groups0);
 
   mark_sync_active marked;
 
@@ -686,7 +703,7 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
   task_manager tasks3;
 
   for (const int gi : groups) {
-    active_levels->loop_serially([&](auto &restrict leveldata) {
+    active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
@@ -717,16 +734,29 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
         assert(!coarsegroupdata.mfab.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
-        // During evolution the time integrator owns the coarse-fine ghosts of
-        // the groups it integrates: FillRKBoundary refills them from the
-        // parent's dense output after each RK stage, and ODESolvers marks
-        // them valid. Every other group -- evolved or not -- gets them here.
         const bool integrated_subiter =
-            group_is_integrated(gi) && leveldata.iteration > 0;
+            integrator_owns_coarse_fine_ghosts(leveldata, gi);
 
         if (integrated_subiter) {
-          // Copy from adjacent boxes on same level only; FillRKBoundary owns
-          // the coarse-fine ghosts
+          for (int tl = 0; tl < sync_tl; ++tl)
+            for (int vi = 0; vi < groupdata.numvars; ++vi)
+              error_if_invalid(
+                  groupdata, vi, tl, make_valid_ghosts(),
+                  []() {
+                    return "SyncGroupsByDirISubcycling before syncing an "
+                           "integrated group on a refined level";
+                  },
+                  []() {
+                    return "  With CarpetX::use_subcycling = yes the RK step "
+                           "owns the coarse-fine ghosts of the groups the "
+                           "time integrator registered at iteration > 0: "
+                           "CarpetX::rk_step_t::state_updated after each RK "
+                           "stage, and the driver's refill after a recovery, "
+                           "fill and mark them before any SYNC.\n"
+                           "  The SYNC copies only the same-level ghosts of "
+                           "such a group and requires its ghosts to be marked "
+                           "valid already.\n";
+                  });
           for (int tl = 0; tl < sync_tl; ++tl) {
             tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
               FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
@@ -799,7 +829,6 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
   tasks3.run_tasks_serially();
   synchronize();
 
-  // Check postconditions
   for (const int gi : groups) {
     const auto &patchdata0 = ghext->patchdata.at(0);
     const auto &leveldata0 = patchdata0.leveldata.at(0);
@@ -812,14 +841,12 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
     const int ntls0 = groupdata0.mfab.size();
     const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
 
-    active_levels->loop_serially([&](auto &restrict leveldata) {
+    active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
-      // Must match the branch above: the ghosts of an integrated group are
-      // marked valid by the integrator after FillRKBoundary, not here.
       const bool integrated_subiter =
-          group_is_integrated(gi) && leveldata.iteration > 0;
+          integrator_owns_coarse_fine_ghosts(leveldata, gi);
 
       for (int tl = 0; tl < sync_tl0; ++tl) {
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
@@ -840,38 +867,49 @@ int SyncGroupsByDirISubcycling(const cGH *restrict cctkGH, int numgroups,
 
     for (int tl = 0; tl < sync_tl0; ++tl) {
       for (int vi = 0; vi < groupdata0.numvars; ++vi) {
-        poison_invalid_gf(*active_levels, gi, vi, tl);
-        // TODO: Check after applying multi-patch boundaries
+        poison_invalid_gf(active_levels, gi, vi, tl);
         if (!have_multipatch_boundaries)
-          check_valid_gf(*active_levels, gi, vi, tl, []() {
+          check_valid_gf(active_levels, gi, vi, tl, []() {
             return "SyncGroupsByDirISubcycling after syncing";
           });
       }
     } // for tl
   } // for gi
 
-  sync_multipatch_postcheck(cctkGH, groups, "SyncGroupsByDirISubcycling");
+  sync_multipatch_postcheck(active_levels, cctkGH, groups,
+                            "SyncGroupsByDirISubcycling");
 
   assert(sync_active);
 
   return numgroups; // number of groups synchronized
 }
 
-int SyncGroupsByDirIProlongateOnly(const cGH *restrict cctkGH, int numgroups,
+int SyncGroups(const active_levels_t &active_levels,
+               const cGH *restrict const cctkGH, const int numgroups,
+               const int *const groups, const int *const directions) {
+  return (ghext->use_subcycling ? SyncGroupsByDirISubcycling
+                                : SyncGroupsByDirI)(
+      active_levels, cctkGH, numgroups, groups, directions);
+}
+
+int SyncGroupsByDirIProlongateOnly(const active_levels_t &active_levels,
+                                   const cGH *restrict cctkGH, int numgroups,
                                    const int *groups0, const int *directions,
                                    const int tl) {
-  return SyncGroupsByDirIProlongateOnly_impl(cctkGH, numgroups, groups0,
-                                             directions, false, tl);
+  return SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, numgroups,
+                                             groups0, directions, false, tl);
 }
 
-int SyncGroupsByDirIProlongateOnlyAligned(const cGH *restrict cctkGH,
+int SyncGroupsByDirIProlongateOnlyAligned(const active_levels_t &active_levels,
+                                          const cGH *restrict cctkGH,
                                           int numgroups, const int *groups0,
                                           const int *directions, const int tl) {
-  return SyncGroupsByDirIProlongateOnly_impl(cctkGH, numgroups, groups0,
-                                             directions, true, tl);
+  return SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, numgroups,
+                                             groups0, directions, true, tl);
 }
 
-int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
+int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
+                              const cGH *restrict cctkGH, int numgroups,
                               const int *groups0, const int *directions,
                               const int tl_arg) {
   DECLARE_CCTK_PARAMETERS;
@@ -901,7 +939,7 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
   task_manager tasks2;
 
   for (const int gi : groups) {
-    active_levels->loop_serially([&](auto &restrict leveldata) {
+    active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
       assert(!groupdata.mfab.empty());
 
@@ -931,30 +969,19 @@ int SyncGroupsByDirIGhostOnly(const cGH *restrict cctkGH, int numgroups,
   tasks2.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_postcheck(cctkGH, groups, "SyncGroupsByDirIGhostOnly");
+  sync_multipatch_postcheck(active_levels, cctkGH, groups,
+                            "SyncGroupsByDirIGhostOnly");
 
   assert(sync_active);
 
   return numgroups; // number of groups synchronized
 }
 
-// Right after the end-of-step restriction, refill the coarse-fine ghosts of
-// every active level aligned with its parent by spatial prolongation from the
-// restricted parent. The groups are those whose ghosts there are not yet a
-// prolongation of the parent's current state:
-//  - every restricted group, since the restriction changed the parent;
-//  - under subcycling, every integrated group, restricted or not, since
-//    ODESolvers left its ghosts there at the dense output (the parent's RK
-//    update before its ODESolvers_PostStep) to save communication. Refilling
-//    them gives every evolved group the same last fill, the parent's final
-//    state, which is what recovery repeats. The callers of Restrict still
-//    leave restrict="no" groups out (see the selectors), so the driver never
-//    overwrites their coarse interiors.
-// The selector reprolongate_groups applies this rule.
-void ProlongateAfterRestriction(const cGH *cctkGH) {
+void ProlongateAfterRestriction(const active_levels_t &active_levels,
+                                const cGH *cctkGH) {
   const std::vector<int> groups = reprolongate_groups();
-  SyncGroupsByDirIProlongateOnly_impl(cctkGH, groups.size(), groups.data(),
-                                      nullptr, true);
+  SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups.size(),
+                                      groups.data(), nullptr, true);
 }
 
 // =======================================================================
@@ -1033,13 +1060,11 @@ void EnsureFluxGeometry(const int patch, const int level) {
   assert(have_all_or_none());
 }
 
-// See subcycling.hxx for the contract. Called by both ODESolvers solvers
-// once per RK stage, between ODESolvers_RHS and the state update.
 void AccumulateFluxes(const int patch, const int level, const int stage,
                       const CCTK_REAL weight) {
   if (!ghext->do_reflux)
     return;
-  assert(stage >= 1 && stage <= ghext->num_rk_stages);
+  assert(stage >= 1 && stage <= num_rk_stages());
 
   static Timer timer("AccumulateFluxes");
   Interval interval(timer);

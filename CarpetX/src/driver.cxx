@@ -9,7 +9,7 @@
 #include "prolongate_3d_rf2.hxx"
 #include "schedule.hxx"
 #include "subcycling.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 
 #include <cctk.h>
 #include <cctk_Arguments.h>
@@ -494,42 +494,39 @@ std::array<int, dim> get_group_fluxes(const int gi) {
   return fluxes;
 }
 
-// See subcycling.hxx for the contract. The bounds check is what makes an
-// empty vector (ODESolvers inactive) mean "nothing is integrated".
 bool group_is_integrated(const int gi) {
   assert(gi >= 0 && gi < CCTK_NumGroups());
-  const std::vector<bool> &integrated = ghext->rk_integrated_group;
-  return gi < int(integrated.size()) && integrated.at(gi);
+  const std::optional<rk_config_t> &integrator = ghext->rk();
+  return integrator && integrator->is_integrated(gi);
 }
 
-// See subcycling.hxx for the contract. The conditions are ordered so that
-// the fluxes= tag is parsed only for integrated grid functions: its asserts
-// (malformed tag) then fire on no group whose register allocation would not
-// parse it anyway.
+int num_rk_stages() {
+  const std::optional<rk_config_t> &integrator = ghext->rk();
+  return integrator ? integrator->nstages() : max_num_rk_stages;
+}
+
+rk_dense_output_t registered_dense_output() {
+  const std::optional<rk_config_t> &integrator = ghext->rk();
+  return integrator ? integrator->dense_output : rk_dense_output_t::none;
+}
+
 bool group_has_flux_register(const int gi) {
   assert(gi >= 0 && gi < CCTK_NumGroups());
   return ghext->do_reflux && CCTK_GroupTypeI(gi) == CCTK_GF &&
          group_is_integrated(gi) && get_group_fluxes(gi)[0] >= 0;
 }
 
-// See driver.hxx for the contract. With do_reflux set, the only way a
-// flux-tagged grid function fails group_has_flux_register is not being
-// integrated by ODESolvers, hence the wording. Parsing the fluxes= tag of
-// every grid function is no stricter than the GroupData constructor, which
-// parses it for every group on every level. Every process reaches the same
-// verdict from the same tags and parameters, so only the root warns, and the
-// warning appears once per run rather than once per process.
 void warn_inert_flux_tags() {
   DECLARE_CCTK_PARAMETERS;
+  const std::optional<rk_config_t> &integrator = ghext->rk();
   if (max_num_levels <= 1)
     return;
   if (CCTK_MyProc(nullptr) != 0)
     return;
   if (!ghext->do_reflux) {
-    // Every fluxes= tag is inert; say so once if one would have taken effect
     for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      if (CCTK_GroupTypeI(gi) == CCTK_GF && group_is_integrated(gi) &&
-          get_group_fluxes(gi)[0] >= 0) {
+      if (CCTK_GroupTypeI(gi) == CCTK_GF && integrator &&
+          integrator->is_integrated(gi) && get_group_fluxes(gi)[0] >= 0) {
         CCTK_INFO("Grid functions integrated by ODESolvers carry fluxes= "
                   "tags, but refluxing at coarse-fine boundaries is off; set "
                   "CarpetX::do_reflux = yes to enable it");
@@ -937,7 +934,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     const int patch, const int level, const int gi, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm,
     const std::function<std::string()> &why)
-    : patch(patch), level(level), next_tmp_mfab(0) {
+    : patch(patch), level(level) {
   cGroup group;
   int ierr = CCTK_GroupData(gi, &group);
   assert(!ierr);
@@ -1002,11 +999,6 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   }
   bcrecs.resize(numvars, bcrec);
 
-  // Allocate grid hierarchies
-  // Note: CarpetX and AMReX use opposite constants for cell/vertex
-  // data. AMReX uses (AMReX_IndexType.H): enum CellIndex { CELL =
-  // 0, NODE = 1 }, while CarpetX uses indextype = 0 for vertex
-  // (node) and indextype = 1 for cell data.
   const amrex::BoxArray &gba = convert(
       ba, amrex::IndexType(
               indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
@@ -1016,26 +1008,13 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   assert(ntls >= 0 and ntls <= group.numtimelevels);
   mfab.resize(ntls);
   valid.resize(ntls);
+  open_writes.assign(ntls, 0);
   for (int tl = 0; tl < ntls; ++tl) {
     mfab.at(tl) = std::make_unique<amrex::MultiFab>(
         gba, dm, numvars, amrex::IntVect(nghostzones));
     valid.at(tl).resize(numvars, why_valid_t(why));
   }
 
-  // Flux-register (reflux) bookkeeping. The fluxes= tag is parsed on every
-  // level, so that the coarsest level also knows its flux groups: it feeds
-  // the register of the pair (0, 1) as the coarse side. The register itself
-  // belongs to the fine level of each pair and exists only where it can be
-  // filled: for a group ODESolvers integrates (rk_integrated_group, published
-  // at WRAGH before any level is made), whose fluxes are therefore computed
-  // in ODESolvers_RHS. group_has_flux_register is that rule; the same
-  // predicate decides ODESolvers_CheckMethod's rejection of implicit
-  // methods. Both solvers accumulate each RK stage's flux through
-  // AccumulateFluxes; the correction is applied to the coarse state once per
-  // coarse step, by the driver's evolve loop under subcycling and by
-  // ODESolvers_Solve at its final stage otherwise (Reflux). A flux-tagged
-  // group that is not integrated (e.g. a diagnostic computed at analysis)
-  // gets no register, and AccumulateFluxes never looks at it.
   fluxes = get_group_fluxes(groupindex);
   if (fluxes[0] >= 0) {
     assert((indextype == std::array<int, dim>{1, 1, 1}));
@@ -1164,28 +1143,6 @@ amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
     assert(0);
   }
   return nullptr;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-void GHExt::PatchData::LevelData::GroupData::init_tmp_mfabs() const {
-  assert(next_tmp_mfab == 0);
-}
-
-amrex::MultiFab *
-GHExt::PatchData::LevelData::GroupData::alloc_tmp_mfab() const {
-  assert(next_tmp_mfab <= tmp_mfabs.size());
-  if (next_tmp_mfab == tmp_mfabs.size()) {
-    const auto &mfab0 = *mfab.at(0);
-    tmp_mfabs.emplace_back(std::make_unique<amrex::MultiFab>(
-        mfab0.boxArray(), mfab0.DistributionMap(), mfab0.nComp(),
-        mfab0.nGrowVect()));
-  }
-  return tmp_mfabs.at(next_tmp_mfab++).get();
-}
-
-void GHExt::PatchData::LevelData::GroupData::free_tmp_mfabs() const {
-  next_tmp_mfab = 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2189,10 +2146,7 @@ extern "C" int CarpetX_Startup() {
   CCTK_OverloadGroupStorageDecrease(GroupStorageDecrease);
   CCTK_OverloadQueryGroupStorageB(QueryGroupStorageB);
 
-  if (use_subcycling)
-    CCTK_OverloadSyncGroupsByDirI(SyncGroupsByDirISubcycling);
-  else
-    CCTK_OverloadSyncGroupsByDirI(SyncGroupsByDirI);
+  CCTK_OverloadSyncGroupsByDirI(SyncGroupsOnActiveLevels);
 
   CCTK_OverloadInterpGridArrays(CarpetX_InterpGridArrays);
   CCTK_OverloadArrayGroupSizeB(ArrayGroupSizeB);

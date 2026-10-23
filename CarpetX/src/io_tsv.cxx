@@ -2,7 +2,7 @@
 
 #include "driver.hxx"
 #include "mpi_types.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 
 #include <cctk_Arguments.h>
 #include <cctk_Parameters.h>

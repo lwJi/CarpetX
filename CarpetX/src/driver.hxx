@@ -1,9 +1,13 @@
 #ifndef CARPETX_CARPETX_DRIVER_HXX
 #define CARPETX_CARPETX_DRIVER_HXX
 
+#include "internal.hxx"
+
 #include "loop.hxx"
 #include "valid.hxx"
 
+#include <carpetx.hxx>
+#include <carpetx_rk.hxx>
 #include <rational.hxx>
 #include <tuple.hxx>
 
@@ -36,23 +40,10 @@ using namespace Arith;
 
 using Loop::dim;
 
-using rat64 = rational<int64_t>;
-
-// Compile-time capacity of the subcycling band arrays. The runtime-active
-// count lives in GHExt::num_rk_stages (RK4 uses 4, SSPRK3 uses 3).
 inline constexpr int max_num_rk_stages = 4;
 
 // TODO: It seems that AMReX now also has `RB90`, `RB180`, and
 // `PolarB` boundary conditions. Make these available as well.
-
-// Symmetries are domain properties
-enum class symmetry_t {
-  none,
-  interpatch,
-  periodic,
-  reflection,
-};
-std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry);
 
 // Boundary conditions are group properties. They are valid only for faces where
 // the domain symmetry is `none`.
@@ -121,7 +112,6 @@ public:
   virtual void ClearLevel(int level) override;
 };
 
-// Cactus grid hierarchy extension
 struct GHExt {
 
   GHExt() = default;
@@ -452,6 +442,13 @@ struct GHExt {
                   const std::function<std::string()> &why);
 
         int patch, level;
+        std::vector<int> open_writes;
+        int open_write_count() const {
+          int count = 0;
+          for (const int n : open_writes)
+            count += n;
+          return count;
+        }
 
         std::array<int, dim> indextype;
         std::array<int, dim> nghostzones;
@@ -512,17 +509,6 @@ struct GHExt {
         // valid-tracked.
         mutable std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;
 
-        // Flux register of the pair (level - 1, level), owned by this (fine)
-        // level: allocated only where it is fed, i.e. for a group with a
-        // fluxes= tag that ODESolvers integrates (ghext->rk_integrated_group)
-        // under do_reflux, with and without subcycling; zeroed on creation,
-        // and reset by the parent's first RK stage (AccumulateFluxes).
-        //
-        // Contract of the fluxes= tag: on an ODESolvers-integrated group it
-        // promises that the flux groups are computed in ODESolvers_RHS, so
-        // that every RK stage can accumulate them; on any other group the tag
-        // is validated for shape (LevelData constructor) and otherwise inert:
-        // no register, no accumulation, no validity check of the fluxes.
         std::unique_ptr<amrex::FluxRegister> freg;
         // Coarse-side staging for AccumulateFluxes: the parent's raw flux is
         // parallel-copied here, scaled, and added into freg. Allocated
@@ -535,22 +521,11 @@ struct GHExt {
         // associated flux group indices
         std::array<int, dim> fluxes; // [dir]
 
-        // CarpetX can allocate and free (temporary) multifabs that
-        // are associated with a Cactus grid function group. These
-        // multifabs remain allocated when they are freed, which makes
-        // it efficient when they are re-allocated later. However,
-        // they are freed when the current level changes during
-        // regridding (and the shape of the multifab presumably
-        // changes). This is used e.g. by ODESolvers for its
-        // temporaries.
-      private:
-        mutable std::vector<std::unique_ptr<amrex::MultiFab> > tmp_mfabs;
-        mutable std::size_t next_tmp_mfab;
-
-      public:
-        void init_tmp_mfabs() const;
-        amrex::MultiFab *alloc_tmp_mfab() const;
-        void free_tmp_mfabs() const;
+        struct scratch_slot_t {
+          std::unique_ptr<amrex::MultiFab> mfab;
+          bool in_use = false;
+        };
+        std::vector<scratch_slot_t> scratch_pool;
 
         friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                          const GroupData &groupdata);
@@ -610,18 +585,12 @@ struct GHExt {
   // member; recovery restores the parameter before InitGH runs.
   bool do_reflux = false;
 
-  // Stage count of ODESolvers::method, published at WRAGH from the method
-  // table (ODESolvers/src/rk_methods.hxx). Under subcycling it is <=
-  // max_num_rk_stages (ODESolvers_CheckMethod rejects the others at
-  // PARAMCHECK) and sizes the bands; without subcycling it may exceed that
-  // (RKF78: 11, DP87: 13) and only bounds the stage AccumulateFluxes accepts.
-  int num_rk_stages = 4;
-
-  // Groups advanced by the time integrator, published by it at WRAGH
-  // (ODESolvers: the groups with an "rhs" tag). These are exactly the groups
-  // that own coarse-fine source bands under subcycling, both during evolution
-  // and when recovery rebuilds the bands. Empty means none.
-  std::vector<bool> rk_integrated_group; // [group index]
+  std::optional<rk_config_t> rk_config;
+  mutable std::atomic<bool> rk_config_read{false};
+  const std::optional<rk_config_t> &rk() const {
+    rk_config_read.store(true, std::memory_order_relaxed);
+    return rk_config;
+  }
 
   // Per-level metadata read from a checkpoint, consumed when recovery restores
   // the level clocks in schedule.cxx. Either value is absent when the
@@ -666,17 +635,11 @@ struct GHExt {
 
 extern std::unique_ptr<GHExt> ghext;
 
-// Print one CCTK_WARN_ALERT for each grid-function group whose fluxes= tag
-// cannot take effect: flux-tagged, but rejected by group_has_flux_register
-// (subcycling.hxx), i.e. not integrated by ODESolvers, so it never gets a
-// flux register and is never refluxed. With CarpetX::do_reflux = no, print
-// instead a single CCTK_INFO if some integrated grid function carries a
-// fluxes= tag, since every such tag is then inert. Silent when
-// CarpetX::max_num_levels <= 1, since then no group gets a register. Warns
-// on the root process only. Called once by Initialise, after
-// PARAMCHECK (it needs ghext->do_reflux from InitGH and
-// ghext->rk_integrated_group from WRAGH) and before any level exists, so it
-// fires once per run, fresh start or recovery.
+int num_rk_stages();
+rk_dense_output_t registered_dense_output();
+
+std::array<int, dim> get_group_fluxes(int gi);
+
 void warn_inert_flux_tags();
 
 // Group tag "checkpoint"; absent -> yes. Reads only the tags table, so valid

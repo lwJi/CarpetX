@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_IO_TSV_HXX
 #define CARPETX_CARPETX_IO_TSV_HXX
 
+#include "internal.hxx"
+
 #include <cctk.h>
 
 namespace CarpetX {

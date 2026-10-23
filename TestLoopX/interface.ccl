@@ -1,6 +1,6 @@
 IMPLEMENTS: TestLoopX
 
-USES INCLUDE HEADER: driver.hxx
+USES INCLUDE HEADER: carpetx.hxx
 USES INCLUDE HEADER: loop.hxx
 USES INCLUDE HEADER: loop_device.hxx
 

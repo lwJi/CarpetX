@@ -1,5 +1,5 @@
+#include <carpetx.hxx>
 #include <loop.hxx>
-#include <schedule.hxx>
 
 #include <cctk.h>
 #include <cctk_Arguments.h>
@@ -63,40 +63,24 @@ extern "C" void TestRestrictTags_Init(CCTK_ARGUMENTS) {
   });
 }
 
-// Restrict nr_explicit over the whole window, the levels CCTK_POSTINITIAL
-// covers. Its restrict="no" tag keeps only the driver away from it.
 extern "C" void TestRestrictTags_RestrictExplicit(CCTK_ARGUMENTS) {
   const int gi = CCTK_GroupIndex("TestRestrictTags::nr_explicit");
   assert(gi >= 0);
   const std::vector<int> groups{gi};
-  CarpetX::RestrictNoPoison(cctkGH, CarpetX::active_levels->min_level,
-                            CarpetX::active_levels->max_level, groups);
+  CarpetX::restrict_no_poison(CarpetX::active_window(), groups);
 }
 
 extern "C" void TestRestrictTags_Sync(CCTK_ARGUMENTS) {
   // Do nothing; the schedule SYNCs
 }
 
-// Per level:
-//  - level 0, interior: fine_value on the points level 1 covers if the group
-//    is in restricted_groups, coarse_value everywhere else;
-//  - level 0, ghosts of a group not in restricted_groups: coarse_value;
-//  - level 1, interior: fine_value, and every point lies in the cube
-//    |x|, |y|, |z| <= fine_box_radius, so that the cube is exactly what
-//    level 1 covers;
-//  - level 1, ghosts of a group not in restricted_groups: fine_value in the
-//    cube (copies from the neighbouring boxes of level 1), and coarse_value
-//    outside it (prolongated from level 0).
-// The values are compared exactly: restriction injects vertex values, and
-// linear prolongation reproduces constants such as the defaults 1 and 2
-// exactly.
 extern "C" void TestRestrictTags_Check(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestRestrictTags_Check;
   DECLARE_CCTK_PARAMETERS;
 
-  if (CarpetX::ghext->num_levels() != 2)
+  if (CarpetX::num_levels(0) != 2)
     CCTK_VERROR("The test expects 2 levels, but there are %d",
-                CarpetX::ghext->num_levels());
+                CarpetX::num_levels(0));
   assert(cctk_level == 0 || cctk_level == 1);
   const bool is_coarse = cctk_level == 0;
 

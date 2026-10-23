@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_IO_SILO_HXX
 #define CARPETX_CARPETX_IO_SILO_HXX
 
+#include "internal.hxx"
+
 #include <cctk.h>
 
 #ifdef HAVE_CAPABILITY_Silo

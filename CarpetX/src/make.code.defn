@@ -1,4 +1,6 @@
 SRCS =							\
+	api.cxx						\
+	api_rk.cxx					\
 	boundaries.cxx					\
 	boundaries_impl_int_int_neg.cxx			\
 	boundaries_impl_int_int_pos.cxx			\
@@ -58,3 +60,5 @@ SRCS =							\
 	valid.cxx
 
 SUBDIRS = 
+
+CPPFLAGS += -DCARPETX_INTERNAL

@@ -1,6 +1,6 @@
 #include "driver.hxx"
 #include "schedule.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 #include "valid.hxx"
 
 #include <loop_device.hxx>
@@ -567,6 +567,7 @@ void check_valid_ga(const int gi, const int vi, const int tl,
 // Checksums to catch illegal modifications
 
 checksums_t calculate_checksums(
+    const active_levels_t &active_levels,
     const std::vector<std::vector<std::vector<valid_t> > > &will_write) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -578,10 +579,9 @@ checksums_t calculate_checksums(
   static Timer timer("calculate_checksums");
   Interval interval(timer);
 
-  assert(active_levels);
-  active_levels->loop_parallel([&](const int patch, const int level,
-                                   const int index, const int component,
-                                   const cGH *restrict const cctkGH) {
+  active_levels.loop_parallel([&](const int patch, const int level,
+                                  const int index, const int component,
+                                  const cGH *restrict const cctkGH) {
     const auto &patchdata = ghext->patchdata.at(patch);
     const auto &leveldata = patchdata.leveldata.at(level);
     for (const auto &groupdataptr : leveldata.groupdata) {
@@ -643,7 +643,8 @@ checksums_t calculate_checksums(
   return checksums;
 }
 
-void check_checksums(const checksums_t &checksums,
+void check_checksums(const active_levels_t &active_levels,
+                     const checksums_t &checksums,
                      const std::function<std::string()> &where) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -655,10 +656,9 @@ void check_checksums(const checksums_t &checksums,
   static Timer timer("check_checksums");
   Interval interval(timer);
 
-  assert(active_levels);
-  active_levels->loop_parallel([&](const int patch, const int level,
-                                   const int index, const int component,
-                                   const cGH *restrict const cctkGH) {
+  active_levels.loop_parallel([&](const int patch, const int level,
+                                  const int index, const int component,
+                                  const cGH *restrict const cctkGH) {
     const auto &patchdata = ghext->patchdata.at(patch);
     const auto &leveldata = patchdata.leveldata.at(level);
     for (const auto &groupdataptr : leveldata.groupdata) {

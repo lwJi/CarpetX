@@ -1,6 +1,8 @@
 #ifndef TASK_MANAGER_HXX
 #define TASK_MANAGER_HXX
 
+#include "internal.hxx"
+
 #include <functional>
 #include <vector>
 #include <utility>

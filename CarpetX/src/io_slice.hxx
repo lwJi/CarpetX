@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_IO_SLICE_HXX
 #define CARPETX_CARPETX_IO_SLICE_HXX
 
+#include "internal.hxx"
+
 #include <cctk.h>
 
 #include <vect.hxx>

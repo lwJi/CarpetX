@@ -1,0 +1,25 @@
+STORAGE: state state_rhs
+
+SCHEDULE TestCarpetXAPI_Startup AT startup
+{
+  LANG: C
+  OPTIONS: meta
+} "Call CarpetX::active_window outside any traversal when TestCarpetXAPI::mode says so"
+
+SCHEDULE TestCarpetXAPI_Register AT wragh
+{
+  LANG: C
+  OPTIONS: global
+} "Register a time integrator through CarpetX::register_integrator as TestCarpetXAPI::mode says"
+
+SCHEDULE TestCarpetXAPI_Fill AT initial
+{
+  LANG: C
+  OPTIONS: global
+} "Fill state through the public CarpetX API as TestCarpetXAPI::mode says"
+
+SCHEDULE TestCarpetXAPI_Check AT initial AFTER TestCarpetXAPI_Fill
+{
+  LANG: C
+  READS: state(everywhere)
+} "Abort unless state holds the written function everywhere, ghosts included"

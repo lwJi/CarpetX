@@ -3,7 +3,7 @@
 #include "driver.hxx"
 #include "io_meta.hxx"
 #include "mpi_types.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 
 #include <tuple.hxx>
 

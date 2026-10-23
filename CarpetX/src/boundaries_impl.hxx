@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_BOUNDARIES_IMPL_HXX
 #define CARPETX_CARPETX_BOUNDARIES_IMPL_HXX
 
+#include "internal.hxx"
+
 #include "boundaries.hxx"
 
 #include <array>

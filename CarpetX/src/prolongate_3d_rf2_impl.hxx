@@ -1,9 +1,11 @@
 #ifndef CARPETX_CARPETX_PROLONGATE_3D_RF2_IMPL_HXX
 #define CARPETX_CARPETX_PROLONGATE_3D_RF2_IMPL_HXX
 
+#include "internal.hxx"
+
 #include "prolongate_3d_rf2.hxx"
 
-#include "timer.hxx"
+#include <carpetx.hxx>
 
 #include <vect.hxx>
 

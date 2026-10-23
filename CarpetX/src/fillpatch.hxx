@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_FILLPATCH_HXX
 #define CARPETX_CARPETX_FILLPATCH_HXX
 
+#include "internal.hxx"
+
 #include "driver.hxx"
 #include "task_manager.hxx"
 

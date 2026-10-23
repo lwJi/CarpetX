@@ -1,6 +1,9 @@
 #ifndef CARPETX_CARPETX_VALID_HXX
 #define CARPETX_CARPETX_VALID_HXX
 
+#include "internal.hxx"
+
+#include <carpetx.hxx>
 #include <tuple.hxx>
 
 #include <AMReX_Box.H>
@@ -18,75 +21,7 @@
 
 namespace CarpetX {
 
-struct valid_t {
-  bool valid_int, valid_outer, valid_ghosts;
-  constexpr valid_t() : valid_t(false) {}
-
-  explicit constexpr valid_t(bool b)
-      : valid_int(b), valid_outer(b), valid_ghosts(b) {}
-  friend constexpr valid_t operator~(const valid_t &x) {
-    valid_t r;
-    r.valid_int = !x.valid_int;
-    r.valid_outer = !x.valid_outer;
-    r.valid_ghosts = !x.valid_ghosts;
-    return r;
-  }
-  friend constexpr valid_t operator&(const valid_t &x, const valid_t &y) {
-    valid_t r;
-    r.valid_int = x.valid_int && y.valid_int;
-    r.valid_outer = x.valid_outer && y.valid_outer;
-    r.valid_ghosts = x.valid_ghosts && y.valid_ghosts;
-    return r;
-  }
-  friend constexpr valid_t operator|(const valid_t &x, const valid_t &y) {
-    valid_t r;
-    r.valid_int = x.valid_int || y.valid_int;
-    r.valid_outer = x.valid_outer || y.valid_outer;
-    r.valid_ghosts = x.valid_ghosts || y.valid_ghosts;
-    return r;
-  }
-  valid_t &operator&=(const valid_t &x) { return *this = *this & x; }
-  valid_t &operator|=(const valid_t &x) { return *this = *this | x; }
-
-  constexpr bool valid_all() const {
-    return valid_int && valid_outer && valid_ghosts;
-  }
-  constexpr bool valid_any() const {
-    return valid_int || valid_outer || valid_ghosts;
-  }
-
-  friend bool operator==(const valid_t &x, const valid_t &y) {
-    return std::make_tuple(x.valid_int, x.valid_outer, x.valid_ghosts) ==
-           std::make_tuple(y.valid_int, y.valid_outer, y.valid_ghosts);
-  }
-  friend bool operator<(const valid_t &x, const valid_t &y) {
-    return std::make_tuple(x.valid_int, x.valid_outer, x.valid_ghosts) <
-           std::make_tuple(y.valid_int, y.valid_outer, y.valid_ghosts);
-  }
-
-  std::string explanation() const;
-
-  friend std::ostream &operator<<(std::ostream &os, const valid_t v);
-  operator std::string() const;
-  friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const valid_t v);
-};
-
-inline constexpr valid_t make_valid_int() {
-  valid_t valid;
-  valid.valid_int = true;
-  return valid;
-}
-inline constexpr valid_t make_valid_outer() {
-  valid_t valid;
-  valid.valid_outer = true;
-  return valid;
-}
-inline constexpr valid_t make_valid_ghosts() {
-  valid_t valid;
-  valid.valid_ghosts = true;
-  return valid;
-}
-inline constexpr valid_t make_valid_all() { return ~valid_t(); }
+YAML::Emitter &operator<<(YAML::Emitter &yaml, valid_t v);
 
 } // namespace CarpetX
 namespace std {
@@ -226,9 +161,13 @@ struct tiletag_t {
 
 typedef std::map<tiletag_t, checksum_t> checksums_t;
 
+struct active_levels_t;
+
 checksums_t calculate_checksums(
+    const active_levels_t &active_levels,
     const std::vector<std::vector<std::vector<valid_t> > > &will_write);
-void check_checksums(const checksums_t &checksums,
+void check_checksums(const active_levels_t &active_levels,
+                     const checksums_t &checksums,
                      const std::function<std::string()> &where);
 
 ////////////////////////////////////////////////////////////////////////////////

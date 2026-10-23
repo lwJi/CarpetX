@@ -22,6 +22,10 @@ ONEPROC_DIR="$(./simfactory/bin/sim --machine="actions-$ACCELERATOR-$REAL_PRECIS
 time ./simfactory/bin/sim --machine="actions-$ACCELERATOR-$REAL_PRECISION" create-run TestJob01_temp_2 --cores 2 --num-threads 1 --testsuite --select-tests=CarpetX
 TWOPROC_DIR="$(./simfactory/bin/sim --machine="actions-$ACCELERATOR-$REAL_PRECISION" get-output-dir TestJob01_temp_2)/TEST/sim"
 
+# The parfiles under <Thorn>/test/errors must abort with the text of their
+# .expect sidecar; the testsuite cannot express that
+time python3 "$CARPETXSPACE/scripts/expect-error.py" exe/cactus_sim "$CARPETXSPACE"/*/test/errors
+
 # # Parse results and generate plots
 # cd "$PAGESSPACE"
 # python3 "$CARPETXSPACE/scripts/store.py" "$WORKSPACE/Cactus/repos/CarpetX" "$ONEPROC_DIR" "$TWOPROC_DIR"

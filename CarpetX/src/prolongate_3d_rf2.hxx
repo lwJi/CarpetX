@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_PROLONGATE_3D_RF2_HXX
 #define CARPETX_CARPETX_PROLONGATE_3D_RF2_HXX
 
+#include "internal.hxx"
+
 #include "driver.hxx"
 
 #include <AMReX_Interpolater.H>

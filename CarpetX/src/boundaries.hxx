@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_BOUNDARIES_HXX
 #define CARPETX_CARPETX_BOUNDARIES_HXX
 
+#include "internal.hxx"
+
 #include "driver.hxx"
 #include "loop_device.hxx"
 

@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_IO_OPENPMD_HXX
 #define CARPETX_CARPETX_IO_OPENPMD_HXX
 
+#include "internal.hxx"
+
 #include <cctk.h>
 
 #ifdef HAVE_CAPABILITY_openPMD_api

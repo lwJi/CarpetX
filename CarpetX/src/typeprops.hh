@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_TYPEPROPS_HH
 #define CARPETX_CARPETX_TYPEPROPS_HH
 
+#include "internal.hxx"
+
 #include <cctk.h>
 
 namespace CarpetLib {

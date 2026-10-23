@@ -12,10 +12,11 @@ USES INCLUDE HEADER: vect.hxx
 USES INCLUDE HEADER: loop.hxx
 USES INCLUDE HEADER: loop_device.hxx
 
-INCLUDES HEADER: driver.hxx IN driver.hxx
-INCLUDES HEADER: schedule.hxx IN schedule.hxx
-INCLUDES HEADER: reduction.hxx IN reduction.hxx
-INCLUDES HEADER: timer.hxx IN timer.hxx
+USES INCLUDE HEADER: carpetx.hxx
+USES INCLUDE HEADER: carpetx_rk.hxx
+
+INCLUDES HEADER: carpetx.hxx IN carpetx.hxx
+INCLUDES HEADER: carpetx_rk.hxx IN carpetx_rk.hxx
 
 
 

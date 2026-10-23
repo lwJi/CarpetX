@@ -9,7 +9,7 @@
 #include "io_tsv.hxx"
 #include "schedule.hxx"
 #include "subcycling.hxx"
-#include "timer.hxx"
+#include <carpetx.hxx>
 
 #include <CactusBase/IOUtil/src/ioGH.h>
 #include <CactusBase/IOUtil/src/ioutil_CheckpointRecovery.h>

@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_IO_HXX
 #define CARPETX_CARPETX_IO_HXX
 
+#include "internal.hxx"
+
 #include <cctk.h>
 
 namespace CarpetX {

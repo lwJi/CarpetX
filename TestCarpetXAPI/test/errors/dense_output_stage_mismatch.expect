@@ -1,0 +1,1 @@
+the RK4 dense output belongs to a method with 4 RK stages, but the integrator registered 2

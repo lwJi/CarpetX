@@ -27,14 +27,6 @@ namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
 
-// crse_patch = u0 + dtc * P_stage(xsi; k_1..k_RKSTAGES), evaluated with one
-// fused amrex::ParallelFor over the coarse source-band geometry. The
-// coefficient tables are AMReX's FillPatcher::fillRK dense-output formulas
-// (AMReX_FillPatcher.H: RK3 table around lines 474-527, RK4 table around
-// 530-605), with the coarse-to-fine step ratio r fixed at 1/2.
-//
-// The kernel walks `crse_patch` and the bands box by box, so they must share
-// one BoxArray and one DistributionMapping (see EnsureRKBuffers).
 template <int RKSTAGES>
 void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                           const amrex::MultiFab &old_band,
@@ -46,8 +38,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                 "rk_dense_output only supports RKSTAGES == 3 or 4");
   assert(stage > 0 && stage <= RKSTAGES);
 
-  // ratio between coarse and fine time step (2:1 refinement)
-  constexpr CCTK_REAL r = 0.5;
+  constexpr CCTK_REAL r = rk_substep_ratio;
 
   const int nvars = crse_patch.nComp();
   assert(old_band.nComp() == nvars);
@@ -213,24 +204,23 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
   amrex::Gpu::synchronize();
 }
 
-// crse_patch = u0 + dtc * P_stage(xsi; k_1..k_N), num_rk_stages in {3, 4}
 void rk_dense_output(amrex::MultiFab &crse_patch,
                      const amrex::MultiFab &old_band,
                      const std::array<std::unique_ptr<amrex::MultiFab>,
                                       max_num_rk_stages> &ks_bands,
-                     const int num_rk_stages, const int stage,
+                     const rk_dense_output_t dense_output, const int stage,
                      const CCTK_REAL xsi, const CCTK_REAL dtc) {
-  switch (num_rk_stages) {
-  case 3:
+  switch (dense_output) {
+  case rk_dense_output_t::ssprk3:
     rk_dense_output_impl<3>(crse_patch, old_band, ks_bands, stage, xsi, dtc);
     break;
-  case 4:
+  case rk_dense_output_t::rk4:
     rk_dense_output_impl<4>(crse_patch, old_band, ks_bands, stage, xsi, dtc);
     break;
   default:
-    CCTK_VERROR("Subcycling dense output supports 3 (SSPRK3) or 4 (RK4) RK "
-                "stages, but ghext->num_rk_stages is %d",
-                num_rk_stages);
+    CCTK_ERROR("Subcycling dense output: the registered integrator has no "
+               "dense output (CarpetX::register_integrator refuses that under "
+               "CarpetX::use_subcycling)");
   }
 }
 
@@ -268,22 +258,6 @@ rk_fill_fpinfo(const amrex::MultiFab &finemfab,
 
 } // namespace
 
-// The single allocation site of the RK buffers of a group: the source bands
-// (old_source_band, ks_source_band[]: data with history, filled by the parent
-// level) and the work buffers of the fill (rk_crse_patch, the dense-output
-// destination, and rk_fine_patch, the interpolation destination). All four
-// are owned by the refined level's GroupData and have the geometry of one
-// FPinfo, that of this level's MultiFab of the group, which
-// FillPatch_Prolongate would look up as well. The dense-output kernel walks
-// the bands and rk_crse_patch box by box; they have one layout by
-// construction, so there is nothing to compare across levels.
-//
-// Lazy and idempotent, without a dirty check: the layout is a function of this
-// level's own layout alone, and a regrid that changes it destroys the buffers
-// together with their LevelData. The work buffers are allocated exactly as the
-// temporaries of FillPatch_Prolongate that they replace (the body of AMReX's
-// make_mf_crse_patch / make_mf_fine_patch), minus the NaN prefill outside the
-// domain: the dense output overwrites every point of rk_crse_patch.
 void EnsureRKBuffers(const int patch, const int level, const int gi) {
   // The buffers only exist under subcycling, and only for the groups the time
   // integrator advances: it alone fills the bands (StoreRKOldState /
@@ -309,7 +283,7 @@ void EnsureRKBuffers(const int patch, const int level, const int gi) {
   const auto &patchdata = ghext->patchdata.at(patch);
   const auto &leveldata = patchdata.leveldata.at(level);
   const GroupData &groupdata = *leveldata.groupdata.at(gi);
-  const int num_rk_stages = ghext->num_rk_stages;
+  const int num_rk_stages = CarpetX::num_rk_stages();
   assert(num_rk_stages >= 0 && num_rk_stages <= max_num_rk_stages);
 
   // All four are allocated together, or none is
@@ -367,12 +341,10 @@ void StoreRKOldState(const int patch, const int level,
 
   for (const int gi : var_groups) {
     const GroupData &groupdata = *leveldata.groupdata.at(gi);
-    // EnsureRKBuffers is a no-op for unpublished groups, which would leave the
-    // children without a prolongation source and recovery without bands.
     if (!group_is_integrated(gi))
       CCTK_VERROR("Group \"%s\" is integrated under subcycling but is not "
-                  "listed in GHExt::rk_integrated_group. The time integrator "
-                  "must publish its evolved groups at WRAGH.",
+                  "among the integrated groups the time integrator registered "
+                  "(CarpetX::register_integrator, AT WRAGH)",
                   CCTK_FullGroupName(gi));
     // The finest level has no children to prolongate to.
     if (!have_child)
@@ -396,7 +368,7 @@ void StoreRKStage(const int patch, const int level,
                   const std::vector<int> &rhs_groups, const int stage) {
   if (!ghext->use_subcycling)
     return;
-  assert(stage >= 1 && stage <= ghext->num_rk_stages);
+  assert(stage >= 1 && stage <= num_rk_stages());
   assert(var_groups.size() == rhs_groups.size());
   const int s = stage - 1;
   const auto &patchdata = ghext->patchdata.at(patch);
@@ -408,8 +380,6 @@ void StoreRKStage(const int patch, const int level,
   const amrex::Periodicity &period =
       patchdata.amrcore->Geom(level).periodicity();
 
-  // rhs_groups[i] and var_groups[i] are paired by sort order; the k-stage
-  // bands live on the evolved group's GroupData on the child level.
   for (size_t i = 0; i < var_groups.size(); ++i) {
     const GroupData &childgroupdata =
         *childleveldata.groupdata.at(var_groups[i]);
@@ -436,7 +406,7 @@ void FillRKBoundary(const int patch, const int level,
   const auto &coarseleveldata = patchdata.leveldata.at(level - 1);
   const auto &fgeom = patchdata.amrcore->Geom(level);
   const auto &cgeom = patchdata.amrcore->Geom(level - 1);
-  const int num_rk_stages = ghext->num_rk_stages;
+  const rk_dense_output_t dense_output = registered_dense_output();
 
   // We need to loop over groups in a definite order so that AMReX's
   // communication pattern does not get confused (as in
@@ -479,15 +449,10 @@ void FillRKBoundary(const int patch, const int level,
     amrex::MultiFab &crse_patch = *groupdata.rk_crse_patch;
     amrex::MultiFab &fine_patch = *groupdata.rk_fine_patch;
 
-    // Coarse state at the fine stage time, evaluated on the bands straight
-    // into the coarse patch buffer: both have the geometry
-    // fpc.ba_crse_patch / fpc.dm_patch. Every point of the buffer is
-    // overwritten. Points outside the domain hold whatever the bands hold
-    // there; the coarse boundary conditions overwrite them next.
     tasks1.submit_serially(
-        [&groupdata, &crse_patch, &old_band, num_rk_stages, stage, xsi, dtc]() {
+        [&groupdata, &crse_patch, &old_band, dense_output, stage, xsi, dtc]() {
           rk_dense_output(crse_patch, old_band, groupdata.ks_source_band,
-                          num_rk_stages, stage, xsi, dtc);
+                          dense_output, stage, xsi, dtc);
         });
 
     // Coarse BC on the combined state, spatial interpolation with the group's

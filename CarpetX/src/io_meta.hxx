@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_IO_META_HXX
 #define CARPETX_CARPETX_IO_META_HXX
 
+#include "internal.hxx"
+
 #include <cctk.h>
 
 #include <yaml-cpp/yaml.h>

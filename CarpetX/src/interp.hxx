@@ -1,6 +1,8 @@
 #ifndef CARPETX_CARPETX_INTERP_HXX
 #define CARPETX_CARPETX_INTERP_HXX
 
+#include "internal.hxx"
+
 #include <cctk.h>
 
 #include <defs.hxx>

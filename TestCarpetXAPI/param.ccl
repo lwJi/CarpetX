@@ -1,0 +1,23 @@
+KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Register at WRAGH, and TestCarpetXAPI_Fill at CCTK_INITIAL"
+{
+  "write-scope"       :: "write the interior of state through a write scope that states interior validity, then sync; TestCarpetXAPI_Check reads state everywhere"
+  "sync-during-write" :: "call CarpetX::sync on state while a write scope on it is open; CarpetX aborts the run"
+  "write-twice"       :: "open a second write scope on state at the same time level while the first is open; CarpetX aborts the run"
+  "require-invalid"   :: "require valid ghosts of state before anything has filled them; CarpetX aborts the run"
+  "register-twice"    :: "register a valid integrator at WRAGH, then register it again; CarpetX aborts the second call"
+  "register-after-use" :: "register a valid integrator at CCTK_INITIAL, after the driver has read its integrator record; CarpetX aborts the run"
+  "unregistered-rk-call" :: "call CarpetX::open_rk_step at CCTK_INITIAL without having registered an integrator; CarpetX aborts the run"
+  "window-outside-traversal" :: "call CarpetX::active_window at STARTUP, before the driver has opened any traversal; CarpetX aborts the run"
+  "dense-output-stage-mismatch" :: "register a 2-stage integrator whose dense output is RK4; CarpetX aborts the run"
+  "weights-sum-mismatch" :: "register a 3-stage integrator whose weights b sum to 1.5; CarpetX aborts the run"
+  "reflux-without-weights" :: "register an integrator without weights b (an implicit method) that integrates conserved, which carries a fluxes= tag, under CarpetX::do_reflux with CarpetX::max_num_levels > 1; CarpetX aborts the run"
+  "subcycling-without-dense-output" :: "register an integrator without a dense output under CarpetX::use_subcycling; CarpetX aborts the run"
+  "integrated-not-checkpointed" :: "register an integrator that integrates unsaved, which is tagged checkpoint=no; CarpetX aborts the run"
+  "rhs-repeated"       :: "open an RK step on level 0 and report the right-hand side of RK stage 1 computed twice, without state_updated in between; CarpetX aborts the run"
+  "step-closed-early"  :: "open an RK step on level 0 and close it after one of its four stages; CarpetX aborts the run"
+} "write-scope"
+
+CCTK_REAL tolerance "Largest absolute difference between state and the function the fill wrote that TestCarpetXAPI_Check accepts"
+{
+  0:* :: ""
+} 1.0e-10
