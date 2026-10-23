@@ -43,6 +43,8 @@ using namespace Arith;
 
 using Loop::dim;
 
+inline constexpr int max_num_rk_stages = 4;
+
 // TODO: It seems that AMReX now also has `RB90`, `RB180`, and
 // `PolarB` boundary conditions. Make these available as well.
 

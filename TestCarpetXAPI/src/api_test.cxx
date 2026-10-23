@@ -237,15 +237,15 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
 
   if (CCTK_EQUALS(mode, "rhs-repeated")) {
     CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
-    step.rhs_computed();
-    step.rhs_computed();
+    step.rhs_computed(cctkGH->cctk_delta_time);
+    step.rhs_computed(cctkGH->cctk_delta_time);
     CCTK_ERROR("CarpetX::rk_step_t::rhs_computed ran twice without "
                "state_updated in between");
   }
   if (CCTK_EQUALS(mode, "step-closed-early")) {
     {
       CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
-      step.rhs_computed();
+      step.rhs_computed(cctkGH->cctk_delta_time);
       step.state_updated();
     }
     CCTK_ERROR("CarpetX::rk_step_t closed after 1 of 4 stages");

@@ -5,11 +5,10 @@
 
 #include <cctk.h>
 
+#include <memory>
 #include <vector>
 
 namespace CarpetX {
-
-inline constexpr int max_num_rk_stages = 4;
 
 enum class rk_dense_output_t { none, ssprk3, rk4 };
 
@@ -56,13 +55,13 @@ public:
   rk_step_t &operator=(rk_step_t &&) = delete;
   ~rk_step_t();
 
-  void rhs_computed();
+  void rhs_computed(CCTK_REAL delta_time);
   void state_updated();
 
 private:
   struct impl;
-  impl *p;
-  explicit rk_step_t(impl *p) noexcept;
+  std::unique_ptr<impl> p;
+  explicit rk_step_t(std::unique_ptr<impl> p) noexcept;
   friend rk_step_t open_rk_step(window_t window);
 };
 

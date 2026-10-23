@@ -26,6 +26,7 @@ static inline int omp_in_parallel() { return 0; }
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -351,19 +352,23 @@ rk_step_t open_rk_step(const window_t window) {
                     rk_tl);
   }
   synchronize();
-  return rk_step_t(step.release());
+  return rk_step_t(std::move(step));
 }
 
-rk_step_t::rk_step_t(impl *const p) noexcept : p(p) {}
+rk_step_t::rk_step_t(std::unique_ptr<impl> p) noexcept : p(std::move(p)) {}
 
-rk_step_t::rk_step_t(rk_step_t &&other) noexcept : p(other.p) {
-  other.p = nullptr;
-}
+rk_step_t::rk_step_t(rk_step_t &&) noexcept = default;
 
-void rk_step_t::rhs_computed() {
+void rk_step_t::rhs_computed(const CCTK_REAL delta_time) {
   if (!p)
     CCTK_ERROR("CarpetX::rk_step_t::rhs_computed called on a moved-from RK "
                "step");
+  using std::isfinite;
+  if (!isfinite(delta_time))
+    CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s: delta_time is %g; "
+                "pass the cctk_delta_time the right-hand side ran with, the "
+                "value given to run_schedule_group_at",
+                describe(p->window).c_str(), double(delta_time));
   if (p->rhs_count > p->update_count)
     CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s, RK stage %d of %d: "
                 "the stage already has its right-hand side; expected "
@@ -376,7 +381,6 @@ void rk_step_t::rhs_computed() {
                 describe(p->window).c_str(), p->nstages);
   const int stage = ++p->rhs_count;
   const CCTK_REAL weight = p->b.at(stage - 1);
-  const CCTK_REAL delta_time = driver().get_global_cctkGH()->cctk_delta_time;
   for (const rk_level_t &entry : p->levels) {
     const CCTK_REAL dt =
         delta_time * CCTK_REAL(resolve(entry.level).delta_iteration);
@@ -426,7 +430,6 @@ rk_step_t::~rk_step_t() {
                 "stages; every stage calls rhs_computed and then "
                 "state_updated before the step closes",
                 describe(p->window).c_str(), p->update_count, p->nstages);
-  delete p;
 }
 
 void RecoverRKBoundary(const cGH *const cctkGH) {

@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <tuple>
@@ -161,8 +162,8 @@ public:
 
 private:
   struct impl;
-  impl *p;
-  explicit write_t(impl *p) noexcept;
+  std::unique_ptr<impl> p;
+  explicit write_t(std::unique_ptr<impl> p) noexcept;
   friend write_t write(group_t group, int tl, valid_t leaves_valid,
                        const char *what);
 };
@@ -182,8 +183,8 @@ public:
 
 private:
   struct impl;
-  impl *p;
-  explicit scratch_t(impl *p) noexcept;
+  std::unique_ptr<impl> p;
+  explicit scratch_t(std::unique_ptr<impl> p) noexcept;
   friend scratch_t scratch(group_t group);
 };
 

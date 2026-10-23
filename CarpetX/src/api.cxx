@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -223,9 +224,9 @@ struct write_t::impl {
   std::function<std::string()> why;
 };
 
-write_t::write_t(impl *const p) noexcept : p(p) {}
+write_t::write_t(std::unique_ptr<impl> p) noexcept : p(std::move(p)) {}
 
-write_t::write_t(write_t &&other) noexcept : p(other.p) { other.p = nullptr; }
+write_t::write_t(write_t &&) noexcept = default;
 
 amrex::MultiFab &write_t::mfab() {
   if (!p)
@@ -240,7 +241,6 @@ write_t::~write_t() {
   --groupdata.open_writes;
   for (auto &why_valid : groupdata.valid.at(p->tl))
     why_valid.set_all(p->leaves_valid, p->why);
-  delete p;
 }
 
 write_t write(const group_t group, const int tl, const valid_t leaves_valid,
@@ -248,7 +248,8 @@ write_t write(const group_t group, const int tl, const valid_t leaves_valid,
   auto &groupdata = resolve("CarpetX::write", group);
   require_timelevel("CarpetX::write", groupdata, tl);
   ++groupdata.open_writes;
-  return write_t(new write_t::impl{group, tl, leaves_valid, reason(what)});
+  return write_t(std::unique_ptr<write_t::impl>(
+      new write_t::impl{group, tl, leaves_valid, reason(what)}));
 }
 
 struct scratch_t::impl {
@@ -273,11 +274,9 @@ resolve_scratch(const char *const what, const group_t group,
 
 } // namespace
 
-scratch_t::scratch_t(impl *const p) noexcept : p(p) {}
+scratch_t::scratch_t(std::unique_ptr<impl> p) noexcept : p(std::move(p)) {}
 
-scratch_t::scratch_t(scratch_t &&other) noexcept : p(other.p) {
-  other.p = nullptr;
-}
+scratch_t::scratch_t(scratch_t &&) noexcept = default;
 
 amrex::MultiFab &scratch_t::mfab() {
   if (!p)
@@ -298,7 +297,6 @@ scratch_t::~scratch_t() {
     return;
   resolve_scratch("CarpetX::scratch_t::~scratch_t", p->group, p->slot).in_use =
       false;
-  delete p;
 }
 
 scratch_t scratch(const group_t group) {
@@ -315,7 +313,8 @@ scratch_t scratch(const group_t group) {
                     false});
   }
   pool.at(slot).in_use = true;
-  return scratch_t(new scratch_t::impl{group, slot});
+  return scratch_t(std::unique_ptr<scratch_t::impl>(
+      new scratch_t::impl{group, slot}));
 }
 
 valid_t valid(const group_t group, const int tl, const int vi) {
