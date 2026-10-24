@@ -5,6 +5,7 @@ KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Regist
   "write-twice"       :: "open a second write scope on state at the same time level while the first is open; CarpetX aborts the run"
   "write-unfilled"    :: "open a write scope on state that promises every region and fill only the interior; CarpetX aborts the run when the scope closes"
   "require-invalid"   :: "require valid ghosts of state before anything has filled them; CarpetX aborts the run"
+  "prolongate-unwritten-parent" :: "fill state as write-scope does, and once the hierarchy has two levels call CarpetX::prolongate_ghosts on state_rhs, which nothing has written on the parent level; CarpetX aborts the run"
   "register-twice"    :: "register a valid integrator at WRAGH, then register it again; CarpetX aborts the second call"
   "register-after-use" :: "register a valid integrator at CCTK_INITIAL, after the driver has read its integrator record; CarpetX aborts the run"
   "unregistered-rk-call" :: "call CarpetX::open_rk_step at CCTK_INITIAL without having registered an integrator; CarpetX aborts the run"

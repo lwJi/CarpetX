@@ -470,17 +470,18 @@ void RecoverRKBoundary(const active_levels_t &active_levels,
                     "the integrated groups to be populated by checkpoint "
                     "recovery");
 
+  std::vector<int> states;
+  for (const rk_pair_t &pair : integrator->integrated)
+    states.push_back(pair.state_gi);
+  std::sort(states.begin(), states.end());
+  SyncGroupsByDirIGhostOnly(active_levels, ghext->get_global_cctkGH(),
+                            states.size(), states.data(), nullptr, rk_tl);
   const bool restricted =
       window_is_restricted(window.min_level, window.max_level);
-  if (restricted) {
-    std::vector<int> states;
-    for (const rk_pair_t &pair : integrator->integrated)
-      states.push_back(pair.state_gi);
-    std::sort(states.begin(), states.end());
+  if (restricted)
     SyncGroupsByDirIProlongateOnlyAligned(
         active_levels, ghext->get_global_cctkGH(), states.size(), states.data(),
         nullptr, rk_tl);
-  }
 
   const int iteration = cctkGH->cctk_iteration;
   for (const rk_level_t &entry : levels) {

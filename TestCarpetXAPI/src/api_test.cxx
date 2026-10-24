@@ -171,6 +171,13 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   const std::vector<int> groups{gi};
   const CarpetX::window_t window = CarpetX::active_window();
 
+  if (CCTK_EQUALS(mode, "prolongate-unwritten-parent") &&
+      window.max_level > 1) {
+    CarpetX::prolongate_ghosts(window, {group("TestCarpetXAPI::state_rhs")});
+    CCTK_ERROR("CarpetX::prolongate_ghosts filled the ghosts of state_rhs on "
+               "level 1 from a parent level that nothing has written");
+  }
+
   if (window.min_level != 0 || window.max_level != 1)
     return;
 

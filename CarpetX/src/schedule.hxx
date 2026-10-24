@@ -24,11 +24,6 @@ int Initialise(tFleshConfig *config);
 int Evolve(tFleshConfig *config);
 int Shutdown(tFleshConfig *config);
 
-// Restrict exactly `groups` from fine to coarse, whatever their restrict
-// tags, without validity tracking: the coarse ghosts and outer boundaries
-// keep their validity flags over stale values, so the caller refreshes them.
-// Every level pair (level, level + 1) with both levels in [min_level,
-// max_level), finest pair first; see Restrict in sync_restrict.cxx.
 void RestrictNoPoison(const cGH *cctkGH, int min_level, int max_level,
                       const std::vector<int> &groups);
 
