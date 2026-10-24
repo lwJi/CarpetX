@@ -79,6 +79,69 @@ class Markers(unittest.TestCase):
         self.assertEqual(reported("T/src/make.code.defn", "CPPFLAGS += -DCARPETX_INTERNAL\n", Lang.MAKE), [("marker", "CPPFLAGS += -DCARPETX_INTERNAL")])
 
 
+class Validity(unittest.TestCase):
+    KERNELS = [
+        "error_if_invalid(groupdata, vi, tl, make_valid_int(), msg);",
+        "warn_if_invalid(groupdata, vi, tl, make_valid_int(), msg);",
+        "poison_invalid_gf(active_levels, gi, vi, tl);",
+        "check_valid_gf (active_levels, gi, vi, tl, msg);",
+        "poison_invalid_ga(gi, vi, tl);",
+        "check_valid_ga(gi, vi, tl, msg);",
+    ]
+    SETTERS = [
+        "groupdata.tls.at(0).why_valid(0).set_all(valid_t(), why);",
+        "why.set_int(false, reason);",
+        "why.set_outer(true, reason);",
+        "why.set_ghosts(true, reason);",
+        "timelevel->valid_.at(vi).set_invalid(destroys, not_filled);",
+        "p->set_valid (fills, filled);",
+    ]
+
+    def test_kernels_and_member_setters_are_reported_in_carpetx_src(self):
+        for line in self.KERNELS + self.SETTERS:
+            for name in ["CarpetX/src/sync_restrict.cxx", "CarpetX/src/api.cxx", "CarpetX/src/driver.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("validity", line)])
+
+    def test_the_validity_module_defines_them(self):
+        for line in self.KERNELS + self.SETTERS:
+            for name in ["CarpetX/src/valid.cxx", "CarpetX/src/valid.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_another_thorn_may_use_the_names(self):
+        for line in self.KERNELS + self.SETTERS:
+            with self.subTest(line=line):
+                self.assertEqual(reported("ODESolvers/src/solve.cxx", line + "\n"), [])
+
+    def test_the_public_headers_are_outside_the_private_tree(self):
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", self.SETTERS[0] + "\n"), [])
+
+    def test_a_setter_is_only_a_member_call(self):
+        for text in [
+            "set_all(flags, why);\n",
+            "void set_all(const valid_t &val);\n",
+            "const auto set_valid = make_valid_all();\n",
+            "x.set_all_flags(true);\n",
+            "x.set(which, val, why);\n",
+            "x.reset_all(true);\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/driver.cxx", text), [])
+
+    def test_a_longer_name_is_not_a_kernel(self):
+        for text in ["check_valid_gfs(a);\n", "my_error_if_invalid(a);\n", "error_if_invalid_x(a);\n", "int error_if_invalid;\n"]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/driver.cxx", text), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported("CarpetX/src/make.code.defn", "SRCS = check_valid_gf(a)\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n\nposion;\nwhy.set_all(valid_t(), r);\n"
+        self.assertEqual(findings("CarpetX/src/driver.cxx", text, Lang.CXX), [Finding(4, "validity", "why.set_all(valid_t(), r);")])
+
+
 class NewFindings(unittest.TestCase):
     def test_only_lines_absent_before_are_new(self):
         a = Finding(1, "include", '#include "../../CarpetX/src/driver.hxx"')
@@ -145,21 +208,29 @@ class Since(unittest.TestCase):
 
 class Report(unittest.TestCase):
     def test_clean(self):
-        self.assertEqual(render([]), "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL")
+        self.assertEqual(
+            render([]),
+            "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, no validity call outside valid.cxx",
+        )
 
     def test_counts(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
+        c = ("CarpetX/src/driver.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
         self.assertEqual(summary([a]), "✗ boundary: 1 private include")
         self.assertEqual(summary([a, a, b]), "✗ boundary: 2 private includes, 1 stray marker")
+        self.assertEqual(summary([c]), "✗ boundary: 1 validity call outside valid.cxx")
+        self.assertEqual(summary([b, c, c]), "✗ boundary: 1 stray marker, 2 validity calls outside valid.cxx")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
-        lines = render([b, a]).split("\n")
-        self.assertEqual(lines[0], 'T/src/a.cxx:3   include   #include "../../CarpetX/src/driver.hxx"')
-        self.assertEqual(lines[1], "T/src/b.cxx:1   marker    #define CARPETX_INTERNAL")
-        self.assertEqual(lines[-1], "✗ boundary: 1 private include, 1 stray marker")
+        c = ("CarpetX/src/driver.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
+        lines = render([b, c, a]).split("\n")
+        self.assertEqual(lines[0], "CarpetX/src/driver.cxx:7   validity   why.set_all(valid_t(), r);")
+        self.assertEqual(lines[1], 'T/src/a.cxx:3              include    #include "../../CarpetX/src/driver.hxx"')
+        self.assertEqual(lines[2], "T/src/b.cxx:1              marker     #define CARPETX_INTERNAL")
+        self.assertEqual(lines[-1], "✗ boundary: 1 private include, 1 stray marker, 1 validity call outside valid.cxx")
 
 
 if __name__ == "__main__":

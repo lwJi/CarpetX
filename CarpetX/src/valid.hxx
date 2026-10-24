@@ -47,6 +47,27 @@ class why_valid_t {
   valid_t valid;
   std::function<std::string()> why_int, why_outer, why_ghosts;
 
+  void set(const valid_t &which, const valid_t &val,
+           const std::function<std::string()> &why) {
+    valid = (valid & ~which) | (val & which);
+    if (which.valid_int)
+      why_int = why;
+    if (which.valid_outer)
+      why_outer = why;
+    if (which.valid_ghosts)
+      why_ghosts = why;
+  }
+  void set_invalid(const valid_t &which,
+                   const std::function<std::string()> &why) {
+    set(which, valid_t(false), why);
+  }
+  void set_valid(const valid_t &which,
+                 const std::function<std::string()> &why) {
+    set(which, valid_t(true), why);
+  }
+  friend class write_scope_t;
+  friend class array_write_scope_t;
+
 public:
   // The constructor that doesn't give a reason should never be called
   why_valid_t() = delete;
@@ -58,37 +79,6 @@ public:
       : valid(val), why_int(why), why_outer(why), why_ghosts(why) {}
 
   const valid_t &get() const { return valid; }
-
-  void set(const valid_t &which, const valid_t &val,
-           const std::function<std::string()> &why) {
-    valid = (valid & ~which) | (val & which);
-    if (which.valid_int)
-      why_int = why;
-    if (which.valid_outer)
-      why_outer = why;
-    if (which.valid_ghosts)
-      why_ghosts = why;
-  }
-  void set_all(const valid_t &val, const std::function<std::string()> &why) {
-    set(valid_t(true), val, why);
-  }
-  void set_int(bool b, const std::function<std::string()> &why) {
-    set(make_valid_int(), valid_t(b), why);
-  }
-  void set_outer(bool b, const std::function<std::string()> &why) {
-    set(make_valid_outer(), valid_t(b), why);
-  }
-  void set_ghosts(bool b, const std::function<std::string()> &why) {
-    set(make_valid_ghosts(), valid_t(b), why);
-  }
-  void set_invalid(const valid_t &which,
-                   const std::function<std::string()> &why) {
-    set(which, valid_t(false), why);
-  }
-  void set_valid(const valid_t &which,
-                 const std::function<std::string()> &why) {
-    set(which, valid_t(true), why);
-  }
 
   std::string explanation() const;
 

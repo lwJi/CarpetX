@@ -262,37 +262,6 @@ void leave_local_mode(cGH *restrict cctkGH,
 
 void synchronize();
 
-// These functions are defined in valid.cxx. These prototypes should
-// be moved to valid.hxx. Unfortunately, they depend on GHExt, which is declared
-// in driver.hxx, which includes valid.hxx. Declaring the prorotypes here avoids
-// that circular reference. This should be fixed.
-
-// `hint`, if set, is printed after the found validity, e.g. to state a rule
-// that the caller knows was broken.
-void error_if_invalid(const GHExt::PatchData::LevelData::GroupData &grouppdata,
-                      int vi, int tl, const valid_t &required,
-                      const std::function<std::string()> &msg,
-                      const std::function<std::string()> &hint = nullptr);
-void warn_if_invalid(const GHExt::PatchData::LevelData::GroupData &grouppdata,
-                     int vi, int tl, const valid_t &required,
-                     const std::function<std::string()> &msg);
-
-void error_if_invalid(const GHExt::GlobalData::ArrayGroupData &groupdata,
-                      int vi, int tl, const valid_t &required,
-                      const std::function<std::string()> &msg);
-void warn_if_invalid(const GHExt::GlobalData::ArrayGroupData &groupdata, int vi,
-                     int tl, const valid_t &required,
-                     const std::function<std::string()> &msg);
-
-void poison_invalid_gf(const active_levels_t &active_levels, int gi, int vi,
-                       int tl);
-void poison_invalid_ga(int gi, int vi, int tl);
-
-void check_valid_gf(const active_levels_t &active_levels, int gi, int vi,
-                    int tl, const std::function<std::string()> &msg);
-void check_valid_ga(int gi, int vi, int tl,
-                    const std::function<std::string()> &msg);
-
 } // namespace CarpetX
 
 #endif // #ifndef CARPETX_CARPETX_SCHEDULE_HXX
