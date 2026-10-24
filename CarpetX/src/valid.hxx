@@ -203,7 +203,8 @@ public:
 private:
   friend write_scope_t open_write(const active_levels_t &window,
                                   write_spec_t spec);
-  write_scope_t(window_t window, write_spec_t spec, int iteration) noexcept;
+  write_scope_t(const active_levels_t &window, write_spec_t spec,
+                int iteration);
   window_t window;
   write_spec_t spec;
   int iteration;
@@ -224,7 +225,7 @@ public:
 
 private:
   friend array_write_scope_t open_array_write(write_spec_t spec);
-  array_write_scope_t(write_spec_t spec, int iteration) noexcept;
+  array_write_scope_t(write_spec_t spec, int iteration);
   write_spec_t spec;
   int iteration;
   bool live;

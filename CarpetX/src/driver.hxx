@@ -153,10 +153,6 @@ struct GHExt {
     // "restrict" tag; if absent, yes
     bool restrict_on_sync;
 
-    std::vector<std::vector<why_valid_t> > valid; // [time level][var index]
-
-    // TODO: add poison_invalid and check_valid functions
-
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const CommonGroupData &commongroupdata);
   };
@@ -302,8 +298,23 @@ struct GHExt {
     // we assume that grid scalars only hold "analysis" data.
 
     struct ArrayGroupData : public CommonGroupData {
-      std::vector<AnyTypeVector>
-          data; // [time level][var index + grid point index]
+      struct timelevel_t {
+        timelevel_t(AnyTypeVector data, int numvars,
+                    const std::function<std::string()> &why)
+            : data(std::move(data)), valid_(numvars, why_valid_t(why)) {}
+
+        AnyTypeVector data;
+
+        valid_t valid(const int vi) const { return valid_.at(vi).get(); }
+        const why_valid_t &why_valid(const int vi) const {
+          return valid_.at(vi);
+        }
+
+      private:
+        std::vector<why_valid_t> valid_;
+        friend class array_write_scope_t;
+      };
+      std::vector<timelevel_t> tls;
       int array_size;
       int dimension;
       int activetimelevels;
@@ -442,11 +453,29 @@ struct GHExt {
                   const std::function<std::string()> &why);
 
         int patch, level;
-        std::vector<int> open_writes;
+
+        struct timelevel_t {
+          timelevel_t(std::unique_ptr<amrex::MultiFab> mfab, int numvars,
+                      const std::function<std::string()> &why)
+              : mfab(std::move(mfab)), valid_(numvars, why_valid_t(why)) {}
+
+          std::unique_ptr<amrex::MultiFab> mfab;
+          int open_writes = 0;
+
+          valid_t valid(const int vi) const { return valid_.at(vi).get(); }
+          const why_valid_t &why_valid(const int vi) const {
+            return valid_.at(vi);
+          }
+
+        private:
+          std::vector<why_valid_t> valid_;
+          friend class write_scope_t;
+        };
+        std::vector<timelevel_t> tls;
         int open_write_count() const {
           int count = 0;
-          for (const int n : open_writes)
-            count += n;
+          for (const timelevel_t &tl : tls)
+            count += tl.open_writes;
           return count;
         }
 
@@ -464,9 +493,6 @@ struct GHExt {
 
         // Apply outer (physical) boundary conditions to a MultiFab
         void apply_boundary_conditions(amrex::MultiFab &mfab) const;
-
-        // each amrex::MultiFab has numvars components
-        std::vector<std::unique_ptr<amrex::MultiFab> > mfab; // [time level]
 
         // The RK buffers of the subcycling boundary fill (FillRKBoundary) into
         // this group on this (refined) level. All of them are owned by this

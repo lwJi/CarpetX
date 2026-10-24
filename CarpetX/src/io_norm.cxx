@@ -115,13 +115,12 @@ void OutputNorms(const cGH *restrict cctkGH) {
             patchdata.leveldata.at(level);
         const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
             *leveldata.groupdata.at(gi);
-        if (groupdata.mfab.empty())
+        if (groupdata.tls.empty())
           continue;
 
         bool group_has_valid_variables = false;
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          // Only output variables with valid data
-          if (!groupdata.valid.at(tl).at(vi).get().valid_int)
+          if (!groupdata.tls.at(tl).valid(vi).valid_int)
             continue;
           group_has_valid_variables = true;
         }
@@ -143,8 +142,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
         file << sep << ++col << ":time";
 
         for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          // Only output variables with valid data
-          if (!groupdata.valid.at(tl).at(vi).get().valid_int)
+          if (!groupdata.tls.at(tl).valid(vi).valid_int)
             continue;
 
           std::string varname = CCTK_FullVarName(groupdata.firstvarindex + vi);
@@ -173,13 +171,12 @@ void OutputNorms(const cGH *restrict cctkGH) {
         patchdata.leveldata.at(level);
     const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
         *leveldata.groupdata.at(gi);
-    if (groupdata.mfab.empty())
+    if (groupdata.tls.empty())
       continue;
 
     bool group_has_valid_variables = false;
     for (int vi = 0; vi < groupdata.numvars; ++vi) {
-      // Only output variables with valid data
-      if (!groupdata.valid.at(tl).at(vi).get().valid_int)
+      if (!groupdata.tls.at(tl).valid(vi).valid_int)
         continue;
       group_has_valid_variables = true;
     }
@@ -208,8 +205,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
     }
 
     for (int vi = 0; vi < groupdata.numvars; ++vi) {
-      // Only output variables with valid data
-      if (!groupdata.valid.at(tl).at(vi).get().valid_int)
+      if (!groupdata.tls.at(tl).valid(vi).valid_int)
         continue;
 
       ofd.variables.push_back(CCTK_FullVarName(groupdata.firstvarindex + vi));

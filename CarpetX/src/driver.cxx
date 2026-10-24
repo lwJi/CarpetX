@@ -1006,14 +1006,11 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
               indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE));
   const int ntls = ghext->active_timelevels.at(gi);
   assert(ntls >= 0 and ntls <= group.numtimelevels);
-  mfab.resize(ntls);
-  valid.resize(ntls);
-  open_writes.assign(ntls, 0);
-  for (int tl = 0; tl < ntls; ++tl) {
-    mfab.at(tl) = std::make_unique<amrex::MultiFab>(
-        gba, dm, numvars, amrex::IntVect(nghostzones));
-    valid.at(tl).resize(numvars, why_valid_t(why));
-  }
+  tls.reserve(ntls);
+  for (int tl = 0; tl < ntls; ++tl)
+    tls.emplace_back(std::make_unique<amrex::MultiFab>(
+                         gba, dm, numvars, amrex::IntVect(nghostzones)),
+                     numvars, why);
 
   fluxes = get_group_fluxes(groupindex);
   if (fluxes[0] >= 0) {
@@ -1163,7 +1160,7 @@ void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
     amrex::MultiFab &mfab) const {
   DECLARE_CCTK_PARAMETERS;
 
-  assert(!this->mfab.empty());
+  assert(!this->tls.empty());
 
   static Timer timer("apply_boundary_conditions");
   Interval interval(timer);
@@ -1253,7 +1250,7 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
     GridPtrDesc1 grid(leveldata, groupdata, mfi);
 
     const amrex::Array4<const CCTK_REAL> &err_array4 =
-        groupdata.mfab.at(tl)->array(mfi);
+        groupdata.tls.at(tl).mfab->array(mfi);
     const GF3D1<const CCTK_REAL> &err_ = grid.gf3d(err_array4, vi);
     const amrex::Array4<char> &tags_array4 = tags.array(mfi);
 
@@ -1359,13 +1356,13 @@ void SetupGlobals() {
 
     const int ntls = ghext->active_timelevels.at(gi);
     assert(ntls >= 0 and ntls <= group.numtimelevels);
-    arraygroupdata.data.resize(ntls);
-    arraygroupdata.valid.resize(ntls);
+    arraygroupdata.tls.reserve(ntls);
     for (int tl = 0; tl < ntls; ++tl) {
-      arraygroupdata.data.at(tl).alloc(
-          group.vartype, arraygroupdata.numvars * arraygroupdata.array_size);
-      arraygroupdata.valid.at(tl).resize(
-          arraygroupdata.numvars, why_valid_t([]() { return "SetupGlobals"; }));
+      arraygroupdata.tls.emplace_back(
+          GHExt::GlobalData::AnyTypeVector(group.vartype,
+                                           arraygroupdata.numvars *
+                                               arraygroupdata.array_size),
+          arraygroupdata.numvars, []() { return "SetupGlobals"; });
       open_array_write({.gi = gi,
                         .tl = tl,
                         .fills = make_valid_outer() | make_valid_ghosts(),
@@ -1437,7 +1434,7 @@ void CactusAmrCore::MakeNewLevelFromScratch(
     if (!groupdataptr)
       continue;
     const auto &restrict groupdata = *groupdataptr;
-    for (int tl = 0; tl < int(groupdata.mfab.size()); ++tl)
+    for (int tl = 0; tl < int(groupdata.tls.size()); ++tl)
       open_write(active_levels, {.gi = groupdata.groupindex,
                                  .tl = tl,
                                  .fills = {},
@@ -1452,7 +1449,7 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 
 static int
 regrid_prolongate_tls(const GHExt::PatchData::LevelData::GroupData &groupdata) {
-  const int ntls = groupdata.mfab.size();
+  const int ntls = groupdata.tls.size();
   return groupdata.do_evolve       ? (ntls > 1 ? ntls - 1 : ntls)
          : groupdata.do_checkpoint ? ntls
                                    : 0;
@@ -1462,7 +1459,7 @@ static bool
 regrid_source_valid(const GHExt::PatchData::LevelData::GroupData &groupdata,
                     const int tl) {
   for (int vi = 0; vi < groupdata.numvars; ++vi)
-    if (!groupdata.valid.at(tl).at(vi).get().valid_all())
+    if (!groupdata.tls.at(tl).valid(vi).valid_all())
       return false;
   return true;
 }
@@ -1521,7 +1518,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
     assert(coarsegroupdata.numvars == groupdata.numvars);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
-    const int ntls = groupdata.mfab.size();
+    const int ntls = groupdata.tls.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
     const valid_t fills = regrid_fills(groupdata);
 
@@ -1543,8 +1540,9 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
                .keeps = {},
                .event = "MakeNewLevelFromCoarse after prolongation"});
           FillPatch_NewLevel(
-              groupdata, coarsegroupdata, *groupdata.mfab.at(tl),
-              *coarsegroupdata.mfab.at(tl), patchdata.amrcore->Geom(level - 1),
+              groupdata, coarsegroupdata, *groupdata.tls.at(tl).mfab,
+              *coarsegroupdata.tls.at(tl).mfab,
+              patchdata.amrcore->Geom(level - 1),
               patchdata.amrcore->Geom(level), interpolator, groupdata.bcrecs);
         } else {
           open_write(active_levels,
@@ -1627,7 +1625,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     const auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
     assert(coarsegroupdata.numvars == groupdata.numvars);
 
-    const int ntls = groupdata.mfab.size();
+    const int ntls = groupdata.tls.size();
     for (int tl = 0; tl < ntls; ++tl) {
       if (!transports(coarsegroupdata, groupdata, tl))
         continue;
@@ -1679,7 +1677,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     const valid_t fills = regrid_fills(groupdata);
     assert(fills == make_valid_all());
 
-    const int ntls = groupdata.mfab.size();
+    const int ntls = groupdata.tls.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
     for (int tl = 0; tl < ntls; ++tl) {
@@ -1691,8 +1689,8 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                             .keeps = {},
                             .event = "RemakeLevel after prolongation"});
         FillPatch_RemakeLevel(
-            groupdata, coarsegroupdata, *groupdata.mfab.at(tl),
-            *coarsegroupdata.mfab.at(tl), *oldgroupdata.mfab.at(tl),
+            groupdata, coarsegroupdata, *groupdata.tls.at(tl).mfab,
+            *coarsegroupdata.tls.at(tl).mfab, *oldgroupdata.tls.at(tl).mfab,
             patchdata.amrcore->Geom(level - 1), patchdata.amrcore->Geom(level),
             interpolator, groupdata.bcrecs);
       } else {
@@ -1897,7 +1895,6 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "active_timelevels" << YAML::Value
        << (ghext ? ghext->active_timelevels.at(commongroupdata.groupindex)
                  : -1);
-  yaml << YAML::Key << "valid" << YAML::Value << commongroupdata.valid;
   yaml << YAML::EndMap;
   return yaml;
 }
@@ -1950,7 +1947,18 @@ operator<<(YAML::Emitter &yaml,
   yaml << YAML::BeginMap;
   yaml << YAML::Key << "commongroupdata" << YAML::Value
        << (GHExt::CommonGroupData)arraygroupdata;
-  yaml << YAML::Key << "data" << YAML::Value << arraygroupdata.data;
+  yaml << YAML::Key << "valid" << YAML::Value << YAML::BeginSeq;
+  for (const auto &timelevel : arraygroupdata.tls) {
+    yaml << YAML::BeginSeq;
+    for (int vi = 0; vi < arraygroupdata.numvars; ++vi)
+      yaml << timelevel.why_valid(vi);
+    yaml << YAML::EndSeq;
+  }
+  yaml << YAML::EndSeq;
+  yaml << YAML::Key << "data" << YAML::Value << YAML::BeginSeq;
+  for (const auto &timelevel : arraygroupdata.tls)
+    yaml << timelevel.data;
+  yaml << YAML::EndSeq;
   yaml << YAML::EndMap;
   return yaml;
 }
@@ -1975,6 +1983,14 @@ operator<<(YAML::Emitter &yaml,
   yaml << YAML::BeginMap;
   yaml << YAML::Key << "commongroupdata" << YAML::Value
        << (GHExt::CommonGroupData)groupdata;
+  yaml << YAML::Key << "valid" << YAML::Value << YAML::BeginSeq;
+  for (const auto &timelevel : groupdata.tls) {
+    yaml << YAML::BeginSeq;
+    for (int vi = 0; vi < groupdata.numvars; ++vi)
+      yaml << timelevel.why_valid(vi);
+    yaml << YAML::EndSeq;
+  }
+  yaml << YAML::EndSeq;
   yaml << YAML::Key << "patch" << YAML::Value << groupdata.patch;
   yaml << YAML::Key << "level" << YAML::Value << groupdata.level;
   yaml << YAML::Key << "indextype" << YAML::Value << YAML::Flow

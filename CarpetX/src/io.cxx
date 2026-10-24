@@ -98,11 +98,11 @@ void check_silo_no_multi_tl(const std::vector<bool> &group_mask,
     const int level = 0;
     const auto &leveldata = ghext->patchdata.at(patch).leveldata.at(level);
     const auto *gd = leveldata.groupdata.at(gi).get();
-    if (gd && gd->mfab.size() > 1)
+    if (gd && gd->tls.size() > 1)
       CCTK_VERROR("Silo %s does not support groups with ntls > 1 "
                   "(group \"%s\" has %zu time levels). "
                   "Use \"openpmd\" instead.",
-                  operation, CCTK_FullGroupName(gi), gd->mfab.size());
+                  operation, CCTK_FullGroupName(gi), gd->tls.size());
   }
 }
 } // namespace
@@ -199,24 +199,21 @@ void RecoverGH(const cGH *restrict cctkGH) {
                cctk_iteration, double(cctk_time), double(runtime / 3600));
   }
 
-  // Find input groups
   const std::vector<bool> group_enabled = [&] {
     std::vector<bool> enabled(CCTK_NumGroups(), false);
     for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
       const GHExt::GlobalData &globaldata = ghext->globaldata;
       if (globaldata.arraygroupdata.at(gi)) {
-        // grid array
         enabled.at(gi) = globaldata.arraygroupdata.at(gi)->do_checkpoint &&
-                         !globaldata.arraygroupdata.at(gi)->data.empty();
+                         !globaldata.arraygroupdata.at(gi)->tls.empty();
       } else {
-        // grid function
         const int patch = 0;
         const int level = 0;
         const GHExt::PatchData::LevelData &leveldata =
             ghext->patchdata.at(patch).leveldata.at(level);
         assert(leveldata.groupdata.at(gi));
         enabled.at(gi) = leveldata.groupdata.at(gi)->do_checkpoint &&
-                         !leveldata.groupdata.at(gi)->mfab.empty();
+                         !leveldata.groupdata.at(gi)->tls.empty();
       }
     }
     return enabled;
@@ -356,7 +353,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
 
     auto &restrict groupdata0 =
         *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
-    if (groupdata0.mfab.size() > 0) {
+    if (groupdata0.tls.size() > 0) {
       const int tl = 0;
 
       std::string groupname = CCTK_FullGroupName(gi);
@@ -391,7 +388,8 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
         amrex::Vector<int> iters(patchdata.leveldata.size());
         amrex::Vector<amrex::IntVect> reffacts(patchdata.leveldata.size());
         for (const auto &restrict leveldata : patchdata.leveldata) {
-          mfabs.at(leveldata.level) = &*leveldata.groupdata.at(gi)->mfab.at(tl);
+          mfabs.at(leveldata.level) =
+              &*leveldata.groupdata.at(gi)->tls.at(tl).mfab;
           geoms.at(leveldata.level) = patchdata.amrcore->Geom(leveldata.level);
           iters.at(leveldata.level) = cctk_iteration;
           reffacts.at(leveldata.level) = amrex::IntVect{2, 2, 2};
@@ -729,11 +727,9 @@ void Checkpoint(const cGH *const restrict cctkGH) {
       for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
         const GHExt::GlobalData &globaldata = ghext->globaldata;
         if (globaldata.arraygroupdata.at(gi)) {
-          // grid array
           enabled.at(gi) = globaldata.arraygroupdata.at(gi)->do_checkpoint &&
-                           !globaldata.arraygroupdata.at(gi)->data.empty();
+                           !globaldata.arraygroupdata.at(gi)->tls.empty();
         } else {
-          // grid function
           const int patch = 0;
           const GHExt::PatchData &patchdata = ghext->patchdata.at(patch);
           const int level = 0;
@@ -741,7 +737,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
               patchdata.leveldata.at(level);
           assert(leveldata.groupdata.at(gi));
           enabled.at(gi) = leveldata.groupdata.at(gi)->do_checkpoint &&
-                           !leveldata.groupdata.at(gi)->mfab.empty();
+                           !leveldata.groupdata.at(gi)->tls.empty();
         }
       }
       return enabled;
@@ -763,11 +759,9 @@ void Checkpoint(const cGH *const restrict cctkGH) {
       for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
         const GHExt::GlobalData &globaldata = ghext->globaldata;
         if (globaldata.arraygroupdata.at(gi)) {
-          // grid array
           enabled.at(gi) = globaldata.arraygroupdata.at(gi)->do_checkpoint &&
-                           !globaldata.arraygroupdata.at(gi)->data.empty();
+                           !globaldata.arraygroupdata.at(gi)->tls.empty();
         } else {
-          // grid function
           const int patch = 0;
           const GHExt::PatchData &patchdata = ghext->patchdata.at(patch);
           const int level = 0;
@@ -775,7 +769,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
               patchdata.leveldata.at(level);
           assert(leveldata.groupdata.at(gi));
           enabled.at(gi) = leveldata.groupdata.at(gi)->do_checkpoint &&
-                           !leveldata.groupdata.at(gi)->mfab.empty();
+                           !leveldata.groupdata.at(gi)->tls.empty();
         }
       }
       return enabled;

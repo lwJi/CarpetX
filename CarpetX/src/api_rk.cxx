@@ -254,10 +254,10 @@ integrated_groups_t integrated_groups_with_storage(const char *const what,
   integrated_groups_t groups;
   for (const rk_pair_t &pair : config.integrated) {
     const GroupData *const state = leveldata.groupdata.at(pair.state_gi).get();
-    if (!state || state->mfab.empty())
+    if (!state || state->tls.empty())
       continue;
     const GroupData *const rhs = leveldata.groupdata.at(pair.rhs_gi).get();
-    if (!rhs || rhs->mfab.empty())
+    if (!rhs || rhs->tls.empty())
       CCTK_VERROR("%s: integrated group %s has storage on patch %d, refinement "
                   "level %d, but its right-hand side %s has none",
                   what, CCTK_FullGroupName(pair.state_gi), level.patch,

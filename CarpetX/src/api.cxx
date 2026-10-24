@@ -55,7 +55,7 @@ resolve(const char *const what, GHExt::PatchData::LevelData &leveldata,
   require_grid_function(what, gi);
   GHExt::PatchData::LevelData::GroupData *const groupdata =
       leveldata.groupdata.at(gi).get();
-  if (!groupdata || groupdata->mfab.empty())
+  if (!groupdata || groupdata->tls.empty())
     CCTK_VERROR("%s: group %s has no storage on patch %d, refinement level %d",
                 what, CCTK_FullGroupName(gi), leveldata.patch, leveldata.level);
   return *groupdata;
@@ -64,7 +64,7 @@ resolve(const char *const what, GHExt::PatchData::LevelData &leveldata,
 void require_timelevel(const char *const what,
                        const GHExt::PatchData::LevelData::GroupData &groupdata,
                        const int tl) {
-  const int ntls = groupdata.mfab.size();
+  const int ntls = groupdata.tls.size();
   if (tl < 0 || tl >= ntls)
     CCTK_VERROR("%s: time level %d of group %s does not exist on patch %d, "
                 "refinement level %d: it has %d time levels",
@@ -186,7 +186,7 @@ window_t all_levels() {
 const amrex::MultiFab &data(const group_t group, const int tl) {
   const auto &groupdata = resolve("CarpetX::data", group);
   require_timelevel("CarpetX::data", groupdata, tl);
-  return *groupdata.mfab.at(tl);
+  return *groupdata.tls.at(tl).mfab;
 }
 
 struct write_t::impl {
@@ -207,7 +207,7 @@ write_t::write_t(write_t &&) noexcept = default;
 amrex::MultiFab &write_t::mfab() {
   if (!p)
     CCTK_ERROR("CarpetX::write_t::mfab() called on a moved-from write scope");
-  return *resolve("CarpetX::write_t::mfab", p->group).mfab.at(p->tl);
+  return *resolve("CarpetX::write_t::mfab", p->group).tls.at(p->tl).mfab;
 }
 
 write_t::~write_t() = default;
@@ -216,7 +216,7 @@ write_t write(const group_t group, const int tl, const valid_t leaves_valid,
               const char *const what) {
   auto &groupdata = resolve("CarpetX::write", group);
   require_timelevel("CarpetX::write", groupdata, tl);
-  const int open_writes = groupdata.open_writes.at(tl);
+  const int open_writes = groupdata.tls.at(tl).open_writes;
   if (open_writes > 0)
     CCTK_VERROR("CarpetX::write: time level %d of group %s has %d open write "
                 "scope%s (CarpetX::write) on patch %d, refinement level %d; "
@@ -286,7 +286,7 @@ scratch_t scratch(const group_t group) {
   while (slot < pool.size() && pool.at(slot).in_use)
     ++slot;
   if (slot == pool.size()) {
-    const amrex::MultiFab &mfab0 = *groupdata.mfab.at(0);
+    const amrex::MultiFab &mfab0 = *groupdata.tls.at(0).mfab;
     pool.push_back({std::make_unique<amrex::MultiFab>(
                         mfab0.boxArray(), mfab0.DistributionMap(),
                         mfab0.nComp(), mfab0.nGrowVect()),
@@ -304,7 +304,7 @@ valid_t valid(const group_t group, const int tl, const int vi) {
     CCTK_VERROR("CarpetX::valid: variable index %d of group %s does not "
                 "exist: it has %d variables",
                 vi, groupdata.groupname.c_str(), groupdata.numvars);
-  return groupdata.valid.at(tl).at(vi).get();
+  return groupdata.tls.at(tl).valid(vi);
 }
 
 void require_valid(const group_t group, const int tl, const valid_t where,

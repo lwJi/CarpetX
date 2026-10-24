@@ -107,8 +107,8 @@ static void sync_multipatch_boundaries(const cGH *cctkGH,
 static int timelevels_but_oldest(const int gi) {
   const auto &groupdata0 =
       *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
-  assert(!groupdata0.mfab.empty());
-  const int ntls = groupdata0.mfab.size();
+  assert(!groupdata0.tls.empty());
+  const int ntls = groupdata0.tls.size();
   return ntls > 1 ? ntls - 1 : ntls;
 }
 
@@ -219,9 +219,6 @@ static void error_if_parent_invalid(const active_levels_t &active_levels,
 // from it. The selectors read the flags on patch 0, level 0; every patch and
 // level carries the same ones.
 
-// The groups the end-of-step restriction restricts: those whose restrict
-// tag is "yes", where a missing restrict tag takes the value of the
-// checkpoint tag, and a missing checkpoint tag counts as "yes"
 std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -229,11 +226,9 @@ std::vector<int> collect_restrictable_groups() {
   const auto &patchdata0 = ghext->patchdata.at(0);
   const auto &leveldata0 = patchdata0.leveldata.at(0);
   for (const auto &groupdataptr : leveldata0.groupdata) {
-    // Only grid functions
     if (groupdataptr) {
       auto &restrict groupdata = *groupdataptr;
-      // Only grid functions with storage
-      if (groupdata.mfab.empty())
+      if (groupdata.tls.empty())
         continue;
       // Only grid functions with restriction enabled
       if (groupdata.do_restrict)
@@ -243,9 +238,6 @@ std::vector<int> collect_restrictable_groups() {
   return groups;
 }
 
-// The groups the end-of-step re-prolongation refills: every group the
-// end-of-step restriction restricts and, under subcycling, every integrated
-// group (see ProlongateAfterRestriction)
 static std::vector<int> reprolongate_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -253,11 +245,9 @@ static std::vector<int> reprolongate_groups() {
   const auto &patchdata0 = ghext->patchdata.at(0);
   const auto &leveldata0 = patchdata0.leveldata.at(0);
   for (const auto &groupdataptr : leveldata0.groupdata) {
-    // Only grid functions
     if (groupdataptr) {
       auto &restrict groupdata = *groupdataptr;
-      // Only grid functions with storage
-      if (groupdata.mfab.empty())
+      if (groupdata.tls.empty())
         continue;
       const int gi = groupdata.groupindex;
       if (groupdata.do_restrict ||
@@ -327,7 +317,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
       };
   const auto timelevels_to_fill =
       [tl_arg](const GHExt::PatchData::LevelData::GroupData &groupdata) {
-        const int ntls = groupdata.mfab.size();
+        const int ntls = groupdata.tls.size();
         const int tl_lo = (tl_arg < 0) ? 0 : tl_arg;
         const int tl_hi =
             (tl_arg < 0) ? (ntls > 1 ? ntls - 1 : ntls) : (tl_arg + 1);
@@ -372,7 +362,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
   for (const int gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
+      assert(!groupdata.tls.empty());
 
       const auto [tl_lo, tl_hi] = timelevels_to_fill(groupdata);
 
@@ -384,7 +374,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
           ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
 
       auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-      assert(!coarsegroupdata.mfab.empty());
+      assert(!coarsegroupdata.tls.empty());
       assert(coarsegroupdata.numvars == groupdata.numvars);
 
       amrex::Interpolater *const interpolator = groupdata.interpolator;
@@ -394,8 +384,8 @@ static int SyncGroupsByDirIProlongateOnly_impl(
         tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                 &coarsegroupdata, interpolator, tl]() {
           FillPatch_ProlongateOnly(tasks2, tasks3, groupdata, coarsegroupdata,
-                                   *groupdata.mfab.at(tl),
-                                   *coarsegroupdata.mfab.at(tl),
+                                   *groupdata.tls.at(tl).mfab,
+                                   *coarsegroupdata.tls.at(tl).mfab,
                                    ghext->patchdata.at(leveldata.patch)
                                        .amrcore->Geom(leveldata.level),
                                    ghext->patchdata.at(leveldata.patch)
@@ -447,16 +437,15 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
       std::vector<int> new_groups;
       for (const int gi : groups) {
         auto &restrict groupdata = *leveldata.groupdata.at(gi);
-        assert(!groupdata.mfab.empty());
+        assert(!groupdata.tls.empty());
         bool need_sync = false;
-        for (int tl = 0; tl < int(groupdata.valid.size()); tl++) {
+        for (int tl = 0; tl < int(groupdata.tls.size()); tl++) {
           if (need_sync)
             break;
-          auto &timeleveldata = groupdata.valid.at(tl);
-          for (int vi = 0; vi < int(timeleveldata.size()); vi++) {
+          for (int vi = 0; vi < groupdata.numvars; vi++) {
             if (need_sync)
               break;
-            valid_t have = groupdata.valid.at(tl).at(vi).get();
+            const valid_t have = groupdata.tls.at(tl).valid(vi);
             if (!have.valid_ghosts || !have.valid_outer) {
               need_sync = true;
             }
@@ -518,13 +507,9 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
   for (const int gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
+      assert(!groupdata.tls.empty());
 
-      // We always sync all directions.
-      // If there is more than one time level, then we don't sync the
-      // oldest.
-      // TODO: during evolution, sync only one time level
-      const int ntls = groupdata.mfab.size();
+      const int ntls = groupdata.tls.size();
       const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
 
       if (leveldata.level == 0) {
@@ -532,7 +517,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
 
         for (int tl = 0; tl < sync_tl; ++tl) {
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-            FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+            FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
                            ghext->patchdata.at(leveldata.patch)
                                .amrcore->Geom(leveldata.level));
           });
@@ -546,7 +531,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
         const auto &restrict coarseleveldata =
             ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
         auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-        assert(!coarsegroupdata.mfab.empty());
+        assert(!coarsegroupdata.tls.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
         amrex::Interpolater *const interpolator = groupdata.interpolator;
@@ -555,14 +540,14 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
 
           tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                   &coarsegroupdata, interpolator, tl]() {
-            FillPatch_ProlongateGhosts(tasks2, tasks3, groupdata,
-                                       coarsegroupdata, *groupdata.mfab.at(tl),
-                                       *coarsegroupdata.mfab.at(tl),
-                                       ghext->patchdata.at(leveldata.patch)
-                                           .amrcore->Geom(leveldata.level),
-                                       ghext->patchdata.at(leveldata.patch)
-                                           .amrcore->Geom(leveldata.level - 1),
-                                       interpolator, groupdata.bcrecs);
+            FillPatch_ProlongateGhosts(
+                tasks2, tasks3, groupdata, coarsegroupdata,
+                *groupdata.tls.at(tl).mfab, *coarsegroupdata.tls.at(tl).mfab,
+                ghext->patchdata.at(leveldata.patch)
+                    .amrcore->Geom(leveldata.level),
+                ghext->patchdata.at(leveldata.patch)
+                    .amrcore->Geom(leveldata.level - 1),
+                interpolator, groupdata.bcrecs);
           });
 
         } // for tl
@@ -700,13 +685,9 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
   for (const int gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
+      assert(!groupdata.tls.empty());
 
-      // We always sync all directions.
-      // If there is more than one time level, then we don't sync the
-      // oldest.
-      // TODO: during evolution, sync only one time level
-      const int ntls = groupdata.mfab.size();
+      const int ntls = groupdata.tls.size();
       const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
 
       if (leveldata.level == 0) {
@@ -714,7 +695,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
         for (int tl = 0; tl < sync_tl; ++tl) {
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-            FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+            FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
                            ghext->patchdata.at(leveldata.patch)
                                .amrcore->Geom(leveldata.level));
           });
@@ -726,7 +707,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
         const auto &restrict coarseleveldata =
             ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
         auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-        assert(!coarsegroupdata.mfab.empty());
+        assert(!coarsegroupdata.tls.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
         const bool integrated_subiter =
@@ -735,7 +716,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
         if (integrated_subiter) {
           for (int tl = 0; tl < sync_tl; ++tl) {
             tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-              FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+              FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
                              ghext->patchdata.at(leveldata.patch)
                                  .amrcore->Geom(leveldata.level));
             });
@@ -745,17 +726,9 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
           // from next coarser level
           amrex::Interpolater *const interpolator = groupdata.interpolator;
 
-          // Time-blend gate: only a group the time integrator does not own
-          // (!group_is_integrated) can reach this branch while misaligned in
-          // time with its parent. When the fine level is ahead of the coarse,
-          // blend coarse tl=0 (new) with coarse tl=1 (old) into the coarse
-          // patch before interpolating. Mirrors AMReX beta=(time-t0)/(t1-t0):
-          // with t0 = t_new - cdt (old coarse time), t1 = t_new (new coarse
-          // time), time = t_fin (fine time). A single-timelevel group has no
-          // tl=1, so it gets coarse tl=0 as it currently stands.
           const bool aligned =
               (leveldata.iteration == coarseleveldata.iteration);
-          const bool blend = !aligned && coarsegroupdata.mfab.size() >= 2;
+          const bool blend = !aligned && coarsegroupdata.tls.size() >= 2;
           const rat64 cdt = coarseleveldata.delta_iteration;
           const rat64 t_new = coarseleveldata.iteration;
           const rat64 t_fin = leveldata.iteration;
@@ -769,14 +742,14 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
                                   leveldata.patch, leveldata.patch + 1),
                   gi, 1, prolongation_label);
             const amrex::MultiFab *const cmfab_old =
-                do_blend ? coarsegroupdata.mfab.at(1).get() : nullptr;
+                do_blend ? coarsegroupdata.tls.at(1).mfab.get() : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
             tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                     &coarsegroupdata, interpolator, tl,
                                     cmfab_old, tl_w_new]() {
               FillPatch_ProlongateGhosts(
                   tasks2, tasks3, groupdata, coarsegroupdata,
-                  *groupdata.mfab.at(tl), *coarsegroupdata.mfab.at(tl),
+                  *groupdata.tls.at(tl).mfab, *coarsegroupdata.tls.at(tl).mfab,
                   ghext->patchdata.at(leveldata.patch)
                       .amrcore->Geom(leveldata.level),
                   ghext->patchdata.at(leveldata.patch)
@@ -881,22 +854,17 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
   for (const int gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
+      assert(!groupdata.tls.empty());
 
-      // We always sync all directions.
-      // tl_arg >= 0 syncs only that timelevel; tl_arg = -1 syncs every
-      // timelevel except the oldest (or the only one, if ntls == 1).
-      // TODO: during evolution, sync only one time level
-      const int ntls = groupdata.mfab.size();
+      const int ntls = groupdata.tls.size();
       const int tl_lo = (tl_arg < 0) ? 0 : tl_arg;
       const int tl_hi =
           (tl_arg < 0) ? (ntls > 1 ? ntls - 1 : ntls) : (tl_arg + 1);
       assert(tl_lo >= 0 && tl_hi <= ntls);
 
-      // Copy from adjacent boxes on same level
       for (int tl = tl_lo; tl < tl_hi; ++tl) {
         tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-          FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+          FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
                          ghext->patchdata.at(leveldata.patch)
                              .amrcore->Geom(leveldata.level));
         });
@@ -1017,11 +985,10 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   const active_levels_t this_level(level, level + 1, patch, patch + 1);
 
   for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
-    // only grid functions live on levels
     if (!leveldata.groupdata.at(gi))
       continue;
     const auto &groupdata = *leveldata.groupdata.at(gi);
-    if (groupdata.mfab.empty())
+    if (groupdata.tls.empty())
       continue;
     if (groupdata.fluxes[0] < 0)
       continue;
@@ -1052,43 +1019,10 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
                            .event = buf.str()});
     }
 
-    // Nothing is allocated per call; both roles work on the register's thin
-    // faces only.
-    //
-    // Coarse side, in place of amrex::FluxRegister::CrseInit(ADD). Per
-    // direction, CrseInit allocates a full-level MultiFab on the flux's
-    // layout holding (flux * mult) * area on every face
-    // (AMReX_FluxRegister.cpp:188, :205), and a FabSet on the register's
-    // layout, which it zeroes, ParallelCopies the scaled flux into, and adds
-    // into the register (:220-255). The child's persistent freg_scratch has
-    // the register's layout, so per face orientation the same steps run on
-    // it, with the scaling moved after the copy: zero, ParallelCopy the raw
-    // flux, scale by (s * mult) * area[d], add. This is bit-identical:
-    //  - The copy has the same source BoxArray and DistributionMapping, no
-    //    source ghosts and no periodic shift, hence the same copy tags, so
-    //    where two source boxes share a face the same box wins. A copy moves
-    //    values unchanged, so scaling after it gives the values CrseInit
-    //    copies.
-    //  - area[d] (face_areas) equals face_area[d] bitwise, and the product
-    //    is formed in CrseInit's order, (s * mult) * area.
-    //  - Scaling and adding are separate kernels, as in CrseInit. A single
-    //    `r += s * mult * area` could be contracted into an FMA
-    //    (-ffp-contract=fast, nvcc's default --fmad=true), which would skip
-    //    the rounding of the product.
-    // A face the copy does not reach (none under proper nesting) adds
-    // (0 * mult) * area, a zero like CrseInit's, possibly of the other sign.
-    //
-    // Fine side: FineAdd reads the cached face-area MultiFab of the level
-    // (EnsureFluxGeometry above) through the area overload, with the stage
-    // weight as the scalar multiplier; it is local and allocation-free, and
-    // forms (mult * area) * flux.
     if (child_freg) {
       amrex::FluxRegister *const child_scratch =
           childleveldata->groupdata.at(gi)->freg_scratch.get();
       assert(child_scratch);
-      // The coarse step is the reset: the coarse level's first stage zeroes
-      // the register below it, and everything that follows (the remaining
-      // coarse stages, the child's substeps) only adds.
       if (stage == 1)
         child_freg->setVal(0);
       const int numvars = groupdata.numvars;
@@ -1098,7 +1032,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
       for (int d = 0; d < dim; ++d) {
         const auto &flux_groupdata =
             *leveldata.groupdata.at(groupdata.fluxes.at(d));
-        const amrex::MultiFab &flux = *flux_groupdata.mfab.at(tl);
+        const amrex::MultiFab &flux = *flux_groupdata.tls.at(tl).mfab;
         const CCTK_REAL area_d = area[d];
         for (const auto side :
              {amrex::Orientation::low, amrex::Orientation::high}) {
@@ -1136,7 +1070,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
       for (int d = 0; d < dim; ++d) {
         const auto &flux_groupdata =
             *leveldata.groupdata.at(groupdata.fluxes.at(d));
-        const amrex::MultiFab &flux = *flux_groupdata.mfab.at(tl);
+        const amrex::MultiFab &flux = *flux_groupdata.tls.at(tl).mfab;
         const amrex::MultiFab &area = *leveldata.face_area[d];
         assert(area.ixType() == flux.ixType());
         assert(area.DistributionMap() == flux.DistributionMap());
@@ -1163,14 +1097,13 @@ static void reflux_level(const cGH *cctkGH, const int level) {
     const int tl = 0;
 
     for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
-      // only grid functions live on levels
       if (!leveldata.groupdata.at(gi))
         continue;
       const auto &groupdata = *leveldata.groupdata.at(gi);
-      if (groupdata.mfab.empty())
+      if (groupdata.tls.empty())
         continue;
       const auto &finegroupdata = *fineleveldata.groupdata.at(gi);
-      assert(!finegroupdata.mfab.empty());
+      assert(!finegroupdata.tls.empty());
 
       // If the group has a flux register on the fine level
       if (!finegroupdata.freg)
@@ -1198,7 +1131,7 @@ static void reflux_level(const cGH *cctkGH, const int level) {
                                     .fills = make_valid_int(),
                                     .keeps = make_valid_all(),
                                     .event = "Reflux"});
-      amrex::MultiFab &state = *groupdata.mfab.at(tl);
+      amrex::MultiFab &state = *groupdata.tls.at(tl).mfab;
       const amrex::MultiFab &volume = *leveldata.cell_volume;
       assert(volume.ixType() == state.ixType());
       assert(volume.DistributionMap() == state.DistributionMap());
@@ -1257,9 +1190,9 @@ static void restrict_level(const cGH *cctkGH, const int level,
         assert(group.grouptype == CCTK_GF);
 
         const auto &groupdata = *leveldata.groupdata.at(gi);
-        assert(!groupdata.mfab.empty());
+        assert(!groupdata.tls.empty());
         const auto &finegroupdata = *fineleveldata.groupdata.at(gi);
-        assert(!finegroupdata.mfab.empty());
+        assert(!finegroupdata.tls.empty());
         const amrex::IntVect reffact{2, 2, 2};
 
         // Don't restrict the regridding error
@@ -1290,26 +1223,26 @@ static void restrict_level(const cGH *cctkGH, const int level,
           {
             static Timer timer("Restrict::average_down");
             Interval interval(timer);
-            // rank: 0: vertex, 1: edge, 2: face, 3: volume
             int rank = 0;
             for (int d = 0; d < dim; ++d)
               rank += groupdata.indextype.at(d);
             switch (rank) {
             case 0:
-              average_down_nodal(*finegroupdata.mfab.at(tl),
-                                 *groupdata.mfab.at(tl), reffact);
+              average_down_nodal(*finegroupdata.tls.at(tl).mfab,
+                                 *groupdata.tls.at(tl).mfab, reffact);
               break;
             case 1:
-              average_down_edges(*finegroupdata.mfab.at(tl),
-                                 *groupdata.mfab.at(tl), reffact);
+              average_down_edges(*finegroupdata.tls.at(tl).mfab,
+                                 *groupdata.tls.at(tl).mfab, reffact);
               break;
             case 2:
-              average_down_faces(*finegroupdata.mfab.at(tl),
-                                 *groupdata.mfab.at(tl), reffact);
+              average_down_faces(*finegroupdata.tls.at(tl).mfab,
+                                 *groupdata.tls.at(tl).mfab, reffact);
               break;
             case 3:
-              average_down(*finegroupdata.mfab.at(tl), *groupdata.mfab.at(tl),
-                           0, groupdata.numvars, reffact);
+              average_down(*finegroupdata.tls.at(tl).mfab,
+                           *groupdata.tls.at(tl).mfab, 0, groupdata.numvars,
+                           reffact);
               break;
             default:
               assert(0);

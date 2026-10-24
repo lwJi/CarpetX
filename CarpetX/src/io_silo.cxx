@@ -618,13 +618,6 @@ void InputSilo(const cGH *restrict const cctkGH,
       assert(file);
     }
 
-    // Bands are written all-or-nothing (only at unsynchronized checkpoints), so
-    // detect their presence once with global flags. This keeps the band read
-    // symmetric with the regular read; a per-variable file probe inside the
-    // loop would desync the band owner's MPI_Recv. The source bands (kss_*,
-    // olds) and the flux-register bands (freg_*) are probed separately: a
-    // mid-cycle checkpoint written before flux registers were checkpointed
-    // carries the former but not the latter.
     bool file_has_bands = false;
     bool file_has_freg = false;
     if (ghext->use_subcycling) {
@@ -638,7 +631,7 @@ void InputSilo(const cGH *restrict const cctkGH,
               if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
                 continue;
               const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.mfab.empty())
+              if (groupdata.tls.empty())
                 continue;
               const auto probe = [&](const amrex::MultiFab *const band,
                                      const band_kind kind, const int stage) {
@@ -678,13 +671,6 @@ void InputSilo(const cGH *restrict const cctkGH,
       file_has_bands = global_has[0] != 0;
       file_has_freg = global_has[1] != 0;
 
-      // A mid-cycle checkpoint must carry the coarse source bands for every
-      // coarse level that is ahead of a finer level (see
-      // recovered_finer_level_is_behind); a file without any band data
-      // there was written by the derivative-band scheme or is incomplete.
-      // Every rank evaluates the same predicate on replicated data (recovered
-      // iterations, band geometry), so the abort is collective and the
-      // per-component MPI protocol below stays symmetric.
       if (!file_has_bands) {
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
@@ -695,7 +681,7 @@ void InputSilo(const cGH *restrict const cctkGH,
               if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
                 continue;
               const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.mfab.empty())
+              if (groupdata.tls.empty())
                 continue;
               const amrex::MultiFab *const band = rk_source_band(
                   patchdata.patch, leveldata.level, gi, band_kind::old_source);
@@ -714,9 +700,6 @@ void InputSilo(const cGH *restrict const cctkGH,
         }
       }
 
-      // Likewise the child's flux register wherever it is live: without it
-      // the first reflux after recovery would apply only the remaining fine
-      // substeps' fluxes. Same collective predicate as above.
       if (!file_has_freg) {
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
@@ -727,7 +710,7 @@ void InputSilo(const cGH *restrict const cctkGH,
               if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
                 continue;
               const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.mfab.empty())
+              if (groupdata.tls.empty())
                 continue;
               const amrex::MultiFab *const band =
                   rk_source_band(patchdata.patch, leveldata.level, gi,
@@ -772,12 +755,11 @@ void InputSilo(const cGH *restrict const cctkGH,
             CCTK_VINFO("  Reading group %s", CCTK_FullGroupName(gi));
 
           auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.mfab.empty())
+          if (groupdata.tls.empty())
             continue;
-          // TODO: Check that group has the default number of ghost zones
           const int numvars = groupdata.numvars;
           const int tl = 0;
-          amrex::MultiFab &mfab = *groupdata.mfab[tl];
+          amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
@@ -1135,7 +1117,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
   std::vector<std::vector<std::vector<std::array<CCTK_REAL, dim> > > >
       coordinate_minima, coordinate_maxima;
 
-  // Write data
   {
     static Timer timer_mkdir("OutputSilo.mkdir");
     auto interval_mkdir = std::make_unique<Interval>(timer_mkdir);
@@ -1184,7 +1165,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
     coordinate_minima.resize(ghext->patchdata.size());
     coordinate_maxima.resize(ghext->patchdata.size());
 
-    // Loop over patches
     for (const auto &patchdata : ghext->patchdata) {
 
       if (!patchdata.is_cartesian) {
@@ -1194,7 +1174,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
             .resize(patchdata.leveldata.size());
       }
 
-      // Loop over levels
       for (const auto &leveldata : patchdata.leveldata) {
 
         const amrex::DistributionMapping &dm = leveldata.fab->DistributionMap();
@@ -1209,7 +1188,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
               .resize(ncomponents);
         }
 
-        // Loop over groups
         std::set<mesh_props_t> have_meshes;
         for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
           if (!output_group.at(gi))
@@ -1219,12 +1197,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
             continue;
 
           const auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.mfab.empty())
+          if (groupdata.tls.empty())
             continue;
-          // TODO: Check that group has the default number of ghost zones
           const int numvars = groupdata.numvars;
           const int tl = 0;
-          const amrex::MultiFab &mfab = *groupdata.mfab[tl];
+          const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
@@ -1232,7 +1209,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
           const mesh_props_t mesh_props{nghosts};
           const bool have_mesh = have_meshes.count(mesh_props);
 
-          // Loop over components (AMReX boxes)
           for (int component = 0; component < ncomponents; ++component) {
             const int proc = dm[component];
             const int ioproc = proc / ioproc_every * ioproc_every;
@@ -1321,14 +1297,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 const int coordinate_group =
                     CCTK_GroupIndex("CoordinatesX::vertex_coords");
                 assert(coordinate_group >= 0);
-                // TODO: We may need to send the coordinates across
-                // the network. We don't do this yet, so assert that
-                // we actually have the coordinates stored locally.
                 assert(send_this_fab && write_this_fab);
                 assert(leveldata.groupdata.at(coordinate_group)->nghostzones ==
                        groupdata.nghostzones);
                 const auto &coord_mfab =
-                    *leveldata.groupdata.at(coordinate_group)->mfab.at(0);
+                    *leveldata.groupdata.at(coordinate_group)->tls.at(0).mfab;
                 const auto &coord_fabbox = coord_mfab[component];
                 for (int d = 0; d < ndims; ++d) {
                   coord_ptrs[d] = coord_fabbox.dataPtr(d);
@@ -1753,7 +1726,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
   static Timer timer_meta("OutputSilo.meta");
   auto interval_meta = std::make_unique<Interval>(timer_meta);
 
-  // Write metadata
   if (write_metafile) {
 
     const std::string metafilename = std::string(output_dir) + "/" +
@@ -1782,9 +1754,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
       assert(!ierr);
     }
 
-    // Loop over groups
-    // Map each shared multimesh to its block count so the multivar block below
-    // can check that every slice multivar references the same number of blocks.
     std::map<mesh_props_t, std::size_t> mesh_nblocks;
     for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
       if (!output_group.at(gi))
@@ -1798,7 +1767,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
       const auto &groupdata0 = *leveldata0.groupdata.at(gi);
       const int numvars = groupdata0.numvars;
       const int tl = 0;
-      const amrex::MultiFab &mfab0 = *groupdata0.mfab[tl];
+      const amrex::MultiFab &mfab0 = *groupdata0.tls[tl].mfab;
       const amrex::IndexType &indextype = mfab0.ixType();
 
       const std::array<int, dim> &nghosts = groupdata0.nghostzones;
@@ -1808,9 +1777,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
       if (!have_mesh) {
         const std::string multimeshname = make_meshname(nghosts);
 
-        // The AMR MRG tree enumerates all components unconditionally; a slice
-        // writes only intersecting ones, so the tree would dangle. Slices get
-        // a flat multimesh with no MRG tree.
         if (!slice) {
           // Count components
           const int nlevels = ghext->num_levels();
@@ -1877,8 +1843,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
             assert(!ierr);
           }
 
-          // Describe which components are children of which other components
-          // Question: Can this name be changed?
           const std::string childmaps_name =
               multimeshname + "_wmrgtree_chldMaps";
           std::vector<int> num_children;
@@ -1895,11 +1859,12 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 const int fine_level = level + 1;
                 if (fine_level < int(patchdata.leveldata.size())) {
                   const auto &groupdata = *leveldata.groupdata.at(gi);
-                  const amrex::MultiFab &mfab = *groupdata.mfab[tl];
+                  const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
                   const auto &fine_leveldata =
                       patchdata.leveldata.at(fine_level);
                   const auto &fine_groupdata = *fine_leveldata.groupdata.at(gi);
-                  const amrex::MultiFab &fine_mfab = *fine_groupdata.mfab[tl];
+                  const amrex::MultiFab &fine_mfab =
+                      *fine_groupdata.tls[tl].mfab;
 
                   const int ncomps = ncomps_level_patch.at(level).at(patch);
                   const int fine_comp0 =
@@ -2105,7 +2070,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
           for (const auto &leveldata : patchdata.leveldata) {
             const auto &groupdata = *leveldata.groupdata.at(gi);
             const int tl = 0;
-            const amrex::MultiFab &mfab = *groupdata.mfab[tl];
+            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
             const int ncomponents = mfab.size();
             if (patchdata.is_cartesian) {
               const amrex::Geometry &geom =
@@ -2242,7 +2207,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         for (const auto &patchdata : ghext->patchdata) {
           for (const auto &leveldata : patchdata.leveldata) {
             const auto &groupdata = *leveldata.groupdata.at(gi);
-            const amrex::MultiFab &mfab = *groupdata.mfab[tl];
+            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
             const amrex::DistributionMapping &dm = mfab.DistributionMap();
             const int ncomponents = dm.size();
             const amrex::Geometry &geom =
@@ -2314,7 +2279,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
           for (const auto &leveldata : patchdata.leveldata) {
             const auto &groupdata = *leveldata.groupdata.at(gi);
             const int tl = 0;
-            const amrex::MultiFab &mfab = *groupdata.mfab[tl];
+            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
                 patchdata.amrcore->Geom(leveldata.level);
@@ -2365,7 +2330,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
         mesh_nblocks[mesh_props] = meshname_ptrs.size();
       } // if write multimesh
 
-      // Write multivar
       {
         const std::string multimeshname = make_meshname(nghosts);
 
@@ -2400,7 +2364,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
             for (const auto &leveldata : patchdata.leveldata) {
               const auto &groupdata = *leveldata.groupdata.at(gi);
               const int tl = 0;
-              const amrex::MultiFab &mfab = *groupdata.mfab[tl];
+              const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
               const amrex::DistributionMapping &dm = mfab.DistributionMap();
               const int ncomponents = dm.size();
               const amrex::Geometry &geom =

@@ -217,8 +217,8 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
   for (auto &restrict patchdata : ghext->patchdata) {
     for (auto &restrict leveldata : patchdata.leveldata) {
       const auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
-      const amrex::MultiFab &mfab = *groupdata.mfab.at(tl);
+      assert(!groupdata.tls.empty());
+      const amrex::MultiFab &mfab = *groupdata.tls.at(tl).mfab;
       std::unique_ptr<amrex::iMultiFab> finemask_imfab;
 
       warn(active_levels_t(leveldata.level, leveldata.level + 1,
@@ -243,8 +243,8 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
         const auto &restrict fine_leveldata =
             patchdata.leveldata.at(fine_level);
         const auto &restrict fine_groupdata = *fine_leveldata.groupdata.at(gi);
-        assert(!fine_groupdata.mfab.empty());
-        const amrex::MultiFab &fine_mfab = *fine_groupdata.mfab.at(tl);
+        assert(!fine_groupdata.tls.empty());
+        const amrex::MultiFab &fine_mfab = *fine_groupdata.tls.at(tl).mfab;
 
         const amrex::IntVect reffact{2, 2, 2};
 

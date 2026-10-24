@@ -260,10 +260,8 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       if (io_verbose)
         CCTK_VINFO("  Defining variables...");
 
-      // Loop over patches
       for (const auto &patchdata : ghext->patchdata) {
 
-        // Loop over levels
         for (const auto &leveldata : patchdata.leveldata) {
 
           const int numgroups = CCTK_NumGroups();
@@ -278,12 +276,12 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
               assert(cgroup.dim == 3);
 
               const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.mfab.empty())
+              if (groupdata.tls.empty())
                 continue;
               const int numvars = groupdata.numvars;
 
               const int tl = 0;
-              const amrex::MultiFab &mfab = *groupdata.mfab[tl];
+              const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
               const int num_local_components = mfab.local_size();
 
               // Loop over variables
@@ -333,11 +331,9 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       CCTK_VINFO("  Beginning step...");
     engine.BeginStep();
 
-    // Loop over patches
     std::vector<patch_t<CCTK_REAL, int, 3> > patches(ghext->patchdata.size());
     for (const auto &patchdata : ghext->patchdata) {
 
-      // Loop over levels
       std::vector<level_t<CCTK_REAL, int, 3> > levels(
           patchdata.leveldata.size());
       for (const auto &leveldata : patchdata.leveldata) {
@@ -359,11 +355,11 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             assert(cgroup.dim == 3);
 
             const auto &groupdata = *leveldata.groupdata.at(gi);
-            if (groupdata.mfab.empty())
+            if (groupdata.tls.empty())
               continue;
             const int numvars = groupdata.numvars;
             const int tl = 0;
-            const amrex::MultiFab &mfab = *groupdata.mfab[tl];
+            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
             const amrex::IndexType &indextype = mfab.ixType();
 
             const amrex::Geometry &geom =

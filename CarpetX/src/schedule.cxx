@@ -605,7 +605,6 @@ void update_cctkGH(cGH *const cctkGH, const cGH *const sourceGH) {
   cctkGH->cctk_delta_time = sourceGH->cctk_delta_time;
 }
 
-// Set cctkGH entries for global mode
 void enter_global_mode(cGH *restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
   assert(in_meta_mode(cctkGH));
@@ -616,7 +615,6 @@ void enter_global_mode(cGH *restrict cctkGH) {
   cctkGH->cctk_nghostzones[1] = ghost_size >= 0 ? ghost_size : ghost_size_y;
   cctkGH->cctk_nghostzones[2] = ghost_size >= 0 ? ghost_size : ghost_size_z;
 
-  // Grid scalar pointers
   {
     auto &restrict globaldata = ghext->globaldata;
     const int num_groups = CCTK_NumGroups();
@@ -629,8 +627,8 @@ void enter_global_mode(cGH *restrict cctkGH) {
         continue;
       } else { // CCTK_ARRAY or CCTK_SCALAR
         auto &restrict arraygroupdata = *globaldata.arraygroupdata.at(gi);
-        for (int tl = 0; tl < int(arraygroupdata.data.size()); ++tl) {
-          const auto &restrict vars = arraygroupdata.data.at(tl);
+        for (int tl = 0; tl < int(arraygroupdata.tls.size()); ++tl) {
+          const auto &restrict vars = arraygroupdata.tls.at(tl).data;
           for (int vi = 0; vi < arraygroupdata.numvars; ++vi)
             cctkGH->data[arraygroupdata.firstvarindex + vi][tl] =
                 const_cast<void *>(
@@ -645,7 +643,6 @@ void enter_global_mode(cGH *restrict cctkGH) {
 void leave_global_mode(cGH *restrict cctkGH) {
   assert(in_global_mode(cctkGH));
 
-  // Grid scalar pointers
   {
     auto &restrict globaldata = ghext->globaldata;
     const int num_groups = CCTK_NumGroups();
@@ -658,7 +655,7 @@ void leave_global_mode(cGH *restrict cctkGH) {
         continue;
       } else { // CCTK_ARRAY or CCTK_SCALAR
         auto &restrict arraygroupdata = *globaldata.arraygroupdata.at(gi);
-        for (int tl = 0; tl < int(arraygroupdata.data.size()); ++tl)
+        for (int tl = 0; tl < int(arraygroupdata.tls.size()); ++tl)
           for (int vi = 0; vi < arraygroupdata.numvars; ++vi)
             cctkGH->data[arraygroupdata.firstvarindex + vi][tl] = nullptr;
       }
@@ -745,8 +742,6 @@ void leave_patch_mode(cGH *restrict cctkGH,
   assert(in_level_mode(cctkGH));
 }
 
-// Set cctkGH entries for local mode
-// TODO: Have separate cctkGH for each patch, level, and local box
 void enter_local_mode(cGH *restrict cctkGH,
                       const GHExt::PatchData::LevelData &restrict leveldata,
                       const MFPointer &mfp) {
@@ -770,7 +765,6 @@ void enter_local_mode(cGH *restrict cctkGH,
     for (int f = 0; f < 2; ++f)
       cctkGH->cctk_bbox[2 * d + f] = grid.bbox[f][d];
 
-  // Grid function pointers
   const int num_groups = CCTK_NumGroups();
   for (int gi = 0; gi < num_groups; ++gi) {
     cGroup group;
@@ -782,9 +776,9 @@ void enter_local_mode(cGH *restrict cctkGH,
 
     auto &restrict groupdata = *leveldata.groupdata.at(gi);
     const GridPtrDesc1 grid1(leveldata, groupdata, mfp);
-    for (int tl = 0; tl < int(groupdata.mfab.size()); ++tl) {
+    for (int tl = 0; tl < int(groupdata.tls.size()); ++tl) {
       const amrex::Array4<CCTK_REAL> vars =
-          groupdata.mfab.at(tl)->array(mfp.index());
+          groupdata.tls.at(tl).mfab->array(mfp.index());
       for (int vi = 0; vi < groupdata.numvars; ++vi)
         cctkGH->data[groupdata.firstvarindex + vi][tl] = grid1.ptr(vars, vi);
     }
@@ -848,7 +842,7 @@ void leave_local_mode(cGH *restrict cctkGH,
       continue;
 
     auto &restrict groupdata = *leveldata.groupdata.at(gi);
-    for (int tl = 0; tl < int(groupdata.mfab.size()); ++tl)
+    for (int tl = 0; tl < int(groupdata.tls.size()); ++tl)
       for (int vi = 0; vi < groupdata.numvars; ++vi)
         cctkGH->data[groupdata.firstvarindex + vi][tl] = nullptr;
   }
@@ -1846,8 +1840,7 @@ std::vector<seed_run_t> seed_runs(const active_levels_t &active_levels,
                                              min_level);
   active_levels.loop_serially([&](auto &restrict leveldata) {
     std::optional<valid_t> &seed = seeds.at(leveldata.level - min_level);
-    const valid_t level_seed =
-        leveldata.groupdata.at(gi)->valid.at(1).at(vi).get();
+    const valid_t level_seed = leveldata.groupdata.at(gi)->tls.at(1).valid(vi);
     assert(!seed || *seed == level_seed);
     seed = level_seed;
   });
@@ -1888,32 +1881,30 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       const auto &patchdata0 = ghext->patchdata.at(0);
       const auto &leveldata0 = patchdata0.leveldata.at(0);
       const auto &groupdata0 = *leveldata0.groupdata.at(gi);
-      const int ntls0 = groupdata0.mfab.size();
+      const int ntls0 = groupdata0.tls.size();
       if (ntls0 == 0)
         continue;
 
       assert(active_levels);
       active_levels->loop_serially([&](auto &restrict leveldata) {
         auto &restrict groupdata = *leveldata.groupdata.at(gi);
-        const int ntls = groupdata.mfab.size();
+        const int ntls = groupdata.tls.size();
         assert(ntls == ntls0);
         assert(groupdata.open_write_count() == 0);
         if (ntls > 1) {
-          rotate(groupdata.mfab.begin(), groupdata.mfab.end() - 1,
-                 groupdata.mfab.end());
-          rotate(groupdata.valid.begin(), groupdata.valid.end() - 1,
-                 groupdata.valid.end());
+          rotate(groupdata.tls.begin(), groupdata.tls.end() - 1,
+                 groupdata.tls.end());
           if (!groupdata.do_evolve)
-            amrex::MultiFab::Copy(*groupdata.mfab.at(0), *groupdata.mfab.at(1),
-                                  0, 0, groupdata.numvars,
-                                  groupdata.mfab.at(0)->nGrowVect());
+            amrex::MultiFab::Copy(
+                *groupdata.tls.at(0).mfab, *groupdata.tls.at(1).mfab, 0, 0,
+                groupdata.numvars, groupdata.tls.at(0).mfab->nGrowVect());
           for (auto &restrict local_cctkGH_ptr : leveldata.local_cctkGHs) {
             cGH *const local_cctkGH = local_cctkGH_ptr.get();
             const int component = local_cctkGH->cctk_component;
             const GridPtrDesc1 grid1(leveldata, groupdata, component);
             for (int tl = 0; tl < ntls; ++tl) {
               const amrex::Array4<CCTK_REAL> vars =
-                  groupdata.mfab.at(tl)->array(component);
+                  groupdata.tls.at(tl).mfab->array(component);
               for (int vi = 0; vi < groupdata.numvars; ++vi)
                 local_cctkGH->data[groupdata.firstvarindex + vi][tl] =
                     grid1.ptr(vars, vi);
@@ -1957,14 +1948,12 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
 
       auto &restrict globaldata = ghext->globaldata;
       auto &restrict arraygroupdata = *globaldata.arraygroupdata.at(gi);
-      const int ntls = arraygroupdata.data.size();
+      const int ntls = arraygroupdata.tls.size();
       if (ntls == 0)
         continue;
       if (ntls > 1) {
-        rotate(arraygroupdata.data.begin(), arraygroupdata.data.end() - 1,
-               arraygroupdata.data.end());
-        rotate(arraygroupdata.valid.begin(), arraygroupdata.valid.end() - 1,
-               arraygroupdata.valid.end());
+        rotate(arraygroupdata.tls.begin(), arraygroupdata.tls.end() - 1,
+               arraygroupdata.tls.end());
         open_array_write({.gi = gi,
                           .tl = 0,
                           .fills = {},
@@ -2485,7 +2474,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
         active_levels->loop_serially([&](const auto &restrict leveldata) {
           const auto &restrict groupdata = *leveldata.groupdata.at(rd.gi);
           const valid_t &need = rd.valid;
-          valid_t have = groupdata.valid.at(rd.tl).at(rd.vi).get();
+          const valid_t have = groupdata.tls.at(rd.tl).valid(rd.vi);
           if (need.valid_ghosts && !have.valid_ghosts && have.valid_int)
             sync_set.insert(rd.gi);
         });
