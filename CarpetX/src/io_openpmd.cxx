@@ -3,6 +3,8 @@
 #include "driver.hxx"
 #include "io_meta.hxx"
 #include "io_slice.hxx"
+#include "schedule.hxx"
+#include "valid.hxx"
 #include <carpetx.hxx>
 
 #include <div.hxx>
@@ -851,11 +853,12 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
   // Post-read tasks
   std::vector<std::function<void()> > tasks;
 
+  std::vector<write_scope_t> scopes;
+  std::vector<array_write_scope_t> array_scopes;
+
   // First read grid functions in a loop over patches and levels
 
-  // Loop over patches
   for (const auto &patchdata : ghext->patchdata) {
-    // Loop over levels
     for (const auto &leveldata : patchdata.leveldata) {
       if (io_verbose)
         CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
@@ -971,6 +974,17 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             const bool group_has_no_ghosts = groupdata.nghostzones[0] == 0 &&
                                              groupdata.nghostzones[1] == 0 &&
                                              groupdata.nghostzones[2] == 0;
+
+            scopes.push_back(open_write(
+                active_levels_t(leveldata.level, leveldata.level + 1,
+                                leveldata.patch, leveldata.patch + 1),
+                {.gi = gi,
+                 .tl = tl,
+                 .fills = input_ghosts || group_has_no_ghosts
+                              ? make_valid_all()
+                              : make_valid_int(),
+                 .keeps = valid_t(),
+                 .event = "InputOpenPMD"}));
 
             // Loop over components (AMReX boxes)
             for (int local_component = 0;
@@ -1095,13 +1109,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
 
               } // for vi
             } // for local_component
-
-            // Mark read variables as valid
-            for (int vi = 0; vi < numvars; ++vi)
-              groupdata.valid.at(tl).at(vi).set_all(
-                  input_ghosts || group_has_no_ghosts ? make_valid_all()
-                                                      : make_valid_int(),
-                  []() { return "read from openPMD file"; });
           } // for tl
 
           // Subcycling coarse source bands (see OutputOpenPMD): zero-ghost
@@ -1288,6 +1295,14 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                                          groupdata.nghostzones[1] == 0 &&
                                          groupdata.nghostzones[2] == 0;
 
+        array_scopes.push_back(open_array_write(
+            {.gi = gi,
+             .tl = tl,
+             .fills = input_ghosts || group_has_no_ghosts ? make_valid_all()
+                                                          : make_valid_int(),
+             .keeps = valid_t(),
+             .event = "InputOpenPMD"}));
+
         // exterior (with ghosts)
         for (int d = 0; d < dim; ++d)
           assert(groupdata.lsh[d] == groupdata.gsh[d]);
@@ -1446,13 +1461,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               break;
             }
           }
-
-          // Mark read variables as valid
-          groupdata.valid.at(tl).at(vi).set_all(
-              input_ghosts || group_has_no_ghosts ? make_valid_all()
-                                                  : make_valid_int(),
-              []() { return "read from openPMD file"; });
-
         } // for vi
       }
     } // for gi
@@ -1467,6 +1475,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
   for (auto &task : tasks)
     std::move(task)();
   tasks.clear();
+  scopes.clear();
+  array_scopes.clear();
 
   if (io_verbose)
     CCTK_VINFO("InputOpenPMD: Closing iteration...");

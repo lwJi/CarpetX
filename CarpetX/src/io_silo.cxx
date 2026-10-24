@@ -3,6 +3,8 @@
 #include "driver.hxx"
 #include "io_meta.hxx"
 #include "mpi_types.hxx"
+#include "schedule.hxx"
+#include "valid.hxx"
 #include <carpetx.hxx>
 
 #include <tuple.hxx>
@@ -603,7 +605,6 @@ void InputSilo(const cGH *restrict const cctkGH,
   static Timer timer_data("InputSilo.data");
   auto interval_data = std::make_unique<Interval>(timer_data);
 
-  // Read data
   {
     DB::ptr<DBfile> file;
     if (read_file) {
@@ -755,7 +756,6 @@ void InputSilo(const cGH *restrict const cctkGH,
       }
     }
 
-    // Loop over patches and levels
     for (const auto &patchdata : ghext->patchdata) {
       for (const auto &leveldata : patchdata.leveldata) {
         if (io_verbose)
@@ -783,7 +783,15 @@ void InputSilo(const cGH *restrict const cctkGH,
 
           const std::array<int, dim> &nghosts = groupdata.nghostzones;
 
-          // Loop over components (AMReX boxes)
+          const write_scope_t scope =
+              open_write(active_levels_t(leveldata.level, leveldata.level + 1,
+                                         patchdata.patch, patchdata.patch + 1),
+                         {.gi = gi,
+                          .tl = tl,
+                          .fills = make_valid_all(),
+                          .keeps = valid_t(),
+                          .event = "InputSilo"});
+
           const int ncomponents = dm.size();
           for (int component = 0; component < ncomponents; ++component) {
             if (io_verbose)
@@ -891,11 +899,9 @@ void InputSilo(const cGH *restrict const cctkGH,
               } // for vi
             } // if read_file
 
-            // Communicate variable, part 2
             static Timer timer_wait("InputSilo.wait");
             auto interval_wait = std::make_unique<Interval>(timer_wait);
             if (recv_this_fab && read_this_fab) {
-              // do nothing
             } else if (recv_this_fab) {
               MPI_Wait(&mpi_req, MPI_STATUS_IGNORE);
             } else {
@@ -903,10 +909,6 @@ void InputSilo(const cGH *restrict const cctkGH,
               MPI_Send(buffer.data(), numvars * zonecount,
                        mpi_datatype_v<CCTK_REAL>, proc, mpi_tag, mpi_comm);
             }
-            if (recv_this_fab)
-              for (int vi = 0; vi < numvars; ++vi)
-                groupdata.valid.at(tl).at(vi).set_all(
-                    make_valid_all(), []() { return "read from Silo file"; });
             interval_wait = nullptr;
 
           } // for component

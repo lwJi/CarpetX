@@ -195,14 +195,10 @@ struct write_t::impl {
   write_scope_t scope;
 };
 
-namespace {
-
 active_levels_t one_level(const level_t level) {
   return active_levels_t(level.level, level.level + 1, level.patch,
                          level.patch + 1);
 }
-
-} // namespace
 
 write_t::write_t(std::unique_ptr<impl> p) noexcept : p(std::move(p)) {}
 

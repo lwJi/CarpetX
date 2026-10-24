@@ -289,12 +289,11 @@ bool aligned_with_parent(const level_t level) {
 
 void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
                               const std::vector<int> &states, const int stage,
-                              const int nstages,
-                              const std::function<std::string()> &why) {
+                              const int nstages, const std::string &event) {
   assert(driver().use_subcycling);
   assert(level.level > 0);
   assert(stage >= 1 && stage <= nstages);
-  GHExt::PatchData::LevelData &leveldata = resolve(level);
+  const GHExt::PatchData::LevelData &leveldata = resolve(level);
   const GHExt::PatchData::LevelData &parentdata =
       resolve(level_t{level.patch, level.level - 1});
   const CCTK_REAL substep_start =
@@ -303,17 +302,22 @@ void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
       cctkGH->cctk_delta_time * CCTK_REAL(parentdata.delta_iteration);
   assert(std::isfinite(dtc) && dtc > 0);
   const bool end_of_substep = stage == nstages;
+  const active_levels_t window = one_level(level);
+  std::vector<write_scope_t> scopes;
+  for (const int gi : states) {
+    const GroupData &groupdata = *leveldata.groupdata.at(gi);
+    const valid_t outer = groupdata.all_faces_have_symmetries_or_boundaries()
+                              ? make_valid_outer()
+                              : valid_t();
+    scopes.push_back(open_write(window, {.gi = gi,
+                                         .tl = rk_tl,
+                                         .fills = make_valid_ghosts() | outer,
+                                         .keeps = make_valid_all(),
+                                         .event = event}));
+  }
   FillRKBoundary(
       level.patch, level.level, states, rk_tl, end_of_substep ? 1 : stage + 1,
       end_of_substep ? substep_start + rk_substep_ratio : substep_start, dtc);
-  for (const int gi : states) {
-    GroupData &groupdata = *leveldata.groupdata.at(gi);
-    for (why_valid_t &why_valid : groupdata.valid.at(rk_tl)) {
-      why_valid.set_ghosts(true, why);
-      if (groupdata.all_faces_have_symmetries_or_boundaries())
-        why_valid.set_outer(true, why);
-    }
-  }
 }
 
 } // namespace
@@ -339,15 +343,10 @@ rk_step_t open_rk_step(const window_t window) {
     step->states.push_back(pair.state_gi);
   step->levels = integrated_levels("CarpetX::open_rk_step", window, config);
   for (const rk_level_t &entry : step->levels) {
-    const GHExt::PatchData::LevelData &leveldata = resolve(entry.level);
-    for (const int gi : entry.groups.states) {
-      const GroupData &groupdata = *leveldata.groupdata.at(gi);
-      for (int vi = 0; vi < groupdata.numvars; ++vi)
-        error_if_invalid(groupdata, vi, rk_tl, make_valid_int(), []() {
-          return "CarpetX::open_rk_step: the RK step starts from the state's "
-                 "current time level";
-        });
-    }
+    for (const int gi : entry.groups.states)
+      require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),
+                    "CarpetX::open_rk_step: the RK step starts from the "
+                    "state's current time level");
     StoreRKOldState(entry.level.patch, entry.level.level, entry.groups.states,
                     rk_tl);
   }
@@ -414,17 +413,19 @@ void rk_step_t::state_updated() {
   const cGH *const cctkGH = driver().get_global_cctkGH();
   if (driver().use_subcycling) {
     require_serial_context("CarpetX::rk_step_t::state_updated");
-    const int iteration = cctkGH->cctk_iteration;
     const int nstages = p->nstages;
-    for (const rk_level_t &entry : p->levels)
-      if (entry.level.level > 0)
-        fill_refinement_boundary(
-            cctkGH, entry.level, entry.groups.states, stage, nstages,
-            [stage, nstages, iteration]() {
-              return "CarpetX::rk_step_t::state_updated after RK stage " +
-                     std::to_string(stage) + " of " + std::to_string(nstages) +
-                     " (iteration " + std::to_string(iteration) + ")";
-            });
+    const std::string event =
+        "CarpetX::rk_step_t::state_updated after RK stage " +
+        std::to_string(stage) + " of " + std::to_string(nstages);
+    for (const rk_level_t &entry : p->levels) {
+      if (entry.level.level == 0)
+        continue;
+      const std::vector<int> &states = entry.groups.states;
+      SyncGroupsByDirIGhostOnly(one_level(entry.level), cctkGH, states.size(),
+                                states.data(), nullptr, rk_tl);
+      fill_refinement_boundary(cctkGH, entry.level, states, stage, nstages,
+                               event);
+    }
   } else if (stage == p->nstages) {
     Reflux(cctkGH, p->window.min_level, p->window.max_level);
   }
@@ -483,7 +484,6 @@ void RecoverRKBoundary(const active_levels_t &active_levels,
         active_levels, ghext->get_global_cctkGH(), states.size(), states.data(),
         nullptr, rk_tl);
 
-  const int iteration = cctkGH->cctk_iteration;
   for (const rk_level_t &entry : levels) {
     if (entry.level.level == 0)
       continue;
@@ -499,11 +499,7 @@ void RecoverRKBoundary(const active_levels_t &active_levels,
       continue;
     fill_refinement_boundary(cctkGH, entry.level, entry.groups.states,
                              integrator->nstages(), integrator->nstages(),
-                             [iteration]() {
-                               return "CarpetX::RecoverRKBoundary after "
-                                      "recovery (iteration " +
-                                      std::to_string(iteration) + ")";
-                             });
+                             "CarpetX::RecoverRKBoundary after recovery");
   }
   synchronize();
 }

@@ -22,6 +22,7 @@ void require_no_open_write(
 
 active_levels_t require_operable(const char *what, window_t window,
                                  const std::vector<int> &groups);
+active_levels_t one_level(level_t level);
 
 } // namespace CarpetX
 

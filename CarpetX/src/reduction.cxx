@@ -2,6 +2,7 @@
 #include "mpi_types.hxx"
 #include "reduction.hxx"
 #include "schedule.hxx"
+#include "valid.hxx"
 
 #include <cctk_Parameters.h>
 
@@ -213,7 +214,6 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
   assert(group.grouptype == CCTK_GF);
 
   reduction<CCTK_REAL, dim> red;
-  // TODO: Parallelize over patches and levels
   for (auto &restrict patchdata : ghext->patchdata) {
     for (auto &restrict leveldata : patchdata.leveldata) {
       const auto &restrict groupdata = *leveldata.groupdata.at(gi);
@@ -221,8 +221,13 @@ reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
       const amrex::MultiFab &mfab = *groupdata.mfab.at(tl);
       std::unique_ptr<amrex::iMultiFab> finemask_imfab;
 
-      warn_if_invalid(groupdata, vi, tl, make_valid_int(),
-                      []() { return "Before reduction"; });
+      warn(active_levels_t(leveldata.level, leveldata.level + 1,
+                           patchdata.patch, patchdata.patch + 1),
+           {.gi = gi,
+            .tl = tl,
+            .vi = vi,
+            .where = make_valid_int(),
+            .event = "Before reduction"});
 
       const vect<int, dim> indextype = groupdata.indextype;
 
