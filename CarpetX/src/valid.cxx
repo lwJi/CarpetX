@@ -617,7 +617,10 @@ static void check_valid_ga(const int gi, const int vi, const int tl,
 
 namespace {
 
-int current_iteration() { return ghext->get_global_cctkGH()->cctk_iteration; }
+int current_iteration() {
+  const cGH *const cctkGH = ghext->get_global_cctkGH();
+  return cctkGH ? cctkGH->cctk_iteration : 0;
+}
 
 std::function<std::string()> event_reason(const std::string &event,
                                           const char *const what,

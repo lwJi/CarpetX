@@ -1240,9 +1240,12 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
 
   auto &restrict leveldata = patchdata.leveldata.at(level);
   auto &restrict groupdata = *leveldata.groupdata.at(gi);
-  // Ensure the error estimate has been set
-  error_if_invalid(groupdata, vi, tl, make_valid_int(),
-                   []() { return "ErrorEst"; });
+  require(active_levels_t(level, level + 1, patch, patch + 1),
+          {.gi = gi,
+           .tl = tl,
+           .vi = vi,
+           .where = make_valid_int(),
+           .event = "ErrorEst"});
   std::size_t npoints_set = 0, npoints_clear = 0, npoints_total = 0;
   auto mfitinfo = amrex::MFItInfo().SetDynamic(true).EnableTiling();
 #pragma omp parallel
@@ -1354,7 +1357,6 @@ void SetupGlobals() {
       arraygroupdata.bbox[2 * d] = arraygroupdata.bbox[2 * d + 1] = 1;
     }
 
-    // Allocate data
     const int ntls = ghext->active_timelevels.at(gi);
     assert(ntls >= 0 and ntls <= group.numtimelevels);
     arraygroupdata.data.resize(ntls);
@@ -1362,22 +1364,13 @@ void SetupGlobals() {
     for (int tl = 0; tl < ntls; ++tl) {
       arraygroupdata.data.at(tl).alloc(
           group.vartype, arraygroupdata.numvars * arraygroupdata.array_size);
-      why_valid_t why([]() { return "SetupGlobals"; });
-      arraygroupdata.valid.at(tl).resize(arraygroupdata.numvars, why);
-      for (int vi = 0; vi < arraygroupdata.numvars; ++vi) {
-        // TODO: decide that valid_bnd == false always and rely on
-        // initialization magic?
-        valid_t valid;
-        valid.valid_int = false;
-        valid.valid_outer = true;
-        valid.valid_ghosts = true;
-        arraygroupdata.valid.at(tl).at(vi).set_all(
-            valid, []() { return "SetupGlobals"; });
-        // TODO: make poison_invalid and check_invalid virtual members
-        // of CommonGroupData
-        poison_invalid_ga(gi, vi, tl);
-        check_valid_ga(gi, vi, tl, []() { return "SetupGlobals"; });
-      }
+      arraygroupdata.valid.at(tl).resize(
+          arraygroupdata.numvars, why_valid_t([]() { return "SetupGlobals"; }));
+      open_array_write({.gi = gi,
+                        .tl = tl,
+                        .fills = make_valid_outer() | make_valid_ghosts(),
+                        .keeps = {},
+                        .event = "SetupGlobals"});
     }
   }
 }
@@ -1399,25 +1392,6 @@ void CactusAmrCore::SetupLevel(const int level, const amrex::BoxArray &ba,
     level_modified.resize(level + 1, true);
   level_modified.at(level) = true;
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed); // Increment epoch
-  const active_levels_t active_levels(level, level + 1, patch, patch + 1);
-
-  // Initialize data
-  const auto &leveldata = patchdata.leveldata.at(level);
-  const int numgroups = CCTK_NumGroups();
-  for (int gi = 0; gi < numgroups; ++gi) {
-    cGroup group;
-    int ierr = CCTK_GroupData(gi, &group);
-    assert(!ierr);
-
-    // only grid functions live on levels (and the grid)
-    if (group.grouptype != CCTK_GF)
-      continue;
-
-    const auto &restrict groupdata = *leveldata.groupdata.at(gi);
-    for (int tl = 0; tl < int(groupdata.mfab.size()); ++tl)
-      for (int vi = 0; vi < groupdata.numvars; ++vi)
-        poison_invalid_gf(active_levels, gi, vi, tl);
-  }
 
   if (verbose)
 #pragma omp critical
@@ -1457,21 +1431,48 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 
   SetupLevel(level, ba, dm, []() { return "MakeNewLevelFromScratch"; });
 
+  const auto &leveldata = ghext->patchdata.at(patch).leveldata.at(level);
+  const active_levels_t active_levels(level, level + 1, patch, patch + 1);
+  for (const auto &groupdataptr : leveldata.groupdata) {
+    if (!groupdataptr)
+      continue;
+    const auto &restrict groupdata = *groupdataptr;
+    for (int tl = 0; tl < int(groupdata.mfab.size()); ++tl)
+      open_write(active_levels, {.gi = groupdata.groupindex,
+                                 .tl = tl,
+                                 .fills = {},
+                                 .keeps = {},
+                                 .event = "MakeNewLevelFromScratch"});
+  }
+
   if (verbose)
 #pragma omp critical
     CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d done.", patch, level);
 }
 
-// How many time levels are transported onto a new/remade level at regrid time
 static int
 regrid_prolongate_tls(const GHExt::PatchData::LevelData::GroupData &groupdata) {
   const int ntls = groupdata.mfab.size();
-  // Evolved state: all but the oldest time level (ntls == 1: that one),
-  // since CycleTimelevels invalidates the oldest anyway.
-  return groupdata.do_evolve ? (ntls > 1 ? ntls - 1 : ntls)
-         : groupdata.do_checkpoint
-             ? ntls // persistent non-evolved state: all TLs
-             : 0;   // recomputable scratch: nothing
+  return groupdata.do_evolve       ? (ntls > 1 ? ntls - 1 : ntls)
+         : groupdata.do_checkpoint ? ntls
+                                   : 0;
+}
+
+static bool
+regrid_source_valid(const GHExt::PatchData::LevelData::GroupData &groupdata,
+                    const int tl) {
+  for (int vi = 0; vi < groupdata.numvars; ++vi)
+    if (!groupdata.valid.at(tl).at(vi).get().valid_all())
+      return false;
+  return true;
+}
+
+static valid_t
+regrid_fills(const GHExt::PatchData::LevelData::GroupData &groupdata) {
+  return make_valid_int() | make_valid_ghosts() |
+         (groupdata.all_faces_have_symmetries_or_boundaries()
+              ? make_valid_outer()
+              : valid_t());
 }
 
 void CactusAmrCore::MakeNewLevelFromCoarse(
@@ -1522,73 +1523,50 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
+    const valid_t fills = regrid_fills(groupdata);
 
-    groupdata.valid.resize(ntls);
     for (int tl = 0; tl < ntls; ++tl) {
-      why_valid_t why([]() { return "MakeNewLevelFromCoarse"; });
-      groupdata.valid.at(tl).resize(groupdata.numvars, why);
-      for (int vi = 0; vi < groupdata.numvars; ++vi) {
-        // Time levels with tl < prolongate_tl are overwritten below after
-        // prolongation; these reasons persist only for the others
-        if (groupdata.do_evolve)
-          groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
-            return "MakeNewLevelFromCoarse: oldest time level is not "
-                   "prolongated at regrid";
-          });
-        else
-          groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
-            return "MakeNewLevelFromCoarse: not prolongated because variable "
-                   "is not evolved";
-          });
-      }
-
       if (tl < prolongate_tl) {
-        bool do_fill = true;
-        if (groupdata.do_evolve) {
-          // Expect coarse grid data to be valid
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
-            error_if_invalid(coarsegroupdata, vi, tl, make_valid_all(), []() {
-              return "MakeNewLevelFromCoarse before prolongation";
-            });
-        } else {
-          // Checkpointed non-evolved state: transport best-effort, only
-          // when the coarse source is fully valid
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
-            do_fill &= coarsegroupdata.valid.at(tl).at(vi).get().valid_all();
-        }
+        const bool do_fill =
+            groupdata.do_evolve || regrid_source_valid(coarsegroupdata, tl);
         if (do_fill) {
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
-            check_valid_gf(active_coarse_levels, gi, vi, tl, []() {
-              return "MakeNewLevelFromCoarse before prolongation";
-            });
+          require(active_coarse_levels,
+                  {.gi = gi,
+                   .tl = tl,
+                   .where = make_valid_all(),
+                   .event = "MakeNewLevelFromCoarse before prolongation"});
+          const write_scope_t scope = open_write(
+              active_levels,
+              {.gi = gi,
+               .tl = tl,
+               .fills = fills,
+               .keeps = {},
+               .event = "MakeNewLevelFromCoarse after prolongation"});
           FillPatch_NewLevel(
               groupdata, coarsegroupdata, *groupdata.mfab.at(tl),
               *coarsegroupdata.mfab.at(tl), patchdata.amrcore->Geom(level - 1),
               patchdata.amrcore->Geom(level), interpolator, groupdata.bcrecs);
-          const auto outer_valid =
-              groupdata.all_faces_have_symmetries_or_boundaries()
-                  ? make_valid_outer()
-                  : valid_t();
-          for (int vi = 0; vi < groupdata.numvars; ++vi) {
-            groupdata.valid.at(tl).at(vi).set_all(
-                make_valid_int() | make_valid_ghosts() | outer_valid,
-                []() { return "MakeNewLevelFromCoarse after prolongation"; });
-          }
         } else {
-          // Data already poisoned by SetupLevel
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
-            groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
-              return "MakeNewLevelFromCoarse: not prolongated because source "
-                     "was invalid at regrid time";
-            });
+          open_write(active_levels,
+                     {.gi = gi,
+                      .tl = tl,
+                      .fills = {},
+                      .keeps = {},
+                      .event = "MakeNewLevelFromCoarse: not prolongated "
+                               "because source was invalid at regrid time"});
         }
+      } else {
+        open_write(active_levels,
+                   {.gi = gi,
+                    .tl = tl,
+                    .fills = {},
+                    .keeps = {},
+                    .event = groupdata.do_evolve
+                                 ? "MakeNewLevelFromCoarse: oldest time level "
+                                   "is not prolongated at regrid"
+                                 : "MakeNewLevelFromCoarse: not prolongated "
+                                   "because variable is not evolved"});
       }
-
-      // Already poisoned by SetupLevel
-      for (int vi = 0; vi < groupdata.numvars; ++vi)
-        check_valid_gf(active_levels, gi, vi, tl, []() {
-          return "MakeNewLevelFromCoarse after prolongation";
-        });
     } // for tl
 
   } // for gi
@@ -1626,7 +1604,16 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     CCTK_VERROR(msg.str().c_str());
   }
 
-  // Check old level
+  const auto transports =
+      [](const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
+         const GHExt::PatchData::LevelData::GroupData &oldgroupdata,
+         const int tl) {
+        return tl < regrid_prolongate_tls(oldgroupdata) &&
+               (oldgroupdata.do_evolve ||
+                (regrid_source_valid(coarsegroupdata, tl) &&
+                 regrid_source_valid(oldgroupdata, tl)));
+      };
+
   const int num_groups = CCTK_NumGroups();
   for (int gi = 0; gi < num_groups; ++gi) {
     cGroup group;
@@ -1636,30 +1623,23 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     if (group.grouptype != CCTK_GF)
       continue;
 
-    auto &restrict groupdata = *leveldata.groupdata.at(gi);
-    auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
+    const auto &restrict groupdata = *leveldata.groupdata.at(gi);
+    const auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
     assert(coarsegroupdata.numvars == groupdata.numvars);
 
     const int ntls = groupdata.mfab.size();
-    const int prolongate_tl = regrid_prolongate_tls(groupdata);
-
     for (int tl = 0; tl < ntls; ++tl) {
-      for (int vi = 0; vi < groupdata.numvars; ++vi) {
-        poison_invalid_gf(active_levels, gi, vi, tl);
-
-        // Checkpointed non-evolved groups are transported best-effort;
-        // only evolved groups require valid sources here
-        if (groupdata.do_evolve && tl < prolongate_tl) {
-          error_if_invalid(coarsegroupdata, vi, tl, make_valid_all(),
-                           []() { return "RemakeLevel before prolongation"; });
-          error_if_invalid(groupdata, vi, tl, make_valid_all(),
-                           []() { return "RemakeLevel before prolongation"; });
-        }
-        check_valid_gf(active_coarse_levels, gi, vi, tl,
-                       []() { return "RemakeLevel before prolongation"; });
-        check_valid_gf(active_levels, gi, vi, tl,
-                       []() { return "RemakeLevel before prolongation"; });
-      } // for vi
+      if (!transports(coarsegroupdata, groupdata, tl))
+        continue;
+      require(active_coarse_levels,
+              {.gi = gi,
+               .tl = tl,
+               .where = make_valid_all(),
+               .event = "RemakeLevel before prolongation"});
+      require(active_levels, {.gi = gi,
+                              .tl = tl,
+                              .where = make_valid_all(),
+                              .event = "RemakeLevel before prolongation"});
     } // for tl
 
   } // for gi
@@ -1696,52 +1676,35 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     assert(coarsegroupdata.numvars == groupdata.numvars);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
-    const auto outer_valid = groupdata.all_faces_have_symmetries_or_boundaries()
-                                 ? make_valid_outer()
-                                 : valid_t();
-    assert(outer_valid == make_valid_outer());
+    const valid_t fills = regrid_fills(groupdata);
+    assert(fills == make_valid_all());
 
     const int ntls = groupdata.mfab.size();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
     for (int tl = 0; tl < ntls; ++tl) {
-      if (tl < prolongate_tl) {
-        // Checkpointed non-evolved state: transport best-effort, only when
-        // both the coarse and the old fine sources are fully valid
-        // (oldgroupdata.valid still carries the pre-swap flags)
-        bool do_fill = true;
-        if (!groupdata.do_evolve)
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
-            do_fill &= coarsegroupdata.valid.at(tl).at(vi).get().valid_all() &&
-                       oldgroupdata.valid.at(tl).at(vi).get().valid_all();
-
-        if (do_fill) {
-          // Copy from same level and/or prolongate from next coarser level
-          FillPatch_RemakeLevel(
-              groupdata, coarsegroupdata, *groupdata.mfab.at(tl),
-              *coarsegroupdata.mfab.at(tl), *oldgroupdata.mfab.at(tl),
-              patchdata.amrcore->Geom(level - 1),
-              patchdata.amrcore->Geom(level), interpolator, groupdata.bcrecs);
-
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
-            groupdata.valid.at(tl).at(vi) = why_valid_t(
-                make_valid_int() | make_valid_ghosts() | outer_valid,
-                []() { return "RemakeLevel after prolongation"; });
-        } else {
-          // Leave the constructor-default invalid state; the data is
-          // poisoned below
-          for (int vi = 0; vi < groupdata.numvars; ++vi)
-            groupdata.valid.at(tl).at(vi).set_all(valid_t(false), []() {
-              return "RemakeLevel: not prolongated because source was "
-                     "invalid at regrid time";
-            });
-        }
-      }
-
-      for (int vi = 0; vi < groupdata.numvars; ++vi) {
-        poison_invalid_gf(active_levels, gi, vi, tl);
-        check_valid_gf(active_levels, gi, vi, tl,
-                       []() { return "RemakeLevel after prolongation"; });
+      if (transports(coarsegroupdata, oldgroupdata, tl)) {
+        const write_scope_t scope = open_write(
+            active_levels, {.gi = gi,
+                            .tl = tl,
+                            .fills = fills,
+                            .keeps = {},
+                            .event = "RemakeLevel after prolongation"});
+        FillPatch_RemakeLevel(
+            groupdata, coarsegroupdata, *groupdata.mfab.at(tl),
+            *coarsegroupdata.mfab.at(tl), *oldgroupdata.mfab.at(tl),
+            patchdata.amrcore->Geom(level - 1), patchdata.amrcore->Geom(level),
+            interpolator, groupdata.bcrecs);
+      } else {
+        open_write(active_levels,
+                   {.gi = gi,
+                    .tl = tl,
+                    .fills = {},
+                    .keeps = {},
+                    .event = tl < prolongate_tl
+                                 ? "RemakeLevel: not prolongated because "
+                                   "source was invalid at regrid time"
+                                 : "RemakeLevel"});
       }
     } // for tl
 
