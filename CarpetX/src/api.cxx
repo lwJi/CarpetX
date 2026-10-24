@@ -72,13 +72,7 @@ void require_timelevel(const char *const what,
                 groupdata.level, ntls);
 }
 
-std::function<std::string()> reason(const char *const why) {
-  const std::string what = why ? why : "";
-  const int iteration = driver().get_global_cctkGH()->cctk_iteration;
-  return [what, iteration]() {
-    return what + " (iteration " + std::to_string(iteration) + ")";
-  };
-}
+std::string event_name(const char *const what) { return what ? what : ""; }
 
 } // namespace
 
@@ -198,8 +192,7 @@ const amrex::MultiFab &data(const group_t group, const int tl) {
 struct write_t::impl {
   group_t group;
   int tl;
-  valid_t leaves_valid;
-  std::function<std::string()> why;
+  write_scope_t scope;
 };
 
 namespace {
@@ -221,15 +214,7 @@ amrex::MultiFab &write_t::mfab() {
   return *resolve("CarpetX::write_t::mfab", p->group).mfab.at(p->tl);
 }
 
-write_t::~write_t() {
-  if (!p)
-    return;
-  auto &groupdata = resolve("CarpetX::write_t::~write_t", p->group);
-  const active_levels_t level = one_level(p->group.level);
-  for (int vi = 0; vi < groupdata.numvars; ++vi)
-    check_valid_gf(level, p->group.gi, vi, p->tl, p->why);
-  --groupdata.open_writes.at(p->tl);
-}
+write_t::~write_t() = default;
 
 write_t write(const group_t group, const int tl, const valid_t leaves_valid,
               const char *const what) {
@@ -242,15 +227,13 @@ write_t write(const group_t group, const int tl, const valid_t leaves_valid,
                 "destroy that write_t before opening another",
                 tl, groupdata.groupname.c_str(), open_writes,
                 open_writes == 1 ? "" : "s", groupdata.patch, groupdata.level);
-  ++groupdata.open_writes.at(tl);
-  const std::function<std::string()> why = reason(what);
-  for (auto &why_valid : groupdata.valid.at(tl))
-    why_valid.set_all(leaves_valid, why);
-  const active_levels_t level = one_level(group.level);
-  for (int vi = 0; vi < groupdata.numvars; ++vi)
-    poison_invalid_gf(level, group.gi, vi, tl);
-  return write_t(std::unique_ptr<write_t::impl>(
-      new write_t::impl{group, tl, leaves_valid, why}));
+  return write_t(std::unique_ptr<write_t::impl>(new write_t::impl{
+      group, tl,
+      open_write(one_level(group.level), {.gi = group.gi,
+                                          .tl = tl,
+                                          .fills = leaves_valid,
+                                          .keeps = leaves_valid,
+                                          .event = event_name(what)})}));
 }
 
 struct scratch_t::impl {
@@ -332,28 +315,26 @@ void require_valid(const group_t group, const int tl, const valid_t where,
                    const char *const why) {
   const auto &groupdata = resolve("CarpetX::require_valid", group);
   require_timelevel("CarpetX::require_valid", groupdata, tl);
-  const std::string what = why ? why : "";
-  const auto msg = [what]() { return what; };
-  for (int vi = 0; vi < groupdata.numvars; ++vi)
-    error_if_invalid(groupdata, vi, tl, where, msg);
-  const active_levels_t level = one_level(group.level);
-  for (int vi = 0; vi < groupdata.numvars; ++vi)
-    check_valid_gf(level, group.gi, vi, tl, msg);
+  require(one_level(group.level),
+          {.gi = group.gi, .tl = tl, .where = where, .event = event_name(why)});
 }
 
 void invalidate(const window_t window, const std::vector<int> &groups,
                 const int tl, const char *const why) {
   const active_levels_t active_levels =
       require_operable("CarpetX::invalidate", window, groups);
-  const auto what = reason(why);
-  active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
-    for (const int gi : groups) {
-      auto &groupdata = resolve("CarpetX::invalidate", leveldata, gi);
+  const std::string event = event_name(why);
+  for (const int gi : groups) {
+    active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+      const auto &groupdata = resolve("CarpetX::invalidate", leveldata, gi);
       require_timelevel("CarpetX::invalidate", groupdata, tl);
-      for (auto &why_valid : groupdata.valid.at(tl))
-        why_valid.set_all(valid_t(), what);
-    }
-  });
+    });
+    open_write(active_levels, {.gi = gi,
+                               .tl = tl,
+                               .fills = valid_t(),
+                               .keeps = valid_t(),
+                               .event = event});
+  }
 }
 
 void sync(const window_t window, const std::vector<int> &groups) {

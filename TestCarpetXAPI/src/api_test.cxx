@@ -205,6 +205,16 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     CCTK_ERROR("CarpetX::require_valid accepted ghosts that nothing has "
                "filled");
   }
+  if (CCTK_EQUALS(mode, "write-unfilled")) {
+    window.loop_serially([&](const CarpetX::level_t level) {
+      CarpetX::write_t write =
+          CarpetX::write(CarpetX::group_t{level, gi}, tl,
+                         CarpetX::make_valid_all(), "TestCarpetXAPI_Fill");
+      fill_interior(level, write.mfab());
+    });
+    CCTK_ERROR("CarpetX::write_t closed a scope that promised every region "
+               "of state after only the interior was filled");
+  }
 
   std::vector<CarpetX::write_t> writes;
   window.loop_serially([&](const CarpetX::level_t level) {

@@ -14,8 +14,10 @@
 #include <functional>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -157,15 +159,14 @@ void warn_if_invalid(const GHExt::GlobalData::ArrayGroupData &groupdata, int vi,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Poison values to catch uninitialized variables
+namespace {
 
-// Poison grid functions
-void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
-                       const int vi, const int tl) {
-  DECLARE_CCTK_PARAMETERS;
-  if (!poison_undefined_values)
-    return;
+using GroupData = GHExt::PatchData::LevelData::GroupData;
+using ArrayGroupData = GHExt::GlobalData::ArrayGroupData;
+using region_fn = std::function<valid_t(const GroupData &)>;
 
+void poison_gf_regions(const active_levels_t &active_levels, const int gi,
+                       const int vi, const int tl, const region_fn &region) {
   static Timer timer("poison_invalid<GF>");
   Interval interval(timer);
 
@@ -181,8 +182,8 @@ void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
     auto &restrict groupdata = *leveldata.groupdata.at(gi);
     assert(!groupdata.mfab.empty());
 
-    const valid_t &valid = groupdata.valid.at(tl).at(vi).get();
-    if (valid.valid_all())
+    const valid_t where = region(groupdata);
+    if (!where.valid_any())
       return;
 
     const Loop::GridDescBaseDevice grid(cctkGH);
@@ -191,100 +192,36 @@ void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
         layout, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
                     cctkGH, tl, groupdata.firstvarindex + vi)));
 
-    if (!valid.valid_any()) {
+    const auto set_poison =
+        [=] CCTK_DEVICE(const Loop::PointDesc &p)
+            CCTK_ATTRIBUTE_ALWAYS_INLINE { gf(p.I) = poison; };
+
+    if (where.valid_all()) {
       grid.loop_device_idx<where_t::everywhere>(
-          groupdata.indextype, groupdata.nghostzones,
-          [=] CCTK_DEVICE(const Loop::PointDesc &p)
-              CCTK_ATTRIBUTE_ALWAYS_INLINE { gf(p.I) = poison; });
+          groupdata.indextype, groupdata.nghostzones, set_poison);
     } else {
-      if (!valid.valid_int)
+      if (where.valid_int)
         grid.loop_device_idx<where_t::interior>(
-            groupdata.indextype, groupdata.nghostzones,
-            [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                CCTK_ATTRIBUTE_ALWAYS_INLINE { gf(p.I) = poison; });
-      if (!valid.valid_outer)
+            groupdata.indextype, groupdata.nghostzones, set_poison);
+      if (where.valid_outer)
         grid.loop_device_idx<where_t::boundary>(
-            groupdata.indextype, groupdata.nghostzones,
-            [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                CCTK_ATTRIBUTE_ALWAYS_INLINE { gf(p.I) = poison; });
-      if (!valid.valid_ghosts)
+            groupdata.indextype, groupdata.nghostzones, set_poison);
+      if (where.valid_ghosts)
         grid.loop_device_idx<where_t::ghosts>(
-            groupdata.indextype, groupdata.nghostzones,
-            [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                CCTK_ATTRIBUTE_ALWAYS_INLINE { gf(p.I) = poison; });
+            groupdata.indextype, groupdata.nghostzones, set_poison);
     }
   });
 
-  // Synchronize because we access GPU memory on the CPU
   synchronize();
 }
 
-// Poison arrays
-void poison_invalid_ga(const int gi, const int vi, const int tl) {
-  DECLARE_CCTK_PARAMETERS;
-  if (!poison_undefined_arrays)
-    return;
-
-  static Timer timer("poison_invalid<GA>");
-  Interval interval(timer);
-
-  auto &restrict globaldata = ghext->globaldata;
-  auto &restrict arraygroupdata = *globaldata.arraygroupdata.at(gi);
-  assert(!arraygroupdata.data.empty());
-  cGroup group;
-  int ierr = CCTK_GroupData(gi, &group);
-  assert(!ierr);
-
-  const valid_t &valid = arraygroupdata.valid.at(tl).at(vi).get();
-  if (valid.valid_all())
-    return;
-
-  if (!valid.valid_int) {
-    int dimension = arraygroupdata.dimension;
-    const int *gsh = arraygroupdata.gsh;
-    int n_elems = 1;
-    for (int i = 0; i < dimension; i++)
-      n_elems *= gsh[i];
-    // TODO: use AnyScalarTypeRef for this?
-    assert(group.vartype == CCTK_VARIABLE_COMPLEX ||
-           group.vartype == CCTK_VARIABLE_REAL ||
-           group.vartype == CCTK_VARIABLE_INT);
-    switch (group.vartype) {
-    case CCTK_VARIABLE_COMPLEX: {
-      CCTK_COMPLEX *restrict ptr = static_cast<CCTK_COMPLEX *>(
-          arraygroupdata.data.at(tl).data_at(vi * n_elems));
-      const poison_value_t<CCTK_COMPLEX> poison_value;
-      poison_value.set_to_poison(ptr, n_elems);
-    } break;
-    case CCTK_VARIABLE_REAL: {
-      CCTK_REAL *restrict ptr = static_cast<CCTK_REAL *>(
-          arraygroupdata.data.at(tl).data_at(vi * n_elems));
-      const poison_value_t<CCTK_REAL> poison_value;
-      poison_value.set_to_poison(ptr, n_elems);
-    } break;
-    case CCTK_VARIABLE_INT: {
-      CCTK_INT *restrict ptr = static_cast<CCTK_INT *>(
-          arraygroupdata.data.at(tl).data_at(vi * n_elems));
-      const poison_value_t<CCTK_INT> poison_value;
-      poison_value.set_to_poison(ptr, n_elems);
-    } break;
-    }
-  }
-}
-
-// Ensure grid functions are not poisoned
-void check_valid_gf(const active_levels_t &active_levels, const int gi,
-                    const int vi, const int tl,
-                    const std::function<std::string()> &msg) {
-  DECLARE_CCTK_PARAMETERS;
-  if (!poison_undefined_values)
-    return;
-
+void scan_gf_regions(const active_levels_t &active_levels, const int gi,
+                     const int vi, const int tl, const region_fn &region,
+                     const std::function<std::string()> &msg,
+                     const std::function<std::string()> &expected) {
   static Timer timer("check_valid<GF>");
   Interval interval(timer);
 
-  // Every group forbids NaNs: a poison value or any NaN in a region flagged
-  // valid is an error.
   const auto is_poison = [] CCTK_DEVICE CCTK_HOST(
                              const CCTK_REAL val) CCTK_ATTRIBUTE_ALWAYS_INLINE {
     poison_value_t<CCTK_REAL> const poison_value;
@@ -315,8 +252,8 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
     auto &restrict groupdata = *leveldata.groupdata.at(gi);
     assert(!groupdata.mfab.empty());
 
-    const valid_t &valid = groupdata.valid.at(tl).at(vi).get();
-    if (!valid.valid_any())
+    const valid_t regions = region(groupdata);
+    if (!regions.valid_any())
       return;
 
     const Loop::GridDescBaseDevice grid(cctkGH);
@@ -333,17 +270,17 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
           *poison_found_ptr = 0.0 / 0.0;
         };
 
-    if (valid.valid_all()) {
+    if (regions.valid_all()) {
       grid.loop_device_idx<where_t::everywhere>(
           groupdata.indextype, groupdata.nghostzones, update_poison_found);
     } else {
-      if (valid.valid_int)
+      if (regions.valid_int)
         grid.loop_device_idx<where_t::interior>(
             groupdata.indextype, groupdata.nghostzones, update_poison_found);
-      if (valid.valid_outer)
+      if (regions.valid_outer)
         grid.loop_device_idx<where_t::boundary>(
             groupdata.indextype, groupdata.nghostzones, update_poison_found);
-      if (valid.valid_ghosts)
+      if (regions.valid_ghosts)
         grid.loop_device_idx<where_t::ghosts>(
             groupdata.indextype, groupdata.nghostzones, update_poison_found);
     }
@@ -380,8 +317,8 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
     auto &restrict groupdata = *leveldata.groupdata.at(gi);
     assert(!groupdata.mfab.empty());
 
-    const valid_t &valid = groupdata.valid.at(tl).at(vi).get();
-    if (!valid.valid_any())
+    const valid_t regions = region(groupdata);
+    if (!regions.valid_any())
       return;
 
     const Loop::GridDescBaseDevice grid(cctkGH);
@@ -414,41 +351,31 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
           info_t{where, p.patch, p.level, p.component, p.I, p.X, gf(p.I)});
     };
 
-    if (valid.valid_all()) {
-      grid.loop_idx(where_t::everywhere, groupdata.indextype,
+    if (regions.valid_int)
+      grid.loop_idx(where_t::interior, groupdata.indextype,
                     groupdata.nghostzones, [&](const Loop::PointDesc &p) {
-                      update_nan_count(p, where_t::everywhere);
+                      update_nan_count(p, where_t::interior);
                     });
-    } else {
-      if (valid.valid_int)
-        grid.loop_idx(where_t::interior, groupdata.indextype,
-                      groupdata.nghostzones, [&](const Loop::PointDesc &p) {
-                        update_nan_count(p, where_t::interior);
-                      });
-      if (valid.valid_outer)
-        grid.loop_idx(where_t::boundary, groupdata.indextype,
-                      groupdata.nghostzones, [&](const Loop::PointDesc &p) {
-                        update_nan_count(p, where_t::boundary);
-                      });
-      if (valid.valid_ghosts)
-        grid.loop_idx(where_t::ghosts, groupdata.indextype,
-                      groupdata.nghostzones, [&](const Loop::PointDesc &p) {
-                        update_nan_count(p, where_t::ghosts);
-                      });
-    }
+    if (regions.valid_outer)
+      grid.loop_idx(where_t::boundary, groupdata.indextype,
+                    groupdata.nghostzones, [&](const Loop::PointDesc &p) {
+                      update_nan_count(p, where_t::boundary);
+                    });
+    if (regions.valid_ghosts)
+      grid.loop_idx(where_t::ghosts, groupdata.indextype, groupdata.nghostzones,
+                    [&](const Loop::PointDesc &p) {
+                      update_nan_count(p, where_t::ghosts);
+                    });
   });
 
-  const auto &patchdata0 = ghext->patchdata.at(0);
-  const auto &leveldata0 = patchdata0.leveldata.at(0);
-  const auto &groupdata0 = *leveldata0.groupdata.at(gi);
+  const int varindex = CCTK_FirstVarIndexI(gi) + vi;
   CCTK_VWARN(CCTK_WARN_ALERT,
              "%s: Grid function \"%s\" contains %td nans, infinities, or "
              "poison in box (%g,%g,%g):(%g,%g,%g); expected valid %s",
-             msg().c_str(), CCTK_FullVarName(groupdata0.firstvarindex + vi),
-             std::size_t(nan_count), double(nan_xmin[0]), double(nan_xmin[1]),
-             double(nan_xmin[2]), double(nan_xmax[0]), double(nan_xmax[1]),
-             double(nan_xmax[2]),
-             groupdata0.valid.at(tl).at(vi).explanation().c_str());
+             msg().c_str(), CCTK_FullVarName(varindex), std::size_t(nan_count),
+             double(nan_xmin[0]), double(nan_xmin[1]), double(nan_xmin[2]),
+             double(nan_xmax[0]), double(nan_xmax[1]), double(nan_xmax[2]),
+             expected().c_str());
 
   std::sort(infos.begin(), infos.end(), [](const info_t &a, const info_t &b) {
     if (a.level < b.level)
@@ -478,46 +405,67 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
 
   CCTK_VERROR("%s: Grid function \"%s\" contains nans, infinities, or poison; "
               "expected valid %s",
-              msg().c_str(), CCTK_FullVarName(groupdata0.firstvarindex + vi),
-              groupdata0.valid.at(tl).at(vi).explanation().c_str());
+              msg().c_str(), CCTK_FullVarName(varindex), expected().c_str());
 }
 
-// Ensure arrays are not poisoned
-void check_valid_ga(const int gi, const int vi, const int tl,
-                    const std::function<std::string()> &msg) {
-  DECLARE_CCTK_PARAMETERS;
-  if (!poison_undefined_arrays)
-    return;
+int array_elements(const ArrayGroupData &arraygroupdata) {
+  int n_elems = 1;
+  for (int i = 0; i < arraygroupdata.dimension; i++)
+    n_elems *= arraygroupdata.gsh[i];
+  return n_elems;
+}
 
-  static Timer timer("check_valid<GA>");
+void poison_ga_interior(ArrayGroupData &arraygroupdata, const int gi,
+                        const int vi, const int tl) {
+  static Timer timer("poison_invalid<GA>");
   Interval interval(timer);
 
-  auto &restrict globaldata = ghext->globaldata;
-  auto &restrict arraygroupdata = *globaldata.arraygroupdata.at(gi);
   assert(!arraygroupdata.data.empty());
-  const valid_t &valid = arraygroupdata.valid.at(tl).at(vi).get();
-
-  // arrays have no boundary so we expect them to alway be valid
-  assert(valid.valid_outer && valid.valid_ghosts);
-  if (!valid.valid_int)
-    return;
-
   cGroup group;
   int ierr = CCTK_GroupData(gi, &group);
   assert(!ierr);
 
-  // Every group forbids NaNs: a poison value or any NaN in a region flagged
-  // valid is an error. (Integers have no NaN; only the poison value counts.)
+  const int n_elems = array_elements(arraygroupdata);
+  assert(group.vartype == CCTK_VARIABLE_COMPLEX ||
+         group.vartype == CCTK_VARIABLE_REAL ||
+         group.vartype == CCTK_VARIABLE_INT);
+  switch (group.vartype) {
+  case CCTK_VARIABLE_COMPLEX: {
+    CCTK_COMPLEX *restrict ptr = static_cast<CCTK_COMPLEX *>(
+        arraygroupdata.data.at(tl).data_at(vi * n_elems));
+    const poison_value_t<CCTK_COMPLEX> poison_value;
+    poison_value.set_to_poison(ptr, n_elems);
+  } break;
+  case CCTK_VARIABLE_REAL: {
+    CCTK_REAL *restrict ptr = static_cast<CCTK_REAL *>(
+        arraygroupdata.data.at(tl).data_at(vi * n_elems));
+    const poison_value_t<CCTK_REAL> poison_value;
+    poison_value.set_to_poison(ptr, n_elems);
+  } break;
+  case CCTK_VARIABLE_INT: {
+    CCTK_INT *restrict ptr = static_cast<CCTK_INT *>(
+        arraygroupdata.data.at(tl).data_at(vi * n_elems));
+    const poison_value_t<CCTK_INT> poison_value;
+    poison_value.set_to_poison(ptr, n_elems);
+  } break;
+  }
+}
+
+std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const int gi,
+                            const int vi, const int tl) {
+  static Timer timer("check_valid<GA>");
+  Interval interval(timer);
+
+  assert(!arraygroupdata.data.empty());
+  cGroup group;
+  int ierr = CCTK_GroupData(gi, &group);
+  assert(!ierr);
+
   using std::isnan;
 
   std::size_t nan_count{0};
 
-  int dimension = arraygroupdata.dimension;
-  const int *gsh = arraygroupdata.gsh;
-  int n_elems = 1;
-  for (int i = 0; i < dimension; i++)
-    n_elems *= gsh[i];
-  // TODO: use AnyScalarTypeRef for this?
+  const int n_elems = array_elements(arraygroupdata);
   switch (group.vartype) {
   case CCTK_VARIABLE_COMPLEX: {
     const poison_value_t<CCTK_COMPLEX> poison_value;
@@ -552,14 +500,274 @@ void check_valid_ga(const int gi, const int vi, const int tl,
   } break;
   }
 
+  return nan_count;
+}
+
+} // namespace
+
+void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
+                       const int vi, const int tl) {
+  DECLARE_CCTK_PARAMETERS;
+  if (!poison_undefined_values)
+    return;
+  poison_gf_regions(active_levels, gi, vi, tl,
+                    [tl, vi](const GroupData &groupdata) {
+                      return ~groupdata.valid.at(tl).at(vi).get();
+                    });
+}
+
+static void poison_invalid_gf(const active_levels_t &active_levels,
+                              const int gi, const int vi, const int tl,
+                              const valid_t where) {
+  DECLARE_CCTK_PARAMETERS;
+  if (!poison_undefined_values || !where.valid_any())
+    return;
+  poison_gf_regions(active_levels, gi, vi, tl,
+                    [where](const GroupData &) { return where; });
+}
+
+void poison_invalid_ga(const int gi, const int vi, const int tl) {
+  DECLARE_CCTK_PARAMETERS;
+  if (!poison_undefined_arrays)
+    return;
+  auto &restrict arraygroupdata = *ghext->globaldata.arraygroupdata.at(gi);
+  if (arraygroupdata.valid.at(tl).at(vi).get().valid_int)
+    return;
+  poison_ga_interior(arraygroupdata, gi, vi, tl);
+}
+
+static void poison_invalid_ga(const int gi, const int vi, const int tl,
+                              const valid_t where) {
+  DECLARE_CCTK_PARAMETERS;
+  if (!poison_undefined_arrays || !where.valid_int)
+    return;
+  poison_ga_interior(*ghext->globaldata.arraygroupdata.at(gi), gi, vi, tl);
+}
+
+void check_valid_gf(const active_levels_t &active_levels, const int gi,
+                    const int vi, const int tl,
+                    const std::function<std::string()> &msg) {
+  DECLARE_CCTK_PARAMETERS;
+  if (!poison_undefined_values)
+    return;
+  scan_gf_regions(
+      active_levels, gi, vi, tl,
+      [tl, vi](const GroupData &groupdata) {
+        return groupdata.valid.at(tl).at(vi).get();
+      },
+      msg,
+      [gi, vi, tl]() {
+        const auto &groupdata0 =
+            *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
+        return groupdata0.valid.at(tl).at(vi).explanation();
+      });
+}
+
+static void check_valid_gf(const active_levels_t &active_levels, const int gi,
+                           const int vi, const int tl, const valid_t where,
+                           const std::function<std::string()> &msg) {
+  DECLARE_CCTK_PARAMETERS;
+  if (!poison_undefined_values || !where.valid_any())
+    return;
+  scan_gf_regions(
+      active_levels, gi, vi, tl, [where](const GroupData &) { return where; },
+      msg, [where]() { return where.explanation(); });
+}
+
+void check_valid_ga(const int gi, const int vi, const int tl,
+                    const std::function<std::string()> &msg) {
+  DECLARE_CCTK_PARAMETERS;
+  if (!poison_undefined_arrays)
+    return;
+  const auto &restrict arraygroupdata =
+      *ghext->globaldata.arraygroupdata.at(gi);
+  const valid_t &valid = arraygroupdata.valid.at(tl).at(vi).get();
+  assert(valid.valid_outer && valid.valid_ghosts);
+  if (!valid.valid_int)
+    return;
+  const std::size_t nan_count = count_ga_poison(arraygroupdata, gi, vi, tl);
   if (nan_count == 0)
     return;
-
   CCTK_VERROR("%s: Grid array \"%s\" has %td nans on time level %d; "
               "expected valid %s",
               msg().c_str(),
               CCTK_FullVarName(arraygroupdata.firstvarindex + vi), nan_count,
               tl, arraygroupdata.valid.at(tl).at(vi).explanation().c_str());
+}
+
+static void check_valid_ga(const int gi, const int vi, const int tl,
+                           const valid_t where,
+                           const std::function<std::string()> &msg) {
+  DECLARE_CCTK_PARAMETERS;
+  if (!poison_undefined_arrays || !where.valid_int)
+    return;
+  const auto &restrict arraygroupdata =
+      *ghext->globaldata.arraygroupdata.at(gi);
+  const std::size_t nan_count = count_ga_poison(arraygroupdata, gi, vi, tl);
+  if (nan_count == 0)
+    return;
+  CCTK_VERROR("%s: Grid array \"%s\" has %td nans on time level %d; "
+              "expected valid %s",
+              msg().c_str(),
+              CCTK_FullVarName(arraygroupdata.firstvarindex + vi), nan_count,
+              tl, where.explanation().c_str());
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+namespace {
+
+int current_iteration() { return ghext->get_global_cctkGH()->cctk_iteration; }
+
+std::function<std::string()> event_reason(const std::string &event,
+                                          const char *const what,
+                                          const int iteration) {
+  const std::string text =
+      event + what + " (iteration " + std::to_string(iteration) + ")";
+  return [text]() { return text; };
+}
+
+std::vector<int> variables_of(const int gi, const std::optional<int> vi) {
+  if (vi)
+    return {*vi};
+  const int numvars = CCTK_NumVarsInGroupI(gi);
+  assert(numvars >= 0);
+  std::vector<int> vis(numvars);
+  for (int v = 0; v < numvars; ++v)
+    vis.at(v) = v;
+  return vis;
+}
+
+GroupData &group_on(GHExt::PatchData::LevelData &leveldata, const int gi) {
+  GroupData *const groupdata = leveldata.groupdata.at(gi).get();
+  assert(groupdata && !groupdata->mfab.empty());
+  return *groupdata;
+}
+
+ArrayGroupData &array_group(const int gi) {
+  ArrayGroupData *const arraygroupdata =
+      ghext->globaldata.arraygroupdata.at(gi).get();
+  assert(arraygroupdata && !arraygroupdata->data.empty());
+  return *arraygroupdata;
+}
+
+} // namespace
+
+write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
+                             const int iteration) noexcept
+    : window(window),
+      spec(std::move(spec)),
+      iteration(iteration),
+      live(true) {}
+
+write_scope_t::write_scope_t(write_scope_t &&other) noexcept
+    : window(other.window),
+      spec(std::move(other.spec)),
+      iteration(other.iteration),
+      live(other.live) {
+  other.live = false;
+}
+
+write_scope_t open_write(const active_levels_t &active_levels,
+                         write_spec_t spec) {
+  const int iteration = current_iteration();
+  const valid_t destroys = ~spec.keeps;
+  const auto not_filled = event_reason(spec.event, " not filled", iteration);
+  const std::vector<int> vis = variables_of(spec.gi, spec.vi);
+  active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+    GroupData &groupdata = group_on(leveldata, spec.gi);
+    ++groupdata.open_writes.at(spec.tl);
+    for (const int vi : vis)
+      groupdata.valid.at(spec.tl).at(vi).set_invalid(destroys, not_filled);
+  });
+  for (const int vi : vis)
+    poison_invalid_gf(active_levels, spec.gi, vi, spec.tl, destroys);
+  return write_scope_t(active_levels.window(), std::move(spec), iteration);
+}
+
+write_scope_t::~write_scope_t() {
+  if (!live)
+    return;
+  const active_levels_t active_levels(window);
+  const auto msg = event_reason(spec.event, "", iteration);
+  const auto filled = event_reason(spec.event, " filled", iteration);
+  const std::vector<int> vis = variables_of(spec.gi, spec.vi);
+  for (const int vi : vis)
+    check_valid_gf(active_levels, spec.gi, vi, spec.tl, spec.fills, msg);
+  active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+    GroupData &groupdata = group_on(leveldata, spec.gi);
+    for (const int vi : vis)
+      groupdata.valid.at(spec.tl).at(vi).set_valid(spec.fills, filled);
+    --groupdata.open_writes.at(spec.tl);
+  });
+}
+
+void require(const active_levels_t &active_levels, require_spec_t spec) {
+  const auto msg = event_reason(spec.event, "", current_iteration());
+  const std::vector<int> vis = variables_of(spec.gi, spec.vi);
+  active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+    const GroupData &groupdata = group_on(leveldata, spec.gi);
+    for (const int vi : vis)
+      error_if_invalid(groupdata, vi, spec.tl, spec.where, msg, spec.hint);
+  });
+  for (const int vi : vis)
+    check_valid_gf(active_levels, spec.gi, vi, spec.tl, spec.where, msg);
+}
+
+void warn(const active_levels_t &active_levels, require_spec_t spec) {
+  const auto msg = event_reason(spec.event, "", current_iteration());
+  const std::vector<int> vis = variables_of(spec.gi, spec.vi);
+  active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+    const GroupData &groupdata = group_on(leveldata, spec.gi);
+    for (const int vi : vis)
+      warn_if_invalid(groupdata, vi, spec.tl, spec.where, msg);
+  });
+}
+
+array_write_scope_t::array_write_scope_t(write_spec_t spec,
+                                         const int iteration) noexcept
+    : spec(std::move(spec)),
+      iteration(iteration),
+      live(true) {}
+
+array_write_scope_t::array_write_scope_t(array_write_scope_t &&other) noexcept
+    : spec(std::move(other.spec)),
+      iteration(other.iteration),
+      live(other.live) {
+  other.live = false;
+}
+
+array_write_scope_t open_array_write(write_spec_t spec) {
+  const int iteration = current_iteration();
+  const valid_t destroys = ~spec.keeps;
+  const auto not_filled = event_reason(spec.event, " not filled", iteration);
+  ArrayGroupData &arraygroupdata = array_group(spec.gi);
+  for (const int vi : variables_of(spec.gi, spec.vi)) {
+    arraygroupdata.valid.at(spec.tl).at(vi).set_invalid(destroys, not_filled);
+    poison_invalid_ga(spec.gi, vi, spec.tl, destroys);
+  }
+  return array_write_scope_t(std::move(spec), iteration);
+}
+
+array_write_scope_t::~array_write_scope_t() {
+  if (!live)
+    return;
+  const auto msg = event_reason(spec.event, "", iteration);
+  const auto filled = event_reason(spec.event, " filled", iteration);
+  ArrayGroupData &arraygroupdata = array_group(spec.gi);
+  for (const int vi : variables_of(spec.gi, spec.vi)) {
+    check_valid_ga(spec.gi, vi, spec.tl, spec.fills, msg);
+    arraygroupdata.valid.at(spec.tl).at(vi).set_valid(spec.fills, filled);
+  }
+}
+
+void require_array(require_spec_t spec) {
+  const auto msg = event_reason(spec.event, "", current_iteration());
+  const ArrayGroupData &arraygroupdata = array_group(spec.gi);
+  for (const int vi : variables_of(spec.gi, spec.vi)) {
+    error_if_invalid(arraygroupdata, vi, spec.tl, spec.where, msg);
+    check_valid_ga(spec.gi, vi, spec.tl, spec.where, msg);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

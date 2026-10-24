@@ -16,7 +16,9 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <sstream>
+#include <string>
 #include <vector>
 
 namespace CarpetX {
@@ -169,6 +171,67 @@ checksums_t calculate_checksums(
 void check_checksums(const active_levels_t &active_levels,
                      const checksums_t &checksums,
                      const std::function<std::string()> &where);
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct write_spec_t {
+  int gi;
+  int tl;
+  std::optional<int> vi;
+  valid_t fills;
+  valid_t keeps;
+  std::string event;
+};
+
+struct require_spec_t {
+  int gi;
+  int tl;
+  std::optional<int> vi;
+  valid_t where;
+  std::string event;
+  std::function<std::string()> hint;
+};
+
+class write_scope_t {
+public:
+  write_scope_t(write_scope_t &&other) noexcept;
+  write_scope_t(const write_scope_t &) = delete;
+  write_scope_t &operator=(const write_scope_t &) = delete;
+  write_scope_t &operator=(write_scope_t &&) = delete;
+  ~write_scope_t();
+
+private:
+  friend write_scope_t open_write(const active_levels_t &window,
+                                  write_spec_t spec);
+  write_scope_t(window_t window, write_spec_t spec, int iteration) noexcept;
+  window_t window;
+  write_spec_t spec;
+  int iteration;
+  bool live;
+};
+
+write_scope_t open_write(const active_levels_t &window, write_spec_t spec);
+void require(const active_levels_t &window, require_spec_t spec);
+void warn(const active_levels_t &window, require_spec_t spec);
+
+class array_write_scope_t {
+public:
+  array_write_scope_t(array_write_scope_t &&other) noexcept;
+  array_write_scope_t(const array_write_scope_t &) = delete;
+  array_write_scope_t &operator=(const array_write_scope_t &) = delete;
+  array_write_scope_t &operator=(array_write_scope_t &&) = delete;
+  ~array_write_scope_t();
+
+private:
+  friend array_write_scope_t open_array_write(write_spec_t spec);
+  array_write_scope_t(write_spec_t spec, int iteration) noexcept;
+  write_spec_t spec;
+  int iteration;
+  bool live;
+};
+
+array_write_scope_t open_array_write(write_spec_t spec);
+void require_array(require_spec_t spec);
 
 ////////////////////////////////////////////////////////////////////////////////
 
