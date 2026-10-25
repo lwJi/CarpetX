@@ -351,8 +351,6 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
   static Timer timer_meta("InputSiloGridStructure.meta");
   auto interval_meta = std::make_unique<Interval>(timer_meta);
 
-  // TODO: Recover grid structure for grid arrays; call SetupGlobals for them?
-
   // Read metadata
 
   DB::ptr<DBfile> metafile;
@@ -756,7 +754,7 @@ void InputSilo(const cGH *restrict const cctkGH,
           auto &groupdata = *leveldata.groupdata.at(gi);
           if (groupdata.tls.empty())
             continue;
-          const int numvars = groupdata.numvars;
+          const int numvars = groupdata.group.numvars;
           const int tl = 0;
           amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
           const amrex::IndexType &indextype = mfab.ixType();
@@ -1192,7 +1190,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
           const auto &groupdata = *leveldata.groupdata.at(gi);
           if (groupdata.tls.empty())
             continue;
-          const int numvars = groupdata.numvars;
+          const int numvars = groupdata.group.numvars;
           const int tl = 0;
           const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
           const amrex::IndexType &indextype = mfab.ixType();
@@ -1758,7 +1756,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
       const auto &patchdata0 = ghext->patch(0);
       const auto &leveldata0 = patchdata0.level(0);
       const auto &groupdata0 = *leveldata0.groupdata.at(gi);
-      const int numvars = groupdata0.numvars;
+      const int numvars = groupdata0.group.numvars;
       const int tl = 0;
       const amrex::MultiFab &mfab0 = *groupdata0.tls[tl].mfab;
       const amrex::IndexType &indextype = mfab0.ixType();

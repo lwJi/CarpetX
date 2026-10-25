@@ -150,6 +150,8 @@ class Walk(unittest.TestCase):
         "const auto &coarse = ghext->patchdata.at(leveldata.patch)",
         ".leveldata.at(leveldata.level - 1);",
         "if (patchdata0 . leveldata . at ( 0 ).iteration != it)",
+        "auto &arraygroupdata = *ghext->globaldata.arraygroupdata.at(gi);",
+        "if (globaldata.arraygroupdata.at(gi)->tls.empty()) continue;",
     ]
 
     def test_the_walk_is_reported_in_carpetx_src(self):
@@ -182,6 +184,10 @@ class Walk(unittest.TestCase):
             "const auto &finest = leveldatas.at(ghext->num_levels() - 1);\n",
             "auto &groupdata = *leveldata.groupdata.at(gi);\n",
             "ghext->active_timelevels.at(gi) = ntls;\n",
+            "const auto &group = ghext->group(gi);\n",
+            "auto &arraydata = ghext->group(gi).array();\n",
+            "const auto &data = arraygroupdata.timelevel(tl).data;\n",
+            "for (const auto &group : ghext->groups(group_kind::grid_function))\n",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/driver.cxx", text), [])

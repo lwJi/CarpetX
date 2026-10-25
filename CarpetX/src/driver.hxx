@@ -49,6 +49,47 @@ inline constexpr int max_num_rk_stages = 4;
                          const char *fmt, ...)
     CCTK_ATTRIBUTE_FORMAT(printf, 3, 4);
 
+enum class group_kind { grid_function, array, scalar };
+
+template <typename U> U &storage_entry(U &entry) { return entry; }
+template <typename U> U &storage_entry(const std::unique_ptr<U> &entry) {
+  return *entry;
+}
+
+template <typename T, typename Iter, typename Keep> class storage_range {
+public:
+  class iterator {
+  public:
+    iterator(Iter it, Iter last, Keep keep) : it(it), last(last), keep(keep) {
+      settle();
+    }
+    T &operator*() const { return storage_entry(*it); }
+    iterator &operator++() {
+      ++it;
+      settle();
+      return *this;
+    }
+    bool operator!=(const iterator &other) const { return it != other.it; }
+
+  private:
+    void settle() {
+      while (it != last && !keep(*it))
+        ++it;
+    }
+    Iter it, last;
+    Keep keep;
+  };
+
+  storage_range(Iter first, Iter last, Keep keep)
+      : first(first), last(last), keep(keep) {}
+  iterator begin() const { return iterator(first, last, keep); }
+  iterator end() const { return iterator(last, last, keep); }
+
+private:
+  Iter first, last;
+  Keep keep;
+};
+
 // TODO: It seems that AMReX now also has `RB90`, `RB180`, and
 // `PolarB` boundary conditions. Make these available as well.
 
@@ -144,28 +185,9 @@ struct GHExt {
   cctkGHptr global_cctkGH;
   std::vector<cctkGHptr> level_cctkGHs; // [reflevel]
 
-  struct CommonGroupData {
-    std::string groupname;
-    int groupindex;
-    int firstvarindex;
-    int numvars;
-
-    bool do_checkpoint; // whether to checkpoint
-    bool do_evolve;     // whether this is an evolved state variable
-    // whether the driver's end-of-step restriction restricts this group
-    // (restrict_during_sync = no): the "restrict" tag; if absent, the
-    // "checkpoint" tag
-    bool do_restrict;
-    // whether a SYNC restricts this group (restrict_during_sync = yes): the
-    // "restrict" tag; if absent, yes
-    bool restrict_on_sync;
-
-    friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                     const CommonGroupData &commongroupdata);
-  };
+  struct GroupRecord;
 
   struct GlobalData {
-    // all data that exists on all levels
 
     class AnyTypeVector {
 
@@ -300,11 +322,17 @@ struct GHExt {
       void *_data;
     };
 
-    // For subcycling in time, there really should be one copy of each
-    // integrated grid scalar per level. We don't do that yet; instead,
-    // we assume that grid scalars only hold "analysis" data.
+    struct ArrayGroupData {
+      ArrayGroupData() = delete;
+      ArrayGroupData(const ArrayGroupData &) = delete;
+      ArrayGroupData &operator=(const ArrayGroupData &) = delete;
+      ArrayGroupData(ArrayGroupData &&) = delete;
+      ArrayGroupData &operator=(ArrayGroupData &&) = delete;
 
-    struct ArrayGroupData : public CommonGroupData {
+      explicit ArrayGroupData(const GroupRecord &group);
+
+      const GroupRecord &group;
+
       struct timelevel_t {
         timelevel_t(AnyTypeVector data, int numvars,
                     const std::function<std::string()> &why)
@@ -324,10 +352,8 @@ struct GHExt {
         std::vector<why_valid_t> valid_;
         friend class array_write_scope_t;
       };
-      std::vector<timelevel_t> tls;
       int array_size;
       int dimension;
-      int activetimelevels;
       int lsh[dim];
       int ash[dim];
       int gsh[dim];
@@ -336,32 +362,102 @@ struct GHExt {
       int bbox[2 * dim];
       int nghostzones[dim];
 
-      ArrayGroupData() {
-        array_size = -1;
-        dimension = -1;
-        activetimelevels = -1;
-        for (int d = 0; d < dim; d++) {
-          lsh[d] = -1;
-          ash[d] = -1;
-          gsh[d] = -1;
-          lbnd[d] = -1;
-          ubnd[d] = -1;
-          bbox[2 * d] = bbox[2 * d + 1] = -1;
-          nghostzones[d] = -1;
-        }
+      const timelevel_t &timelevel(const int tl,
+                                   const char *const what = nullptr,
+                                   const std::source_location site =
+                                       std::source_location::current()) const {
+        if (tl < 0 || tl >= int(tls.size()))
+          refuse(site, what,
+                 "time level %d of group %s does not exist: it has %d time "
+                 "levels",
+                 tl, group.groupname.c_str(), int(tls.size()));
+        return tls[tl];
       }
+      timelevel_t &timelevel(
+          const int tl, const char *const what = nullptr,
+          const std::source_location site = std::source_location::current()) {
+        return const_cast<timelevel_t &>(
+            std::as_const(*this).timelevel(tl, what, site));
+      }
+      void rotate_timelevels();
+
+    private:
+      std::vector<timelevel_t> tls;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const ArrayGroupData &arraygroupdata);
     };
-    // TODO: right now this is sized for the total number of groups
-    std::vector<std::unique_ptr<ArrayGroupData> >
-        arraygroupdata; // [group index]
-
-    friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                     const GlobalData &globaldata);
   };
-  GlobalData globaldata;
+
+  struct GroupRecord {
+    GroupRecord(int gi, int num_timelevels);
+
+    std::string groupname;
+    int groupindex;
+    int firstvarindex;
+    int numvars;
+    bool do_checkpoint;
+    bool do_evolve;
+    bool do_restrict;
+    bool restrict_on_sync;
+    group_kind kind;
+
+    int num_timelevels() const { return num_timelevels_; }
+    bool has_storage() const { return num_timelevels_ > 0; }
+
+    const GlobalData::ArrayGroupData &
+    array(const char *const what = nullptr,
+          const std::source_location site =
+              std::source_location::current()) const {
+      if (kind == group_kind::grid_function)
+        refuse(site, what, "group %s is not a grid array or scalar group",
+               groupname.c_str());
+      assert(array_);
+      return *array_;
+    }
+    GlobalData::ArrayGroupData &
+    array(const char *const what = nullptr,
+          const std::source_location site = std::source_location::current()) {
+      return const_cast<GlobalData::ArrayGroupData &>(
+          std::as_const(*this).array(what, site));
+    }
+
+  private:
+    int num_timelevels_;
+    std::unique_ptr<GlobalData::ArrayGroupData> array_;
+  };
+
+  struct group_filter {
+    std::optional<group_kind> kind;
+    bool operator()(const GroupRecord &group) const {
+      return group.has_storage() && (!kind || group.kind == *kind);
+    }
+  };
+
+  const GroupRecord &group(
+      const int gi, const char *const what = nullptr,
+      const std::source_location site = std::source_location::current()) const {
+    if (!storage_frozen)
+      refuse(site, what,
+             "CarpetX group %d has no record yet: storage is not frozen", gi);
+    if (gi < 0 || gi >= int(group_records.size()))
+      refuse(site, what, "group index %d does not exist: there are %d groups",
+             gi, int(group_records.size()));
+    return group_records[gi];
+  }
+  GroupRecord &
+  group(const int gi, const char *const what = nullptr,
+        const std::source_location site = std::source_location::current()) {
+    return const_cast<GroupRecord &>(
+        std::as_const(*this).group(gi, what, site));
+  }
+  auto groups(const std::optional<group_kind> kind = std::nullopt) const {
+    return storage_range<const GroupRecord,
+                         std::vector<GroupRecord>::const_iterator,
+                         group_filter>(group_records.begin(),
+                                       group_records.end(), group_filter{kind});
+  }
+  void freeze_storage();
 
   struct PatchData {
     PatchData() = delete;
@@ -451,17 +547,19 @@ struct GHExt {
         return local_cctkGHs.at(component).get();
       }
 
-      struct GroupData : public CommonGroupData {
+      struct GroupData {
         GroupData() = delete;
         GroupData(const GroupData &) = delete;
         GroupData &operator=(const GroupData &) = delete;
         GroupData(GroupData &&) = delete;
         GroupData &operator=(GroupData &&) = delete;
 
-        GroupData(int patch, int level, int gi, const amrex::BoxArray &ba,
+        GroupData(const GroupRecord &group, int patch, int level,
+                  const amrex::BoxArray &ba,
                   const amrex::DistributionMapping &dm,
                   const std::function<std::string()> &why);
 
+        const GroupRecord &group;
         int patch, level;
 
         struct timelevel_t {
@@ -684,10 +782,6 @@ struct GHExt {
   // end-of-step sync check.
   const cFunctionData *last_called_function = nullptr;
 
-  // CarpetX::do_reflux, cached in InitGH next to use_subcycling. Read from
-  // here rather than through DECLARE_CCTK_PARAMETERS in the GroupData
-  // constructor, where the parameter block would shadow the do_restrict
-  // member; recovery restores the parameter before InitGH runs.
   bool do_reflux = false;
 
   std::optional<rk_config_t> rk_config;
@@ -731,6 +825,7 @@ struct GHExt {
   }
 
 private:
+  std::vector<GroupRecord> group_records;
   std::vector<PatchData> patchdata;
 
   friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ghext);

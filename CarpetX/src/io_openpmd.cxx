@@ -922,7 +922,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           auto &groupdata = *leveldata.groupdata.at(gi);
           if (groupdata.tls.empty())
             continue;
-          const int numvars = groupdata.numvars;
+          const int numvars = groupdata.group.numvars;
 
           const int tl_count =
               tl_mode == TimeLevelMode::All ? int(groupdata.tls.size()) : 1;
@@ -1246,10 +1246,10 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         if (io_verbose)
           CCTK_VINFO("Reading group %d %s...", gi, CCTK_FullGroupName(gi));
 
-        auto &groupdata = *ghext->globaldata.arraygroupdata.at(gi);
-        if (groupdata.tls.empty())
+        auto &groupdata = ghext->group(gi).array();
+        if (!groupdata.group.has_storage())
           continue;
-        const int numvars = groupdata.numvars;
+        const int numvars = groupdata.group.numvars;
         const int tl = 0;
 
         // Determine grid structure
@@ -1339,10 +1339,10 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         assert(cactus_dj > 0);
         assert(cactus_dk > 0);
         assert(cactus_np > 0);
-        assert(int(groupdata.tls.at(tl).data.size()) == numvars * cactus_np);
+        assert(int(groupdata.timelevel(tl).data.size()) == numvars * cactus_np);
         for (int vi = 0; vi < numvars; ++vi) {
           void *const cactus_var_ptr =
-              groupdata.tls.at(tl).data.data_at(vi * cactus_np);
+              groupdata.timelevel(tl).data.data_at(vi * cactus_np);
           if (input_ghosts || intbox == extbox) {
 #if !OPENPMDAPI_VERSION_GE(0, 15, 0)
 #define loadChunkRaw(ptr, start, count)                                        \
@@ -1365,7 +1365,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               assert(0 && "Unexpected variable type");
             }
           } else {
-            auto cactus_ptr = &groupdata.tls.at(tl).data;
+            auto cactus_ptr = &groupdata.timelevel(tl).data;
             char *const cactus_var_ptr =
                 static_cast<char *>(cactus_ptr->data_at(vi * cactus_np));
             const int vartypesize = CCTK_VarTypeSize(cgroup.vartype);
@@ -1757,7 +1757,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
           const auto &groupdata = *leveldata.groupdata.at(gi);
           if (groupdata.tls.empty())
             continue;
-          const int numvars = groupdata.numvars;
+          const int numvars = groupdata.group.numvars;
 
           const int tl_count =
               tl_mode == TimeLevelMode::All ? int(groupdata.tls.size()) : 1;
@@ -2065,10 +2065,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         if (io_verbose)
           CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
 
-        const auto &groupdata = *ghext->globaldata.arraygroupdata.at(gi);
-        if (groupdata.tls.empty())
+        const auto &groupdata = ghext->group(gi).array();
+        if (!groupdata.group.has_storage())
           continue;
-        const int numvars = groupdata.numvars;
+        const int numvars = groupdata.group.numvars;
         const int tl = 0;
 
         // Determine grid structure
@@ -2157,11 +2157,11 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         assert(cactus_dj > 0);
         assert(cactus_dk > 0);
         assert(cactus_np > 0);
-        assert(int(groupdata.tls.at(tl).data.size()) == numvars * cactus_np);
+        assert(int(groupdata.timelevel(tl).data.size()) == numvars * cactus_np);
         if (myproc == ioproc) {
           for (int vi = 0; vi < numvars; ++vi) {
             const void *const var_ptr =
-                groupdata.tls.at(tl).data.data_at(vi * cactus_np);
+                groupdata.timelevel(tl).data.data_at(vi * cactus_np);
             if (output_ghosts || intbox == extbox) {
 #if !OPENPMDAPI_VERSION_GE(0, 15, 0)
 #define storeChunkRaw(ptr, start, count)                                       \
@@ -2184,7 +2184,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                 assert(0 && "Unexpected variable type");
               }
             } else {
-              auto cactus_ptr = &groupdata.tls.at(tl).data;
+              auto cactus_ptr = &groupdata.timelevel(tl).data;
               const Arith::vect<int, 3> contig_shape = box.shape();
               constexpr int contig_di = 1;
               const int contig_dj = contig_di * contig_shape[0];

@@ -278,7 +278,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
               const auto &groupdata = *leveldata.groupdata.at(gi);
               if (groupdata.tls.empty())
                 continue;
-              const int numvars = groupdata.numvars;
+              const int numvars = groupdata.group.numvars;
 
               const int tl = 0;
               const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
@@ -356,7 +356,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             const auto &groupdata = *leveldata.groupdata.at(gi);
             if (groupdata.tls.empty())
               continue;
-            const int numvars = groupdata.numvars;
+            const int numvars = groupdata.group.numvars;
             const int tl = 0;
             const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
             const amrex::IndexType &indextype = mfab.ixType();

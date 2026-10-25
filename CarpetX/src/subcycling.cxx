@@ -316,8 +316,7 @@ void EnsureRKBuffers(const int patch, const int level, const int gi) {
       fpc.ba_fine_patch, fpc.dm_patch, ncomps, 0, amrex::MFInfo(),
       *fpc.fact_fine_patch);
 
-  // Zero-ghost source bands on the coarse patch geometry
-  const int numvars = groupdata.numvars;
+  const int numvars = groupdata.group.numvars;
   assert(numvars == ncomps);
   for (int stage = 0; stage < num_rk_stages; ++stage)
     groupdata.ks_source_band[stage] = std::make_unique<amrex::MultiFab>(
@@ -415,7 +414,7 @@ void FillRKBoundary(const int patch, const int level,
     const GroupData &coarsegroupdata = *coarseleveldata.groupdata.at(gi);
     assert(!groupdata.tls.empty());
     assert(!coarsegroupdata.tls.empty());
-    assert(coarsegroupdata.numvars == groupdata.numvars);
+    assert(coarsegroupdata.group.numvars == groupdata.group.numvars);
     // Only integrated groups have bands, and only for them does the
     // subcycling SYNC leave the coarse-fine ghosts to this function
     assert(group_is_integrated(gi));

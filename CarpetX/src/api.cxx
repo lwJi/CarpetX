@@ -44,7 +44,7 @@ void require_timelevel(const char *const what,
   if (tl < 0 || tl >= ntls)
     CCTK_VERROR("%s: time level %d of group %s does not exist on patch %d, "
                 "refinement level %d: it has %d time levels",
-                what, tl, groupdata.groupname.c_str(), groupdata.patch,
+                what, tl, groupdata.group.groupname.c_str(), groupdata.patch,
                 groupdata.level, ntls);
 }
 
@@ -64,7 +64,7 @@ void require_no_open_write(
   if (open_writes > 0)
     CCTK_VERROR("%s: group %s has %d open write scope%s (CarpetX::write) on "
                 "patch %d, refinement level %d; destroy the write_t first",
-                what, groupdata.groupname.c_str(), open_writes,
+                what, groupdata.group.groupname.c_str(), open_writes,
                 open_writes == 1 ? "" : "s", groupdata.patch, groupdata.level);
 }
 
@@ -116,7 +116,7 @@ symmetries(const level_t level) {
 }
 
 int numvars(const group_t group) {
-  return resolve("CarpetX::numvars", group).numvars;
+  return resolve("CarpetX::numvars", group).group.numvars;
 }
 
 std::array<int, Loop::dim> indextype(const group_t group) {
@@ -201,7 +201,7 @@ write_t write(const group_t group, const int tl, const valid_t leaves_valid,
     CCTK_VERROR("CarpetX::write: time level %d of group %s has %d open write "
                 "scope%s (CarpetX::write) on patch %d, refinement level %d; "
                 "destroy that write_t before opening another",
-                tl, groupdata.groupname.c_str(), open_writes,
+                tl, groupdata.group.groupname.c_str(), open_writes,
                 open_writes == 1 ? "" : "s", groupdata.patch, groupdata.level);
   return write_t(std::unique_ptr<write_t::impl>(new write_t::impl{
       group, tl,
@@ -273,17 +273,17 @@ scratch_t scratch(const group_t group) {
                     false});
   }
   pool.at(slot).in_use = true;
-  return scratch_t(std::unique_ptr<scratch_t::impl>(
-      new scratch_t::impl{group, slot}));
+  return scratch_t(
+      std::unique_ptr<scratch_t::impl>(new scratch_t::impl{group, slot}));
 }
 
 valid_t valid(const group_t group, const int tl, const int vi) {
   const auto &groupdata = resolve("CarpetX::valid", group);
   require_timelevel("CarpetX::valid", groupdata, tl);
-  if (vi < 0 || vi >= groupdata.numvars)
+  if (vi < 0 || vi >= groupdata.group.numvars)
     CCTK_VERROR("CarpetX::valid: variable index %d of group %s does not "
                 "exist: it has %d variables",
-                vi, groupdata.groupname.c_str(), groupdata.numvars);
+                vi, groupdata.group.groupname.c_str(), groupdata.group.numvars);
   return groupdata.tls.at(tl).valid(vi);
 }
 
