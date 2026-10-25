@@ -45,9 +45,21 @@ using Loop::dim;
 
 inline constexpr int max_num_rk_stages = 4;
 
-[[noreturn]] void refuse(std::source_location site, const char *what,
-                         const char *fmt, ...)
-    CCTK_ATTRIBUTE_FORMAT(printf, 3, 4);
+[[noreturn]] void refuse(std::source_location site, const char *fmt, ...)
+    CCTK_ATTRIBUTE_FORMAT(printf, 2, 3);
+
+class operation_scope_t {
+public:
+  explicit operation_scope_t(const char *name);
+  ~operation_scope_t();
+  operation_scope_t(const operation_scope_t &) = delete;
+  operation_scope_t &operator=(const operation_scope_t &) = delete;
+
+private:
+  const char *const previous;
+};
+
+const char *current_operation();
 
 enum class group_kind { grid_function, array, scalar };
 
@@ -366,21 +378,20 @@ struct GHExt {
       int nghostzones[dim];
 
       const timelevel_t &timelevel(const int tl,
-                                   const char *const what = nullptr,
                                    const std::source_location site =
                                        std::source_location::current()) const {
         if (tl < 0 || tl >= int(tls.size()))
-          refuse(site, what,
+          refuse(site,
                  "time level %d of group %s does not exist: it has %d time "
                  "levels",
                  tl, group.groupname.c_str(), int(tls.size()));
         return tls[tl];
       }
       timelevel_t &timelevel(
-          const int tl, const char *const what = nullptr,
+          const int tl,
           const std::source_location site = std::source_location::current()) {
         return const_cast<timelevel_t &>(
-            std::as_const(*this).timelevel(tl, what, site));
+            std::as_const(*this).timelevel(tl, site));
       }
       void rotate_timelevels();
 
@@ -409,20 +420,18 @@ struct GHExt {
     bool has_storage() const { return num_timelevels_ > 0; }
 
     const GlobalData::ArrayGroupData &
-    array(const char *const what = nullptr,
-          const std::source_location site =
+    array(const std::source_location site =
               std::source_location::current()) const {
       if (kind == group_kind::grid_function)
-        refuse(site, what, "group %s is not a grid array or scalar group",
+        refuse(site, "group %s is not a grid array or scalar group",
                groupname.c_str());
       assert(array_);
       return *array_;
     }
     GlobalData::ArrayGroupData &
-    array(const char *const what = nullptr,
-          const std::source_location site = std::source_location::current()) {
+    array(const std::source_location site = std::source_location::current()) {
       return const_cast<GlobalData::ArrayGroupData &>(
-          std::as_const(*this).array(what, site));
+          std::as_const(*this).array(site));
     }
 
   private:
@@ -438,21 +447,20 @@ struct GHExt {
   };
 
   const GroupRecord &group(
-      const int gi, const char *const what = nullptr,
+      const int gi,
       const std::source_location site = std::source_location::current()) const {
     if (!storage_frozen)
-      refuse(site, what,
-             "CarpetX group %d has no record yet: storage is not frozen", gi);
+      refuse(site, "CarpetX group %d has no record yet: storage is not frozen",
+             gi);
     if (gi < 0 || gi >= int(group_records.size()))
-      refuse(site, what, "group index %d does not exist: there are %d groups",
-             gi, int(group_records.size()));
+      refuse(site, "group index %d does not exist: there are %d groups", gi,
+             int(group_records.size()));
     return group_records[gi];
   }
   GroupRecord &
-  group(const int gi, const char *const what = nullptr,
+  group(const int gi,
         const std::source_location site = std::source_location::current()) {
-    return const_cast<GroupRecord &>(
-        std::as_const(*this).group(gi, what, site));
+    return const_cast<GroupRecord &>(std::as_const(*this).group(gi, site));
   }
   auto groups(const std::optional<group_kind> kind = std::nullopt) const {
     return storage_range<const GroupRecord,
@@ -583,21 +591,20 @@ struct GHExt {
           friend class write_scope_t;
         };
         const timelevel_t &
-        timelevel(const int tl, const char *const what = nullptr,
-                  const std::source_location site =
-                      std::source_location::current()) const {
+        timelevel(const int tl, const std::source_location site =
+                                    std::source_location::current()) const {
           if (tl < 0 || tl >= int(tls.size()))
-            refuse(site, what,
+            refuse(site,
                    "time level %d of group %s does not exist on patch %d, "
                    "refinement level %d: it has %d time levels",
                    tl, group.groupname.c_str(), patch, level, int(tls.size()));
           return tls[tl];
         }
         timelevel_t &timelevel(
-            const int tl, const char *const what = nullptr,
+            const int tl,
             const std::source_location site = std::source_location::current()) {
           return const_cast<timelevel_t &>(
-              std::as_const(*this).timelevel(tl, what, site));
+              std::as_const(*this).timelevel(tl, site));
         }
         int num_timelevels() const { return tls.size(); }
         void rotate_timelevels();
@@ -695,28 +702,26 @@ struct GHExt {
         }
       };
 
-      const GroupData &group(const int gi, const char *const what = nullptr,
+      const GroupData &group(const int gi,
                              const std::source_location site =
                                  std::source_location::current()) const {
         if (gi < 0 || gi >= int(groupdata.size()))
-          refuse(site, what,
-                 "group index %d does not exist: there are %d groups", gi,
+          refuse(site, "group index %d does not exist: there are %d groups", gi,
                  int(groupdata.size()));
         const GroupData *const gd = groupdata[gi].get();
         if (!gd)
-          refuse(site, what, "group %s is not a grid function group",
+          refuse(site, "group %s is not a grid function group",
                  CCTK_FullGroupName(gi));
         if (gd->num_timelevels() == 0)
-          refuse(site, what,
+          refuse(site,
                  "group %s has no storage on patch %d, refinement level %d",
                  CCTK_FullGroupName(gi), patch, level);
         return *gd;
       }
       GroupData &
-      group(const int gi, const char *const what = nullptr,
+      group(const int gi,
             const std::source_location site = std::source_location::current()) {
-        return const_cast<GroupData &>(
-            std::as_const(*this).group(gi, what, site));
+        return const_cast<GroupData &>(std::as_const(*this).group(gi, site));
       }
       auto groups() const {
         return storage_range<
@@ -740,20 +745,19 @@ struct GHExt {
     };
 
     int num_levels() const { return leveldata.size(); }
-    const LevelData &level(const int level, const char *const what = nullptr,
+    const LevelData &level(const int level,
                            const std::source_location site =
                                std::source_location::current()) const {
       if (level < 0 || level >= num_levels())
-        refuse(site, what,
+        refuse(site,
                "CarpetX level %d does not exist on patch %d: it has %d levels",
                level, patch, num_levels());
       return leveldata[level];
     }
     LevelData &
-    level(const int level, const char *const what = nullptr,
+    level(const int level,
           const std::source_location site = std::source_location::current()) {
-      return const_cast<LevelData &>(
-          std::as_const(*this).level(level, what, site));
+      return const_cast<LevelData &>(std::as_const(*this).level(level, site));
     }
     std::span<const LevelData> levels() const { return leveldata; }
     std::span<LevelData> levels() { return leveldata; }
@@ -773,52 +777,50 @@ struct GHExt {
 
   int num_patches() const { return patchdata.size(); }
   const PatchData &patch(
-      const int patch, const char *const what = nullptr,
+      const int patch,
       const std::source_location site = std::source_location::current()) const {
     if (patch < 0 || patch >= num_patches())
-      refuse(site, what,
-             "CarpetX patch %d does not exist: there are %d patches", patch,
-             num_patches());
+      refuse(site, "CarpetX patch %d does not exist: there are %d patches",
+             patch, num_patches());
     return patchdata[patch];
   }
   PatchData &
-  patch(const int patch, const char *const what = nullptr,
+  patch(const int patch,
         const std::source_location site = std::source_location::current()) {
-    return const_cast<PatchData &>(
-        std::as_const(*this).patch(patch, what, site));
+    return const_cast<PatchData &>(std::as_const(*this).patch(patch, site));
   }
   const PatchData::LevelData &level(
-      const int patch, const int level, const char *const what = nullptr,
+      const int patch, const int level,
       const std::source_location site = std::source_location::current()) const {
-    return this->patch(patch, what, site).level(level, what, site);
+    return this->patch(patch, site).level(level, site);
   }
   PatchData::LevelData &
-  level(const int patch, const int level, const char *const what = nullptr,
+  level(const int patch, const int level,
         const std::source_location site = std::source_location::current()) {
     return const_cast<PatchData::LevelData &>(
-        std::as_const(*this).level(patch, level, what, site));
+        std::as_const(*this).level(patch, level, site));
   }
   const PatchData::LevelData &level(
-      const level_t level, const char *const what = nullptr,
+      const level_t level,
       const std::source_location site = std::source_location::current()) const {
-    return this->level(level.patch, level.level, what, site);
+    return this->level(level.patch, level.level, site);
   }
   PatchData::LevelData &
-  level(const level_t level, const char *const what = nullptr,
+  level(const level_t level,
         const std::source_location site = std::source_location::current()) {
     return const_cast<PatchData::LevelData &>(
-        std::as_const(*this).level(level, what, site));
+        std::as_const(*this).level(level, site));
   }
   const PatchData::LevelData::GroupData &group(
-      const group_t group, const char *const what = nullptr,
+      const group_t group,
       const std::source_location site = std::source_location::current()) const {
-    return this->level(group.level, what, site).group(group.gi, what, site);
+    return this->level(group.level, site).group(group.gi, site);
   }
   PatchData::LevelData::GroupData &
-  group(const group_t group, const char *const what = nullptr,
+  group(const group_t group,
         const std::source_location site = std::source_location::current()) {
     return const_cast<PatchData::LevelData::GroupData &>(
-        std::as_const(*this).group(group, what, site));
+        std::as_const(*this).group(group, site));
   }
   std::span<const PatchData> patches() const { return patchdata; }
   std::span<PatchData> patches() { return patchdata; }
