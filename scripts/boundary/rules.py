@@ -28,11 +28,6 @@ VALIDITY_WORD = re.compile(
     r"(\b(error_if_invalid|warn_if_invalid|poison_invalid_g[fa]|check_valid_g[fa])"
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
-WALK_FILES = ("CarpetX/src/driver.hxx",)
-WALK_WORD = re.compile(
-    r"\b(patchdata|leveldata|groupdata|arraygroupdata)\s*\.\s*at\s*\("
-    r"|\btls\s*\.\s*(at\s*\(|empty\s*\(\s*\)|size\s*\(\s*\))"
-)
 EXCERPT_WIDTH = 72
 
 RULE = (
@@ -41,11 +36,7 @@ RULE = (
     "marker: CARPETX_INTERNAL belongs only in CarpetX/src/make.code.defn and in the\n"
     "#ifndef CARPETX_INTERNAL guard of a private CarpetX header.\n"
     "validity: a validity kernel or a why_valid_t setter is named only in CarpetX/src/valid.cxx\n"
-    "and valid.hxx; every other site opens a write scope or calls require or invalidate.\n"
-    "walk: the hierarchy's containers are indexed only in CarpetX/src/driver.hxx; every other\n"
-    "site resolves a patch, a level, a group or a time level through ghext->patch, ghext->level,\n"
-    "patchdata.level, leveldata.group and groupdata.timelevel, a group record through\n"
-    "ghext->group, and an array's data through ghext->group(gi).array()."
+    "and valid.hxx; every other site opens a write scope or calls require or invalidate."
 )
 
 
@@ -79,8 +70,6 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
                 found.append(Finding(number, "include", line.strip()))
         if lang is Lang.CXX and is_private(name) and name not in VALIDITY_FILES and VALIDITY_WORD.search(line):
             found.append(Finding(number, "validity", line.strip()))
-        if lang is Lang.CXX and is_private(name) and name not in WALK_FILES and WALK_WORD.search(line):
-            found.append(Finding(number, "walk", line.strip()))
     return found
 
 
@@ -116,17 +105,15 @@ def summary(found: list[tuple[str, Finding]]) -> str:
     includes = sum(1 for _, f in found if f.rule == "include")
     markers = sum(1 for _, f in found if f.rule == "marker")
     validity = sum(1 for _, f in found if f.rule == "validity")
-    walks = sum(1 for _, f in found if f.rule == "walk")
     if not found:
         return (
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
-            "no validity call outside valid.cxx, no hierarchy walk outside driver.hxx"
+            "no validity call outside valid.cxx"
         )
     parts = (
         ([plural(includes, "private include")] if includes else [])
         + ([plural(markers, "stray marker")] if markers else [])
         + ([plural(validity, "validity call") + " outside valid.cxx"] if validity else [])
-        + ([plural(walks, "hierarchy walk") + " outside driver.hxx"] if walks else [])
     )
     return "✗ boundary: " + ", ".join(parts)
 

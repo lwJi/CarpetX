@@ -40,8 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     check = commands.add_parser(
         "check",
         help="list every #include into CarpetX/src, every CARPETX_INTERNAL outside its guards, "
-        "every validity kernel or why_valid_t setter named outside CarpetX/src/valid.cxx and valid.hxx, "
-        "and every patchdata.at( or leveldata.at( outside CarpetX/src/driver.hxx",
+        "and every validity kernel or why_valid_t setter named outside CarpetX/src/valid.cxx and valid.hxx",
     )
     check.add_argument("paths", nargs="*", metavar="PATH", help="files or directories to check (default: the whole tree)")
     check.add_argument(

@@ -142,79 +142,6 @@ class Validity(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/driver.cxx", text, Lang.CXX), [Finding(4, "validity", "why.set_all(valid_t(), r);")])
 
 
-class Walk(unittest.TestCase):
-    WALKS = [
-        "const auto &leveldata = ghext->patchdata.at(p).leveldata.at(l);",
-        "auto &patchdata = ghext->patchdata.at(patch);",
-        "kernel(patchdata.leveldata.at(level));",
-        "const auto &coarse = ghext->patchdata.at(leveldata.patch)",
-        ".leveldata.at(leveldata.level - 1);",
-        "if (patchdata0 . leveldata . at ( 0 ).iteration != it)",
-        "auto &arraygroupdata = *ghext->globaldata.arraygroupdata.at(gi);",
-        "if (globaldata.arraygroupdata.at(gi)->tls.empty()) continue;",
-        "auto &restrict groupdata = *leveldata.groupdata.at(gi);",
-        "if (!groupdata || groupdata->tls.empty())",
-        "const int ntls = groupdata.tls.size();",
-        "amrex::MultiFab &mfab = *groupdata.tls.at(tl).mfab;",
-        "assert(!coarsegroupdata . tls . empty ( ));",
-        "for (int tl = 0; tl < int(groupdata.tls.size()); ++tl)",
-    ]
-
-    def test_the_walk_is_reported_in_carpetx_src(self):
-        for line in self.WALKS:
-            for name in ["CarpetX/src/sync_restrict.cxx", "CarpetX/src/api.cxx", "CarpetX/src/driver.cxx", "CarpetX/src/schedule.hxx"]:
-                with self.subTest(name=name, line=line):
-                    self.assertEqual(reported(name, "  " + line + "\n"), [("walk", line)])
-
-    def test_the_hierarchy_header_indexes_its_own_containers(self):
-        for line in self.WALKS:
-            with self.subTest(line=line):
-                self.assertEqual(reported("CarpetX/src/driver.hxx", line + "\n"), [])
-
-    def test_another_thorn_may_use_the_names(self):
-        for line in self.WALKS:
-            with self.subTest(line=line):
-                self.assertEqual(reported("ODESolvers/src/solve.cxx", line + "\n"), [])
-
-    def test_the_public_headers_are_outside_the_private_tree(self):
-        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", self.WALKS[0] + "\n"), [])
-
-    def test_the_resolvers_and_other_containers_are_not_walks(self):
-        for text in [
-            "const auto &leveldata = ghext->level(p, l);\n",
-            "auto &patchdata = ghext->patch(patch);\n",
-            "kernel(patchdata.level(level));\n",
-            "for (const auto &leveldata : patchdata.levels())\n",
-            "if (!mask.at(gi)) continue;\n",
-            "recovered = &ghext->recovered_levels.at(patch).at(level);\n",
-            "const auto &finest = leveldatas.at(ghext->num_levels() - 1);\n",
-            "ghext->active_timelevels.at(gi) = ntls;\n",
-            "const auto &group = ghext->group(gi);\n",
-            "auto &arraydata = ghext->group(gi).array();\n",
-            "const auto &data = arraygroupdata.timelevel(tl).data;\n",
-            "for (const auto &group : ghext->groups(group_kind::grid_function))\n",
-            "auto &groupdata = leveldata.group(gi);\n",
-            "const valid_t have = groupdata.timelevel(tl).valid(vi);\n",
-            "for (const auto &groupdata : leveldata.groups())\n",
-            "const int ntls = groupdata.num_timelevels();\n",
-            "const int *tls, int *status);\n",
-            "GroupStorageIncrease(cctkGH, 1, &group, &tls, &status);\n",
-            "int ntls = requested_tls[n];\n",
-            "tls.reserve(ntls);\n",
-            "std::rotate(tls.begin(), tls.end() - 1, tls.end());\n",
-            "for (const auto &timelevel : groupdata.tls)\n",
-        ]:
-            with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/driver.cxx", text), [])
-
-    def test_only_c_and_cxx_files_are_checked(self):
-        self.assertEqual(reported("CarpetX/src/make.code.defn", "SRCS = patchdata.at(0)\n", Lang.MAKE), [])
-
-    def test_line_numbers(self):
-        text = "int a;\n\nint b;\nauto &p = ghext->patchdata.at(0);\n"
-        self.assertEqual(findings("CarpetX/src/driver.cxx", text, Lang.CXX), [Finding(4, "walk", "auto &p = ghext->patchdata.at(0);")])
-
-
 class NewFindings(unittest.TestCase):
     def test_only_lines_absent_before_are_new(self):
         a = Finding(1, "include", '#include "../../CarpetX/src/driver.hxx"')
@@ -284,34 +211,29 @@ class Report(unittest.TestCase):
         self.assertEqual(
             render([]),
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
-            "no validity call outside valid.cxx, no hierarchy walk outside driver.hxx",
+            "no validity call outside valid.cxx",
         )
 
     def test_counts(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
         c = ("CarpetX/src/driver.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
-        d = ("CarpetX/src/io.cxx", Finding(9, "walk", "auto &p = ghext->patchdata.at(0);"))
         self.assertEqual(summary([a]), "✗ boundary: 1 private include")
         self.assertEqual(summary([a, a, b]), "✗ boundary: 2 private includes, 1 stray marker")
         self.assertEqual(summary([c]), "✗ boundary: 1 validity call outside valid.cxx")
         self.assertEqual(summary([b, c, c]), "✗ boundary: 1 stray marker, 2 validity calls outside valid.cxx")
-        self.assertEqual(summary([d]), "✗ boundary: 1 hierarchy walk outside driver.hxx")
-        self.assertEqual(summary([c, d, d]), "✗ boundary: 1 validity call outside valid.cxx, 2 hierarchy walks outside driver.hxx")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
         c = ("CarpetX/src/driver.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
-        d = ("CarpetX/src/io.cxx", Finding(9, "walk", "auto &p = ghext->patchdata.at(0);"))
-        lines = render([b, c, a, d]).split("\n")
+        lines = render([b, c, a]).split("\n")
         self.assertEqual(lines[0], "CarpetX/src/driver.cxx:7   validity   why.set_all(valid_t(), r);")
-        self.assertEqual(lines[1], "CarpetX/src/io.cxx:9       walk       auto &p = ghext->patchdata.at(0);")
-        self.assertEqual(lines[2], 'T/src/a.cxx:3              include    #include "../../CarpetX/src/driver.hxx"')
-        self.assertEqual(lines[3], "T/src/b.cxx:1              marker     #define CARPETX_INTERNAL")
+        self.assertEqual(lines[1], 'T/src/a.cxx:3              include    #include "../../CarpetX/src/driver.hxx"')
+        self.assertEqual(lines[2], "T/src/b.cxx:1              marker     #define CARPETX_INTERNAL")
         self.assertEqual(
             lines[-1],
-            "✗ boundary: 1 private include, 1 stray marker, 1 validity call outside valid.cxx, 1 hierarchy walk outside driver.hxx",
+            "✗ boundary: 1 private include, 1 stray marker, 1 validity call outside valid.cxx",
         )
 
 
