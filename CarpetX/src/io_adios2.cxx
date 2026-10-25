@@ -260,9 +260,9 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       if (io_verbose)
         CCTK_VINFO("  Defining variables...");
 
-      for (const auto &patchdata : ghext->patchdata) {
+      for (const auto &patchdata : ghext->patches()) {
 
-        for (const auto &leveldata : patchdata.leveldata) {
+        for (const auto &leveldata : patchdata.levels()) {
 
           const int numgroups = CCTK_NumGroups();
           for (int gi = 0; gi < numgroups; ++gi) {
@@ -331,12 +331,11 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       CCTK_VINFO("  Beginning step...");
     engine.BeginStep();
 
-    std::vector<patch_t<CCTK_REAL, int, 3> > patches(ghext->patchdata.size());
-    for (const auto &patchdata : ghext->patchdata) {
+    std::vector<patch_t<CCTK_REAL, int, 3> > patches(ghext->num_patches());
+    for (const auto &patchdata : ghext->patches()) {
 
-      std::vector<level_t<CCTK_REAL, int, 3> > levels(
-          patchdata.leveldata.size());
-      for (const auto &leveldata : patchdata.leveldata) {
+      std::vector<level_t<CCTK_REAL, int, 3> > levels(patchdata.num_levels());
+      for (const auto &leveldata : patchdata.levels()) {
         if (io_verbose)
           CCTK_VINFO("  Writing patch %d level %d...", patchdata.patch,
                      leveldata.level);

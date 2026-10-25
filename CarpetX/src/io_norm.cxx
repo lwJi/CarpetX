@@ -109,10 +109,10 @@ void OutputNorms(const cGH *restrict cctkGH) {
           continue;
 
         const int patch = 0;
-        const GHExt::PatchData &restrict patchdata = ghext->patchdata.at(patch);
+        const GHExt::PatchData &restrict patchdata = ghext->patch(patch);
         const int level = 0;
         const GHExt::PatchData::LevelData &restrict leveldata =
-            patchdata.leveldata.at(level);
+            patchdata.level(level);
         const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
             *leveldata.groupdata.at(gi);
         if (groupdata.tls.empty())
@@ -165,10 +165,10 @@ void OutputNorms(const cGH *restrict cctkGH) {
       continue;
 
     const int patch = 0;
-    const GHExt::PatchData &restrict patchdata = ghext->patchdata.at(patch);
+    const GHExt::PatchData &restrict patchdata = ghext->patch(patch);
     const int level = 0;
     const GHExt::PatchData::LevelData &restrict leveldata =
-        patchdata.leveldata.at(level);
+        patchdata.level(level);
     const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
         *leveldata.groupdata.at(gi);
     if (groupdata.tls.empty())

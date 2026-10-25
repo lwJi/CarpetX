@@ -626,7 +626,7 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
 
   ghext->recovered_levels.resize(ghext->num_patches());
 
-  for (auto &patchdata : ghext->patchdata) {
+  for (auto &patchdata : ghext->patches()) {
     const int patch = patchdata.patch;
     const int nlevels =
         read_iter->getAttribute("numLevels" + patch_suffixes.at(patch))
@@ -858,8 +858,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
 
   // First read grid functions in a loop over patches and levels
 
-  for (const auto &patchdata : ghext->patchdata) {
-    for (const auto &leveldata : patchdata.leveldata) {
+  for (const auto &patchdata : ghext->patches()) {
+    for (const auto &leveldata : patchdata.levels()) {
       if (io_verbose)
         CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
                    leveldata.level);
@@ -1610,10 +1610,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
   if (!slice) {
     const int ndims = Loop::dim;
     write_iter.setAttribute<std::int64_t>("numDims", ndims);
-    const int npatches = ghext->patchdata.size();
+    const int npatches = ghext->num_patches();
     write_iter.setAttribute<std::int64_t>("numPatches", npatches);
     std::vector<std::string> patch_suffixes(npatches);
-    for (const auto &patchdata : ghext->patchdata) {
+    for (const auto &patchdata : ghext->patches()) {
       const int patch = patchdata.patch;
       std::ostringstream buf;
       // String attributes cannot be empty; we thus always need to use a patch
@@ -1622,13 +1622,13 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       patch_suffixes.at(patch) = buf.str();
     }
     write_iter.setAttribute("patchSuffixes", patch_suffixes);
-    for (const auto &patchdata : ghext->patchdata) {
+    for (const auto &patchdata : ghext->patches()) {
       const int patch = patchdata.patch;
-      const int nlevels = patchdata.leveldata.size();
+      const int nlevels = patchdata.num_levels();
       write_iter.setAttribute<std::int64_t>(
           "numLevels" + patch_suffixes.at(patch), nlevels);
       std::vector<std::string> level_suffixes(nlevels);
-      for (const auto &leveldata : patchdata.leveldata) {
+      for (const auto &leveldata : patchdata.levels()) {
         const int level = leveldata.level;
         std::ostringstream buf;
         buf << patch_suffixes.at(patch) << "_lev" << std::setw(2)
@@ -1637,7 +1637,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       }
       write_iter.setAttribute("levelSuffixes" + patch_suffixes.at(patch),
                               level_suffixes);
-      for (const auto &leveldata : patchdata.leveldata) {
+      for (const auto &leveldata : patchdata.levels()) {
         const int level = leveldata.level;
         const amrex::FabArrayBase &mfab = *leveldata.fab;
         const int nchunks = mfab.size();
@@ -1671,8 +1671,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
 
   // First write grid functions in a loop over patches and levels
 
-  for (const auto &patchdata : ghext->patchdata) {
-    for (const auto &leveldata : patchdata.leveldata) {
+  for (const auto &patchdata : ghext->patches()) {
+    for (const auto &leveldata : patchdata.levels()) {
       if (io_verbose)
         CCTK_VINFO("Writing patch %d level %d mesh...", patchdata.patch,
                    leveldata.level);

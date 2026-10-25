@@ -171,6 +171,14 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   const std::vector<int> groups{gi};
   const CarpetX::window_t window = CarpetX::active_window();
 
+  if (CCTK_EQUALS(mode, "level-missing")) {
+    const CarpetX::write_t write =
+        CarpetX::write(CarpetX::group_t{CarpetX::level_t{0, 99}, gi}, tl,
+                       CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
+    CCTK_ERROR("CarpetX::write accepted a handle to refinement level 99, "
+               "which does not exist");
+  }
+
   if (CCTK_EQUALS(mode, "prolongate-unwritten-parent") &&
       window.max_level > 1) {
     CarpetX::prolongate_ghosts(window, {group("TestCarpetXAPI::state_rhs")});

@@ -31,8 +31,11 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <source_location>
+#include <span>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -41,6 +44,10 @@ using namespace Arith;
 using Loop::dim;
 
 inline constexpr int max_num_rk_stages = 4;
+
+[[noreturn]] void refuse(std::source_location site, const char *what,
+                         const char *fmt, ...)
+    CCTK_ATTRIBUTE_FORMAT(printf, 3, 4);
 
 // TODO: It seems that AMReX now also has `RB90`, `RB180`, and
 // `PolarB` boundary conditions. Make these available as well.
@@ -565,12 +572,81 @@ struct GHExt {
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const LevelData &leveldata);
     };
-    std::vector<LevelData> leveldata; // [reflevel]
+
+    int num_levels() const { return leveldata.size(); }
+    const LevelData &level(const int level, const char *const what = nullptr,
+                           const std::source_location site =
+                               std::source_location::current()) const {
+      if (level < 0 || level >= num_levels())
+        refuse(site, what,
+               "CarpetX level %d does not exist on patch %d: it has %d levels",
+               level, patch, num_levels());
+      return leveldata[level];
+    }
+    LevelData &
+    level(const int level, const char *const what = nullptr,
+          const std::source_location site = std::source_location::current()) {
+      return const_cast<LevelData &>(
+          std::as_const(*this).level(level, what, site));
+    }
+    std::span<const LevelData> levels() const { return leveldata; }
+    std::span<LevelData> levels() { return leveldata; }
+
+    LevelData &add_level(int level, const amrex::BoxArray &ba,
+                         const amrex::DistributionMapping &dm,
+                         const std::function<std::string()> &why);
+    LevelData replace_level(int level, LevelData &&fresh);
+    void erase_levels_from(int level);
+
+  private:
+    std::vector<LevelData> leveldata;
 
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const PatchData &patchdata);
   };
-  std::vector<PatchData> patchdata; // [patch]
+
+  int num_patches() const { return patchdata.size(); }
+  const PatchData &patch(
+      const int patch, const char *const what = nullptr,
+      const std::source_location site = std::source_location::current()) const {
+    if (patch < 0 || patch >= num_patches())
+      refuse(site, what,
+             "CarpetX patch %d does not exist: there are %d patches", patch,
+             num_patches());
+    return patchdata[patch];
+  }
+  PatchData &
+  patch(const int patch, const char *const what = nullptr,
+        const std::source_location site = std::source_location::current()) {
+    return const_cast<PatchData &>(
+        std::as_const(*this).patch(patch, what, site));
+  }
+  const PatchData::LevelData &level(
+      const int patch, const int level, const char *const what = nullptr,
+      const std::source_location site = std::source_location::current()) const {
+    return this->patch(patch, what, site).level(level, what, site);
+  }
+  PatchData::LevelData &
+  level(const int patch, const int level, const char *const what = nullptr,
+        const std::source_location site = std::source_location::current()) {
+    return const_cast<PatchData::LevelData &>(
+        std::as_const(*this).level(patch, level, what, site));
+  }
+  const PatchData::LevelData &level(
+      const level_t level, const char *const what = nullptr,
+      const std::source_location site = std::source_location::current()) const {
+    return this->level(level.patch, level.level, what, site);
+  }
+  PatchData::LevelData &
+  level(const level_t level, const char *const what = nullptr,
+        const std::source_location site = std::source_location::current()) {
+    return const_cast<PatchData::LevelData &>(
+        std::as_const(*this).level(level, what, site));
+  }
+  std::span<const PatchData> patches() const { return patchdata; }
+  std::span<PatchData> patches() { return patchdata; }
+
+  PatchData &add_patch(int patch);
 
   // Number of active timelevels per group, populated from schedule.ccl STORAGE
   // statements during CCTKi_ScheduleGHInit. Indexed by group index; 0 means no
@@ -631,15 +707,14 @@ struct GHExt {
   // Indexed [patch][level]. Empty outside of the recovery window.
   std::vector<std::vector<recovered_level_t> > recovered_levels;
 
-  int num_patches() const { return patchdata.size(); }
   int num_levels(const int patch) const {
-    return patchdata.at(patch).leveldata.size();
+    return this->patch(patch).num_levels();
   }
   int num_levels() const {
     int nlevels = 0;
     using std::max;
-    for (const auto &pd : patchdata)
-      nlevels = max(nlevels, int(pd.leveldata.size()));
+    for (const auto &pd : patches())
+      nlevels = max(nlevels, pd.num_levels());
     return nlevels;
   }
 
@@ -648,21 +723,23 @@ struct GHExt {
     return level_cctkGHs.at(level).get();
   }
   cGH *get_patch_cctkGH(const int level, const int patch) const {
-    return patchdata.at(patch).leveldata.at(level).patch_cctkGH.get();
+    return this->level(patch, level).patch_cctkGH.get();
   }
   cGH *get_local_cctkGH(const int level, const int patch,
                         const int component) const {
-    return patchdata.at(patch)
-        .leveldata.at(level)
-        .local_cctkGHs.at(component)
-        .get();
+    return this->level(patch, level).local_cctkGHs.at(component).get();
   }
+
+private:
+  std::vector<PatchData> patchdata;
 
   friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ghext);
   friend std::ostream &operator<<(std::ostream &os, const GHExt &ghext);
 };
 
 extern std::unique_ptr<GHExt> ghext;
+
+GHExt &driver();
 
 int num_rk_stages();
 rk_dense_output_t registered_dense_output();

@@ -14,30 +14,6 @@
 
 namespace CarpetX {
 
-GHExt &driver() {
-  if (!ghext)
-    CCTK_ERROR("The CarpetX grid hierarchy does not exist: the public API is "
-               "available between the driver's SetupGH and its Shutdown");
-  return *ghext;
-}
-
-GHExt::PatchData &resolve_patch(const int patch) {
-  GHExt &ext = driver();
-  if (patch < 0 || patch >= ext.num_patches())
-    CCTK_VERROR("CarpetX patch %d does not exist: there are %d patches", patch,
-                ext.num_patches());
-  return ext.patchdata.at(patch);
-}
-
-GHExt::PatchData::LevelData &resolve(const level_t level) {
-  GHExt::PatchData &patchdata = resolve_patch(level.patch);
-  const int nlevels = patchdata.leveldata.size();
-  if (level.level < 0 || level.level >= nlevels)
-    CCTK_VERROR("CarpetX level %d does not exist on patch %d: it has %d levels",
-                level.level, level.patch, nlevels);
-  return patchdata.leveldata.at(level.level);
-}
-
 namespace {
 
 void require_grid_function(const char *const what, const int gi) {
@@ -78,7 +54,7 @@ std::string event_name(const char *const what) { return what ? what : ""; }
 
 GHExt::PatchData::LevelData::GroupData &resolve(const char *const what,
                                                 const group_t group) {
-  return resolve(what, resolve(group.level), group.gi);
+  return resolve(what, driver().level(group.level, what), group.gi);
 }
 
 void require_no_open_write(
@@ -108,31 +84,35 @@ active_levels_t require_operable(const char *const what, const window_t window,
 int num_patches() { return driver().num_patches(); }
 
 int num_levels(const int patch) {
-  return resolve_patch(patch).leveldata.size();
+  return driver().patch(patch, "CarpetX::num_levels").num_levels();
 }
 
 level_t parent(const level_t level) {
-  resolve(level);
+  driver().level(level, "CarpetX::parent");
   if (level.level == 0)
     CCTK_VERROR("CarpetX level 0 of patch %d has no parent level", level.patch);
   return level_t{level.patch, level.level - 1};
 }
 
-rat64 iteration(const level_t level) { return resolve(level).iteration; }
+rat64 iteration(const level_t level) {
+  return driver().level(level, "CarpetX::iteration").iteration;
+}
 
 rat64 delta_iteration(const level_t level) {
-  return resolve(level).delta_iteration;
+  return driver().level(level, "CarpetX::delta_iteration").delta_iteration;
 }
 
 const amrex::Geometry &geometry(const level_t level) {
-  resolve(level);
-  return resolve_patch(level.patch).amrcore->Geom(level.level);
+  driver().level(level, "CarpetX::geometry");
+  return driver()
+      .patch(level.patch, "CarpetX::geometry")
+      .amrcore->Geom(level.level);
 }
 
 std::array<std::array<symmetry_t, Loop::dim>, 2>
 symmetries(const level_t level) {
-  resolve(level);
-  return resolve_patch(level.patch).symmetries;
+  driver().level(level, "CarpetX::symmetries");
+  return driver().patch(level.patch, "CarpetX::symmetries").symmetries;
 }
 
 int numvars(const group_t group) {

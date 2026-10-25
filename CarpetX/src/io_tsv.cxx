@@ -144,8 +144,8 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
   }
   }
 
-  for (const auto &patchdata : ghext->patchdata) {
-    for (const auto &leveldata : patchdata.leveldata) {
+  for (const auto &patchdata : ghext->patches()) {
+    for (const auto &leveldata : patchdata.levels()) {
       const auto &groupdata = *leveldata.groupdata.at(gi);
       const int tl = 0;
       const auto &geom = patchdata.amrcore->Geom(leveldata.level);
@@ -202,8 +202,7 @@ void OutputTSVold(const cGH *restrict cctkGH) {
     if (group.grouptype != CCTK_GF)
       continue;
 
-    auto &restrict groupdata0 =
-        *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
+    auto &restrict groupdata0 = *ghext->level(0, 0).groupdata.at(gi);
     if (groupdata0.tls.size() > 0) {
       const int tl = 0;
 
@@ -451,8 +450,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
                  const bool truncate_files, const out_fileinfo_t out_fileinfo,
                  const out_header_t out_header,
                  const bool output_boundary_points) {
-  const auto &groupdata0 =
-      *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
+  const auto &groupdata0 = *ghext->level(0, 0).groupdata.at(gi);
 
   // Number of values transmitted per grid point
   const int nintvalues = 1                  // patch
@@ -465,8 +463,8 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
 
   std::vector<CCTK_REAL> data;
   data.reserve(10000);
-  for (const auto &patchdata : ghext->patchdata) {
-    for (const auto &leveldata : patchdata.leveldata) {
+  for (const auto &patchdata : ghext->patches()) {
+    for (const auto &leveldata : patchdata.levels()) {
       const auto &groupdata = *leveldata.groupdata.at(gi);
 
       const int tl = 0;
@@ -491,7 +489,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
         else
           icoord[d] = lrint((outcoords[d] - x0[d]) / dx[d]);
 
-      const auto &symmetries = ghext->patchdata.at(leveldata.patch).symmetries;
+      const auto &symmetries = ghext->patch(leveldata.patch).symmetries;
 
       const auto &mfab = *groupdata.tls.at(tl).mfab;
 
@@ -749,10 +747,7 @@ void OutputTSV(const cGH *restrict cctkGH) {
     if (group_enabled.at(gi)) {
       const int grouptype = CCTK_GroupTypeI(gi);
       if (grouptype == CCTK_GF) {
-        if (ghext->patchdata.at(0)
-                .leveldata.at(0)
-                .groupdata.at(gi)
-                ->tls.empty())
+        if (ghext->level(0, 0).groupdata.at(gi)->tls.empty())
           continue;
       } else {
         if (ghext->globaldata.arraygroupdata.at(gi)->tls.empty())

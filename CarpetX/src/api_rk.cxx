@@ -250,7 +250,7 @@ std::string describe(const window_t &window) {
 integrated_groups_t integrated_groups_with_storage(const char *const what,
                                                    const level_t level,
                                                    const rk_config_t &config) {
-  const GHExt::PatchData::LevelData &leveldata = resolve(level);
+  const GHExt::PatchData::LevelData &leveldata = driver().level(level, what);
   integrated_groups_t groups;
   for (const rk_pair_t &pair : config.integrated) {
     const GroupData *const state = leveldata.groupdata.at(pair.state_gi).get();
@@ -282,9 +282,9 @@ std::vector<rk_level_t> integrated_levels(const char *const what,
 }
 
 bool aligned_with_parent(const level_t level) {
-  const GHExt::PatchData &patchdata = resolve_patch(level.patch);
-  return patchdata.leveldata.at(level.level).iteration ==
-         patchdata.leveldata.at(level.level - 1).iteration;
+  const GHExt::PatchData &patchdata = driver().patch(level.patch);
+  return patchdata.level(level.level).iteration ==
+         patchdata.level(level.level - 1).iteration;
 }
 
 void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
@@ -293,9 +293,9 @@ void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
   assert(driver().use_subcycling);
   assert(level.level > 0);
   assert(stage >= 1 && stage <= nstages);
-  const GHExt::PatchData::LevelData &leveldata = resolve(level);
+  const GHExt::PatchData::LevelData &leveldata = driver().level(level);
   const GHExt::PatchData::LevelData &parentdata =
-      resolve(level_t{level.patch, level.level - 1});
+      driver().level(level.patch, level.level - 1);
   const CCTK_REAL substep_start =
       aligned_with_parent(level) ? rk_substep_ratio : 0;
   const CCTK_REAL dtc =
@@ -392,7 +392,10 @@ void rk_step_t::rhs_computed() {
                     why.c_str());
   for (const rk_level_t &entry : p->levels) {
     const CCTK_REAL dt =
-        delta_time * CCTK_REAL(resolve(entry.level).delta_iteration);
+        delta_time *
+        CCTK_REAL(driver()
+                      .level(entry.level, "CarpetX::rk_step_t::rhs_computed")
+                      .delta_iteration);
     AccumulateFluxes(entry.level.patch, entry.level.level, stage, weight * dt);
     StoreRKStage(entry.level.patch, entry.level.level, entry.groups.states,
                  entry.groups.rhss, stage);

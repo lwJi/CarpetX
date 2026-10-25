@@ -465,7 +465,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     symmetry_reflected_z.resize(npoints);
     assert(ghext->num_patches() == 1);
     constexpr int patch = 0;
-    const amrex::Geometry &geom = ghext->patchdata.at(patch).amrcore->Geom(0);
+    const amrex::Geometry &geom = ghext->patch(patch).amrcore->Geom(0);
     const CCTK_REAL *restrict const xmin = geom.ProbLo();
 #pragma omp simd
     for (int n = 0; n < npoints; ++n) {
@@ -490,7 +490,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
 #pragma omp simd
   for (int n = 0; n < npoints; ++n) {
     const int patch = patches.at(n);
-    const amrex::Geometry &geom = ghext->patchdata.at(patch).amrcore->Geom(0);
+    const amrex::Geometry &geom = ghext->patch(patch).amrcore->Geom(0);
     const CCTK_REAL *restrict const xmin = geom.ProbLo();
     const CCTK_REAL *restrict const xmax = geom.ProbHi();
     const CCTK_REAL *restrict const dx = geom.CellSize();
@@ -535,10 +535,10 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     const PinnedParticleTile &pinned_particle_tile =
         pinned_particle_tiles.at(patch);
 
-    const auto &restrict patchdata = ghext->patchdata.at(patch);
+    const auto &restrict patchdata = ghext->patch(patch);
     containers.at(patch) = patchdata.amrcore.get();
     const int level = 0;
-    const auto &restrict leveldata = patchdata.leveldata.at(level);
+    const auto &restrict leveldata = patchdata.level(level);
     const amrex::MFIter mfi(*leveldata.fab);
     // The mfi can be invalid if the number of processes does not evenly divide
     // the number of blocks
@@ -653,9 +653,9 @@ void CarpetX::InterpolationSetup::Interpolate(
 
   rat64 min_level_iteration_used = -1;
   rat64 max_level_iteration_used = -1;
-  for (const auto &patchdata : ghext->patchdata) {
+  for (const auto &patchdata : ghext->patches()) {
     const int patch = patchdata.patch;
-    for (const auto &leveldata : patchdata.leveldata) {
+    for (const auto &leveldata : patchdata.levels()) {
       const int level = leveldata.level;
 
       for (amrex::ParConstIter<3, 2> pti(containers.at(patch), level);

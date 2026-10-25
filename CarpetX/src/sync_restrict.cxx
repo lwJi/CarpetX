@@ -93,8 +93,7 @@ static void sync_multipatch_boundaries(const cGH *cctkGH,
   if (have_multipatch_boundaries) {
     std::vector<CCTK_INT> cactusvarinds;
     for (int group : groups) {
-      const auto &groupdata =
-          *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(group);
+      const auto &groupdata = *ghext->level(0, 0).groupdata.at(group);
       for (int var = 0; var < groupdata.numvars; ++var)
         cactusvarinds.push_back(groupdata.firstvarindex + var);
     }
@@ -105,8 +104,7 @@ static void sync_multipatch_boundaries(const cGH *cctkGH,
 }
 
 static int timelevels_but_oldest(const int gi) {
-  const auto &groupdata0 =
-      *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
+  const auto &groupdata0 = *ghext->level(0, 0).groupdata.at(gi);
   assert(!groupdata0.tls.empty());
   const int ntls = groupdata0.tls.size();
   return ntls > 1 ? ntls - 1 : ntls;
@@ -166,7 +164,7 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
                         const int gi, const int tl, const char *const label) {
   assert(leveldata.level > 0);
   const auto &restrict coarseleveldata =
-      ghext->patchdata.at(leveldata.patch).leveldata.at(leveldata.level - 1);
+      ghext->level(leveldata.patch, leveldata.level - 1);
   const auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
   const bool recovering =
       ghext->recovered_iteration >= 0 &&
@@ -213,8 +211,8 @@ std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
   groups.reserve(numgroups);
-  const auto &patchdata0 = ghext->patchdata.at(0);
-  const auto &leveldata0 = patchdata0.leveldata.at(0);
+  const auto &patchdata0 = ghext->patch(0);
+  const auto &leveldata0 = patchdata0.level(0);
   for (const auto &groupdataptr : leveldata0.groupdata) {
     if (groupdataptr) {
       auto &restrict groupdata = *groupdataptr;
@@ -232,8 +230,8 @@ static std::vector<int> reprolongate_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
   groups.reserve(numgroups);
-  const auto &patchdata0 = ghext->patchdata.at(0);
-  const auto &leveldata0 = patchdata0.leveldata.at(0);
+  const auto &patchdata0 = ghext->patch(0);
+  const auto &leveldata0 = patchdata0.level(0);
   for (const auto &groupdataptr : leveldata0.groupdata) {
     if (groupdataptr) {
       auto &restrict groupdata = *groupdataptr;
@@ -248,15 +246,11 @@ static std::vector<int> reprolongate_groups() {
   return groups;
 }
 
-// The groups of a SYNC that its restriction (restrict_during_sync) restricts:
-// every group in `groups` except those tagged restrict="no". Unlike at the
-// end of a step, a group without a restrict tag is restricted whatever its
-// checkpoint tag. The SYNC still fills the ghosts of every group in `groups`.
 static std::vector<int> sync_restrict_groups(const std::vector<int> &groups) {
   std::vector<int> restrict_groups;
   restrict_groups.reserve(groups.size());
-  const auto &patchdata0 = ghext->patchdata.at(0);
-  const auto &leveldata0 = patchdata0.leveldata.at(0);
+  const auto &patchdata0 = ghext->patch(0);
+  const auto &leveldata0 = patchdata0.level(0);
   for (const int gi : groups) {
     // The SYNC passes only grid functions with storage
     const auto &groupdataptr = leveldata0.groupdata.at(gi);
@@ -299,8 +293,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
           return false;
         if (ghext->use_subcycling && prolongate_on_same_iteration) {
           const auto &restrict coarseleveldata =
-              ghext->patchdata.at(leveldata.patch)
-                  .leveldata.at(leveldata.level - 1);
+              ghext->level(leveldata.patch, leveldata.level - 1);
           return leveldata.iteration == coarseleveldata.iteration;
         }
         return true;
@@ -319,8 +312,8 @@ static int SyncGroupsByDirIProlongateOnly_impl(
       split_levels(active_levels, prolongates_into);
   std::vector<write_scope_t> scopes;
   for (const int gi : groups) {
-    const auto [tl_lo, tl_hi] = timelevels_to_fill(
-        *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi));
+    const auto [tl_lo, tl_hi] =
+        timelevels_to_fill(*ghext->level(0, 0).groupdata.at(gi));
     for (const level_run_t &run : runs) {
       if (!run.value)
         continue;
@@ -358,7 +351,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
 
       const int level = leveldata.level;
       const auto &restrict coarseleveldata =
-          ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
+          ghext->level(leveldata.patch, level - 1);
 
       auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
       assert(!coarsegroupdata.tls.empty());
@@ -372,14 +365,12 @@ static int SyncGroupsByDirIProlongateOnly_impl(
                                 "level before prolongation");
         tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                 &coarsegroupdata, interpolator, tl]() {
-          FillPatch_ProlongateOnly(tasks2, tasks3, groupdata, coarsegroupdata,
-                                   *groupdata.tls.at(tl).mfab,
-                                   *coarsegroupdata.tls.at(tl).mfab,
-                                   ghext->patchdata.at(leveldata.patch)
-                                       .amrcore->Geom(leveldata.level),
-                                   ghext->patchdata.at(leveldata.patch)
-                                       .amrcore->Geom(leveldata.level - 1),
-                                   interpolator, groupdata.bcrecs);
+          FillPatch_ProlongateOnly(
+              tasks2, tasks3, groupdata, coarsegroupdata,
+              *groupdata.tls.at(tl).mfab, *coarsegroupdata.tls.at(tl).mfab,
+              ghext->patch(leveldata.patch).amrcore->Geom(leveldata.level),
+              ghext->patch(leveldata.patch).amrcore->Geom(leveldata.level - 1),
+              interpolator, groupdata.bcrecs);
         });
 
       } // for tl
@@ -503,9 +494,9 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
 
         for (int tl = 0; tl < sync_tl; ++tl) {
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-            FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
-                           ghext->patchdata.at(leveldata.patch)
-                               .amrcore->Geom(leveldata.level));
+            FillPatch_Sync(
+                tasks2, groupdata, *groupdata.tls.at(tl).mfab,
+                ghext->patch(leveldata.patch).amrcore->Geom(leveldata.level));
           });
         } // for tl
 
@@ -515,7 +506,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
 
         const int level = leveldata.level;
         const auto &restrict coarseleveldata =
-            ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
+            ghext->level(leveldata.patch, level - 1);
         auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
         assert(!coarsegroupdata.tls.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
@@ -531,9 +522,8 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
             FillPatch_ProlongateGhosts(
                 tasks2, tasks3, groupdata, coarsegroupdata,
                 *groupdata.tls.at(tl).mfab, *coarsegroupdata.tls.at(tl).mfab,
-                ghext->patchdata.at(leveldata.patch)
-                    .amrcore->Geom(leveldata.level),
-                ghext->patchdata.at(leveldata.patch)
+                ghext->patch(leveldata.patch).amrcore->Geom(leveldata.level),
+                ghext->patch(leveldata.patch)
                     .amrcore->Geom(leveldata.level - 1),
                 interpolator, groupdata.bcrecs);
           });
@@ -685,9 +675,9 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
                                             .where = make_valid_int(),
                                             .event = sync_label});
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-            FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
-                           ghext->patchdata.at(leveldata.patch)
-                               .amrcore->Geom(leveldata.level));
+            FillPatch_Sync(
+                tasks2, groupdata, *groupdata.tls.at(tl).mfab,
+                ghext->patch(leveldata.patch).amrcore->Geom(leveldata.level));
           });
         } // for tl
 
@@ -695,7 +685,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
         const int level = leveldata.level;
         const auto &restrict coarseleveldata =
-            ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
+            ghext->level(leveldata.patch, level - 1);
         auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
         assert(!coarsegroupdata.tls.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
@@ -710,9 +700,9 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
                                               .where = make_valid_int(),
                                               .event = sync_label});
             tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-              FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
-                             ghext->patchdata.at(leveldata.patch)
-                                 .amrcore->Geom(leveldata.level));
+              FillPatch_Sync(
+                  tasks2, groupdata, *groupdata.tls.at(tl).mfab,
+                  ghext->patch(leveldata.patch).amrcore->Geom(leveldata.level));
             });
           } // for tl
         } else {
@@ -746,9 +736,8 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
               FillPatch_ProlongateGhosts(
                   tasks2, tasks3, groupdata, coarsegroupdata,
                   *groupdata.tls.at(tl).mfab, *coarsegroupdata.tls.at(tl).mfab,
-                  ghext->patchdata.at(leveldata.patch)
-                      .amrcore->Geom(leveldata.level),
-                  ghext->patchdata.at(leveldata.patch)
+                  ghext->patch(leveldata.patch).amrcore->Geom(leveldata.level),
+                  ghext->patch(leveldata.patch)
                       .amrcore->Geom(leveldata.level - 1),
                   interpolator, groupdata.bcrecs, cmfab_old, tl_w_new);
             });
@@ -860,9 +849,9 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
 
       for (int tl = tl_lo; tl < tl_hi; ++tl) {
         tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-          FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
-                         ghext->patchdata.at(leveldata.patch)
-                             .amrcore->Geom(leveldata.level));
+          FillPatch_Sync(
+              tasks2, groupdata, *groupdata.tls.at(tl).mfab,
+              ghext->patch(leveldata.patch).amrcore->Geom(leveldata.level));
         });
       } // for tl
     });
@@ -913,27 +902,9 @@ static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
   return area;
 }
 
-// See subcycling.hxx for the contract and driver.hxx for the members. The
-// four MultiFabs are built by amrex::Geometry::GetFaceArea and GetVolume on
-// the level's cell-centred BoxArray (converted to the d-face centring for
-// face_area[d]) and DistributionMapping, the layout of every GroupData
-// MultiFab of the level up to centring, which is what the area and volume
-// overloads of amrex::FluxRegister require: FineAdd indexes `area` with the
-// MFIter of the flux MultiFab, Reflux indexes `volume` with the MFIter of
-// the state. (The coarse side of AccumulateFluxes uses the scalar
-// face_areas() instead, bitwise the same value.) Zero ghosts suffice: every
-// read is on a valid face or cell of the level's own boxes.
-//
-// Bit-identity: for Cartesian geometry (the only one AMReX supports in 3D)
-// GetVolume fills dx[0]*dx[1]*dx[2] (AMReX_Geometry.cpp:221), the product
-// AMReX's constant-volume Reflux overload forms, so switching Reflux
-// overloads leaves the correction bit-identical; GetFaceArea fills
-// dx[1]*dx[2], dx[0]*dx[2], dx[0]*dx[1] for d = 0, 1, 2
-// (AMReX_Geometry.cpp:327-331), the products face_areas() forms, so the
-// scalar and the MultiFab areas agree bitwise.
 void EnsureFluxGeometry(const int patch, const int level) {
-  const auto &patchdata = ghext->patchdata.at(patch);
-  const auto &leveldata = patchdata.leveldata.at(level);
+  const auto &patchdata = ghext->patch(patch);
+  const auto &leveldata = patchdata.level(level);
 
   // All four are allocated together, or none is
   [[maybe_unused]] const auto have_all_or_none = [&]() {
@@ -972,11 +943,11 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   static Timer timer("AccumulateFluxes");
   Interval interval(timer);
 
-  const auto &patchdata = ghext->patchdata.at(patch);
-  const auto &leveldata = patchdata.leveldata.at(level);
-  const bool have_child = level + 1 < int(patchdata.leveldata.size());
+  const auto &patchdata = ghext->patch(patch);
+  const auto &leveldata = patchdata.level(level);
+  const bool have_child = level + 1 < patchdata.num_levels();
   const auto *const childleveldata =
-      have_child ? &patchdata.leveldata.at(level + 1) : nullptr;
+      have_child ? &patchdata.level(level + 1) : nullptr;
   const int tl = 0;
   const active_levels_t this_level(level, level + 1, patch, patch + 1);
 
@@ -1082,12 +1053,12 @@ static void reflux_level(const cGH *cctkGH, const int level) {
   static Timer timer("Reflux");
   Interval interval(timer);
 
-  for (const auto &patchdata : ghext->patchdata) {
-    if (level + 1 >= int(patchdata.leveldata.size()))
+  for (const auto &patchdata : ghext->patches()) {
+    if (level + 1 >= patchdata.num_levels())
       continue;
     const int patch = patchdata.patch;
-    const auto &leveldata = patchdata.leveldata.at(level);
-    const auto &fineleveldata = patchdata.leveldata.at(level + 1);
+    const auto &leveldata = patchdata.level(level);
+    const auto &fineleveldata = patchdata.level(level + 1);
     const amrex::Geometry &geom = patchdata.amrcore->Geom(level);
     const active_levels_t coarse_level(level, level + 1, patch, patch + 1);
     const int tl = 0;
@@ -1169,11 +1140,11 @@ static void restrict_level(const cGH *cctkGH, const int level,
   gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
   assert(gi_regrid_error >= 0);
 
-  for (const auto &patchdata : ghext->patchdata) {
+  for (const auto &patchdata : ghext->patches()) {
     const int patch = patchdata.patch;
-    if (level + 1 < int(patchdata.leveldata.size())) {
-      auto &leveldata = patchdata.leveldata.at(level);
-      const auto &fineleveldata = patchdata.leveldata.at(level + 1);
+    if (level + 1 < patchdata.num_levels()) {
+      auto &leveldata = patchdata.level(level);
+      const auto &fineleveldata = patchdata.level(level + 1);
       const active_levels_t active_levels(level, level + 1, patch, patch + 1);
       const active_levels_t active_fine_levels(level + 1, level + 2, patch,
                                                patch + 1);

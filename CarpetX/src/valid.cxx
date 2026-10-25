@@ -162,8 +162,8 @@ void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
   active_levels.loop_parallel([&](const int patch, const int level,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patchdata.at(patch);
-    const auto &leveldata = patchdata.leveldata.at(level);
+    const auto &patchdata = ghext->patch(patch);
+    const auto &leveldata = patchdata.level(level);
     auto &restrict groupdata = *leveldata.groupdata.at(gi);
     assert(!groupdata.tls.empty());
 
@@ -231,8 +231,8 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
   active_levels.loop_parallel([&](const int patch, const int level,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patchdata.at(patch);
-    const auto &leveldata = patchdata.leveldata.at(level);
+    const auto &patchdata = ghext->patch(patch);
+    const auto &leveldata = patchdata.level(level);
     auto &restrict groupdata = *leveldata.groupdata.at(gi);
     assert(!groupdata.tls.empty());
 
@@ -292,8 +292,8 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
   active_levels.loop_serially([&](const int patch, const int level,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patchdata.at(patch);
-    const auto &leveldata = patchdata.leveldata.at(level);
+    const auto &patchdata = ghext->patch(patch);
+    const auto &leveldata = patchdata.level(level);
     auto &restrict groupdata = *leveldata.groupdata.at(gi);
     assert(!groupdata.tls.empty());
 
@@ -705,8 +705,8 @@ checksums_t calculate_checksums(
   active_levels.loop_parallel([&](const int patch, const int level,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patchdata.at(patch);
-    const auto &leveldata = patchdata.leveldata.at(level);
+    const auto &patchdata = ghext->patch(patch);
+    const auto &leveldata = patchdata.level(level);
     for (const auto &groupdataptr : leveldata.groupdata) {
       if (!groupdataptr)
         continue;
@@ -782,8 +782,8 @@ void check_checksums(const active_levels_t &active_levels,
   active_levels.loop_parallel([&](const int patch, const int level,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patchdata.at(patch);
-    const auto &leveldata = patchdata.leveldata.at(level);
+    const auto &patchdata = ghext->patch(patch);
+    const auto &leveldata = patchdata.level(level);
     for (const auto &groupdataptr : leveldata.groupdata) {
       if (!groupdataptr)
         continue;
