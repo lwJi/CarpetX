@@ -115,11 +115,11 @@ void OutputNorms(const cGH *restrict cctkGH) {
         const GHExt::PatchData::LevelData &restrict leveldata =
             patchdata.level(level);
         const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
-            *leveldata.groupdata.at(gi);
+            leveldata.group(gi);
 
         bool group_has_valid_variables = false;
         for (int vi = 0; vi < group.numvars; ++vi) {
-          if (!groupdata.tls.at(tl).valid(vi).valid_int)
+          if (!groupdata.timelevel(tl).valid(vi).valid_int)
             continue;
           group_has_valid_variables = true;
         }
@@ -141,7 +141,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
         file << sep << ++col << ":time";
 
         for (int vi = 0; vi < group.numvars; ++vi) {
-          if (!groupdata.tls.at(tl).valid(vi).valid_int)
+          if (!groupdata.timelevel(tl).valid(vi).valid_int)
             continue;
 
           std::string varname = CCTK_FullVarName(group.firstvarindex + vi);
@@ -170,11 +170,11 @@ void OutputNorms(const cGH *restrict cctkGH) {
     const GHExt::PatchData::LevelData &restrict leveldata =
         patchdata.level(level);
     const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
-        *leveldata.groupdata.at(gi);
+        leveldata.group(gi);
 
     bool group_has_valid_variables = false;
     for (int vi = 0; vi < group.numvars; ++vi) {
-      if (!groupdata.tls.at(tl).valid(vi).valid_int)
+      if (!groupdata.timelevel(tl).valid(vi).valid_int)
         continue;
       group_has_valid_variables = true;
     }
@@ -203,7 +203,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
     }
 
     for (int vi = 0; vi < groupdata.group.numvars; ++vi) {
-      if (!groupdata.tls.at(tl).valid(vi).valid_int)
+      if (!groupdata.timelevel(tl).valid(vi).valid_int)
         continue;
 
       ofd.variables.push_back(

@@ -16,46 +16,9 @@ namespace CarpetX {
 
 namespace {
 
-void require_grid_function(const char *const what, const int gi) {
-  if (gi < 0 || gi >= CCTK_NumGroups())
-    CCTK_VERROR("%s: group index %d does not exist: there are %d groups", what,
-                gi, CCTK_NumGroups());
-  if (CCTK_GroupTypeI(gi) != CCTK_GF)
-    CCTK_VERROR("%s: group %s is not a grid function group", what,
-                CCTK_FullGroupName(gi));
-}
-
-GHExt::PatchData::LevelData::GroupData &
-resolve(const char *const what, GHExt::PatchData::LevelData &leveldata,
-        const int gi) {
-  require_grid_function(what, gi);
-  GHExt::PatchData::LevelData::GroupData *const groupdata =
-      leveldata.groupdata.at(gi).get();
-  if (!groupdata || groupdata->tls.empty())
-    CCTK_VERROR("%s: group %s has no storage on patch %d, refinement level %d",
-                what, CCTK_FullGroupName(gi), leveldata.patch, leveldata.level);
-  return *groupdata;
-}
-
-void require_timelevel(const char *const what,
-                       const GHExt::PatchData::LevelData::GroupData &groupdata,
-                       const int tl) {
-  const int ntls = groupdata.tls.size();
-  if (tl < 0 || tl >= ntls)
-    CCTK_VERROR("%s: time level %d of group %s does not exist on patch %d, "
-                "refinement level %d: it has %d time levels",
-                what, tl, groupdata.group.groupname.c_str(), groupdata.patch,
-                groupdata.level, ntls);
-}
-
 std::string event_name(const char *const what) { return what ? what : ""; }
 
 } // namespace
-
-GHExt::PatchData::LevelData::GroupData &resolve(const char *const what,
-                                                const group_t group) {
-  return resolve(what, driver().level(group.level, what), group.gi);
-}
 
 void require_no_open_write(
     const char *const what,
@@ -71,12 +34,12 @@ void require_no_open_write(
 active_levels_t require_operable(const char *const what, const window_t window,
                                  const std::vector<int> &groups) {
   for (const int gi : groups)
-    require_grid_function(what, gi);
+    driver().group(gi, what);
   const active_levels_t active_levels(window);
   active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
     for (const int gi : groups)
-      if (const auto *const groupdata = leveldata.groupdata.at(gi).get())
-        require_no_open_write(what, *groupdata);
+      if (driver().group(gi, what).has_storage())
+        require_no_open_write(what, leveldata.group(gi, what));
   });
   return active_levels;
 }
@@ -116,15 +79,15 @@ symmetries(const level_t level) {
 }
 
 int numvars(const group_t group) {
-  return resolve("CarpetX::numvars", group).group.numvars;
+  return driver().group(group, "CarpetX::numvars").group.numvars;
 }
 
 std::array<int, Loop::dim> indextype(const group_t group) {
-  return resolve("CarpetX::indextype", group).indextype;
+  return driver().group(group, "CarpetX::indextype").indextype;
 }
 
 std::array<int, Loop::dim> nghostzones(const group_t group) {
-  return resolve("CarpetX::nghostzones", group).nghostzones;
+  return driver().group(group, "CarpetX::nghostzones").nghostzones;
 }
 
 void window_t::loop_serially(
@@ -164,9 +127,10 @@ window_t all_levels() {
 }
 
 const amrex::MultiFab &data(const group_t group, const int tl) {
-  const auto &groupdata = resolve("CarpetX::data", group);
-  require_timelevel("CarpetX::data", groupdata, tl);
-  return *groupdata.tls.at(tl).mfab;
+  return *driver()
+              .group(group, "CarpetX::data")
+              .timelevel(tl, "CarpetX::data")
+              .mfab;
 }
 
 struct write_t::impl {
@@ -187,16 +151,18 @@ write_t::write_t(write_t &&) noexcept = default;
 amrex::MultiFab &write_t::mfab() {
   if (!p)
     CCTK_ERROR("CarpetX::write_t::mfab() called on a moved-from write scope");
-  return *resolve("CarpetX::write_t::mfab", p->group).tls.at(p->tl).mfab;
+  return *driver()
+              .group(p->group, "CarpetX::write_t::mfab")
+              .timelevel(p->tl, "CarpetX::write_t::mfab")
+              .mfab;
 }
 
 write_t::~write_t() = default;
 
 write_t write(const group_t group, const int tl, const valid_t leaves_valid,
               const char *const what) {
-  auto &groupdata = resolve("CarpetX::write", group);
-  require_timelevel("CarpetX::write", groupdata, tl);
-  const int open_writes = groupdata.tls.at(tl).open_writes;
+  auto &groupdata = driver().group(group, "CarpetX::write");
+  const int open_writes = groupdata.timelevel(tl, "CarpetX::write").open_writes;
   if (open_writes > 0)
     CCTK_VERROR("CarpetX::write: time level %d of group %s has %d open write "
                 "scope%s (CarpetX::write) on patch %d, refinement level %d; "
@@ -222,7 +188,7 @@ namespace {
 GHExt::PatchData::LevelData::GroupData::scratch_slot_t &
 resolve_scratch(const char *const what, const group_t group,
                 const std::size_t slot) {
-  auto &pool = resolve(what, group).scratch_pool;
+  auto &pool = driver().group(group, what).scratch_pool;
   if (slot >= pool.size() || !pool.at(slot).in_use)
     CCTK_VERROR("%s: scratch buffer %d of group %s on patch %d, refinement "
                 "level %d no longer exists: the level was remade while the "
@@ -260,13 +226,13 @@ scratch_t::~scratch_t() {
 }
 
 scratch_t scratch(const group_t group) {
-  auto &groupdata = resolve("CarpetX::scratch", group);
+  auto &groupdata = driver().group(group, "CarpetX::scratch");
   auto &pool = groupdata.scratch_pool;
   std::size_t slot = 0;
   while (slot < pool.size() && pool.at(slot).in_use)
     ++slot;
   if (slot == pool.size()) {
-    const amrex::MultiFab &mfab0 = *groupdata.tls.at(0).mfab;
+    const amrex::MultiFab &mfab0 = *groupdata.timelevel(0).mfab;
     pool.push_back({std::make_unique<amrex::MultiFab>(
                         mfab0.boxArray(), mfab0.DistributionMap(),
                         mfab0.nComp(), mfab0.nGrowVect()),
@@ -278,19 +244,20 @@ scratch_t scratch(const group_t group) {
 }
 
 valid_t valid(const group_t group, const int tl, const int vi) {
-  const auto &groupdata = resolve("CarpetX::valid", group);
-  require_timelevel("CarpetX::valid", groupdata, tl);
+  const auto &groupdata = driver().group(group, "CarpetX::valid");
+  const auto &timelevel = groupdata.timelevel(tl, "CarpetX::valid");
   if (vi < 0 || vi >= groupdata.group.numvars)
     CCTK_VERROR("CarpetX::valid: variable index %d of group %s does not "
                 "exist: it has %d variables",
                 vi, groupdata.group.groupname.c_str(), groupdata.group.numvars);
-  return groupdata.tls.at(tl).valid(vi);
+  return timelevel.valid(vi);
 }
 
 void require_valid(const group_t group, const int tl, const valid_t where,
                    const char *const why) {
-  const auto &groupdata = resolve("CarpetX::require_valid", group);
-  require_timelevel("CarpetX::require_valid", groupdata, tl);
+  driver()
+      .group(group, "CarpetX::require_valid")
+      .timelevel(tl, "CarpetX::require_valid");
   require(one_level(group.level),
           {.gi = group.gi, .tl = tl, .where = where, .event = event_name(why)});
 }
@@ -302,8 +269,8 @@ void invalidate(const window_t window, const std::vector<int> &groups,
   const std::string event = event_name(why);
   for (const int gi : groups) {
     active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
-      const auto &groupdata = resolve("CarpetX::invalidate", leveldata, gi);
-      require_timelevel("CarpetX::invalidate", groupdata, tl);
+      leveldata.group(gi, "CarpetX::invalidate")
+          .timelevel(tl, "CarpetX::invalidate");
     });
     invalidate(active_levels,
                {.gi = gi, .tl = tl, .where = make_valid_all(), .event = event});

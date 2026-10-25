@@ -29,7 +29,10 @@ VALIDITY_WORD = re.compile(
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
 WALK_FILES = ("CarpetX/src/driver.hxx",)
-WALK_WORD = re.compile(r"\b(patchdata|leveldata|arraygroupdata)\s*\.\s*at\s*\(")
+WALK_WORD = re.compile(
+    r"\b(patchdata|leveldata|groupdata|arraygroupdata)\s*\.\s*at\s*\("
+    r"|\btls\s*\.\s*(at\s*\(|empty\s*\(\s*\)|size\s*\(\s*\))"
+)
 EXCERPT_WIDTH = 72
 
 RULE = (
@@ -40,8 +43,9 @@ RULE = (
     "validity: a validity kernel or a why_valid_t setter is named only in CarpetX/src/valid.cxx\n"
     "and valid.hxx; every other site opens a write scope or calls require or invalidate.\n"
     "walk: the hierarchy's containers are indexed only in CarpetX/src/driver.hxx; every other\n"
-    "site resolves a patch, a level or a group record through ghext->patch, ghext->level,\n"
-    "patchdata.level or ghext->group, and an array's data through ghext->group(gi).array()."
+    "site resolves a patch, a level, a group or a time level through ghext->patch, ghext->level,\n"
+    "patchdata.level, leveldata.group and groupdata.timelevel, a group record through\n"
+    "ghext->group, and an array's data through ghext->group(gi).array()."
 )
 
 

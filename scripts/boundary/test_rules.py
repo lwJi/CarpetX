@@ -89,7 +89,7 @@ class Validity(unittest.TestCase):
         "check_valid_ga(gi, vi, tl, msg);",
     ]
     SETTERS = [
-        "groupdata.tls.at(0).why_valid(0).set_all(valid_t(), why);",
+        "groupdata.timelevel(0).why_valid(0).set_all(valid_t(), why);",
         "why.set_int(false, reason);",
         "why.set_outer(true, reason);",
         "why.set_ghosts(true, reason);",
@@ -152,6 +152,12 @@ class Walk(unittest.TestCase):
         "if (patchdata0 . leveldata . at ( 0 ).iteration != it)",
         "auto &arraygroupdata = *ghext->globaldata.arraygroupdata.at(gi);",
         "if (globaldata.arraygroupdata.at(gi)->tls.empty()) continue;",
+        "auto &restrict groupdata = *leveldata.groupdata.at(gi);",
+        "if (!groupdata || groupdata->tls.empty())",
+        "const int ntls = groupdata.tls.size();",
+        "amrex::MultiFab &mfab = *groupdata.tls.at(tl).mfab;",
+        "assert(!coarsegroupdata . tls . empty ( ));",
+        "for (int tl = 0; tl < int(groupdata.tls.size()); ++tl)",
     ]
 
     def test_the_walk_is_reported_in_carpetx_src(self):
@@ -182,12 +188,21 @@ class Walk(unittest.TestCase):
             "if (!mask.at(gi)) continue;\n",
             "recovered = &ghext->recovered_levels.at(patch).at(level);\n",
             "const auto &finest = leveldatas.at(ghext->num_levels() - 1);\n",
-            "auto &groupdata = *leveldata.groupdata.at(gi);\n",
             "ghext->active_timelevels.at(gi) = ntls;\n",
             "const auto &group = ghext->group(gi);\n",
             "auto &arraydata = ghext->group(gi).array();\n",
             "const auto &data = arraygroupdata.timelevel(tl).data;\n",
             "for (const auto &group : ghext->groups(group_kind::grid_function))\n",
+            "auto &groupdata = leveldata.group(gi);\n",
+            "const valid_t have = groupdata.timelevel(tl).valid(vi);\n",
+            "for (const auto &groupdata : leveldata.groups())\n",
+            "const int ntls = groupdata.num_timelevels();\n",
+            "const int *tls, int *status);\n",
+            "GroupStorageIncrease(cctkGH, 1, &group, &tls, &status);\n",
+            "int ntls = requested_tls[n];\n",
+            "tls.reserve(ntls);\n",
+            "std::rotate(tls.begin(), tls.end() - 1, tls.end());\n",
+            "for (const auto &timelevel : groupdata.tls)\n",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/driver.cxx", text), [])

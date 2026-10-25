@@ -52,6 +52,9 @@ inline constexpr int max_num_rk_stages = 4;
 enum class group_kind { grid_function, array, scalar };
 
 template <typename U> U &storage_entry(U &entry) { return entry; }
+template <typename U> U &storage_entry(std::unique_ptr<U> &entry) {
+  return *entry;
+}
 template <typename U> U &storage_entry(const std::unique_ptr<U> &entry) {
   return *entry;
 }
@@ -579,7 +582,25 @@ struct GHExt {
           std::vector<why_valid_t> valid_;
           friend class write_scope_t;
         };
-        std::vector<timelevel_t> tls;
+        const timelevel_t &
+        timelevel(const int tl, const char *const what = nullptr,
+                  const std::source_location site =
+                      std::source_location::current()) const {
+          if (tl < 0 || tl >= int(tls.size()))
+            refuse(site, what,
+                   "time level %d of group %s does not exist on patch %d, "
+                   "refinement level %d: it has %d time levels",
+                   tl, group.groupname.c_str(), patch, level, int(tls.size()));
+          return tls[tl];
+        }
+        timelevel_t &timelevel(
+            const int tl, const char *const what = nullptr,
+            const std::source_location site = std::source_location::current()) {
+          return const_cast<timelevel_t &>(
+              std::as_const(*this).timelevel(tl, what, site));
+        }
+        int num_timelevels() const { return tls.size(); }
+        void rotate_timelevels();
         int open_write_count() const {
           int count = 0;
           for (const timelevel_t &tl : tls)
@@ -661,11 +682,58 @@ struct GHExt {
         };
         std::vector<scratch_slot_t> scratch_pool;
 
+      private:
+        std::vector<timelevel_t> tls;
+
         friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                          const GroupData &groupdata);
       };
-      // TODO: right now this is sized for the total number of groups
-      std::vector<std::unique_ptr<GroupData> > groupdata; // [group index]
+
+      struct group_storage_filter {
+        bool operator()(const std::unique_ptr<GroupData> &groupdata) const {
+          return groupdata && groupdata->num_timelevels() > 0;
+        }
+      };
+
+      const GroupData &group(const int gi, const char *const what = nullptr,
+                             const std::source_location site =
+                                 std::source_location::current()) const {
+        if (gi < 0 || gi >= int(groupdata.size()))
+          refuse(site, what,
+                 "group index %d does not exist: there are %d groups", gi,
+                 int(groupdata.size()));
+        const GroupData *const gd = groupdata[gi].get();
+        if (!gd)
+          refuse(site, what, "group %s is not a grid function group",
+                 CCTK_FullGroupName(gi));
+        if (gd->num_timelevels() == 0)
+          refuse(site, what,
+                 "group %s has no storage on patch %d, refinement level %d",
+                 CCTK_FullGroupName(gi), patch, level);
+        return *gd;
+      }
+      GroupData &
+      group(const int gi, const char *const what = nullptr,
+            const std::source_location site = std::source_location::current()) {
+        return const_cast<GroupData &>(
+            std::as_const(*this).group(gi, what, site));
+      }
+      auto groups() const {
+        return storage_range<
+            const GroupData,
+            std::vector<std::unique_ptr<GroupData> >::const_iterator,
+            group_storage_filter>(groupdata.begin(), groupdata.end(),
+                                  group_storage_filter{});
+      }
+      auto groups() {
+        return storage_range<GroupData,
+                             std::vector<std::unique_ptr<GroupData> >::iterator,
+                             group_storage_filter>(
+            groupdata.begin(), groupdata.end(), group_storage_filter{});
+      }
+
+    private:
+      std::vector<std::unique_ptr<GroupData> > groupdata;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const LevelData &leveldata);
@@ -740,6 +808,17 @@ struct GHExt {
         const std::source_location site = std::source_location::current()) {
     return const_cast<PatchData::LevelData &>(
         std::as_const(*this).level(level, what, site));
+  }
+  const PatchData::LevelData::GroupData &group(
+      const group_t group, const char *const what = nullptr,
+      const std::source_location site = std::source_location::current()) const {
+    return this->level(group.level, what, site).group(group.gi, what, site);
+  }
+  PatchData::LevelData::GroupData &
+  group(const group_t group, const char *const what = nullptr,
+        const std::source_location site = std::source_location::current()) {
+    return const_cast<PatchData::LevelData::GroupData &>(
+        std::as_const(*this).group(group, what, site));
   }
   std::span<const PatchData> patches() const { return patchdata; }
   std::span<PatchData> patches() { return patchdata; }

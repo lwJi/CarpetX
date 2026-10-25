@@ -858,8 +858,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
 
   // First read grid functions in a loop over patches and levels
 
-  for (const auto &patchdata : ghext->patches()) {
-    for (const auto &leveldata : patchdata.levels()) {
+  for (auto &patchdata : ghext->patches()) {
+    for (auto &leveldata : patchdata.levels()) {
       if (io_verbose)
         CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
                    leveldata.level);
@@ -902,32 +902,25 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                    int(idomain.hi[2]));
       }
 
-      const int numgroups = CCTK_NumGroups();
-      for (int gi = 0; gi < numgroups; ++gi) {
+      for (auto &groupdata : leveldata.groups()) {
+        const int gi = groupdata.group.groupindex;
         if (input_group.at(gi)) {
-
-          // Check group properties
 
           cGroup cgroup;
           const int ierr = CCTK_GroupData(gi, &cgroup);
           assert(!ierr);
-          if (cgroup.grouptype != CCTK_GF)
-            continue;
           assert(cgroup.vartype == CCTK_VARIABLE_REAL);
           assert(cgroup.dim == 3);
 
           if (io_verbose)
             CCTK_VINFO("Reading group %s...", CCTK_FullGroupName(gi));
 
-          auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.tls.empty())
-            continue;
           const int numvars = groupdata.group.numvars;
 
           const int tl_count =
-              tl_mode == TimeLevelMode::All ? int(groupdata.tls.size()) : 1;
+              tl_mode == TimeLevelMode::All ? groupdata.num_timelevels() : 1;
           for (int tl = 0; tl < tl_count; ++tl) {
-            amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+            amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::IndexType &indextype = mfab.ixType();
             const Arith::vect<bool, 3> is_cell_centred{
                 indextype.cellCentered(0), indextype.cellCentered(1),
@@ -1737,32 +1730,25 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       const openPMD::Extent extent = to_vector(reversed(idomain.shape()));
       const openPMD::Dataset dataset(datatype, extent);
 
-      const int numgroups = CCTK_NumGroups();
-      for (int gi = 0; gi < numgroups; ++gi) {
+      for (const auto &groupdata : leveldata.groups()) {
+        const int gi = groupdata.group.groupindex;
         if (output_group.at(gi)) {
-
-          // Check group properties
 
           cGroup cgroup;
           const int ierr = CCTK_GroupData(gi, &cgroup);
           assert(!ierr);
-          if (cgroup.grouptype != CCTK_GF)
-            continue;
           assert(cgroup.vartype == CCTK_VARIABLE_REAL);
           assert(cgroup.dim == 3);
 
           if (io_verbose)
             CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
 
-          const auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.tls.empty())
-            continue;
           const int numvars = groupdata.group.numvars;
 
           const int tl_count =
-              tl_mode == TimeLevelMode::All ? int(groupdata.tls.size()) : 1;
+              tl_mode == TimeLevelMode::All ? groupdata.num_timelevels() : 1;
           for (int tl = 0; tl < tl_count; ++tl) {
-            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::IndexType &indextype = mfab.ixType();
             const Arith::vect<bool, 3> is_cell_centred{
                 indextype.cellCentered(0), indextype.cellCentered(1),

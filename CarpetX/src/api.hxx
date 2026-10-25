@@ -12,8 +12,6 @@
 
 namespace CarpetX {
 
-GHExt::PatchData::LevelData::GroupData &resolve(const char *what,
-                                                group_t group);
 void require_no_open_write(
     const char *what, const GHExt::PatchData::LevelData::GroupData &groupdata);
 

@@ -178,6 +178,13 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     CCTK_ERROR("CarpetX::write accepted a handle to refinement level 99, "
                "which does not exist");
   }
+  if (CCTK_EQUALS(mode, "timelevel-missing")) {
+    const CarpetX::write_t write =
+        CarpetX::write(CarpetX::group_t{CarpetX::level_t{0, 0}, gi}, 7,
+                       CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
+    CCTK_ERROR("CarpetX::write accepted time level 7 of state, which has no "
+               "such time level");
+  }
 
   if (CCTK_EQUALS(mode, "prolongate-unwritten-parent") &&
       window.max_level > 1) {

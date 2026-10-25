@@ -622,13 +622,11 @@ void InputSilo(const cGH *restrict const cctkGH,
       if (read_file) {
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+            for (const auto &groupdata : leveldata.groups()) {
+              const int gi = groupdata.group.groupindex;
               if (local_has[0] && local_has[1])
                 break;
-              if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
-                continue;
-              const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.tls.empty())
+              if (!input_group.at(gi))
                 continue;
               const auto probe = [&](const amrex::MultiFab *const band,
                                      const band_kind kind, const int stage) {
@@ -674,11 +672,9 @@ void InputSilo(const cGH *restrict const cctkGH,
             if (!recovered_finer_level_is_behind(patchdata.patch,
                                                  leveldata.level))
               continue;
-            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-              if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
-                continue;
-              const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.tls.empty())
+            for (const auto &groupdata : leveldata.groups()) {
+              const int gi = groupdata.group.groupindex;
+              if (!input_group.at(gi))
                 continue;
               const amrex::MultiFab *const band = rk_source_band(
                   patchdata.patch, leveldata.level, gi, band_kind::old_source);
@@ -703,11 +699,9 @@ void InputSilo(const cGH *restrict const cctkGH,
             if (!recovered_finer_level_is_behind(patchdata.patch,
                                                  leveldata.level))
               continue;
-            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-              if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
-                continue;
-              const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.tls.empty())
+            for (const auto &groupdata : leveldata.groups()) {
+              const int gi = groupdata.group.groupindex;
+              if (!input_group.at(gi))
                 continue;
               const amrex::MultiFab *const band =
                   rk_source_band(patchdata.patch, leveldata.level, gi,
@@ -736,27 +730,22 @@ void InputSilo(const cGH *restrict const cctkGH,
       }
     }
 
-    for (const auto &patchdata : ghext->patches()) {
-      for (const auto &leveldata : patchdata.levels()) {
+    for (auto &patchdata : ghext->patches()) {
+      for (auto &leveldata : patchdata.levels()) {
         if (io_verbose)
           CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
                      leveldata.level);
 
-        for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+        for (auto &groupdata : leveldata.groups()) {
+          const int gi = groupdata.group.groupindex;
           if (!input_group.at(gi))
-            continue;
-          // TODO: read grid arrays
-          if (CCTK_GroupTypeI(gi) != CCTK_GF)
             continue;
           if (io_verbose)
             CCTK_VINFO("  Reading group %s", CCTK_FullGroupName(gi));
 
-          auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.tls.empty())
-            continue;
           const int numvars = groupdata.group.numvars;
           const int tl = 0;
-          amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+          amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
@@ -1180,19 +1169,14 @@ void OutputSilo(const cGH *restrict const cctkGH,
         }
 
         std::set<mesh_props_t> have_meshes;
-        for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+        for (const auto &groupdata : leveldata.groups()) {
+          const int gi = groupdata.group.groupindex;
           if (!output_group.at(gi))
             continue;
-          // TODO: Output grid arrays
-          if (CCTK_GroupTypeI(gi) != CCTK_GF)
-            continue;
 
-          const auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.tls.empty())
-            continue;
           const int numvars = groupdata.group.numvars;
           const int tl = 0;
-          const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+          const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
@@ -1283,16 +1267,13 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 for (int d = 0; d < ndims; ++d)
                   coord_ptrs[d] = coords[d].data();
               } else {
-                // Find the vertex-centred coordinate grid functions
-                // Silo always wants vertex-centred coordinates.
                 const int coordinate_group =
                     CCTK_GroupIndex("CoordinatesX::vertex_coords");
                 assert(coordinate_group >= 0);
                 assert(send_this_fab && write_this_fab);
-                assert(leveldata.groupdata.at(coordinate_group)->nghostzones ==
-                       groupdata.nghostzones);
-                const auto &coord_mfab =
-                    *leveldata.groupdata.at(coordinate_group)->tls.at(0).mfab;
+                const auto &coord_groupdata = leveldata.group(coordinate_group);
+                assert(coord_groupdata.nghostzones == groupdata.nghostzones);
+                const auto &coord_mfab = *coord_groupdata.timelevel(0).mfab;
                 const auto &coord_fabbox = coord_mfab[component];
                 for (int d = 0; d < ndims; ++d) {
                   coord_ptrs[d] = coord_fabbox.dataPtr(d);
@@ -1753,12 +1734,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
       if (CCTK_GroupTypeI(gi) != CCTK_GF)
         continue;
 
-      const auto &patchdata0 = ghext->patch(0);
-      const auto &leveldata0 = patchdata0.level(0);
-      const auto &groupdata0 = *leveldata0.groupdata.at(gi);
+      const auto &groupdata0 = ghext->patch(0).level(0).group(gi);
       const int numvars = groupdata0.group.numvars;
       const int tl = 0;
-      const amrex::MultiFab &mfab0 = *groupdata0.tls[tl].mfab;
+      const amrex::MultiFab &mfab0 = *groupdata0.timelevel(tl).mfab;
       const amrex::IndexType &indextype = mfab0.ixType();
 
       const std::array<int, dim> &nghosts = groupdata0.nghostzones;
@@ -1848,12 +1827,12 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 const int level = leveldata.level;
                 const int fine_level = level + 1;
                 if (fine_level < patchdata.num_levels()) {
-                  const auto &groupdata = *leveldata.groupdata.at(gi);
-                  const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+                  const auto &groupdata = leveldata.group(gi);
+                  const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
                   const auto &fine_leveldata = patchdata.level(fine_level);
-                  const auto &fine_groupdata = *fine_leveldata.groupdata.at(gi);
+                  const auto &fine_groupdata = fine_leveldata.group(gi);
                   const amrex::MultiFab &fine_mfab =
-                      *fine_groupdata.tls[tl].mfab;
+                      *fine_groupdata.timelevel(tl).mfab;
 
                   const int ncomps = ncomps_level_patch.at(level).at(patch);
                   const int fine_comp0 =
@@ -2057,9 +2036,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            const auto &groupdata = *leveldata.groupdata.at(gi);
+            const auto &groupdata = leveldata.group(gi);
             const int tl = 0;
-            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const int ncomponents = mfab.size();
             if (patchdata.is_cartesian) {
               const amrex::Geometry &geom =
@@ -2195,8 +2174,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
         std::vector<std::string> meshnames;
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            const auto &groupdata = *leveldata.groupdata.at(gi);
-            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+            const auto &groupdata = leveldata.group(gi);
+            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::DistributionMapping &dm = mfab.DistributionMap();
             const int ncomponents = dm.size();
             const amrex::Geometry &geom =
@@ -2266,9 +2245,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
         zonecounts.reserve(meshnames.size());
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            const auto &groupdata = *leveldata.groupdata.at(gi);
+            const auto &groupdata = leveldata.group(gi);
             const int tl = 0;
-            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
                 patchdata.amrcore->Geom(leveldata.level);
@@ -2351,9 +2330,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
           std::vector<std::string> varnames;
           for (const auto &patchdata : ghext->patches()) {
             for (const auto &leveldata : patchdata.levels()) {
-              const auto &groupdata = *leveldata.groupdata.at(gi);
+              const auto &groupdata = leveldata.group(gi);
               const int tl = 0;
-              const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+              const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
               const amrex::DistributionMapping &dm = mfab.DistributionMap();
               const int ncomponents = dm.size();
               const amrex::Geometry &geom =

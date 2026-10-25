@@ -250,14 +250,13 @@ std::string describe(const window_t &window) {
 integrated_groups_t integrated_groups_with_storage(const char *const what,
                                                    const level_t level,
                                                    const rk_config_t &config) {
-  const GHExt::PatchData::LevelData &leveldata = driver().level(level, what);
+  const GHExt &ext = driver();
+  ext.level(level, what);
   integrated_groups_t groups;
   for (const rk_pair_t &pair : config.integrated) {
-    const GroupData *const state = leveldata.groupdata.at(pair.state_gi).get();
-    if (!state || state->tls.empty())
+    if (!ext.group(pair.state_gi, what).has_storage())
       continue;
-    const GroupData *const rhs = leveldata.groupdata.at(pair.rhs_gi).get();
-    if (!rhs || rhs->tls.empty())
+    if (!ext.group(pair.rhs_gi, what).has_storage())
       CCTK_VERROR("%s: integrated group %s has storage on patch %d, refinement "
                   "level %d, but its right-hand side %s has none",
                   what, CCTK_FullGroupName(pair.state_gi), level.patch,
@@ -305,7 +304,7 @@ void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
   const active_levels_t window = one_level(level);
   std::vector<write_scope_t> scopes;
   for (const int gi : states) {
-    const GroupData &groupdata = *leveldata.groupdata.at(gi);
+    const GroupData &groupdata = leveldata.group(gi);
     const valid_t outer = groupdata.all_faces_have_symmetries_or_boundaries()
                               ? make_valid_outer()
                               : valid_t();

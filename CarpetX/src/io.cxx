@@ -204,13 +204,9 @@ void RecoverGH(const cGH *restrict cctkGH) {
       for (const auto &leveldata : patchdata.levels()) {
         if (leveldata.level == 0)
           continue;
-        for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-          if (CCTK_GroupTypeI(gi) != CCTK_GF)
-            continue;
-          const auto *const gd = leveldata.groupdata.at(gi).get();
-          if (gd)
-            EnsureRKBuffers(leveldata.patch, leveldata.level, gi);
-        }
+        for (const auto &groupdata : leveldata.groups())
+          EnsureRKBuffers(leveldata.patch, leveldata.level,
+                          groupdata.group.groupindex);
       }
   }
 
@@ -358,8 +354,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
         amrex::Vector<int> iters(patchdata.num_levels());
         amrex::Vector<amrex::IntVect> reffacts(patchdata.num_levels());
         for (const auto &restrict leveldata : patchdata.levels()) {
-          mfabs.at(leveldata.level) =
-              &*leveldata.groupdata.at(gi)->tls.at(tl).mfab;
+          mfabs.at(leveldata.level) = &*leveldata.group(gi).timelevel(tl).mfab;
           geoms.at(leveldata.level) = patchdata.amrcore->Geom(leveldata.level);
           iters.at(leveldata.level) = cctk_iteration;
           reffacts.at(leveldata.level) = amrex::IntVect{2, 2, 2};

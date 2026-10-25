@@ -729,20 +729,11 @@ void enter_local_mode(cGH *restrict cctkGH,
     for (int f = 0; f < 2; ++f)
       cctkGH->cctk_bbox[2 * d + f] = grid.bbox[f][d];
 
-  const int num_groups = CCTK_NumGroups();
-  for (int gi = 0; gi < num_groups; ++gi) {
-    cGroup group;
-    int ierr = CCTK_GroupData(gi, &group);
-    assert(!ierr);
-
-    if (group.grouptype != CCTK_GF)
-      continue;
-
-    auto &restrict groupdata = *leveldata.groupdata.at(gi);
+  for (const auto &groupdata : leveldata.groups()) {
     const GridPtrDesc1 grid1(leveldata, groupdata, mfp);
-    for (int tl = 0; tl < int(groupdata.tls.size()); ++tl) {
+    for (int tl = 0; tl < groupdata.num_timelevels(); ++tl) {
       const amrex::Array4<CCTK_REAL> vars =
-          groupdata.tls.at(tl).mfab->array(mfp.index());
+          groupdata.timelevel(tl).mfab->array(mfp.index());
       for (int vi = 0; vi < groupdata.group.numvars; ++vi)
         cctkGH->data[groupdata.group.firstvarindex + vi][tl] =
             grid1.ptr(vars, vi);
@@ -797,20 +788,10 @@ void leave_local_mode(cGH *restrict cctkGH,
   for (int d = 0; d < dim; ++d)
     for (int f = 0; f < 2; ++f)
       cctkGH->cctk_bbox[2 * d + f] = undefined;
-  const int num_groups = CCTK_NumGroups();
-  for (int gi = 0; gi < num_groups; ++gi) {
-    cGroup group;
-    int ierr = CCTK_GroupData(gi, &group);
-    assert(!ierr);
-
-    if (group.grouptype != CCTK_GF)
-      continue;
-
-    auto &restrict groupdata = *leveldata.groupdata.at(gi);
-    for (int tl = 0; tl < int(groupdata.tls.size()); ++tl)
+  for (const auto &groupdata : leveldata.groups())
+    for (int tl = 0; tl < groupdata.num_timelevels(); ++tl)
       for (int vi = 0; vi < groupdata.group.numvars; ++vi)
         cctkGH->data[groupdata.group.firstvarindex + vi][tl] = nullptr;
-  }
   assert(in_patch_mode(cctkGH));
 }
 
@@ -1766,7 +1747,7 @@ std::vector<seed_run_t> seed_runs(const active_levels_t &active_levels,
                                              min_level);
   active_levels.loop_serially([&](auto &restrict leveldata) {
     std::optional<valid_t> &seed = seeds.at(leveldata.level - min_level);
-    const valid_t level_seed = leveldata.groupdata.at(gi)->tls.at(1).valid(vi);
+    const valid_t level_seed = leveldata.group(gi).timelevel(1).valid(vi);
     assert(!seed || *seed == level_seed);
     seed = level_seed;
   });
@@ -1807,20 +1788,18 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
     if (group.kind == group_kind::grid_function) {
       assert(active_levels);
       active_levels->loop_serially([&](auto &restrict leveldata) {
-        auto &restrict groupdata = *leveldata.groupdata.at(gi);
-        const int ntls = groupdata.tls.size();
+        auto &restrict groupdata = leveldata.group(gi);
+        const int ntls = groupdata.num_timelevels();
         assert(ntls == ntls0);
-        assert(groupdata.open_write_count() == 0);
         if (ntls > 1) {
-          rotate(groupdata.tls.begin(), groupdata.tls.end() - 1,
-                 groupdata.tls.end());
+          groupdata.rotate_timelevels();
           for (auto &restrict local_cctkGH_ptr : leveldata.local_cctkGHs) {
             cGH *const local_cctkGH = local_cctkGH_ptr.get();
             const int component = local_cctkGH->cctk_component;
             const GridPtrDesc1 grid1(leveldata, groupdata, component);
             for (int tl = 0; tl < ntls; ++tl) {
               const amrex::Array4<CCTK_REAL> vars =
-                  groupdata.tls.at(tl).mfab->array(component);
+                  groupdata.timelevel(tl).mfab->array(component);
               for (int vi = 0; vi < groupdata.group.numvars; ++vi)
                 local_cctkGH->data[groupdata.group.firstvarindex + vi][tl] =
                     grid1.ptr(vars, vi);
@@ -1847,10 +1826,11 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
                    .keeps = {},
                    .event = "CycleTimelevels (seed from old time level)"}));
           active_levels->loop_serially([&](auto &restrict leveldata) {
-            auto &restrict groupdata = *leveldata.groupdata.at(gi);
-            amrex::MultiFab::Copy(
-                *groupdata.tls.at(0).mfab, *groupdata.tls.at(1).mfab, 0, 0,
-                groupdata.group.numvars, groupdata.tls.at(0).mfab->nGrowVect());
+            auto &restrict groupdata = leveldata.group(gi);
+            amrex::MultiFab::Copy(*groupdata.timelevel(0).mfab,
+                                  *groupdata.timelevel(1).mfab, 0, 0,
+                                  groupdata.group.numvars,
+                                  groupdata.timelevel(0).mfab->nGrowVect());
           });
         }
       }
@@ -2373,9 +2353,9 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       if (CCTK_GroupTypeI(rd.gi) == CCTK_GF) {
 
         active_levels->loop_serially([&](const auto &restrict leveldata) {
-          const auto &restrict groupdata = *leveldata.groupdata.at(rd.gi);
           const valid_t &need = rd.valid;
-          const valid_t have = groupdata.tls.at(rd.tl).valid(rd.vi);
+          const valid_t have =
+              leveldata.group(rd.gi).timelevel(rd.tl).valid(rd.vi);
           if (need.valid_ghosts && !have.valid_ghosts && have.valid_int)
             sync_set.insert(rd.gi);
         });
@@ -2400,7 +2380,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       if (group.kind != group_kind::grid_function || !group.has_storage())
         continue;
       active_levels->loop_serially([&](const auto &restrict leveldata) {
-        const auto &restrict groupdata = *leveldata.groupdata.at(gi);
+        const auto &restrict groupdata = leveldata.group(gi);
         const int open_writes = groupdata.open_write_count();
         if (open_writes > 0)
           CCTK_VERROR("CallFunction iteration %d %s: %s::%s reads, writes or "

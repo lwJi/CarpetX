@@ -4,6 +4,7 @@ KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Regist
   "sync-during-write" :: "call CarpetX::sync on state while a write scope on it is open; CarpetX aborts the run"
   "write-twice"       :: "open a second write scope on state at the same time level while the first is open; CarpetX aborts the run"
   "level-missing"     :: "open a write scope on state through a handle naming refinement level 99 of patch 0, which does not exist; CarpetX aborts the run"
+  "timelevel-missing" :: "open a write scope on state at time level 7, which it does not have; CarpetX aborts the run"
   "write-unfilled"    :: "open a write scope on state that promises every region and fill only the interior; CarpetX aborts the run when the scope closes"
   "require-invalid"   :: "require valid ghosts of state before anything has filled them; CarpetX aborts the run"
   "prolongate-unwritten-parent" :: "fill state as write-scope does, and once the hierarchy has two levels call CarpetX::prolongate_ghosts on state_rhs, which nothing has written on the parent level; CarpetX aborts the run"

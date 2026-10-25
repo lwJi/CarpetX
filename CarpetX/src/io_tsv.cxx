@@ -146,10 +146,10 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
 
   for (const auto &patchdata : ghext->patches()) {
     for (const auto &leveldata : patchdata.levels()) {
-      const auto &groupdata = *leveldata.groupdata.at(gi);
+      const auto &groupdata = leveldata.group(gi);
       const int tl = 0;
       const auto &geom = patchdata.amrcore->Geom(leveldata.level);
-      const auto &mfab = *groupdata.tls.at(tl).mfab;
+      const auto &mfab = *groupdata.timelevel(tl).mfab;
       for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
         const amrex::Array4<const CCTK_REAL> &vars = mfab.array(mfi);
         const amrex::Dim3 imin = amrex::lbound(vars);
@@ -455,7 +455,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
   data.reserve(10000);
   for (const auto &patchdata : ghext->patches()) {
     for (const auto &leveldata : patchdata.levels()) {
-      const auto &groupdata = *leveldata.groupdata.at(gi);
+      const auto &groupdata = leveldata.group(gi);
 
       const int tl = 0;
 
@@ -481,7 +481,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
 
       const auto &symmetries = ghext->patch(leveldata.patch).symmetries;
 
-      const auto &mfab = *groupdata.tls.at(tl).mfab;
+      const auto &mfab = *groupdata.timelevel(tl).mfab;
 
       const vect<int, dim> nghosts = {mfab.nGrow(0), mfab.nGrow(1),
                                       mfab.nGrow(2)};

@@ -71,16 +71,13 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
   amrex::Vector<const amrex::MultiFab *> rhss(patchdata.num_levels());
   for (int level = 0; level < patchdata.num_levels(); ++level) {
     const auto &restrict leveldata = patchdata.level(level);
-    const auto &restrict groupdata_rhs = *leveldata.groupdata.at(gi_rhs);
-    assert(!groupdata_rhs.tls.empty());
-    rhss.at(level) = groupdata_rhs.tls.at(tl).mfab.get();
-    const auto &restrict groupdata_sol = *leveldata.groupdata.at(gi_sol);
-    assert(!groupdata_sol.tls.empty());
-    sols.at(level) = groupdata_sol.tls.at(tl).mfab.get();
+    const auto &restrict groupdata_rhs = leveldata.group(gi_rhs);
+    rhss.at(level) = groupdata_rhs.timelevel(tl).mfab.get();
+    const auto &restrict groupdata_sol = leveldata.group(gi_sol);
+    sols.at(level) = groupdata_sol.timelevel(tl).mfab.get();
     if (have_res) {
-      const auto &restrict groupdata_res = *leveldata.groupdata.at(gi_res);
-      assert(!groupdata_res.tls.empty());
-      ress.at(level) = groupdata_res.tls.at(tl).mfab.get();
+      const auto &restrict groupdata_res = leveldata.group(gi_res);
+      ress.at(level) = groupdata_res.timelevel(tl).mfab.get();
     }
   }
 

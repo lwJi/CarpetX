@@ -692,14 +692,13 @@ void CarpetX::InterpolationSetup::Interpolate(
         for (int v = 0; v < nvars; ++v) {
           const int gi = givis.at(v).gi;
           const int vi = givis.at(v).vi;
-          const auto &restrict groupdata = *leveldata.groupdata.at(gi);
-          assert(!groupdata.tls.empty());
+          const auto &restrict groupdata = leveldata.group(gi);
           const int centering = groupdata.indextype[0] * 0b100 +
                                 groupdata.indextype[1] * 0b010 +
                                 groupdata.indextype[2] * 0b001;
           assert(all(groupdata.nghostzones == grid.nghostzones));
           const amrex::Array4<const CCTK_REAL> &vars =
-              groupdata.tls.at(tl).mfab->array(pti);
+              groupdata.timelevel(tl).mfab->array(pti);
           vect<int, dim> derivs;
           int op = operations[v];
           while (op > 0) {

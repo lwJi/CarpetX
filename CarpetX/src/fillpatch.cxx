@@ -31,7 +31,6 @@ using namespace amrex::detail;
 void FillPatch_Sync(task_manager &tasks2,
                     const GHExt::PatchData::LevelData::GroupData &groupdata,
                     MultiFab &mfab, const Geometry &geom) {
-  assert(!groupdata.tls.empty());
   mfab.FillBoundary_nowait(0, mfab.nComp(), mfab.nGrowVect(),
                            geom.periodicity());
   tasks2.submit_serially([&groupdata, &mfab]() {
@@ -48,8 +47,6 @@ void FillPatch_Prolongate(
     const Geometry &cgeom, Interpolater *const mapper,
     const Vector<BCRec> &bcrecs, const bool do_sync,
     const MultiFab *const cmfab_old, const CCTK_REAL w_new) {
-  assert(!groupdata.tls.empty());
-  assert(!coarsegroupdata.tls.empty());
   const IntVect &nghosts = mfab.nGrowVect();
   if (nghosts.max() == 0)
     return;
@@ -167,8 +164,6 @@ void Prolongate_Start(
     MultiFab &mfab, MultiFab &crse_patch, MultiFab &fine_patch,
     const Geometry &fgeom, const Geometry &cgeom, Interpolater *const mapper,
     const Vector<BCRec> &bcrecs) {
-  assert(!groupdata.tls.empty());
-  assert(!coarsegroupdata.tls.empty());
   const IntVect &nghosts = mfab.nGrowVect();
   const int ncomps = mfab.nComp();
   const IntVect ratio{2, 2, 2};
@@ -208,8 +203,6 @@ void FillPatch_NewLevel(
     MultiFab &mfab, const MultiFab &cmfab, const Geometry &cgeom,
     const Geometry &fgeom, Interpolater *const mapper,
     const Vector<BCRec> &bcrecs) {
-  assert(!groupdata.tls.empty());
-  assert(!coarsegroupdata.tls.empty());
   const int ncomps = mfab.nComp();
   const IntVect ratio{2, 2, 2};
   const IntVect &nghosts = mfab.nGrowVect();
@@ -254,8 +247,6 @@ void FillPatch_RemakeLevel(
     MultiFab &mfab, const MultiFab &cmfab, const MultiFab &fmfab,
     const Geometry &cgeom, const Geometry &fgeom, Interpolater *const mapper,
     const Vector<BCRec> &bcrecs) {
-  assert(!groupdata.tls.empty());
-  assert(!coarsegroupdata.tls.empty());
   const int ncomps = mfab.nComp();
   const IntVect ratio{2, 2, 2};
   const IntVect &nghosts = mfab.nGrowVect();
