@@ -105,7 +105,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
       for (int gi = 0; gi < numgroups; ++gi) {
         if (!group_enabled.at(gi))
           continue;
-        const auto &group = ghext->group(gi);
+        const auto &group = ghext->record(gi);
         if (group.kind != group_kind::grid_function || !group.has_storage())
           continue;
 
@@ -160,7 +160,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
   for (int gi = 0; gi < numgroups; ++gi) {
     if (!group_enabled.at(gi))
       continue;
-    const auto &group = ghext->group(gi);
+    const auto &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function || !group.has_storage())
       continue;
 
@@ -202,12 +202,12 @@ void OutputNorms(const cGH *restrict cctkGH) {
       file << cctk_iteration << sep << cctk_time;
     }
 
-    for (int vi = 0; vi < groupdata.group.numvars; ++vi) {
+    for (int vi = 0; vi < groupdata.record.numvars; ++vi) {
       if (!groupdata.timelevel(tl).valid(vi).valid_int)
         continue;
 
       ofd.variables.push_back(
-          CCTK_FullVarName(groupdata.group.firstvarindex + vi));
+          CCTK_FullVarName(groupdata.record.firstvarindex + vi));
 
       const reduction<CCTK_REAL, dim> red = reduce(gi, vi, tl);
 

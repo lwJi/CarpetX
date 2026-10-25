@@ -73,7 +73,7 @@ static std::vector<int> sync_filter_groups(int numgroups, const int *groups0) {
   std::vector<int> groups;
   for (int n = 0; n < numgroups; ++n) {
     const int gi = groups0[n];
-    const auto &group = ghext->group(gi);
+    const auto &group = ghext->record(gi);
     if (!group.has_storage() || group.kind != group_kind::grid_function)
       continue;
     // Don't restrict the regridding error
@@ -92,7 +92,7 @@ static void sync_multipatch_boundaries(const cGH *cctkGH,
   if (have_multipatch_boundaries) {
     std::vector<CCTK_INT> cactusvarinds;
     for (const int gi : groups) {
-      const auto &group = ghext->group(gi);
+      const auto &group = ghext->record(gi);
       for (int var = 0; var < group.numvars; ++var)
         cactusvarinds.push_back(group.firstvarindex + var);
     }
@@ -103,7 +103,7 @@ static void sync_multipatch_boundaries(const cGH *cctkGH,
 }
 
 static int timelevels_but_oldest(const int gi) {
-  const int ntls = ghext->group(gi).num_timelevels();
+  const int ntls = ghext->record(gi).num_timelevels();
   assert(ntls > 0);
   return ntls > 1 ? ntls - 1 : ntls;
 }
@@ -170,17 +170,17 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
 
   const std::function<std::string()> hint = [&coarsegroupdata, tl,
                                              recovering]() -> std::string {
-    if (coarsegroupdata.group.do_checkpoint)
+    if (coarsegroupdata.record.do_checkpoint)
       return "";
     if (tl > 0)
-      return "  Group " + coarsegroupdata.group.groupname +
+      return "  Group " + coarsegroupdata.record.groupname +
              " is not checkpointed, so a recovery, or a regrid that remakes "
              "its level, can lose its past timelevels, which no routine can "
              "recompute.\n"
              "  Past timelevels read by another level must be checkpointed.\n";
     if (recovering)
       return "  This run was recovered and group " +
-             coarsegroupdata.group.groupname +
+             coarsegroupdata.record.groupname +
              " is not checkpointed.\n"
              "  Groups read by another level must be checkpointed or "
              "recomputed in CCTK_POST_RECOVER_VARIABLES.\n";
@@ -200,7 +200,7 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
 std::vector<int> collect_restrictable_groups() {
   std::vector<int> groups;
   groups.reserve(CCTK_NumGroups());
-  for (const auto &group : ghext->groups(group_kind::grid_function))
+  for (const auto &group : ghext->records(group_kind::grid_function))
     if (group.do_restrict)
       groups.push_back(group.groupindex);
   return groups;
@@ -209,7 +209,7 @@ std::vector<int> collect_restrictable_groups() {
 static std::vector<int> reprolongate_groups() {
   std::vector<int> groups;
   groups.reserve(CCTK_NumGroups());
-  for (const auto &group : ghext->groups(group_kind::grid_function))
+  for (const auto &group : ghext->records(group_kind::grid_function))
     if (group.do_restrict ||
         (ghext->use_subcycling && group_is_integrated(group.groupindex)))
       groups.push_back(group.groupindex);
@@ -220,7 +220,7 @@ static std::vector<int> sync_restrict_groups(const std::vector<int> &groups) {
   std::vector<int> restrict_groups;
   restrict_groups.reserve(groups.size());
   for (const int gi : groups)
-    if (ghext->group(gi).restrict_on_sync)
+    if (ghext->record(gi).restrict_on_sync)
       restrict_groups.push_back(gi);
   return restrict_groups;
 }
@@ -275,7 +275,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
       split_levels(active_levels, prolongates_into);
   std::vector<write_scope_t> scopes;
   for (const int gi : groups) {
-    const auto [tl_lo, tl_hi] = timelevels_to_fill(ghext->group(gi));
+    const auto [tl_lo, tl_hi] = timelevels_to_fill(ghext->record(gi));
     for (const level_run_t &run : runs) {
       if (!run.value)
         continue;
@@ -305,7 +305,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
-      const auto [tl_lo, tl_hi] = timelevels_to_fill(groupdata.group);
+      const auto [tl_lo, tl_hi] = timelevels_to_fill(groupdata.record);
 
       if (!prolongates_into(leveldata))
         return;
@@ -315,7 +315,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
           ghext->level(leveldata.patch, level - 1);
 
       auto &restrict coarsegroupdata = coarseleveldata.group(gi);
-      assert(coarsegroupdata.group.numvars == groupdata.group.numvars);
+      assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
 
       amrex::Interpolater *const interpolator = groupdata.interpolator;
 
@@ -382,7 +382,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
         for (int tl = 0; tl < groupdata.num_timelevels(); tl++) {
           if (need_sync)
             break;
-          for (int vi = 0; vi < groupdata.group.numvars; vi++) {
+          for (int vi = 0; vi < groupdata.record.numvars; vi++) {
             if (need_sync)
               break;
             const valid_t have = groupdata.timelevel(tl).valid(vi);
@@ -467,7 +467,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
         const auto &restrict coarseleveldata =
             ghext->level(leveldata.patch, level - 1);
         auto &restrict coarsegroupdata = coarseleveldata.group(gi);
-        assert(coarsegroupdata.group.numvars == groupdata.group.numvars);
+        assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
 
         amrex::Interpolater *const interpolator = groupdata.interpolator;
 
@@ -645,7 +645,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
         const auto &restrict coarseleveldata =
             ghext->level(leveldata.patch, level - 1);
         auto &restrict coarsegroupdata = coarseleveldata.group(gi);
-        assert(coarsegroupdata.group.numvars == groupdata.group.numvars);
+        assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
 
         const bool integrated_subiter =
             integrator_owns_coarse_fine_ghosts(leveldata, gi);
@@ -911,7 +911,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   for (const auto &groupdata : leveldata.groups()) {
     if (groupdata.fluxes[0] < 0)
       continue;
-    const int gi = groupdata.group.groupindex;
+    const int gi = groupdata.record.groupindex;
 
     amrex::FluxRegister *const child_freg =
         childleveldata ? childleveldata->group(gi).freg.get() : nullptr;
@@ -925,7 +925,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
 
     for (int d = 0; d < dim; ++d) {
       std::ostringstream buf;
-      buf << "AccumulateFluxes: flux of " << groupdata.group.groupname
+      buf << "AccumulateFluxes: flux of " << groupdata.record.groupname
           << " in direction " << d << " at RK stage " << stage;
       require(this_level, {.gi = groupdata.fluxes.at(d),
                            .tl = tl,
@@ -939,7 +939,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
       assert(child_scratch);
       if (stage == 1)
         child_freg->setVal(0);
-      const int numvars = groupdata.group.numvars;
+      const int numvars = groupdata.record.numvars;
       const CCTK_REAL mult = -weight;
       const std::array<CCTK_REAL, dim> area =
           face_areas(patchdata.amrcore->Geom(level));
@@ -986,7 +986,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
         const amrex::MultiFab &area = *leveldata.face_area[d];
         assert(area.ixType() == flux.ixType());
         assert(area.DistributionMap() == flux.DistributionMap());
-        own_freg->FineAdd(flux, area, d, 0, 0, groupdata.group.numvars,
+        own_freg->FineAdd(flux, area, d, 0, 0, groupdata.record.numvars,
                           +weight);
       }
     }
@@ -1010,7 +1010,7 @@ static void reflux_level(const cGH *cctkGH, const int level) {
     const int tl = 0;
 
     for (const auto &groupdata : leveldata.groups()) {
-      const int gi = groupdata.group.groupindex;
+      const int gi = groupdata.record.groupindex;
       const auto &finegroupdata = fineleveldata.group(gi);
 
       // If the group has a flux register on the fine level
@@ -1020,7 +1020,7 @@ static void reflux_level(const cGH *cctkGH, const int level) {
       if (verbose)
         CCTK_VINFO("Reflux: applying the flux register of levels (%d, %d) to "
                    "%s at iteration %d",
-                   level, level + 1, groupdata.group.groupname.c_str(),
+                   level, level + 1, groupdata.record.groupname.c_str(),
                    cctkGH->cctk_iteration);
 
       require(coarse_level,
@@ -1044,7 +1044,7 @@ static void reflux_level(const cGH *cctkGH, const int level) {
       assert(volume.ixType() == state.ixType());
       assert(volume.DistributionMap() == state.DistributionMap());
       finegroupdata.freg->Reflux(state, volume, 1.0, 0, 0,
-                                 groupdata.group.numvars, geom);
+                                 groupdata.record.numvars, geom);
     }
   } // for patchdata
 }
@@ -1142,7 +1142,7 @@ static void restrict_level(const cGH *cctkGH, const int level,
             case 3:
               average_down(*finegroupdata.timelevel(tl).mfab,
                            *groupdata.timelevel(tl).mfab, 0,
-                           groupdata.group.numvars, reffact);
+                           groupdata.record.numvars, reffact);
               break;
             default:
               assert(0);

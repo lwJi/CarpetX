@@ -88,7 +88,7 @@ std::string get_simulation_name() {
 
 void check_silo_no_multi_tl(const std::vector<bool> &group_mask,
                             const char *operation) {
-  for (const auto &group : ghext->groups(group_kind::grid_function)) {
+  for (const auto &group : ghext->records(group_kind::grid_function)) {
     if (!group_mask.at(group.groupindex))
       continue;
     if (group.num_timelevels() > 1)
@@ -194,7 +194,7 @@ void RecoverGH(const cGH *restrict cctkGH) {
 
   const std::vector<bool> group_enabled = [&] {
     std::vector<bool> enabled(CCTK_NumGroups(), false);
-    for (const auto &group : ghext->groups())
+    for (const auto &group : ghext->records())
       enabled.at(group.groupindex) = group.do_checkpoint;
     return enabled;
   }();
@@ -206,7 +206,7 @@ void RecoverGH(const cGH *restrict cctkGH) {
           continue;
         for (const auto &groupdata : leveldata.groups())
           EnsureRKBuffers(leveldata.patch, leveldata.level,
-                          groupdata.group.groupindex);
+                          groupdata.record.groupindex);
       }
   }
 
@@ -316,7 +316,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
   for (int gi = 0; gi < numgroups; ++gi) {
     if (!group_enabled.at(gi))
       continue;
-    const auto &group = ghext->group(gi);
+    const auto &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function)
       continue;
 
@@ -689,7 +689,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
 #ifdef HAVE_CAPABILITY_openPMD_api
     const std::vector<bool> checkpoint_group = [&] {
       std::vector<bool> enabled(CCTK_NumGroups(), false);
-      for (const auto &group : ghext->groups())
+      for (const auto &group : ghext->records())
         enabled.at(group.groupindex) = group.do_checkpoint;
       return enabled;
     }();
@@ -707,7 +707,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
 #ifdef HAVE_CAPABILITY_Silo
     const std::vector<bool> checkpoint_group = [&] {
       std::vector<bool> enabled(CCTK_NumGroups(), false);
-      for (const auto &group : ghext->groups())
+      for (const auto &group : ghext->records())
         enabled.at(group.groupindex) = group.do_checkpoint;
       return enabled;
     }();

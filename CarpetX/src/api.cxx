@@ -28,18 +28,18 @@ void require_no_open_write(
     refuse(std::source_location::current(),
            "group %s has %d open write scope%s (CarpetX::write) on patch %d, "
            "refinement level %d; destroy the write_t first",
-           groupdata.group.groupname.c_str(), open_writes,
+           groupdata.record.groupname.c_str(), open_writes,
            open_writes == 1 ? "" : "s", groupdata.patch, groupdata.level);
 }
 
 active_levels_t require_operable(const window_t window,
                                  const std::vector<int> &groups) {
   for (const int gi : groups)
-    driver().group(gi);
+    driver().record(gi);
   const active_levels_t active_levels(window);
   active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
     for (const int gi : groups)
-      if (driver().group(gi).has_storage())
+      if (driver().record(gi).has_storage())
         require_no_open_write(leveldata.group(gi));
   });
   return active_levels;
@@ -85,7 +85,7 @@ symmetries(const level_t level) {
 
 int numvars(const group_t group) {
   const operation_scope_t op("CarpetX::numvars");
-  return driver().group(group).group.numvars;
+  return driver().group(group).record.numvars;
 }
 
 std::array<int, Loop::dim> indextype(const group_t group) {
@@ -172,7 +172,7 @@ write_t write(const group_t group, const int tl, const valid_t leaves_valid,
     CCTK_VERROR("CarpetX::write: time level %d of group %s has %d open write "
                 "scope%s (CarpetX::write) on patch %d, refinement level %d; "
                 "destroy that write_t before opening another",
-                tl, groupdata.group.groupname.c_str(), open_writes,
+                tl, groupdata.record.groupname.c_str(), open_writes,
                 open_writes == 1 ? "" : "s", groupdata.patch, groupdata.level);
   return write_t(std::unique_ptr<write_t::impl>(new write_t::impl{
       group, tl,
@@ -254,10 +254,11 @@ valid_t valid(const group_t group, const int tl, const int vi) {
   const operation_scope_t op("CarpetX::valid");
   const auto &groupdata = driver().group(group);
   const auto &timelevel = groupdata.timelevel(tl);
-  if (vi < 0 || vi >= groupdata.group.numvars)
+  if (vi < 0 || vi >= groupdata.record.numvars)
     CCTK_VERROR("CarpetX::valid: variable index %d of group %s does not "
                 "exist: it has %d variables",
-                vi, groupdata.group.groupname.c_str(), groupdata.group.numvars);
+                vi, groupdata.record.groupname.c_str(),
+                groupdata.record.numvars);
   return timelevel.valid(vi);
 }
 

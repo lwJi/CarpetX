@@ -265,7 +265,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
         for (const auto &leveldata : patchdata.levels()) {
 
           for (const auto &groupdata : leveldata.groups()) {
-            const int gi = groupdata.group.groupindex;
+            const int gi = groupdata.record.groupindex;
             if (output_group.at(gi)) {
 
               cGroup cgroup;
@@ -274,7 +274,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
               assert(cgroup.vartype == CCTK_VARIABLE_REAL);
               assert(cgroup.dim == 3);
 
-              const int numvars = groupdata.group.numvars;
+              const int numvars = groupdata.record.numvars;
 
               const int tl = 0;
               const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
@@ -337,7 +337,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                      leveldata.level);
 
         for (const auto &groupdata : leveldata.groups()) {
-          const int gi = groupdata.group.groupindex;
+          const int gi = groupdata.record.groupindex;
           if (output_group.at(gi)) {
             if (io_verbose)
               CCTK_VINFO("    Writing group %s...", CCTK_FullGroupName(gi));
@@ -348,7 +348,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             assert(cgroup.vartype == CCTK_VARIABLE_REAL);
             assert(cgroup.dim == 3);
 
-            const int numvars = groupdata.group.numvars;
+            const int numvars = groupdata.record.numvars;
             const int tl = 0;
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::IndexType &indextype = mfab.ixType();

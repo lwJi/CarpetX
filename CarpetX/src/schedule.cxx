@@ -602,7 +602,7 @@ void enter_global_mode(cGH *restrict cctkGH) {
   cctkGH->cctk_nghostzones[1] = ghost_size >= 0 ? ghost_size : ghost_size_y;
   cctkGH->cctk_nghostzones[2] = ghost_size >= 0 ? ghost_size : ghost_size_z;
 
-  for (const auto &group : ghext->groups()) {
+  for (const auto &group : ghext->records()) {
     if (group.kind == group_kind::grid_function)
       continue;
     const auto &restrict arraygroupdata = group.array();
@@ -619,7 +619,7 @@ void enter_global_mode(cGH *restrict cctkGH) {
 void leave_global_mode(cGH *restrict cctkGH) {
   assert(in_global_mode(cctkGH));
 
-  for (const auto &group : ghext->groups()) {
+  for (const auto &group : ghext->records()) {
     if (group.kind == group_kind::grid_function)
       continue;
     for (int tl = 0; tl < group.num_timelevels(); ++tl)
@@ -734,8 +734,8 @@ void enter_local_mode(cGH *restrict cctkGH,
     for (int tl = 0; tl < groupdata.num_timelevels(); ++tl) {
       const amrex::Array4<CCTK_REAL> vars =
           groupdata.timelevel(tl).mfab->array(mfp.index());
-      for (int vi = 0; vi < groupdata.group.numvars; ++vi)
-        cctkGH->data[groupdata.group.firstvarindex + vi][tl] =
+      for (int vi = 0; vi < groupdata.record.numvars; ++vi)
+        cctkGH->data[groupdata.record.firstvarindex + vi][tl] =
             grid1.ptr(vars, vi);
     }
   }
@@ -790,8 +790,8 @@ void leave_local_mode(cGH *restrict cctkGH,
       cctkGH->cctk_bbox[2 * d + f] = undefined;
   for (const auto &groupdata : leveldata.groups())
     for (int tl = 0; tl < groupdata.num_timelevels(); ++tl)
-      for (int vi = 0; vi < groupdata.group.numvars; ++vi)
-        cctkGH->data[groupdata.group.firstvarindex + vi][tl] = nullptr;
+      for (int vi = 0; vi < groupdata.record.numvars; ++vi)
+        cctkGH->data[groupdata.record.firstvarindex + vi][tl] = nullptr;
   assert(in_patch_mode(cctkGH));
 }
 
@@ -1780,7 +1780,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
   const bool presync_only = CCTK_EQUALS(presync_mode, "presync-only");
   std::vector<int> presync_groups;
   for (int gi = 0; gi < num_groups; ++gi) {
-    const auto &group = ghext->group(gi);
+    const auto &group = ghext->record(gi);
     const int ntls0 = group.num_timelevels();
     if (ntls0 == 0)
       continue;
@@ -1800,8 +1800,8 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
             for (int tl = 0; tl < ntls; ++tl) {
               const amrex::Array4<CCTK_REAL> vars =
                   groupdata.timelevel(tl).mfab->array(component);
-              for (int vi = 0; vi < groupdata.group.numvars; ++vi)
-                local_cctkGH->data[groupdata.group.firstvarindex + vi][tl] =
+              for (int vi = 0; vi < groupdata.record.numvars; ++vi)
+                local_cctkGH->data[groupdata.record.firstvarindex + vi][tl] =
                     grid1.ptr(vars, vi);
             }
           }
@@ -1829,7 +1829,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
             auto &restrict groupdata = leveldata.group(gi);
             amrex::MultiFab::Copy(*groupdata.timelevel(0).mfab,
                                   *groupdata.timelevel(1).mfab, 0, 0,
-                                  groupdata.group.numvars,
+                                  groupdata.record.numvars,
                                   groupdata.timelevel(0).mfab->nGrowVect());
           });
         }
@@ -1848,7 +1848,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       }
     } else {
       if (ntls0 > 1) {
-        ghext->group(gi).array().rotate_timelevels();
+        ghext->record(gi).array().rotate_timelevels();
         invalidate_array({.gi = gi,
                           .tl = 0,
                           .where = make_valid_int(),
@@ -2241,7 +2241,7 @@ static void check_storage_clauses(const cFunctionData *restrict attribute) {
   int offender_count = 0;
 
   const auto group_inactive = [](int gi) {
-    return !ghext->group(gi).has_storage();
+    return !ghext->record(gi).has_storage();
   };
 
   const auto report = [&](const char *clause_kind, int gi, int vi, int tl) {
@@ -2376,7 +2376,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     for (int n = 0; n < attribute->n_SyncGroups; ++n)
       touched.insert(attribute->SyncGroups[n]);
     for (const int gi : touched) {
-      const auto &group = ghext->group(gi);
+      const auto &group = ghext->record(gi);
       if (group.kind != group_kind::grid_function || !group.has_storage())
         continue;
       active_levels->loop_serially([&](const auto &restrict leveldata) {
@@ -2389,7 +2389,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                       "destroy the write_t before scheduling the function",
                       cctkGH->cctk_iteration, attribute->where,
                       attribute->thorn, attribute->routine,
-                      groupdata.group.groupname.c_str(), open_writes,
+                      groupdata.record.groupname.c_str(), open_writes,
                       open_writes == 1 ? "" : "s", groupdata.patch,
                       groupdata.level);
       });
@@ -2400,7 +2400,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     const std::vector<clause_t> &reads =
         decode_clauses(attribute, rdwr_t::read);
     for (const auto &rd : reads) {
-      if (!ghext->group(rd.gi).has_storage())
+      if (!ghext->record(rd.gi).has_storage())
         continue;
       const require_spec_t spec{.gi = rd.gi,
                                 .tl = rd.tl,
@@ -2429,7 +2429,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     const std::vector<clause_t> &writes =
         decode_clauses(attribute, rdwr_t::write);
     for (const auto &wr : writes) {
-      const int ntls = ghext->group(wr.gi).num_timelevels();
+      const int ntls = ghext->record(wr.gi).num_timelevels();
       if (ntls == 0)
         continue;
       if (wr.tl >= ntls)
@@ -2641,7 +2641,7 @@ int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {
     }
   }
   assert(gi < CCTK_NumGroups());
-  return ghext->group(gi).has_storage() ? 1 : 0;
+  return ghext->record(gi).has_storage() ? 1 : 0;
 }
 
 int EnableGroupStorage(const cGH *cctkGH, const char *groupname) {

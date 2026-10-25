@@ -623,7 +623,7 @@ void InputSilo(const cGH *restrict const cctkGH,
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
             for (const auto &groupdata : leveldata.groups()) {
-              const int gi = groupdata.group.groupindex;
+              const int gi = groupdata.record.groupindex;
               if (local_has[0] && local_has[1])
                 break;
               if (!input_group.at(gi))
@@ -673,7 +673,7 @@ void InputSilo(const cGH *restrict const cctkGH,
                                                  leveldata.level))
               continue;
             for (const auto &groupdata : leveldata.groups()) {
-              const int gi = groupdata.group.groupindex;
+              const int gi = groupdata.record.groupindex;
               if (!input_group.at(gi))
                 continue;
               const amrex::MultiFab *const band = rk_source_band(
@@ -700,7 +700,7 @@ void InputSilo(const cGH *restrict const cctkGH,
                                                  leveldata.level))
               continue;
             for (const auto &groupdata : leveldata.groups()) {
-              const int gi = groupdata.group.groupindex;
+              const int gi = groupdata.record.groupindex;
               if (!input_group.at(gi))
                 continue;
               const amrex::MultiFab *const band =
@@ -737,13 +737,13 @@ void InputSilo(const cGH *restrict const cctkGH,
                      leveldata.level);
 
         for (auto &groupdata : leveldata.groups()) {
-          const int gi = groupdata.group.groupindex;
+          const int gi = groupdata.record.groupindex;
           if (!input_group.at(gi))
             continue;
           if (io_verbose)
             CCTK_VINFO("  Reading group %s", CCTK_FullGroupName(gi));
 
-          const int numvars = groupdata.group.numvars;
+          const int numvars = groupdata.record.numvars;
           const int tl = 0;
           amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
           const amrex::IndexType &indextype = mfab.ixType();
@@ -1170,11 +1170,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
         std::set<mesh_props_t> have_meshes;
         for (const auto &groupdata : leveldata.groups()) {
-          const int gi = groupdata.group.groupindex;
+          const int gi = groupdata.record.groupindex;
           if (!output_group.at(gi))
             continue;
 
-          const int numvars = groupdata.group.numvars;
+          const int numvars = groupdata.record.numvars;
           const int tl = 0;
           const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
           const amrex::IndexType &indextype = mfab.ixType();
@@ -1735,7 +1735,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         continue;
 
       const auto &groupdata0 = ghext->patch(0).level(0).group(gi);
-      const int numvars = groupdata0.group.numvars;
+      const int numvars = groupdata0.record.numvars;
       const int tl = 0;
       const amrex::MultiFab &mfab0 = *groupdata0.timelevel(tl).mfab;
       const amrex::IndexType &indextype = mfab0.ixType();

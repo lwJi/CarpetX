@@ -753,9 +753,9 @@ get_interpolator(const GHExt::PatchData::LevelData::GroupData &groupdata) {
   DECLARE_CCTK_PARAMETERS;
 
   const std::string group_prolongation_type =
-      get_group_prolongation_type(groupdata.group.groupindex);
+      get_group_prolongation_type(groupdata.record.groupindex);
   const int group_prolongation_order =
-      get_group_prolongation_order(groupdata.group.groupindex);
+      get_group_prolongation_order(groupdata.record.groupindex);
   const std::array<int, dim> &group_indextype = groupdata.indextype;
 
   return get_interpolator(group_prolongation_type, group_prolongation_order,
@@ -912,7 +912,7 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
   assert(groupdata.empty());
   groupdata.reserve(numgroups);
   for (int gi = 0; gi < numgroups; ++gi) {
-    const GHExt::GroupRecord &group = ghext->group(gi);
+    const GHExt::GroupRecord &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function)
       groupdata.emplace_back(nullptr);
     else
@@ -922,7 +922,7 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
   }
 
   for (int gi = 0; gi < numgroups; ++gi) {
-    const GHExt::GroupRecord &group = ghext->group(gi);
+    const GHExt::GroupRecord &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function)
       continue;
     const std::array<int, dim> fluxes = get_group_fluxes(gi);
@@ -932,7 +932,7 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
         std::array<int, dim> flux_indextype{1, 1, 1};
         flux_indextype[d] = 0;
         assert(get_group_indextype(fluxes[d]) == flux_indextype);
-        assert(ghext->group(fluxes[d]).numvars >= group.numvars);
+        assert(ghext->record(fluxes[d]).numvars >= group.numvars);
       }
     }
   }
@@ -966,18 +966,18 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
 }
 
 GHExt::PatchData::LevelData::GroupData::GroupData(
-    const GroupRecord &group, const int patch, const int level,
+    const GroupRecord &record, const int patch, const int level,
     const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
     const std::function<std::string()> &why)
-    : group(group), patch(patch), level(level) {
-  const int gi = group.groupindex;
-  const int numvars = group.numvars;
-  const int groupindex = group.groupindex;
+    : record(record), patch(patch), level(level) {
+  const int gi = record.groupindex;
+  const int numvars = record.numvars;
+  const int groupindex = record.groupindex;
   cGroup cgroup;
   int ierr = CCTK_GroupData(gi, &cgroup);
   assert(!ierr);
 
-  assert(group.kind == group_kind::grid_function);
+  assert(record.kind == group_kind::grid_function);
   assert(cgroup.vartype == CCTK_VARIABLE_REAL);
   assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
   assert(cgroup.dim == dim);
@@ -1032,7 +1032,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
               indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
               indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
               indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE));
-  const int ntls = group.num_timelevels();
+  const int ntls = record.num_timelevels();
   tls.reserve(ntls);
   for (int tl = 0; tl < ntls; ++tl)
     tls.emplace_back(std::make_unique<amrex::MultiFab>(
@@ -1335,13 +1335,13 @@ GHExt::GroupRecord::GroupRecord(const int gi, const int num_timelevels)
     array_ = std::make_unique<GlobalData::ArrayGroupData>(*this);
 }
 
-GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &group)
-    : group(group) {
-  const int gi = group.groupindex;
+GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
+    : record(record) {
+  const int gi = record.groupindex;
   cGroup cgroup;
   const int ierr = CCTK_GroupData(gi, &cgroup);
   assert(!ierr);
-  assert(group.kind != group_kind::grid_function);
+  assert(record.kind != group_kind::grid_function);
   assert(cgroup.disttype == CCTK_DISTRIB_CONSTANT);
   assert(cgroup.dim >= 0);
   assert(cgroup.dim <= dim);
@@ -1371,15 +1371,15 @@ GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &group)
     bbox[2 * d] = bbox[2 * d + 1] = 1;
   }
 
-  const int ntls = group.num_timelevels();
+  const int ntls = record.num_timelevels();
   tls.reserve(ntls);
   for (int tl = 0; tl < ntls; ++tl)
-    tls.emplace_back(AnyTypeVector(cgroup.vartype, group.numvars * array_size),
-                     group.numvars, []() { return "freeze_storage"; });
+    tls.emplace_back(AnyTypeVector(cgroup.vartype, record.numvars * array_size),
+                     record.numvars, []() { return "freeze_storage"; });
 }
 
 void GHExt::GlobalData::ArrayGroupData::rotate_timelevels() {
-  assert(group.num_timelevels() > 1);
+  assert(record.num_timelevels() > 1);
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
 }
 
@@ -1399,7 +1399,7 @@ void GHExt::freeze_storage() {
     group_records.emplace_back(gi, active_timelevels.at(gi));
   storage_frozen = true;
 
-  for (const GroupRecord &group : groups()) {
+  for (const GroupRecord &group : records()) {
     if (group.kind == group_kind::grid_function)
       continue;
     for (int tl = 0; tl < group.num_timelevels(); ++tl)
@@ -1468,7 +1468,7 @@ void CactusAmrCore::MakeNewLevelFromScratch(
   const active_levels_t active_levels(level, level + 1, patch, patch + 1);
   for (const auto &groupdata : leveldata.groups()) {
     for (int tl = 0; tl < groupdata.num_timelevels(); ++tl)
-      invalidate(active_levels, {.gi = groupdata.group.groupindex,
+      invalidate(active_levels, {.gi = groupdata.record.groupindex,
                                  .tl = tl,
                                  .where = make_valid_all(),
                                  .event = "MakeNewLevelFromScratch"});
@@ -1482,15 +1482,15 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 static int
 regrid_prolongate_tls(const GHExt::PatchData::LevelData::GroupData &groupdata) {
   const int ntls = groupdata.num_timelevels();
-  return groupdata.group.do_evolve       ? (ntls > 1 ? ntls - 1 : ntls)
-         : groupdata.group.do_checkpoint ? ntls
-                                         : 0;
+  return groupdata.record.do_evolve       ? (ntls > 1 ? ntls - 1 : ntls)
+         : groupdata.record.do_checkpoint ? ntls
+                                          : 0;
 }
 
 static bool
 regrid_source_valid(const GHExt::PatchData::LevelData::GroupData &groupdata,
                     const int tl) {
-  for (int vi = 0; vi < groupdata.group.numvars; ++vi)
+  for (int vi = 0; vi < groupdata.record.numvars; ++vi)
     if (!groupdata.timelevel(tl).valid(vi).valid_all())
       return false;
   return true;
@@ -1536,9 +1536,9 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
   }
 
   for (auto &groupdata : leveldata.groups()) {
-    const int gi = groupdata.group.groupindex;
+    const int gi = groupdata.record.groupindex;
     auto &coarsegroupdata = coarseleveldata.group(gi);
-    assert(&coarsegroupdata.group == &groupdata.group);
+    assert(&coarsegroupdata.record == &groupdata.record);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
     const int ntls = groupdata.num_timelevels();
@@ -1547,7 +1547,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 
     for (int tl = 0; tl < ntls; ++tl) {
       if (tl < prolongate_tl) {
-        const bool do_fill = groupdata.group.do_evolve ||
+        const bool do_fill = groupdata.record.do_evolve ||
                              regrid_source_valid(coarsegroupdata, tl);
         if (do_fill) {
           require(active_coarse_levels,
@@ -1580,7 +1580,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
                    {.gi = gi,
                     .tl = tl,
                     .where = make_valid_all(),
-                    .event = groupdata.group.do_evolve
+                    .event = groupdata.record.do_evolve
                                  ? "MakeNewLevelFromCoarse: oldest time level "
                                    "is not prolongated at regrid"
                                  : "MakeNewLevelFromCoarse: not prolongated "
@@ -1627,15 +1627,15 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
          const GHExt::PatchData::LevelData::GroupData &oldgroupdata,
          const int tl) {
         return tl < regrid_prolongate_tls(oldgroupdata) &&
-               (oldgroupdata.group.do_evolve ||
+               (oldgroupdata.record.do_evolve ||
                 (regrid_source_valid(coarsegroupdata, tl) &&
                  regrid_source_valid(oldgroupdata, tl)));
       };
 
   for (const auto &groupdata : leveldata.groups()) {
-    const int gi = groupdata.group.groupindex;
+    const int gi = groupdata.record.groupindex;
     const auto &coarsegroupdata = coarseleveldata.group(gi);
-    assert(&coarsegroupdata.group == &groupdata.group);
+    assert(&coarsegroupdata.record == &groupdata.record);
 
     const int ntls = groupdata.num_timelevels();
     for (int tl = 0; tl < ntls; ++tl) {
@@ -1670,10 +1670,10 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                                          []() { return "RemakeLevel"; }));
 
   for (auto &groupdata : leveldata.groups()) {
-    const int gi = groupdata.group.groupindex;
+    const int gi = groupdata.record.groupindex;
     auto &oldgroupdata = oldleveldata.group(gi);
     auto &coarsegroupdata = coarseleveldata.group(gi);
-    assert(&coarsegroupdata.group == &groupdata.group);
+    assert(&coarsegroupdata.record == &groupdata.record);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
     const valid_t fills = regrid_fills(groupdata);
@@ -1941,11 +1941,12 @@ operator<<(YAML::Emitter &yaml,
            const GHExt::GlobalData::ArrayGroupData &arraygroupdata) {
   yaml << YAML::LocalTag("arraygroupdata-1.0.0");
   yaml << YAML::BeginMap;
-  yaml << YAML::Key << "commongroupdata" << YAML::Value << arraygroupdata.group;
+  yaml << YAML::Key << "commongroupdata" << YAML::Value
+       << arraygroupdata.record;
   yaml << YAML::Key << "valid" << YAML::Value << YAML::BeginSeq;
   for (const auto &timelevel : arraygroupdata.tls) {
     yaml << YAML::BeginSeq;
-    for (int vi = 0; vi < arraygroupdata.group.numvars; ++vi)
+    for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
       yaml << timelevel.why_valid(vi);
     yaml << YAML::EndSeq;
   }
@@ -1963,11 +1964,11 @@ operator<<(YAML::Emitter &yaml,
            const GHExt::PatchData::LevelData::GroupData &groupdata) {
   yaml << YAML::LocalTag("groupdata-1.1.0");
   yaml << YAML::BeginMap;
-  yaml << YAML::Key << "commongroupdata" << YAML::Value << groupdata.group;
+  yaml << YAML::Key << "commongroupdata" << YAML::Value << groupdata.record;
   yaml << YAML::Key << "valid" << YAML::Value << YAML::BeginSeq;
   for (const auto &timelevel : groupdata.tls) {
     yaml << YAML::BeginSeq;
-    for (int vi = 0; vi < groupdata.group.numvars; ++vi)
+    for (int vi = 0; vi < groupdata.record.numvars; ++vi)
       yaml << timelevel.why_valid(vi);
     yaml << YAML::EndSeq;
   }
@@ -2457,7 +2458,7 @@ const int *ArrayGroupSizeB(const cGH *cctkGH, int dir, int gi,
   if (group.grouptype == CCTK_GF) {
     return &cctkGH->cctk_ash[dir];
   } else if (group.grouptype == CCTK_SCALAR or group.grouptype == CCTK_ARRAY) {
-    return &ghext->group(gi).array().ash[dir];
+    return &ghext->record(gi).array().ash[dir];
   } else {
     CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
                 (int)group.grouptype, CCTK_FullGroupName(gi));
@@ -2487,7 +2488,7 @@ int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {
     data->nghostzones = cctkGH->cctk_nghostzones;
     data->activetimelevels = CCTK_ActiveTimeLevelsGI(cctkGH, gi);
   } else if (group.grouptype == CCTK_SCALAR or group.grouptype == CCTK_ARRAY) {
-    const auto &arraygroupdata = ghext->group(gi).array();
+    const auto &arraygroupdata = ghext->record(gi).array();
     data->dim = arraygroupdata.dimension;
     data->lsh = arraygroupdata.lsh;
     data->ash = arraygroupdata.ash;
@@ -2496,7 +2497,7 @@ int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {
     data->ubnd = arraygroupdata.ubnd;
     data->bbox = arraygroupdata.bbox;
     data->nghostzones = arraygroupdata.nghostzones;
-    data->activetimelevels = arraygroupdata.group.num_timelevels();
+    data->activetimelevels = arraygroupdata.record.num_timelevels();
   } else {
     CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
                 (int)group.grouptype, CCTK_FullGroupName(gi));

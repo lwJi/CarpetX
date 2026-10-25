@@ -254,9 +254,9 @@ integrated_groups_t integrated_groups_with_storage(const level_t level,
   ext.level(level);
   integrated_groups_t groups;
   for (const rk_pair_t &pair : config.integrated) {
-    if (!ext.group(pair.state_gi).has_storage())
+    if (!ext.record(pair.state_gi).has_storage())
       continue;
-    if (!ext.group(pair.rhs_gi).has_storage())
+    if (!ext.record(pair.rhs_gi).has_storage())
       refuse(std::source_location::current(),
              "integrated group %s has storage on patch %d, refinement level "
              "%d, but its right-hand side %s has none",

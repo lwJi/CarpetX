@@ -344,9 +344,9 @@ struct GHExt {
       ArrayGroupData(ArrayGroupData &&) = delete;
       ArrayGroupData &operator=(ArrayGroupData &&) = delete;
 
-      explicit ArrayGroupData(const GroupRecord &group);
+      explicit ArrayGroupData(const GroupRecord &record);
 
-      const GroupRecord &group;
+      const GroupRecord &record;
 
       struct timelevel_t {
         timelevel_t(AnyTypeVector data, int numvars,
@@ -384,7 +384,7 @@ struct GHExt {
           refuse(site,
                  "time level %d of group %s does not exist: it has %d time "
                  "levels",
-                 tl, group.groupname.c_str(), int(tls.size()));
+                 tl, record.groupname.c_str(), int(tls.size()));
         return tls[tl];
       }
       timelevel_t &timelevel(
@@ -439,14 +439,14 @@ struct GHExt {
     std::unique_ptr<GlobalData::ArrayGroupData> array_;
   };
 
-  struct group_filter {
+  struct record_filter {
     std::optional<group_kind> kind;
     bool operator()(const GroupRecord &group) const {
       return group.has_storage() && (!kind || group.kind == *kind);
     }
   };
 
-  const GroupRecord &group(
+  const GroupRecord &record(
       const int gi,
       const std::source_location site = std::source_location::current()) const {
     if (!storage_frozen)
@@ -458,15 +458,15 @@ struct GHExt {
     return group_records[gi];
   }
   GroupRecord &
-  group(const int gi,
-        const std::source_location site = std::source_location::current()) {
-    return const_cast<GroupRecord &>(std::as_const(*this).group(gi, site));
+  record(const int gi,
+         const std::source_location site = std::source_location::current()) {
+    return const_cast<GroupRecord &>(std::as_const(*this).record(gi, site));
   }
-  auto groups(const std::optional<group_kind> kind = std::nullopt) const {
+  auto records(const std::optional<group_kind> kind = std::nullopt) const {
     return storage_range<const GroupRecord,
                          std::vector<GroupRecord>::const_iterator,
-                         group_filter>(group_records.begin(),
-                                       group_records.end(), group_filter{kind});
+                         record_filter>(
+        group_records.begin(), group_records.end(), record_filter{kind});
   }
   void freeze_storage();
 
@@ -565,12 +565,12 @@ struct GHExt {
         GroupData(GroupData &&) = delete;
         GroupData &operator=(GroupData &&) = delete;
 
-        GroupData(const GroupRecord &group, int patch, int level,
+        GroupData(const GroupRecord &record, int patch, int level,
                   const amrex::BoxArray &ba,
                   const amrex::DistributionMapping &dm,
                   const std::function<std::string()> &why);
 
-        const GroupRecord &group;
+        const GroupRecord &record;
         int patch, level;
 
         struct timelevel_t {
@@ -597,7 +597,7 @@ struct GHExt {
             refuse(site,
                    "time level %d of group %s does not exist on patch %d, "
                    "refinement level %d: it has %d time levels",
-                   tl, group.groupname.c_str(), patch, level, int(tls.size()));
+                   tl, record.groupname.c_str(), patch, level, int(tls.size()));
           return tls[tl];
         }
         timelevel_t &timelevel(

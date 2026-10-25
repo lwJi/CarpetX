@@ -167,7 +167,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
                    << patchdata.patch << sep << leveldata.level << sep
                    << mfi.index() << sep << I[0] << sep << I[1] << sep << I[2]
                    << sep << x[0] << sep << x[1] << sep << x[2];
-              for (int n = 0; n < groupdata.group.numvars; ++n)
+              for (int n = 0; n < groupdata.record.numvars; ++n)
                 file << sep << vars(i, j, k, n);
               file << "\n";
             }
@@ -195,7 +195,7 @@ void OutputTSVold(const cGH *restrict cctkGH) {
 
   const int numgroups = CCTK_NumGroups();
   for (int gi = 0; gi < numgroups; ++gi) {
-    const auto &group = ghext->group(gi);
+    const auto &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function)
       continue;
 
@@ -236,14 +236,14 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
   if (CCTK_MyProc(nullptr) > 0)
     return;
 
-  const auto &arraygroupdata = ghext->group(gi).array();
+  const auto &arraygroupdata = ghext->record(gi).array();
   cGroup cgroup;
   const int ierr = CCTK_GroupData(gi, &cgroup);
   assert(!ierr);
 
   std::vector<std::string> varnames;
-  for (int vi = 0; vi < arraygroupdata.group.numvars; ++vi)
-    varnames.push_back(CCTK_VarName(arraygroupdata.group.firstvarindex + vi));
+  for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
+    varnames.push_back(CCTK_VarName(arraygroupdata.record.firstvarindex + vi));
 
   const std::string sep = "\t";
   static std::set<std::string> did_write_file;
@@ -319,7 +319,7 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
   file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time;
   const int tl = 0;
   const auto &data = arraygroupdata.timelevel(tl).data;
-  for (int vi = 0; vi < arraygroupdata.group.numvars; ++vi)
+  for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
     file << sep << data[vi];
   file << "\n";
 }
@@ -332,7 +332,7 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
   if (CCTK_MyProc(nullptr) > 0)
     return;
 
-  const auto &arraygroupdata = ghext->group(gi).array();
+  const auto &arraygroupdata = ghext->record(gi).array();
   cGroup cgroup;
   const int ierr = CCTK_GroupData(gi, &cgroup);
   assert(!ierr);
@@ -341,8 +341,8 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
     return;
 
   std::vector<std::string> varnames;
-  for (int vi = 0; vi < arraygroupdata.group.numvars; ++vi)
-    varnames.push_back(CCTK_VarName(arraygroupdata.group.firstvarindex + vi));
+  for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
+    varnames.push_back(CCTK_VarName(arraygroupdata.record.firstvarindex + vi));
 
   const std::string sep = "\t";
   static std::set<std::string> did_write_file;
@@ -434,7 +434,7 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
       file << sep << (dir == out_dir ? i : 0);
     const int tl = 0;
     const auto &data = arraygroupdata.timelevel(tl).data;
-    for (int vi = 0; vi < arraygroupdata.group.numvars; ++vi)
+    for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
       file << sep << data[np * vi + DI[out_dir] * i];
     file << "\n";
   }
@@ -446,7 +446,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
                  const bool truncate_files, const out_fileinfo_t out_fileinfo,
                  const out_header_t out_header,
                  const bool output_boundary_points) {
-  const auto &group = ghext->group(gi);
+  const auto &group = ghext->record(gi);
 
   const int nintvalues = 1 + 1 + dim + 1;
   const int nvalues = nintvalues + dim + group.numvars;
@@ -540,7 +540,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
                 data.push_back(isghost);
                 for (int d = 0; d < dim; ++d)
                   data.push_back(x0[d] + I[d] * dx[d]);
-                for (int vi = 0; vi < groupdata.group.numvars; ++vi)
+                for (int vi = 0; vi < groupdata.record.numvars; ++vi)
                   data.push_back(vars(i, j, k, vi));
                 assert(data.size() == old_size + nvalues);
               }
@@ -735,7 +735,7 @@ void OutputTSV(const cGH *restrict cctkGH) {
   const int numgroups = CCTK_NumGroups();
   for (int gi = 0; gi < numgroups; ++gi) {
     if (group_enabled.at(gi)) {
-      const auto &group = ghext->group(gi);
+      const auto &group = ghext->record(gi);
       if (!group.has_storage())
         continue;
       std::string groupname = CCTK_FullGroupName(gi);

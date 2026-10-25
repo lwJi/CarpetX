@@ -903,7 +903,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
       }
 
       for (auto &groupdata : leveldata.groups()) {
-        const int gi = groupdata.group.groupindex;
+        const int gi = groupdata.record.groupindex;
         if (input_group.at(gi)) {
 
           cGroup cgroup;
@@ -915,7 +915,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           if (io_verbose)
             CCTK_VINFO("Reading group %s...", CCTK_FullGroupName(gi));
 
-          const int numvars = groupdata.group.numvars;
+          const int numvars = groupdata.record.numvars;
 
           const int tl_count =
               tl_mode == TimeLevelMode::All ? groupdata.num_timelevels() : 1;
@@ -1239,10 +1239,10 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         if (io_verbose)
           CCTK_VINFO("Reading group %d %s...", gi, CCTK_FullGroupName(gi));
 
-        auto &groupdata = ghext->group(gi).array();
-        if (!groupdata.group.has_storage())
+        auto &groupdata = ghext->record(gi).array();
+        if (!groupdata.record.has_storage())
           continue;
-        const int numvars = groupdata.group.numvars;
+        const int numvars = groupdata.record.numvars;
         const int tl = 0;
 
         // Determine grid structure
@@ -1731,7 +1731,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       const openPMD::Dataset dataset(datatype, extent);
 
       for (const auto &groupdata : leveldata.groups()) {
-        const int gi = groupdata.group.groupindex;
+        const int gi = groupdata.record.groupindex;
         if (output_group.at(gi)) {
 
           cGroup cgroup;
@@ -1743,7 +1743,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
           if (io_verbose)
             CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
 
-          const int numvars = groupdata.group.numvars;
+          const int numvars = groupdata.record.numvars;
 
           const int tl_count =
               tl_mode == TimeLevelMode::All ? groupdata.num_timelevels() : 1;
@@ -2051,10 +2051,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         if (io_verbose)
           CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
 
-        const auto &groupdata = ghext->group(gi).array();
-        if (!groupdata.group.has_storage())
+        const auto &groupdata = ghext->record(gi).array();
+        if (!groupdata.record.has_storage())
           continue;
-        const int numvars = groupdata.group.numvars;
+        const int numvars = groupdata.record.numvars;
         const int tl = 0;
 
         // Determine grid structure
