@@ -106,44 +106,41 @@ void error_if_invalid(const GroupData &groupdata, const int vi, const int tl,
                       const valid_t &required,
                       const std::function<std::string()> &msg,
                       const std::function<std::string()> &hint) {
-  assert(!groupdata.tls.empty());
-  const valid_t have = groupdata.tls.at(tl).valid(vi);
+  const valid_t have = groupdata.timelevel(tl).valid(vi);
   if (CCTK_BUILTIN_EXPECT((required & ~have).valid_any(), false))
-    CCTK_VERROR("%s: Grid function \"%s\" is invalid on patch %d, refinement "
-                "level %d, time level %d; required: %s, found: %s%s",
-                msg().c_str(), CCTK_FullVarName(groupdata.firstvarindex + vi),
-                groupdata.patch, groupdata.level, tl,
-                required.explanation().c_str(),
-                groupdata.tls.at(tl).why_valid(vi).explanation().c_str(),
-                hint ? hint().c_str() : "");
+    CCTK_VERROR(
+        "%s: Grid function \"%s\" is invalid on patch %d, refinement "
+        "level %d, time level %d; required: %s, found: %s%s",
+        msg().c_str(), CCTK_FullVarName(groupdata.record.firstvarindex + vi),
+        groupdata.patch, groupdata.level, tl, required.explanation().c_str(),
+        groupdata.timelevel(tl).why_valid(vi).explanation().c_str(),
+        hint ? hint().c_str() : "");
 }
 
 void warn_if_invalid(const GroupData &groupdata, const int vi, const int tl,
                      const valid_t &required,
                      const std::function<std::string()> &msg) {
-  assert(!groupdata.tls.empty());
-  const valid_t have = groupdata.tls.at(tl).valid(vi);
+  const valid_t have = groupdata.timelevel(tl).valid(vi);
   if (CCTK_BUILTIN_EXPECT((required & ~have).valid_any(), false))
-    CCTK_VWARN(CCTK_WARN_ALERT,
-               "%s: Grid function \"%s\" is invalid on patch %d, refinement "
-               "level %d, time level %d; required: %s, found: %s",
-               msg().c_str(), CCTK_FullVarName(groupdata.firstvarindex + vi),
-               groupdata.patch, groupdata.level, tl,
-               required.explanation().c_str(),
-               groupdata.tls.at(tl).why_valid(vi).explanation().c_str());
+    CCTK_VWARN(
+        CCTK_WARN_ALERT,
+        "%s: Grid function \"%s\" is invalid on patch %d, refinement "
+        "level %d, time level %d; required: %s, found: %s",
+        msg().c_str(), CCTK_FullVarName(groupdata.record.firstvarindex + vi),
+        groupdata.patch, groupdata.level, tl, required.explanation().c_str(),
+        groupdata.timelevel(tl).why_valid(vi).explanation().c_str());
 }
 
 void error_if_invalid(const ArrayGroupData &groupdata, const int vi,
                       const int tl, const valid_t &required,
                       const std::function<std::string()> &msg) {
-  assert(!groupdata.tls.empty());
-  const valid_t have = groupdata.tls.at(tl).valid(vi);
+  const valid_t have = groupdata.timelevel(tl).valid(vi);
   if (CCTK_BUILTIN_EXPECT((required & ~have).valid_any(), false))
     CCTK_VERROR(
         "%s: Array \"%s\" is invalid on time level %d; required %s, found %s",
-        msg().c_str(), CCTK_FullVarName(groupdata.firstvarindex + vi), tl,
-        required.explanation().c_str(),
-        groupdata.tls.at(tl).why_valid(vi).explanation().c_str());
+        msg().c_str(), CCTK_FullVarName(groupdata.record.firstvarindex + vi),
+        tl, required.explanation().c_str(),
+        groupdata.timelevel(tl).why_valid(vi).explanation().c_str());
 }
 
 void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
@@ -162,16 +159,15 @@ void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
   active_levels.loop_parallel([&](const int patch, const int level,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patchdata.at(patch);
-    const auto &leveldata = patchdata.leveldata.at(level);
-    auto &restrict groupdata = *leveldata.groupdata.at(gi);
-    assert(!groupdata.tls.empty());
+    const auto &patchdata = ghext->patch(patch);
+    const auto &leveldata = patchdata.level(level);
+    const auto &restrict groupdata = leveldata.group(gi);
 
     const Loop::GridDescBaseDevice grid(cctkGH);
     const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
     const Loop::GF3D2<CCTK_REAL> gf(
         layout, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
-                    cctkGH, tl, groupdata.firstvarindex + vi)));
+                    cctkGH, tl, groupdata.record.firstvarindex + vi)));
 
     const auto set_poison =
         [=] CCTK_DEVICE(const Loop::PointDesc &p)
@@ -231,16 +227,15 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
   active_levels.loop_parallel([&](const int patch, const int level,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patchdata.at(patch);
-    const auto &leveldata = patchdata.leveldata.at(level);
-    auto &restrict groupdata = *leveldata.groupdata.at(gi);
-    assert(!groupdata.tls.empty());
+    const auto &patchdata = ghext->patch(patch);
+    const auto &leveldata = patchdata.level(level);
+    const auto &restrict groupdata = leveldata.group(gi);
 
     const Loop::GridDescBaseDevice grid(cctkGH);
     const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
     const Loop::GF3D2<const CCTK_REAL> gf(
         layout, static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(
-                    cctkGH, tl, groupdata.firstvarindex + vi)));
+                    cctkGH, tl, groupdata.record.firstvarindex + vi)));
 
     const auto update_poison_found =
         [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -292,16 +287,15 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
   active_levels.loop_serially([&](const int patch, const int level,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patchdata.at(patch);
-    const auto &leveldata = patchdata.leveldata.at(level);
-    auto &restrict groupdata = *leveldata.groupdata.at(gi);
-    assert(!groupdata.tls.empty());
+    const auto &patchdata = ghext->patch(patch);
+    const auto &leveldata = patchdata.level(level);
+    const auto &restrict groupdata = leveldata.group(gi);
 
     const Loop::GridDescBaseDevice grid(cctkGH);
     const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
     const Loop::GF3D2<const CCTK_REAL> gf(
         layout, static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(
-                    cctkGH, tl, groupdata.firstvarindex + vi)));
+                    cctkGH, tl, groupdata.record.firstvarindex + vi)));
 
     const auto update_nan_count = [&](const Loop::PointDesc &p,
                                       const where_t where) {
@@ -397,7 +391,6 @@ void poison_ga_interior(ArrayGroupData &arraygroupdata, const int gi,
   static Timer timer("poison_invalid<GA>");
   Interval interval(timer);
 
-  assert(!arraygroupdata.tls.empty());
   cGroup group;
   int ierr = CCTK_GroupData(gi, &group);
   assert(!ierr);
@@ -409,19 +402,19 @@ void poison_ga_interior(ArrayGroupData &arraygroupdata, const int gi,
   switch (group.vartype) {
   case CCTK_VARIABLE_COMPLEX: {
     CCTK_COMPLEX *restrict ptr = static_cast<CCTK_COMPLEX *>(
-        arraygroupdata.tls.at(tl).data.data_at(vi * n_elems));
+        arraygroupdata.timelevel(tl).data.data_at(vi * n_elems));
     const poison_value_t<CCTK_COMPLEX> poison_value;
     poison_value.set_to_poison(ptr, n_elems);
   } break;
   case CCTK_VARIABLE_REAL: {
     CCTK_REAL *restrict ptr = static_cast<CCTK_REAL *>(
-        arraygroupdata.tls.at(tl).data.data_at(vi * n_elems));
+        arraygroupdata.timelevel(tl).data.data_at(vi * n_elems));
     const poison_value_t<CCTK_REAL> poison_value;
     poison_value.set_to_poison(ptr, n_elems);
   } break;
   case CCTK_VARIABLE_INT: {
     CCTK_INT *restrict ptr = static_cast<CCTK_INT *>(
-        arraygroupdata.tls.at(tl).data.data_at(vi * n_elems));
+        arraygroupdata.timelevel(tl).data.data_at(vi * n_elems));
     const poison_value_t<CCTK_INT> poison_value;
     poison_value.set_to_poison(ptr, n_elems);
   } break;
@@ -433,7 +426,6 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const int gi,
   static Timer timer("check_valid<GA>");
   Interval interval(timer);
 
-  assert(!arraygroupdata.tls.empty());
   cGroup group;
   int ierr = CCTK_GroupData(gi, &group);
   assert(!ierr);
@@ -448,7 +440,7 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const int gi,
     const poison_value_t<CCTK_COMPLEX> poison_value;
     const CCTK_COMPLEX *restrict const ptr =
         static_cast<const CCTK_COMPLEX *const>(
-            arraygroupdata.tls.at(tl).data.data_at(vi * n_elems));
+            arraygroupdata.timelevel(tl).data.data_at(vi * n_elems));
     for (int i = 0; i < n_elems; i++) {
       if (CCTK_BUILTIN_EXPECT(poison_value.is_poison(ptr[i]) ||
                                   isnan(ptr[i].real()) || isnan(ptr[i].imag()),
@@ -459,7 +451,7 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const int gi,
   case CCTK_VARIABLE_REAL: {
     const poison_value_t<CCTK_REAL> poison_value;
     const CCTK_REAL *restrict const ptr = static_cast<const CCTK_REAL *const>(
-        arraygroupdata.tls.at(tl).data.data_at(vi * n_elems));
+        arraygroupdata.timelevel(tl).data.data_at(vi * n_elems));
     for (int i = 0; i < n_elems; i++) {
       if (CCTK_BUILTIN_EXPECT(poison_value.is_poison(ptr[i]) || isnan(ptr[i]),
                               false))
@@ -469,7 +461,7 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const int gi,
   case CCTK_VARIABLE_INT: {
     const poison_value_t<CCTK_INT> poison_value;
     const CCTK_INT *restrict const ptr = static_cast<const CCTK_INT *const>(
-        arraygroupdata.tls.at(tl).data.data_at(vi * n_elems));
+        arraygroupdata.timelevel(tl).data.data_at(vi * n_elems));
     for (int i = 0; i < n_elems; i++) {
       if (CCTK_BUILTIN_EXPECT(poison_value.is_poison(ptr[i]), false))
         ++nan_count;
@@ -485,7 +477,7 @@ void poison_invalid_ga(const int gi, const int vi, const int tl,
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_arrays || !where.valid_int)
     return;
-  poison_ga_interior(*ghext->globaldata.arraygroupdata.at(gi), gi, vi, tl);
+  poison_ga_interior(ghext->record(gi).array(), gi, vi, tl);
 }
 
 void check_valid_ga(const int gi, const int vi, const int tl,
@@ -494,16 +486,15 @@ void check_valid_ga(const int gi, const int vi, const int tl,
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_arrays || !where.valid_int)
     return;
-  const auto &restrict arraygroupdata =
-      *ghext->globaldata.arraygroupdata.at(gi);
+  const auto &restrict arraygroupdata = ghext->record(gi).array();
   const std::size_t nan_count = count_ga_poison(arraygroupdata, gi, vi, tl);
   if (nan_count == 0)
     return;
   CCTK_VERROR("%s: Grid array \"%s\" has %td nans on time level %d; "
               "expected valid %s",
               msg().c_str(),
-              CCTK_FullVarName(arraygroupdata.firstvarindex + vi), nan_count,
-              tl, where.explanation().c_str());
+              CCTK_FullVarName(arraygroupdata.record.firstvarindex + vi),
+              nan_count, tl, where.explanation().c_str());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -532,19 +523,6 @@ std::vector<int> variables_of(const int gi, const std::optional<int> vi) {
   return vis;
 }
 
-GroupData &group_on(GHExt::PatchData::LevelData &leveldata, const int gi) {
-  GroupData *const groupdata = leveldata.groupdata.at(gi).get();
-  assert(groupdata && !groupdata->tls.empty());
-  return *groupdata;
-}
-
-ArrayGroupData &array_group(const int gi) {
-  ArrayGroupData *const arraygroupdata =
-      ghext->globaldata.arraygroupdata.at(gi).get();
-  assert(arraygroupdata && !arraygroupdata->tls.empty());
-  return *arraygroupdata;
-}
-
 } // namespace
 
 write_scope_t::write_scope_t(const active_levels_t &active_levels,
@@ -557,7 +535,7 @@ write_scope_t::write_scope_t(const active_levels_t &active_levels,
   const std::vector<int> vis = variables_of(this->spec.gi, this->spec.vi);
   active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
     GroupData::timelevel_t &timelevel =
-        group_on(leveldata, this->spec.gi).tls.at(this->spec.tl);
+        leveldata.group(this->spec.gi).timelevel(this->spec.tl);
     ++timelevel.open_writes;
     for (const int vi : vis)
       timelevel.valid_.at(vi).set_invalid(destroys, not_filled);
@@ -601,7 +579,7 @@ write_scope_t::~write_scope_t() {
     check_valid_gf(active_levels, spec.gi, vi, spec.tl, spec.fills, msg);
   active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
     GroupData::timelevel_t &timelevel =
-        group_on(leveldata, spec.gi).tls.at(spec.tl);
+        leveldata.group(spec.gi).timelevel(spec.tl);
     for (const int vi : vis)
       timelevel.valid_.at(vi).set_valid(spec.fills, filled);
     --timelevel.open_writes;
@@ -612,7 +590,7 @@ void require(const active_levels_t &active_levels, require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const std::vector<int> vis = variables_of(spec.gi, spec.vi);
   active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
-    const GroupData &groupdata = group_on(leveldata, spec.gi);
+    const GroupData &groupdata = leveldata.group(spec.gi);
     for (const int vi : vis)
       error_if_invalid(groupdata, vi, spec.tl, spec.where, msg, spec.hint);
   });
@@ -624,7 +602,7 @@ void warn(const active_levels_t &active_levels, require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const std::vector<int> vis = variables_of(spec.gi, spec.vi);
   active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
-    const GroupData &groupdata = group_on(leveldata, spec.gi);
+    const GroupData &groupdata = leveldata.group(spec.gi);
     for (const int vi : vis)
       warn_if_invalid(groupdata, vi, spec.tl, spec.where, msg);
   });
@@ -636,7 +614,7 @@ array_write_scope_t::array_write_scope_t(write_spec_t spec, const int iteration)
   const auto not_filled =
       event_reason(this->spec.event, " not filled", iteration);
   ArrayGroupData::timelevel_t &timelevel =
-      array_group(this->spec.gi).tls.at(this->spec.tl);
+      ghext->record(this->spec.gi).array().timelevel(this->spec.tl);
   for (const int vi : variables_of(this->spec.gi, this->spec.vi)) {
     timelevel.valid_.at(vi).set_invalid(destroys, not_filled);
     poison_invalid_ga(this->spec.gi, vi, this->spec.tl, destroys);
@@ -669,7 +647,8 @@ array_write_scope_t::~array_write_scope_t() {
     return;
   const auto msg = event_reason(spec.event, "", iteration);
   const auto filled = event_reason(spec.event, " filled", iteration);
-  ArrayGroupData::timelevel_t &timelevel = array_group(spec.gi).tls.at(spec.tl);
+  ArrayGroupData::timelevel_t &timelevel =
+      ghext->record(spec.gi).array().timelevel(spec.tl);
   for (const int vi : variables_of(spec.gi, spec.vi)) {
     check_valid_ga(spec.gi, vi, spec.tl, spec.fills, msg);
     timelevel.valid_.at(vi).set_valid(spec.fills, filled);
@@ -678,7 +657,7 @@ array_write_scope_t::~array_write_scope_t() {
 
 void require_array(require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
-  const ArrayGroupData &arraygroupdata = array_group(spec.gi);
+  const ArrayGroupData &arraygroupdata = ghext->record(spec.gi).array();
   for (const int vi : variables_of(spec.gi, spec.vi)) {
     error_if_invalid(arraygroupdata, vi, spec.tl, spec.where, msg);
     check_valid_ga(spec.gi, vi, spec.tl, spec.where, msg);
@@ -705,28 +684,21 @@ checksums_t calculate_checksums(
   active_levels.loop_parallel([&](const int patch, const int level,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patchdata.at(patch);
-    const auto &leveldata = patchdata.leveldata.at(level);
-    for (const auto &groupdataptr : leveldata.groupdata) {
-      if (!groupdataptr)
-        continue;
-      if (groupdataptr->tls.empty())
-        continue;
-      const auto &restrict groupdata = *groupdataptr;
-
+    const auto &patchdata = ghext->patch(patch);
+    const auto &leveldata = patchdata.level(level);
+    for (const auto &groupdata : leveldata.groups()) {
       const Loop::GridDescBaseDevice grid(cctkGH);
       const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
 
-      for (int vi = 0; vi < groupdata.numvars; ++vi) {
-        for (int tl = 0; tl < int(groupdata.tls.size()); ++tl) {
-          const int gi = groupdata.groupindex;
+      for (int vi = 0; vi < groupdata.record.numvars; ++vi) {
+        for (int tl = 0; tl < groupdata.num_timelevels(); ++tl) {
+          const int gi = groupdata.record.groupindex;
           const tiletag_t tiletag(patch, level, component, gi, vi, tl);
 
-          const valid_t valid = groupdata.tls.at(tl).valid(vi);
-          // No information given for this timelevel; assume not written
-          if (tl >= int(will_write.at(groupdata.groupindex).at(vi).size()))
+          const valid_t valid = groupdata.timelevel(tl).valid(vi);
+          if (tl >= int(will_write.at(gi).at(vi).size()))
             continue;
-          const auto &wr = will_write.at(groupdata.groupindex).at(vi).at(tl);
+          const auto &wr = will_write.at(gi).at(vi).at(tl);
           valid_t to_check = valid & ~wr;
 
           // Check only those variables which are valid, and where
@@ -736,7 +708,7 @@ checksums_t calculate_checksums(
 
           const Loop::GF3D2<const CCTK_REAL> gf(
               layout, static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(
-                          cctkGH, tl, groupdata.firstvarindex + vi)));
+                          cctkGH, tl, groupdata.record.firstvarindex + vi)));
 
           checksum_t checksum(to_check);
           checksum.add(tiletag);
@@ -782,21 +754,15 @@ void check_checksums(const active_levels_t &active_levels,
   active_levels.loop_parallel([&](const int patch, const int level,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patchdata.at(patch);
-    const auto &leveldata = patchdata.leveldata.at(level);
-    for (const auto &groupdataptr : leveldata.groupdata) {
-      if (!groupdataptr)
-        continue;
-      if (groupdataptr->tls.empty())
-        continue;
-      const auto &restrict groupdata = *groupdataptr;
-
+    const auto &patchdata = ghext->patch(patch);
+    const auto &leveldata = patchdata.level(level);
+    for (const auto &groupdata : leveldata.groups()) {
       const Loop::GridDescBaseDevice grid(cctkGH);
       const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
 
-      for (int vi = 0; vi < groupdata.numvars; ++vi) {
-        for (int tl = 0; tl < int(groupdata.tls.size()); ++tl) {
-          const int gi = groupdata.groupindex;
+      for (int vi = 0; vi < groupdata.record.numvars; ++vi) {
+        for (int tl = 0; tl < groupdata.num_timelevels(); ++tl) {
+          const int gi = groupdata.record.groupindex;
           const tiletag_t tiletag(patch, level, component, gi, vi, tl);
 
           if (!checksums.count(tiletag))
@@ -808,7 +774,7 @@ void check_checksums(const active_levels_t &active_levels,
 
           const Loop::GF3D2<const CCTK_REAL> gf(
               layout, static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(
-                          cctkGH, tl, groupdata.firstvarindex + vi)));
+                          cctkGH, tl, groupdata.record.firstvarindex + vi)));
 
           checksum_t checksum(did_check);
           checksum.add(tiletag);
@@ -834,7 +800,7 @@ void check_checksums(const active_levels_t &active_levels,
                 "%s: Checksum mismatch: variable %s, tile %s, "
                 "int:%d,outer:%d,ghosts:%d, old checksum %s, new checksum %s",
                 where().c_str(),
-                CCTK_FullVarName(groupdata.firstvarindex + tiletag.vi),
+                CCTK_FullVarName(groupdata.record.firstvarindex + tiletag.vi),
                 std::string(tiletag).c_str(), int(did_check.valid_int),
                 int(did_check.valid_outer), int(did_check.valid_ghosts),
                 std::string(old_checksum).c_str(),

@@ -260,28 +260,24 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       if (io_verbose)
         CCTK_VINFO("  Defining variables...");
 
-      for (const auto &patchdata : ghext->patchdata) {
+      for (const auto &patchdata : ghext->patches()) {
 
-        for (const auto &leveldata : patchdata.leveldata) {
+        for (const auto &leveldata : patchdata.levels()) {
 
-          const int numgroups = CCTK_NumGroups();
-          for (int gi = 0; gi < numgroups; ++gi) {
+          for (const auto &groupdata : leveldata.groups()) {
+            const int gi = groupdata.record.groupindex;
             if (output_group.at(gi)) {
 
               cGroup cgroup;
               ierr = CCTK_GroupData(gi, &cgroup);
               assert(!ierr);
-              assert(cgroup.grouptype == CCTK_GF);
               assert(cgroup.vartype == CCTK_VARIABLE_REAL);
               assert(cgroup.dim == 3);
 
-              const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.tls.empty())
-                continue;
-              const int numvars = groupdata.numvars;
+              const int numvars = groupdata.record.numvars;
 
               const int tl = 0;
-              const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+              const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
               const int num_local_components = mfab.local_size();
 
               // Loop over variables
@@ -320,7 +316,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
               } // for vi
             }
-          } // for gi
+          }
 
         } // for leveldata
       } // for patchdata
@@ -331,18 +327,17 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       CCTK_VINFO("  Beginning step...");
     engine.BeginStep();
 
-    std::vector<patch_t<CCTK_REAL, int, 3> > patches(ghext->patchdata.size());
-    for (const auto &patchdata : ghext->patchdata) {
+    std::vector<patch_t<CCTK_REAL, int, 3> > patches(ghext->num_patches());
+    for (const auto &patchdata : ghext->patches()) {
 
-      std::vector<level_t<CCTK_REAL, int, 3> > levels(
-          patchdata.leveldata.size());
-      for (const auto &leveldata : patchdata.leveldata) {
+      std::vector<level_t<CCTK_REAL, int, 3> > levels(patchdata.num_levels());
+      for (const auto &leveldata : patchdata.levels()) {
         if (io_verbose)
           CCTK_VINFO("  Writing patch %d level %d...", patchdata.patch,
                      leveldata.level);
 
-        const int numgroups = CCTK_NumGroups();
-        for (int gi = 0; gi < numgroups; ++gi) {
+        for (const auto &groupdata : leveldata.groups()) {
+          const int gi = groupdata.record.groupindex;
           if (output_group.at(gi)) {
             if (io_verbose)
               CCTK_VINFO("    Writing group %s...", CCTK_FullGroupName(gi));
@@ -350,16 +345,12 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             cGroup cgroup;
             ierr = CCTK_GroupData(gi, &cgroup);
             assert(!ierr);
-            assert(cgroup.grouptype == CCTK_GF);
             assert(cgroup.vartype == CCTK_VARIABLE_REAL);
             assert(cgroup.dim == 3);
 
-            const auto &groupdata = *leveldata.groupdata.at(gi);
-            if (groupdata.tls.empty())
-              continue;
-            const int numvars = groupdata.numvars;
+            const int numvars = groupdata.record.numvars;
             const int tl = 0;
-            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::IndexType &indextype = mfab.ixType();
 
             const amrex::Geometry &geom =
@@ -487,7 +478,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
             } // for vi
           }
-        } // for gi
+        }
 
       } // for leveldata
       assert(!levels.empty());

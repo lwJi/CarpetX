@@ -89,7 +89,7 @@ class Validity(unittest.TestCase):
         "check_valid_ga(gi, vi, tl, msg);",
     ]
     SETTERS = [
-        "groupdata.tls.at(0).why_valid(0).set_all(valid_t(), why);",
+        "groupdata.timelevel(0).why_valid(0).set_all(valid_t(), why);",
         "why.set_int(false, reason);",
         "why.set_outer(true, reason);",
         "why.set_ghosts(true, reason);",
@@ -210,7 +210,8 @@ class Report(unittest.TestCase):
     def test_clean(self):
         self.assertEqual(
             render([]),
-            "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, no validity call outside valid.cxx",
+            "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
+            "no validity call outside valid.cxx",
         )
 
     def test_counts(self):
@@ -230,7 +231,10 @@ class Report(unittest.TestCase):
         self.assertEqual(lines[0], "CarpetX/src/driver.cxx:7   validity   why.set_all(valid_t(), r);")
         self.assertEqual(lines[1], 'T/src/a.cxx:3              include    #include "../../CarpetX/src/driver.hxx"')
         self.assertEqual(lines[2], "T/src/b.cxx:1              marker     #define CARPETX_INTERNAL")
-        self.assertEqual(lines[-1], "✗ boundary: 1 private include, 1 stray marker, 1 validity call outside valid.cxx")
+        self.assertEqual(
+            lines[-1],
+            "✗ boundary: 1 private include, 1 stray marker, 1 validity call outside valid.cxx",
+        )
 
 
 if __name__ == "__main__":

@@ -626,7 +626,7 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
 
   ghext->recovered_levels.resize(ghext->num_patches());
 
-  for (auto &patchdata : ghext->patchdata) {
+  for (auto &patchdata : ghext->patches()) {
     const int patch = patchdata.patch;
     const int nlevels =
         read_iter->getAttribute("numLevels" + patch_suffixes.at(patch))
@@ -858,8 +858,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
 
   // First read grid functions in a loop over patches and levels
 
-  for (const auto &patchdata : ghext->patchdata) {
-    for (const auto &leveldata : patchdata.leveldata) {
+  for (auto &patchdata : ghext->patches()) {
+    for (auto &leveldata : patchdata.levels()) {
       if (io_verbose)
         CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
                    leveldata.level);
@@ -902,32 +902,25 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                    int(idomain.hi[2]));
       }
 
-      const int numgroups = CCTK_NumGroups();
-      for (int gi = 0; gi < numgroups; ++gi) {
+      for (auto &groupdata : leveldata.groups()) {
+        const int gi = groupdata.record.groupindex;
         if (input_group.at(gi)) {
-
-          // Check group properties
 
           cGroup cgroup;
           const int ierr = CCTK_GroupData(gi, &cgroup);
           assert(!ierr);
-          if (cgroup.grouptype != CCTK_GF)
-            continue;
           assert(cgroup.vartype == CCTK_VARIABLE_REAL);
           assert(cgroup.dim == 3);
 
           if (io_verbose)
             CCTK_VINFO("Reading group %s...", CCTK_FullGroupName(gi));
 
-          auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.tls.empty())
-            continue;
-          const int numvars = groupdata.numvars;
+          const int numvars = groupdata.record.numvars;
 
           const int tl_count =
-              tl_mode == TimeLevelMode::All ? int(groupdata.tls.size()) : 1;
+              tl_mode == TimeLevelMode::All ? groupdata.num_timelevels() : 1;
           for (int tl = 0; tl < tl_count; ++tl) {
-            amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+            amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::IndexType &indextype = mfab.ixType();
             const Arith::vect<bool, 3> is_cell_centred{
                 indextype.cellCentered(0), indextype.cellCentered(1),
@@ -1246,10 +1239,10 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         if (io_verbose)
           CCTK_VINFO("Reading group %d %s...", gi, CCTK_FullGroupName(gi));
 
-        auto &groupdata = *ghext->globaldata.arraygroupdata.at(gi);
-        if (groupdata.tls.empty())
+        auto &groupdata = ghext->record(gi).array();
+        if (!groupdata.record.has_storage())
           continue;
-        const int numvars = groupdata.numvars;
+        const int numvars = groupdata.record.numvars;
         const int tl = 0;
 
         // Determine grid structure
@@ -1339,10 +1332,10 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         assert(cactus_dj > 0);
         assert(cactus_dk > 0);
         assert(cactus_np > 0);
-        assert(int(groupdata.tls.at(tl).data.size()) == numvars * cactus_np);
+        assert(int(groupdata.timelevel(tl).data.size()) == numvars * cactus_np);
         for (int vi = 0; vi < numvars; ++vi) {
           void *const cactus_var_ptr =
-              groupdata.tls.at(tl).data.data_at(vi * cactus_np);
+              groupdata.timelevel(tl).data.data_at(vi * cactus_np);
           if (input_ghosts || intbox == extbox) {
 #if !OPENPMDAPI_VERSION_GE(0, 15, 0)
 #define loadChunkRaw(ptr, start, count)                                        \
@@ -1365,7 +1358,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               assert(0 && "Unexpected variable type");
             }
           } else {
-            auto cactus_ptr = &groupdata.tls.at(tl).data;
+            auto cactus_ptr = &groupdata.timelevel(tl).data;
             char *const cactus_var_ptr =
                 static_cast<char *>(cactus_ptr->data_at(vi * cactus_np));
             const int vartypesize = CCTK_VarTypeSize(cgroup.vartype);
@@ -1610,10 +1603,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
   if (!slice) {
     const int ndims = Loop::dim;
     write_iter.setAttribute<std::int64_t>("numDims", ndims);
-    const int npatches = ghext->patchdata.size();
+    const int npatches = ghext->num_patches();
     write_iter.setAttribute<std::int64_t>("numPatches", npatches);
     std::vector<std::string> patch_suffixes(npatches);
-    for (const auto &patchdata : ghext->patchdata) {
+    for (const auto &patchdata : ghext->patches()) {
       const int patch = patchdata.patch;
       std::ostringstream buf;
       // String attributes cannot be empty; we thus always need to use a patch
@@ -1622,13 +1615,13 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       patch_suffixes.at(patch) = buf.str();
     }
     write_iter.setAttribute("patchSuffixes", patch_suffixes);
-    for (const auto &patchdata : ghext->patchdata) {
+    for (const auto &patchdata : ghext->patches()) {
       const int patch = patchdata.patch;
-      const int nlevels = patchdata.leveldata.size();
+      const int nlevels = patchdata.num_levels();
       write_iter.setAttribute<std::int64_t>(
           "numLevels" + patch_suffixes.at(patch), nlevels);
       std::vector<std::string> level_suffixes(nlevels);
-      for (const auto &leveldata : patchdata.leveldata) {
+      for (const auto &leveldata : patchdata.levels()) {
         const int level = leveldata.level;
         std::ostringstream buf;
         buf << patch_suffixes.at(patch) << "_lev" << std::setw(2)
@@ -1637,7 +1630,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       }
       write_iter.setAttribute("levelSuffixes" + patch_suffixes.at(patch),
                               level_suffixes);
-      for (const auto &leveldata : patchdata.leveldata) {
+      for (const auto &leveldata : patchdata.levels()) {
         const int level = leveldata.level;
         const amrex::FabArrayBase &mfab = *leveldata.fab;
         const int nchunks = mfab.size();
@@ -1671,8 +1664,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
 
   // First write grid functions in a loop over patches and levels
 
-  for (const auto &patchdata : ghext->patchdata) {
-    for (const auto &leveldata : patchdata.leveldata) {
+  for (const auto &patchdata : ghext->patches()) {
+    for (const auto &leveldata : patchdata.levels()) {
       if (io_verbose)
         CCTK_VINFO("Writing patch %d level %d mesh...", patchdata.patch,
                    leveldata.level);
@@ -1737,32 +1730,25 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       const openPMD::Extent extent = to_vector(reversed(idomain.shape()));
       const openPMD::Dataset dataset(datatype, extent);
 
-      const int numgroups = CCTK_NumGroups();
-      for (int gi = 0; gi < numgroups; ++gi) {
+      for (const auto &groupdata : leveldata.groups()) {
+        const int gi = groupdata.record.groupindex;
         if (output_group.at(gi)) {
-
-          // Check group properties
 
           cGroup cgroup;
           const int ierr = CCTK_GroupData(gi, &cgroup);
           assert(!ierr);
-          if (cgroup.grouptype != CCTK_GF)
-            continue;
           assert(cgroup.vartype == CCTK_VARIABLE_REAL);
           assert(cgroup.dim == 3);
 
           if (io_verbose)
             CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
 
-          const auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.tls.empty())
-            continue;
-          const int numvars = groupdata.numvars;
+          const int numvars = groupdata.record.numvars;
 
           const int tl_count =
-              tl_mode == TimeLevelMode::All ? int(groupdata.tls.size()) : 1;
+              tl_mode == TimeLevelMode::All ? groupdata.num_timelevels() : 1;
           for (int tl = 0; tl < tl_count; ++tl) {
-            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::IndexType &indextype = mfab.ixType();
             const Arith::vect<bool, 3> is_cell_centred{
                 indextype.cellCentered(0), indextype.cellCentered(1),
@@ -2065,10 +2051,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         if (io_verbose)
           CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
 
-        const auto &groupdata = *ghext->globaldata.arraygroupdata.at(gi);
-        if (groupdata.tls.empty())
+        const auto &groupdata = ghext->record(gi).array();
+        if (!groupdata.record.has_storage())
           continue;
-        const int numvars = groupdata.numvars;
+        const int numvars = groupdata.record.numvars;
         const int tl = 0;
 
         // Determine grid structure
@@ -2157,11 +2143,11 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         assert(cactus_dj > 0);
         assert(cactus_dk > 0);
         assert(cactus_np > 0);
-        assert(int(groupdata.tls.at(tl).data.size()) == numvars * cactus_np);
+        assert(int(groupdata.timelevel(tl).data.size()) == numvars * cactus_np);
         if (myproc == ioproc) {
           for (int vi = 0; vi < numvars; ++vi) {
             const void *const var_ptr =
-                groupdata.tls.at(tl).data.data_at(vi * cactus_np);
+                groupdata.timelevel(tl).data.data_at(vi * cactus_np);
             if (output_ghosts || intbox == extbox) {
 #if !OPENPMDAPI_VERSION_GE(0, 15, 0)
 #define storeChunkRaw(ptr, start, count)                                       \
@@ -2184,7 +2170,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                 assert(0 && "Unexpected variable type");
               }
             } else {
-              auto cactus_ptr = &groupdata.tls.at(tl).data;
+              auto cactus_ptr = &groupdata.timelevel(tl).data;
               const Arith::vect<int, 3> contig_shape = box.shape();
               constexpr int contig_di = 1;
               const int contig_dj = contig_di * contig_shape[0];

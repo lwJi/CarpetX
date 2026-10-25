@@ -31,8 +31,11 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <source_location>
+#include <span>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -41,6 +44,66 @@ using namespace Arith;
 using Loop::dim;
 
 inline constexpr int max_num_rk_stages = 4;
+
+[[noreturn]] void refuse(std::source_location site, const char *fmt, ...)
+    CCTK_ATTRIBUTE_FORMAT(printf, 2, 3);
+
+class operation_scope_t {
+public:
+  explicit operation_scope_t(const char *name);
+  ~operation_scope_t();
+  operation_scope_t(const operation_scope_t &) = delete;
+  operation_scope_t &operator=(const operation_scope_t &) = delete;
+
+private:
+  const char *const previous;
+};
+
+const char *current_operation();
+
+enum class group_kind { grid_function, array, scalar };
+
+template <typename U> U &storage_entry(U &entry) { return entry; }
+template <typename U> U &storage_entry(std::unique_ptr<U> &entry) {
+  return *entry;
+}
+template <typename U> U &storage_entry(const std::unique_ptr<U> &entry) {
+  return *entry;
+}
+
+template <typename T, typename Iter, typename Keep> class storage_range {
+public:
+  class iterator {
+  public:
+    iterator(Iter it, Iter last, Keep keep) : it(it), last(last), keep(keep) {
+      settle();
+    }
+    T &operator*() const { return storage_entry(*it); }
+    iterator &operator++() {
+      ++it;
+      settle();
+      return *this;
+    }
+    bool operator!=(const iterator &other) const { return it != other.it; }
+
+  private:
+    void settle() {
+      while (it != last && !keep(*it))
+        ++it;
+    }
+    Iter it, last;
+    Keep keep;
+  };
+
+  storage_range(Iter first, Iter last, Keep keep)
+      : first(first), last(last), keep(keep) {}
+  iterator begin() const { return iterator(first, last, keep); }
+  iterator end() const { return iterator(last, last, keep); }
+
+private:
+  Iter first, last;
+  Keep keep;
+};
 
 // TODO: It seems that AMReX now also has `RB90`, `RB180`, and
 // `PolarB` boundary conditions. Make these available as well.
@@ -137,28 +200,9 @@ struct GHExt {
   cctkGHptr global_cctkGH;
   std::vector<cctkGHptr> level_cctkGHs; // [reflevel]
 
-  struct CommonGroupData {
-    std::string groupname;
-    int groupindex;
-    int firstvarindex;
-    int numvars;
-
-    bool do_checkpoint; // whether to checkpoint
-    bool do_evolve;     // whether this is an evolved state variable
-    // whether the driver's end-of-step restriction restricts this group
-    // (restrict_during_sync = no): the "restrict" tag; if absent, the
-    // "checkpoint" tag
-    bool do_restrict;
-    // whether a SYNC restricts this group (restrict_during_sync = yes): the
-    // "restrict" tag; if absent, yes
-    bool restrict_on_sync;
-
-    friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                     const CommonGroupData &commongroupdata);
-  };
+  struct GroupRecord;
 
   struct GlobalData {
-    // all data that exists on all levels
 
     class AnyTypeVector {
 
@@ -293,11 +337,17 @@ struct GHExt {
       void *_data;
     };
 
-    // For subcycling in time, there really should be one copy of each
-    // integrated grid scalar per level. We don't do that yet; instead,
-    // we assume that grid scalars only hold "analysis" data.
+    struct ArrayGroupData {
+      ArrayGroupData() = delete;
+      ArrayGroupData(const ArrayGroupData &) = delete;
+      ArrayGroupData &operator=(const ArrayGroupData &) = delete;
+      ArrayGroupData(ArrayGroupData &&) = delete;
+      ArrayGroupData &operator=(ArrayGroupData &&) = delete;
 
-    struct ArrayGroupData : public CommonGroupData {
+      explicit ArrayGroupData(const GroupRecord &record);
+
+      const GroupRecord &record;
+
       struct timelevel_t {
         timelevel_t(AnyTypeVector data, int numvars,
                     const std::function<std::string()> &why)
@@ -317,10 +367,8 @@ struct GHExt {
         std::vector<why_valid_t> valid_;
         friend class array_write_scope_t;
       };
-      std::vector<timelevel_t> tls;
       int array_size;
       int dimension;
-      int activetimelevels;
       int lsh[dim];
       int ash[dim];
       int gsh[dim];
@@ -329,32 +377,98 @@ struct GHExt {
       int bbox[2 * dim];
       int nghostzones[dim];
 
-      ArrayGroupData() {
-        array_size = -1;
-        dimension = -1;
-        activetimelevels = -1;
-        for (int d = 0; d < dim; d++) {
-          lsh[d] = -1;
-          ash[d] = -1;
-          gsh[d] = -1;
-          lbnd[d] = -1;
-          ubnd[d] = -1;
-          bbox[2 * d] = bbox[2 * d + 1] = -1;
-          nghostzones[d] = -1;
-        }
+      const timelevel_t &timelevel(const int tl,
+                                   const std::source_location site =
+                                       std::source_location::current()) const {
+        if (tl < 0 || tl >= int(tls.size()))
+          refuse(site,
+                 "time level %d of group %s does not exist: it has %d time "
+                 "levels",
+                 tl, record.groupname.c_str(), int(tls.size()));
+        return tls[tl];
       }
+      timelevel_t &timelevel(
+          const int tl,
+          const std::source_location site = std::source_location::current()) {
+        return const_cast<timelevel_t &>(
+            std::as_const(*this).timelevel(tl, site));
+      }
+      void rotate_timelevels();
+
+    private:
+      std::vector<timelevel_t> tls;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const ArrayGroupData &arraygroupdata);
     };
-    // TODO: right now this is sized for the total number of groups
-    std::vector<std::unique_ptr<ArrayGroupData> >
-        arraygroupdata; // [group index]
-
-    friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                     const GlobalData &globaldata);
   };
-  GlobalData globaldata;
+
+  struct GroupRecord {
+    GroupRecord(int gi, int num_timelevels);
+
+    std::string groupname;
+    int groupindex;
+    int firstvarindex;
+    int numvars;
+    bool do_checkpoint;
+    bool do_evolve;
+    bool do_restrict;
+    bool restrict_on_sync;
+    group_kind kind;
+
+    int num_timelevels() const { return num_timelevels_; }
+    bool has_storage() const { return num_timelevels_ > 0; }
+
+    const GlobalData::ArrayGroupData &
+    array(const std::source_location site =
+              std::source_location::current()) const {
+      if (kind == group_kind::grid_function)
+        refuse(site, "group %s is not a grid array or scalar group",
+               groupname.c_str());
+      assert(array_);
+      return *array_;
+    }
+    GlobalData::ArrayGroupData &
+    array(const std::source_location site = std::source_location::current()) {
+      return const_cast<GlobalData::ArrayGroupData &>(
+          std::as_const(*this).array(site));
+    }
+
+  private:
+    int num_timelevels_;
+    std::unique_ptr<GlobalData::ArrayGroupData> array_;
+  };
+
+  struct record_filter {
+    std::optional<group_kind> kind;
+    bool operator()(const GroupRecord &group) const {
+      return group.has_storage() && (!kind || group.kind == *kind);
+    }
+  };
+
+  const GroupRecord &record(
+      const int gi,
+      const std::source_location site = std::source_location::current()) const {
+    if (!storage_frozen)
+      refuse(site, "CarpetX group %d has no record yet: storage is not frozen",
+             gi);
+    if (gi < 0 || gi >= int(group_records.size()))
+      refuse(site, "group index %d does not exist: there are %d groups", gi,
+             int(group_records.size()));
+    return group_records[gi];
+  }
+  GroupRecord &
+  record(const int gi,
+         const std::source_location site = std::source_location::current()) {
+    return const_cast<GroupRecord &>(std::as_const(*this).record(gi, site));
+  }
+  auto records(const std::optional<group_kind> kind = std::nullopt) const {
+    return storage_range<const GroupRecord,
+                         std::vector<GroupRecord>::const_iterator,
+                         record_filter>(
+        group_records.begin(), group_records.end(), record_filter{kind});
+  }
+  void freeze_storage();
 
   struct PatchData {
     PatchData() = delete;
@@ -444,17 +558,19 @@ struct GHExt {
         return local_cctkGHs.at(component).get();
       }
 
-      struct GroupData : public CommonGroupData {
+      struct GroupData {
         GroupData() = delete;
         GroupData(const GroupData &) = delete;
         GroupData &operator=(const GroupData &) = delete;
         GroupData(GroupData &&) = delete;
         GroupData &operator=(GroupData &&) = delete;
 
-        GroupData(int patch, int level, int gi, const amrex::BoxArray &ba,
+        GroupData(const GroupRecord &record, int patch, int level,
+                  const amrex::BoxArray &ba,
                   const amrex::DistributionMapping &dm,
                   const std::function<std::string()> &why);
 
+        const GroupRecord &record;
         int patch, level;
 
         struct timelevel_t {
@@ -474,7 +590,24 @@ struct GHExt {
           std::vector<why_valid_t> valid_;
           friend class write_scope_t;
         };
-        std::vector<timelevel_t> tls;
+        const timelevel_t &
+        timelevel(const int tl, const std::source_location site =
+                                    std::source_location::current()) const {
+          if (tl < 0 || tl >= int(tls.size()))
+            refuse(site,
+                   "time level %d of group %s does not exist on patch %d, "
+                   "refinement level %d: it has %d time levels",
+                   tl, record.groupname.c_str(), patch, level, int(tls.size()));
+          return tls[tl];
+        }
+        timelevel_t &timelevel(
+            const int tl,
+            const std::source_location site = std::source_location::current()) {
+          return const_cast<timelevel_t &>(
+              std::as_const(*this).timelevel(tl, site));
+        }
+        int num_timelevels() const { return tls.size(); }
+        void rotate_timelevels();
         int open_write_count() const {
           int count = 0;
           for (const timelevel_t &tl : tls)
@@ -556,21 +689,143 @@ struct GHExt {
         };
         std::vector<scratch_slot_t> scratch_pool;
 
+      private:
+        std::vector<timelevel_t> tls;
+
         friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                          const GroupData &groupdata);
       };
-      // TODO: right now this is sized for the total number of groups
-      std::vector<std::unique_ptr<GroupData> > groupdata; // [group index]
+
+      struct group_storage_filter {
+        bool operator()(const std::unique_ptr<GroupData> &groupdata) const {
+          return groupdata && groupdata->num_timelevels() > 0;
+        }
+      };
+
+      const GroupData &group(const int gi,
+                             const std::source_location site =
+                                 std::source_location::current()) const {
+        if (gi < 0 || gi >= int(groupdata.size()))
+          refuse(site, "group index %d does not exist: there are %d groups", gi,
+                 int(groupdata.size()));
+        const GroupData *const gd = groupdata[gi].get();
+        if (!gd)
+          refuse(site, "group %s is not a grid function group",
+                 CCTK_FullGroupName(gi));
+        if (gd->num_timelevels() == 0)
+          refuse(site,
+                 "group %s has no storage on patch %d, refinement level %d",
+                 CCTK_FullGroupName(gi), patch, level);
+        return *gd;
+      }
+      GroupData &
+      group(const int gi,
+            const std::source_location site = std::source_location::current()) {
+        return const_cast<GroupData &>(std::as_const(*this).group(gi, site));
+      }
+      auto groups() const {
+        return storage_range<
+            const GroupData,
+            std::vector<std::unique_ptr<GroupData> >::const_iterator,
+            group_storage_filter>(groupdata.begin(), groupdata.end(),
+                                  group_storage_filter{});
+      }
+      auto groups() {
+        return storage_range<GroupData,
+                             std::vector<std::unique_ptr<GroupData> >::iterator,
+                             group_storage_filter>(
+            groupdata.begin(), groupdata.end(), group_storage_filter{});
+      }
+
+    private:
+      std::vector<std::unique_ptr<GroupData> > groupdata;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const LevelData &leveldata);
     };
-    std::vector<LevelData> leveldata; // [reflevel]
+
+    int num_levels() const { return leveldata.size(); }
+    const LevelData &level(const int level,
+                           const std::source_location site =
+                               std::source_location::current()) const {
+      if (level < 0 || level >= num_levels())
+        refuse(site,
+               "CarpetX level %d does not exist on patch %d: it has %d levels",
+               level, patch, num_levels());
+      return leveldata[level];
+    }
+    LevelData &
+    level(const int level,
+          const std::source_location site = std::source_location::current()) {
+      return const_cast<LevelData &>(std::as_const(*this).level(level, site));
+    }
+    std::span<const LevelData> levels() const { return leveldata; }
+    std::span<LevelData> levels() { return leveldata; }
+
+    LevelData &add_level(int level, const amrex::BoxArray &ba,
+                         const amrex::DistributionMapping &dm,
+                         const std::function<std::string()> &why);
+    LevelData replace_level(int level, LevelData &&fresh);
+    void erase_levels_from(int level);
+
+  private:
+    std::vector<LevelData> leveldata;
 
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const PatchData &patchdata);
   };
-  std::vector<PatchData> patchdata; // [patch]
+
+  int num_patches() const { return patchdata.size(); }
+  const PatchData &patch(
+      const int patch,
+      const std::source_location site = std::source_location::current()) const {
+    if (patch < 0 || patch >= num_patches())
+      refuse(site, "CarpetX patch %d does not exist: there are %d patches",
+             patch, num_patches());
+    return patchdata[patch];
+  }
+  PatchData &
+  patch(const int patch,
+        const std::source_location site = std::source_location::current()) {
+    return const_cast<PatchData &>(std::as_const(*this).patch(patch, site));
+  }
+  const PatchData::LevelData &level(
+      const int patch, const int level,
+      const std::source_location site = std::source_location::current()) const {
+    return this->patch(patch, site).level(level, site);
+  }
+  PatchData::LevelData &
+  level(const int patch, const int level,
+        const std::source_location site = std::source_location::current()) {
+    return const_cast<PatchData::LevelData &>(
+        std::as_const(*this).level(patch, level, site));
+  }
+  const PatchData::LevelData &level(
+      const level_t level,
+      const std::source_location site = std::source_location::current()) const {
+    return this->level(level.patch, level.level, site);
+  }
+  PatchData::LevelData &
+  level(const level_t level,
+        const std::source_location site = std::source_location::current()) {
+    return const_cast<PatchData::LevelData &>(
+        std::as_const(*this).level(level, site));
+  }
+  const PatchData::LevelData::GroupData &group(
+      const group_t group,
+      const std::source_location site = std::source_location::current()) const {
+    return this->level(group.level, site).group(group.gi, site);
+  }
+  PatchData::LevelData::GroupData &
+  group(const group_t group,
+        const std::source_location site = std::source_location::current()) {
+    return const_cast<PatchData::LevelData::GroupData &>(
+        std::as_const(*this).group(group, site));
+  }
+  std::span<const PatchData> patches() const { return patchdata; }
+  std::span<PatchData> patches() { return patchdata; }
+
+  PatchData &add_patch(int patch);
 
   // Number of active timelevels per group, populated from schedule.ccl STORAGE
   // statements during CCTKi_ScheduleGHInit. Indexed by group index; 0 means no
@@ -608,10 +863,6 @@ struct GHExt {
   // end-of-step sync check.
   const cFunctionData *last_called_function = nullptr;
 
-  // CarpetX::do_reflux, cached in InitGH next to use_subcycling. Read from
-  // here rather than through DECLARE_CCTK_PARAMETERS in the GroupData
-  // constructor, where the parameter block would shadow the do_restrict
-  // member; recovery restores the parameter before InitGH runs.
   bool do_reflux = false;
 
   std::optional<rk_config_t> rk_config;
@@ -631,15 +882,14 @@ struct GHExt {
   // Indexed [patch][level]. Empty outside of the recovery window.
   std::vector<std::vector<recovered_level_t> > recovered_levels;
 
-  int num_patches() const { return patchdata.size(); }
   int num_levels(const int patch) const {
-    return patchdata.at(patch).leveldata.size();
+    return this->patch(patch).num_levels();
   }
   int num_levels() const {
     int nlevels = 0;
     using std::max;
-    for (const auto &pd : patchdata)
-      nlevels = max(nlevels, int(pd.leveldata.size()));
+    for (const auto &pd : patches())
+      nlevels = max(nlevels, pd.num_levels());
     return nlevels;
   }
 
@@ -648,21 +898,24 @@ struct GHExt {
     return level_cctkGHs.at(level).get();
   }
   cGH *get_patch_cctkGH(const int level, const int patch) const {
-    return patchdata.at(patch).leveldata.at(level).patch_cctkGH.get();
+    return this->level(patch, level).patch_cctkGH.get();
   }
   cGH *get_local_cctkGH(const int level, const int patch,
                         const int component) const {
-    return patchdata.at(patch)
-        .leveldata.at(level)
-        .local_cctkGHs.at(component)
-        .get();
+    return this->level(patch, level).local_cctkGHs.at(component).get();
   }
+
+private:
+  std::vector<GroupRecord> group_records;
+  std::vector<PatchData> patchdata;
 
   friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ghext);
   friend std::ostream &operator<<(std::ostream &os, const GHExt &ghext);
 };
 
 extern std::unique_ptr<GHExt> ghext;
+
+GHExt &driver();
 
 int num_rk_stages();
 rk_dense_output_t registered_dense_output();

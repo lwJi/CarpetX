@@ -351,8 +351,6 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
   static Timer timer_meta("InputSiloGridStructure.meta");
   auto interval_meta = std::make_unique<Interval>(timer_meta);
 
-  // TODO: Recover grid structure for grid arrays; call SetupGlobals for them?
-
   // Read metadata
 
   DB::ptr<DBfile> metafile;
@@ -419,12 +417,11 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
 
   ghext->recovered_levels.resize(ghext->num_patches());
 
-  // Read FabArrayBase (component positions and shapes)
   for (int patch = 0; patch < npatches; ++patch) {
     CCTK_VINFO("Reading patch %d...", patch);
 
     CCTK_VINFO("  Found %d levels on patch %d", nlevels.at(patch), patch);
-    auto &patchdata = ghext->patchdata.at(patch);
+    auto &patchdata = ghext->patch(patch);
     patchdata.amrcore->SetFinestLevel(nlevels.at(patch) - 1);
     ghext->recovered_levels.at(patch).resize(nlevels.at(patch));
 
@@ -623,15 +620,13 @@ void InputSilo(const cGH *restrict const cctkGH,
     if (ghext->use_subcycling) {
       int local_has[2] = {0, 0}; // [0]: kss_*/olds, [1]: freg_*
       if (read_file) {
-        for (const auto &patchdata : ghext->patchdata) {
-          for (const auto &leveldata : patchdata.leveldata) {
-            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+        for (const auto &patchdata : ghext->patches()) {
+          for (const auto &leveldata : patchdata.levels()) {
+            for (const auto &groupdata : leveldata.groups()) {
+              const int gi = groupdata.record.groupindex;
               if (local_has[0] && local_has[1])
                 break;
-              if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
-                continue;
-              const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.tls.empty())
+              if (!input_group.at(gi))
                 continue;
               const auto probe = [&](const amrex::MultiFab *const band,
                                      const band_kind kind, const int stage) {
@@ -672,16 +667,14 @@ void InputSilo(const cGH *restrict const cctkGH,
       file_has_freg = global_has[1] != 0;
 
       if (!file_has_bands) {
-        for (const auto &patchdata : ghext->patchdata) {
-          for (const auto &leveldata : patchdata.leveldata) {
+        for (const auto &patchdata : ghext->patches()) {
+          for (const auto &leveldata : patchdata.levels()) {
             if (!recovered_finer_level_is_behind(patchdata.patch,
                                                  leveldata.level))
               continue;
-            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-              if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
-                continue;
-              const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.tls.empty())
+            for (const auto &groupdata : leveldata.groups()) {
+              const int gi = groupdata.record.groupindex;
+              if (!input_group.at(gi))
                 continue;
               const amrex::MultiFab *const band = rk_source_band(
                   patchdata.patch, leveldata.level, gi, band_kind::old_source);
@@ -701,16 +694,14 @@ void InputSilo(const cGH *restrict const cctkGH,
       }
 
       if (!file_has_freg) {
-        for (const auto &patchdata : ghext->patchdata) {
-          for (const auto &leveldata : patchdata.leveldata) {
+        for (const auto &patchdata : ghext->patches()) {
+          for (const auto &leveldata : patchdata.levels()) {
             if (!recovered_finer_level_is_behind(patchdata.patch,
                                                  leveldata.level))
               continue;
-            for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-              if (!input_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
-                continue;
-              const auto &groupdata = *leveldata.groupdata.at(gi);
-              if (groupdata.tls.empty())
+            for (const auto &groupdata : leveldata.groups()) {
+              const int gi = groupdata.record.groupindex;
+              if (!input_group.at(gi))
                 continue;
               const amrex::MultiFab *const band =
                   rk_source_band(patchdata.patch, leveldata.level, gi,
@@ -739,27 +730,22 @@ void InputSilo(const cGH *restrict const cctkGH,
       }
     }
 
-    for (const auto &patchdata : ghext->patchdata) {
-      for (const auto &leveldata : patchdata.leveldata) {
+    for (auto &patchdata : ghext->patches()) {
+      for (auto &leveldata : patchdata.levels()) {
         if (io_verbose)
           CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
                      leveldata.level);
 
-        for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+        for (auto &groupdata : leveldata.groups()) {
+          const int gi = groupdata.record.groupindex;
           if (!input_group.at(gi))
-            continue;
-          // TODO: read grid arrays
-          if (CCTK_GroupTypeI(gi) != CCTK_GF)
             continue;
           if (io_verbose)
             CCTK_VINFO("  Reading group %s", CCTK_FullGroupName(gi));
 
-          auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.tls.empty())
-            continue;
-          const int numvars = groupdata.numvars;
+          const int numvars = groupdata.record.numvars;
           const int tl = 0;
-          amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+          amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
@@ -1097,12 +1083,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
   // is unchanged.
   const bool write_bands = !all_levels_synchronized();
 
-  // 2D slice output maps a physical coord to an index via (coord - x0)/dx,
-  // which is undefined on a non-Cartesian patch. Reject up front so every loop
-  // below can assume slice ⟹ all-Cartesian. is_cartesian is identical on every
-  // rank, so this scan is collective-safe.
   if (slice) {
-    for (const auto &patchdata : ghext->patchdata)
+    for (const auto &patchdata : ghext->patches())
       if (!patchdata.is_cartesian)
         CCTK_VERROR("2D Silo slice output is only supported for "
                     "Cartesian patches");
@@ -1162,19 +1144,17 @@ void OutputSilo(const cGH *restrict const cctkGH,
       }
     }
 
-    coordinate_minima.resize(ghext->patchdata.size());
-    coordinate_maxima.resize(ghext->patchdata.size());
+    coordinate_minima.resize(ghext->num_patches());
+    coordinate_maxima.resize(ghext->num_patches());
 
-    for (const auto &patchdata : ghext->patchdata) {
+    for (const auto &patchdata : ghext->patches()) {
 
       if (!patchdata.is_cartesian) {
-        coordinate_minima.at(patchdata.patch)
-            .resize(patchdata.leveldata.size());
-        coordinate_maxima.at(patchdata.patch)
-            .resize(patchdata.leveldata.size());
+        coordinate_minima.at(patchdata.patch).resize(patchdata.num_levels());
+        coordinate_maxima.at(patchdata.patch).resize(patchdata.num_levels());
       }
 
-      for (const auto &leveldata : patchdata.leveldata) {
+      for (const auto &leveldata : patchdata.levels()) {
 
         const amrex::DistributionMapping &dm = leveldata.fab->DistributionMap();
         const int ncomponents = dm.size();
@@ -1189,19 +1169,14 @@ void OutputSilo(const cGH *restrict const cctkGH,
         }
 
         std::set<mesh_props_t> have_meshes;
-        for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
+        for (const auto &groupdata : leveldata.groups()) {
+          const int gi = groupdata.record.groupindex;
           if (!output_group.at(gi))
             continue;
-          // TODO: Output grid arrays
-          if (CCTK_GroupTypeI(gi) != CCTK_GF)
-            continue;
 
-          const auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.tls.empty())
-            continue;
-          const int numvars = groupdata.numvars;
+          const int numvars = groupdata.record.numvars;
           const int tl = 0;
-          const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+          const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
@@ -1292,16 +1267,13 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 for (int d = 0; d < ndims; ++d)
                   coord_ptrs[d] = coords[d].data();
               } else {
-                // Find the vertex-centred coordinate grid functions
-                // Silo always wants vertex-centred coordinates.
                 const int coordinate_group =
                     CCTK_GroupIndex("CoordinatesX::vertex_coords");
                 assert(coordinate_group >= 0);
                 assert(send_this_fab && write_this_fab);
-                assert(leveldata.groupdata.at(coordinate_group)->nghostzones ==
-                       groupdata.nghostzones);
-                const auto &coord_mfab =
-                    *leveldata.groupdata.at(coordinate_group)->tls.at(0).mfab;
+                const auto &coord_groupdata = leveldata.group(coordinate_group);
+                assert(coord_groupdata.nghostzones == groupdata.nghostzones);
+                const auto &coord_mfab = *coord_groupdata.timelevel(0).mfab;
                 const auto &coord_fabbox = coord_mfab[component];
                 for (int d = 0; d < ndims; ++d) {
                   coord_ptrs[d] = coord_fabbox.dataPtr(d);
@@ -1695,9 +1667,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
     } // for patchdata
   } // write data
 
-  for (const auto &patchdata : ghext->patchdata) {
+  for (const auto &patchdata : ghext->patches()) {
     if (!patchdata.is_cartesian) {
-      for (const auto &leveldata : patchdata.leveldata) {
+      for (const auto &leveldata : patchdata.levels()) {
         const int patch = patchdata.patch;
         const int level = leveldata.level;
         auto &minima = coordinate_minima.at(patch).at(level);
@@ -1762,12 +1734,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
       if (CCTK_GroupTypeI(gi) != CCTK_GF)
         continue;
 
-      const auto &patchdata0 = ghext->patchdata.at(0);
-      const auto &leveldata0 = patchdata0.leveldata.at(0);
-      const auto &groupdata0 = *leveldata0.groupdata.at(gi);
-      const int numvars = groupdata0.numvars;
+      const auto &groupdata0 = ghext->patch(0).level(0).group(gi);
+      const int numvars = groupdata0.record.numvars;
       const int tl = 0;
-      const amrex::MultiFab &mfab0 = *groupdata0.tls[tl].mfab;
+      const amrex::MultiFab &mfab0 = *groupdata0.timelevel(tl).mfab;
       const amrex::IndexType &indextype = mfab0.ixType();
 
       const std::array<int, dim> &nghosts = groupdata0.nghostzones;
@@ -1778,7 +1748,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
         const std::string multimeshname = make_meshname(nghosts);
 
         if (!slice) {
-          // Count components
           const int nlevels = ghext->num_levels();
           const int npatches = ghext->num_patches();
           std::vector<int> comp0_level(nlevels);
@@ -1793,9 +1762,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
           for (int level = 0; level < nlevels; ++level) {
             comp0_level.at(level) = ncomps_total;
             for (int patch = 0; patch < npatches; ++patch) {
-              const auto &patchdata = ghext->patchdata.at(patch);
-              if (level < int(patchdata.leveldata.size())) {
-                const auto &leveldata = patchdata.leveldata.at(level);
+              const auto &patchdata = ghext->patch(patch);
+              if (level < patchdata.num_levels()) {
+                const auto &leveldata = patchdata.level(level);
                 comp0_level_patch.at(level).at(patch) = ncomps_total;
                 const amrex::DistributionMapping &dm =
                     leveldata.fab->DistributionMap();
@@ -1852,19 +1821,18 @@ void OutputSilo(const cGH *restrict const cctkGH,
             segment_types.reserve(ncomps_total);
             segment_data.reserve(ncomps_total);
 
-            for (const auto &patchdata : ghext->patchdata) {
+            for (const auto &patchdata : ghext->patches()) {
               const int patch = patchdata.patch;
-              for (const auto &leveldata : patchdata.leveldata) {
+              for (const auto &leveldata : patchdata.levels()) {
                 const int level = leveldata.level;
                 const int fine_level = level + 1;
-                if (fine_level < int(patchdata.leveldata.size())) {
-                  const auto &groupdata = *leveldata.groupdata.at(gi);
-                  const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
-                  const auto &fine_leveldata =
-                      patchdata.leveldata.at(fine_level);
-                  const auto &fine_groupdata = *fine_leveldata.groupdata.at(gi);
+                if (fine_level < patchdata.num_levels()) {
+                  const auto &groupdata = leveldata.group(gi);
+                  const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+                  const auto &fine_leveldata = patchdata.level(fine_level);
+                  const auto &fine_groupdata = fine_leveldata.group(gi);
                   const amrex::MultiFab &fine_mfab =
-                      *fine_groupdata.tls[tl].mfab;
+                      *fine_groupdata.timelevel(tl).mfab;
 
                   const int ncomps = ncomps_level_patch.at(level).at(patch);
                   const int fine_comp0 =
@@ -2066,11 +2034,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
         std::vector<iextent_t> iextents;
         std::vector<extent_t> extents;
 
-        for (const auto &patchdata : ghext->patchdata) {
-          for (const auto &leveldata : patchdata.leveldata) {
-            const auto &groupdata = *leveldata.groupdata.at(gi);
+        for (const auto &patchdata : ghext->patches()) {
+          for (const auto &leveldata : patchdata.levels()) {
+            const auto &groupdata = leveldata.group(gi);
             const int tl = 0;
-            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const int ncomponents = mfab.size();
             if (patchdata.is_cartesian) {
               const amrex::Geometry &geom =
@@ -2204,10 +2172,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
         // Write multimesh
 
         std::vector<std::string> meshnames;
-        for (const auto &patchdata : ghext->patchdata) {
-          for (const auto &leveldata : patchdata.leveldata) {
-            const auto &groupdata = *leveldata.groupdata.at(gi);
-            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+        for (const auto &patchdata : ghext->patches()) {
+          for (const auto &leveldata : patchdata.levels()) {
+            const auto &groupdata = leveldata.group(gi);
+            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::DistributionMapping &dm = mfab.DistributionMap();
             const int ncomponents = dm.size();
             const amrex::Geometry &geom =
@@ -2275,11 +2243,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
         std::vector<int> zonecounts;
         zonecounts.reserve(meshnames.size());
-        for (const auto &patchdata : ghext->patchdata) {
-          for (const auto &leveldata : patchdata.leveldata) {
-            const auto &groupdata = *leveldata.groupdata.at(gi);
+        for (const auto &patchdata : ghext->patches()) {
+          for (const auto &leveldata : patchdata.levels()) {
+            const auto &groupdata = leveldata.group(gi);
             const int tl = 0;
-            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
                 patchdata.amrcore->Geom(leveldata.level);
@@ -2360,11 +2328,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
           const std::string multivarname = make_varname(gi, vi);
 
           std::vector<std::string> varnames;
-          for (const auto &patchdata : ghext->patchdata) {
-            for (const auto &leveldata : patchdata.leveldata) {
-              const auto &groupdata = *leveldata.groupdata.at(gi);
+          for (const auto &patchdata : ghext->patches()) {
+            for (const auto &leveldata : patchdata.levels()) {
+              const auto &groupdata = leveldata.group(gi);
               const int tl = 0;
-              const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
+              const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
               const amrex::DistributionMapping &dm = mfab.DistributionMap();
               const int ncomponents = dm.size();
               const amrex::Geometry &geom =
@@ -2419,19 +2387,17 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
     } // for gi
 
-    // Write internal driver state
     {
       const std::string dirname = DB::legalize_name(driver_name);
       ierr = DBMkDir(metafile.get(), dirname.c_str());
       assert(!ierr);
 
-      // Write number of levels
       {
         const auto num_patches = ghext->num_patches();
 
         std::vector<int> values(num_patches);
 
-        for (const auto &patchdata : ghext->patchdata) {
+        for (const auto &patchdata : ghext->patches()) {
           values.at(patchdata.patch) = ghext->num_levels(patchdata.patch);
         }
 
@@ -2443,9 +2409,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
         assert(!ierr);
       }
 
-      // Write FabArrayBase (component positions and shapes)
-      for (const auto &patchdata : ghext->patchdata) {
-        for (const auto &leveldata : patchdata.leveldata) {
+      for (const auto &patchdata : ghext->patches()) {
+        for (const auto &leveldata : patchdata.levels()) {
           const amrex::FabArrayBase &fab = *leveldata.fab;
           const int ncomponents = fab.size();
           std::vector<int> boxes(2 * ndims * ncomponents);
@@ -2466,9 +2431,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
         }
       }
 
-      // Write per-level iteration as rational (numerator/denominator)
-      for (const auto &patchdata : ghext->patchdata) {
-        for (const auto &leveldata : patchdata.leveldata) {
+      for (const auto &patchdata : ghext->patches()) {
+        for (const auto &leveldata : patchdata.levels()) {
           {
             const std::string varname =
                 dirname + "/" +

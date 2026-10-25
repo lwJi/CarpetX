@@ -24,6 +24,7 @@ static inline int omp_in_parallel() { return 0; }
 #include <limits>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -33,12 +34,12 @@ namespace CarpetX {
 
 namespace {
 
-const rk_config_t &require_integrator(const char *const what) {
+const rk_config_t &require_integrator() {
   const std::optional<rk_config_t> &config = driver().rk_config;
   if (!config)
-    CCTK_VERROR("%s: no time integrator is registered; call "
-                "CarpetX::register_integrator AT WRAGH",
-                what);
+    refuse(std::source_location::current(),
+           "no time integrator is registered; call "
+           "CarpetX::register_integrator AT WRAGH");
   return *config;
 }
 
@@ -232,11 +233,11 @@ using GroupData = GHExt::PatchData::LevelData::GroupData;
 
 constexpr int rk_tl = 0;
 
-void require_serial_context(const char *const what) {
+void require_serial_context() {
   if (omp_in_parallel())
     CCTK_VERROR("%s must run outside an OpenMP parallel region: it opens its "
                 "own MFIter and OpenMP regions and warms AMReX's FPinfo cache",
-                what);
+                current_operation());
 }
 
 std::string describe(const window_t &window) {
@@ -247,44 +248,42 @@ std::string describe(const window_t &window) {
   return buf.str();
 }
 
-integrated_groups_t integrated_groups_with_storage(const char *const what,
-                                                   const level_t level,
+integrated_groups_t integrated_groups_with_storage(const level_t level,
                                                    const rk_config_t &config) {
-  const GHExt::PatchData::LevelData &leveldata = resolve(level);
+  const GHExt &ext = driver();
+  ext.level(level);
   integrated_groups_t groups;
   for (const rk_pair_t &pair : config.integrated) {
-    const GroupData *const state = leveldata.groupdata.at(pair.state_gi).get();
-    if (!state || state->tls.empty())
+    if (!ext.record(pair.state_gi).has_storage())
       continue;
-    const GroupData *const rhs = leveldata.groupdata.at(pair.rhs_gi).get();
-    if (!rhs || rhs->tls.empty())
-      CCTK_VERROR("%s: integrated group %s has storage on patch %d, refinement "
-                  "level %d, but its right-hand side %s has none",
-                  what, CCTK_FullGroupName(pair.state_gi), level.patch,
-                  level.level, CCTK_FullGroupName(pair.rhs_gi));
+    if (!ext.record(pair.rhs_gi).has_storage())
+      refuse(std::source_location::current(),
+             "integrated group %s has storage on patch %d, refinement level "
+             "%d, but its right-hand side %s has none",
+             CCTK_FullGroupName(pair.state_gi), level.patch, level.level,
+             CCTK_FullGroupName(pair.rhs_gi));
     groups.states.push_back(pair.state_gi);
     groups.rhss.push_back(pair.rhs_gi);
   }
   return groups;
 }
 
-std::vector<rk_level_t> integrated_levels(const char *const what,
-                                          const window_t window,
+std::vector<rk_level_t> integrated_levels(const window_t window,
                                           const rk_config_t &config) {
   std::vector<rk_level_t> levels;
   active_levels_t(window).loop_coarse_to_fine(
       [&](const GHExt::PatchData::LevelData &leveldata) {
         const level_t level{leveldata.patch, leveldata.level};
         levels.push_back(
-            {level, integrated_groups_with_storage(what, level, config)});
+            {level, integrated_groups_with_storage(level, config)});
       });
   return levels;
 }
 
 bool aligned_with_parent(const level_t level) {
-  const GHExt::PatchData &patchdata = resolve_patch(level.patch);
-  return patchdata.leveldata.at(level.level).iteration ==
-         patchdata.leveldata.at(level.level - 1).iteration;
+  const GHExt::PatchData &patchdata = driver().patch(level.patch);
+  return patchdata.level(level.level).iteration ==
+         patchdata.level(level.level - 1).iteration;
 }
 
 void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
@@ -293,9 +292,9 @@ void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
   assert(driver().use_subcycling);
   assert(level.level > 0);
   assert(stage >= 1 && stage <= nstages);
-  const GHExt::PatchData::LevelData &leveldata = resolve(level);
+  const GHExt::PatchData::LevelData &leveldata = driver().level(level);
   const GHExt::PatchData::LevelData &parentdata =
-      resolve(level_t{level.patch, level.level - 1});
+      driver().level(level.patch, level.level - 1);
   const CCTK_REAL substep_start =
       aligned_with_parent(level) ? rk_substep_ratio : 0;
   const CCTK_REAL dtc =
@@ -305,7 +304,7 @@ void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
   const active_levels_t window = one_level(level);
   std::vector<write_scope_t> scopes;
   for (const int gi : states) {
-    const GroupData &groupdata = *leveldata.groupdata.at(gi);
+    const GroupData &groupdata = leveldata.group(gi);
     const valid_t outer = groupdata.all_faces_have_symmetries_or_boundaries()
                               ? make_valid_outer()
                               : valid_t();
@@ -333,15 +332,16 @@ struct rk_step_t::impl {
 };
 
 rk_step_t open_rk_step(const window_t window) {
-  const rk_config_t &config = require_integrator("CarpetX::open_rk_step");
-  require_serial_context("CarpetX::open_rk_step");
+  const operation_scope_t op("CarpetX::open_rk_step");
+  const rk_config_t &config = require_integrator();
+  require_serial_context();
   auto step = std::make_unique<rk_step_t::impl>();
   step->window = window;
   step->nstages = config.nstages();
   step->b = config.b;
   for (const rk_pair_t &pair : config.integrated)
     step->states.push_back(pair.state_gi);
-  step->levels = integrated_levels("CarpetX::open_rk_step", window, config);
+  step->levels = integrated_levels(window, config);
   for (const rk_level_t &entry : step->levels) {
     for (const int gi : entry.groups.states)
       require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),
@@ -359,6 +359,7 @@ rk_step_t::rk_step_t(std::unique_ptr<impl> p) noexcept : p(std::move(p)) {}
 rk_step_t::rk_step_t(rk_step_t &&) noexcept = default;
 
 void rk_step_t::rhs_computed() {
+  const operation_scope_t op("CarpetX::rk_step_t::rhs_computed");
   if (!p)
     CCTK_ERROR("CarpetX::rk_step_t::rhs_computed called on a moved-from RK "
                "step");
@@ -392,7 +393,7 @@ void rk_step_t::rhs_computed() {
                     why.c_str());
   for (const rk_level_t &entry : p->levels) {
     const CCTK_REAL dt =
-        delta_time * CCTK_REAL(resolve(entry.level).delta_iteration);
+        delta_time * CCTK_REAL(driver().level(entry.level).delta_iteration);
     AccumulateFluxes(entry.level.patch, entry.level.level, stage, weight * dt);
     StoreRKStage(entry.level.patch, entry.level.level, entry.groups.states,
                  entry.groups.rhss, stage);
@@ -401,6 +402,7 @@ void rk_step_t::rhs_computed() {
 }
 
 void rk_step_t::state_updated() {
+  const operation_scope_t op("CarpetX::rk_step_t::state_updated");
   if (!p)
     CCTK_ERROR("CarpetX::rk_step_t::state_updated called on a moved-from RK "
                "step");
@@ -409,10 +411,10 @@ void rk_step_t::state_updated() {
                 "expected rhs_computed first",
                 describe(p->window).c_str(), p->update_count + 1, p->nstages);
   const int stage = ++p->update_count;
-  require_operable("CarpetX::rk_step_t::state_updated", p->window, p->states);
+  require_operable(p->window, p->states);
   const cGH *const cctkGH = driver().get_global_cctkGH();
   if (driver().use_subcycling) {
-    require_serial_context("CarpetX::rk_step_t::state_updated");
+    require_serial_context();
     const int nstages = p->nstages;
     const std::string event =
         "CarpetX::rk_step_t::state_updated after RK stage " +
@@ -451,6 +453,7 @@ void RecoverRKBoundary(const active_levels_t &active_levels,
   if (!integrator || integrator->integrated.empty())
     return;
   const window_t window = active_levels.window();
+  const operation_scope_t op("CarpetX::RecoverRKBoundary");
 
   if (verbose)
     CCTK_VINFO("RecoverRKBoundary on %s: refilling the refinement-boundary "
@@ -462,8 +465,7 @@ void RecoverRKBoundary(const active_levels_t &active_levels,
   static Timer timer("RecoverRKBoundary");
   Interval interval(timer);
 
-  const std::vector<rk_level_t> levels =
-      integrated_levels("CarpetX::RecoverRKBoundary", window, *integrator);
+  const std::vector<rk_level_t> levels = integrated_levels(window, *integrator);
   for (const rk_level_t &entry : levels)
     for (const int gi : entry.groups.states)
       require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),

@@ -30,13 +30,13 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
 
   // Create operator
 
-  assert(ghext->patchdata.size() == 1);
+  assert(ghext->num_patches() == 1);
   const int patch = 0;
-  const auto &patchdata = ghext->patchdata.at(patch);
-  amrex::Vector<amrex::Geometry> geoms(patchdata.leveldata.size());
-  amrex::Vector<amrex::BoxArray> grids(patchdata.leveldata.size());
-  amrex::Vector<amrex::DistributionMapping> dmaps(patchdata.leveldata.size());
-  for (int level = 0; level < int(patchdata.leveldata.size()); ++level) {
+  const auto &patchdata = ghext->patch(patch);
+  amrex::Vector<amrex::Geometry> geoms(patchdata.num_levels());
+  amrex::Vector<amrex::BoxArray> grids(patchdata.num_levels());
+  amrex::Vector<amrex::DistributionMapping> dmaps(patchdata.num_levels());
+  for (int level = 0; level < patchdata.num_levels(); ++level) {
     geoms.at(level) = patchdata.amrcore->Geom(level);
     grids.at(level) = patchdata.amrcore->boxArray(level);
     dmaps.at(level) = patchdata.amrcore->DistributionMap(level);
@@ -51,8 +51,8 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
       {amrex::LinOpBCType::Dirichlet, amrex::LinOpBCType::Dirichlet,
        amrex::LinOpBCType::Dirichlet});
 
-  std::vector<amrex::MultiFab> sigmas(patchdata.leveldata.size());
-  for (int level = 0; level < int(patchdata.leveldata.size()); ++level) {
+  std::vector<amrex::MultiFab> sigmas(patchdata.num_levels());
+  for (int level = 0; level < patchdata.num_levels(); ++level) {
     auto &sigma = sigmas.at(level);
     sigma.define(patchdata.amrcore->boxArray(level),
                  patchdata.amrcore->DistributionMap(level), 1, 0);
@@ -66,21 +66,18 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
 
   amrex::MLMG mlmg(mlnodelaplacian);
 
-  amrex::Vector<amrex::MultiFab *> ress(patchdata.leveldata.size());
-  amrex::Vector<amrex::MultiFab *> sols(patchdata.leveldata.size());
-  amrex::Vector<const amrex::MultiFab *> rhss(patchdata.leveldata.size());
-  for (int level = 0; level < int(patchdata.leveldata.size()); ++level) {
-    const auto &restrict leveldata = patchdata.leveldata.at(level);
-    const auto &restrict groupdata_rhs = *leveldata.groupdata.at(gi_rhs);
-    assert(!groupdata_rhs.tls.empty());
-    rhss.at(level) = groupdata_rhs.tls.at(tl).mfab.get();
-    const auto &restrict groupdata_sol = *leveldata.groupdata.at(gi_sol);
-    assert(!groupdata_sol.tls.empty());
-    sols.at(level) = groupdata_sol.tls.at(tl).mfab.get();
+  amrex::Vector<amrex::MultiFab *> ress(patchdata.num_levels());
+  amrex::Vector<amrex::MultiFab *> sols(patchdata.num_levels());
+  amrex::Vector<const amrex::MultiFab *> rhss(patchdata.num_levels());
+  for (int level = 0; level < patchdata.num_levels(); ++level) {
+    const auto &restrict leveldata = patchdata.level(level);
+    const auto &restrict groupdata_rhs = leveldata.group(gi_rhs);
+    rhss.at(level) = groupdata_rhs.timelevel(tl).mfab.get();
+    const auto &restrict groupdata_sol = leveldata.group(gi_sol);
+    sols.at(level) = groupdata_sol.timelevel(tl).mfab.get();
     if (have_res) {
-      const auto &restrict groupdata_res = *leveldata.groupdata.at(gi_res);
-      assert(!groupdata_res.tls.empty());
-      ress.at(level) = groupdata_res.tls.at(tl).mfab.get();
+      const auto &restrict groupdata_res = leveldata.group(gi_res);
+      ress.at(level) = groupdata_res.timelevel(tl).mfab.get();
     }
   }
 
@@ -92,7 +89,7 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
   if (have_res) {
     mlmg.compResidual(ress, sols, rhss);
     *res_initial = 0;
-    for (int level = 0; level < int(patchdata.leveldata.size()); ++level)
+    for (int level = 0; level < patchdata.num_levels(); ++level)
       *res_initial =
           fmax(*res_initial, ress.at(level)->norminf(vi, 0, false, true));
   } else {
@@ -102,14 +99,14 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
 #pragma omp critical
   {
     CCTK_VINFO("Before solving:");
-    for (int level = 0; level < int(patchdata.leveldata.size()); ++level)
+    for (int level = 0; level < patchdata.num_levels(); ++level)
       CCTK_VINFO("norm_inf rhs[%d]: %g", level,
                  double(rhss.at(level)->norminf(vi, 0, false, true)));
-    for (int level = 0; level < int(patchdata.leveldata.size()); ++level)
+    for (int level = 0; level < patchdata.num_levels(); ++level)
       CCTK_VINFO("norm_inf sol[%d]: %g", level,
                  double(sols.at(level)->norminf(vi, 0, false, true)));
     if (have_res)
-      for (int level = 0; level < int(patchdata.leveldata.size()); ++level)
+      for (int level = 0; level < patchdata.num_levels(); ++level)
         CCTK_VINFO("norm_inf res[%d]: %g", level,
                    double(ress.at(level)->norminf(vi, 0, false, true)));
   }
@@ -121,7 +118,7 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
   if (have_res) {
     mlmg.compResidual(ress, sols, rhss);
     *res_final = 0;
-    for (int level = 0; level < int(patchdata.leveldata.size()); ++level)
+    for (int level = 0; level < patchdata.num_levels(); ++level)
       *res_final =
           fmax(*res_final, ress.at(level)->norminf(vi, 0, false, true));
   } else {
@@ -131,14 +128,14 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
 #pragma omp critical
   {
     CCTK_VINFO("After solving:");
-    for (int level = 0; level < int(patchdata.leveldata.size()); ++level)
+    for (int level = 0; level < patchdata.num_levels(); ++level)
       CCTK_VINFO("norm_inf rhs[%d]: %g", level,
                  double(rhss.at(level)->norminf(vi, 0, false, true)));
-    for (int level = 0; level < int(patchdata.leveldata.size()); ++level)
+    for (int level = 0; level < patchdata.num_levels(); ++level)
       CCTK_VINFO("norm_inf sol[%d]: %g", level,
                  double(sols.at(level)->norminf(vi, 0, false, true)));
     if (have_res)
-      for (int level = 0; level < int(patchdata.leveldata.size()); ++level)
+      for (int level = 0; level < patchdata.num_levels(); ++level)
         CCTK_VINFO("norm_inf res[%d]: %g", level,
                    double(ress.at(level)->norminf(vi, 0, false, true)));
   }

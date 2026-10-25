@@ -106,7 +106,10 @@ def summary(found: list[tuple[str, Finding]]) -> str:
     markers = sum(1 for _, f in found if f.rule == "marker")
     validity = sum(1 for _, f in found if f.rule == "validity")
     if not found:
-        return "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, no validity call outside valid.cxx"
+        return (
+            "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
+            "no validity call outside valid.cxx"
+        )
     parts = (
         ([plural(includes, "private include")] if includes else [])
         + ([plural(markers, "stray marker")] if markers else [])

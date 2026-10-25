@@ -12,15 +12,10 @@
 
 namespace CarpetX {
 
-GHExt &driver();
-GHExt::PatchData &resolve_patch(int patch);
-GHExt::PatchData::LevelData &resolve(level_t level);
-GHExt::PatchData::LevelData::GroupData &resolve(const char *what,
-                                                group_t group);
 void require_no_open_write(
-    const char *what, const GHExt::PatchData::LevelData::GroupData &groupdata);
+    const GHExt::PatchData::LevelData::GroupData &groupdata);
 
-active_levels_t require_operable(const char *what, window_t window,
+active_levels_t require_operable(window_t window,
                                  const std::vector<int> &groups);
 active_levels_t one_level(level_t level);
 

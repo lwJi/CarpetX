@@ -27,6 +27,8 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <cstdarg>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
@@ -46,6 +48,48 @@ int ghext_handle = -1;
 
 amrex::AMReX *restrict pamrex = nullptr;
 std::unique_ptr<GHExt> ghext;
+
+GHExt &driver() {
+  if (!ghext)
+    CCTK_ERROR("The CarpetX grid hierarchy does not exist: the public API is "
+               "available between the driver's SetupGH and its Shutdown");
+  return *ghext;
+}
+
+namespace {
+thread_local const char *operation_name = nullptr;
+}
+
+const char *current_operation() { return operation_name; }
+
+operation_scope_t::operation_scope_t(const char *const name)
+    : previous(operation_name) {
+  operation_name = name;
+}
+
+operation_scope_t::~operation_scope_t() { operation_name = previous; }
+
+void refuse(const std::source_location site, const char *const fmt, ...) {
+  va_list ap, ap2;
+  va_start(ap, fmt);
+  va_copy(ap2, ap);
+  const int length = std::vsnprintf(nullptr, 0, fmt, ap);
+  va_end(ap);
+  assert(length >= 0);
+  std::vector<char> message(length + 1);
+  std::vsnprintf(message.data(), message.size(), fmt, ap2);
+  va_end(ap2);
+  if (operation_name)
+    CCTK_VError(site.line(), site.file_name(), CCTK_THORNSTRING, "%s: %s",
+                operation_name, message.data());
+  CCTK_VError(site.line(), site.file_name(), CCTK_THORNSTRING, "%s",
+              message.data());
+}
+
+GHExt::PatchData &GHExt::add_patch(const int patch) {
+  assert(patch == num_patches());
+  return patchdata.emplace_back(patch);
+}
 
 std::atomic<CCTK_INT> carpetx_epoch{0};
 
@@ -100,9 +144,6 @@ extern "C" CCTK_INT CarpetX_GetBoundarySizesAndTypes(
 extern "C" CCTK_INT CarpetX_GetEpoch(void) {
   return carpetx_epoch.load(std::memory_order_relaxed);
 }
-
-// Local functions
-void SetupGlobals();
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -360,9 +401,6 @@ bool get_group_checkpoint_flag(const int gi) {
   }
 }
 
-// The restrict tag of a group, or nullopt if the group has none. The two
-// driver paths that restrict default it differently (do_restrict,
-// restrict_on_sync in CommonGroupData).
 std::optional<bool> get_group_restrict_tag(const int gi) {
   int tags = CCTK_GroupTagsTableI(gi);
   assert(tags >= 0);
@@ -715,9 +753,9 @@ get_interpolator(const GHExt::PatchData::LevelData::GroupData &groupdata) {
   DECLARE_CCTK_PARAMETERS;
 
   const std::string group_prolongation_type =
-      get_group_prolongation_type(groupdata.groupindex);
+      get_group_prolongation_type(groupdata.record.groupindex);
   const int group_prolongation_order =
-      get_group_prolongation_order(groupdata.groupindex);
+      get_group_prolongation_order(groupdata.record.groupindex);
   const std::array<int, dim> &group_indextype = groupdata.indextype;
 
   return get_interpolator(group_prolongation_type, group_prolongation_order,
@@ -814,6 +852,27 @@ GHExt::PatchData::PatchData(const int patch) : patch(patch) {
   }
 }
 
+GHExt::PatchData::LevelData &
+GHExt::PatchData::add_level(const int level, const amrex::BoxArray &ba,
+                            const amrex::DistributionMapping &dm,
+                            const std::function<std::string()> &why) {
+  assert(level == num_levels());
+  return leveldata.emplace_back(patch, level, ba, dm, why);
+}
+
+GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const int level,
+                                                            LevelData &&fresh) {
+  assert(fresh.patch == patch && fresh.level == level);
+  using std::swap;
+  swap(this->level(level), fresh);
+  return std::move(fresh);
+}
+
+void GHExt::PatchData::erase_levels_from(const int level) {
+  assert(level >= 0 && level <= num_levels());
+  leveldata.erase(leveldata.begin() + level, leveldata.end());
+}
+
 GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
                                        const amrex::BoxArray &ba,
                                        const amrex::DistributionMapping &dm,
@@ -830,8 +889,7 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     last_step_iteration = 0;
     last_finalized_iteration = 0;
   } else {
-    // We are creating a new refined level
-    auto &coarseleveldata = ghext->patchdata.at(patch).leveldata.at(level - 1);
+    auto &coarseleveldata = ghext->level(patch, level - 1);
     is_subcycling_level = ghext->use_subcycling;
     iteration = coarseleveldata.iteration;
     delta_iteration = coarseleveldata.delta_iteration / timereffact;
@@ -850,54 +908,31 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
                                          amrex::IndexType::CELL,
                                          amrex::IndexType::CELL));
 
-  // Set up metadata
   const int numgroups = CCTK_NumGroups();
   assert(groupdata.empty());
   groupdata.reserve(numgroups);
   for (int gi = 0; gi < numgroups; ++gi) {
-    cGroup group;
-    int ierr = CCTK_GroupData(gi, &group);
-    assert(!ierr);
-
-    // only grid functions live on levels (and the grid)
-    if (group.grouptype != CCTK_GF)
+    const GHExt::GroupRecord &group = ghext->record(gi);
+    if (group.kind != group_kind::grid_function)
       groupdata.emplace_back(nullptr);
     else
       groupdata.push_back(
           std::make_unique<GHExt::PatchData::LevelData::GroupData>(
-              patch, level, gi, ba, dm, why));
+              group, patch, level, ba, dm, why));
   }
 
-  // Check flux register consistency: the flux group in direction d is
-  // face-centred in d and cell-centred elsewhere, and is not the state group
-  // itself. Checked for every group with a fluxes= tag on every level, not
-  // only where a register is allocated.
-  //
-  // Component contract: the leading `numvars` components of each flux group
-  // are the fluxes of the state group's components, in the same order; any
-  // further components are ignored by the register (AccumulateFluxes and
-  // Reflux only ever touch components 0 .. numvars-1). A flux group may thus
-  // carry more components than the state, e.g. transport terms of quantities
-  // that are not part of the state (AsterX's flux groups hold the fluxes of
-  // its seven conserved variables followed by three B-field transport
-  // components used by its constrained-transport electric field).
   for (int gi = 0; gi < numgroups; ++gi) {
-    cGroup group;
-    int ierr = CCTK_GroupData(gi, &group);
-    assert(!ierr);
-
-    // only grid functions live on levels (and the grid)
-    if (group.grouptype != CCTK_GF)
+    const GHExt::GroupRecord &group = ghext->record(gi);
+    if (group.kind != group_kind::grid_function)
       continue;
-    const auto &groupdata = *this->groupdata.at(gi);
-    if (groupdata.fluxes[0] >= 0) {
+    const std::array<int, dim> fluxes = get_group_fluxes(gi);
+    if (fluxes[0] >= 0) {
       for (int d = 0; d < dim; ++d) {
-        assert(groupdata.fluxes[d] != groupdata.groupindex);
-        const auto &flux_groupdata = *this->groupdata.at(groupdata.fluxes[d]);
+        assert(fluxes[d] != gi);
         std::array<int, dim> flux_indextype{1, 1, 1};
         flux_indextype[d] = 0;
-        assert(flux_groupdata.indextype == flux_indextype);
-        assert(flux_groupdata.numvars >= groupdata.numvars);
+        assert(get_group_indextype(fluxes[d]) == flux_indextype);
+        assert(ghext->record(fluxes[d]).numvars >= group.numvars);
       }
     }
   }
@@ -931,35 +966,28 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
 }
 
 GHExt::PatchData::LevelData::GroupData::GroupData(
-    const int patch, const int level, const int gi, const amrex::BoxArray &ba,
-    const amrex::DistributionMapping &dm,
+    const GroupRecord &record, const int patch, const int level,
+    const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
     const std::function<std::string()> &why)
-    : patch(patch), level(level) {
-  cGroup group;
-  int ierr = CCTK_GroupData(gi, &group);
+    : record(record), patch(patch), level(level) {
+  const int gi = record.groupindex;
+  const int numvars = record.numvars;
+  const int groupindex = record.groupindex;
+  cGroup cgroup;
+  int ierr = CCTK_GroupData(gi, &cgroup);
   assert(!ierr);
 
-  assert(group.grouptype == CCTK_GF);
-  assert(group.vartype == CCTK_VARIABLE_REAL);
-  assert(group.disttype == CCTK_DISTRIB_DEFAULT);
-  assert(group.dim == dim);
+  assert(record.kind == group_kind::grid_function);
+  assert(cgroup.vartype == CCTK_VARIABLE_REAL);
+  assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
+  assert(cgroup.dim == dim);
 
-  groupname = CCTK_FullGroupName(gi);
-  groupindex = gi;
-  firstvarindex = CCTK_FirstVarIndexI(gi);
-  numvars = group.numvars;
-  do_checkpoint = get_group_checkpoint_flag(gi);
-  do_evolve = get_group_evolve_flag(gi);
-  const std::optional<bool> restrict_tag = get_group_restrict_tag(gi);
-  do_restrict = restrict_tag.value_or(do_checkpoint);
-  restrict_on_sync = restrict_tag.value_or(true);
   indextype = get_group_indextype(gi);
   nghostzones = get_group_nghostzones(gi);
 
   interpolator = get_interpolator(*this); // reads groupindex, indextype
 
-  // Periodic boundaries require (num interior points) >= (num ghost points)
-  const auto &geom = ghext->patchdata.at(patch).amrcore->Geom(level);
+  const auto &geom = ghext->patch(patch).amrcore->Geom(level);
   for (int d = 0; d < dim; ++d)
     if (geom.isPeriodic(d))
       assert(geom.Domain().length(d) >= nghostzones[d]);
@@ -988,7 +1016,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   for (int f = 0; f < 2; ++f) {
     for (int d = 0; d < dim; ++d) {
       const auto bc =
-          ghext->patchdata.at(patch).symmetries[f][d] == symmetry_t::periodic
+          ghext->patch(patch).symmetries[f][d] == symmetry_t::periodic
               ? amrex::BCType::int_dir
               : amrex::BCType::ext_dir;
       if (f == 0)
@@ -1004,8 +1032,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
               indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
               indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
               indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE));
-  const int ntls = ghext->active_timelevels.at(gi);
-  assert(ntls >= 0 and ntls <= group.numtimelevels);
+  const int ntls = record.num_timelevels();
   tls.reserve(ntls);
   for (int tl = 0; tl < ntls; ++tl)
     tls.emplace_back(std::make_unique<amrex::MultiFab>(
@@ -1017,7 +1044,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     assert((indextype == std::array<int, dim>{1, 1, 1}));
     if (level > 0 && group_has_flux_register(groupindex)) {
       const amrex::IntVect ratio =
-          ghext->patchdata.at(patch).amrcore->refRatio(level - 1);
+          ghext->patch(patch).amrcore->refRatio(level - 1);
       freg =
           std::make_unique<amrex::FluxRegister>(gba, dm, ratio, level, numvars);
       // FluxRegister::define leaves the FabSets uninitialized. Zero them so
@@ -1039,8 +1066,8 @@ bool all_levels_synchronized() {
   if (!ghext->use_subcycling)
     return true;
   std::optional<rat64> ref;
-  for (const auto &patchdata : ghext->patchdata)
-    for (const auto &leveldata : patchdata.leveldata) {
+  for (const auto &patchdata : ghext->patches())
+    for (const auto &leveldata : patchdata.levels()) {
       if (!ref)
         ref = leveldata.iteration;
       else if (leveldata.iteration != *ref)
@@ -1104,37 +1131,26 @@ std::string subcycling_band_tag(const band_kind kind, const int stage) {
 
 amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
                                 const band_kind kind, const int stage) {
-  // The one place that decides which GroupData holds the band that level
-  // `level` fills as a parent: it is owned by the child level's GroupData,
-  // next to the child's rk_crse_patch / rk_fine_patch. The IO backends iterate
-  // the parent level (the bands sit in its index space and are serialized
-  // under its name) and reach the band through here.
-  const auto &patchdata = ghext->patchdata.at(patch);
+  const auto &patchdata = ghext->patch(patch);
   assert(level >= 0);
-  if (level + 1 >= int(patchdata.leveldata.size()))
-    return nullptr; // finest level: no children to fill
-  const auto &childleveldata = patchdata.leveldata.at(level + 1);
-  const auto *const groupdata = childleveldata.groupdata.at(gi).get();
-  if (!groupdata)
+  if (level + 1 >= patchdata.num_levels())
     return nullptr;
+  const auto &childleveldata = patchdata.level(level + 1);
+  const auto &groupdata = childleveldata.group(gi);
   switch (kind) {
   case band_kind::ks_source:
     assert(stage >= 0 && stage < max_num_rk_stages);
-    return groupdata->ks_source_band[stage].get();
+    return groupdata.ks_source_band[stage].get();
   case band_kind::old_source:
-    return groupdata->old_source_band.get();
+    return groupdata.old_source_band.get();
   case band_kind::flux_register: {
-    // The child's flux register for the pair (level, level+1): six face
-    // FabSets on the coarsened fine BoxArray, i.e. in this level's index
-    // space like the bands above. Each face is a zero-ghost MultiFab, nodal
-    // in its own direction and cell-centred transversally.
     assert(stage >= 0 && stage < 2 * dim);
-    if (!groupdata->freg)
+    if (!groupdata.freg)
       return nullptr;
     const int dir = stage / 2;
     const amrex::Orientation::Side side =
         stage % 2 ? amrex::Orientation::high : amrex::Orientation::low;
-    return &(*groupdata->freg)[amrex::Orientation(dir, side)].multiFab();
+    return &(*groupdata.freg)[amrex::Orientation(dir, side)].multiFab();
   }
   default:
     assert(0);
@@ -1146,7 +1162,7 @@ amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
 
 bool GHExt::PatchData::LevelData::GroupData::
     all_faces_have_symmetries_or_boundaries() const {
-  const auto &symmetries = ghext->patchdata.at(patch).symmetries;
+  const auto &symmetries = ghext->patch(patch).symmetries;
   bool res = true;
   for (int f = 0; f < 2; ++f)
     for (int d = 0; d < dim; ++d)
@@ -1156,16 +1172,20 @@ bool GHExt::PatchData::LevelData::GroupData::
   return res;
 }
 
+void GHExt::PatchData::LevelData::GroupData::rotate_timelevels() {
+  assert(num_timelevels() > 1);
+  assert(open_write_count() == 0);
+  std::rotate(tls.begin(), tls.end() - 1, tls.end());
+}
+
 void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
     amrex::MultiFab &mfab) const {
   DECLARE_CCTK_PARAMETERS;
 
-  assert(!this->tls.empty());
-
   static Timer timer("apply_boundary_conditions");
   Interval interval(timer);
 
-  const amrex::Geometry &geom = ghext->patchdata.at(patch).amrcore->Geom(level);
+  const amrex::Geometry &geom = ghext->patch(patch).amrcore->Geom(level);
 
   if (geom.isAllPeriodic())
     return;
@@ -1200,9 +1220,7 @@ CactusAmrCore::CactusAmrCore(const int patch, const amrex::RealBox *rb,
                              amrex::Vector<amrex::IntVect> ref_ratios,
                              const int *is_per)
     : amrex::AmrCore(rb, max_level_in, n_cell_in, coord, ref_ratios, is_per),
-      patch(patch) {
-  SetupGlobals();
-}
+      patch(patch) {}
 
 CactusAmrCore::CactusAmrCore(const int patch, const amrex::RealBox &rb,
                              int max_level_in,
@@ -1210,17 +1228,13 @@ CactusAmrCore::CactusAmrCore(const int patch, const amrex::RealBox &rb,
                              amrex::Vector<amrex::IntVect> const &ref_ratios,
                              amrex::Array<int, AMREX_SPACEDIM> const &is_per)
     : amrex::AmrCore(rb, max_level_in, n_cell_in, coord, ref_ratios, is_per),
-      patch(patch) {
-  SetupGlobals();
-}
+      patch(patch) {}
 
 CactusAmrCore::~CactusAmrCore() {}
 
 void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
                              const amrex::Real time, const int ngrow) {
   DECLARE_CCTK_PARAMETERS;
-
-  auto &restrict patchdata = ghext->patchdata.at(patch);
 
   // Don't regrid before Cactus is ready to
   if (!cactus_is_initialized)
@@ -1235,8 +1249,8 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
   const int vi = 0;
   const int tl = 0;
 
-  auto &restrict leveldata = patchdata.leveldata.at(level);
-  auto &restrict groupdata = *leveldata.groupdata.at(gi);
+  auto &restrict leveldata = ghext->level(patch, level);
+  auto &restrict groupdata = leveldata.group(gi);
   require(active_levels_t(level, level + 1, patch, patch + 1),
           {.gi = gi,
            .tl = tl,
@@ -1250,7 +1264,7 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
     GridPtrDesc1 grid(leveldata, groupdata, mfi);
 
     const amrex::Array4<const CCTK_REAL> &err_array4 =
-        groupdata.tls.at(tl).mfab->array(mfi);
+        groupdata.timelevel(tl).mfab->array(mfi);
     const GF3D1<const CCTK_REAL> &err_ = grid.gf3d(err_array4, vi);
     const amrex::Array4<char> &tags_array4 = tags.array(mfi);
 
@@ -1287,87 +1301,112 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
                100.0 * npoints_clear / npoints_total, 100.0);
 }
 
-void SetupGlobals() {
+GHExt::GroupRecord::GroupRecord(const int gi, const int num_timelevels)
+    : num_timelevels_(num_timelevels) {
+  cGroup cgroup;
+  const int ierr = CCTK_GroupData(gi, &cgroup);
+  assert(!ierr);
+  assert(num_timelevels >= 0 and num_timelevels <= cgroup.numtimelevels);
+
+  groupname = CCTK_FullGroupName(gi);
+  groupindex = gi;
+  firstvarindex = CCTK_FirstVarIndexI(gi);
+  numvars = cgroup.numvars;
+  do_checkpoint = get_group_checkpoint_flag(gi);
+  do_evolve = get_group_evolve_flag(gi);
+  const std::optional<bool> restrict_tag = get_group_restrict_tag(gi);
+  do_restrict = restrict_tag.value_or(do_checkpoint);
+  restrict_on_sync = restrict_tag.value_or(true);
+  switch (cgroup.grouptype) {
+  case CCTK_GF:
+    kind = group_kind::grid_function;
+    break;
+  case CCTK_ARRAY:
+    kind = group_kind::array;
+    break;
+  case CCTK_SCALAR:
+    kind = group_kind::scalar;
+    break;
+  default:
+    CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
+                (int)cgroup.grouptype, groupname.c_str());
+  }
+  if (kind != group_kind::grid_function)
+    array_ = std::make_unique<GlobalData::ArrayGroupData>(*this);
+}
+
+GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
+    : record(record) {
+  const int gi = record.groupindex;
+  cGroup cgroup;
+  const int ierr = CCTK_GroupData(gi, &cgroup);
+  assert(!ierr);
+  assert(record.kind != group_kind::grid_function);
+  assert(cgroup.disttype == CCTK_DISTRIB_CONSTANT);
+  assert(cgroup.dim >= 0);
+  assert(cgroup.dim <= dim);
+
+  CCTK_INT const *const *const sz = CCTK_GroupSizesI(gi);
+  array_size = 1;
+  for (int d = 0; d < cgroup.dim; ++d)
+    array_size = array_size * *sz[d];
+
+  dimension = cgroup.dim;
+  for (int d = 0; d < cgroup.dim; ++d) {
+    lsh[d] = *sz[d];
+    ash[d] = *sz[d];
+    gsh[d] = *sz[d];
+    nghostzones[d] = 0;
+    lbnd[d] = 0;
+    ubnd[d] = *sz[d] - 1;
+    bbox[2 * d] = bbox[2 * d + 1] = 1;
+  }
+  for (int d = cgroup.dim; d < dim; ++d) {
+    lsh[d] = 1;
+    ash[d] = 1;
+    gsh[d] = 1;
+    nghostzones[d] = 0;
+    lbnd[d] = 0;
+    ubnd[d] = 0;
+    bbox[2 * d] = bbox[2 * d + 1] = 1;
+  }
+
+  const int ntls = record.num_timelevels();
+  tls.reserve(ntls);
+  for (int tl = 0; tl < ntls; ++tl)
+    tls.emplace_back(AnyTypeVector(cgroup.vartype, record.numvars * array_size),
+                     record.numvars, []() { return "freeze_storage"; });
+}
+
+void GHExt::GlobalData::ArrayGroupData::rotate_timelevels() {
+  assert(record.num_timelevels() > 1);
+  std::rotate(tls.begin(), tls.end() - 1, tls.end());
+}
+
+void GHExt::freeze_storage() {
   DECLARE_CCTK_PARAMETERS;
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("SetupGlobals");
+    CCTK_VINFO("freeze_storage");
 
-  GHExt::GlobalData &globaldata = ghext->globaldata;
-
+  assert(!storage_frozen);
+  assert(group_records.empty());
   const int numgroups = CCTK_NumGroups();
-  globaldata.arraygroupdata.resize(numgroups);
-  for (int gi = 0; gi < numgroups; ++gi) {
-    cGroup group;
-    int ierr = CCTK_GroupData(gi, &group);
-    assert(!ierr);
+  assert(int(active_timelevels.size()) == numgroups);
+  group_records.reserve(numgroups);
+  for (int gi = 0; gi < numgroups; ++gi)
+    group_records.emplace_back(gi, active_timelevels.at(gi));
+  storage_frozen = true;
 
-    // grid functions live on levels
-    if (group.grouptype == CCTK_GF)
+  for (const GroupRecord &group : records()) {
+    if (group.kind == group_kind::grid_function)
       continue;
-    assert(group.grouptype == CCTK_ARRAY || group.grouptype == CCTK_SCALAR);
-    assert(group.disttype == CCTK_DISTRIB_CONSTANT);
-    assert(group.dim >= 0);
-    assert(group.dim <= dim);
-
-    globaldata.arraygroupdata.at(gi) =
-        std::make_unique<GHExt::GlobalData::ArrayGroupData>();
-    GHExt::GlobalData::ArrayGroupData &arraygroupdata =
-        *globaldata.arraygroupdata.at(gi);
-    arraygroupdata.groupname = CCTK_FullGroupName(gi);
-    arraygroupdata.groupindex = gi;
-    arraygroupdata.firstvarindex = CCTK_FirstVarIndexI(gi);
-    arraygroupdata.numvars = group.numvars;
-    arraygroupdata.do_checkpoint = get_group_checkpoint_flag(gi);
-    arraygroupdata.do_evolve = get_group_evolve_flag(gi);
-    const std::optional<bool> restrict_tag = get_group_restrict_tag(gi);
-    arraygroupdata.do_restrict =
-        restrict_tag.value_or(arraygroupdata.do_checkpoint);
-    arraygroupdata.restrict_on_sync = restrict_tag.value_or(true);
-
-    CCTK_INT const *const *const sz = CCTK_GroupSizesI(gi);
-    arraygroupdata.array_size = 1;
-    for (int d = 0; d < group.dim; ++d)
-      arraygroupdata.array_size = arraygroupdata.array_size * *sz[d];
-
-    // Set up dynamic data
-    arraygroupdata.dimension = group.dim;
-    arraygroupdata.activetimelevels = ghext->active_timelevels.at(gi);
-    for (int d = 0; d < group.dim; ++d) {
-      arraygroupdata.lsh[d] = *sz[d];
-      arraygroupdata.ash[d] = *sz[d];
-      arraygroupdata.gsh[d] = *sz[d];
-      arraygroupdata.nghostzones[d] = 0;
-      arraygroupdata.lbnd[d] = 0;
-      arraygroupdata.ubnd[d] = *sz[d] - 1;
-      arraygroupdata.bbox[2 * d] = arraygroupdata.bbox[2 * d + 1] = 1;
-    }
-    // Extend the grid scalars and arrays to 3d
-    for (int d = group.dim; d < dim; ++d) {
-      arraygroupdata.lsh[d] = 1;
-      arraygroupdata.ash[d] = 1;
-      arraygroupdata.gsh[d] = 1;
-      arraygroupdata.nghostzones[d] = 0;
-      arraygroupdata.lbnd[d] = 0;
-      arraygroupdata.ubnd[d] = 0;
-      arraygroupdata.bbox[2 * d] = arraygroupdata.bbox[2 * d + 1] = 1;
-    }
-
-    const int ntls = ghext->active_timelevels.at(gi);
-    assert(ntls >= 0 and ntls <= group.numtimelevels);
-    arraygroupdata.tls.reserve(ntls);
-    for (int tl = 0; tl < ntls; ++tl) {
-      arraygroupdata.tls.emplace_back(
-          GHExt::GlobalData::AnyTypeVector(group.vartype,
-                                           arraygroupdata.numvars *
-                                               arraygroupdata.array_size),
-          arraygroupdata.numvars, []() { return "SetupGlobals"; });
-      invalidate_array({.gi = gi,
+    for (int tl = 0; tl < group.num_timelevels(); ++tl)
+      invalidate_array({.gi = group.groupindex,
                         .tl = tl,
                         .where = make_valid_int(),
-                        .event = "SetupGlobals"});
-    }
+                        .event = "freeze_storage"});
   }
 }
 
@@ -1380,9 +1419,7 @@ void CactusAmrCore::SetupLevel(const int level, const amrex::BoxArray &ba,
 #pragma omp critical
     CCTK_VINFO("SetupLevel patch %d level %d", patch, level);
 
-  GHExt::PatchData &patchdata = ghext->patchdata.at(patch);
-  assert(level == int(patchdata.leveldata.size()));
-  patchdata.leveldata.emplace_back(patch, level, ba, dm, why);
+  ghext->patch(patch).add_level(level, ba, dm, why);
 
   if (level >= int(level_modified.size()))
     level_modified.resize(level + 1, true);
@@ -1427,14 +1464,11 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 
   SetupLevel(level, ba, dm, []() { return "MakeNewLevelFromScratch"; });
 
-  const auto &leveldata = ghext->patchdata.at(patch).leveldata.at(level);
+  const auto &leveldata = ghext->level(patch, level);
   const active_levels_t active_levels(level, level + 1, patch, patch + 1);
-  for (const auto &groupdataptr : leveldata.groupdata) {
-    if (!groupdataptr)
-      continue;
-    const auto &restrict groupdata = *groupdataptr;
-    for (int tl = 0; tl < int(groupdata.tls.size()); ++tl)
-      invalidate(active_levels, {.gi = groupdata.groupindex,
+  for (const auto &groupdata : leveldata.groups()) {
+    for (int tl = 0; tl < groupdata.num_timelevels(); ++tl)
+      invalidate(active_levels, {.gi = groupdata.record.groupindex,
                                  .tl = tl,
                                  .where = make_valid_all(),
                                  .event = "MakeNewLevelFromScratch"});
@@ -1447,17 +1481,17 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 
 static int
 regrid_prolongate_tls(const GHExt::PatchData::LevelData::GroupData &groupdata) {
-  const int ntls = groupdata.tls.size();
-  return groupdata.do_evolve       ? (ntls > 1 ? ntls - 1 : ntls)
-         : groupdata.do_checkpoint ? ntls
-                                   : 0;
+  const int ntls = groupdata.num_timelevels();
+  return groupdata.record.do_evolve       ? (ntls > 1 ? ntls - 1 : ntls)
+         : groupdata.record.do_checkpoint ? ntls
+                                          : 0;
 }
 
 static bool
 regrid_source_valid(const GHExt::PatchData::LevelData::GroupData &groupdata,
                     const int tl) {
-  for (int vi = 0; vi < groupdata.numvars; ++vi)
-    if (!groupdata.tls.at(tl).valid(vi).valid_all())
+  for (int vi = 0; vi < groupdata.record.numvars; ++vi)
+    if (!groupdata.timelevel(tl).valid(vi).valid_all())
       return false;
   return true;
 }
@@ -1483,10 +1517,9 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 
   SetupLevel(level, ba, dm, []() { return "MakeNewLevelFromCoarse"; });
 
-  // Prolongate
-  auto &patchdata = ghext->patchdata.at(patch);
-  auto &leveldata = patchdata.leveldata.at(level);
-  auto &coarseleveldata = patchdata.leveldata.at(level - 1);
+  auto &patchdata = ghext->patch(patch);
+  auto &leveldata = patchdata.level(level);
+  auto &coarseleveldata = patchdata.level(level - 1);
   const active_levels_t active_levels(level, level + 1, patch, patch + 1);
   const active_levels_t active_coarse_levels(level - 1, level, patch,
                                              patch + 1);
@@ -1502,28 +1535,20 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
     CCTK_VERROR(msg.str().c_str());
   }
 
-  const int num_groups = CCTK_NumGroups();
-  for (int gi = 0; gi < num_groups; ++gi) {
-    cGroup group;
-    int ierr = CCTK_GroupData(gi, &group);
-    assert(!ierr);
-
-    if (group.grouptype != CCTK_GF)
-      continue;
-
-    auto &restrict groupdata = *leveldata.groupdata.at(gi);
-    auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-    assert(coarsegroupdata.numvars == groupdata.numvars);
+  for (auto &groupdata : leveldata.groups()) {
+    const int gi = groupdata.record.groupindex;
+    auto &coarsegroupdata = coarseleveldata.group(gi);
+    assert(&coarsegroupdata.record == &groupdata.record);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
-    const int ntls = groupdata.tls.size();
+    const int ntls = groupdata.num_timelevels();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
     const valid_t fills = regrid_fills(groupdata);
 
     for (int tl = 0; tl < ntls; ++tl) {
       if (tl < prolongate_tl) {
-        const bool do_fill =
-            groupdata.do_evolve || regrid_source_valid(coarsegroupdata, tl);
+        const bool do_fill = groupdata.record.do_evolve ||
+                             regrid_source_valid(coarsegroupdata, tl);
         if (do_fill) {
           require(active_coarse_levels,
                   {.gi = gi,
@@ -1538,8 +1563,8 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
                .keeps = {},
                .event = "MakeNewLevelFromCoarse after prolongation"});
           FillPatch_NewLevel(
-              groupdata, coarsegroupdata, *groupdata.tls.at(tl).mfab,
-              *coarsegroupdata.tls.at(tl).mfab,
+              groupdata, coarsegroupdata, *groupdata.timelevel(tl).mfab,
+              *coarsegroupdata.timelevel(tl).mfab,
               patchdata.amrcore->Geom(level - 1),
               patchdata.amrcore->Geom(level), interpolator, groupdata.bcrecs);
         } else {
@@ -1555,15 +1580,14 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
                    {.gi = gi,
                     .tl = tl,
                     .where = make_valid_all(),
-                    .event = groupdata.do_evolve
+                    .event = groupdata.record.do_evolve
                                  ? "MakeNewLevelFromCoarse: oldest time level "
                                    "is not prolongated at regrid"
                                  : "MakeNewLevelFromCoarse: not prolongated "
                                    "because variable is not evolved"});
       }
     } // for tl
-
-  } // for gi
+  }
 
   if (verbose)
 #pragma omp critical
@@ -1579,10 +1603,10 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
 #pragma omp critical
     CCTK_VINFO("RemakeLevel patch %d level %d", patch, level);
 
-  auto &patchdata = ghext->patchdata.at(patch);
-  auto &leveldata = patchdata.leveldata.at(level);
+  auto &patchdata = ghext->patch(patch);
+  auto &leveldata = patchdata.level(level);
   assert(leveldata.level > 0);
-  auto &coarseleveldata = patchdata.leveldata.at(level - 1);
+  auto &coarseleveldata = patchdata.level(level - 1);
   const active_levels_t active_levels(level, level + 1, patch, patch + 1);
   const active_levels_t active_coarse_levels(level - 1, level, patch,
                                              patch + 1);
@@ -1603,25 +1627,17 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
          const GHExt::PatchData::LevelData::GroupData &oldgroupdata,
          const int tl) {
         return tl < regrid_prolongate_tls(oldgroupdata) &&
-               (oldgroupdata.do_evolve ||
+               (oldgroupdata.record.do_evolve ||
                 (regrid_source_valid(coarsegroupdata, tl) &&
                  regrid_source_valid(oldgroupdata, tl)));
       };
 
-  const int num_groups = CCTK_NumGroups();
-  for (int gi = 0; gi < num_groups; ++gi) {
-    cGroup group;
-    int ierr = CCTK_GroupData(gi, &group);
-    assert(!ierr);
+  for (const auto &groupdata : leveldata.groups()) {
+    const int gi = groupdata.record.groupindex;
+    const auto &coarsegroupdata = coarseleveldata.group(gi);
+    assert(&coarsegroupdata.record == &groupdata.record);
 
-    if (group.grouptype != CCTK_GF)
-      continue;
-
-    const auto &restrict groupdata = *leveldata.groupdata.at(gi);
-    const auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-    assert(coarsegroupdata.numvars == groupdata.numvars);
-
-    const int ntls = groupdata.tls.size();
+    const int ntls = groupdata.num_timelevels();
     for (int tl = 0; tl < ntls; ++tl) {
       if (!transports(coarsegroupdata, groupdata, tl))
         continue;
@@ -1635,8 +1651,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                               .where = make_valid_all(),
                               .event = "RemakeLevel before prolongation"});
     } // for tl
-
-  } // for gi
+  }
 
   const amrex::IntVect nghostzones = {
       ghost_size >= 0 ? ghost_size : ghost_size_x,
@@ -1650,30 +1665,21 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
   // We assume that this level is at the same time as the next coarser level
   assert(leveldata.iteration == coarseleveldata.iteration);
 
-  // Update LevelData data structure
-  GHExt::PatchData::LevelData oldleveldata(patch, level, ba, dm,
-                                           []() { return "RemakeLevel"; });
-  using std::swap;
-  swap(oldleveldata, leveldata);
+  GHExt::PatchData::LevelData oldleveldata = patchdata.replace_level(
+      level, GHExt::PatchData::LevelData(patch, level, ba, dm,
+                                         []() { return "RemakeLevel"; }));
 
-  for (int gi = 0; gi < num_groups; ++gi) {
-    cGroup group;
-    int ierr = CCTK_GroupData(gi, &group);
-    assert(!ierr);
-
-    if (group.grouptype != CCTK_GF)
-      continue;
-
-    auto &restrict groupdata = *leveldata.groupdata.at(gi);
-    auto &restrict oldgroupdata = *oldleveldata.groupdata.at(gi);
-    auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-    assert(coarsegroupdata.numvars == groupdata.numvars);
+  for (auto &groupdata : leveldata.groups()) {
+    const int gi = groupdata.record.groupindex;
+    auto &oldgroupdata = oldleveldata.group(gi);
+    auto &coarsegroupdata = coarseleveldata.group(gi);
+    assert(&coarsegroupdata.record == &groupdata.record);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
     const valid_t fills = regrid_fills(groupdata);
     assert(fills == make_valid_all());
 
-    const int ntls = groupdata.tls.size();
+    const int ntls = groupdata.num_timelevels();
     const int prolongate_tl = regrid_prolongate_tls(groupdata);
 
     for (int tl = 0; tl < ntls; ++tl) {
@@ -1685,8 +1691,9 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                             .keeps = {},
                             .event = "RemakeLevel after prolongation"});
         FillPatch_RemakeLevel(
-            groupdata, coarsegroupdata, *groupdata.tls.at(tl).mfab,
-            *coarsegroupdata.tls.at(tl).mfab, *oldgroupdata.tls.at(tl).mfab,
+            groupdata, coarsegroupdata, *groupdata.timelevel(tl).mfab,
+            *coarsegroupdata.timelevel(tl).mfab,
+            *oldgroupdata.timelevel(tl).mfab,
             patchdata.amrcore->Geom(level - 1), patchdata.amrcore->Geom(level),
             interpolator, groupdata.bcrecs);
       } else {
@@ -1700,8 +1707,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                                  : "RemakeLevel"});
       }
     } // for tl
-
-  } // for gi
+  }
 
   level_modified.at(level) = true;
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed); // Increment epoch
@@ -1717,9 +1723,7 @@ void CactusAmrCore::ClearLevel(const int level) {
   if (verbose)
 #pragma omp critical
     CCTK_VINFO("ClearLevel patch %d level %d", patch, level);
-  // note: several levels can be removed at once
-  auto &leveldata = ghext->patchdata.at(patch).leveldata;
-  leveldata.erase(leveldata.begin() + level, leveldata.end());
+  ghext->patch(patch).erase_levels_from(level);
 
   level_modified.resize(level);
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed); // Increment epoch
@@ -1869,27 +1873,24 @@ operator<<(std::ostream &os,
 }
 
 YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                          const GHExt::CommonGroupData &commongroupdata) {
+                          const GHExt::GroupRecord &group) {
   yaml << YAML::LocalTag("commongroupdata-1.0.0");
   yaml << YAML::BeginMap;
   yaml << YAML::Key << "groupname" << YAML::Value
-       << CCTK_FullGroupName(commongroupdata.groupindex);
-  yaml << YAML::Key << "numvars" << YAML::Value << commongroupdata.numvars;
+       << CCTK_FullGroupName(group.groupindex);
+  yaml << YAML::Key << "numvars" << YAML::Value << group.numvars;
   yaml << YAML::Key << "varnames" << YAML::Value << YAML::Flow
        << YAML::BeginSeq;
-  for (int vi = 0; vi < commongroupdata.numvars; ++vi)
-    yaml << CCTK_VarName(commongroupdata.firstvarindex + vi);
+  for (int vi = 0; vi < group.numvars; ++vi)
+    yaml << CCTK_VarName(group.firstvarindex + vi);
   yaml << YAML::EndSeq;
-  yaml << YAML::Key << "do_checkpoint" << YAML::Value
-       << commongroupdata.do_checkpoint;
-  yaml << YAML::Key << "do_evolve" << YAML::Value << commongroupdata.do_evolve;
-  yaml << YAML::Key << "do_restrict" << YAML::Value
-       << commongroupdata.do_restrict;
+  yaml << YAML::Key << "do_checkpoint" << YAML::Value << group.do_checkpoint;
+  yaml << YAML::Key << "do_evolve" << YAML::Value << group.do_evolve;
+  yaml << YAML::Key << "do_restrict" << YAML::Value << group.do_restrict;
   yaml << YAML::Key << "restrict_on_sync" << YAML::Value
-       << commongroupdata.restrict_on_sync;
+       << group.restrict_on_sync;
   yaml << YAML::Key << "active_timelevels" << YAML::Value
-       << (ghext ? ghext->active_timelevels.at(commongroupdata.groupindex)
-                 : -1);
+       << (ghext ? ghext->active_timelevels.at(group.groupindex) : -1);
   yaml << YAML::EndMap;
   return yaml;
 }
@@ -1941,11 +1942,11 @@ operator<<(YAML::Emitter &yaml,
   yaml << YAML::LocalTag("arraygroupdata-1.0.0");
   yaml << YAML::BeginMap;
   yaml << YAML::Key << "commongroupdata" << YAML::Value
-       << (GHExt::CommonGroupData)arraygroupdata;
+       << arraygroupdata.record;
   yaml << YAML::Key << "valid" << YAML::Value << YAML::BeginSeq;
   for (const auto &timelevel : arraygroupdata.tls) {
     yaml << YAML::BeginSeq;
-    for (int vi = 0; vi < arraygroupdata.numvars; ++vi)
+    for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
       yaml << timelevel.why_valid(vi);
     yaml << YAML::EndSeq;
   }
@@ -1958,30 +1959,16 @@ operator<<(YAML::Emitter &yaml,
   return yaml;
 }
 
-YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                          const GHExt::GlobalData &globaldata) {
-  yaml << YAML::LocalTag("globaldata-1.0.0");
-  yaml << YAML::BeginMap;
-  yaml << YAML::Key << "arraygroupdata" << YAML::Value << YAML::BeginSeq;
-  for (const auto &arraygroupdata : globaldata.arraygroupdata)
-    if (arraygroupdata)
-      yaml << *arraygroupdata;
-  yaml << YAML::EndSeq;
-  yaml << YAML::EndMap;
-  return yaml;
-}
-
 YAML::Emitter &
 operator<<(YAML::Emitter &yaml,
            const GHExt::PatchData::LevelData::GroupData &groupdata) {
   yaml << YAML::LocalTag("groupdata-1.1.0");
   yaml << YAML::BeginMap;
-  yaml << YAML::Key << "commongroupdata" << YAML::Value
-       << (GHExt::CommonGroupData)groupdata;
+  yaml << YAML::Key << "commongroupdata" << YAML::Value << groupdata.record;
   yaml << YAML::Key << "valid" << YAML::Value << YAML::BeginSeq;
   for (const auto &timelevel : groupdata.tls) {
     yaml << YAML::BeginSeq;
-    for (int vi = 0; vi < groupdata.numvars; ++vi)
+    for (int vi = 0; vi < groupdata.record.numvars; ++vi)
       yaml << timelevel.why_valid(vi);
     yaml << YAML::EndSeq;
   }
@@ -2029,7 +2016,10 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::BeginMap;
   yaml << YAML::Key << "patch" << YAML::Value << patchdata.patch;
   yaml << YAML::Key << "amrcore" << YAML::Value << *patchdata.amrcore;
-  yaml << YAML::Key << "leveldata" << YAML::Value << patchdata.leveldata;
+  yaml << YAML::Key << "leveldata" << YAML::Value << YAML::BeginSeq;
+  for (const auto &leveldata : patchdata.levels())
+    yaml << leveldata;
+  yaml << YAML::EndSeq;
   yaml << YAML::EndMap;
   return yaml;
 }
@@ -2037,8 +2027,19 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
 YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ghext) {
   yaml << YAML::LocalTag("ghext-2.0.0");
   yaml << YAML::BeginMap;
-  yaml << YAML::Key << "globaldata" << YAML::Value << ghext.globaldata;
-  yaml << YAML::Key << "patchdata" << YAML::Value << ghext.patchdata;
+  yaml << YAML::Key << "globaldata" << YAML::Value;
+  yaml << YAML::LocalTag("globaldata-1.0.0");
+  yaml << YAML::BeginMap;
+  yaml << YAML::Key << "arraygroupdata" << YAML::Value << YAML::BeginSeq;
+  for (const auto &group : ghext.group_records)
+    if (group.kind != group_kind::grid_function)
+      yaml << group.array();
+  yaml << YAML::EndSeq;
+  yaml << YAML::EndMap;
+  yaml << YAML::Key << "patchdata" << YAML::Value << YAML::BeginSeq;
+  for (const auto &patchdata : ghext.patches())
+    yaml << patchdata;
+  yaml << YAML::EndSeq;
   yaml << YAML::EndMap;
   return yaml;
 }
@@ -2235,16 +2236,12 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
   // Create grid structure
   ghext = std::make_unique<GHExt>();
 
-  // Initialize the STORAGE registry. It is populated from schedule.ccl by
-  // CCTKi_ScheduleGHInit (which calls back into our GroupStorageIncrease
-  // overload) and frozen before the first allocation pass.
   ghext->active_timelevels.assign(CCTK_NumGroups(), 0);
   ghext->storage_frozen = false;
 
   return ghext.get();
 }
 
-// Initialize GH extension
 int InitGH(cGH *restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -2254,23 +2251,16 @@ int InitGH(cGH *restrict cctkGH) {
 
   assert(cctkGH);
 
-  // Set up patch system
-  assert(ghext->patchdata.size() == 0);
+  assert(ghext->num_patches() == 0);
   CCTK_INT num_patches = 1;
   if (CCTK_IsFunctionAliased("MultiPatch_GetSystemSpecification")) {
     const int ierr = MultiPatch_GetSystemSpecification(&num_patches);
     assert(!ierr);
   }
-  // Set up all patches
   for (int patch = 0; patch < num_patches; ++patch)
-    ghext->patchdata.emplace_back(patch);
+    ghext->add_patch(patch);
 
-  // Set up use_subcycling
   ghext->use_subcycling = use_subcycling;
-  // Cache do_reflux here, once: DECLARE_CCTK_PARAMETERS in the GroupData
-  // constructor would shadow its do_restrict member, so the constructor (and
-  // AccumulateFluxes, Reflux) read ghext->do_reflux instead. Recovery
-  // restores the parameter from the checkpoint before InitGH runs.
   ghext->do_reflux = do_reflux;
 
   return 0; // unused
@@ -2386,9 +2376,8 @@ CarpetX_GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size,
                                CCTK_REAL *restrict const exterior_max,
                                CCTK_REAL *restrict const spacing) {
   assert(size == dim);
-  const auto &patchdata = ghext->patchdata.at(patch);
-  assert(!empty(patchdata.leveldata));
-  const auto &fab = *patchdata.leveldata.at(0).fab;
+  const auto &patchdata = ghext->patch(patch);
+  const auto &fab = *patchdata.level(0).fab;
   const auto &geom = patchdata.amrcore->Geom(0);
   for (int d = 0; d < dim; ++d) {
     // the domain itself (physical faces)
@@ -2469,10 +2458,7 @@ const int *ArrayGroupSizeB(const cGH *cctkGH, int dir, int gi,
   if (group.grouptype == CCTK_GF) {
     return &cctkGH->cctk_ash[dir];
   } else if (group.grouptype == CCTK_SCALAR or group.grouptype == CCTK_ARRAY) {
-    GHExt::GlobalData &globaldata = ghext->globaldata;
-    GHExt::GlobalData::ArrayGroupData &arraygroupdata =
-        *globaldata.arraygroupdata.at(gi);
-    return &arraygroupdata.ash[dir];
+    return &ghext->record(gi).array().ash[dir];
   } else {
     CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
                 (int)group.grouptype, CCTK_FullGroupName(gi));
@@ -2480,12 +2466,6 @@ const int *ArrayGroupSizeB(const cGH *cctkGH, int dir, int gi,
 }
 
 int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {
-  // Return values:
-  //  0 for success
-  // -1 if given pointer to data structure is NULL
-  // -3 if given GH pointer is invalid
-  // (-77 if group has zero variables)
-  // -78 if group does not exist
   if (not cctkGH)
     return -3;
   if (not(gi >= 0 and gi < CCTK_NumGroups()))
@@ -2508,9 +2488,7 @@ int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {
     data->nghostzones = cctkGH->cctk_nghostzones;
     data->activetimelevels = CCTK_ActiveTimeLevelsGI(cctkGH, gi);
   } else if (group.grouptype == CCTK_SCALAR or group.grouptype == CCTK_ARRAY) {
-    GHExt::GlobalData &globaldata = ghext->globaldata;
-    GHExt::GlobalData::ArrayGroupData &arraygroupdata =
-        *globaldata.arraygroupdata.at(gi);
+    const auto &arraygroupdata = ghext->record(gi).array();
     data->dim = arraygroupdata.dimension;
     data->lsh = arraygroupdata.lsh;
     data->ash = arraygroupdata.ash;
@@ -2519,7 +2497,7 @@ int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {
     data->ubnd = arraygroupdata.ubnd;
     data->bbox = arraygroupdata.bbox;
     data->nghostzones = arraygroupdata.nghostzones;
-    data->activetimelevels = arraygroupdata.activetimelevels;
+    data->activetimelevels = arraygroupdata.record.num_timelevels();
   } else {
     CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
                 (int)group.grouptype, CCTK_FullGroupName(gi));

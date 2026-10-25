@@ -88,21 +88,14 @@ std::string get_simulation_name() {
 
 void check_silo_no_multi_tl(const std::vector<bool> &group_mask,
                             const char *operation) {
-  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-    if (!group_mask.at(gi))
+  for (const auto &group : ghext->records(group_kind::grid_function)) {
+    if (!group_mask.at(group.groupindex))
       continue;
-    const GHExt::GlobalData &globaldata = ghext->globaldata;
-    if (globaldata.arraygroupdata.at(gi))
-      continue;
-    const int patch = 0;
-    const int level = 0;
-    const auto &leveldata = ghext->patchdata.at(patch).leveldata.at(level);
-    const auto *gd = leveldata.groupdata.at(gi).get();
-    if (gd && gd->tls.size() > 1)
+    if (group.num_timelevels() > 1)
       CCTK_VERROR("Silo %s does not support groups with ntls > 1 "
-                  "(group \"%s\" has %zu time levels). "
+                  "(group \"%s\" has %d time levels). "
                   "Use \"openpmd\" instead.",
-                  operation, CCTK_FullGroupName(gi), gd->tls.size());
+                  operation, group.groupname.c_str(), group.num_timelevels());
   }
 }
 } // namespace
@@ -201,44 +194,19 @@ void RecoverGH(const cGH *restrict cctkGH) {
 
   const std::vector<bool> group_enabled = [&] {
     std::vector<bool> enabled(CCTK_NumGroups(), false);
-    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      const GHExt::GlobalData &globaldata = ghext->globaldata;
-      if (globaldata.arraygroupdata.at(gi)) {
-        enabled.at(gi) = globaldata.arraygroupdata.at(gi)->do_checkpoint &&
-                         !globaldata.arraygroupdata.at(gi)->tls.empty();
-      } else {
-        const int patch = 0;
-        const int level = 0;
-        const GHExt::PatchData::LevelData &leveldata =
-            ghext->patchdata.at(patch).leveldata.at(level);
-        assert(leveldata.groupdata.at(gi));
-        enabled.at(gi) = leveldata.groupdata.at(gi)->do_checkpoint &&
-                         !leveldata.groupdata.at(gi)->tls.empty();
-      }
-    }
+    for (const auto &group : ghext->records())
+      enabled.at(group.groupindex) = group.do_checkpoint;
     return enabled;
   }();
 
-  // Rebuild the source bands, each on its group's own geometry
-  // (deterministic, not serialized: a function of the refined level's layout
-  // and the group's interpolator and ghost width), so the band read below has
-  // somewhere to land. The refined level owns the bands of the step its parent
-  // takes, so there is nothing to allocate on level 0; EnsureRKBuffers is a
-  // no-op for groups the time integrator does not advance (the evolution never
-  // fills or writes their bands) and where the coarse-fine footprint is empty.
-  // Single-threaded: it warms AMReX's FPinfo cache.
   if (ghext->use_subcycling) {
-    for (const auto &patchdata : ghext->patchdata)
-      for (const auto &leveldata : patchdata.leveldata) {
+    for (const auto &patchdata : ghext->patches())
+      for (const auto &leveldata : patchdata.levels()) {
         if (leveldata.level == 0)
           continue;
-        for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-          if (CCTK_GroupTypeI(gi) != CCTK_GF)
-            continue;
-          const auto *const gd = leveldata.groupdata.at(gi).get();
-          if (gd)
-            EnsureRKBuffers(leveldata.patch, leveldata.level, gi);
-        }
+        for (const auto &groupdata : leveldata.groups())
+          EnsureRKBuffers(leveldata.patch, leveldata.level,
+                          groupdata.record.groupindex);
       }
   }
 
@@ -348,12 +316,11 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
   for (int gi = 0; gi < numgroups; ++gi) {
     if (!group_enabled.at(gi))
       continue;
-    if (CCTK_GroupTypeI(gi) != CCTK_GF)
+    const auto &group = ghext->record(gi);
+    if (group.kind != group_kind::grid_function)
       continue;
 
-    auto &restrict groupdata0 =
-        *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
-    if (groupdata0.tls.size() > 0) {
+    if (group.has_storage()) {
       const int tl = 0;
 
       std::string groupname = CCTK_FullGroupName(gi);
@@ -361,7 +328,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
       for (auto &c : groupname)
         c = tolower(c);
 
-      for (const auto &restrict patchdata : ghext->patchdata) {
+      for (const auto &restrict patchdata : ghext->patches()) {
 
         const std::string basename = [&]() {
           std::ostringstream buf;
@@ -373,23 +340,21 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
         }();
         const std::string filename = std::string(out_dir) + "/" + basename;
 
-        amrex::Vector<std::string> varnames(groupdata0.numvars);
-        for (int vi = 0; vi < groupdata0.numvars; ++vi) {
+        amrex::Vector<std::string> varnames(group.numvars);
+        for (int vi = 0; vi < group.numvars; ++vi) {
           std::ostringstream buf;
-          buf << CCTK_VarName(groupdata0.firstvarindex + vi);
+          buf << CCTK_VarName(group.firstvarindex + vi);
           for (int i = 0; i < tl; ++i)
             buf << "_p";
           varnames.at(vi) = buf.str();
         }
 
-        amrex::Vector<const amrex::MultiFab *> mfabs(
-            patchdata.leveldata.size());
-        amrex::Vector<amrex::Geometry> geoms(patchdata.leveldata.size());
-        amrex::Vector<int> iters(patchdata.leveldata.size());
-        amrex::Vector<amrex::IntVect> reffacts(patchdata.leveldata.size());
-        for (const auto &restrict leveldata : patchdata.leveldata) {
-          mfabs.at(leveldata.level) =
-              &*leveldata.groupdata.at(gi)->tls.at(tl).mfab;
+        amrex::Vector<const amrex::MultiFab *> mfabs(patchdata.num_levels());
+        amrex::Vector<amrex::Geometry> geoms(patchdata.num_levels());
+        amrex::Vector<int> iters(patchdata.num_levels());
+        amrex::Vector<amrex::IntVect> reffacts(patchdata.num_levels());
+        for (const auto &restrict leveldata : patchdata.levels()) {
+          mfabs.at(leveldata.level) = &*leveldata.group(gi).timelevel(tl).mfab;
           geoms.at(leveldata.level) = patchdata.amrcore->Geom(leveldata.level);
           iters.at(leveldata.level) = cctk_iteration;
           reffacts.at(leveldata.level) = amrex::IntVect{2, 2, 2};
@@ -724,22 +689,8 @@ void Checkpoint(const cGH *const restrict cctkGH) {
 #ifdef HAVE_CAPABILITY_openPMD_api
     const std::vector<bool> checkpoint_group = [&] {
       std::vector<bool> enabled(CCTK_NumGroups(), false);
-      for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-        const GHExt::GlobalData &globaldata = ghext->globaldata;
-        if (globaldata.arraygroupdata.at(gi)) {
-          enabled.at(gi) = globaldata.arraygroupdata.at(gi)->do_checkpoint &&
-                           !globaldata.arraygroupdata.at(gi)->tls.empty();
-        } else {
-          const int patch = 0;
-          const GHExt::PatchData &patchdata = ghext->patchdata.at(patch);
-          const int level = 0;
-          const GHExt::PatchData::LevelData &leveldata =
-              patchdata.leveldata.at(level);
-          assert(leveldata.groupdata.at(gi));
-          enabled.at(gi) = leveldata.groupdata.at(gi)->do_checkpoint &&
-                           !leveldata.groupdata.at(gi)->tls.empty();
-        }
-      }
+      for (const auto &group : ghext->records())
+        enabled.at(group.groupindex) = group.do_checkpoint;
       return enabled;
     }();
     OutputOpenPMD(cctkGH, checkpoint_group, checkpoint_dir, checkpoint_file,
@@ -756,22 +707,8 @@ void Checkpoint(const cGH *const restrict cctkGH) {
 #ifdef HAVE_CAPABILITY_Silo
     const std::vector<bool> checkpoint_group = [&] {
       std::vector<bool> enabled(CCTK_NumGroups(), false);
-      for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-        const GHExt::GlobalData &globaldata = ghext->globaldata;
-        if (globaldata.arraygroupdata.at(gi)) {
-          enabled.at(gi) = globaldata.arraygroupdata.at(gi)->do_checkpoint &&
-                           !globaldata.arraygroupdata.at(gi)->tls.empty();
-        } else {
-          const int patch = 0;
-          const GHExt::PatchData &patchdata = ghext->patchdata.at(patch);
-          const int level = 0;
-          const GHExt::PatchData::LevelData &leveldata =
-              patchdata.leveldata.at(level);
-          assert(leveldata.groupdata.at(gi));
-          enabled.at(gi) = leveldata.groupdata.at(gi)->do_checkpoint &&
-                           !leveldata.groupdata.at(gi)->tls.empty();
-        }
-      }
+      for (const auto &group : ghext->records())
+        enabled.at(group.groupindex) = group.do_checkpoint;
       return enabled;
     }();
     check_silo_no_multi_tl(checkpoint_group, "checkpoint");
