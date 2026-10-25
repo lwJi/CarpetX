@@ -155,55 +155,45 @@ static std::vector<level_run_t> split_levels(
   return runs;
 }
 
-static void error_if_parent_invalid(const active_levels_t &active_levels,
-                                    const int gi, const int tl,
-                                    const char *const label) {
-  using std::max;
-  const int min_level = active_levels.min_level;
-  const int max_level = active_levels.max_level;
-  const int min_patch = active_levels.min_patch;
-  const int max_patch = active_levels.max_patch;
-  const int first_child = max(min_level, 1);
-  if (first_child >= max_level)
-    return;
-  std::vector<active_levels_t> parents;
-  if (first_child == min_level)
-    parents.emplace_back(min_level - 1, min_level, min_patch, max_patch);
-  if (first_child < max_level - 1)
-    parents.emplace_back(first_child, max_level - 1, min_patch, max_patch);
-  const auto &groupdata0 =
-      *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
-  bool recovering = false;
-  if (ghext->recovered_iteration >= 0)
-    for (const active_levels_t &window : parents)
-      window.loop_serially([&](auto &restrict leveldata) {
-        recovering |=
-            leveldata.last_finalized_iteration <= ghext->recovered_iteration;
-      });
+static active_levels_t
+level_window(const GHExt::PatchData::LevelData &leveldata) {
+  return active_levels_t(leveldata.level, leveldata.level + 1, leveldata.patch,
+                         leveldata.patch + 1);
+}
 
-  const std::function<std::string()> hint = [&groupdata0, tl,
+static void
+error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
+                        const int gi, const int tl, const char *const label) {
+  assert(leveldata.level > 0);
+  const auto &restrict coarseleveldata =
+      ghext->patchdata.at(leveldata.patch).leveldata.at(leveldata.level - 1);
+  const auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
+  const bool recovering =
+      ghext->recovered_iteration >= 0 &&
+      coarseleveldata.last_finalized_iteration <= ghext->recovered_iteration;
+
+  const std::function<std::string()> hint = [&coarsegroupdata, tl,
                                              recovering]() -> std::string {
-    if (groupdata0.do_checkpoint)
+    if (coarsegroupdata.do_checkpoint)
       return "";
     if (tl > 0)
-      return "  Group " + groupdata0.groupname +
+      return "  Group " + coarsegroupdata.groupname +
              " is not checkpointed, so a recovery, or a regrid that remakes "
              "its level, can lose its past timelevels, which no routine can "
              "recompute.\n"
              "  Past timelevels read by another level must be checkpointed.\n";
     if (recovering)
-      return "  This run was recovered and group " + groupdata0.groupname +
+      return "  This run was recovered and group " + coarsegroupdata.groupname +
              " is not checkpointed.\n"
              "  Groups read by another level must be checkpointed or "
              "recomputed in CCTK_POST_RECOVER_VARIABLES.\n";
     return "";
   };
-  for (const active_levels_t &window : parents)
-    require(window, {.gi = gi,
-                     .tl = tl,
-                     .where = make_valid_int(),
-                     .event = label,
-                     .hint = hint});
+  require(level_window(coarseleveldata), {.gi = gi,
+                                          .tl = tl,
+                                          .where = make_valid_int(),
+                                          .event = label,
+                                          .hint = hint});
 }
 
 // =======================================================================
@@ -336,9 +326,6 @@ static int SyncGroupsByDirIProlongateOnly_impl(
         continue;
       const valid_t fills = sync_fills(run.levels, gi);
       for (int tl = tl_lo; tl < tl_hi; ++tl) {
-        error_if_parent_invalid(run.levels, gi, tl,
-                                "SyncGroupsByDirIProlongateOnly on coarse "
-                                "level before prolongation");
         scopes.push_back(open_write(
             run.levels, {.gi = gi,
                          .tl = tl,
@@ -380,7 +367,9 @@ static int SyncGroupsByDirIProlongateOnly_impl(
       amrex::Interpolater *const interpolator = groupdata.interpolator;
 
       for (int tl = tl_lo; tl < tl_hi; ++tl) {
-
+        error_if_parent_invalid(leveldata, gi, tl,
+                                "SyncGroupsByDirIProlongateOnly on coarse "
+                                "level before prolongation");
         tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                 &coarsegroupdata, interpolator, tl]() {
           FillPatch_ProlongateOnly(tasks2, tasks3, groupdata, coarsegroupdata,
@@ -478,9 +467,6 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
     const int sync_tl = timelevels_but_oldest(gi);
     const valid_t fills = sync_fills(active_levels, gi);
     for (int tl = 0; tl < sync_tl; ++tl) {
-      error_if_parent_invalid(
-          active_levels, gi, tl,
-          "SyncGroupsByDirI on coarse level before prolongation");
       require(active_levels, {.gi = gi,
                               .tl = tl,
                               .where = make_valid_int(),
@@ -537,7 +523,9 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
         amrex::Interpolater *const interpolator = groupdata.interpolator;
 
         for (int tl = 0; tl < sync_tl; ++tl) {
-
+          error_if_parent_invalid(
+              leveldata, gi, tl,
+              "SyncGroupsByDirI on coarse level before prolongation");
           tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                   &coarsegroupdata, interpolator, tl]() {
             FillPatch_ProlongateGhosts(
@@ -635,6 +623,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
   const char *const prolongation_label =
       "SyncGroupsByDirISubcycling on coarse level before prolongation";
+  const char *const sync_label = "SyncGroupsByDirISubcycling before syncing";
 
   struct ghost_check_t {
     active_levels_t levels;
@@ -660,7 +649,6 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
                                       .keeps = make_valid_all(),
                                       .event = "SyncGroupsByDirISubcycling"}));
         } else {
-          error_if_parent_invalid(run.levels, gi, tl, prolongation_label);
           scopes.push_back(open_write(
               run.levels, {.gi = gi,
                            .tl = tl,
@@ -691,9 +679,11 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
       const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
 
       if (leveldata.level == 0) {
-        // Copy from adjacent boxes on same level
-
         for (int tl = 0; tl < sync_tl; ++tl) {
+          require(level_window(leveldata), {.gi = gi,
+                                            .tl = tl,
+                                            .where = make_valid_int(),
+                                            .event = sync_label});
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
             FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
                            ghext->patchdata.at(leveldata.patch)
@@ -715,6 +705,10 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
         if (integrated_subiter) {
           for (int tl = 0; tl < sync_tl; ++tl) {
+            require(level_window(leveldata), {.gi = gi,
+                                              .tl = tl,
+                                              .where = make_valid_int(),
+                                              .event = sync_label});
             tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
               FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
                              ghext->patchdata.at(leveldata.patch)
@@ -736,11 +730,13 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
           for (int tl = 0; tl < sync_tl; ++tl) {
             const bool do_blend = blend && tl == 0;
+            require(level_window(leveldata), {.gi = gi,
+                                              .tl = tl,
+                                              .where = make_valid_int(),
+                                              .event = sync_label});
+            error_if_parent_invalid(leveldata, gi, tl, prolongation_label);
             if (do_blend)
-              error_if_parent_invalid(
-                  active_levels_t(leveldata.level, leveldata.level + 1,
-                                  leveldata.patch, leveldata.patch + 1),
-                  gi, 1, prolongation_label);
+              error_if_parent_invalid(leveldata, gi, 1, prolongation_label);
             const amrex::MultiFab *const cmfab_old =
                 do_blend ? coarsegroupdata.tls.at(1).mfab.get() : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);

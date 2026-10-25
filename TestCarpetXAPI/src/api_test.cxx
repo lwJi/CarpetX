@@ -177,6 +177,22 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     CCTK_ERROR("CarpetX::prolongate_ghosts filled the ghosts of state_rhs on "
                "level 1 from a parent level that nothing has written");
   }
+  if (CCTK_EQUALS(mode, "sync-invalid-coarse") && window.max_level > 1) {
+    std::vector<CarpetX::write_t> writes;
+    window.loop_serially([&](const CarpetX::level_t level) {
+      writes.push_back(CarpetX::write(CarpetX::group_t{level, gi}, tl,
+                                      CarpetX::make_valid_int(),
+                                      "TestCarpetXAPI_Fill"));
+      fill_interior(level, writes.back().mfab());
+    });
+    writes.clear();
+    CarpetX::invalidate(
+        CarpetX::window_t{0, 1, window.min_patch, window.max_patch}, groups, tl,
+        "TestCarpetXAPI_Fill");
+    CarpetX::sync(window, groups);
+    CCTK_ERROR("CarpetX::sync read the interior of state on level 0 after it "
+               "had been invalidated");
+  }
 
   if (window.min_level != 0 || window.max_level != 1)
     return;
