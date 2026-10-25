@@ -325,11 +325,8 @@ void invalidate(const window_t window, const std::vector<int> &groups,
       const auto &groupdata = resolve("CarpetX::invalidate", leveldata, gi);
       require_timelevel("CarpetX::invalidate", groupdata, tl);
     });
-    open_write(active_levels, {.gi = gi,
-                               .tl = tl,
-                               .fills = valid_t(),
-                               .keeps = valid_t(),
-                               .event = event});
+    invalidate(active_levels,
+               {.gi = gi, .tl = tl, .where = make_valid_all(), .event = event});
   }
 }
 

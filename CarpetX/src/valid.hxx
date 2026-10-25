@@ -182,6 +182,18 @@ struct require_spec_t {
   std::function<std::string()> hint;
 };
 
+struct invalidate_spec_t {
+  int gi;
+  int tl;
+  std::optional<int> vi;
+  valid_t where;
+  std::string event;
+};
+
+class write_scope_t;
+[[nodiscard]] write_scope_t open_write(const active_levels_t &window,
+                                       write_spec_t spec);
+
 class write_scope_t {
 public:
   write_scope_t(write_scope_t &&other) noexcept;
@@ -201,9 +213,12 @@ private:
   bool live;
 };
 
-write_scope_t open_write(const active_levels_t &window, write_spec_t spec);
+void invalidate(const active_levels_t &window, invalidate_spec_t spec);
 void require(const active_levels_t &window, require_spec_t spec);
 void warn(const active_levels_t &window, require_spec_t spec);
+
+class array_write_scope_t;
+[[nodiscard]] array_write_scope_t open_array_write(write_spec_t spec);
 
 class array_write_scope_t {
 public:
@@ -221,7 +236,7 @@ private:
   bool live;
 };
 
-array_write_scope_t open_array_write(write_spec_t spec);
+void invalidate_array(invalidate_spec_t spec);
 void require_array(require_spec_t spec);
 
 ////////////////////////////////////////////////////////////////////////////////

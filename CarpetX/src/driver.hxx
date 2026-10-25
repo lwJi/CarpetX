@@ -301,7 +301,10 @@ struct GHExt {
       struct timelevel_t {
         timelevel_t(AnyTypeVector data, int numvars,
                     const std::function<std::string()> &why)
-            : data(std::move(data)), valid_(numvars, why_valid_t(why)) {}
+            : data(std::move(data)),
+              valid_(
+                  numvars,
+                  why_valid_t(make_valid_outer() | make_valid_ghosts(), why)) {}
 
         AnyTypeVector data;
 

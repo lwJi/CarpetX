@@ -1363,10 +1363,9 @@ void SetupGlobals() {
                                            arraygroupdata.numvars *
                                                arraygroupdata.array_size),
           arraygroupdata.numvars, []() { return "SetupGlobals"; });
-      open_array_write({.gi = gi,
+      invalidate_array({.gi = gi,
                         .tl = tl,
-                        .fills = make_valid_outer() | make_valid_ghosts(),
-                        .keeps = {},
+                        .where = make_valid_int(),
                         .event = "SetupGlobals"});
     }
   }
@@ -1435,10 +1434,9 @@ void CactusAmrCore::MakeNewLevelFromScratch(
       continue;
     const auto &restrict groupdata = *groupdataptr;
     for (int tl = 0; tl < int(groupdata.tls.size()); ++tl)
-      open_write(active_levels, {.gi = groupdata.groupindex,
+      invalidate(active_levels, {.gi = groupdata.groupindex,
                                  .tl = tl,
-                                 .fills = {},
-                                 .keeps = {},
+                                 .where = make_valid_all(),
                                  .event = "MakeNewLevelFromScratch"});
   }
 
@@ -1545,20 +1543,18 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
               patchdata.amrcore->Geom(level - 1),
               patchdata.amrcore->Geom(level), interpolator, groupdata.bcrecs);
         } else {
-          open_write(active_levels,
+          invalidate(active_levels,
                      {.gi = gi,
                       .tl = tl,
-                      .fills = {},
-                      .keeps = {},
+                      .where = make_valid_all(),
                       .event = "MakeNewLevelFromCoarse: not prolongated "
                                "because source was invalid at regrid time"});
         }
       } else {
-        open_write(active_levels,
+        invalidate(active_levels,
                    {.gi = gi,
                     .tl = tl,
-                    .fills = {},
-                    .keeps = {},
+                    .where = make_valid_all(),
                     .event = groupdata.do_evolve
                                  ? "MakeNewLevelFromCoarse: oldest time level "
                                    "is not prolongated at regrid"
@@ -1694,11 +1690,10 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
             patchdata.amrcore->Geom(level - 1), patchdata.amrcore->Geom(level),
             interpolator, groupdata.bcrecs);
       } else {
-        open_write(active_levels,
+        invalidate(active_levels,
                    {.gi = gi,
                     .tl = tl,
-                    .fills = {},
-                    .keeps = {},
+                    .where = make_valid_all(),
                     .event = tl < prolongate_tl
                                  ? "RemakeLevel: not prolongated because "
                                    "source was invalid at regrid time"

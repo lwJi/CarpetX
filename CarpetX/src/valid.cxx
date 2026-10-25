@@ -580,6 +580,16 @@ write_scope_t open_write(const active_levels_t &active_levels,
   return write_scope_t(active_levels, std::move(spec), current_iteration());
 }
 
+void invalidate(const active_levels_t &active_levels, invalidate_spec_t spec) {
+  const write_scope_t scope =
+      open_write(active_levels, {.gi = spec.gi,
+                                 .tl = spec.tl,
+                                 .vi = spec.vi,
+                                 .fills = {},
+                                 .keeps = ~spec.where,
+                                 .event = std::move(spec.event)});
+}
+
 write_scope_t::~write_scope_t() {
   if (!live)
     return;
@@ -642,6 +652,16 @@ array_write_scope_t::array_write_scope_t(array_write_scope_t &&other) noexcept
 
 array_write_scope_t open_array_write(write_spec_t spec) {
   return array_write_scope_t(std::move(spec), current_iteration());
+}
+
+void invalidate_array(invalidate_spec_t spec) {
+  const array_write_scope_t scope =
+      open_array_write({.gi = spec.gi,
+                        .tl = spec.tl,
+                        .vi = spec.vi,
+                        .fills = {},
+                        .keeps = ~spec.where,
+                        .event = std::move(spec.event)});
 }
 
 array_write_scope_t::~array_write_scope_t() {

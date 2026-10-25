@@ -36,7 +36,7 @@ RULE = (
     "marker: CARPETX_INTERNAL belongs only in CarpetX/src/make.code.defn and in the\n"
     "#ifndef CARPETX_INTERNAL guard of a private CarpetX header.\n"
     "validity: a validity kernel or a why_valid_t setter is named only in CarpetX/src/valid.cxx\n"
-    "and valid.hxx; every other site opens a write scope or calls require."
+    "and valid.hxx; every other site opens a write scope or calls require or invalidate."
 )
 
 

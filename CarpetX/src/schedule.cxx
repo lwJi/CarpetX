@@ -1894,10 +1894,6 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
         if (ntls > 1) {
           rotate(groupdata.tls.begin(), groupdata.tls.end() - 1,
                  groupdata.tls.end());
-          if (!groupdata.do_evolve)
-            amrex::MultiFab::Copy(
-                *groupdata.tls.at(0).mfab, *groupdata.tls.at(1).mfab, 0, 0,
-                groupdata.numvars, groupdata.tls.at(0).mfab->nGrowVect());
           for (auto &restrict local_cctkGH_ptr : leveldata.local_cctkGHs) {
             cGH *const local_cctkGH = local_cctkGH_ptr.get();
             const int component = local_cctkGH->cctk_component;
@@ -1914,22 +1910,28 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       });
       if (ntls0 > 1) {
         if (groupdata0.do_evolve) {
-          open_write(*active_levels, {.gi = gi,
+          invalidate(*active_levels, {.gi = gi,
                                       .tl = 0,
-                                      .fills = {},
-                                      .keeps = {},
+                                      .where = make_valid_all(),
                                       .event = "CycleTimelevels"});
         } else {
+          std::vector<write_scope_t> scopes;
           for (int vi = 0; vi < groupdata0.numvars; ++vi)
             for (const seed_run_t &run : seed_runs(*active_levels, gi, vi))
-              open_write(
+              scopes.push_back(open_write(
                   run.levels,
                   {.gi = gi,
                    .tl = 0,
                    .vi = vi,
                    .fills = run.seed,
-                   .keeps = run.seed,
-                   .event = "CycleTimelevels (seed from old time level)"});
+                   .keeps = {},
+                   .event = "CycleTimelevels (seed from old time level)"}));
+          active_levels->loop_serially([&](auto &restrict leveldata) {
+            auto &restrict groupdata = *leveldata.groupdata.at(gi);
+            amrex::MultiFab::Copy(
+                *groupdata.tls.at(0).mfab, *groupdata.tls.at(1).mfab, 0, 0,
+                groupdata.numvars, groupdata.tls.at(0).mfab->nGrowVect());
+          });
         }
       }
       if (groupdata0.do_evolve) {
@@ -1954,10 +1956,9 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       if (ntls > 1) {
         rotate(arraygroupdata.tls.begin(), arraygroupdata.tls.end() - 1,
                arraygroupdata.tls.end());
-        open_array_write({.gi = gi,
+        invalidate_array({.gi = gi,
                           .tl = 0,
-                          .fills = {},
-                          .keeps = make_valid_outer() | make_valid_ghosts(),
+                          .where = make_valid_int(),
                           .event = "CycleTimelevels"});
       }
     }
@@ -2633,16 +2634,15 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     const std::vector<clause_t> &invalids =
         decode_clauses(attribute, rdwr_t::invalid);
     for (const auto &inv : invalids) {
-      const write_spec_t spec{.gi = inv.gi,
-                              .tl = inv.tl,
-                              .vi = inv.vi,
-                              .fills = {},
-                              .keeps = ~inv.valid,
-                              .event = event};
+      const invalidate_spec_t spec{.gi = inv.gi,
+                                   .tl = inv.tl,
+                                   .vi = inv.vi,
+                                   .where = inv.valid,
+                                   .event = event};
       if (CCTK_GroupTypeI(inv.gi) == CCTK_GF)
-        open_write(*active_levels, spec);
+        invalidate(*active_levels, spec);
       else
-        open_array_write(spec);
+        invalidate_array(spec);
     }
   }
 
