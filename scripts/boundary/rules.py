@@ -23,13 +23,20 @@ MARKER_WORD = re.compile(r"CARPETX_INTERNAL\b")
 GUARD = re.compile(r"^\s*#\s*ifndef\s+CARPETX_INTERNAL\s*$")
 INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<([^>]*)>)')
 PRIVATE_PATH = "CarpetX/src"
+VALIDITY_FILES = ("CarpetX/src/valid.cxx", "CarpetX/src/valid.hxx")
+VALIDITY_WORD = re.compile(
+    r"(\b(error_if_invalid|warn_if_invalid|poison_invalid_g[fa]|check_valid_g[fa])"
+    r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
+)
 EXCERPT_WIDTH = 72
 
 RULE = (
     "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md).\n"
     "include: an #include whose path reaches into CarpetX/src; include <carpetx.hxx> instead.\n"
     "marker: CARPETX_INTERNAL belongs only in CarpetX/src/make.code.defn and in the\n"
-    "#ifndef CARPETX_INTERNAL guard of a private CarpetX header."
+    "#ifndef CARPETX_INTERNAL guard of a private CarpetX header.\n"
+    "validity: a validity kernel or a why_valid_t setter is named only in CarpetX/src/valid.cxx\n"
+    "and valid.hxx; every other site opens a write scope or calls require or invalidate."
 )
 
 
@@ -61,6 +68,8 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
             match = INCLUDE.match(line)
             if match and PRIVATE_PATH in (match.group(1) or match.group(2) or ""):
                 found.append(Finding(number, "include", line.strip()))
+        if lang is Lang.CXX and is_private(name) and name not in VALIDITY_FILES and VALIDITY_WORD.search(line):
+            found.append(Finding(number, "validity", line.strip()))
     return found
 
 
@@ -95,10 +104,13 @@ def plural(count: int, noun: str) -> str:
 def summary(found: list[tuple[str, Finding]]) -> str:
     includes = sum(1 for _, f in found if f.rule == "include")
     markers = sum(1 for _, f in found if f.rule == "marker")
+    validity = sum(1 for _, f in found if f.rule == "validity")
     if not found:
-        return "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL"
-    parts = ([plural(includes, "private include")] if includes else []) + (
-        [plural(markers, "stray marker")] if markers else []
+        return "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, no validity call outside valid.cxx"
+    parts = (
+        ([plural(includes, "private include")] if includes else [])
+        + ([plural(markers, "stray marker")] if markers else [])
+        + ([plural(validity, "validity call") + " outside valid.cxx"] if validity else [])
     )
     return "✗ boundary: " + ", ".join(parts)
 
@@ -113,7 +125,7 @@ def render(found: list[tuple[str, Finding]]) -> str:
     found = sorted(found, key=lambda e: (e[0], e[1].line))
     places = [f"{name}:{f.line}" for name, f in found]
     width = max(len(p) for p in places)
-    out = [f"{place.ljust(width)}   {f.rule.ljust(7)}   {excerpt(f.text)}" for place, (_, f) in zip(places, found)]
+    out = [f"{place.ljust(width)}   {f.rule.ljust(8)}   {excerpt(f.text)}" for place, (_, f) in zip(places, found)]
     out.extend(RULE.split("\n"))
     out.append(summary(found))
     return "\n".join(out)

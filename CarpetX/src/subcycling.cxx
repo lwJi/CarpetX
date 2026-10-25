@@ -299,8 +299,8 @@ void EnsureRKBuffers(const int patch, const int level, const int gi) {
   if (groupdata.rk_crse_patch)
     return;
 
-  assert(!groupdata.mfab.empty());
-  const amrex::MultiFab &mfab = *groupdata.mfab.at(0);
+  assert(!groupdata.tls.empty());
+  const amrex::MultiFab &mfab = *groupdata.tls.at(0).mfab;
   const amrex::FabArrayBase::FPinfo &fpc = rk_fill_fpinfo(
       mfab, groupdata.interpolator, patchdata.amrcore->Geom(level),
       patchdata.amrcore->Geom(level - 1));
@@ -355,11 +355,10 @@ void StoreRKOldState(const int patch, const int level,
     EnsureRKBuffers(patch, level + 1, gi);
     const GroupData &childgroupdata =
         *patchdata.leveldata.at(level + 1).groupdata.at(gi);
-    // Empty coarse-fine footprint
     if (!childgroupdata.old_source_band)
       continue;
     copy_interior_to_band(*childgroupdata.old_source_band,
-                          *groupdata.mfab.at(tl), period);
+                          *groupdata.tls.at(tl).mfab, period);
   }
 }
 
@@ -384,12 +383,10 @@ void StoreRKStage(const int patch, const int level,
     const GroupData &childgroupdata =
         *childleveldata.groupdata.at(var_groups[i]);
     const GroupData &rhs_groupdata = *leveldata.groupdata.at(rhs_groups[i]);
-    // Empty coarse-fine footprint. StoreRKOldState allocated the bands
-    // earlier in this step; nothing is allocated here.
     if (!childgroupdata.ks_source_band[s])
       continue;
     copy_interior_to_band(*childgroupdata.ks_source_band[s],
-                          *rhs_groupdata.mfab.at(0), period);
+                          *rhs_groupdata.tls.at(0).mfab, period);
   }
 }
 
@@ -420,14 +417,14 @@ void FillRKBoundary(const int patch, const int level,
   for (const int gi : var_groups) {
     GroupData &groupdata = *leveldata.groupdata.at(gi);
     const GroupData &coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-    assert(!groupdata.mfab.empty());
-    assert(!coarsegroupdata.mfab.empty());
+    assert(!groupdata.tls.empty());
+    assert(!coarsegroupdata.tls.empty());
     assert(coarsegroupdata.numvars == groupdata.numvars);
     // Only integrated groups have bands, and only for them does the
     // subcycling SYNC leave the coarse-fine ghosts to this function
     assert(group_is_integrated(gi));
 
-    amrex::MultiFab &mfab = *groupdata.mfab.at(tl);
+    amrex::MultiFab &mfab = *groupdata.tls.at(tl).mfab;
 
     // As in FillPatch_Prolongate: without ghosts there is nothing to fill
     if (mfab.nGrowVect().max() == 0)

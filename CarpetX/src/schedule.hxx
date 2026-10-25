@@ -24,11 +24,6 @@ int Initialise(tFleshConfig *config);
 int Evolve(tFleshConfig *config);
 int Shutdown(tFleshConfig *config);
 
-// Restrict exactly `groups` from fine to coarse, whatever their restrict
-// tags, without validity tracking: the coarse ghosts and outer boundaries
-// keep their validity flags over stale values, so the caller refreshes them.
-// Every level pair (level, level + 1) with both levels in [min_level,
-// max_level), finest pair first; see Restrict in sync_restrict.cxx.
 void RestrictNoPoison(const cGH *cctkGH, int min_level, int max_level,
                       const std::vector<int> &groups);
 
@@ -266,37 +261,6 @@ void leave_local_mode(cGH *restrict cctkGH,
                       const MFPointer &mfp);
 
 void synchronize();
-
-// These functions are defined in valid.cxx. These prototypes should
-// be moved to valid.hxx. Unfortunately, they depend on GHExt, which is declared
-// in driver.hxx, which includes valid.hxx. Declaring the prorotypes here avoids
-// that circular reference. This should be fixed.
-
-// `hint`, if set, is printed after the found validity, e.g. to state a rule
-// that the caller knows was broken.
-void error_if_invalid(const GHExt::PatchData::LevelData::GroupData &grouppdata,
-                      int vi, int tl, const valid_t &required,
-                      const std::function<std::string()> &msg,
-                      const std::function<std::string()> &hint = nullptr);
-void warn_if_invalid(const GHExt::PatchData::LevelData::GroupData &grouppdata,
-                     int vi, int tl, const valid_t &required,
-                     const std::function<std::string()> &msg);
-
-void error_if_invalid(const GHExt::GlobalData::ArrayGroupData &groupdata,
-                      int vi, int tl, const valid_t &required,
-                      const std::function<std::string()> &msg);
-void warn_if_invalid(const GHExt::GlobalData::ArrayGroupData &groupdata, int vi,
-                     int tl, const valid_t &required,
-                     const std::function<std::string()> &msg);
-
-void poison_invalid_gf(const active_levels_t &active_levels, int gi, int vi,
-                       int tl);
-void poison_invalid_ga(int gi, int vi, int tl);
-
-void check_valid_gf(const active_levels_t &active_levels, int gi, int vi,
-                    int tl, const std::function<std::string()> &msg);
-void check_valid_ga(int gi, int vi, int tl,
-                    const std::function<std::string()> &msg);
 
 } // namespace CarpetX
 

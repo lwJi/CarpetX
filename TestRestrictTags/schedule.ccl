@@ -11,14 +11,10 @@ SCHEDULE TestRestrictTags_Init AT initial
   WRITES: nr_explicit(interior)
 } "Write coarse_value on level 0 and fine_value on level 1"
 
-# The contract AsterX's gauge register relies on: an explicit call restricts
-# a group tagged restrict="no"
 SCHEDULE TestRestrictTags_RestrictExplicit AT postinitial
 {
   LANG: C
   OPTIONS: global
-  READS: nr_explicit(interior)
-  WRITES: nr_explicit(interior)
 } "Restrict nr_explicit through CarpetX's exported RestrictNoPoison"
 
 # With CarpetX::restrict_during_sync = yes, this SYNC also restricts every

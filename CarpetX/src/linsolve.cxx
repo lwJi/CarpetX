@@ -72,15 +72,15 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
   for (int level = 0; level < int(patchdata.leveldata.size()); ++level) {
     const auto &restrict leveldata = patchdata.leveldata.at(level);
     const auto &restrict groupdata_rhs = *leveldata.groupdata.at(gi_rhs);
-    assert(!groupdata_rhs.mfab.empty());
-    rhss.at(level) = groupdata_rhs.mfab.at(tl).get();
+    assert(!groupdata_rhs.tls.empty());
+    rhss.at(level) = groupdata_rhs.tls.at(tl).mfab.get();
     const auto &restrict groupdata_sol = *leveldata.groupdata.at(gi_sol);
-    assert(!groupdata_sol.mfab.empty());
-    sols.at(level) = groupdata_sol.mfab.at(tl).get();
+    assert(!groupdata_sol.tls.empty());
+    sols.at(level) = groupdata_sol.tls.at(tl).mfab.get();
     if (have_res) {
       const auto &restrict groupdata_res = *leveldata.groupdata.at(gi_res);
-      assert(!groupdata_res.mfab.empty());
-      ress.at(level) = groupdata_res.mfab.at(tl).get();
+      assert(!groupdata_res.tls.empty());
+      ress.at(level) = groupdata_res.tls.at(tl).mfab.get();
     }
   }
 

@@ -149,7 +149,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
       const auto &groupdata = *leveldata.groupdata.at(gi);
       const int tl = 0;
       const auto &geom = patchdata.amrcore->Geom(leveldata.level);
-      const auto &mfab = *groupdata.mfab.at(tl);
+      const auto &mfab = *groupdata.tls.at(tl).mfab;
       for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
         const amrex::Array4<const CCTK_REAL> &vars = mfab.array(mfi);
         const amrex::Dim3 imin = amrex::lbound(vars);
@@ -204,7 +204,7 @@ void OutputTSVold(const cGH *restrict cctkGH) {
 
     auto &restrict groupdata0 =
         *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
-    if (groupdata0.mfab.size() > 0) {
+    if (groupdata0.tls.size() > 0) {
       const int tl = 0;
 
       std::string groupname = CCTK_FullGroupName(gi);
@@ -321,10 +321,9 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
     }
   }
 
-  // Output data
   file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time;
   const int tl = 0;
-  const auto &data = arraygroupdata.data.at(tl);
+  const auto &data = arraygroupdata.tls.at(tl).data;
   for (int vi = 0; vi < arraygroupdata.numvars; ++vi)
     file << sep << data[vi];
   file << "\n";
@@ -434,13 +433,12 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
   const int np = dk * arraygroupdata.lsh[2];
   const std::array<int, dim> DI{di, dj, dk};
 
-  // Output data
   for (int i = 0; i < arraygroupdata.lsh[out_dir]; ++i) {
     file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time;
     for (int dir = 0; dir < arraygroupdata.dimension; ++dir)
       file << sep << (dir == out_dir ? i : 0);
     const int tl = 0;
-    const auto &data = arraygroupdata.data.at(tl);
+    const auto &data = arraygroupdata.tls.at(tl).data;
     for (int vi = 0; vi < arraygroupdata.numvars; ++vi)
       file << sep << data[np * vi + DI[out_dir] * i];
     file << "\n";
@@ -465,7 +463,6 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
                       + dim                 // coordinates
                       + groupdata0.numvars; // grid function values
 
-  // Data transmitted from this process
   std::vector<CCTK_REAL> data;
   data.reserve(10000);
   for (const auto &patchdata : ghext->patchdata) {
@@ -496,7 +493,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
 
       const auto &symmetries = ghext->patchdata.at(leveldata.patch).symmetries;
 
-      const auto &mfab = *groupdata.mfab.at(tl);
+      const auto &mfab = *groupdata.tls.at(tl).mfab;
 
       const vect<int, dim> nghosts = {mfab.nGrow(0), mfab.nGrow(1),
                                       mfab.nGrow(2)};
@@ -755,10 +752,10 @@ void OutputTSV(const cGH *restrict cctkGH) {
         if (ghext->patchdata.at(0)
                 .leveldata.at(0)
                 .groupdata.at(gi)
-                ->mfab.empty())
+                ->tls.empty())
           continue;
       } else {
-        if (ghext->globaldata.arraygroupdata.at(gi)->data.empty())
+        if (ghext->globaldata.arraygroupdata.at(gi)->tls.empty())
           continue;
       }
       std::string groupname = CCTK_FullGroupName(gi);

@@ -11,9 +11,7 @@ USES INCLUDE HEADER: derivs.hxx
 
 
 
-# Restricted: the driver overwrites its coarse-fine ghosts on time-aligned
-# levels of a restricted window by spatial prolongation
-CCTK_REAL state TYPE=gf TAGS='rhs="rhs" dependents="error"'
+CCTK_REAL state TYPE=gf TAGS='rhs="rhs"'
 {
   u
   rho

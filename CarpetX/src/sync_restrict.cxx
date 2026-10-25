@@ -16,7 +16,9 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -83,10 +85,8 @@ static std::vector<int> sync_filter_groups(int numgroups, const int *groups0) {
   return groups;
 }
 
-static void sync_multipatch_postcheck(const active_levels_t &active_levels,
-                                      const cGH *cctkGH,
-                                      const std::vector<int> &groups,
-                                      const char *label) {
+static void sync_multipatch_boundaries(const cGH *cctkGH,
+                                       const std::vector<int> &groups) {
   static const bool have_multipatch_boundaries =
       CCTK_IsFunctionAliased("MultiPatch_Interpolate");
 
@@ -99,73 +99,89 @@ static void sync_multipatch_postcheck(const active_levels_t &active_levels,
         cactusvarinds.push_back(groupdata.firstvarindex + var);
     }
     MultiPatch_Interpolate(cctkGH, cactusvarinds.size(), cactusvarinds.data());
-
-    for (const int gi : groups) {
-      const auto &patchdata0 = ghext->patchdata.at(0);
-      const auto &leveldata0 = patchdata0.leveldata.at(0);
-      const auto &groupdata0 = *leveldata0.groupdata.at(gi);
-      assert(!groupdata0.mfab.empty());
-      // We always sync all directions.
-      // If there is more than one time level, then we don't sync the
-      // oldest.
-      // TODO: during evolution, sync only one time level
-      const int ntls0 = groupdata0.mfab.size();
-      const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
-
-      for (int tl = 0; tl < sync_tl0; ++tl)
-        for (int vi = 0; vi < groupdata0.numvars; ++vi)
-          check_valid_gf(active_levels, gi, vi, tl, [label]() {
-            return std::string(label) + " after syncing";
-          });
-
-    } // for gi
-
   } else {
     assert(ghext->num_patches() == 1);
   }
 }
 
-// Abort unless the parent of `leveldata` has a valid interior for every
-// variable of group gi in timelevel tl, because a prolongation into
-// `leveldata` is about to read it. The message names the parent's level and
-// timelevel. When gi is not checkpointed, it ends with the rule that was
-// broken: for a past timelevel always, and for the current timelevel only
-// while the parent has not run its end of step since the run was recovered
-// (GHExt::recovered_iteration).
+static int timelevels_but_oldest(const int gi) {
+  const auto &groupdata0 =
+      *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi);
+  assert(!groupdata0.tls.empty());
+  const int ntls = groupdata0.tls.size();
+  return ntls > 1 ? ntls - 1 : ntls;
+}
+
+static valid_t sync_fills(const active_levels_t &active_levels, const int gi) {
+  std::optional<bool> covered;
+  active_levels.loop_serially([&](auto &restrict leveldata) {
+    const bool level_covered =
+        leveldata.groupdata.at(gi)->all_faces_have_symmetries_or_boundaries();
+    assert(!covered || *covered == level_covered);
+    covered = level_covered;
+  });
+  return make_valid_ghosts() |
+         (covered.value_or(false) ? make_valid_outer() : valid_t());
+}
+
+struct level_run_t {
+  active_levels_t levels;
+  bool value;
+};
+
+static std::vector<level_run_t> split_levels(
+    const active_levels_t &active_levels,
+    const std::function<bool(const GHExt::PatchData::LevelData &)> &predicate) {
+  const int min_level = active_levels.min_level;
+  std::vector<std::optional<bool> > values(active_levels.max_level - min_level);
+  active_levels.loop_serially([&](auto &restrict leveldata) {
+    std::optional<bool> &value = values.at(leveldata.level - min_level);
+    const bool level_value = predicate(leveldata);
+    assert(!value || *value == level_value);
+    value = level_value;
+  });
+  std::vector<level_run_t> runs;
+  for (int lo = min_level; lo < active_levels.max_level;) {
+    const std::optional<bool> value = values.at(lo - min_level);
+    int hi = lo + 1;
+    while (hi < active_levels.max_level && values.at(hi - min_level) == value)
+      ++hi;
+    if (value)
+      runs.push_back({active_levels_t(lo, hi, active_levels.min_patch,
+                                      active_levels.max_patch),
+                      *value});
+    lo = hi;
+  }
+  return runs;
+}
+
+static active_levels_t
+level_window(const GHExt::PatchData::LevelData &leveldata) {
+  return active_levels_t(leveldata.level, leveldata.level + 1, leveldata.patch,
+                         leveldata.patch + 1);
+}
+
 static void
 error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
                         const int gi, const int tl, const char *const label) {
   assert(leveldata.level > 0);
-  const auto &restrict groupdata = *leveldata.groupdata.at(gi);
   const auto &restrict coarseleveldata =
       ghext->patchdata.at(leveldata.patch).leveldata.at(leveldata.level - 1);
   const auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-  assert(!coarsegroupdata.mfab.empty());
-  assert(coarsegroupdata.numvars == groupdata.numvars);
-  assert(tl >= 0 && tl < int(coarsegroupdata.mfab.size()));
-
   const bool recovering =
       ghext->recovered_iteration >= 0 &&
       coarseleveldata.last_finalized_iteration <= ghext->recovered_iteration;
 
-  const std::function<std::string()> msg = [label]() {
-    return std::string(label);
-  };
   const std::function<std::string()> hint = [&coarsegroupdata, tl,
                                              recovering]() -> std::string {
     if (coarsegroupdata.do_checkpoint)
       return "";
-    // A past timelevel that another level reads must be checkpointed,
-    // whatever invalidated it this time: no routine can recompute it, and
-    // only a checkpoint carries it across a recovery or a regrid
     if (tl > 0)
       return "  Group " + coarsegroupdata.groupname +
              " is not checkpointed, so a recovery, or a regrid that remakes "
              "its level, can lose its past timelevels, which no routine can "
              "recompute.\n"
              "  Past timelevels read by another level must be checkpointed.\n";
-    // Outside recovery the driver cannot tell why a current timelevel is
-    // invalid (a missing routine, a missing POSTREGRID recomputation)
     if (recovering)
       return "  This run was recovered and group " + coarsegroupdata.groupname +
              " is not checkpointed.\n"
@@ -173,8 +189,11 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
              "recomputed in CCTK_POST_RECOVER_VARIABLES.\n";
     return "";
   };
-  for (int vi = 0; vi < coarsegroupdata.numvars; ++vi)
-    error_if_invalid(coarsegroupdata, vi, tl, make_valid_int(), msg, hint);
+  require(level_window(coarseleveldata), {.gi = gi,
+                                          .tl = tl,
+                                          .where = make_valid_int(),
+                                          .event = label,
+                                          .hint = hint});
 }
 
 // =======================================================================
@@ -190,9 +209,6 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
 // from it. The selectors read the flags on patch 0, level 0; every patch and
 // level carries the same ones.
 
-// The groups the end-of-step restriction restricts: those whose restrict
-// tag is "yes", where a missing restrict tag takes the value of the
-// checkpoint tag, and a missing checkpoint tag counts as "yes"
 std::vector<int> collect_restrictable_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -200,11 +216,9 @@ std::vector<int> collect_restrictable_groups() {
   const auto &patchdata0 = ghext->patchdata.at(0);
   const auto &leveldata0 = patchdata0.leveldata.at(0);
   for (const auto &groupdataptr : leveldata0.groupdata) {
-    // Only grid functions
     if (groupdataptr) {
       auto &restrict groupdata = *groupdataptr;
-      // Only grid functions with storage
-      if (groupdata.mfab.empty())
+      if (groupdata.tls.empty())
         continue;
       // Only grid functions with restriction enabled
       if (groupdata.do_restrict)
@@ -214,9 +228,6 @@ std::vector<int> collect_restrictable_groups() {
   return groups;
 }
 
-// The groups the end-of-step re-prolongation refills: every group the
-// end-of-step restriction restricts and, under subcycling, every integrated
-// group (see ProlongateAfterRestriction)
 static std::vector<int> reprolongate_groups() {
   const int numgroups = CCTK_NumGroups();
   std::vector<int> groups;
@@ -224,11 +235,9 @@ static std::vector<int> reprolongate_groups() {
   const auto &patchdata0 = ghext->patchdata.at(0);
   const auto &leveldata0 = patchdata0.leveldata.at(0);
   for (const auto &groupdataptr : leveldata0.groupdata) {
-    // Only grid functions
     if (groupdataptr) {
       auto &restrict groupdata = *groupdataptr;
-      // Only grid functions with storage
-      if (groupdata.mfab.empty())
+      if (groupdata.tls.empty())
         continue;
       const int gi = groupdata.groupindex;
       if (groupdata.do_restrict ||
@@ -298,13 +307,34 @@ static int SyncGroupsByDirIProlongateOnly_impl(
       };
   const auto timelevels_to_fill =
       [tl_arg](const GHExt::PatchData::LevelData::GroupData &groupdata) {
-        const int ntls = groupdata.mfab.size();
+        const int ntls = groupdata.tls.size();
         const int tl_lo = (tl_arg < 0) ? 0 : tl_arg;
         const int tl_hi =
             (tl_arg < 0) ? (ntls > 1 ? ntls - 1 : ntls) : (tl_arg + 1);
         assert(tl_lo >= 0 && tl_hi <= ntls);
         return std::make_pair(tl_lo, tl_hi);
       };
+
+  const std::vector<level_run_t> runs =
+      split_levels(active_levels, prolongates_into);
+  std::vector<write_scope_t> scopes;
+  for (const int gi : groups) {
+    const auto [tl_lo, tl_hi] = timelevels_to_fill(
+        *ghext->patchdata.at(0).leveldata.at(0).groupdata.at(gi));
+    for (const level_run_t &run : runs) {
+      if (!run.value)
+        continue;
+      const valid_t fills = sync_fills(run.levels, gi);
+      for (int tl = tl_lo; tl < tl_hi; ++tl) {
+        scopes.push_back(open_write(
+            run.levels, {.gi = gi,
+                         .tl = tl,
+                         .fills = fills,
+                         .keeps = make_valid_all(),
+                         .event = "SyncGroupsByDirIProlongateOnly"}));
+      }
+    }
+  }
 
   // We need to loop over groups, patches, and levels in a definite
   // order so that AMReX's communication pattern does not get
@@ -319,7 +349,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
   for (const int gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
+      assert(!groupdata.tls.empty());
 
       const auto [tl_lo, tl_hi] = timelevels_to_fill(groupdata);
 
@@ -331,18 +361,20 @@ static int SyncGroupsByDirIProlongateOnly_impl(
           ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
 
       auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-      assert(!coarsegroupdata.mfab.empty());
+      assert(!coarsegroupdata.tls.empty());
       assert(coarsegroupdata.numvars == groupdata.numvars);
 
       amrex::Interpolater *const interpolator = groupdata.interpolator;
 
       for (int tl = tl_lo; tl < tl_hi; ++tl) {
-
+        error_if_parent_invalid(leveldata, gi, tl,
+                                "SyncGroupsByDirIProlongateOnly on coarse "
+                                "level before prolongation");
         tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                 &coarsegroupdata, interpolator, tl]() {
           FillPatch_ProlongateOnly(tasks2, tasks3, groupdata, coarsegroupdata,
-                                   *groupdata.mfab.at(tl),
-                                   *coarsegroupdata.mfab.at(tl),
+                                   *groupdata.tls.at(tl).mfab,
+                                   *coarsegroupdata.tls.at(tl).mfab,
                                    ghext->patchdata.at(leveldata.patch)
                                        .amrcore->Geom(leveldata.level),
                                    ghext->patchdata.at(leveldata.patch)
@@ -361,30 +393,8 @@ static int SyncGroupsByDirIProlongateOnly_impl(
   tasks3.run_tasks_serially();
   synchronize();
 
-  for (const int gi : groups) {
-    active_levels.loop_serially([&](auto &restrict leveldata) {
-      if (!prolongates_into(leveldata))
-        return;
-      auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      const auto [tl_lo, tl_hi] = timelevels_to_fill(groupdata);
-      for (int tl = tl_lo; tl < tl_hi; ++tl) {
-        for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
-            return "SyncGroupsByDirIProlongateOnly after prolongating: "
-                   "Mark ghost zones as valid";
-          });
-          if (groupdata.all_faces_have_symmetries_or_boundaries())
-            groupdata.valid.at(tl).at(vi).set_outer(true, []() {
-              return "SyncGroupsByDirIProlongateOnly after prolongating: "
-                     "Mark outer boundaries as valid";
-            });
-        }
-      }
-    });
-  }
-
-  sync_multipatch_postcheck(active_levels, cctkGH, groups,
-                            "SyncGroupsByDirIProlongateOnly");
+  sync_multipatch_boundaries(cctkGH, groups);
+  scopes.clear();
 
   assert(sync_active);
 
@@ -416,16 +426,15 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
       std::vector<int> new_groups;
       for (const int gi : groups) {
         auto &restrict groupdata = *leveldata.groupdata.at(gi);
-        assert(!groupdata.mfab.empty());
+        assert(!groupdata.tls.empty());
         bool need_sync = false;
-        for (int tl = 0; tl < int(groupdata.valid.size()); tl++) {
+        for (int tl = 0; tl < int(groupdata.tls.size()); tl++) {
           if (need_sync)
             break;
-          auto &timeleveldata = groupdata.valid.at(tl);
-          for (int vi = 0; vi < int(timeleveldata.size()); vi++) {
+          for (int vi = 0; vi < groupdata.numvars; vi++) {
             if (need_sync)
               break;
-            valid_t have = groupdata.valid.at(tl).at(vi).get();
+            const valid_t have = groupdata.tls.at(tl).valid(vi);
             if (!have.valid_ghosts || !have.valid_outer) {
               need_sync = true;
             }
@@ -453,58 +462,23 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
     Restrict(cctkGH, min_level, max_level, sync_restrict_groups(groups));
   }
 
-  static const bool have_multipatch_boundaries =
-      CCTK_IsFunctionAliased("MultiPatch_Interpolate");
-
+  std::vector<write_scope_t> scopes;
   for (const int gi : groups) {
-    const auto &patchdata0 = ghext->patchdata.at(0);
-    const auto &leveldata0 = patchdata0.leveldata.at(0);
-    const auto &groupdata0 = *leveldata0.groupdata.at(gi);
-    assert(!groupdata0.mfab.empty());
-    // We always sync all directions.
-    // If there is more than one time level, then we don't sync the
-    // oldest.
-    // TODO: during evolution, sync only one time level
-    const int ntls0 = groupdata0.mfab.size();
-    const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
-
-    active_levels.loop_serially([&](auto &restrict leveldata) {
-      auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
-
-      if (leveldata.level > 0)
-        for (int tl = 0; tl < sync_tl0; ++tl)
-          error_if_parent_invalid(
-              leveldata, gi, tl,
-              "SyncGroupsByDirI on coarse level before prolongation");
-
-      for (int tl = 0; tl < sync_tl0; ++tl) {
-        for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          // Synchronization only uses the interior
-          error_if_invalid(groupdata, vi, tl, make_valid_int(),
-                           []() { return "SyncGroupsByDirI before syncing"; });
-          groupdata.valid.at(tl).at(vi).set_invalid(make_valid_ghosts(), []() {
-            return "SyncGroupsByDirI before syncing: "
-                   "Mark ghost zones as invalid";
-          });
-        }
-      } // for tl
-    });
-
-    active_levels_t active_fine_levels = active_levels;
-    using std::max;
-    active_fine_levels.min_level = max(active_fine_levels.min_level, 1);
-    for (int tl = 0; tl < sync_tl0; ++tl) {
-      for (int vi = 0; vi < groupdata0.numvars; ++vi) {
-        check_valid_gf(active_fine_levels, gi, vi, tl, []() {
-          return "SyncGroupsByDirI on coarse level before prolongation";
-        });
-        poison_invalid_gf(active_levels, gi, vi, tl);
-        check_valid_gf(active_levels, gi, vi, tl,
-                       []() { return "SyncGroupsByDirI before syncing"; });
-      }
-    } // for tl
-  } // for gi
+    const int sync_tl = timelevels_but_oldest(gi);
+    const valid_t fills = sync_fills(active_levels, gi);
+    for (int tl = 0; tl < sync_tl; ++tl) {
+      require(active_levels, {.gi = gi,
+                              .tl = tl,
+                              .where = make_valid_int(),
+                              .event = "SyncGroupsByDirI before syncing"});
+      scopes.push_back(open_write(
+          active_levels, {.gi = gi,
+                          .tl = tl,
+                          .fills = fills,
+                          .keeps = make_valid_int() | make_valid_outer(),
+                          .event = "SyncGroupsByDirI"}));
+    }
+  }
 
   // We need to loop over groups, patches, and levels in a definite
   // order so that AMReX's communication pattern does not get
@@ -519,13 +493,9 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
   for (const int gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
+      assert(!groupdata.tls.empty());
 
-      // We always sync all directions.
-      // If there is more than one time level, then we don't sync the
-      // oldest.
-      // TODO: during evolution, sync only one time level
-      const int ntls = groupdata.mfab.size();
+      const int ntls = groupdata.tls.size();
       const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
 
       if (leveldata.level == 0) {
@@ -533,7 +503,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
 
         for (int tl = 0; tl < sync_tl; ++tl) {
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-            FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+            FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
                            ghext->patchdata.at(leveldata.patch)
                                .amrcore->Geom(leveldata.level));
           });
@@ -547,23 +517,25 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
         const auto &restrict coarseleveldata =
             ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
         auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-        assert(!coarsegroupdata.mfab.empty());
+        assert(!coarsegroupdata.tls.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
         amrex::Interpolater *const interpolator = groupdata.interpolator;
 
         for (int tl = 0; tl < sync_tl; ++tl) {
-
+          error_if_parent_invalid(
+              leveldata, gi, tl,
+              "SyncGroupsByDirI on coarse level before prolongation");
           tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                   &coarsegroupdata, interpolator, tl]() {
-            FillPatch_ProlongateGhosts(tasks2, tasks3, groupdata,
-                                       coarsegroupdata, *groupdata.mfab.at(tl),
-                                       *coarsegroupdata.mfab.at(tl),
-                                       ghext->patchdata.at(leveldata.patch)
-                                           .amrcore->Geom(leveldata.level),
-                                       ghext->patchdata.at(leveldata.patch)
-                                           .amrcore->Geom(leveldata.level - 1),
-                                       interpolator, groupdata.bcrecs);
+            FillPatch_ProlongateGhosts(
+                tasks2, tasks3, groupdata, coarsegroupdata,
+                *groupdata.tls.at(tl).mfab, *coarsegroupdata.tls.at(tl).mfab,
+                ghext->patchdata.at(leveldata.patch)
+                    .amrcore->Geom(leveldata.level),
+                ghext->patchdata.at(leveldata.patch)
+                    .amrcore->Geom(leveldata.level - 1),
+                interpolator, groupdata.bcrecs);
           });
 
         } // for tl
@@ -579,48 +551,8 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
   tasks3.run_tasks_serially();
   synchronize();
 
-  for (const int gi : groups) {
-    const auto &patchdata0 = ghext->patchdata.at(0);
-    const auto &leveldata0 = patchdata0.leveldata.at(0);
-    const auto &groupdata0 = *leveldata0.groupdata.at(gi);
-    assert(!groupdata0.mfab.empty());
-    // We always sync all directions.
-    // If there is more than one time level, then we don't sync the
-    // oldest.
-    // TODO: during evolution, sync only one time level
-    const int ntls0 = groupdata0.mfab.size();
-    const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
-
-    active_levels.loop_serially([&](auto &restrict leveldata) {
-      auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
-
-      for (int tl = 0; tl < sync_tl0; ++tl) {
-        for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
-            return "SyncGroupsByDirI after syncing: "
-                   "Mark ghost zones as valid";
-          });
-          if (groupdata.all_faces_have_symmetries_or_boundaries())
-            groupdata.valid.at(tl).at(vi).set_outer(true, []() {
-              return "SyncGroupsByDirI after syncing: "
-                     "Mark outer boundaries as valid";
-            });
-        }
-      } // for tl
-    });
-
-    for (int tl = 0; tl < sync_tl0; ++tl) {
-      for (int vi = 0; vi < groupdata0.numvars; ++vi) {
-        poison_invalid_gf(active_levels, gi, vi, tl);
-        if (!have_multipatch_boundaries)
-          check_valid_gf(active_levels, gi, vi, tl,
-                         []() { return "SyncGroupsByDirI after syncing"; });
-      }
-    } // for tl
-  } // for gi
-
-  sync_multipatch_postcheck(active_levels, cctkGH, groups, "SyncGroupsByDirI");
+  sync_multipatch_boundaries(cctkGH, groups);
+  scopes.clear();
 
   assert(sync_active);
 
@@ -689,8 +621,44 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
   std::vector<int> groups = sync_filter_groups(numgroups, groups0);
 
-  static const bool have_multipatch_boundaries =
-      CCTK_IsFunctionAliased("MultiPatch_Interpolate");
+  const char *const prolongation_label =
+      "SyncGroupsByDirISubcycling on coarse level before prolongation";
+  const char *const sync_label = "SyncGroupsByDirISubcycling before syncing";
+
+  struct ghost_check_t {
+    active_levels_t levels;
+    int gi, tl;
+  };
+  std::vector<ghost_check_t> integrated_ghosts;
+  std::vector<write_scope_t> scopes;
+  for (const int gi : groups) {
+    const int sync_tl = timelevels_but_oldest(gi);
+    const std::vector<level_run_t> runs = split_levels(
+        active_levels, [gi](const GHExt::PatchData::LevelData &leveldata) {
+          return integrator_owns_coarse_fine_ghosts(leveldata, gi);
+        });
+    for (const level_run_t &run : runs) {
+      const valid_t fills = sync_fills(run.levels, gi);
+      for (int tl = 0; tl < sync_tl; ++tl) {
+        if (run.value) {
+          integrated_ghosts.push_back({run.levels, gi, tl});
+          scopes.push_back(
+              open_write(run.levels, {.gi = gi,
+                                      .tl = tl,
+                                      .fills = fills & make_valid_outer(),
+                                      .keeps = make_valid_all(),
+                                      .event = "SyncGroupsByDirISubcycling"}));
+        } else {
+          scopes.push_back(open_write(
+              run.levels, {.gi = gi,
+                           .tl = tl,
+                           .fills = fills,
+                           .keeps = make_valid_int() | make_valid_outer(),
+                           .event = "SyncGroupsByDirISubcycling"}));
+        }
+      }
+    }
+  }
 
   // We need to loop over groups, patches, and levels in a definite
   // order so that AMReX's communication pattern does not get
@@ -705,21 +673,19 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
   for (const int gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
+      assert(!groupdata.tls.empty());
 
-      // We always sync all directions.
-      // If there is more than one time level, then we don't sync the
-      // oldest.
-      // TODO: during evolution, sync only one time level
-      const int ntls = groupdata.mfab.size();
+      const int ntls = groupdata.tls.size();
       const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
 
       if (leveldata.level == 0) {
-        // Copy from adjacent boxes on same level
-
         for (int tl = 0; tl < sync_tl; ++tl) {
+          require(level_window(leveldata), {.gi = gi,
+                                            .tl = tl,
+                                            .where = make_valid_int(),
+                                            .event = sync_label});
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-            FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+            FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
                            ghext->patchdata.at(leveldata.patch)
                                .amrcore->Geom(leveldata.level));
           });
@@ -731,35 +697,20 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
         const auto &restrict coarseleveldata =
             ghext->patchdata.at(leveldata.patch).leveldata.at(level - 1);
         auto &restrict coarsegroupdata = *coarseleveldata.groupdata.at(gi);
-        assert(!coarsegroupdata.mfab.empty());
+        assert(!coarsegroupdata.tls.empty());
         assert(coarsegroupdata.numvars == groupdata.numvars);
 
         const bool integrated_subiter =
             integrator_owns_coarse_fine_ghosts(leveldata, gi);
 
         if (integrated_subiter) {
-          for (int tl = 0; tl < sync_tl; ++tl)
-            for (int vi = 0; vi < groupdata.numvars; ++vi)
-              error_if_invalid(
-                  groupdata, vi, tl, make_valid_ghosts(),
-                  []() {
-                    return "SyncGroupsByDirISubcycling before syncing an "
-                           "integrated group on a refined level";
-                  },
-                  []() {
-                    return "  With CarpetX::use_subcycling = yes the RK step "
-                           "owns the coarse-fine ghosts of the groups the "
-                           "time integrator registered at iteration > 0: "
-                           "CarpetX::rk_step_t::state_updated after each RK "
-                           "stage, and the driver's refill after a recovery, "
-                           "fill and mark them before any SYNC.\n"
-                           "  The SYNC copies only the same-level ghosts of "
-                           "such a group and requires its ghosts to be marked "
-                           "valid already.\n";
-                  });
           for (int tl = 0; tl < sync_tl; ++tl) {
+            require(level_window(leveldata), {.gi = gi,
+                                              .tl = tl,
+                                              .where = make_valid_int(),
+                                              .event = sync_label});
             tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-              FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+              FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
                              ghext->patchdata.at(leveldata.patch)
                                  .amrcore->Geom(leveldata.level));
             });
@@ -769,46 +720,32 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
           // from next coarser level
           amrex::Interpolater *const interpolator = groupdata.interpolator;
 
-          // Time-blend gate: only a group the time integrator does not own
-          // (!group_is_integrated) can reach this branch while misaligned in
-          // time with its parent. When the fine level is ahead of the coarse,
-          // blend coarse tl=0 (new) with coarse tl=1 (old) into the coarse
-          // patch before interpolating. Mirrors AMReX beta=(time-t0)/(t1-t0):
-          // with t0 = t_new - cdt (old coarse time), t1 = t_new (new coarse
-          // time), time = t_fin (fine time). A single-timelevel group has no
-          // tl=1, so it gets coarse tl=0 as it currently stands.
           const bool aligned =
               (leveldata.iteration == coarseleveldata.iteration);
-          const bool blend = !aligned && coarsegroupdata.mfab.size() >= 2;
+          const bool blend = !aligned && coarsegroupdata.tls.size() >= 2;
           const rat64 cdt = coarseleveldata.delta_iteration;
           const rat64 t_new = coarseleveldata.iteration;
           const rat64 t_fin = leveldata.iteration;
           const CCTK_REAL w_new = CCTK_REAL((t_fin - t_new + cdt) / cdt);
 
-          // Each fill below first checks that every parent timelevel it reads
-          // has a valid interior. The fills are only queued here, so the
-          // checks run before any of them. They hold in every run and have no
-          // opt-out; without them an invalid parent is caught only by the
-          // poison scan after the sync, on the child, and not at all without
-          // poisoning.
-          const char *const label =
-              "SyncGroupsByDirISubcycling on coarse level before prolongation";
-
           for (int tl = 0; tl < sync_tl; ++tl) {
-            // Only tl=0 is the "new" coarse snapshot whose old partner is tl=1.
             const bool do_blend = blend && tl == 0;
-            error_if_parent_invalid(leveldata, gi, tl, label);
+            require(level_window(leveldata), {.gi = gi,
+                                              .tl = tl,
+                                              .where = make_valid_int(),
+                                              .event = sync_label});
+            error_if_parent_invalid(leveldata, gi, tl, prolongation_label);
             if (do_blend)
-              error_if_parent_invalid(leveldata, gi, 1, label);
+              error_if_parent_invalid(leveldata, gi, 1, prolongation_label);
             const amrex::MultiFab *const cmfab_old =
-                do_blend ? coarsegroupdata.mfab.at(1).get() : nullptr;
+                do_blend ? coarsegroupdata.tls.at(1).mfab.get() : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
             tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                     &coarsegroupdata, interpolator, tl,
                                     cmfab_old, tl_w_new]() {
               FillPatch_ProlongateGhosts(
                   tasks2, tasks3, groupdata, coarsegroupdata,
-                  *groupdata.mfab.at(tl), *coarsegroupdata.mfab.at(tl),
+                  *groupdata.tls.at(tl).mfab, *coarsegroupdata.tls.at(tl).mfab,
                   ghext->patchdata.at(leveldata.patch)
                       .amrcore->Geom(leveldata.level),
                   ghext->patchdata.at(leveldata.patch)
@@ -829,55 +766,27 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
   tasks3.run_tasks_serially();
   synchronize();
 
-  for (const int gi : groups) {
-    const auto &patchdata0 = ghext->patchdata.at(0);
-    const auto &leveldata0 = patchdata0.leveldata.at(0);
-    const auto &groupdata0 = *leveldata0.groupdata.at(gi);
-    assert(!groupdata0.mfab.empty());
-    // We always sync all directions.
-    // If there is more than one time level, then we don't sync the
-    // oldest.
-    // TODO: during evolution, sync only one time level
-    const int ntls0 = groupdata0.mfab.size();
-    const int sync_tl0 = ntls0 > 1 ? ntls0 - 1 : ntls0;
+  for (const ghost_check_t &check : integrated_ghosts)
+    require(check.levels,
+            {.gi = check.gi,
+             .tl = check.tl,
+             .where = make_valid_ghosts(),
+             .event = "SyncGroupsByDirISubcycling after copying the same-level "
+                      "ghosts of an integrated group on a refined level",
+             .hint = []() {
+               return "  With CarpetX::use_subcycling = yes the RK step "
+                      "owns the coarse-fine ghosts of the groups the "
+                      "time integrator registered at iteration > 0: "
+                      "CarpetX::rk_step_t::state_updated after each RK "
+                      "stage, and the driver's refill after a recovery, "
+                      "fill and mark them before any SYNC.\n"
+                      "  The SYNC copies only the same-level ghosts of "
+                      "such a group and requires its ghosts to be marked "
+                      "valid already.\n";
+             }});
 
-    active_levels.loop_serially([&](auto &restrict leveldata) {
-      auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
-
-      const bool integrated_subiter =
-          integrator_owns_coarse_fine_ghosts(leveldata, gi);
-
-      for (int tl = 0; tl < sync_tl0; ++tl) {
-        for (int vi = 0; vi < groupdata.numvars; ++vi) {
-          if (!integrated_subiter) {
-            groupdata.valid.at(tl).at(vi).set_ghosts(true, []() {
-              return "SyncGroupsByDirISubcycling after syncing: "
-                     "Mark ghost zones as valid";
-            });
-          }
-          if (groupdata.all_faces_have_symmetries_or_boundaries())
-            groupdata.valid.at(tl).at(vi).set_outer(true, []() {
-              return "SyncGroupsByDirISubcycling after syncing: "
-                     "Mark outer boundaries as valid";
-            });
-        }
-      } // for tl
-    });
-
-    for (int tl = 0; tl < sync_tl0; ++tl) {
-      for (int vi = 0; vi < groupdata0.numvars; ++vi) {
-        poison_invalid_gf(active_levels, gi, vi, tl);
-        if (!have_multipatch_boundaries)
-          check_valid_gf(active_levels, gi, vi, tl, []() {
-            return "SyncGroupsByDirISubcycling after syncing";
-          });
-      }
-    } // for tl
-  } // for gi
-
-  sync_multipatch_postcheck(active_levels, cctkGH, groups,
-                            "SyncGroupsByDirISubcycling");
+  sync_multipatch_boundaries(cctkGH, groups);
+  scopes.clear();
 
   assert(sync_active);
 
@@ -941,22 +850,17 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
   for (const int gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = *leveldata.groupdata.at(gi);
-      assert(!groupdata.mfab.empty());
+      assert(!groupdata.tls.empty());
 
-      // We always sync all directions.
-      // tl_arg >= 0 syncs only that timelevel; tl_arg = -1 syncs every
-      // timelevel except the oldest (or the only one, if ntls == 1).
-      // TODO: during evolution, sync only one time level
-      const int ntls = groupdata.mfab.size();
+      const int ntls = groupdata.tls.size();
       const int tl_lo = (tl_arg < 0) ? 0 : tl_arg;
       const int tl_hi =
           (tl_arg < 0) ? (ntls > 1 ? ntls - 1 : ntls) : (tl_arg + 1);
       assert(tl_lo >= 0 && tl_hi <= ntls);
 
-      // Copy from adjacent boxes on same level
       for (int tl = tl_lo; tl < tl_hi; ++tl) {
         tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
-          FillPatch_Sync(tasks2, groupdata, *groupdata.mfab.at(tl),
+          FillPatch_Sync(tasks2, groupdata, *groupdata.tls.at(tl).mfab,
                          ghext->patchdata.at(leveldata.patch)
                              .amrcore->Geom(leveldata.level));
         });
@@ -969,8 +873,7 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
   tasks2.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_postcheck(active_levels, cctkGH, groups,
-                            "SyncGroupsByDirIGhostOnly");
+  sync_multipatch_boundaries(cctkGH, groups);
 
   assert(sync_active);
 
@@ -1075,13 +978,13 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   const auto *const childleveldata =
       have_child ? &patchdata.leveldata.at(level + 1) : nullptr;
   const int tl = 0;
+  const active_levels_t this_level(level, level + 1, patch, patch + 1);
 
   for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
-    // only grid functions live on levels
     if (!leveldata.groupdata.at(gi))
       continue;
     const auto &groupdata = *leveldata.groupdata.at(gi);
-    if (groupdata.mfab.empty())
+    if (groupdata.tls.empty())
       continue;
     if (groupdata.fluxes[0] < 0)
       continue;
@@ -1102,60 +1005,20 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
     // no-op afterwards, so a level without a register never allocates
     EnsureFluxGeometry(patch, level);
 
-    // The fluxes of this stage must be valid on the interior: the coarse
-    // side reads the faces under the child's boxes, FineAdd the faces on the
-    // boundary of this level's own boxes, both interior for a face-centred
-    // group.
     for (int d = 0; d < dim; ++d) {
-      const auto &flux_groupdata =
-          *leveldata.groupdata.at(groupdata.fluxes.at(d));
-      assert(!flux_groupdata.mfab.empty());
-      for (int vi = 0; vi < groupdata.numvars; ++vi)
-        error_if_invalid(flux_groupdata, vi, tl, make_valid_int(), [&]() {
-          std::ostringstream buf;
-          buf << "AccumulateFluxes: flux of " << groupdata.groupname
-              << " in direction " << d << " at RK stage " << stage;
-          return buf.str();
-        });
+      std::ostringstream buf;
+      buf << "AccumulateFluxes: flux of " << groupdata.groupname
+          << " in direction " << d << " at RK stage " << stage;
+      require(this_level, {.gi = groupdata.fluxes.at(d),
+                           .tl = tl,
+                           .where = make_valid_int(),
+                           .event = buf.str()});
     }
 
-    // Nothing is allocated per call; both roles work on the register's thin
-    // faces only.
-    //
-    // Coarse side, in place of amrex::FluxRegister::CrseInit(ADD). Per
-    // direction, CrseInit allocates a full-level MultiFab on the flux's
-    // layout holding (flux * mult) * area on every face
-    // (AMReX_FluxRegister.cpp:188, :205), and a FabSet on the register's
-    // layout, which it zeroes, ParallelCopies the scaled flux into, and adds
-    // into the register (:220-255). The child's persistent freg_scratch has
-    // the register's layout, so per face orientation the same steps run on
-    // it, with the scaling moved after the copy: zero, ParallelCopy the raw
-    // flux, scale by (s * mult) * area[d], add. This is bit-identical:
-    //  - The copy has the same source BoxArray and DistributionMapping, no
-    //    source ghosts and no periodic shift, hence the same copy tags, so
-    //    where two source boxes share a face the same box wins. A copy moves
-    //    values unchanged, so scaling after it gives the values CrseInit
-    //    copies.
-    //  - area[d] (face_areas) equals face_area[d] bitwise, and the product
-    //    is formed in CrseInit's order, (s * mult) * area.
-    //  - Scaling and adding are separate kernels, as in CrseInit. A single
-    //    `r += s * mult * area` could be contracted into an FMA
-    //    (-ffp-contract=fast, nvcc's default --fmad=true), which would skip
-    //    the rounding of the product.
-    // A face the copy does not reach (none under proper nesting) adds
-    // (0 * mult) * area, a zero like CrseInit's, possibly of the other sign.
-    //
-    // Fine side: FineAdd reads the cached face-area MultiFab of the level
-    // (EnsureFluxGeometry above) through the area overload, with the stage
-    // weight as the scalar multiplier; it is local and allocation-free, and
-    // forms (mult * area) * flux.
     if (child_freg) {
       amrex::FluxRegister *const child_scratch =
           childleveldata->groupdata.at(gi)->freg_scratch.get();
       assert(child_scratch);
-      // The coarse step is the reset: the coarse level's first stage zeroes
-      // the register below it, and everything that follows (the remaining
-      // coarse stages, the child's substeps) only adds.
       if (stage == 1)
         child_freg->setVal(0);
       const int numvars = groupdata.numvars;
@@ -1165,7 +1028,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
       for (int d = 0; d < dim; ++d) {
         const auto &flux_groupdata =
             *leveldata.groupdata.at(groupdata.fluxes.at(d));
-        const amrex::MultiFab &flux = *flux_groupdata.mfab.at(tl);
+        const amrex::MultiFab &flux = *flux_groupdata.tls.at(tl).mfab;
         const CCTK_REAL area_d = area[d];
         for (const auto side :
              {amrex::Orientation::low, amrex::Orientation::high}) {
@@ -1203,7 +1066,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
       for (int d = 0; d < dim; ++d) {
         const auto &flux_groupdata =
             *leveldata.groupdata.at(groupdata.fluxes.at(d));
-        const amrex::MultiFab &flux = *flux_groupdata.mfab.at(tl);
+        const amrex::MultiFab &flux = *flux_groupdata.tls.at(tl).mfab;
         const amrex::MultiFab &area = *leveldata.face_area[d];
         assert(area.ixType() == flux.ixType());
         assert(area.DistributionMap() == flux.DistributionMap());
@@ -1213,20 +1076,6 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   } // for gi
 }
 
-// Apply the flux register of the pair (level, level + 1) to the coarse
-// state on `level`, on every patch that has level + 1: state += register /
-// volume on the coarse cells next to the coarse-fine boundary. The register
-// was filled by AccumulateFluxes over the coarse step and, under subcycling,
-// the fine substeps; nothing is read from the flux groups here. Reached
-// through Reflux(cctkGH, min_level, max_level) below.
-//
-// Only the interior of time level 0 changes (FluxRegister::Reflux writes
-// the valid boxes only). No ghost, outer boundary point or validity flag is
-// touched: the copies of the corrected cells in neighbouring boxes' ghosts
-// (including periodic images), in the outer boundary and in other patches'
-// inter-patch ghosts keep their pre-reflux values until the
-// ODESolvers_PostStep that follows every reflux syncs the state (see
-// subcycling.hxx).
 static void reflux_level(const cGH *cctkGH, const int level) {
   DECLARE_CCTK_PARAMETERS; // verbose
 
@@ -1240,20 +1089,17 @@ static void reflux_level(const cGH *cctkGH, const int level) {
     const auto &leveldata = patchdata.leveldata.at(level);
     const auto &fineleveldata = patchdata.leveldata.at(level + 1);
     const amrex::Geometry &geom = patchdata.amrcore->Geom(level);
+    const active_levels_t coarse_level(level, level + 1, patch, patch + 1);
     const int tl = 0;
 
-    // Groups whose register was applied on this patch
-    std::vector<int> refluxed_groups;
-
     for (int gi = 0; gi < int(leveldata.groupdata.size()); ++gi) {
-      // only grid functions live on levels
       if (!leveldata.groupdata.at(gi))
         continue;
       const auto &groupdata = *leveldata.groupdata.at(gi);
-      if (groupdata.mfab.empty())
+      if (groupdata.tls.empty())
         continue;
       const auto &finegroupdata = *fineleveldata.groupdata.at(gi);
-      assert(!finegroupdata.mfab.empty());
+      assert(!finegroupdata.tls.empty());
 
       // If the group has a flux register on the fine level
       if (!finegroupdata.freg)
@@ -1265,39 +1111,28 @@ static void reflux_level(const cGH *cctkGH, const int level) {
                    level, level + 1, groupdata.groupname.c_str(),
                    cctkGH->cctk_iteration);
 
-      // The coarse state must be valid on the interior
-      for (int vi = 0; vi < groupdata.numvars; ++vi)
-        error_if_invalid(groupdata, vi, tl, make_valid_int(), []() {
-          return "Reflux before refluxing: Coarse level data";
-        });
+      require(coarse_level,
+              {.gi = gi,
+               .tl = tl,
+               .where = make_valid_int(),
+               .event = "Reflux before refluxing: Coarse level data"});
 
       // The cached cell volume; built on the first registered group met, a
       // no-op afterwards, so a level without a register never allocates
       EnsureFluxGeometry(patch, level);
 
-      // The volume overload reads the cached cell-volume MultiFab of the
-      // level (EnsureFluxGeometry above) instead of synthesizing one per
-      // call. What AMReX still allocates per call: one zeroed face-centred
-      // flux MultiFab on the state's layout per register face (six), into
-      // which the register is parallel-copied before the kernel runs.
-      amrex::MultiFab &state = *groupdata.mfab.at(tl);
+      const write_scope_t scope =
+          open_write(coarse_level, {.gi = gi,
+                                    .tl = tl,
+                                    .fills = make_valid_int(),
+                                    .keeps = make_valid_all(),
+                                    .event = "Reflux"});
+      amrex::MultiFab &state = *groupdata.tls.at(tl).mfab;
       const amrex::MultiFab &volume = *leveldata.cell_volume;
       assert(volume.ixType() == state.ixType());
       assert(volume.DistributionMap() == state.DistributionMap());
       finegroupdata.freg->Reflux(state, volume, 1.0, 0, 0, groupdata.numvars,
                                  geom);
-      refluxed_groups.push_back(gi);
-    } // for gi
-
-    // Re-check the coarse state that was just modified, in whatever
-    // regions are flagged valid
-    const active_levels_t coarse_level(level, level + 1, patch, patch + 1);
-    for (const int gi : refluxed_groups) {
-      const auto &groupdata = *leveldata.groupdata.at(gi);
-      for (int vi = 0; vi < groupdata.numvars; ++vi)
-        check_valid_gf(coarse_level, gi, vi, tl, []() {
-          return "Reflux after refluxing: Coarse level data";
-        });
     } // for gi
   } // for patchdata
 }
@@ -1324,16 +1159,9 @@ void Reflux(const cGH *cctkGH, const int min_level, const int max_level) {
 // Restrict
 // =======================================================================
 
-// Restrict `groups` from level + 1 onto level on every patch that has
-// level + 1: the coarse interior points the fine level covers get the
-// restricted fine values, in every timelevel except the oldest (or in the
-// only one). Both interiors must be valid. With do_validity_tracking, the
-// coarse ghosts and outer boundary are then marked invalid; without it their
-// flags stay set over stale values, and the caller refreshes them. Reached
-// through Restrict and RestrictNoPoison below.
 static void restrict_level(const cGH *cctkGH, const int level,
                            const std::vector<int> &groups,
-                           const bool do_validity_tracking) {
+                           const valid_t coarse_keeps) {
   static Timer timer("Restrict");
   Interval interval(timer);
 
@@ -1357,66 +1185,60 @@ static void restrict_level(const cGH *cctkGH, const int level,
 
         assert(group.grouptype == CCTK_GF);
 
-        auto &groupdata = *leveldata.groupdata.at(gi);
-        assert(!groupdata.mfab.empty());
+        const auto &groupdata = *leveldata.groupdata.at(gi);
+        assert(!groupdata.tls.empty());
         const auto &finegroupdata = *fineleveldata.groupdata.at(gi);
-        assert(!finegroupdata.mfab.empty());
+        assert(!finegroupdata.tls.empty());
         const amrex::IntVect reffact{2, 2, 2};
 
         // Don't restrict the regridding error
         if (gi == gi_regrid_error)
           continue;
 
-        // If there is more than one time level, then we don't restrict the
-        // oldest.
-        // TODO: during evolution, restrict only one time level
-        int ntls = groupdata.mfab.size();
-        int restrict_tl = ntls > 1 ? ntls - 1 : ntls;
+        const int restrict_tl = timelevels_but_oldest(gi);
         for (int tl = 0; tl < restrict_tl; ++tl) {
 
-          for (int vi = 0; vi < groupdata.numvars; ++vi) {
-
-            // Restriction only uses the interior
-            error_if_invalid(finegroupdata, vi, tl, make_valid_int(), []() {
-              return "Restrict on fine level before restricting";
-            });
-            poison_invalid_gf(active_fine_levels, gi, vi, tl);
-            check_valid_gf(active_fine_levels, gi, vi, tl, []() {
-              return "Restrict on fine level before restricting";
-            });
-            error_if_invalid(groupdata, vi, tl, make_valid_int(), []() {
-              return "Restrict on coarse level before restricting";
-            });
-            poison_invalid_gf(active_levels, gi, vi, tl);
-            check_valid_gf(active_levels, gi, vi, tl, []() {
-              return "Restrict on coarse level before restricting";
-            });
-          }
+          require(active_fine_levels,
+                  {.gi = gi,
+                   .tl = tl,
+                   .where = make_valid_int(),
+                   .event = "Restrict on fine level before restricting"});
+          require(active_levels,
+                  {.gi = gi,
+                   .tl = tl,
+                   .where = make_valid_int(),
+                   .event = "Restrict on coarse level before restricting"});
+          const write_scope_t scope =
+              open_write(active_levels, {.gi = gi,
+                                         .tl = tl,
+                                         .fills = make_valid_int(),
+                                         .keeps = coarse_keeps,
+                                         .event = "Restrict"});
 
 #if 1
           {
             static Timer timer("Restrict::average_down");
             Interval interval(timer);
-            // rank: 0: vertex, 1: edge, 2: face, 3: volume
             int rank = 0;
             for (int d = 0; d < dim; ++d)
               rank += groupdata.indextype.at(d);
             switch (rank) {
             case 0:
-              average_down_nodal(*finegroupdata.mfab.at(tl),
-                                 *groupdata.mfab.at(tl), reffact);
+              average_down_nodal(*finegroupdata.tls.at(tl).mfab,
+                                 *groupdata.tls.at(tl).mfab, reffact);
               break;
             case 1:
-              average_down_edges(*finegroupdata.mfab.at(tl),
-                                 *groupdata.mfab.at(tl), reffact);
+              average_down_edges(*finegroupdata.tls.at(tl).mfab,
+                                 *groupdata.tls.at(tl).mfab, reffact);
               break;
             case 2:
-              average_down_faces(*finegroupdata.mfab.at(tl),
-                                 *groupdata.mfab.at(tl), reffact);
+              average_down_faces(*finegroupdata.tls.at(tl).mfab,
+                                 *groupdata.tls.at(tl).mfab, reffact);
               break;
             case 3:
-              average_down(*finegroupdata.mfab.at(tl), *groupdata.mfab.at(tl),
-                           0, groupdata.numvars, reffact);
+              average_down(*finegroupdata.tls.at(tl).mfab,
+                           *groupdata.tls.at(tl).mfab, 0, groupdata.numvars,
+                           reffact);
               break;
             default:
               assert(0);
@@ -1424,49 +1246,28 @@ static void restrict_level(const cGH *cctkGH, const int level,
           }
 #endif
 
-          if (do_validity_tracking) {
-            // TODO: Also remember old why_valid for interior?
-            for (int vi = 0; vi < groupdata.numvars; ++vi) {
-              // Should we mark ghosts and maybe outer boundaries as
-              // valid as well?
-              groupdata.valid.at(tl).at(vi).set_invalid(
-                  make_valid_outer() | make_valid_ghosts(),
-                  []() { return "Restrict"; });
-              poison_invalid_gf(active_levels, gi, vi, tl);
-              check_valid_gf(active_levels, gi, vi, tl, []() {
-                return "Restrict on coarse level after restricting";
-              });
-            }
-          }
-
         } // for tl
       } // for gi
     } // if level exists
   } // for patchdata
 }
 
-// Restrict exactly `groups`: every level pair (level, level + 1) with both
-// levels in [min_level, max_level), finest pair first, each level once and
-// on every patch. Applies no group rule and reads no parameter; the callers
-// select the groups (see the selectors above). Marks the coarse ghosts and
-// outer boundaries invalid.
 void Restrict(const cGH *cctkGH, const int min_level, const int max_level,
               const std::vector<int> &groups) {
   assert(min_level >= 0 && max_level <= ghext->num_levels());
   if (groups.empty())
     return;
   for (int level = max_level - 2; level >= min_level; --level)
-    restrict_level(cctkGH, level, groups, /*do_validity_tracking=*/true);
+    restrict_level(cctkGH, level, groups, make_valid_int());
 }
 
-// Like Restrict, but leaves the validity flags alone (see restrict_level)
 void RestrictNoPoison(const cGH *cctkGH, const int min_level,
                       const int max_level, const std::vector<int> &groups) {
   assert(min_level >= 0 && max_level <= ghext->num_levels());
   if (groups.empty())
     return;
   for (int level = max_level - 2; level >= min_level; --level)
-    restrict_level(cctkGH, level, groups, /*do_validity_tracking=*/false);
+    restrict_level(cctkGH, level, groups, make_valid_all());
 }
 
 } // namespace CarpetX

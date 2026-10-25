@@ -3,6 +3,8 @@
 #include "driver.hxx"
 #include "io_meta.hxx"
 #include "io_slice.hxx"
+#include "schedule.hxx"
+#include "valid.hxx"
 #include <carpetx.hxx>
 
 #include <div.hxx>
@@ -851,11 +853,12 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
   // Post-read tasks
   std::vector<std::function<void()> > tasks;
 
+  std::vector<write_scope_t> scopes;
+  std::vector<array_write_scope_t> array_scopes;
+
   // First read grid functions in a loop over patches and levels
 
-  // Loop over patches
   for (const auto &patchdata : ghext->patchdata) {
-    // Loop over levels
     for (const auto &leveldata : patchdata.leveldata) {
       if (io_verbose)
         CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
@@ -917,14 +920,14 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             CCTK_VINFO("Reading group %s...", CCTK_FullGroupName(gi));
 
           auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.mfab.empty())
+          if (groupdata.tls.empty())
             continue;
           const int numvars = groupdata.numvars;
 
           const int tl_count =
-              tl_mode == TimeLevelMode::All ? int(groupdata.mfab.size()) : 1;
+              tl_mode == TimeLevelMode::All ? int(groupdata.tls.size()) : 1;
           for (int tl = 0; tl < tl_count; ++tl) {
-            amrex::MultiFab &mfab = *groupdata.mfab[tl];
+            amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
             const amrex::IndexType &indextype = mfab.ixType();
             const Arith::vect<bool, 3> is_cell_centred{
                 indextype.cellCentered(0), indextype.cellCentered(1),
@@ -971,6 +974,17 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             const bool group_has_no_ghosts = groupdata.nghostzones[0] == 0 &&
                                              groupdata.nghostzones[1] == 0 &&
                                              groupdata.nghostzones[2] == 0;
+
+            scopes.push_back(open_write(
+                active_levels_t(leveldata.level, leveldata.level + 1,
+                                leveldata.patch, leveldata.patch + 1),
+                {.gi = gi,
+                 .tl = tl,
+                 .fills = input_ghosts || group_has_no_ghosts
+                              ? make_valid_all()
+                              : make_valid_int(),
+                 .keeps = valid_t(),
+                 .event = "InputOpenPMD"}));
 
             // Loop over components (AMReX boxes)
             for (int local_component = 0;
@@ -1095,13 +1109,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
 
               } // for vi
             } // for local_component
-
-            // Mark read variables as valid
-            for (int vi = 0; vi < numvars; ++vi)
-              groupdata.valid.at(tl).at(vi).set_all(
-                  input_ghosts || group_has_no_ghosts ? make_valid_all()
-                                                      : make_valid_int(),
-                  []() { return "read from openPMD file"; });
           } // for tl
 
           // Subcycling coarse source bands (see OutputOpenPMD): zero-ghost
@@ -1240,7 +1247,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           CCTK_VINFO("Reading group %d %s...", gi, CCTK_FullGroupName(gi));
 
         auto &groupdata = *ghext->globaldata.arraygroupdata.at(gi);
-        if (groupdata.data.empty())
+        if (groupdata.tls.empty())
           continue;
         const int numvars = groupdata.numvars;
         const int tl = 0;
@@ -1288,6 +1295,14 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                                          groupdata.nghostzones[1] == 0 &&
                                          groupdata.nghostzones[2] == 0;
 
+        array_scopes.push_back(open_array_write(
+            {.gi = gi,
+             .tl = tl,
+             .fills = input_ghosts || group_has_no_ghosts ? make_valid_all()
+                                                          : make_valid_int(),
+             .keeps = valid_t(),
+             .event = "InputOpenPMD"}));
+
         // exterior (with ghosts)
         for (int d = 0; d < dim; ++d)
           assert(groupdata.lsh[d] == groupdata.gsh[d]);
@@ -1324,10 +1339,10 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         assert(cactus_dj > 0);
         assert(cactus_dk > 0);
         assert(cactus_np > 0);
-        assert(int(groupdata.data.at(tl).size()) == numvars * cactus_np);
+        assert(int(groupdata.tls.at(tl).data.size()) == numvars * cactus_np);
         for (int vi = 0; vi < numvars; ++vi) {
           void *const cactus_var_ptr =
-              groupdata.data.at(tl).data_at(vi * cactus_np);
+              groupdata.tls.at(tl).data.data_at(vi * cactus_np);
           if (input_ghosts || intbox == extbox) {
 #if !OPENPMDAPI_VERSION_GE(0, 15, 0)
 #define loadChunkRaw(ptr, start, count)                                        \
@@ -1350,7 +1365,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               assert(0 && "Unexpected variable type");
             }
           } else {
-            auto cactus_ptr = &groupdata.data.at(tl);
+            auto cactus_ptr = &groupdata.tls.at(tl).data;
             char *const cactus_var_ptr =
                 static_cast<char *>(cactus_ptr->data_at(vi * cactus_np));
             const int vartypesize = CCTK_VarTypeSize(cgroup.vartype);
@@ -1446,13 +1461,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               break;
             }
           }
-
-          // Mark read variables as valid
-          groupdata.valid.at(tl).at(vi).set_all(
-              input_ghosts || group_has_no_ghosts ? make_valid_all()
-                                                  : make_valid_int(),
-              []() { return "read from openPMD file"; });
-
         } // for vi
       }
     } // for gi
@@ -1467,6 +1475,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
   for (auto &task : tasks)
     std::move(task)();
   tasks.clear();
+  scopes.clear();
+  array_scopes.clear();
 
   if (io_verbose)
     CCTK_VINFO("InputOpenPMD: Closing iteration...");
@@ -1661,9 +1671,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
 
   // First write grid functions in a loop over patches and levels
 
-  // Loop over patches
   for (const auto &patchdata : ghext->patchdata) {
-    // Loop over levels
     for (const auto &leveldata : patchdata.leveldata) {
       if (io_verbose)
         CCTK_VINFO("Writing patch %d level %d mesh...", patchdata.patch,
@@ -1747,14 +1755,14 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
 
           const auto &groupdata = *leveldata.groupdata.at(gi);
-          if (groupdata.mfab.empty())
+          if (groupdata.tls.empty())
             continue;
           const int numvars = groupdata.numvars;
 
           const int tl_count =
-              tl_mode == TimeLevelMode::All ? int(groupdata.mfab.size()) : 1;
+              tl_mode == TimeLevelMode::All ? int(groupdata.tls.size()) : 1;
           for (int tl = 0; tl < tl_count; ++tl) {
-            const amrex::MultiFab &mfab = *groupdata.mfab[tl];
+            const amrex::MultiFab &mfab = *groupdata.tls[tl].mfab;
             const amrex::IndexType &indextype = mfab.ixType();
             const Arith::vect<bool, 3> is_cell_centred{
                 indextype.cellCentered(0), indextype.cellCentered(1),
@@ -2038,8 +2046,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
   // Slices emit only GF data; a non-GF group in out_openpmd_2d_vars produces
   // nothing here.
 
-  // Mesh and dataset definitions are collective (HDF5); only the data write
-  // below is restricted to a single rank (the data is replicated).
   if (!slice) {
     const int numgroups = CCTK_NumGroups();
     for (int gi = 0; gi < numgroups; ++gi) {
@@ -2060,7 +2066,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
           CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
 
         const auto &groupdata = *ghext->globaldata.arraygroupdata.at(gi);
-        if (groupdata.data.empty())
+        if (groupdata.tls.empty())
           continue;
         const int numvars = groupdata.numvars;
         const int tl = 0;
@@ -2151,12 +2157,11 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         assert(cactus_dj > 0);
         assert(cactus_dk > 0);
         assert(cactus_np > 0);
-        assert(int(groupdata.data.at(tl).size()) == numvars * cactus_np);
-        // Replicated data; only one rank writes.
+        assert(int(groupdata.tls.at(tl).data.size()) == numvars * cactus_np);
         if (myproc == ioproc) {
           for (int vi = 0; vi < numvars; ++vi) {
             const void *const var_ptr =
-                groupdata.data.at(tl).data_at(vi * cactus_np);
+                groupdata.tls.at(tl).data.data_at(vi * cactus_np);
             if (output_ghosts || intbox == extbox) {
 #if !OPENPMDAPI_VERSION_GE(0, 15, 0)
 #define storeChunkRaw(ptr, start, count)                                       \
@@ -2179,7 +2184,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                 assert(0 && "Unexpected variable type");
               }
             } else {
-              auto cactus_ptr = &groupdata.data.at(tl);
+              auto cactus_ptr = &groupdata.tls.at(tl).data;
               const Arith::vect<int, 3> contig_shape = box.shape();
               constexpr int contig_di = 1;
               const int contig_dj = contig_di * contig_shape[0];

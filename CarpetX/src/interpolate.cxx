@@ -658,7 +658,6 @@ void CarpetX::InterpolationSetup::Interpolate(
     for (const auto &leveldata : patchdata.leveldata) {
       const int level = leveldata.level;
 
-      // TODO: use OpenMP
       for (amrex::ParConstIter<3, 2> pti(containers.at(patch), level);
            pti.isValid(); ++pti) {
         const MFPointer mfp(pti);
@@ -690,19 +689,17 @@ void CarpetX::InterpolationSetup::Interpolate(
 
         std::vector<std::vector<CCTK_REAL> > varresults(nvars);
 
-        // TODO: Don't re-calculate interpolation coefficients for each
-        // variable
         for (int v = 0; v < nvars; ++v) {
           const int gi = givis.at(v).gi;
           const int vi = givis.at(v).vi;
           const auto &restrict groupdata = *leveldata.groupdata.at(gi);
-          assert(!groupdata.mfab.empty());
+          assert(!groupdata.tls.empty());
           const int centering = groupdata.indextype[0] * 0b100 +
                                 groupdata.indextype[1] * 0b010 +
                                 groupdata.indextype[2] * 0b001;
           assert(all(groupdata.nghostzones == grid.nghostzones));
           const amrex::Array4<const CCTK_REAL> &vars =
-              groupdata.mfab.at(tl)->array(pti);
+              groupdata.tls.at(tl).mfab->array(pti);
           vect<int, dim> derivs;
           int op = operations[v];
           while (op > 0) {
