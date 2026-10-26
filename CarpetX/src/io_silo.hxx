@@ -3,11 +3,9 @@
 
 #include "internal.hxx"
 
-#include <cctk.h>
-
-#ifdef HAVE_CAPABILITY_Silo
-
 #include "io_slice.hxx"
+
+#include <cctk.h>
 
 #include <optional>
 #include <string>
@@ -15,15 +13,16 @@
 
 namespace CarpetX {
 
-void InputSilo(const cGH *cctkGH, const std::vector<bool> &input_group,
-               const std::string &input_dir, const std::string &input_file);
-
 void OutputSilo(const cGH *cctkGH, const std::vector<bool> &output_group,
                 const std::string &output_dir, const std::string &output_file,
-                std::optional<slice_t> slice = std::nullopt);
+                const slice_t &slice);
+
+void RegisterSiloOutput(const cGH *cctkGH,
+                        const std::vector<bool> &output_group,
+                        const std::string &output_dir,
+                        const std::string &output_file,
+                        const std::optional<slice_t> &slice);
 
 } // namespace CarpetX
-
-#endif
 
 #endif // #ifndef CARPETX_CARPETX_IO_SILO_HXX

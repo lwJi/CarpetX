@@ -926,12 +926,6 @@ bool get_group_checkpoint_flag(gi_t gi);
 
 bool get_group_evolve_flag(gi_t gi);
 
-// True iff every level of every patch sits at the same subcycling iteration,
-// i.e. the checkpoint is time-aligned. Always true without subcycling. When
-// false, the coarse source bands hold the in-progress coarse step (u(t_n) and
-// the stage derivatives) that must be serialized.
-bool all_levels_synchronized();
-
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
 // ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)
 // snapshot, flux_register the six face FabSets of the child's flux register

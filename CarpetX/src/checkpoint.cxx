@@ -119,8 +119,7 @@ std::unique_ptr<checkpoint_codec_t> make_codec(const char *const method) {
 #ifdef HAVE_CAPABILITY_openPMD_api
     return make_openpmd_codec();
 #else
-    CCTK_VERROR("The checkpoint method \"%s\" needs openPMD_api, which is not "
-                "enabled",
+    CCTK_VERROR("The I/O method \"%s\" needs openPMD_api, which is not enabled",
                 method);
 #endif
   }
@@ -128,11 +127,11 @@ std::unique_ptr<checkpoint_codec_t> make_codec(const char *const method) {
 #ifdef HAVE_CAPABILITY_Silo
     return make_silo_codec();
 #else
-    CCTK_VERROR("The checkpoint method \"%s\" needs Silo, which is not enabled",
+    CCTK_VERROR("The I/O method \"%s\" needs Silo, which is not enabled",
                 method);
 #endif
   }
-  CCTK_VERROR("Unknown checkpoint method \"%s\"", method);
+  CCTK_VERROR("Unknown I/O method \"%s\"", method);
 }
 
 void refuse_unless_recoverable(const codec_limits_t &limits) {
@@ -164,7 +163,8 @@ void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
   for (auto &patchdata : ghext->patches()) {
     for (auto &leveldata : patchdata.levels()) {
       const level_t level = leveldata.level;
-      const bool bands = finer_level_is_behind(record, level);
+      const bool bands =
+          tl_mode == TimeLevelMode::All && finer_level_is_behind(record, level);
       for (auto &groupdata : leveldata.groups()) {
         const GHExt::GroupRecord &group = groupdata.record;
         const gi_t gi = group.groupindex;
@@ -235,7 +235,8 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
                                  const std::vector<bool> &mask,
                                  const TimeLevelMode tl_mode,
                                  const codec_limits_t &limits) {
-  refuse_unless_carried(mask, limits);
+  if (tl_mode == TimeLevelMode::All)
+    refuse_unless_carried(mask, limits);
 
   checkpoint_record_t record;
   record.iteration = cctkGH->cctk_iteration;

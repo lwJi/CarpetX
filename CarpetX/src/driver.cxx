@@ -1062,20 +1062,6 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-bool all_levels_synchronized() {
-  if (!ghext->use_subcycling)
-    return true;
-  std::optional<rat64> ref;
-  for (const auto &patchdata : ghext->patches())
-    for (const auto &leveldata : patchdata.levels()) {
-      if (!ref)
-        ref = leveldata.iteration;
-      else if (leveldata.iteration != *ref)
-        return false;
-    }
-  return true;
-}
-
 std::string subcycling_band_tag(const band_kind kind, const int stage) {
   std::ostringstream buf;
   switch (kind) {

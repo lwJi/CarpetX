@@ -645,10 +645,10 @@ struct metafile_writer_t {
       const std::array<const char *, ndims> compnames{"iRatio", "jRatio",
                                                       "kRatio"};
       const char *const region_name = "@level%d@n";
-      const std::array<int, ndims> ratios{2, 2, 2};
+      const std::vector<int> ratios(nlevels, 2);
       std::array<const void *, ndims> data_ptrs;
       for (int d = 0; d < ndims; ++d)
-        data_ptrs[d] = &ratios[d];
+        data_ptrs[d] = ratios.data();
       const int ierr = DBPutMrgvar(
           metafile, levelrationame.c_str(), "mrgTree", ndims, compnames.data(),
           nlevels, &region_name, DB_INT, data_ptrs.data(), nullptr);

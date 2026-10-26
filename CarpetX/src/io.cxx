@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <regex>
 #include <string>
 #include <utility>
@@ -60,6 +61,10 @@ std::vector<bool> find_groups(const char *const method,
   return enabled;
 }
 
+bool selects_any(const std::vector<bool> &enabled) {
+  return std::find(enabled.begin(), enabled.end(), true) != enabled.end();
+}
+
 std::string get_parameter_filename() {
   std::vector<char> buf(10000);
   int ilen = CCTK_ParameterFilename(buf.size(), buf.data());
@@ -85,6 +90,17 @@ std::string get_simulation_name() {
   if (last_dot != std::string::npos && last_dot > 0)
     name = name.substr(0, last_dot);
   return name;
+}
+
+checkpoint_record_t encode_output(const cGH *const cctkGH,
+                                  const char *const method,
+                                  const std::vector<bool> &output_group) {
+  DECLARE_CCTK_PARAMETERS;
+  const std::unique_ptr<checkpoint_codec_t> codec = make_codec(method);
+  checkpoint_record_t record = build_record(
+      cctkGH, output_group, TimeLevelMode::Current, codec->limits());
+  codec->encode(record, out_dir, get_simulation_name());
+  return record;
 }
 } // namespace
 
@@ -180,37 +196,20 @@ void InputGH(const cGH *restrict cctkGH) {
                cctk_iteration, double(cctk_time), double(runtime / 3600.0));
   }
 
-  if (CCTK_EQUALS(filereader_method, "openpmd")) {
+  const std::vector<bool> input_group =
+      find_groups(filereader_method, filereader_ID_vars);
+  if (!selects_any(input_group))
+    return;
 
-#ifdef HAVE_CAPABILITY_openPMD_api
-    const std::vector<bool> input_group =
-        find_groups("openPMD", filereader_ID_vars);
-    const std::string simulation_name = get_simulation_name();
-    InputOpenPMD(cctkGH, input_group, filereader_ID_dir, filereader_ID_files,
-                 TimeLevelMode::Current, nullptr);
-#else
-    // TODO: Check this at paramcheck
-    CCTK_VERROR(
-        "CarpetX::filereader_method is set to \"openpmd\", but openPMD_api "
-        "is not enabled");
-#endif
-
-  } else if (CCTK_EQUALS(filereader_method, "silo")) {
-
-    const std::vector<bool> input_group =
-        find_groups("Silo", filereader_ID_vars);
-#ifdef HAVE_CAPABILITY_Silo
-    const std::string simulation_name = get_simulation_name();
-    InputSilo(cctkGH, input_group, filereader_ID_dir, filereader_ID_files);
-#else
-    // TODO: Check this at paramcheck
-    CCTK_VERROR("CarpetX::filereader_method is set to \"silo\", but Silo is "
-                "not enabled");
-#endif
-
-  } else {
-    CCTK_ERROR("unknown value for paramater CarpetX::filereader_method");
-  }
+  const std::unique_ptr<checkpoint_codec_t> codec =
+      make_codec(filereader_method);
+  checkpoint_record_t file = codec->decode_structure(
+      filereader_ID_dir, filereader_ID_files, cctk_iteration);
+  checkpoint_record_t record = build_record(
+      cctkGH, input_group, TimeLevelMode::Current, codec->limits());
+  record.present = std::move(file.present);
+  read_record(*codec, record, filereader_ID_dir, filereader_ID_files,
+              "InputGH");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -471,16 +470,8 @@ int OutputGH(const cGH *restrict cctkGH) {
     if (every > 0 && cctk_iteration % every == 0) {
       const std::vector<bool> group_enabled =
           find_groups("openPMD", out_openpmd_vars);
-#ifdef HAVE_CAPABILITY_openPMD_api
-      // TODO: Stop at paramcheck time when openPMD output parameters
-      // are set, but openPMD is not available
-      const std::string simulation_name = get_simulation_name();
-      OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name);
-#else
-      if (strlen(out_openpmd_vars) != 0)
-        CCTK_VERROR("openPMD is not enabled. The parameter "
-                    "CarpetX::out_openpmd_vars must be empty.");
-#endif
+      if (selects_any(group_enabled))
+        encode_output(cctkGH, "openpmd", group_enabled);
     }
   }
 
@@ -490,20 +481,15 @@ int OutputGH(const cGH *restrict cctkGH) {
     if (every > 0 && cctk_iteration % every == 0) {
       const std::vector<bool> group_enabled =
           find_groups("openPMD-2D", out_openpmd_2d_vars);
-#ifdef HAVE_CAPABILITY_openPMD_api
-      const std::string simulation_name = get_simulation_name();
-      // xy plane: normal = z; xz: normal = y; yz: normal = x
-      OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
-                    TimeLevelMode::Current, slice_t{2, out_xyplane_z});
-      OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
-                    TimeLevelMode::Current, slice_t{1, out_xzplane_y});
-      OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".yz",
-                    TimeLevelMode::Current, slice_t{0, out_yzplane_x});
-#else
-      if (strlen(out_openpmd_2d_vars) != 0)
-        CCTK_VERROR("openPMD is not enabled. The parameter "
-                    "CarpetX::out_openpmd_2d_vars must be empty.");
-#endif
+      if (selects_any(group_enabled)) {
+        const std::string simulation_name = get_simulation_name();
+        OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
+                      slice_t{2, out_xyplane_z});
+        OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
+                      slice_t{1, out_xzplane_y});
+        OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".yz",
+                      slice_t{0, out_yzplane_x});
+      }
     }
   }
 
@@ -518,16 +504,13 @@ int OutputGH(const cGH *restrict cctkGH) {
     if (every > 0 && cctk_iteration % every == 0) {
       const std::vector<bool> group_enabled =
           find_groups("Silo", out_silo_vars);
-#ifdef HAVE_CAPABILITY_Silo
-      // TODO: Stop at paramcheck time when Silo output parameters are
-      // set, but Silo is not available
-      const std::string simulation_name = get_simulation_name();
-      OutputSilo(cctkGH, group_enabled, out_dir, simulation_name);
-#else
-      if (strlen(out_silo_vars) != 0)
-        CCTK_VERROR("Silo is not enabled. The parameter "
-                    "CarpetX::out_silo_vars must be empty.");
-#endif
+      if (selects_any(group_enabled)) {
+        const checkpoint_record_t record =
+            encode_output(cctkGH, "silo", group_enabled);
+        if (!record.buffers.empty())
+          RegisterSiloOutput(cctkGH, group_enabled, out_dir,
+                             get_simulation_name(), std::nullopt);
+      }
     }
   }
 
@@ -536,20 +519,15 @@ int OutputGH(const cGH *restrict cctkGH) {
     if (every > 0 && cctk_iteration % every == 0) {
       const std::vector<bool> group_enabled =
           find_groups("Silo-2D", out_silo_2d_vars);
-#ifdef HAVE_CAPABILITY_Silo
-      const std::string simulation_name = get_simulation_name();
-      // xy plane: normal = z; xz: normal = y; yz: normal = x
-      OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
-                 slice_t{2, out_xyplane_z});
-      OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
-                 slice_t{1, out_xzplane_y});
-      OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".yz",
-                 slice_t{0, out_yzplane_x});
-#else
-      if (strlen(out_silo_2d_vars) != 0)
-        CCTK_VERROR("Silo is not enabled. The parameter "
-                    "CarpetX::out_silo_2d_vars must be empty.");
-#endif
+      if (selects_any(group_enabled)) {
+        const std::string simulation_name = get_simulation_name();
+        OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
+                   slice_t{2, out_xyplane_z});
+        OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
+                   slice_t{1, out_xzplane_y});
+        OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".yz",
+                   slice_t{0, out_yzplane_x});
+      }
     }
   }
 
