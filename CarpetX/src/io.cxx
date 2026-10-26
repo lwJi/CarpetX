@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <regex>
 #include <string>
 #include <utility>
@@ -116,13 +117,8 @@ extern "C" int CarpetX_RecoverParameters() {
 
   if (CCTK_EQUALS(recover_method, "openpmd")) {
 
-#ifdef HAVE_CAPABILITY_openPMD_api
-    recover_iteration = InputOpenPMDParameters(recover_dir, recover_file);
-#else
-    CCTK_VERROR(
-        "CarpetX::recover_method is set to \"openpmd\", but openPMD_api "
-        "is not enabled");
-#endif
+    recover_iteration =
+        make_codec(recover_method)->read_parameters(recover_dir, recover_file);
 
   } else if (CCTK_EQUALS(recover_method, "silo")) {
 
@@ -155,14 +151,8 @@ checkpoint_record_t RecoverGridStructure(cGH *restrict cctkGH) {
   checkpoint_record_t record = [&]() -> checkpoint_record_t {
     if (CCTK_EQUALS(recover_method, "openpmd")) {
 
-#ifdef HAVE_CAPABILITY_openPMD_api
-      return InputOpenPMDGridStructure(recover_dir, recover_file,
-                                       recover_iteration);
-#else
-      CCTK_VERROR(
-          "CarpetX::recover_method is set to \"openpmd\", but openPMD_api "
-          "is not enabled");
-#endif
+      return make_codec(recover_method)
+          ->decode_structure(recover_dir, recover_file, recover_iteration);
 
     } else if (CCTK_EQUALS(recover_method, "silo")) {
 
@@ -218,14 +208,12 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
 
   if (CCTK_EQUALS(recover_method, "openpmd")) {
 
-#ifdef HAVE_CAPABILITY_openPMD_api
-    InputOpenPMD(cctkGH, group_enabled, recover_dir, recover_file,
-                 TimeLevelMode::All, &record);
-#else
-    CCTK_VERROR(
-        "CarpetX::recover_method is set to \"openpmd\", but openPMD_api "
-        "is not enabled");
-#endif
+    const std::unique_ptr<checkpoint_codec_t> codec =
+        make_codec(recover_method);
+    checkpoint_record_t recovering = record;
+    build_buffers(recovering, group_enabled, TimeLevelMode::All,
+                  codec->limits());
+    read_record(*codec, recovering, recover_dir, recover_file, "RecoverGH");
 
   } else if (CCTK_EQUALS(recover_method, "silo")) {
 
@@ -692,21 +680,17 @@ void Checkpoint(const cGH *const restrict cctkGH) {
 
   if (CCTK_EQUALS(checkpoint_method, "openpmd")) {
 
-#ifdef HAVE_CAPABILITY_openPMD_api
     const std::vector<bool> checkpoint_group = [&] {
       std::vector<bool> enabled(CCTK_NumGroups(), false);
       for (const auto &group : ghext->records())
         enabled.at(group.groupindex.index()) = group.do_checkpoint;
       return enabled;
     }();
-    OutputOpenPMD(cctkGH, checkpoint_group, checkpoint_dir, checkpoint_file,
-                  TimeLevelMode::All);
-#else
-    // TODO: Check this at paramcheck
-    CCTK_VERROR(
-        "CarpetX::checkpoint_method is set to \"openpmd\", but openPMD_api is "
-        "not enabled");
-#endif
+    const std::unique_ptr<checkpoint_codec_t> codec =
+        make_codec(checkpoint_method);
+    const checkpoint_record_t record = build_record(
+        cctkGH, checkpoint_group, TimeLevelMode::All, codec->limits());
+    codec->encode(record, checkpoint_dir, checkpoint_file);
 
   } else if (CCTK_EQUALS(checkpoint_method, "silo")) {
 

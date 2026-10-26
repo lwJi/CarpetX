@@ -2,6 +2,7 @@
 
 #include "driver.hxx"
 #include "io_meta.hxx"
+#include "io_openpmd_names.hxx"
 #include "io_slice.hxx"
 #include "schedule.hxx"
 #include "valid.hxx"
@@ -70,112 +71,8 @@ namespace CarpetX {
 
 constexpr bool io_verbose = true;
 
-openPMD::Format get_format() {
-  DECLARE_CCTK_PARAMETERS;
-  if (CCTK_EQUALS(openpmd_format, "HDF5"))
-    return openPMD::Format::HDF5;
-#if OPENPMDAPI_VERSION_GE(0, 16, 0)
-#else
-  if (CCTK_EQUALS(openpmd_format, "ADIOS1"))
-    return openPMD::Format::ADIOS1;
-#endif
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_auto"))
-#if OPENPMDAPI_VERSION_GE(0, 15, 0)
-    return openPMD::Format::ADIOS2_BP5;
-#else
-    return openPMD::Format::ADIOS2;
-#endif
-#if OPENPMDAPI_VERSION_GE(0, 15, 0)
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_BP"))
-    return openPMD::Format::ADIOS2_BP;
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_BP4"))
-    return openPMD::Format::ADIOS2_BP4;
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_BP5"))
-    return openPMD::Format::ADIOS2_BP5;
-#else
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2"))
-    return openPMD::Format::ADIOS2;
-#endif
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_SST"))
-    return openPMD::Format::ADIOS2_SST;
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_SSC"))
-    return openPMD::Format::ADIOS2_SSC;
-  if (CCTK_EQUALS(openpmd_format, "JSON"))
-    return openPMD::Format::JSON;
-#if OPENPMDAPI_VERSION_GE(0, 16, 0)
-  if (CCTK_EQUALS(openpmd_format, "TOML"))
-    return openPMD::Format::TOML;
-#endif
-#if OPENPMDAPI_VERSION_GE(0, 16, 0)
-  if (CCTK_EQUALS(openpmd_format, "GENERIC"))
-    return openPMD::Format::GENERIC;
-#endif
-  CCTK_VERROR("The openPMD format \"%s\" is not supported in version %d.%d.%d "
-              "of the openPMD_api library",
-              openpmd_format, OPENPMDAPI_VERSION_MAJOR,
-              OPENPMDAPI_VERSION_MINOR, OPENPMDAPI_VERSION_PATCH);
-}
-
-// - fileBased: One file per iteration. Needs templated file name to encode
-//   iteration number.
-// - groupBased: Multiple iterations per file
-// - variableBased: Multiple iterations stored per variable. Needs special
-//    support in the backend.
-constexpr openPMD::IterationEncoding iterationEncoding =
-    openPMD::IterationEncoding::fileBased;
-
-// TODO: Set number of threads?
-#ifdef ADIOS2_HAVE_BLOSC2
-const std::string options = R"EOS(
-  {
-    "adios2": {
-      "dataset": {
-        "operators": [
-          {
-            "type": "blosc",
-            "parameters": {
-              "clevel": "9",
-              "doshuffle": "BLOSC_SHUFFLE"
-            }
-          }
-        ]
-      }
-    }
-  }
-)EOS";
-#else
-const std::string options = R"EOS(
-  {
-    "adios2": {
-      "dataset": {
-        "operators": [
-        ]
-      }
-    }
-  }
-)EOS";
-#endif
-
 constexpr bool input_ghosts = false;
 constexpr bool output_ghosts = false;
-
-////////////////////////////////////////////////////////////////////////////////
-
-struct Const {
-  // From: CODATA Internationally recommended 2018 values of the
-  // Fundamental Physical Constants
-  static constexpr CCTK_REAL c = 299792458;         // m s⁻¹
-  static constexpr CCTK_REAL G = 6.67430e-11;       // m³ kg⁻¹ s⁻²
-  static constexpr CCTK_REAL M_solar = 1.98847e+30; // kg
-};
-
-struct Unit {
-  // We use c = G = 1, and M_solar as mass unit.
-  static constexpr CCTK_REAL velocity = Const::c;                       // m s⁻¹
-  static constexpr CCTK_REAL mass = Const::M_solar;                     // kg
-  static constexpr CCTK_REAL length = Const::G * mass / pow2(Const::c); // m
-  static constexpr CCTK_REAL time = length / velocity;                  // s
-};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -371,47 +268,17 @@ struct carpetx_openpmd_t {
   static std::string make_meshname(const gi_t gi, const int patch,
                                    const int level, const tl_t tl = tl_t{0},
                                    const std::string &band = std::string()) {
-    std::string groupname = CCTK_FullGroupName(gi.index());
-    groupname = std::regex_replace(groupname, std::regex("::"), "_");
-    for (auto &ch : groupname)
-      ch = std::tolower(ch);
-    std::ostringstream buf;
-    buf << groupname;
-    if (patch != -1)
-      buf << "_patch" << std::setw(2) << std::setfill('0') << patch;
-    if (level != -1)
-      buf << "_lev" << std::setw(2) << std::setfill('0') << level;
-    if (tl > tl_t{0})
-      buf << "_tl" << std::setw(2) << std::setfill('0') << tl.index();
-    if (!band.empty())
-      buf << "_band_" << band;
-    return buf.str();
+    assert((patch == -1) == (level == -1));
+    const std::optional<level_t> where =
+        level == -1 ? std::nullopt
+                    : std::optional<level_t>(level_t{patch_t{patch}, level});
+    return CarpetX::make_meshname(CCTK_FullGroupName(gi.index()), where, tl,
+                                  band);
   }
-
-#if 0
-  static std_tuple<int, int> interpret_meshname(const std::string &meshname) {
-    std::smatch match;
-    const bool matched =
-        std::regex_match(meshname, match, std::regex("(\\w+)_lev0*(\\d+)"));
-    if (!matched)
-      CCTK_VERROR("Cannot parse mesh name %s", meshname.c_str());
-    const std::string groupname = match[1].str();
-    const int gi = CCTK_GroupIndex(groupname.c_str());
-    if (gi < 0)
-      CCTK_VERROR("Unknown group name %s", groupname.c_str());
-    const std::string levelstr = match[2].str();
-    const int level = std::stoi(levelstr);
-    return {gi, level};
-  }
-#endif
 
   static std::string make_componentname(const gi_t gi, const int vi) {
-    std::string varname =
-        CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());
-    varname = std::regex_replace(varname, std::regex("::"), "_");
-    for (auto &ch : varname)
-      ch = std::tolower(ch);
-    return varname;
+    return CarpetX::make_componentname(
+        CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index()));
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -421,11 +288,6 @@ struct carpetx_openpmd_t {
   std::optional<openPMD::Iteration> read_iter;
   std::optional<openPMD::WriteIterations> write_iters;
 
-  int InputOpenPMDParameters(const std::string &input_dir,
-                             const std::string &input_file);
-  checkpoint_record_t InputOpenPMDGridStructure(const std::string &input_dir,
-                                                const std::string &input_file,
-                                                int input_iteration);
   void InputOpenPMD(const cGH *const cctkGH,
                     const std::vector<bool> &input_group,
                     const std::string &input_dir, const std::string &input_file,
@@ -444,20 +306,6 @@ struct carpetx_openpmd_t {
 
 std::optional<carpetx_openpmd_t> carpetx_openpmd_t::self;
 
-int InputOpenPMDParameters(const std::string &input_dir,
-                           const std::string &input_file) {
-  if (!carpetx_openpmd_t::self)
-    carpetx_openpmd_t::self = std::make_optional<carpetx_openpmd_t>();
-  return carpetx_openpmd_t::self->InputOpenPMDParameters(input_dir, input_file);
-}
-checkpoint_record_t InputOpenPMDGridStructure(const std::string &input_dir,
-                                              const std::string &input_file,
-                                              int input_iteration) {
-  if (!carpetx_openpmd_t::self)
-    carpetx_openpmd_t::self = std::make_optional<carpetx_openpmd_t>();
-  return carpetx_openpmd_t::self->InputOpenPMDGridStructure(
-      input_dir, input_file, input_iteration);
-}
 void InputOpenPMD(const cGH *cctkGH, const std::vector<bool> &input_group,
                   const std::string &input_dir, const std::string &input_file,
                   TimeLevelMode tl_mode,
@@ -482,216 +330,6 @@ void OutputOpenPMD(const cGH *const cctkGH,
 void ShutdownOpenPMD() { carpetx_openpmd_t::self.reset(); }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-int carpetx_openpmd_t::InputOpenPMDParameters(const std::string &input_dir,
-                                              const std::string &input_file) {
-  DECLARE_CCTK_PARAMETERS;
-
-  assert(!input_dir.empty());
-  assert(!input_file.empty());
-
-  // Set up timers
-  static Timer timer("InputOpenPMDParameters");
-  Interval interval(timer);
-
-  if (io_verbose)
-    CCTK_VINFO("InputOpenPMDParameters...");
-
-  const openPMD::Format format = get_format();
-
-  int input_iteration = -1;
-
-  assert(!series);
-  if (!series) {
-    if (io_verbose)
-      CCTK_VINFO("Creating openPMD object...");
-    std::ostringstream buf;
-    switch (iterationEncoding) {
-    case openPMD::IterationEncoding::fileBased:
-      buf << input_dir << "/" << input_file << ".it%08T"
-          << openPMD::suffix(format);
-      break;
-    case openPMD::IterationEncoding::variableBased:
-      buf << input_dir << "/" << input_file << openPMD::suffix(format);
-      break;
-    default:
-      abort();
-    }
-    filename = std::make_optional<std::string>(buf.str());
-    try {
-      series = std::make_optional<openPMD::Series>(
-          *filename, openPMD::Access::READ_ONLY, MPI_COMM_WORLD, options);
-    } catch (const openPMD::no_such_file_error &) {
-      // Did not find a checkpoint file
-      if (io_verbose) {
-        CCTK_VINFO("Not recovering parameters:");
-        CCTK_VINFO("  Could not find an openPMD checkpoint file \"%s\"",
-                   filename->c_str());
-      }
-      return -1; // no iteration found
-    }
-
-    // Find largest iteration
-    for (auto iter = series->iterations.begin();
-         iter != series->iterations.end(); ++iter)
-      input_iteration = iter->first;
-
-    if (input_iteration < 0) {
-      // Did not find a checkpoint file
-      if (io_verbose) {
-        CCTK_VINFO("Not recovering parameters:");
-        CCTK_VINFO("  Could not find an openPMD checkpoint file \"%s\"",
-                   filename->c_str());
-      }
-      return -1; // no iteration found
-    }
-
-    read_iter = std::make_optional<openPMD::Iteration>(
-        series->iterations[input_iteration]);
-  }
-  assert(filename);
-  assert(series);
-  assert(read_iter);
-
-  CCTK_VINFO("Recovering parameters from checkpoint file \"%s\" iteration %d",
-             filename->c_str(), input_iteration);
-
-  // Read metadata
-  {
-    const bool has_parameters = read_iter->containsAttribute("AllParameters");
-    assert(has_parameters);
-    const openPMD::Attribute parameters_attr =
-        read_iter->getAttribute("AllParameters");
-    assert(parameters_attr.dtype == openPMD::Datatype::STRING);
-    const std::string parameters = parameters_attr.get<std::string>();
-    IOUtil_SetAllParameters(parameters.data());
-  }
-
-  return input_iteration;
-}
-
-checkpoint_record_t
-carpetx_openpmd_t::InputOpenPMDGridStructure(const std::string &input_dir,
-                                             const std::string &input_file,
-                                             const int input_iteration) {
-  DECLARE_CCTK_PARAMETERS;
-
-  assert(!input_dir.empty());
-  assert(!input_file.empty());
-  assert(input_iteration >= 0);
-
-  // Set up timers
-  static Timer timer("InputOpenPMDGridStructure");
-  Interval interval(timer);
-
-  if (io_verbose)
-    CCTK_VINFO("InputOpenPMDGridStructure...");
-
-  assert(filename);
-  assert(series);
-  assert(read_iter);
-
-  checkpoint_record_t record;
-  record.iteration = input_iteration;
-  record.time = read_iter->time<double>();
-
-  // TODO: Check whether attribute exists and has correct type
-  const int ndims = read_iter->getAttribute("numDims").get<std::int64_t>();
-  assert(ndims >= 0);
-
-  const int npatches =
-      read_iter->getAttribute("numPatches").get<std::int64_t>();
-
-  std::vector<std::string> patch_suffixes;
-  if (npatches == 1) {
-    assert(read_iter->getAttribute("patchSuffixes").dtype ==
-           openPMD::Datatype::STRING);
-    const std::string patch_suffix =
-        read_iter->getAttribute("patchSuffixes").get<std::string>();
-    patch_suffixes.resize(1);
-    patch_suffixes.at(0) = patch_suffix;
-  } else {
-    assert(read_iter->getAttribute("patchSuffixes").dtype ==
-           openPMD::Datatype::VEC_STRING);
-    patch_suffixes = read_iter->getAttribute("patchSuffixes")
-                         .get<std::vector<std::string> >();
-  }
-
-  record.levels.resize(npatches);
-
-  for (int patch = 0; patch < npatches; ++patch) {
-    const int nlevels =
-        read_iter->getAttribute("numLevels" + patch_suffixes.at(patch))
-            .get<std::int64_t>();
-    assert(nlevels >= 0);
-    std::vector<std::string> level_suffixes;
-    if (nlevels == 1) {
-      assert(read_iter->getAttribute("levelSuffixes" + patch_suffixes.at(patch))
-                 .dtype == openPMD::Datatype::STRING);
-      const std::string level_suffix =
-          read_iter->getAttribute("levelSuffixes" + patch_suffixes.at(patch))
-              .get<std::string>();
-      level_suffixes.resize(1);
-      level_suffixes.at(0) = level_suffix;
-    } else {
-      assert(read_iter->getAttribute("levelSuffixes" + patch_suffixes.at(patch))
-                 .dtype == openPMD::Datatype::VEC_STRING);
-      level_suffixes =
-          read_iter->getAttribute("levelSuffixes" + patch_suffixes.at(patch))
-              .get<std::vector<std::string> >();
-    }
-    assert(int(level_suffixes.size()) == nlevels);
-
-    assert(ndims == 3);
-    assert(nlevels > 0);
-    record.levels.at(patch).resize(nlevels);
-
-    for (int level = 0; level < nlevels; ++level) {
-      auto &recovered = record.levels.at(patch).at(level);
-
-      const std::vector<std::int64_t> chunk_infos =
-          read_iter->getAttribute("chunkInfo" + level_suffixes.at(level))
-              .get<std::vector<std::int64_t> >();
-      assert(chunk_infos.size() % (2 * ndims) == 0);
-      const int nfabs = chunk_infos.size() / (2 * ndims);
-      recovered.boxes.resize(nfabs);
-      for (int component = 0; component < nfabs; ++component) {
-        const int offset = 2 * ndims * component;
-        amrex::IntVect small, big;
-        for (int d = 0; d < ndims; ++d) {
-          small[d] = chunk_infos.at(offset + 0 * ndims + ndims - 1 - d);
-          big[d] = chunk_infos.at(offset + 1 * ndims + ndims - 1 - d);
-        }
-        recovered.boxes.at(component) = amrex::Box(small, big - 1);
-      }
-
-      // Read per-level iteration if present (new checkpoint format)
-      const std::string iter_num_attr =
-          "iteration_num" + level_suffixes.at(level);
-      const std::string iter_den_attr =
-          "iteration_den" + level_suffixes.at(level);
-      if (read_iter->containsAttribute(iter_num_attr) &&
-          read_iter->containsAttribute(iter_den_attr)) {
-        const auto num =
-            read_iter->getAttribute(iter_num_attr).get<std::int64_t>();
-        const auto den =
-            read_iter->getAttribute(iter_den_attr).get<std::int64_t>();
-        recovered.iteration = rat64(num, den);
-      }
-      // else: old checkpoint without per-level iteration — leave as nullopt
-
-      // Read the per-level last-step iteration if present
-      const std::string last_step_attr =
-          "last_step_iteration" + level_suffixes.at(level);
-      if (read_iter->containsAttribute(last_step_attr))
-        recovered.last_step_iteration =
-            int(read_iter->getAttribute(last_step_attr).get<std::int64_t>());
-      // else: checkpoint predates it — leave as nullopt
-    } // for level
-  } // for patch
-
-  return record;
-}
 
 void carpetx_openpmd_t::InputOpenPMD(
     const cGH *const cctkGH, const std::vector<bool> &input_group,

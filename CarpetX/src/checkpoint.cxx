@@ -1,7 +1,9 @@
 #include "checkpoint.hxx"
 
 #include "driver.hxx"
+#include "valid.hxx"
 
+#include <CactusBase/IOUtil/src/ioutil_CheckpointRecovery.h>
 #include <cctk.h>
 #include <cctk_Parameters.h>
 
@@ -12,10 +14,88 @@
 #include <AMReX_Vector.H>
 
 #include <cassert>
+#include <cstdlib>
+#include <memory>
 #include <optional>
+#include <sstream>
+#include <string>
+#include <variant>
 #include <vector>
 
 namespace CarpetX {
+
+std::string buffer_id_t::name() const {
+  std::ostringstream buf;
+  buf << group;
+  if (level)
+    buf << ".p" << level->patch().index() << ".l" << level->index();
+  if (const std::string *const tag = std::get_if<std::string>(&which))
+    buf << ".band." << *tag;
+  else if (level)
+    buf << ".tl" << std::get<tl_t>(which).index();
+  return buf.str();
+}
+
+namespace {
+
+std::string describe(const buffer_id_t &id) {
+  std::ostringstream buf;
+  buf << id.group;
+  if (!id.level) {
+    buf << " (grid array or scalar)";
+    return buf.str();
+  }
+  buf << " on patch " << id.level->patch().index() << " level "
+      << id.level->index();
+  if (const std::string *const tag = std::get_if<std::string>(&id.which))
+    buf << ", band " << *tag;
+  else
+    buf << ", time level " << std::get<tl_t>(id.which).index();
+  return buf.str();
+}
+
+template <typename Ghosts> bool has_ghosts(const Ghosts &nghostzones) {
+  for (int d = 0; d < dim; ++d)
+    if (nghostzones[d] != 0)
+      return true;
+  return false;
+}
+
+std::vector<std::string> variable_names(const GHExt::GroupRecord &group) {
+  std::vector<std::string> vars;
+  for (const vi_t vi : group.variables())
+    vars.push_back(CCTK_FullVarName(group.var(vi).index()));
+  return vars;
+}
+
+const amrex::MultiFab *vertex_coords(const level_t level) {
+  if (ghext->patch(level.patch()).is_cartesian)
+    return nullptr;
+  const int gi = CCTK_GroupIndex("CoordinatesX::vertex_coords");
+  if (gi < 0 || !ghext->record(gi_t{gi}).has_storage())
+    return nullptr;
+  return ghext->level(level).group(gi_t{gi}).timelevel(tl_t{0}).mfab.get();
+}
+
+void snapshot_geometry(level_record_t &record, const level_t level) {
+  record.geom = ghext->patch(level.patch()).amrcore->Geom(level.index());
+  record.vertex_coords = vertex_coords(level);
+}
+
+} // namespace
+
+std::unique_ptr<checkpoint_codec_t> make_codec(const char *const method) {
+  if (CCTK_EQUALS(method, "openpmd")) {
+#ifdef HAVE_CAPABILITY_openPMD_api
+    return make_openpmd_codec();
+#else
+    CCTK_VERROR("The checkpoint method \"%s\" needs openPMD_api, which is not "
+                "enabled",
+                method);
+#endif
+  }
+  CCTK_VERROR("Unknown checkpoint method \"%s\"", method);
+}
 
 bool finer_level_is_behind(const checkpoint_record_t &record,
                            const level_t level) {
@@ -32,7 +112,111 @@ bool finer_level_is_behind(const checkpoint_record_t &record,
   return false;
 }
 
-void apply_structure(cGH *const cctkGH, const checkpoint_record_t &record) {
+void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
+                   const TimeLevelMode tl_mode, const codec_limits_t &limits) {
+  for (auto &patchdata : ghext->patches()) {
+    for (auto &leveldata : patchdata.levels()) {
+      const level_t level = leveldata.level;
+      const bool bands = finer_level_is_behind(record, level);
+      for (auto &groupdata : leveldata.groups()) {
+        const GHExt::GroupRecord &group = groupdata.record;
+        const gi_t gi = group.groupindex;
+        if (!mask.at(gi.index()))
+          continue;
+        const std::vector<std::string> vars = variable_names(group);
+
+        const tl_range tls = tl_mode == TimeLevelMode::All
+                                 ? group.timelevels()
+                                 : tl_range{tl_t{0}, tl_t{1}};
+        for (const tl_t tl : tls)
+          record.buffers.push_back(
+              {.id = {.group = group.groupname,
+                      .vars = vars,
+                      .level = level,
+                      .which = tl},
+               .data = grid_buffer_t{groupdata.timelevel(tl).mfab.get()}});
+
+        if (!bands)
+          continue;
+        const auto add_band = [&](amrex::MultiFab *const band,
+                                  const band_kind kind, const int stage) {
+          if (!band || band->empty())
+            return;
+          assert(band->nGrowVect() == 0);
+          record.buffers.push_back(
+              {.id = {.group = group.groupname,
+                      .vars = vars,
+                      .level = level,
+                      .which = subcycling_band_tag(kind, stage)},
+               .data = grid_buffer_t{band}});
+        };
+        for (int s = 0; s < max_num_rk_stages; ++s)
+          add_band(rk_source_band(level, gi, band_kind::ks_source, s),
+                   band_kind::ks_source, s);
+        add_band(rk_source_band(level, gi, band_kind::old_source),
+                 band_kind::old_source, -1);
+        for (int f = 0; f < 2 * dim; ++f)
+          add_band(rk_source_band(level, gi, band_kind::flux_register, f),
+                   band_kind::flux_register, f);
+      }
+    }
+  }
+
+  if (!limits.carries_arrays)
+    return;
+  for (const GHExt::GroupRecord &group : ghext->records()) {
+    if (group.kind == group_kind::grid_function ||
+        !mask.at(group.groupindex.index()))
+      continue;
+    GHExt::GlobalData::ArrayGroupData &arraydata =
+        ghext->record(group.groupindex).array();
+    assert(!has_ghosts(arraydata.nghostzones));
+    GHExt::GlobalData::AnyTypeVector &data = arraydata.timelevel(tl_t{0}).data;
+    record.buffers.push_back(
+        {.id = {.group = group.groupname,
+                .vars = variable_names(group),
+                .level = std::nullopt,
+                .which = tl_t{0}},
+         .data = array_buffer_t{
+             .data = data.data_at(0),
+             .vartype = data.type(),
+             .shape = {arraydata.gsh[0], arraydata.gsh[1], arraydata.gsh[2]}}});
+  }
+}
+
+checkpoint_record_t build_record(const cGH *const cctkGH,
+                                 const std::vector<bool> &mask,
+                                 const TimeLevelMode tl_mode,
+                                 const codec_limits_t &limits) {
+  checkpoint_record_t record;
+  record.iteration = cctkGH->cctk_iteration;
+  record.time = cctkGH->cctk_time;
+  record.delta_time = cctkGH->cctk_delta_time;
+  char *const parameters = IOUtil_GetAllParameters(cctkGH, 1);
+  record.parameters = parameters;
+  std::free(parameters);
+
+  record.levels.resize(ghext->num_patches());
+  for (const auto &patchdata : ghext->patches()) {
+    std::vector<level_record_t> &levels =
+        record.levels.at(patchdata.patch.index());
+    levels.resize(patchdata.num_levels());
+    for (const auto &leveldata : patchdata.levels()) {
+      level_record_t &level = levels.at(leveldata.level.index());
+      const amrex::FabArrayBase &fab = *leveldata.fab;
+      for (int component = 0; component < fab.size(); ++component)
+        level.boxes.push_back(fab.box(component));
+      level.iteration = leveldata.iteration;
+      level.last_step_iteration = leveldata.last_step_iteration;
+      snapshot_geometry(level, leveldata.level);
+    }
+  }
+
+  build_buffers(record, mask, tl_mode, limits);
+  return record;
+}
+
+void apply_structure(cGH *const cctkGH, checkpoint_record_t &record) {
   DECLARE_CCTK_PARAMETERS;
 
   const int npatches = record.levels.size();
@@ -45,7 +229,7 @@ void apply_structure(cGH *const cctkGH, const checkpoint_record_t &record) {
   cctkGH->cctk_time = record.time;
 
   for (auto &patchdata : ghext->patches()) {
-    const std::vector<level_record_t> &levels =
+    std::vector<level_record_t> &levels =
         record.levels.at(patchdata.patch.index());
     const int nlevels = levels.size();
     assert(nlevels > 0);
@@ -72,8 +256,70 @@ void apply_structure(cGH *const cctkGH, const checkpoint_record_t &record) {
       amrcore.SetDistributionMap(lev, dm);
 
       amrcore.make_level(level, ba, dm, "Recovering");
+      snapshot_geometry(levels.at(lev), level);
     }
   }
+}
+
+void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
+                 const std::string &dir, const std::string &file,
+                 const std::string &event) {
+  std::ostringstream missing;
+  int num_missing = 0;
+  bool band_missing = false;
+  for (const buffer_t &buffer : record.buffers) {
+    if (record.present.count(buffer.id.name()))
+      continue;
+    ++num_missing;
+    missing << "\n  " << describe(buffer.id);
+    band_missing |= std::holds_alternative<std::string>(buffer.id.which);
+  }
+  if (num_missing > 0)
+    CCTK_VERROR("The checkpoint \"%s/%s\" at iteration %d lacks %d of the %d "
+                "buffers being read:%s%s",
+                dir.c_str(), file.c_str(), record.iteration, num_missing,
+                int(record.buffers.size()), missing.str().c_str(),
+                band_missing
+                    ? "\nA mid-cycle checkpoint holds the bands of every level "
+                      "whose finer level is behind. This one was written by a "
+                      "version that did not save them, or is incomplete. "
+                      "Restart from a time-aligned checkpoint."
+                    : "");
+
+  std::vector<write_scope_t> scopes;
+  std::vector<array_write_scope_t> array_scopes;
+  for (const buffer_t &buffer : record.buffers) {
+    const tl_t *const tl = std::get_if<tl_t>(&buffer.id.which);
+    if (!tl)
+      continue;
+    const gi_t gi{CCTK_GroupIndex(buffer.id.group.c_str())};
+    assert(gi.index() >= 0);
+    if (buffer.id.level) {
+      const auto &groupdata = ghext->level(*buffer.id.level).group(gi);
+      scopes.push_back(open_write(window_t::one_level(*buffer.id.level),
+                                  {.gi = gi,
+                                   .tl = *tl,
+                                   .fills = has_ghosts(groupdata.nghostzones)
+                                                ? make_valid_int()
+                                                : make_valid_all(),
+                                   .keeps = valid_t(),
+                                   .event = event}));
+    } else {
+      const auto &arraydata = ghext->record(gi).array();
+      array_scopes.push_back(open_array_write(
+          {.gi = gi,
+           .tl = *tl,
+           .fills = has_ghosts(arraydata.nghostzones) ? make_valid_int()
+                                                      : make_valid_all(),
+           .keeps = valid_t(),
+           .event = event}));
+    }
+  }
+
+  codec.decode_data(record, dir, file);
+
+  scopes.clear();
+  array_scopes.clear();
 }
 
 } // namespace CarpetX
