@@ -65,18 +65,6 @@ int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct window_access {
-  struct bounds_t {
-    int min, max;
-  };
-  static constexpr bounds_t levels(const window_t window) {
-    return {window.min_level_, window.max_level_};
-  }
-  static constexpr bounds_t patches(const window_t window) {
-    return {window.min_patch_, window.max_patch_};
-  }
-};
-
 void loop_coarse_to_fine(
     window_t window,
     const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel);

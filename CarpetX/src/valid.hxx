@@ -126,6 +126,7 @@ struct tiletag_t {
   tl_t tl;
 
   friend auto operator<=>(const tiletag_t &, const tiletag_t &) = default;
+  friend bool operator==(const tiletag_t &, const tiletag_t &) = default;
 
   friend std::ostream &operator<<(std::ostream &os, const tiletag_t &x) {
     return os << "tiletag_t{"

@@ -187,13 +187,14 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   }
 
   if (CCTK_EQUALS(mode, "prolongate-unwritten-parent") &&
-      window.finest().index() > 0) {
+      window.level_bounds().max > 1) {
     CarpetX::prolongate_ghosts(window,
                                std::array{group("TestCarpetXAPI::state_rhs")});
     CCTK_ERROR("CarpetX::prolongate_ghosts filled the ghosts of state_rhs on "
                "level 1 from a parent level that nothing has written");
   }
-  if (CCTK_EQUALS(mode, "sync-invalid-coarse") && window.finest().index() > 0) {
+  if (CCTK_EQUALS(mode, "sync-invalid-coarse") &&
+      window.level_bounds().max > 1) {
     std::vector<CarpetX::write_t> writes;
     window.loop_serially([&](const CarpetX::level_t level) {
       writes.push_back(CarpetX::write(CarpetX::group_t{level, gi}, tl,
@@ -208,7 +209,7 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
                "had been invalidated");
   }
 
-  if (window.finest().index() != 0)
+  if (window.level_bounds().max != 1)
     return;
 
   window.loop_serially([&](const CarpetX::level_t level) {

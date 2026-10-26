@@ -127,7 +127,7 @@ struct level_run_t {
 static std::vector<level_run_t> split_levels(
     const window_t window,
     const std::function<bool(const GHExt::PatchData::LevelData &)> &predicate) {
-  const auto levels = window_access::levels(window);
+  const auto levels = window.level_bounds();
   std::vector<std::optional<bool> > values(levels.max - levels.min);
   loop_serially(window, [&](auto &restrict leveldata) {
     std::optional<bool> &value =
@@ -152,11 +152,11 @@ static std::vector<level_run_t> split_levels(
 static void
 loop_pairs_fine_to_coarse(const window_t window,
                           const std::function<void(level_t level)> &kernel) {
-  loop_fine_to_coarse(window,
-                      [&](const GHExt::PatchData::LevelData &leveldata) {
-                        if (leveldata.level.index() < window.finest().index())
-                          kernel(leveldata.level);
-                      });
+  loop_fine_to_coarse(
+      window, [&](const GHExt::PatchData::LevelData &leveldata) {
+        if (leveldata.level.index() + 1 < window.level_bounds().max)
+          kernel(leveldata.level);
+      });
 }
 
 static void
@@ -503,7 +503,7 @@ static void error_if_sync_in_tail(const window_t window,
                                   const std::span<const gi_t> groups0) {
   if (!ghext->tail_bin || groups0.empty())
     return;
-  const auto [min_level, max_level] = window_access::levels(window);
+  const auto [min_level, max_level] = window.level_bounds();
   if (min_level == 0)
     return;
   std::ostringstream groupnames;
@@ -527,7 +527,7 @@ static void error_if_sync_in_tail(const window_t window,
       func ? func->thorn : "(unknown thorn)",
       func ? func->routine : "(unknown routine)", ghext->tail_bin,
       groupnames.str().c_str(), cctkGH->cctk_iteration, min_level, max_level,
-      min_level, window.coarsest().parent().index());
+      min_level, min_level - 1);
 }
 
 static bool

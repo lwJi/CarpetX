@@ -40,6 +40,7 @@ template <class Derived> struct index_t {
   constexpr explicit index_t(const int i) : i_(i) {}
   constexpr int index() const { return i_; }
   friend constexpr auto operator<=>(index_t, index_t) = default;
+  friend constexpr bool operator==(index_t, index_t) = default;
 
 private:
   int i_;
@@ -94,6 +95,7 @@ struct level_t {
   parent(std::source_location site = std::source_location::current()) const;
   std::optional<level_t> child() const;
   friend constexpr auto operator<=>(level_t, level_t) = default;
+  friend constexpr bool operator==(level_t, level_t) = default;
 
 private:
   patch_t patch_;
@@ -140,6 +142,12 @@ struct window_t {
   level_t
   finest(std::source_location site = std::source_location::current()) const;
 
+  struct bounds_t {
+    int min, max;
+  };
+  constexpr bounds_t level_bounds() const { return {min_level_, max_level_}; }
+  constexpr bounds_t patch_bounds() const { return {min_patch_, max_patch_}; }
+
   void loop_serially(const std::function<void(level_t level)> &kernel) const;
   void
   loop_coarse_to_fine(const std::function<void(level_t level)> &kernel) const;
@@ -158,8 +166,6 @@ private:
 
   int min_level_, max_level_;
   int min_patch_, max_patch_;
-
-  friend struct window_access;
 };
 
 window_t active_window();

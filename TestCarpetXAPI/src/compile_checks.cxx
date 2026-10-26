@@ -212,6 +212,12 @@ static_assert(
     std::is_same_v<decltype(std::declval<window_t>().coarsest()), level_t>);
 static_assert(
     std::is_same_v<decltype(std::declval<window_t>().finest()), level_t>);
+static_assert(std::is_same_v<decltype(std::declval<window_t>().level_bounds()),
+                             window_t::bounds_t>);
+static_assert(std::is_same_v<decltype(std::declval<window_t>().patch_bounds()),
+                             window_t::bounds_t>);
+static_assert(std::is_same_v<decltype(window_t::bounds_t::min), int>);
+static_assert(std::is_same_v<decltype(window_t::bounds_t::max), int>);
 static_assert(operates_on<window_t>);
 static_assert(!operates_on<level_t>);
 static_assert(!operates_on<bare_window_t>);

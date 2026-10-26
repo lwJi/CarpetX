@@ -122,7 +122,7 @@ window_t ClockGroupBelow(const int max_level) {
 std::vector<window_t> ClockGroups() {
   std::vector<window_t> groups;
   for (int max_level = ghext->num_levels(); max_level > 0;
-       max_level = groups.back().coarsest().index())
+       max_level = groups.back().level_bounds().min)
     groups.push_back(ClockGroupBelow(max_level));
   std::reverse(groups.begin(), groups.end());
   assert((ghext->use_subcycling || groups.size() <= 1) &&
@@ -132,7 +132,7 @@ std::vector<window_t> ClockGroups() {
 
 window_t FinestClockGroup() {
   const window_t group = ClockGroupBelow(ghext->num_levels());
-  assert((ghext->use_subcycling || group.coarsest().index() == 0) &&
+  assert((ghext->use_subcycling || group.level_bounds().min == 0) &&
          "without subcycling the end-of-step window holds every level");
   return group;
 }
@@ -160,8 +160,9 @@ std::string format_clock(const rat64 &clock) {
 } // namespace
 
 bool window_is_restricted(const window_t window) {
-  const level_t finest = window.finest();
-  return !finest.child() && finest != window.coarsest();
+  const auto [min_level, max_level] = window.level_bounds();
+  assert(min_level < max_level);
+  return max_level == ghext->num_levels() && max_level - min_level >= 2;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -801,8 +802,8 @@ extern "C" CCTK_INT CarpetX_GetCallFunctionCount() {
 }
 
 static void assert_consistent_iterations(const window_t window) {
-  const auto levels = window_access::levels(window);
-  const auto patches = window_access::patches(window);
+  const auto levels = window.level_bounds();
+  const auto patches = window.patch_bounds();
   rat64 good_iteration = -1;
   for (int level = levels.min; level < levels.max; ++level) {
     for (int patch = patches.min; patch < patches.max; ++patch) {
@@ -824,8 +825,8 @@ void loop_coarse_to_fine(
     const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel) {
   assert(omp_get_num_threads() == 1);
   assert_consistent_iterations(window);
-  const auto levels = window_access::levels(window);
-  const auto patches = window_access::patches(window);
+  const auto levels = window.level_bounds();
+  const auto patches = window.patch_bounds();
   for (int level = levels.min; level < levels.max; ++level) {
     for (int patch = patches.min; patch < patches.max; ++patch) {
       auto &patchdata = ghext->patch(patch_t{patch});
@@ -840,8 +841,8 @@ void loop_fine_to_coarse(
     const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel) {
   assert(omp_get_num_threads() == 1);
   assert_consistent_iterations(window);
-  const auto levels = window_access::levels(window);
-  const auto patches = window_access::patches(window);
+  const auto levels = window.level_bounds();
+  const auto patches = window.patch_bounds();
   for (int level = levels.max - 1; level >= levels.min; --level) {
     for (int patch = patches.min; patch < patches.max; ++patch) {
       auto &patchdata = ghext->patch(patch_t{patch});
@@ -1146,7 +1147,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
 
   if (!have_last_step_iterations) {
     for (const window_t &group : clock_groups) {
-      const auto [min_level, max_level] = window_access::levels(group);
+      const auto [min_level, max_level] = group.level_bounds();
       const int last_step_iteration =
           LastStepIteration(group.finest(), checkpoint_iteration);
       for (auto &patchdata : ghext->patches())
@@ -1165,7 +1166,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
   }
 
   for (const window_t &group : clock_groups) {
-    const auto [min_level, max_level] = window_access::levels(group);
+    const auto [min_level, max_level] = group.level_bounds();
     const int group_last_step_iteration =
         ghext->level(group.finest()).last_step_iteration;
     for (const auto &patchdata : ghext->patches())
@@ -1276,7 +1277,7 @@ void FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
     assert(leveldata.last_step_iteration == cctkGH->cctk_iteration);
   });
 
-  const int min_level = window.coarsest().index();
+  const int min_level = window.level_bounds().min;
   if (!window_is_restricted(window)) {
     // Only the finest level is at the current time: nothing to restrict
     if (verbose)
@@ -1308,7 +1309,7 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
   const recovery_traversal_scope scope;
 
   for (const window_t &group : ClockGroups()) {
-    const auto [min_level, max_level] = window_access::levels(group);
+    const auto [min_level, max_level] = group.level_bounds();
     const auto &finest = ghext->level(group.finest());
 
     assert(!active_levels);
@@ -1686,7 +1687,7 @@ struct seed_run_t {
 
 std::vector<seed_run_t> seed_runs(const window_t window, const gi_t gi,
                                   const vi_t vi) {
-  const auto levels = window_access::levels(window);
+  const auto levels = window.level_bounds();
   std::vector<std::optional<valid_t> > seeds(levels.max - levels.min);
   loop_serially(window, [&](auto &restrict leveldata) {
     std::optional<valid_t> &seed =

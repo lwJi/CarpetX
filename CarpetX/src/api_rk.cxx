@@ -243,8 +243,8 @@ void require_serial_context() {
 }
 
 std::string describe(const window_t &window) {
-  const auto levels = window_access::levels(window);
-  const auto patches = window_access::patches(window);
+  const auto levels = window.level_bounds();
+  const auto patches = window.patch_bounds();
   std::ostringstream buf;
   buf << "patches [" << patches.min << ", " << patches.max
       << "), refinement levels [" << levels.min << ", " << levels.max << ")";
@@ -486,7 +486,7 @@ void RecoverRKBoundary(const window_t window, const cGH *const cctkGH) {
     if (entry.level.index() == 0)
       continue;
     const bool aligned = aligned_with_parent(entry.level);
-    if (aligned != (entry.level.index() > window.coarsest().index()))
+    if (aligned != (entry.level.index() > window.level_bounds().min))
       CCTK_VERROR("CarpetX::RecoverRKBoundary on %s: refinement level %d is "
                   "%s its parent, but recovery traverses each clock group "
                   "separately, so only the group's coarsest level lags its "
