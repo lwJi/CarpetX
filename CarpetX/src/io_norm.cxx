@@ -62,7 +62,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
 
   const bool is_root = CCTK_MyProc(nullptr) == 0;
   const std::string sep = "\t";
-  const int tl = 0;
+  const tl_t tl{0};
   const int numgroups = CCTK_NumGroups();
   std::vector<std::string> reductions = {"min",    "max",    "sum",
                                          "avg",    "stddev", "volume",

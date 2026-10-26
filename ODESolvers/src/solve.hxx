@@ -86,7 +86,7 @@ struct statecomp_t {
     std::optional<CarpetX::scratch_t> tmp;
   };
   vector<entry_t> entries;
-  int timelevel = 0;
+  CarpetX::tl_t timelevel{0};
 
   statecomp_t copy() const;
 

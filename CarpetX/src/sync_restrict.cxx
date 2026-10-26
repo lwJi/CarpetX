@@ -102,10 +102,16 @@ static void sync_multipatch_boundaries(const cGH *cctkGH,
   }
 }
 
-static int timelevels_but_oldest(const gi_t gi) {
-  const int ntls = ghext->record(gi).num_timelevels();
-  assert(ntls > 0);
-  return ntls > 1 ? ntls - 1 : ntls;
+tl_range timelevels_t::range(const GHExt::GroupRecord &record,
+                             const std::source_location site) const {
+  const int ntls = record.num_timelevels();
+  if (!tl_)
+    return tl_range{tl_t{0}, tl_t{ntls > 1 ? ntls - 1 : ntls}};
+  if (!record.timelevels().contains(*tl_))
+    refuse(site,
+           "time level %d of group %s does not exist: it has %d time levels",
+           tl_->index(), record.groupname.c_str(), ntls);
+  return tl_range{*tl_, tl_->next()};
 }
 
 static valid_t sync_fills(const active_levels_t &active_levels, const gi_t gi) {
@@ -159,7 +165,7 @@ level_window(const GHExt::PatchData::LevelData &leveldata) {
 
 static void
 error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
-                        const gi_t gi, const int tl, const char *const label) {
+                        const gi_t gi, const tl_t tl, const char *const label) {
   assert(leveldata.level > 0);
   const auto &restrict coarseleveldata =
       ghext->level(leveldata.patch, leveldata.level - 1);
@@ -172,7 +178,7 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
                                              recovering]() -> std::string {
     if (coarsegroupdata.record.do_checkpoint)
       return "";
-    if (tl > 0)
+    if (tl > tl_t{0})
       return "  Group " + coarsegroupdata.record.groupname +
              " is not checkpointed, so a recovery, or a regrid that remakes "
              "its level, can lose its past timelevels, which no routine can "
@@ -231,8 +237,8 @@ static std::vector<gi_t> sync_restrict_groups(const std::vector<gi_t> &groups) {
 
 static int SyncGroupsByDirIProlongateOnly_impl(
     const active_levels_t &active_levels, const cGH *restrict cctkGH,
-    const std::span<const gi_t> groups0, const bool prolongate_on_same_iteration,
-    const int tl_arg = -1) {
+    const std::span<const gi_t> groups0,
+    const bool prolongate_on_same_iteration, const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
@@ -260,25 +266,16 @@ static int SyncGroupsByDirIProlongateOnly_impl(
         }
         return true;
       };
-  const auto timelevels_to_fill = [tl_arg](const GHExt::GroupRecord &group) {
-    const int ntls = group.num_timelevels();
-    const int tl_lo = (tl_arg < 0) ? 0 : tl_arg;
-    const int tl_hi =
-        (tl_arg < 0) ? (ntls > 1 ? ntls - 1 : ntls) : (tl_arg + 1);
-    assert(tl_lo >= 0 && tl_hi <= ntls);
-    return std::make_pair(tl_lo, tl_hi);
-  };
-
   const std::vector<level_run_t> runs =
       split_levels(active_levels, prolongates_into);
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : groups) {
-    const auto [tl_lo, tl_hi] = timelevels_to_fill(ghext->record(gi));
+    const tl_range fill_tls = tls.range(ghext->record(gi));
     for (const level_run_t &run : runs) {
       if (!run.value)
         continue;
       const valid_t fills = sync_fills(run.levels, gi);
-      for (int tl = tl_lo; tl < tl_hi; ++tl) {
+      for (const tl_t tl : fill_tls) {
         scopes.push_back(open_write(
             run.levels, {.gi = gi,
                          .tl = tl,
@@ -303,7 +300,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
-      const auto [tl_lo, tl_hi] = timelevels_to_fill(groupdata.record);
+      const tl_range fill_tls = tls.range(groupdata.record);
 
       if (!prolongates_into(leveldata))
         return;
@@ -317,7 +314,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
 
       amrex::Interpolater *const interpolator = groupdata.interpolator;
 
-      for (int tl = tl_lo; tl < tl_hi; ++tl) {
+      for (const tl_t tl : fill_tls) {
         error_if_parent_invalid(leveldata, gi, tl,
                                 "SyncGroupsByDirIProlongateOnly on coarse "
                                 "level before prolongation");
@@ -375,7 +372,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
       for (const gi_t gi : groups) {
         auto &restrict groupdata = leveldata.group(gi);
         bool need_sync = false;
-        for (int tl = 0; tl < groupdata.num_timelevels(); tl++) {
+        for (const tl_t tl : groupdata.record.timelevels()) {
           if (need_sync)
             break;
           for (int vi = 0; vi < groupdata.record.numvars; vi++) {
@@ -411,9 +408,10 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
 
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : groups) {
-    const int sync_tl = timelevels_but_oldest(gi);
+    const tl_range sync_tls =
+        timelevels_t::all_but_oldest().range(ghext->record(gi));
     const valid_t fills = sync_fills(active_levels, gi);
-    for (int tl = 0; tl < sync_tl; ++tl) {
+    for (const tl_t tl : sync_tls) {
       require(active_levels, {.gi = gi,
                               .tl = tl,
                               .where = make_valid_int(),
@@ -441,13 +439,13 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
-      const int ntls = groupdata.num_timelevels();
-      const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
+      const tl_range sync_tls =
+          timelevels_t::all_but_oldest().range(groupdata.record);
 
       if (leveldata.level == 0) {
         // Copy from adjacent boxes on same level
 
-        for (int tl = 0; tl < sync_tl; ++tl) {
+        for (const tl_t tl : sync_tls) {
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
             FillPatch_Sync(
                 tasks2, groupdata, *groupdata.timelevel(tl).mfab,
@@ -467,7 +465,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
 
         amrex::Interpolater *const interpolator = groupdata.interpolator;
 
-        for (int tl = 0; tl < sync_tl; ++tl) {
+        for (const tl_t tl : sync_tls) {
           error_if_parent_invalid(
               leveldata, gi, tl,
               "SyncGroupsByDirI on coarse level before prolongation");
@@ -571,19 +569,20 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
   struct ghost_check_t {
     active_levels_t levels;
     gi_t gi;
-    int tl;
+    tl_t tl;
   };
   std::vector<ghost_check_t> integrated_ghosts;
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : groups) {
-    const int sync_tl = timelevels_but_oldest(gi);
+    const tl_range sync_tls =
+        timelevels_t::all_but_oldest().range(ghext->record(gi));
     const std::vector<level_run_t> runs = split_levels(
         active_levels, [gi](const GHExt::PatchData::LevelData &leveldata) {
           return integrator_owns_coarse_fine_ghosts(leveldata, gi);
         });
     for (const level_run_t &run : runs) {
       const valid_t fills = sync_fills(run.levels, gi);
-      for (int tl = 0; tl < sync_tl; ++tl) {
+      for (const tl_t tl : sync_tls) {
         if (run.value) {
           integrated_ghosts.push_back({run.levels, gi, tl});
           scopes.push_back(
@@ -618,11 +617,11 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
-      const int ntls = groupdata.num_timelevels();
-      const int sync_tl = ntls > 1 ? ntls - 1 : ntls;
+      const tl_range sync_tls =
+          timelevels_t::all_but_oldest().range(groupdata.record);
 
       if (leveldata.level == 0) {
-        for (int tl = 0; tl < sync_tl; ++tl) {
+        for (const tl_t tl : sync_tls) {
           require(level_window(leveldata), {.gi = gi,
                                             .tl = tl,
                                             .where = make_valid_int(),
@@ -646,7 +645,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
             integrator_owns_coarse_fine_ghosts(leveldata, gi);
 
         if (integrated_subiter) {
-          for (int tl = 0; tl < sync_tl; ++tl) {
+          for (const tl_t tl : sync_tls) {
             require(level_window(leveldata), {.gi = gi,
                                               .tl = tl,
                                               .where = make_valid_int(),
@@ -670,17 +669,19 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
           const rat64 t_fin = leveldata.iteration;
           const CCTK_REAL w_new = CCTK_REAL((t_fin - t_new + cdt) / cdt);
 
-          for (int tl = 0; tl < sync_tl; ++tl) {
-            const bool do_blend = blend && tl == 0;
+          for (const tl_t tl : sync_tls) {
+            const bool do_blend = blend && tl == tl_t{0};
             require(level_window(leveldata), {.gi = gi,
                                               .tl = tl,
                                               .where = make_valid_int(),
                                               .event = sync_label});
             error_if_parent_invalid(leveldata, gi, tl, prolongation_label);
             if (do_blend)
-              error_if_parent_invalid(leveldata, gi, 1, prolongation_label);
+              error_if_parent_invalid(leveldata, gi, tl_t{1},
+                                      prolongation_label);
             const amrex::MultiFab *const cmfab_old =
-                do_blend ? coarsegroupdata.timelevel(1).mfab.get() : nullptr;
+                do_blend ? coarsegroupdata.timelevel(tl_t{1}).mfab.get()
+                         : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
             tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                     &coarsegroupdata, interpolator, tl,
@@ -746,23 +747,23 @@ int SyncGroups(const active_levels_t &active_levels,
 int SyncGroupsByDirIProlongateOnly(const active_levels_t &active_levels,
                                    const cGH *restrict cctkGH,
                                    const std::span<const gi_t> groups0,
-                                   const int tl) {
+                                   const timelevels_t tls) {
   return SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups0,
-                                             false, tl);
+                                             false, tls);
 }
 
 int SyncGroupsByDirIProlongateOnlyAligned(const active_levels_t &active_levels,
                                           const cGH *restrict cctkGH,
                                           const std::span<const gi_t> groups0,
-                                          const int tl) {
+                                          const timelevels_t tls) {
   return SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups0,
-                                             true, tl);
+                                             true, tls);
 }
 
 int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
                               const cGH *restrict cctkGH,
                               const std::span<const gi_t> groups0,
-                              const int tl_arg) {
+                              const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
@@ -791,13 +792,7 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
-      const int ntls = groupdata.num_timelevels();
-      const int tl_lo = (tl_arg < 0) ? 0 : tl_arg;
-      const int tl_hi =
-          (tl_arg < 0) ? (ntls > 1 ? ntls - 1 : ntls) : (tl_arg + 1);
-      assert(tl_lo >= 0 && tl_hi <= ntls);
-
-      for (int tl = tl_lo; tl < tl_hi; ++tl) {
+      for (const tl_t tl : tls.range(groupdata.record)) {
         tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
           FillPatch_Sync(
               tasks2, groupdata, *groupdata.timelevel(tl).mfab,
@@ -822,7 +817,8 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
 void ProlongateAfterRestriction(const active_levels_t &active_levels,
                                 const cGH *cctkGH) {
   const std::vector<gi_t> groups = reprolongate_groups();
-  SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups, true);
+  SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups, true,
+                                      timelevels_t::all_but_oldest());
 }
 
 // =======================================================================
@@ -897,7 +893,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   const bool have_child = level + 1 < patchdata.num_levels();
   const auto *const childleveldata =
       have_child ? &patchdata.level(level + 1) : nullptr;
-  const int tl = 0;
+  const tl_t tl{0};
   const active_levels_t this_level(level, level + 1, patch, patch + 1);
 
   for (const auto &groupdata : leveldata.groups()) {
@@ -999,7 +995,7 @@ static void reflux_level(const cGH *cctkGH, const int level) {
     const auto &fineleveldata = patchdata.level(level + 1);
     const amrex::Geometry &geom = patchdata.amrcore->Geom(level);
     const active_levels_t coarse_level(level, level + 1, patch, patch + 1);
-    const int tl = 0;
+    const tl_t tl{0};
 
     for (const auto &groupdata : leveldata.groups()) {
       const gi_t gi = groupdata.record.groupindex;
@@ -1090,8 +1086,8 @@ static void restrict_level(const cGH *cctkGH, const int level,
         if (gi == gi_regrid_error)
           continue;
 
-        const int restrict_tl = timelevels_but_oldest(gi);
-        for (int tl = 0; tl < restrict_tl; ++tl) {
+        for (const tl_t tl :
+             timelevels_t::all_but_oldest().range(groupdata.record)) {
 
           require(active_fine_levels,
                   {.gi = gi,

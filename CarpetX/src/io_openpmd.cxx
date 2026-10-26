@@ -369,7 +369,7 @@ struct carpetx_openpmd_t {
   ////////////////////////////////////////////////////////////////////////////////
 
   static std::string make_meshname(const gi_t gi, const int patch,
-                                   const int level, const int tl = 0,
+                                   const int level, const tl_t tl = tl_t{0},
                                    const std::string &band = std::string()) {
     std::string groupname = CCTK_FullGroupName(gi.index());
     groupname = std::regex_replace(groupname, std::regex("::"), "_");
@@ -380,10 +380,9 @@ struct carpetx_openpmd_t {
     if (patch != -1)
       buf << "_patch" << std::setw(2) << std::setfill('0') << patch;
     if (level != -1)
-      // The suffix should be `_lvl<N>`. No `std::setfill`?
       buf << "_lev" << std::setw(2) << std::setfill('0') << level;
-    if (tl > 0)
-      buf << "_tl" << std::setw(2) << std::setfill('0') << tl;
+    if (tl > tl_t{0})
+      buf << "_tl" << std::setw(2) << std::setfill('0') << tl.index();
     if (!band.empty())
       buf << "_band_" << band;
     return buf.str();
@@ -912,9 +911,10 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
 
           const int numvars = groupdata.record.numvars;
 
-          const int tl_count =
-              tl_mode == TimeLevelMode::All ? groupdata.num_timelevels() : 1;
-          for (int tl = 0; tl < tl_count; ++tl) {
+          const tl_range tls = tl_mode == TimeLevelMode::All
+                                   ? groupdata.record.timelevels()
+                                   : tl_range{tl_t{0}, tl_t{1}};
+          for (const tl_t tl : tls) {
             amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::IndexType &indextype = mfab.ixType();
             const Arith::vect<bool, 3> is_cell_centred{
@@ -1109,7 +1109,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               assert(band->nGrowVect() == 0);
               const std::string band_tag = subcycling_band_tag(kind, stage);
               const std::string meshname = make_meshname(
-                  gi, leveldata.patch, leveldata.level, 0, band_tag);
+                  gi, leveldata.patch, leveldata.level, tl_t{0}, band_tag);
               if (!read_iter->meshes.count(meshname)) {
                 if (need_bands)
                   CCTK_VERROR(
@@ -1226,7 +1226,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         if (!groupdata.record.has_storage())
           continue;
         const int numvars = groupdata.record.numvars;
-        const int tl = 0;
+        const tl_t tl{0};
 
         // Determine grid structure
 
@@ -1729,9 +1729,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
 
           const int numvars = groupdata.record.numvars;
 
-          const int tl_count =
-              tl_mode == TimeLevelMode::All ? groupdata.num_timelevels() : 1;
-          for (int tl = 0; tl < tl_count; ++tl) {
+          const tl_range tls = tl_mode == TimeLevelMode::All
+                                   ? groupdata.record.timelevels()
+                                   : tl_range{tl_t{0}, tl_t{1}};
+          for (const tl_t tl : tls) {
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::IndexType &indextype = mfab.ixType();
             const Arith::vect<bool, 3> is_cell_centred{
@@ -1904,12 +1905,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             } // for local_component
           } // for tl
 
-          // Subcycling coarse source bands: zero-ghost MultiFabs in this
-          // level's index space, so they share the level's idomain frame and
-          // dataset extent and write a sparse subset of chunks. Geometry is
-          // rebuilt on recovery; we serialize only the data, namespaced by a
-          // band tag. Present on every level with children. 2D slices emit
-          // only the main grid data; bands remain 3D-only.
           if (write_bands && !slice) {
             const auto write_band = [&](const amrex::MultiFab *const band,
                                         const band_kind kind, const int stage) {
@@ -1924,7 +1919,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                   indextype.cellCentered(2)};
 
               const std::string meshname = make_meshname(
-                  gi, leveldata.patch, leveldata.level, 0, band_tag);
+                  gi, leveldata.patch, leveldata.level, tl_t{0}, band_tag);
               if (io_verbose)
                 CCTK_VINFO("Defining band mesh %s...", meshname.c_str());
               assert(!write_iter.meshes.contains(meshname));
@@ -2041,7 +2036,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         if (!groupdata.record.has_storage())
           continue;
         const int numvars = groupdata.record.numvars;
-        const int tl = 0;
+        const tl_t tl{0};
 
         // Determine grid structure
 

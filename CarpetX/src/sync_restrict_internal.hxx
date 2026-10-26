@@ -3,19 +3,34 @@
 
 #include "internal.hxx"
 
+#include "driver.hxx"
+
 #include <carpetx.hxx>
 
 #include <cctk.h>
 
+#include <optional>
+#include <source_location>
 #include <span>
 #include <vector>
 
 namespace CarpetX {
 
-// Intra-CarpetX symbols defined in sync_restrict.cxx and called from
-// schedule.cxx. Not part of the public schedule.hxx surface.
-
 std::vector<gi_t> collect_restrictable_groups();
+
+struct timelevels_t {
+  static constexpr timelevels_t one(const tl_t tl) { return timelevels_t{tl}; }
+  static constexpr timelevels_t all_but_oldest() {
+    return timelevels_t{std::nullopt};
+  }
+  tl_range
+  range(const GHExt::GroupRecord &record,
+        std::source_location site = std::source_location::current()) const;
+
+private:
+  constexpr explicit timelevels_t(const std::optional<tl_t> tl) : tl_(tl) {}
+  std::optional<tl_t> tl_;
+};
 
 struct active_levels_t;
 

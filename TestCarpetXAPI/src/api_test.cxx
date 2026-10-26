@@ -19,7 +19,7 @@
 namespace TestCarpetXAPI {
 using namespace Loop;
 
-constexpr int tl = 0;
+constexpr CarpetX::tl_t tl{0};
 
 template <typename T>
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE T written_function(const T x,
@@ -180,9 +180,9 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
                "which does not exist");
   }
   if (CCTK_EQUALS(mode, "timelevel-missing")) {
-    const CarpetX::write_t write =
-        CarpetX::write(CarpetX::group_t{CarpetX::level_t{0, 0}, gi}, 7,
-                       CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
+    const CarpetX::write_t write = CarpetX::write(
+        CarpetX::group_t{CarpetX::level_t{0, 0}, gi}, CarpetX::tl_t{7},
+        CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
     CCTK_ERROR("CarpetX::write accepted time level 7 of state, which has no "
                "such time level");
   }

@@ -14,7 +14,7 @@ The header is the list of calls; this file states only what a signature cannot. 
 
 ## Indices and handles
 
-An index is a type: `gi_t` names a Cactus group. It is built explicitly from the flesh's `int`, `gi_t{CCTK_GroupIndex("…")}`, and read back only through `index()`, where a value leaves for the flesh (`CCTK_FullGroupName(gi.index())`). It does not convert to an `int` or from one implicitly, and it has no arithmetic; two of a kind compare equal and order. `TestCarpetXAPI/src/compile_checks.cxx` holds the `static_assert`s that pin this.
+An index is a type: `gi_t` names a Cactus group and `tl_t` a time level. Each is built explicitly from the flesh's `int`, `gi_t{CCTK_GroupIndex("…")}` or `tl_t{0}`, and read back only through `index()`, where a value leaves for the flesh (`CCTK_FullGroupName(gi.index())`). An index does not convert to an `int` or from one implicitly, nor to another kind of index, and it has no arithmetic; two of a kind compare equal and order. The one named step is `tl_t::next()`, the following time level, which is refused where it is used if the group has no such level. `TestCarpetXAPI/src/compile_checks.cxx` holds the `static_assert`s that pin this.
 
 A handle is made of indices and resolved on every call, so a stale one names a level that no longer exists and the call reports it instead of touching freed memory. `level_t{patch, level}` names a refinement level of a patch, `group_t{level, gi}` a grid-function group on it (`gi` is a `gi_t`), and `window_t{min_level, max_level, min_patch, max_patch}` a half-open set of levels, both for traversal (`loop_serially`, `loop_coarse_to_fine`, and `loop_parallel`, whose kernel receives the component's cGH) and as the "which levels" argument of every operation. `active_window()` is the window of the current traversal and an error outside one; `all_levels()` is the whole hierarchy. `parent(level)` is an error on level 0, and `num_levels(patch)` is per patch.
 
@@ -24,16 +24,16 @@ A handle is made of indices and resolved on every call, so a stale one names a l
 
 `valid(group, tl, vi)` reads the bits. `require_valid(group, tl, where, "why")` raises an error with CarpetX's explanation if any variable of the group lacks a bit of `where`, and runs the poison and NaN scan. `invalidate(window, groups, tl, "why")` clears every bit of every variable at `tl`. No thorn outside CarpetX sets a validity bit: the write scope and the communication operations are the only way a bit is set.
 
-`scratch(group)` is a move-only buffer with the boxes, distribution, components and ghosts of `data(group, 0)`, drawn from a per-group pool that CarpetX keeps between calls. There is no init or free call; the destructor returns the buffer. The pool dies with the level on a regrid, and using a `scratch_t` after that is an error, not a dangling pointer. It has no validity bits.
+`scratch(group)` is a move-only buffer with the boxes, distribution, components and ghosts of `data(group, tl_t{0})`, drawn from a per-group pool that CarpetX keeps between calls. There is no init or free call; the destructor returns the buffer. The pool dies with the level on a regrid, and using a `scratch_t` after that is an error, not a dangling pointer. It has no validity bits.
 
 ## Communication
 
 Each operation takes a window and a list of grid-function groups as a `std::span<const gi_t>`, so a `std::vector<gi_t>` or a `std::array<gi_t, N>` converts in place (a braced list does not; write `std::array{gi}` for one group), and is an error while a write scope is open on any of them.
 
 - `sync(window, groups)` is a scheduled SYNC: every time level but the oldest, the subcycling variant when `use_subcycling`, and it sets the ghost and outer bits it fills. Under subcycling the SYNC of an integrated group on a refined level at iteration > 0 copies only the same-level ghosts and requires the ghost bit set already, by `state_updated` or by the driver's refill after a recovery; finding it unset is an error. On level 0 it fills and marks every ghost itself.
-- `sync_ghosts_only(window, groups, tl = -1)`: the same-level copy only; `tl = -1` is every time level but the oldest.
-- `prolongate_ghosts(window, groups, tl = -1)`: coarse-to-fine interpolation only; marks the ghost and outer bits of the levels it filled.
-- `prolongate_aligned(window, groups, tl = -1)`: as `prolongate_ghosts`, but under subcycling only into levels time-aligned with their parent.
+- `sync_ghosts_only(window, groups)`: the same-level copy only, on every time level but the oldest; `sync_ghosts_only(window, groups, tl)` does that one time level.
+- `prolongate_ghosts(window, groups)`: coarse-to-fine interpolation only, on every time level but the oldest; marks the ghost and outer bits of the levels it filled. `prolongate_ghosts(window, groups, tl)` does that one time level.
+- `prolongate_aligned(window, groups)` and `prolongate_aligned(window, groups, tl)`: as `prolongate_ghosts`, but under subcycling only into levels time-aligned with their parent.
 - `restrict_no_poison(window, groups)`: fine-to-coarse over every level pair in the window.
 - `synchronize()` waits for the device.
 

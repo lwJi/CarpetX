@@ -738,7 +738,7 @@ void InputSilo(const cGH *restrict const cctkGH,
             CCTK_VINFO("  Reading group %s", CCTK_FullGroupName(gi.index()));
 
           const int numvars = groupdata.record.numvars;
-          const int tl = 0;
+          const tl_t tl{0};
           amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
@@ -1169,7 +1169,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
             continue;
 
           const int numvars = groupdata.record.numvars;
-          const int tl = 0;
+          const tl_t tl{0};
           const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
@@ -1267,7 +1267,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 assert(send_this_fab && write_this_fab);
                 const auto &coord_groupdata = leveldata.group(coordinate_group);
                 assert(coord_groupdata.nghostzones == groupdata.nghostzones);
-                const auto &coord_mfab = *coord_groupdata.timelevel(0).mfab;
+                const auto &coord_mfab =
+                    *coord_groupdata.timelevel(tl_t{0}).mfab;
                 const auto &coord_fabbox = coord_mfab[component];
                 for (int d = 0; d < ndims; ++d) {
                   coord_ptrs[d] = coord_fabbox.dataPtr(d);
@@ -1730,7 +1731,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
       const auto &groupdata0 = ghext->patch(0).level(0).group(gi);
       const int numvars = groupdata0.record.numvars;
-      const int tl = 0;
+      const tl_t tl{0};
       const amrex::MultiFab &mfab0 = *groupdata0.timelevel(tl).mfab;
       const amrex::IndexType &indextype = mfab0.ixType();
 
@@ -2031,7 +2032,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(gi);
-            const int tl = 0;
+            const tl_t tl{0};
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const int ncomponents = mfab.size();
             if (patchdata.is_cartesian) {
@@ -2240,7 +2241,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(gi);
-            const int tl = 0;
+            const tl_t tl{0};
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
@@ -2325,7 +2326,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
           for (const auto &patchdata : ghext->patches()) {
             for (const auto &leveldata : patchdata.levels()) {
               const auto &groupdata = leveldata.group(gi);
-              const int tl = 0;
+              const tl_t tl{0};
               const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
               const amrex::DistributionMapping &dm = mfab.DistributionMap();
               const int ncomponents = dm.size();

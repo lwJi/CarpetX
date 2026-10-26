@@ -322,7 +322,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
       continue;
 
     if (group.has_storage()) {
-      const int tl = 0;
+      const tl_t tl{0};
 
       std::string groupname = CCTK_FullGroupName(gi.index());
       groupname = regex_replace(groupname, std::regex("::"), "-");
@@ -345,7 +345,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
         for (int vi = 0; vi < group.numvars; ++vi) {
           std::ostringstream buf;
           buf << CCTK_VarName(group.firstvarindex + vi);
-          for (int i = 0; i < tl; ++i)
+          for (int i = 0; i < tl.index(); ++i)
             buf << "_p";
           varnames.at(vi) = buf.str();
         }

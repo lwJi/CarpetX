@@ -607,10 +607,10 @@ void enter_global_mode(cGH *restrict cctkGH) {
     if (group.kind == group_kind::grid_function)
       continue;
     const auto &restrict arraygroupdata = group.array();
-    for (int tl = 0; tl < group.num_timelevels(); ++tl) {
+    for (const tl_t tl : group.timelevels()) {
       const auto &restrict vars = arraygroupdata.timelevel(tl).data;
       for (int vi = 0; vi < group.numvars; ++vi)
-        cctkGH->data[group.firstvarindex + vi][tl] =
+        cctkGH->data[group.firstvarindex + vi][tl.index()] =
             const_cast<void *>(vars.data_at(vi * arraygroupdata.array_size));
     }
   }
@@ -623,9 +623,9 @@ void leave_global_mode(cGH *restrict cctkGH) {
   for (const auto &group : ghext->records()) {
     if (group.kind == group_kind::grid_function)
       continue;
-    for (int tl = 0; tl < group.num_timelevels(); ++tl)
+    for (const tl_t tl : group.timelevels())
       for (int vi = 0; vi < group.numvars; ++vi)
-        cctkGH->data[group.firstvarindex + vi][tl] = nullptr;
+        cctkGH->data[group.firstvarindex + vi][tl.index()] = nullptr;
   }
 
   for (int d = 0; d < dim; ++d)
@@ -732,11 +732,11 @@ void enter_local_mode(cGH *restrict cctkGH,
 
   for (const auto &groupdata : leveldata.groups()) {
     const GridPtrDesc1 grid1(leveldata, groupdata, mfp);
-    for (int tl = 0; tl < groupdata.num_timelevels(); ++tl) {
+    for (const tl_t tl : groupdata.record.timelevels()) {
       const amrex::Array4<CCTK_REAL> vars =
           groupdata.timelevel(tl).mfab->array(mfp.index());
       for (int vi = 0; vi < groupdata.record.numvars; ++vi)
-        cctkGH->data[groupdata.record.firstvarindex + vi][tl] =
+        cctkGH->data[groupdata.record.firstvarindex + vi][tl.index()] =
             grid1.ptr(vars, vi);
     }
   }
@@ -790,9 +790,9 @@ void leave_local_mode(cGH *restrict cctkGH,
     for (int f = 0; f < 2; ++f)
       cctkGH->cctk_bbox[2 * d + f] = undefined;
   for (const auto &groupdata : leveldata.groups())
-    for (int tl = 0; tl < groupdata.num_timelevels(); ++tl)
+    for (const tl_t tl : groupdata.record.timelevels())
       for (int vi = 0; vi < groupdata.record.numvars; ++vi)
-        cctkGH->data[groupdata.record.firstvarindex + vi][tl] = nullptr;
+        cctkGH->data[groupdata.record.firstvarindex + vi][tl.index()] = nullptr;
   assert(in_patch_mode(cctkGH));
 }
 
@@ -1022,7 +1022,8 @@ std::ostream &operator<<(std::ostream &os, const rdwr_t rdwr) {
 
 struct clause_t {
   gi_t gi;
-  int vi, tl;
+  int vi;
+  tl_t tl;
   valid_t valid;
 
   friend bool operator==(const clause_t &x, const clause_t &y) {
@@ -1050,7 +1051,7 @@ std::vector<clause_t> decode_clauses(const cFunctionData *restrict attribute,
     assert(gi.index() >= 0);
     int vi = RDWR.varindex - CCTK_FirstVarIndexI(gi.index());
     assert(vi >= 0 && vi < CCTK_NumVarsInGroupI(gi.index()));
-    int tl = RDWR.timelevel;
+    const tl_t tl{RDWR.timelevel};
     int where;
     switch (rdwr) {
     case rdwr_t::read:
@@ -1747,7 +1748,7 @@ std::vector<seed_run_t> seed_runs(const active_levels_t &active_levels,
                                              min_level);
   active_levels.loop_serially([&](auto &restrict leveldata) {
     std::optional<valid_t> &seed = seeds.at(leveldata.level - min_level);
-    const valid_t level_seed = leveldata.group(gi).timelevel(1).valid(vi);
+    const valid_t level_seed = leveldata.group(gi).timelevel(tl_t{1}).valid(vi);
     assert(!seed || *seed == level_seed);
     seed = level_seed;
   });
@@ -1798,11 +1799,12 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
             cGH *const local_cctkGH = local_cctkGH_ptr.get();
             const int component = local_cctkGH->cctk_component;
             const GridPtrDesc1 grid1(leveldata, groupdata, component);
-            for (int tl = 0; tl < ntls; ++tl) {
+            for (const tl_t tl : groupdata.record.timelevels()) {
               const amrex::Array4<CCTK_REAL> vars =
                   groupdata.timelevel(tl).mfab->array(component);
               for (int vi = 0; vi < groupdata.record.numvars; ++vi)
-                local_cctkGH->data[groupdata.record.firstvarindex + vi][tl] =
+                local_cctkGH
+                    ->data[groupdata.record.firstvarindex + vi][tl.index()] =
                     grid1.ptr(vars, vi);
             }
           }
@@ -1811,7 +1813,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       if (ntls0 > 1) {
         if (group.do_evolve) {
           invalidate(*active_levels, {.gi = gi,
-                                      .tl = 0,
+                                      .tl = tl_t{0},
                                       .where = make_valid_all(),
                                       .event = "CycleTimelevels"});
         } else {
@@ -1821,23 +1823,26 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
               scopes.push_back(open_write(
                   run.levels,
                   {.gi = gi,
-                   .tl = 0,
+                   .tl = tl_t{0},
                    .vi = vi,
                    .fills = run.seed,
                    .keeps = {},
                    .event = "CycleTimelevels (seed from old time level)"}));
           active_levels->loop_serially([&](auto &restrict leveldata) {
             auto &restrict groupdata = leveldata.group(gi);
-            amrex::MultiFab::Copy(*groupdata.timelevel(0).mfab,
-                                  *groupdata.timelevel(1).mfab, 0, 0,
-                                  groupdata.record.numvars,
-                                  groupdata.timelevel(0).mfab->nGrowVect());
+            amrex::MultiFab::Copy(
+                *groupdata.timelevel(tl_t{0}).mfab,
+                *groupdata.timelevel(tl_t{1}).mfab, 0, 0,
+                groupdata.record.numvars,
+                groupdata.timelevel(tl_t{0}).mfab->nGrowVect());
           });
         }
       }
       if (group.do_evolve) {
-        for (int tl = (ntls0 == 1 ? 0 : 1); tl < ntls0; ++tl) {
-          if (tl == 0 && presync_only)
+        for (const tl_t tl : group.timelevels()) {
+          if (ntls0 > 1 && tl == tl_t{0})
+            continue;
+          if (tl == tl_t{0} && presync_only)
             presync_groups.push_back(gi);
           else
             require(*active_levels,
@@ -1851,7 +1856,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       if (ntls0 > 1) {
         ghext->record(gi).array().rotate_timelevels();
         invalidate_array({.gi = gi,
-                          .tl = 0,
+                          .tl = tl_t{0},
                           .where = make_valid_int(),
                           .event = "CycleTimelevels"});
       }
@@ -2245,7 +2250,7 @@ static void check_storage_clauses(const cFunctionData *restrict attribute) {
   };
 
   const auto report = [&](const char *clause_kind, const gi_t gi, int vi,
-                          int tl) {
+                          const tl_t tl) {
     ++offender_count;
     const char *const groupname = CCTK_FullGroupName(gi.index());
     if (vi >= 0) {
@@ -2256,7 +2261,7 @@ static void check_storage_clauses(const cFunctionData *restrict attribute) {
                  "group %s variable %s timelevel %d without active STORAGE",
                  attribute->thorn, attribute->routine, attribute->where,
                  clause_kind, groupname ? groupname : "<unknown>",
-                 varname ? varname : "<unknown>", tl);
+                 varname ? varname : "<unknown>", tl.index());
     } else {
       CCTK_VWARN(CCTK_WARN_ALERT,
                  "Storage check: %s::%s (%s) clause %s references "
@@ -2275,19 +2280,20 @@ static void check_storage_clauses(const cFunctionData *restrict attribute) {
     if (!group_inactive(gi))
       continue;
     const int vi = entry.varindex - CCTK_FirstVarIndexI(gi.index());
+    const tl_t tl{entry.timelevel};
     if (entry.where_rd != 0)
-      report("READS", gi, vi, entry.timelevel);
+      report("READS", gi, vi, tl);
     if (entry.where_wr != 0)
-      report("WRITES", gi, vi, entry.timelevel);
+      report("WRITES", gi, vi, tl);
     if (entry.where_inv != 0)
-      report("INVALIDATES", gi, vi, entry.timelevel);
+      report("INVALIDATES", gi, vi, tl);
   }
 
   for (int n = 0; n < attribute->n_SyncGroups; ++n) {
     const gi_t gi{attribute->SyncGroups[n]};
     if (!group_inactive(gi))
       continue;
-    report("SYNC", gi, /*vi=*/-1, /*tl=*/0);
+    report("SYNC", gi, -1, tl_t{0});
   }
 
   if (offender_count > 0)
@@ -2429,13 +2435,13 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     const std::vector<clause_t> &writes =
         decode_clauses(attribute, rdwr_t::write);
     for (const auto &wr : writes) {
-      const int ntls = ghext->record(wr.gi).num_timelevels();
-      if (ntls == 0)
+      const GHExt::GroupRecord &record = ghext->record(wr.gi);
+      if (!record.has_storage())
         continue;
-      if (wr.tl >= ntls)
-        CCTK_VERROR("Accessing non-existent timelevel %d of variable %s", wr.tl,
-                    CCTK_FullVarName(CCTK_FirstVarIndexI(wr.gi.index()) +
-                                     wr.vi));
+      if (!record.timelevels().contains(wr.tl))
+        CCTK_VERROR(
+            "Accessing non-existent timelevel %d of variable %s", wr.tl.index(),
+            CCTK_FullVarName(CCTK_FirstVarIndexI(wr.gi.index()) + wr.vi));
       clause_t cl = wr;
       cl.valid = valid_t();
       valid_t need;
@@ -2469,9 +2475,9 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       }
     }
     for (const auto &wr : writes) {
-      if (wr.tl >= int(gfs.at(wr.gi.index()).at(wr.vi).size()))
-        gfs.at(wr.gi.index()).at(wr.vi).resize(wr.tl + 1);
-      gfs.at(wr.gi.index()).at(wr.vi).at(wr.tl) |= wr.valid;
+      if (wr.tl.index() >= int(gfs.at(wr.gi.index()).at(wr.vi).size()))
+        gfs.at(wr.gi.index()).at(wr.vi).resize(wr.tl.index() + 1);
+      gfs.at(wr.gi.index()).at(wr.vi).at(wr.tl.index()) |= wr.valid;
     }
 
     checksums = calculate_checksums(*active_levels, gfs);

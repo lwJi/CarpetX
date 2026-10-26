@@ -233,7 +233,7 @@ namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
 
-constexpr int rk_tl = 0;
+constexpr tl_t rk_tl{0};
 
 void require_serial_context() {
   if (omp_in_parallel())
@@ -426,7 +426,8 @@ void rk_step_t::state_updated() {
       if (entry.level.level == 0)
         continue;
       const std::vector<gi_t> &states = entry.groups.states;
-      SyncGroupsByDirIGhostOnly(one_level(entry.level), cctkGH, states, rk_tl);
+      SyncGroupsByDirIGhostOnly(one_level(entry.level), cctkGH, states,
+                                timelevels_t::one(rk_tl));
       fill_refinement_boundary(cctkGH, entry.level, states, stage, nstages,
                                event);
     }
@@ -480,12 +481,13 @@ void RecoverRKBoundary(const active_levels_t &active_levels,
     states.push_back(pair.state);
   std::sort(states.begin(), states.end());
   SyncGroupsByDirIGhostOnly(active_levels, ghext->get_global_cctkGH(), states,
-                            rk_tl);
+                            timelevels_t::one(rk_tl));
   const bool restricted =
       window_is_restricted(window.min_level, window.max_level);
   if (restricted)
-    SyncGroupsByDirIProlongateOnlyAligned(
-        active_levels, ghext->get_global_cctkGH(), states, rk_tl);
+    SyncGroupsByDirIProlongateOnlyAligned(active_levels,
+                                          ghext->get_global_cctkGH(), states,
+                                          timelevels_t::one(rk_tl));
 
   for (const rk_level_t &entry : levels) {
     if (entry.level.level == 0)

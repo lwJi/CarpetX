@@ -33,7 +33,7 @@
 
 namespace PDESolvers {
 
-const int tl = 0;
+const CarpetX::tl_t tl{0};
 
 // TODO: Generalize this
 const Arith::arr<int, 3> indextype{0, 0, 0}; // vertex centred
@@ -131,8 +131,8 @@ void define_point_type() {
             const cGH *restrict const cctkGH) {
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_pt(
-              layout1,
-              static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
+              layout1, static_cast<CCTK_REAL *>(
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
           const Loop::GridDescBase grid(cctkGH);
           grid.loop_all<0, 0, 0>(grid.nghostzones,
                                  [&](const Loop::PointDesc &p) ARITH_INLINE {
@@ -161,8 +161,8 @@ void define_point_type() {
           const int level = lvl.level;
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_ind(
-              layout1,
-              static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_ind)));
+              layout1, static_cast<CCTK_REAL *>(
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_ind)));
           const Loop::GridDescBase grid(cctkGH);
           grid.loop_all<0, 0, 0>(grid.nghostzones,
                                  [&](const Loop::PointDesc &p)
@@ -179,10 +179,11 @@ void define_point_type() {
     const int level = lvl.level;
     const Loop::GF3D2layout layout1(cctkGH, indextype);
     const Loop::GF3D2<CCTK_REAL> gf_pt(
-        layout1, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
-    const Loop::GF3D2<const CCTK_REAL> gf_ind(
         layout1,
-        static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_ind)));
+        static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
+    const Loop::GF3D2<const CCTK_REAL> gf_ind(
+        layout1, static_cast<const CCTK_REAL *>(
+                     CCTK_VarDataPtrI(cctkGH, tl.index(), vn_ind)));
     const Loop::GridDescBase grid(cctkGH);
     grid.loop_all<0, 0, 0>(grid.nghostzones,
                            [&](const Loop::PointDesc &p) ARITH_INLINE {
@@ -202,8 +203,8 @@ void define_point_type() {
             const cGH *restrict const cctkGH) {
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_ind(
-              layout1,
-              static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_ind)));
+              layout1, static_cast<CCTK_REAL *>(
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_ind)));
           const Loop::GridDescBase grid(cctkGH);
           grid.loop_all<0, 0, 0>(grid.nghostzones,
                                  [&](const Loop::PointDesc &p)
@@ -219,10 +220,11 @@ void define_point_type() {
                                              const cGH *restrict const cctkGH) {
     const Loop::GF3D2layout layout1(cctkGH, indextype);
     const Loop::GF3D2<CCTK_REAL> gf_pt(
-        layout1, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
-    const Loop::GF3D2<const CCTK_REAL> gf_ind(
         layout1,
-        static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_ind)));
+        static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
+    const Loop::GF3D2<const CCTK_REAL> gf_ind(
+        layout1, static_cast<const CCTK_REAL *>(
+                     CCTK_VarDataPtrI(cctkGH, tl.index(), vn_ind)));
     const Loop::GridDescBase grid(cctkGH);
     grid.loop_all<0, 0, 0>(grid.nghostzones,
                            [&](const Loop::PointDesc &p) ARITH_INLINE {
@@ -244,8 +246,8 @@ void define_point_type() {
           const int level = lvl.level;
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_ind(
-              layout1,
-              static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_ind)));
+              layout1, static_cast<CCTK_REAL *>(
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_ind)));
           const Loop::GridDescBase grid(cctkGH);
           grid.loop_all<0, 0, 0>(grid.nghostzones,
                                  [&](const Loop::PointDesc &p)
@@ -262,10 +264,11 @@ void define_point_type() {
     const int level = lvl.level;
     const Loop::GF3D2layout layout1(cctkGH, indextype);
     const Loop::GF3D2<CCTK_REAL> gf_pt(
-        layout1, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
-    const Loop::GF3D2<const CCTK_REAL> gf_ind(
         layout1,
-        static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_ind)));
+        static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
+    const Loop::GF3D2<const CCTK_REAL> gf_ind(
+        layout1, static_cast<const CCTK_REAL *>(
+                     CCTK_VarDataPtrI(cctkGH, tl.index(), vn_ind)));
     const Loop::GridDescBase grid(cctkGH);
     grid.loop_all<0, 0, 0>(
         grid.nghostzones, [&](const Loop::PointDesc &p) ARITH_INLINE {
@@ -288,7 +291,7 @@ void define_point_type() {
         const Loop::GF3D2layout layout1(cctkGH, indextype);
         const Loop::GF3D2<const CCTK_REAL> gf_pt(
             layout1, static_cast<const CCTK_REAL *>(
-                         CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
+                         CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
         const Loop::GridDescBase grid(cctkGH);
         Arith::vect<int, 6> npoints1{0, 0, 0, 0, 0, 0};
         grid.loop_all<0, 0, 0>(grid.nghostzones,
@@ -379,8 +382,8 @@ void enumerate_points(
     const int level = lvl.level;
     const Loop::GF3D2layout layout1(cctkGH, indextype);
     const Loop::GF3D2<const CCTK_REAL> gf_pt(
-        layout1,
-        static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
+        layout1, static_cast<const CCTK_REAL *>(
+                     CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
     const Loop::GridDescBase grid(cctkGH);
     int npoints = 0;
     int npoints_prolongated = 0;
@@ -444,11 +447,11 @@ void enumerate_points(
           const int level = lvl.level;
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_idx(
-              layout1,
-              static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
+              layout1, static_cast<CCTK_REAL *>(
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_idx)));
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
-                           CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
           const Loop::GridDescBase grid(cctkGH);
           int idx = npoints_offset + component_offsets.at(level).at(component);
           int idx_prolongated =
@@ -515,10 +518,10 @@ void enumerate_points(
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
-                           CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
           const Loop::GF3D2<const CCTK_REAL> gf_idx(
               layout1, static_cast<const CCTK_REAL *>(
-                           CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_idx)));
           const Loop::GridDescBase grid(cctkGH);
           grid.loop_all<0, 0, 0>(
               grid.nghostzones, [&](const Loop::PointDesc &p) ARITH_INLINE {
@@ -563,10 +566,10 @@ void enumerate_points(
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
-                           CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
           const Loop::GF3D2<const CCTK_REAL> gf_idx(
               layout1, static_cast<const CCTK_REAL *>(
-                           CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_idx)));
           const Loop::GridDescBase grid(cctkGH);
           const auto offset = amrex_origin;
 
@@ -615,10 +618,10 @@ void enumerate_points(
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
-                           CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
           const Loop::GF3D2<const CCTK_REAL> gf_idx(
               layout1, static_cast<const CCTK_REAL *>(
-                           CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_idx)));
           const Loop::GridDescBase grid(cctkGH);
           Arith::vect<int, 3> imin, imax;
           grid.box_all<0, 0, 0>(grid.nghostzones, imin, imax);
@@ -675,10 +678,10 @@ void enumerate_points(
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
-                           CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
           const Loop::GF3D2<const CCTK_REAL> gf_idx(
               layout1, static_cast<const CCTK_REAL *>(
-                           CCTK_VarDataPtrI(cctkGH, tl, vn_idx)));
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_idx)));
           const Loop::GridDescBase grid(cctkGH);
           const auto offset = amrex_origin;
 
@@ -785,13 +788,13 @@ void copy_Cactus_to_PETSc(
     const Loop::GF3D2layout layout1(cctkGH, indextype);
     const Loop::GridDescBase grid(cctkGH);
     const Loop::GF3D2<const CCTK_REAL> gf_pt(
-        layout1,
-        static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
+        layout1, static_cast<const CCTK_REAL *>(
+                     CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
     std::vector<Loop::GF3D2<const CCTK_REAL> > gfs;
     gfs.reserve(nvars);
     for (int n = 0; n < nvars; ++n)
       gfs.emplace_back(layout1, static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(
-                                    cctkGH, tl, varinds.at(n))));
+                                    cctkGH, tl.index(), varinds.at(n))));
     const int component_offset = component_offsets.at(level).at(component);
     int nelems = 0;
     grid.loop_all<0, 0, 0>(
@@ -869,12 +872,12 @@ void copy_PETSc_to_Cactus(
           const Loop::GridDescBase grid(cctkGH);
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
-                           CCTK_VarDataPtrI(cctkGH, tl, vn_pt)));
+                           CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
           std::vector<Loop::GF3D2<CCTK_REAL> > gfs;
           gfs.reserve(nvars);
           for (int n = 0; n < nvars; ++n)
             gfs.emplace_back(layout1, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
-                                          cctkGH, tl, varinds.at(n))));
+                                          cctkGH, tl.index(), varinds.at(n))));
           const int component_offset =
               component_offsets.at(level).at(component);
           int nelems = 0;

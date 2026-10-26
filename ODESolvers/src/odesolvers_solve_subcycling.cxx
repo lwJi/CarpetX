@@ -20,8 +20,8 @@ struct solve_setup_t {
 
 solve_setup_t collect_solve_setup(const CarpetX::window_t window) {
   solve_setup_t s;
-  s.var.timelevel = 0;
-  s.rhs.timelevel = 0;
+  s.var.timelevel = CarpetX::tl_t{0};
+  s.rhs.timelevel = CarpetX::tl_t{0};
   bool do_accumulate_nvars = true;
   window.loop_serially([&](const CarpetX::level_t level) {
     for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
@@ -145,7 +145,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     if (verbose)
       CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
     statecomp_t::lincomb(var, a0, as, vars, CarpetX::make_valid_int());
-    CarpetX::invalidate(window, dep_groups, 0,
+    CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
                         "ODESolvers updated the state vector");
     t = old_time + c;
   };

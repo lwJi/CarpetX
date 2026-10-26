@@ -16,13 +16,13 @@ inline constexpr CCTK_REAL rk_substep_ratio = 0.5;
 void EnsureRKBuffers(int patch, int level, gi_t gi);
 
 void StoreRKOldState(int patch, int level, std::span<const gi_t> var_groups,
-                     int tl);
+                     tl_t tl);
 
 void StoreRKStage(int patch, int level, std::span<const gi_t> var_groups,
                   std::span<const gi_t> rhs_groups, int stage);
 
 void FillRKBoundary(int patch, int level, std::span<const gi_t> var_groups,
-                    int tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
+                    tl_t tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
 bool group_is_integrated(gi_t gi);
 

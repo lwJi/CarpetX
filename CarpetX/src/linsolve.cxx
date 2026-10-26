@@ -21,7 +21,7 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
                    const CCTK_REAL abstol, CCTK_REAL *restrict const res_initial,
                    CCTK_REAL *restrict const res_final) {
   const bool have_res = gi_res.has_value();
-  const int tl = 0;
+  const tl_t tl{0};
   const int vi = 0;
 
   // Create operator

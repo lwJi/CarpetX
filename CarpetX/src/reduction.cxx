@@ -205,7 +205,7 @@ reduce_array(const amrex::Array4<const T> &restrict vars, const int n,
 }
 } // namespace
 
-reduction<CCTK_REAL, dim> reduce(const gi_t gi, const int vi, const int tl) {
+reduction<CCTK_REAL, dim> reduce(const gi_t gi, const int vi, const tl_t tl) {
   DECLARE_CCTK_PARAMETERS;
 
   cGroup group;

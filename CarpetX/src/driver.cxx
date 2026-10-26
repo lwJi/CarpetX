@@ -1251,7 +1251,7 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
   const gi_t gi{CCTK_GroupIndex("CarpetXRegrid::regrid_error")};
   assert(gi.index() >= 0);
   const int vi = 0;
-  const int tl = 0;
+  const tl_t tl{0};
 
   auto &restrict leveldata = ghext->level(patch, level);
   auto &restrict groupdata = leveldata.group(gi);
@@ -1405,7 +1405,7 @@ void GHExt::freeze_storage() {
   for (const GroupRecord &group : records()) {
     if (group.kind == group_kind::grid_function)
       continue;
-    for (int tl = 0; tl < group.num_timelevels(); ++tl)
+    for (const tl_t tl : group.timelevels())
       invalidate_array({.gi = group.groupindex,
                         .tl = tl,
                         .where = make_valid_int(),
@@ -1470,7 +1470,7 @@ void CactusAmrCore::MakeNewLevelFromScratch(
   const auto &leveldata = ghext->level(patch, level);
   const active_levels_t active_levels(level, level + 1, patch, patch + 1);
   for (const auto &groupdata : leveldata.groups()) {
-    for (int tl = 0; tl < groupdata.num_timelevels(); ++tl)
+    for (const tl_t tl : groupdata.record.timelevels())
       invalidate(active_levels, {.gi = groupdata.record.groupindex,
                                  .tl = tl,
                                  .where = make_valid_all(),
@@ -1482,17 +1482,17 @@ void CactusAmrCore::MakeNewLevelFromScratch(
     CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d done.", patch, level);
 }
 
-static int
-regrid_prolongate_tls(const GHExt::PatchData::LevelData::GroupData &groupdata) {
-  const int ntls = groupdata.num_timelevels();
-  return groupdata.record.do_evolve       ? (ntls > 1 ? ntls - 1 : ntls)
-         : groupdata.record.do_checkpoint ? ntls
-                                          : 0;
+static tl_range regrid_prolongate_tls(const GHExt::GroupRecord &record) {
+  const int ntls = record.num_timelevels();
+  const int count = record.do_evolve       ? (ntls > 1 ? ntls - 1 : ntls)
+                    : record.do_checkpoint ? ntls
+                                           : 0;
+  return tl_range{tl_t{0}, tl_t{count}};
 }
 
 static bool
 regrid_source_valid(const GHExt::PatchData::LevelData::GroupData &groupdata,
-                    const int tl) {
+                    const tl_t tl) {
   for (int vi = 0; vi < groupdata.record.numvars; ++vi)
     if (!groupdata.timelevel(tl).valid(vi).valid_all())
       return false;
@@ -1544,12 +1544,11 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
     assert(&coarsegroupdata.record == &groupdata.record);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
-    const int ntls = groupdata.num_timelevels();
-    const int prolongate_tl = regrid_prolongate_tls(groupdata);
+    const tl_range prolongate_tls = regrid_prolongate_tls(groupdata.record);
     const valid_t fills = regrid_fills(groupdata);
 
-    for (int tl = 0; tl < ntls; ++tl) {
-      if (tl < prolongate_tl) {
+    for (const tl_t tl : groupdata.record.timelevels()) {
+      if (prolongate_tls.contains(tl)) {
         const bool do_fill = groupdata.record.do_evolve ||
                              regrid_source_valid(coarsegroupdata, tl);
         if (do_fill) {
@@ -1628,8 +1627,8 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
   const auto transports =
       [](const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
          const GHExt::PatchData::LevelData::GroupData &oldgroupdata,
-         const int tl) {
-        return tl < regrid_prolongate_tls(oldgroupdata) &&
+         const tl_t tl) {
+        return regrid_prolongate_tls(oldgroupdata.record).contains(tl) &&
                (oldgroupdata.record.do_evolve ||
                 (regrid_source_valid(coarsegroupdata, tl) &&
                  regrid_source_valid(oldgroupdata, tl)));
@@ -1640,8 +1639,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     const auto &coarsegroupdata = coarseleveldata.group(gi);
     assert(&coarsegroupdata.record == &groupdata.record);
 
-    const int ntls = groupdata.num_timelevels();
-    for (int tl = 0; tl < ntls; ++tl) {
+    for (const tl_t tl : groupdata.record.timelevels()) {
       if (!transports(coarsegroupdata, groupdata, tl))
         continue;
       require(active_coarse_levels,
@@ -1682,10 +1680,9 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     const valid_t fills = regrid_fills(groupdata);
     assert(fills == make_valid_all());
 
-    const int ntls = groupdata.num_timelevels();
-    const int prolongate_tl = regrid_prolongate_tls(groupdata);
+    const tl_range prolongate_tls = regrid_prolongate_tls(groupdata.record);
 
-    for (int tl = 0; tl < ntls; ++tl) {
+    for (const tl_t tl : groupdata.record.timelevels()) {
       if (transports(coarsegroupdata, oldgroupdata, tl)) {
         const write_scope_t scope = open_write(
             active_levels, {.gi = gi,
@@ -1704,7 +1701,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                    {.gi = gi,
                     .tl = tl,
                     .where = make_valid_all(),
-                    .event = tl < prolongate_tl
+                    .event = prolongate_tls.contains(tl)
                                  ? "RemakeLevel: not prolongated because "
                                    "source was invalid at regrid time"
                                  : "RemakeLevel"});

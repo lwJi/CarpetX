@@ -138,7 +138,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     {
       CarpetX::Interval interval_lincomb(timer_lincomb);
       statecomp_t::lincomb(var, a0, as, vars, CarpetX::make_valid_int());
-      CarpetX::invalidate(window, dep_groups, 0,
+      CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
                           "ODESolvers updated the state vector");
     }
     step.value().state_updated();
@@ -481,7 +481,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
     statecomp_t::lincomb(var, 1, make_array(dt / 2), make_array(&rhs),
                          CarpetX::make_valid_int());
-    CarpetX::invalidate(window, dep_groups, 0,
+    CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
                         "ODESolvers updated the state vector");
     CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep",
                                    old_time + dt / 2, dt);
@@ -509,7 +509,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt, dt),
                          make_array(&y0, &k2, &kprime2),
                          CarpetX::make_valid_int());
-    CarpetX::invalidate(window, dep_groups, 0,
+    CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
                         "ODESolvers updated the state vector");
 
   } else {

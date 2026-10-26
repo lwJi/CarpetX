@@ -633,7 +633,7 @@ void CarpetX::InterpolationSetup::Interpolate(
   const int nprocs = amrex::ParallelDescriptor::NProcs();
   std::vector<std::vector<CCTK_REAL> > results(nprocs); // [nprocs]
 
-  constexpr int tl = 0;
+  constexpr tl_t tl{0};
   struct givi_t {
     gi_t gi;
     int vi;

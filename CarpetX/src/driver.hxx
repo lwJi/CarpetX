@@ -45,6 +45,30 @@ using Loop::dim;
 
 inline constexpr int max_num_rk_stages = 4;
 
+template <class Index> struct index_range {
+  struct iterator {
+    Index current;
+    constexpr Index operator*() const { return current; }
+    constexpr iterator &operator++() {
+      current = Index{current.index() + 1};
+      return *this;
+    }
+    friend constexpr bool operator==(iterator, iterator) = default;
+  };
+
+  constexpr index_range(const Index begin, const Index end)
+      : begin_(begin), end_(end) {}
+  constexpr iterator begin() const { return iterator{begin_}; }
+  constexpr iterator end() const { return iterator{end_}; }
+  constexpr bool contains(const Index i) const {
+    return begin_ <= i && i < end_;
+  }
+
+private:
+  Index begin_, end_;
+};
+using tl_range = index_range<tl_t>;
+
 [[noreturn]] void refuse(std::source_location site, const char *fmt, ...)
     CCTK_ATTRIBUTE_FORMAT(printf, 2, 3);
 
@@ -377,18 +401,18 @@ struct GHExt {
       int bbox[2 * dim];
       int nghostzones[dim];
 
-      const timelevel_t &timelevel(const int tl,
+      const timelevel_t &timelevel(const tl_t tl,
                                    const std::source_location site =
                                        std::source_location::current()) const {
-        if (tl < 0 || tl >= int(tls.size()))
+        if (tl.index() < 0 || tl.index() >= int(tls.size()))
           refuse(site,
                  "time level %d of group %s does not exist: it has %d time "
                  "levels",
-                 tl, record.groupname.c_str(), int(tls.size()));
-        return tls[tl];
+                 tl.index(), record.groupname.c_str(), int(tls.size()));
+        return tls[tl.index()];
       }
       timelevel_t &timelevel(
-          const int tl,
+          const tl_t tl,
           const std::source_location site = std::source_location::current()) {
         return const_cast<timelevel_t &>(
             std::as_const(*this).timelevel(tl, site));
@@ -417,6 +441,9 @@ struct GHExt {
     group_kind kind;
 
     int num_timelevels() const { return num_timelevels_; }
+    tl_range timelevels() const {
+      return tl_range{tl_t{0}, tl_t{num_timelevels_}};
+    }
     bool has_storage() const { return num_timelevels_ > 0; }
 
     const GlobalData::ArrayGroupData &
@@ -591,17 +618,18 @@ struct GHExt {
           friend class write_scope_t;
         };
         const timelevel_t &
-        timelevel(const int tl, const std::source_location site =
-                                    std::source_location::current()) const {
-          if (tl < 0 || tl >= int(tls.size()))
+        timelevel(const tl_t tl, const std::source_location site =
+                                     std::source_location::current()) const {
+          if (tl.index() < 0 || tl.index() >= int(tls.size()))
             refuse(site,
                    "time level %d of group %s does not exist on patch %d, "
                    "refinement level %d: it has %d time levels",
-                   tl, record.groupname.c_str(), patch, level, int(tls.size()));
-          return tls[tl];
+                   tl.index(), record.groupname.c_str(), patch, level,
+                   int(tls.size()));
+          return tls[tl.index()];
         }
         timelevel_t &timelevel(
-            const int tl,
+            const tl_t tl,
             const std::source_location site = std::source_location::current()) {
           return const_cast<timelevel_t &>(
               std::as_const(*this).timelevel(tl, site));

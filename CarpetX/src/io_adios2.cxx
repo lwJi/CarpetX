@@ -276,7 +276,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
               const int numvars = groupdata.record.numvars;
 
-              const int tl = 0;
+              const tl_t tl{0};
               const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
               const int num_local_components = mfab.local_size();
 
@@ -350,7 +350,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             assert(cgroup.dim == 3);
 
             const int numvars = groupdata.record.numvars;
-            const int tl = 0;
+            const tl_t tl{0};
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::IndexType &indextype = mfab.ixType();
 

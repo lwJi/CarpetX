@@ -58,6 +58,11 @@ struct gi_t : index_t<gi_t> {
   using index_t::index_t;
 };
 
+struct tl_t : index_t<tl_t> {
+  using index_t::index_t;
+  constexpr tl_t next() const { return tl_t{index() + 1}; }
+};
+
 enum class symmetry_t {
   none,
   interpatch,
@@ -175,7 +180,7 @@ inline constexpr valid_t make_valid_ghosts() {
 }
 inline constexpr valid_t make_valid_all() { return ~valid_t(); }
 
-const amrex::MultiFab &data(group_t group, int tl);
+const amrex::MultiFab &data(group_t group, tl_t tl);
 
 class write_t {
 public:
@@ -191,11 +196,11 @@ private:
   struct impl;
   std::unique_ptr<impl> p;
   explicit write_t(std::unique_ptr<impl> p) noexcept;
-  friend write_t write(group_t group, int tl, valid_t leaves_valid,
+  friend write_t write(group_t group, tl_t tl, valid_t leaves_valid,
                        const char *what);
 };
 
-write_t write(group_t group, int tl, valid_t leaves_valid, const char *what);
+write_t write(group_t group, tl_t tl, valid_t leaves_valid, const char *what);
 
 class scratch_t {
 public:
@@ -217,18 +222,18 @@ private:
 
 scratch_t scratch(group_t group);
 
-valid_t valid(group_t group, int tl, int vi);
-void require_valid(group_t group, int tl, valid_t where, const char *why);
-void invalidate(window_t window, std::span<const gi_t> groups, int tl,
+valid_t valid(group_t group, tl_t tl, int vi);
+void require_valid(group_t group, tl_t tl, valid_t where, const char *why);
+void invalidate(window_t window, std::span<const gi_t> groups, tl_t tl,
                 const char *why);
 
 void sync(window_t window, std::span<const gi_t> groups);
-void sync_ghosts_only(window_t window, std::span<const gi_t> groups,
-                      int tl = -1);
-void prolongate_ghosts(window_t window, std::span<const gi_t> groups,
-                       int tl = -1);
-void prolongate_aligned(window_t window, std::span<const gi_t> groups,
-                        int tl = -1);
+void sync_ghosts_only(window_t window, std::span<const gi_t> groups);
+void sync_ghosts_only(window_t window, std::span<const gi_t> groups, tl_t tl);
+void prolongate_ghosts(window_t window, std::span<const gi_t> groups);
+void prolongate_ghosts(window_t window, std::span<const gi_t> groups, tl_t tl);
+void prolongate_aligned(window_t window, std::span<const gi_t> groups);
+void prolongate_aligned(window_t window, std::span<const gi_t> groups, tl_t tl);
 void restrict_no_poison(window_t window, std::span<const gi_t> groups);
 void synchronize();
 
@@ -336,7 +341,7 @@ std::ostream &operator<<(std::ostream &os, const reduction<T, D> &red) {
             << "}\n";
 }
 
-reduction<CCTK_REAL, Loop::dim> reduce(gi_t gi, int vi, int tl);
+reduction<CCTK_REAL, Loop::dim> reduce(gi_t gi, int vi, tl_t tl);
 
 class Interval;
 
@@ -383,5 +388,7 @@ public:
 
 template <>
 struct std::hash<CarpetX::gi_t> : CarpetX::index_hash<CarpetX::gi_t> {};
+template <>
+struct std::hash<CarpetX::tl_t> : CarpetX::index_hash<CarpetX::tl_t> {};
 
 #endif

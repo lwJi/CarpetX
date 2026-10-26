@@ -5,6 +5,7 @@
 
 #include "driver.hxx"
 #include "loop.hxx"
+#include "sync_restrict_internal.hxx"
 
 #include <cctk.h>
 #include <cctk_Schedule.h>
@@ -45,16 +46,17 @@ int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,
 
 int SyncGroupsByDirIProlongateOnly(const active_levels_t &active_levels,
                                    const cGH *restrict cctkGH,
-                                   std::span<const gi_t> groups, int tl = -1);
+                                   std::span<const gi_t> groups,
+                                   timelevels_t tls);
 
 int SyncGroupsByDirIProlongateOnlyAligned(const active_levels_t &active_levels,
                                           const cGH *restrict cctkGH,
                                           std::span<const gi_t> groups,
-                                          int tl = -1);
+                                          timelevels_t tls);
 
 int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
                               const cGH *restrict cctkGH,
-                              std::span<const gi_t> groups, int tl = -1);
+                              std::span<const gi_t> groups, timelevels_t tls);
 
 int CallFunction(void *function, cFunctionData *attribute, void *data);
 

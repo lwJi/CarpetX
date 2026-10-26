@@ -299,7 +299,7 @@ void EnsureRKBuffers(const int patch, const int level, const gi_t gi) {
   if (groupdata.rk_crse_patch)
     return;
 
-  const amrex::MultiFab &mfab = *groupdata.timelevel(0).mfab;
+  const amrex::MultiFab &mfab = *groupdata.timelevel(tl_t{0}).mfab;
   const amrex::FabArrayBase::FPinfo &fpc = rk_fill_fpinfo(
       mfab, groupdata.interpolator, patchdata.amrcore->Geom(level),
       patchdata.amrcore->Geom(level - 1));
@@ -327,7 +327,7 @@ void EnsureRKBuffers(const int patch, const int level, const gi_t gi) {
 }
 
 void StoreRKOldState(const int patch, const int level,
-                     const std::span<const gi_t> var_groups, const int tl) {
+                     const std::span<const gi_t> var_groups, const tl_t tl) {
   if (!ghext->use_subcycling)
     return;
   const auto &patchdata = ghext->patch(patch);
@@ -378,12 +378,12 @@ void StoreRKStage(const int patch, const int level,
     if (!childgroupdata.ks_source_band[s])
       continue;
     copy_interior_to_band(*childgroupdata.ks_source_band[s],
-                          *rhs_groupdata.timelevel(0).mfab, period);
+                          *rhs_groupdata.timelevel(tl_t{0}).mfab, period);
   }
 }
 
 void FillRKBoundary(const int patch, const int level,
-                    const std::span<const gi_t> var_groups, const int tl,
+                    const std::span<const gi_t> var_groups, const tl_t tl,
                     const int stage, const CCTK_REAL xsi, const CCTK_REAL dtc) {
   if (level == 0)
     return;
