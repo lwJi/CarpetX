@@ -25,6 +25,7 @@ static inline int omp_in_parallel() { return 0; }
 #include <memory>
 #include <optional>
 #include <source_location>
+#include <span>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -55,15 +56,15 @@ const char *dense_output_name(const rk_dense_output_t dense_output) {
   CCTK_VERROR("CarpetX: unknown rk_dense_output_t value %d", int(dense_output));
 }
 
-void require_grid_function_group(const char *const role, const int gi) {
-  if (gi < 0 || gi >= CCTK_NumGroups())
+void require_grid_function_group(const char *const role, const gi_t gi) {
+  if (gi.index() < 0 || gi.index() >= CCTK_NumGroups())
     CCTK_VERROR("CarpetX::register_integrator: %s group index %d does not "
                 "exist: there are %d groups",
-                role, gi, CCTK_NumGroups());
-  if (CCTK_GroupTypeI(gi) != CCTK_GF)
+                role, gi.index(), CCTK_NumGroups());
+  if (CCTK_GroupTypeI(gi.index()) != CCTK_GF)
     CCTK_VERROR("CarpetX::register_integrator: %s group %s is not a grid "
                 "function group",
-                role, CCTK_FullGroupName(gi));
+                role, CCTK_FullGroupName(gi.index()));
 }
 
 void check_weights(const std::vector<CCTK_REAL> &b) {
@@ -102,47 +103,48 @@ std::string describe_weights(const std::vector<CCTK_REAL> &b) {
 
 void check_pair(const rk_config_t &config, const std::size_t index) {
   const rk_pair_t &pair = config.integrated.at(index);
-  require_grid_function_group("integrated", pair.state_gi);
-  require_grid_function_group("right-hand side", pair.rhs_gi);
-  const char *const state = CCTK_FullGroupName(pair.state_gi);
-  if (pair.rhs_gi == pair.state_gi)
+  require_grid_function_group("integrated", pair.state);
+  require_grid_function_group("right-hand side", pair.rhs);
+  const char *const state = CCTK_FullGroupName(pair.state.index());
+  if (pair.rhs == pair.state)
     CCTK_VERROR("CarpetX::register_integrator: group %s is registered as its "
                 "own right-hand side",
                 state);
-  const int state_nvars = CCTK_NumVarsInGroupI(pair.state_gi);
-  const int rhs_nvars = CCTK_NumVarsInGroupI(pair.rhs_gi);
+  const int state_nvars = CCTK_NumVarsInGroupI(pair.state.index());
+  const int rhs_nvars = CCTK_NumVarsInGroupI(pair.rhs.index());
   if (state_nvars != rhs_nvars)
     CCTK_VERROR("CarpetX::register_integrator: group %s has %d variables, "
                 "but its right-hand side %s has %d",
-                state, state_nvars, CCTK_FullGroupName(pair.rhs_gi), rhs_nvars);
-  if (!get_group_checkpoint_flag(pair.state_gi))
+                state, state_nvars, CCTK_FullGroupName(pair.rhs.index()),
+                rhs_nvars);
+  if (!get_group_checkpoint_flag(pair.state))
     CCTK_VERROR("CarpetX::register_integrator: integrated group %s is tagged "
                 "checkpoint=\"no\"; a checkpoint would omit its state (and, "
                 "under subcycling, its RK source bands), so recovery could "
                 "not restore it; remove the tag",
                 state);
-  if (!get_group_evolve_flag(pair.state_gi))
+  if (!get_group_evolve_flag(pair.state))
     CCTK_VERROR("CarpetX::register_integrator: integrated group %s is tagged "
                 "evolve=\"no\"; a regrid would not reliably refill its "
                 "state; remove the tag",
                 state);
   for (std::size_t other = 0; other < index; ++other) {
     const rk_pair_t &earlier = config.integrated.at(other);
-    if (earlier.state_gi == pair.state_gi)
+    if (earlier.state == pair.state)
       CCTK_VERROR("CarpetX::register_integrator: group %s is registered as "
                   "integrated state twice",
                   state);
-    if (earlier.rhs_gi == pair.rhs_gi)
+    if (earlier.rhs == pair.rhs)
       CCTK_VERROR("CarpetX::register_integrator: group %s is registered as "
                   "the right-hand side of both %s and %s",
-                  CCTK_FullGroupName(pair.rhs_gi),
-                  CCTK_FullGroupName(earlier.state_gi), state);
+                  CCTK_FullGroupName(pair.rhs.index()),
+                  CCTK_FullGroupName(earlier.state.index()), state);
   }
   for (const rk_pair_t &other : config.integrated)
-    if (other.rhs_gi == pair.state_gi)
+    if (other.rhs == pair.state)
       CCTK_VERROR("CarpetX::register_integrator: group %s is registered both "
                   "as integrated state and as the right-hand side of %s",
-                  state, CCTK_FullGroupName(other.state_gi));
+                  state, CCTK_FullGroupName(other.state.index()));
 }
 
 } // namespace
@@ -175,14 +177,14 @@ void register_integrator(const rk_config_t &config) {
     check_pair(config, index);
   if (do_reflux && max_num_levels > 1 && !config.feeds_flux_registers())
     for (const rk_pair_t &pair : config.integrated)
-      if (get_group_fluxes(pair.state_gi)[0] >= 0)
+      if (get_group_fluxes(pair.state))
         CCTK_VERROR("CarpetX::register_integrator: CarpetX::do_reflux = yes "
                     "with CarpetX::max_num_levels = %d needs an integrator "
                     "that feeds the flux registers at every stage (registered "
                     "weights b), but it registered no weights and integrates "
                     "group %s, which carries a fluxes= tag; register an "
                     "explicit method or set CarpetX::do_reflux = no",
-                    int(max_num_levels), CCTK_FullGroupName(pair.state_gi));
+                    int(max_num_levels), CCTK_FullGroupName(pair.state.index()));
   ext.rk_config = config;
   CCTK_VINFO("Registered the time integrator: %d RK stages, dense output %s, "
              "%d integrated group%s, %s",
@@ -219,7 +221,7 @@ void run_schedule_group_at(const cGH *const cctkGH_, const char *const group,
 }
 
 struct integrated_groups_t {
-  std::vector<int> states, rhss;
+  std::vector<gi_t> states, rhss;
 };
 
 struct rk_level_t {
@@ -231,7 +233,7 @@ namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
 
-constexpr int rk_tl = 0;
+constexpr tl_t rk_tl{0};
 
 void require_serial_context() {
   if (omp_in_parallel())
@@ -241,10 +243,11 @@ void require_serial_context() {
 }
 
 std::string describe(const window_t &window) {
+  const auto levels = window.level_bounds();
+  const auto patches = window.patch_bounds();
   std::ostringstream buf;
-  buf << "patches [" << window.min_patch << ", " << window.max_patch
-      << "), refinement levels [" << window.min_level << ", "
-      << window.max_level << ")";
+  buf << "patches [" << patches.min << ", " << patches.max
+      << "), refinement levels [" << levels.min << ", " << levels.max << ")";
   return buf.str();
 }
 
@@ -254,16 +257,16 @@ integrated_groups_t integrated_groups_with_storage(const level_t level,
   ext.level(level);
   integrated_groups_t groups;
   for (const rk_pair_t &pair : config.integrated) {
-    if (!ext.record(pair.state_gi).has_storage())
+    if (!ext.record(pair.state).has_storage())
       continue;
-    if (!ext.record(pair.rhs_gi).has_storage())
+    if (!ext.record(pair.rhs).has_storage())
       refuse(std::source_location::current(),
              "integrated group %s has storage on patch %d, refinement level "
              "%d, but its right-hand side %s has none",
-             CCTK_FullGroupName(pair.state_gi), level.patch, level.level,
-             CCTK_FullGroupName(pair.rhs_gi));
-    groups.states.push_back(pair.state_gi);
-    groups.rhss.push_back(pair.rhs_gi);
+             CCTK_FullGroupName(pair.state.index()), level.patch().index(),
+             level.index(), CCTK_FullGroupName(pair.rhs.index()));
+    groups.states.push_back(pair.state);
+    groups.rhss.push_back(pair.rhs);
   }
   return groups;
 }
@@ -271,39 +274,38 @@ integrated_groups_t integrated_groups_with_storage(const level_t level,
 std::vector<rk_level_t> integrated_levels(const window_t window,
                                           const rk_config_t &config) {
   std::vector<rk_level_t> levels;
-  active_levels_t(window).loop_coarse_to_fine(
-      [&](const GHExt::PatchData::LevelData &leveldata) {
-        const level_t level{leveldata.patch, leveldata.level};
-        levels.push_back(
-            {level, integrated_groups_with_storage(level, config)});
+  loop_coarse_to_fine(
+      window, [&](const GHExt::PatchData::LevelData &leveldata) {
+        levels.push_back({leveldata.level, integrated_groups_with_storage(
+                                               leveldata.level, config)});
       });
   return levels;
 }
 
 bool aligned_with_parent(const level_t level) {
-  const GHExt::PatchData &patchdata = driver().patch(level.patch);
-  return patchdata.level(level.level).iteration ==
-         patchdata.level(level.level - 1).iteration;
+  return driver().level(level).iteration ==
+         driver().level(level.parent()).iteration;
 }
 
 void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
-                              const std::vector<int> &states, const int stage,
-                              const int nstages, const std::string &event) {
+                              const std::span<const gi_t> states,
+                              const int stage, const int nstages,
+                              const std::string &event) {
   assert(driver().use_subcycling);
-  assert(level.level > 0);
+  assert(level.index() > 0);
   assert(stage >= 1 && stage <= nstages);
   const GHExt::PatchData::LevelData &leveldata = driver().level(level);
   const GHExt::PatchData::LevelData &parentdata =
-      driver().level(level.patch, level.level - 1);
+      driver().level(level.parent());
   const CCTK_REAL substep_start =
       aligned_with_parent(level) ? rk_substep_ratio : 0;
   const CCTK_REAL dtc =
       cctkGH->cctk_delta_time * CCTK_REAL(parentdata.delta_iteration);
   assert(std::isfinite(dtc) && dtc > 0);
   const bool end_of_substep = stage == nstages;
-  const active_levels_t window = one_level(level);
+  const window_t window = window_t::one_level(level);
   std::vector<write_scope_t> scopes;
-  for (const int gi : states) {
+  for (const gi_t gi : states) {
     const GroupData &groupdata = leveldata.group(gi);
     const valid_t outer = groupdata.all_faces_have_symmetries_or_boundaries()
                               ? make_valid_outer()
@@ -315,7 +317,7 @@ void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
                                          .event = event}));
   }
   FillRKBoundary(
-      level.patch, level.level, states, rk_tl, end_of_substep ? 1 : stage + 1,
+      level, states, rk_tl, end_of_substep ? 1 : stage + 1,
       end_of_substep ? substep_start + rk_substep_ratio : substep_start, dtc);
 }
 
@@ -325,7 +327,7 @@ struct rk_step_t::impl {
   window_t window;
   int nstages;
   std::vector<CCTK_REAL> b;
-  std::vector<int> states;
+  std::vector<gi_t> states;
   std::vector<rk_level_t> levels;
   int rhs_count = 0;
   int update_count = 0;
@@ -335,20 +337,19 @@ rk_step_t open_rk_step(const window_t window) {
   const operation_scope_t op("CarpetX::open_rk_step");
   const rk_config_t &config = require_integrator();
   require_serial_context();
-  auto step = std::make_unique<rk_step_t::impl>();
-  step->window = window;
+  auto step =
+      std::unique_ptr<rk_step_t::impl>(new rk_step_t::impl{.window = window});
   step->nstages = config.nstages();
   step->b = config.b;
   for (const rk_pair_t &pair : config.integrated)
-    step->states.push_back(pair.state_gi);
+    step->states.push_back(pair.state);
   step->levels = integrated_levels(window, config);
   for (const rk_level_t &entry : step->levels) {
-    for (const int gi : entry.groups.states)
+    for (const gi_t gi : entry.groups.states)
       require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),
                     "CarpetX::open_rk_step: the RK step starts from the "
                     "state's current time level");
-    StoreRKOldState(entry.level.patch, entry.level.level, entry.groups.states,
-                    rk_tl);
+    StoreRKOldState(entry.level, entry.groups.states, rk_tl);
   }
   synchronize();
   return rk_step_t(std::move(step));
@@ -388,15 +389,14 @@ void rk_step_t::rhs_computed() {
                           std::to_string(p->nstages) +
                           " reads the interior of the right-hand side";
   for (const rk_level_t &entry : p->levels)
-    for (const int gi : entry.groups.rhss)
+    for (const gi_t gi : entry.groups.rhss)
       require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),
                     why.c_str());
   for (const rk_level_t &entry : p->levels) {
     const CCTK_REAL dt =
         delta_time * CCTK_REAL(driver().level(entry.level).delta_iteration);
-    AccumulateFluxes(entry.level.patch, entry.level.level, stage, weight * dt);
-    StoreRKStage(entry.level.patch, entry.level.level, entry.groups.states,
-                 entry.groups.rhss, stage);
+    AccumulateFluxes(entry.level, stage, weight * dt);
+    StoreRKStage(entry.level, entry.groups.states, entry.groups.rhss, stage);
   }
   synchronize();
 }
@@ -420,16 +420,16 @@ void rk_step_t::state_updated() {
         "CarpetX::rk_step_t::state_updated after RK stage " +
         std::to_string(stage) + " of " + std::to_string(nstages);
     for (const rk_level_t &entry : p->levels) {
-      if (entry.level.level == 0)
+      if (entry.level.index() == 0)
         continue;
-      const std::vector<int> &states = entry.groups.states;
-      SyncGroupsByDirIGhostOnly(one_level(entry.level), cctkGH, states.size(),
-                                states.data(), nullptr, rk_tl);
+      const std::vector<gi_t> &states = entry.groups.states;
+      SyncGroupsByDirIGhostOnly(window_t::one_level(entry.level), cctkGH,
+                                states, timelevels_t::one(rk_tl));
       fill_refinement_boundary(cctkGH, entry.level, states, stage, nstages,
                                event);
     }
   } else if (stage == p->nstages) {
-    Reflux(cctkGH, p->window.min_level, p->window.max_level);
+    Reflux(cctkGH, p->window);
   }
   synchronize();
 }
@@ -444,15 +444,13 @@ rk_step_t::~rk_step_t() {
                 describe(p->window).c_str(), p->update_count, p->nstages);
 }
 
-void RecoverRKBoundary(const active_levels_t &active_levels,
-                       const cGH *const cctkGH) {
+void RecoverRKBoundary(const window_t window, const cGH *const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
   if (!ghext->use_subcycling)
     return;
   const std::optional<rk_config_t> &integrator = ghext->rk();
   if (!integrator || integrator->integrated.empty())
     return;
-  const window_t window = active_levels.window();
   const operation_scope_t op("CarpetX::RecoverRKBoundary");
 
   if (verbose)
@@ -467,35 +465,33 @@ void RecoverRKBoundary(const active_levels_t &active_levels,
 
   const std::vector<rk_level_t> levels = integrated_levels(window, *integrator);
   for (const rk_level_t &entry : levels)
-    for (const int gi : entry.groups.states)
+    for (const gi_t gi : entry.groups.states)
       require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),
                     "CarpetX::RecoverRKBoundary requires the tl=0 interior of "
                     "the integrated groups to be populated by checkpoint "
                     "recovery");
 
-  std::vector<int> states;
+  std::vector<gi_t> states;
   for (const rk_pair_t &pair : integrator->integrated)
-    states.push_back(pair.state_gi);
+    states.push_back(pair.state);
   std::sort(states.begin(), states.end());
-  SyncGroupsByDirIGhostOnly(active_levels, ghext->get_global_cctkGH(),
-                            states.size(), states.data(), nullptr, rk_tl);
-  const bool restricted =
-      window_is_restricted(window.min_level, window.max_level);
+  SyncGroupsByDirIGhostOnly(window, ghext->get_global_cctkGH(), states,
+                            timelevels_t::one(rk_tl));
+  const bool restricted = window_is_restricted(window);
   if (restricted)
-    SyncGroupsByDirIProlongateOnlyAligned(
-        active_levels, ghext->get_global_cctkGH(), states.size(), states.data(),
-        nullptr, rk_tl);
+    SyncGroupsByDirIProlongateOnlyAligned(window, ghext->get_global_cctkGH(),
+                                          states, timelevels_t::one(rk_tl));
 
   for (const rk_level_t &entry : levels) {
-    if (entry.level.level == 0)
+    if (entry.level.index() == 0)
       continue;
     const bool aligned = aligned_with_parent(entry.level);
-    if (aligned != (entry.level.level > window.min_level))
+    if (aligned != (entry.level.index() > window.level_bounds().min))
       CCTK_VERROR("CarpetX::RecoverRKBoundary on %s: refinement level %d is "
                   "%s its parent, but recovery traverses each clock group "
                   "separately, so only the group's coarsest level lags its "
                   "parent",
-                  describe(window).c_str(), entry.level.level,
+                  describe(window).c_str(), entry.level.index(),
                   aligned ? "aligned with" : "lagging");
     if (restricted && aligned)
       continue;

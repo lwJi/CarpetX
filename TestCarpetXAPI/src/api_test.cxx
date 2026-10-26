@@ -11,6 +11,7 @@
 #include <AMReX_MFIter.H>
 #include <AMReX_MultiFab.H>
 
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <vector>
@@ -18,7 +19,7 @@
 namespace TestCarpetXAPI {
 using namespace Loop;
 
-constexpr int tl = 0;
+constexpr CarpetX::tl_t tl{0};
 
 template <typename T>
 AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE T written_function(const T x,
@@ -29,17 +30,17 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE T written_function(const T x,
   return cos(pi * x) * cos(pi * y) * cos(pi * z);
 }
 
-int state_group() {
+CarpetX::gi_t state_group() {
   const int gi = CCTK_GroupIndex("TestCarpetXAPI::state");
   assert(gi >= 0);
-  return gi;
+  return CarpetX::gi_t{gi};
 }
 
-int group(const char *const name) {
+CarpetX::gi_t group(const char *const name) {
   const int gi = CCTK_GroupIndex(name);
   if (gi < 0)
     CCTK_VERROR("Group %s does not exist", name);
-  return gi;
+  return CarpetX::gi_t{gi};
 }
 
 CarpetX::rk_config_t integrator(const char *const state, const char *const rhs,
@@ -68,10 +69,9 @@ extern "C" int TestCarpetXAPI_Startup() {
   DECLARE_CCTK_PARAMETERS;
 
   if (CCTK_EQUALS(mode, "window-outside-traversal")) {
-    const CarpetX::window_t window = CarpetX::active_window();
-    CCTK_VERROR("CarpetX::active_window reported levels [%d,%d) at STARTUP, "
-                "where the driver has not opened a traversal",
-                window.min_level, window.max_level);
+    CarpetX::active_window();
+    CCTK_ERROR("CarpetX::active_window returned a window at STARTUP, where the "
+               "driver has not opened a traversal");
   }
   return 0;
 }
@@ -126,11 +126,11 @@ extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
 
 void require_flags(const CarpetX::group_t group,
                    const CarpetX::valid_t expected, const char *const when) {
-  const CarpetX::valid_t found = CarpetX::valid(group, tl, 0);
+  const CarpetX::valid_t found = CarpetX::valid(group, tl, CarpetX::vi_t{0});
   if (found != expected)
     CCTK_VERROR("TestCarpetXAPI::state on patch %d, refinement level %d is "
                 "%s %s; expected %s",
-                group.level.patch, group.level.level,
+                group.level.patch().index(), group.level.index(),
                 std::string(found).c_str(), when,
                 std::string(expected).c_str());
 }
@@ -167,32 +167,34 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     CCTK_ERROR("CarpetX::open_rk_step ran without a registered integrator");
   }
 
-  const int gi = state_group();
-  const std::vector<int> groups{gi};
+  const CarpetX::gi_t gi = state_group();
+  const std::array groups{gi};
   const CarpetX::window_t window = CarpetX::active_window();
 
   if (CCTK_EQUALS(mode, "level-missing")) {
-    const CarpetX::write_t write =
-        CarpetX::write(CarpetX::group_t{CarpetX::level_t{0, 99}, gi}, tl,
-                       CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
+    const CarpetX::write_t write = CarpetX::write(
+        CarpetX::group_t{CarpetX::level_t{CarpetX::patch_t{0}, 99}, gi}, tl,
+        CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
     CCTK_ERROR("CarpetX::write accepted a handle to refinement level 99, "
                "which does not exist");
   }
   if (CCTK_EQUALS(mode, "timelevel-missing")) {
-    const CarpetX::write_t write =
-        CarpetX::write(CarpetX::group_t{CarpetX::level_t{0, 0}, gi}, 7,
-                       CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
+    const CarpetX::write_t write = CarpetX::write(
+        CarpetX::group_t{CarpetX::level_t{CarpetX::patch_t{0}, 0}, gi},
+        CarpetX::tl_t{7}, CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
     CCTK_ERROR("CarpetX::write accepted time level 7 of state, which has no "
                "such time level");
   }
 
   if (CCTK_EQUALS(mode, "prolongate-unwritten-parent") &&
-      window.max_level > 1) {
-    CarpetX::prolongate_ghosts(window, {group("TestCarpetXAPI::state_rhs")});
+      window.level_bounds().max > 1) {
+    CarpetX::prolongate_ghosts(window,
+                               std::array{group("TestCarpetXAPI::state_rhs")});
     CCTK_ERROR("CarpetX::prolongate_ghosts filled the ghosts of state_rhs on "
                "level 1 from a parent level that nothing has written");
   }
-  if (CCTK_EQUALS(mode, "sync-invalid-coarse") && window.max_level > 1) {
+  if (CCTK_EQUALS(mode, "sync-invalid-coarse") &&
+      window.level_bounds().max > 1) {
     std::vector<CarpetX::write_t> writes;
     window.loop_serially([&](const CarpetX::level_t level) {
       writes.push_back(CarpetX::write(CarpetX::group_t{level, gi}, tl,
@@ -201,15 +203,13 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
       fill_interior(level, writes.back().mfab());
     });
     writes.clear();
-    CarpetX::invalidate(
-        CarpetX::window_t{0, 1, window.min_patch, window.max_patch}, groups, tl,
-        "TestCarpetXAPI_Fill");
+    CarpetX::invalidate(window.narrow(0, 1), groups, tl, "TestCarpetXAPI_Fill");
     CarpetX::sync(window, groups);
     CCTK_ERROR("CarpetX::sync read the interior of state on level 0 after it "
                "had been invalidated");
   }
 
-  if (window.min_level != 0 || window.max_level != 1)
+  if (window.level_bounds().max != 1)
     return;
 
   window.loop_serially([&](const CarpetX::level_t level) {
@@ -303,7 +303,8 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
                            "TestCarpetXAPI_Fill after CarpetX::sync");
   });
 
-  const CarpetX::reduction<CCTK_REAL, dim> red = CarpetX::reduce(gi, 0, tl);
+  const CarpetX::reduction<CCTK_REAL, dim> red =
+      CarpetX::reduce(gi, CarpetX::vi_t{0}, tl);
   if (!(red.min >= -1 && red.max <= 1 && red.vol > 0))
     CCTK_VERROR("CarpetX::reduce reports min %g, max %g, vol %g for "
                 "TestCarpetXAPI::state; expected a product of cosines on a "

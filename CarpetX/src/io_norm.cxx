@@ -62,7 +62,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
 
   const bool is_root = CCTK_MyProc(nullptr) == 0;
   const std::string sep = "\t";
-  const int tl = 0;
+  const tl_t tl{0};
   const int numgroups = CCTK_NumGroups();
   std::vector<std::string> reductions = {"min",    "max",    "sum",
                                          "avg",    "stddev", "volume",
@@ -102,23 +102,24 @@ void OutputNorms(const cGH *restrict cctkGH) {
 
   if (is_root) {
     if (group_enabled_changed) {
-      for (int gi = 0; gi < numgroups; ++gi) {
-        if (!group_enabled.at(gi))
+      for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+        const gi_t gi{gi0};
+        if (!group_enabled.at(gi.index()))
           continue;
         const auto &group = ghext->record(gi);
         if (group.kind != group_kind::grid_function || !group.has_storage())
           continue;
 
-        const int patch = 0;
+        const patch_t patch{0};
         const GHExt::PatchData &restrict patchdata = ghext->patch(patch);
-        const int level = 0;
+        const level_t level{patch, 0};
         const GHExt::PatchData::LevelData &restrict leveldata =
             patchdata.level(level);
         const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
             leveldata.group(gi);
 
         bool group_has_valid_variables = false;
-        for (int vi = 0; vi < group.numvars; ++vi) {
+        for (const vi_t vi : group.variables()) {
           if (!groupdata.timelevel(tl).valid(vi).valid_int)
             continue;
           group_has_valid_variables = true;
@@ -127,7 +128,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
           continue;
 
         std::ostringstream buf;
-        std::string groupname = CCTK_FullGroupName(gi);
+        std::string groupname = CCTK_FullGroupName(gi.index());
         groupname = std::regex_replace(groupname, std::regex("::"), "-");
         for (auto &ch : groupname)
           ch = std::tolower(ch);
@@ -140,11 +141,11 @@ void OutputNorms(const cGH *restrict cctkGH) {
         file << "# " << ++col << ":iteration";
         file << sep << ++col << ":time";
 
-        for (int vi = 0; vi < group.numvars; ++vi) {
+        for (const vi_t vi : group.variables()) {
           if (!groupdata.timelevel(tl).valid(vi).valid_int)
             continue;
 
-          std::string varname = CCTK_FullVarName(group.firstvarindex + vi);
+          std::string varname = CCTK_FullVarName(group.var(vi).index());
           for (auto &ch : varname)
             ch = std::tolower(ch);
           for (const auto &reduction : reductions)
@@ -157,23 +158,24 @@ void OutputNorms(const cGH *restrict cctkGH) {
     }
   }
 
-  for (int gi = 0; gi < numgroups; ++gi) {
-    if (!group_enabled.at(gi))
+  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+    const gi_t gi{gi0};
+    if (!group_enabled.at(gi.index()))
       continue;
     const auto &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function || !group.has_storage())
       continue;
 
-    const int patch = 0;
+    const patch_t patch{0};
     const GHExt::PatchData &restrict patchdata = ghext->patch(patch);
-    const int level = 0;
+    const level_t level{patch, 0};
     const GHExt::PatchData::LevelData &restrict leveldata =
         patchdata.level(level);
     const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
         leveldata.group(gi);
 
     bool group_has_valid_variables = false;
-    for (int vi = 0; vi < group.numvars; ++vi) {
+    for (const vi_t vi : group.variables()) {
       if (!groupdata.timelevel(tl).valid(vi).valid_int)
         continue;
       group_has_valid_variables = true;
@@ -185,7 +187,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
     output_file_description_t ofd;
     if (is_root) {
       std::ostringstream buf;
-      std::string groupname = CCTK_FullGroupName(gi);
+      std::string groupname = CCTK_FullGroupName(gi.index());
       groupname = std::regex_replace(groupname, std::regex("::"), "-");
       for (auto &ch : groupname)
         ch = std::tolower(ch);
@@ -202,12 +204,12 @@ void OutputNorms(const cGH *restrict cctkGH) {
       file << cctk_iteration << sep << cctk_time;
     }
 
-    for (int vi = 0; vi < groupdata.record.numvars; ++vi) {
+    for (const vi_t vi : groupdata.record.variables()) {
       if (!groupdata.timelevel(tl).valid(vi).valid_int)
         continue;
 
       ofd.variables.push_back(
-          CCTK_FullVarName(groupdata.record.firstvarindex + vi));
+          CCTK_FullVarName(groupdata.record.var(vi).index()));
 
       const reduction<CCTK_REAL, dim> red = reduce(gi, vi, tl);
 

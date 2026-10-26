@@ -43,8 +43,8 @@ extern "C" void TestLoopX_OutermostInterior(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestLoopX_OutermostInterior;
   DECLARE_CCTK_PARAMETERS;
 
-  const auto symmetries =
-      CarpetX::symmetries(CarpetX::level_t{cctk_patch, cctk_level});
+  const auto symmetries = CarpetX::symmetries(
+      CarpetX::level_t{CarpetX::patch_t{cctk_patch}, cctk_level});
   const vect<vect<bool, Loop::dim>, 2> is_sym_bnd {
     {
       symmetries[0][0] != CarpetX::symmetry_t::none,

@@ -258,7 +258,7 @@ rk_fill_fpinfo(const amrex::MultiFab &finemfab,
 
 } // namespace
 
-void EnsureRKBuffers(const int patch, const int level, const int gi) {
+void EnsureRKBuffers(const level_t level, const gi_t gi) {
   // The buffers only exist under subcycling, and only for the groups the time
   // integrator advances: it alone fills the bands (StoreRKOldState /
   // StoreRKStage) and publishes that set, read through group_is_integrated.
@@ -279,8 +279,8 @@ void EnsureRKBuffers(const int patch, const int level, const int gi) {
   if (!group_is_integrated(gi))
     return;
 
-  assert(level >= 1);
-  const auto &patchdata = ghext->patch(patch);
+  assert(level.index() >= 1);
+  const auto &patchdata = ghext->patch(level.patch());
   const auto &leveldata = patchdata.level(level);
   const GroupData &groupdata = leveldata.group(gi);
   const int num_rk_stages = CarpetX::num_rk_stages();
@@ -299,10 +299,10 @@ void EnsureRKBuffers(const int patch, const int level, const int gi) {
   if (groupdata.rk_crse_patch)
     return;
 
-  const amrex::MultiFab &mfab = *groupdata.timelevel(0).mfab;
+  const amrex::MultiFab &mfab = *groupdata.timelevel(tl_t{0}).mfab;
   const amrex::FabArrayBase::FPinfo &fpc = rk_fill_fpinfo(
-      mfab, groupdata.interpolator, patchdata.amrcore->Geom(level),
-      patchdata.amrcore->Geom(level - 1));
+      mfab, groupdata.interpolator, patchdata.amrcore->Geom(level.index()),
+      patchdata.amrcore->Geom(level.parent().index()));
   // Empty coarse-fine footprint: all buffers stay null
   if (fpc.ba_crse_patch.empty())
     return;
@@ -326,29 +326,27 @@ void EnsureRKBuffers(const int patch, const int level, const int gi) {
   assert(have_all_or_none());
 }
 
-void StoreRKOldState(const int patch, const int level,
-                     const std::vector<int> &var_groups, const int tl) {
+void StoreRKOldState(const level_t level,
+                     const std::span<const gi_t> var_groups, const tl_t tl) {
   if (!ghext->use_subcycling)
     return;
-  const auto &patchdata = ghext->patch(patch);
+  const auto &patchdata = ghext->patch(level.patch());
   const auto &leveldata = patchdata.level(level);
-  const bool have_child = level + 1 < patchdata.num_levels();
-  // The bands sit in this level's index space: this level's periodicity
+  const std::optional<level_t> child = level.child();
   const amrex::Periodicity &period =
-      patchdata.amrcore->Geom(level).periodicity();
+      patchdata.amrcore->Geom(level.index()).periodicity();
 
-  for (const int gi : var_groups) {
+  for (const gi_t gi : var_groups) {
     const GroupData &groupdata = leveldata.group(gi);
     if (!group_is_integrated(gi))
       CCTK_VERROR("Group \"%s\" is integrated under subcycling but is not "
                   "among the integrated groups the time integrator registered "
                   "(CarpetX::register_integrator, AT WRAGH)",
-                  CCTK_FullGroupName(gi));
-    // The finest level has no children to prolongate to.
-    if (!have_child)
+                  CCTK_FullGroupName(gi.index()));
+    if (!child)
       continue;
-    EnsureRKBuffers(patch, level + 1, gi);
-    const GroupData &childgroupdata = patchdata.level(level + 1).group(gi);
+    EnsureRKBuffers(*child, gi);
+    const GroupData &childgroupdata = patchdata.level(*child).group(gi);
     if (!childgroupdata.old_source_band)
       continue;
     copy_interior_to_band(*childgroupdata.old_source_band,
@@ -356,21 +354,21 @@ void StoreRKOldState(const int patch, const int level,
   }
 }
 
-void StoreRKStage(const int patch, const int level,
-                  const std::vector<int> &var_groups,
-                  const std::vector<int> &rhs_groups, const int stage) {
+void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
+                  const std::span<const gi_t> rhs_groups, const int stage) {
   if (!ghext->use_subcycling)
     return;
   assert(stage >= 1 && stage <= num_rk_stages());
   assert(var_groups.size() == rhs_groups.size());
   const int s = stage - 1;
-  const auto &patchdata = ghext->patch(patch);
-  if (level + 1 >= patchdata.num_levels())
+  const auto &patchdata = ghext->patch(level.patch());
+  const std::optional<level_t> child = level.child();
+  if (!child)
     return;
   const auto &leveldata = patchdata.level(level);
-  const auto &childleveldata = patchdata.level(level + 1);
+  const auto &childleveldata = patchdata.level(*child);
   const amrex::Periodicity &period =
-      patchdata.amrcore->Geom(level).periodicity();
+      patchdata.amrcore->Geom(level.index()).periodicity();
 
   for (size_t i = 0; i < var_groups.size(); ++i) {
     const GroupData &childgroupdata = childleveldata.group(var_groups[i]);
@@ -378,23 +376,24 @@ void StoreRKStage(const int patch, const int level,
     if (!childgroupdata.ks_source_band[s])
       continue;
     copy_interior_to_band(*childgroupdata.ks_source_band[s],
-                          *rhs_groupdata.timelevel(0).mfab, period);
+                          *rhs_groupdata.timelevel(tl_t{0}).mfab, period);
   }
 }
 
-void FillRKBoundary(const int patch, const int level,
-                    const std::vector<int> &var_groups, const int tl,
-                    const int stage, const CCTK_REAL xsi, const CCTK_REAL dtc) {
-  if (level == 0)
+void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
+                    const tl_t tl, const int stage, const CCTK_REAL xsi,
+                    const CCTK_REAL dtc) {
+  if (level.index() == 0)
     return;
   if (!ghext->use_subcycling)
     return;
 
-  auto &patchdata = ghext->patch(patch);
+  auto &patchdata = ghext->patch(level.patch());
   auto &leveldata = patchdata.level(level);
-  const auto &coarseleveldata = patchdata.level(level - 1);
-  const auto &fgeom = patchdata.amrcore->Geom(level);
-  const auto &cgeom = patchdata.amrcore->Geom(level - 1);
+  const level_t parent = level.parent();
+  const auto &coarseleveldata = patchdata.level(parent);
+  const auto &fgeom = patchdata.amrcore->Geom(level.index());
+  const auto &cgeom = patchdata.amrcore->Geom(parent.index());
   const rk_dense_output_t dense_output = registered_dense_output();
 
   // We need to loop over groups in a definite order so that AMReX's
@@ -406,7 +405,7 @@ void FillRKBoundary(const int patch, const int level,
   task_manager tasks2;
   task_manager tasks3;
 
-  for (const int gi : var_groups) {
+  for (const gi_t gi : var_groups) {
     GroupData &groupdata = leveldata.group(gi);
     const GroupData &coarsegroupdata = coarseleveldata.group(gi);
     assert(coarsegroupdata.record.numvars == groupdata.record.numvars);

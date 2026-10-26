@@ -64,9 +64,9 @@ extern "C" void TestRestrictTags_Init(CCTK_ARGUMENTS) {
 }
 
 extern "C" void TestRestrictTags_RestrictExplicit(CCTK_ARGUMENTS) {
-  const int gi = CCTK_GroupIndex("TestRestrictTags::nr_explicit");
-  assert(gi >= 0);
-  const std::vector<int> groups{gi};
+  const CarpetX::gi_t gi{CCTK_GroupIndex("TestRestrictTags::nr_explicit")};
+  assert(gi.index() >= 0);
+  const std::array groups{gi};
   CarpetX::restrict_no_poison(CarpetX::active_window(), groups);
 }
 
@@ -78,9 +78,9 @@ extern "C" void TestRestrictTags_Check(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTSX_TestRestrictTags_Check;
   DECLARE_CCTK_PARAMETERS;
 
-  if (CarpetX::num_levels(0) != 2)
+  if (CarpetX::num_levels(CarpetX::patch_t{0}) != 2)
     CCTK_VERROR("The test expects 2 levels, but there are %d",
-                CarpetX::num_levels(0));
+                CarpetX::num_levels(CarpetX::patch_t{0}));
   assert(cctk_level == 0 || cctk_level == 1);
   const bool is_coarse = cctk_level == 0;
 

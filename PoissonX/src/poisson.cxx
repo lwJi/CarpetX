@@ -67,7 +67,7 @@ extern "C" void PoissonX_Source(CCTK_ARGUMENTS) {
 extern "C" void PoissonX_ChooseInitialGuess(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_PoissonX_ChooseInitialGuess;
 
-  *need_initial_guess = CarpetX::num_levels(0) == 1;
+  *need_initial_guess = CarpetX::num_levels(CarpetX::patch_t{0}) == 1;
 }
 
 extern "C" void PoissonX_Init(CCTK_ARGUMENTS) {

@@ -89,7 +89,7 @@ std::string get_simulation_name() {
 void check_silo_no_multi_tl(const std::vector<bool> &group_mask,
                             const char *operation) {
   for (const auto &group : ghext->records(group_kind::grid_function)) {
-    if (!group_mask.at(group.groupindex))
+    if (!group_mask.at(group.groupindex.index()))
       continue;
     if (group.num_timelevels() > 1)
       CCTK_VERROR("Silo %s does not support groups with ntls > 1 "
@@ -195,18 +195,17 @@ void RecoverGH(const cGH *restrict cctkGH) {
   const std::vector<bool> group_enabled = [&] {
     std::vector<bool> enabled(CCTK_NumGroups(), false);
     for (const auto &group : ghext->records())
-      enabled.at(group.groupindex) = group.do_checkpoint;
+      enabled.at(group.groupindex.index()) = group.do_checkpoint;
     return enabled;
   }();
 
   if (ghext->use_subcycling) {
     for (const auto &patchdata : ghext->patches())
       for (const auto &leveldata : patchdata.levels()) {
-        if (leveldata.level == 0)
+        if (leveldata.level.index() == 0)
           continue;
         for (const auto &groupdata : leveldata.groups())
-          EnsureRKBuffers(leveldata.patch, leveldata.level,
-                          groupdata.record.groupindex);
+          EnsureRKBuffers(leveldata.level, groupdata.record.groupindex);
       }
   }
 
@@ -313,17 +312,18 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
   CCTK_TraverseString(out_plotfile_groups, enable_group, &group_enabled,
                       CCTK_GROUP_OR_VAR);
 
-  for (int gi = 0; gi < numgroups; ++gi) {
-    if (!group_enabled.at(gi))
+  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+    const gi_t gi{gi0};
+    if (!group_enabled.at(gi.index()))
       continue;
     const auto &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function)
       continue;
 
     if (group.has_storage()) {
-      const int tl = 0;
+      const tl_t tl{0};
 
-      std::string groupname = CCTK_FullGroupName(gi);
+      std::string groupname = CCTK_FullGroupName(gi.index());
       groupname = regex_replace(groupname, std::regex("::"), "-");
       for (auto &c : groupname)
         c = tolower(c);
@@ -341,12 +341,12 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
         const std::string filename = std::string(out_dir) + "/" + basename;
 
         amrex::Vector<std::string> varnames(group.numvars);
-        for (int vi = 0; vi < group.numvars; ++vi) {
+        for (const vi_t vi : group.variables()) {
           std::ostringstream buf;
-          buf << CCTK_VarName(group.firstvarindex + vi);
-          for (int i = 0; i < tl; ++i)
+          buf << CCTK_VarName(group.var(vi).index());
+          for (int i = 0; i < tl.index(); ++i)
             buf << "_p";
-          varnames.at(vi) = buf.str();
+          varnames.at(vi.index()) = buf.str();
         }
 
         amrex::Vector<const amrex::MultiFab *> mfabs(patchdata.num_levels());
@@ -354,10 +354,11 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
         amrex::Vector<int> iters(patchdata.num_levels());
         amrex::Vector<amrex::IntVect> reffacts(patchdata.num_levels());
         for (const auto &restrict leveldata : patchdata.levels()) {
-          mfabs.at(leveldata.level) = &*leveldata.group(gi).timelevel(tl).mfab;
-          geoms.at(leveldata.level) = patchdata.amrcore->Geom(leveldata.level);
-          iters.at(leveldata.level) = cctk_iteration;
-          reffacts.at(leveldata.level) = amrex::IntVect{2, 2, 2};
+          const int level = leveldata.level.index();
+          mfabs.at(level) = &*leveldata.group(gi).timelevel(tl).mfab;
+          geoms.at(level) = patchdata.amrcore->Geom(level);
+          iters.at(level) = cctk_iteration;
+          reffacts.at(level) = amrex::IntVect{2, 2, 2};
         }
 
         // TODO: Output all groups into a single file
@@ -690,7 +691,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
     const std::vector<bool> checkpoint_group = [&] {
       std::vector<bool> enabled(CCTK_NumGroups(), false);
       for (const auto &group : ghext->records())
-        enabled.at(group.groupindex) = group.do_checkpoint;
+        enabled.at(group.groupindex.index()) = group.do_checkpoint;
       return enabled;
     }();
     OutputOpenPMD(cctkGH, checkpoint_group, checkpoint_dir, checkpoint_file,
@@ -708,7 +709,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
     const std::vector<bool> checkpoint_group = [&] {
       std::vector<bool> enabled(CCTK_NumGroups(), false);
       for (const auto &group : ghext->records())
-        enabled.at(group.groupindex) = group.do_checkpoint;
+        enabled.at(group.groupindex.index()) = group.do_checkpoint;
       return enabled;
     }();
     check_silo_no_multi_tl(checkpoint_group, "checkpoint");

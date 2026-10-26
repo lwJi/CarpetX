@@ -3,25 +3,37 @@
 
 #include "internal.hxx"
 
+#include "driver.hxx"
+
+#include <carpetx.hxx>
+
 #include <cctk.h>
 
+#include <optional>
+#include <source_location>
+#include <span>
 #include <vector>
 
 namespace CarpetX {
 
-// Intra-CarpetX symbols defined in sync_restrict.cxx and called from
-// schedule.cxx. Not part of the public schedule.hxx surface.
+std::vector<gi_t> collect_restrictable_groups();
 
-// The groups the end-of-step restriction restricts (the restrict tag); one of
-// the group selectors in sync_restrict.cxx
-std::vector<int> collect_restrictable_groups();
+struct timelevels_t {
+  static constexpr timelevels_t one(const tl_t tl) { return timelevels_t{tl}; }
+  static constexpr timelevels_t all_but_oldest() {
+    return timelevels_t{std::nullopt};
+  }
+  tl_range
+  range(const GHExt::GroupRecord &record,
+        std::source_location site = std::source_location::current()) const;
 
-struct active_levels_t;
+private:
+  constexpr explicit timelevels_t(const std::optional<tl_t> tl) : tl_(tl) {}
+  std::optional<tl_t> tl_;
+};
 
-void Restrict(const cGH *cctkGH, int min_level, int max_level,
-              const std::vector<int> &groups);
-void ProlongateAfterRestriction(const active_levels_t &active_levels,
-                                const cGH *cctkGH);
+void Restrict(const cGH *cctkGH, window_t window, std::span<const gi_t> groups);
+void ProlongateAfterRestriction(window_t window, const cGH *cctkGH);
 
 } // namespace CarpetX
 

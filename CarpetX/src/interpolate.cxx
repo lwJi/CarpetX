@@ -29,7 +29,6 @@ using Arith::pown;
 
 namespace {
 
-// Interpolate a grid function at one point, dimensionally recursive
 template <typename T, int order, int centering> struct interpolator {
   static constexpr vect<bool, dim> indextype{(centering & 0b100) != 0,
                                              (centering & 0b010) != 0,
@@ -37,20 +36,19 @@ template <typename T, int order, int centering> struct interpolator {
 
   const GridDescBase &grid;
 #ifdef CCTK_DEBUG
-  const int gi;
+  const gi_t gi;
 #endif
-  const int vi;
+  const vi_t vi;
 #ifdef CCTK_DEBUG
-  const int patch;
-  const int level;
+  const level_t level;
 #endif
   const amrex::Array4<const T> &vars;
   const vect<int, dim> &derivs;
   // Allow outer boundaries as interpolation sources
   const vect<vect<bool, dim>, 2> allowed_boundaries;
 
-  interpolator(const GridDescBase &grid, CCTK_ATTRIBUTE_UNUSED const int gi,
-               const int vi, const int patch, const int level,
+  interpolator(const GridDescBase &grid, CCTK_ATTRIBUTE_UNUSED const gi_t gi,
+               const vi_t vi, const level_t level,
                const amrex::Array4<const T> &vars, const vect<int, dim> &derivs,
                const vect<vect<bool, dim>, 2> &allowed_boundaries)
       : grid(grid),
@@ -59,7 +57,7 @@ template <typename T, int order, int centering> struct interpolator {
 #endif
         vi(vi),
 #ifdef CCTK_DEBUG
-        patch(patch), level(level),
+        level(level),
 #endif
         vars(vars), derivs(derivs), allowed_boundaries(allowed_boundaries) {
   }
@@ -71,7 +69,6 @@ template <typename T, int order, int centering> struct interpolator {
 
   // TODO: Check whether interpolated variables are valid
 
-  // Base case: only access a grid point
   template <int dir>
   std::enable_if_t<(dir == -1), T>
   interpolate(const vect<int, dim> &i, const vect<CCTK_REAL, dim> &di) const {
@@ -80,19 +77,19 @@ template <typename T, int order, int centering> struct interpolator {
 #ifdef CCTK_DEBUG
     assert(vars.contains(j[0], j[1], j[2]));
 #endif
-    const T val = vars(j, vi);
+    const T val = vars(j, vi.index());
 #ifdef CCTK_DEBUG
     using std::isfinite;
     if (!(isfinite(val))) {
       std::cerr << "!isfinite gi=" << gi
-                << " groupname=" << CCTK_FullGroupName(gi) << " vi=" << vi
+                << " groupname=" << CCTK_FullGroupName(gi.index()) << " vi=" << vi
                 << " i=" << i << " di=" << di << " val=" << val << "\n";
       for (int c = -1; c <= +1; ++c)
         for (int b = -1; b <= +1; ++b)
           for (int a = -1; a <= +1; ++a)
             if (vars.contains(j[0] + a, j[1] + b, j[2] + c))
-              std::cerr << "  val[" << a << "," << b << "," << c
-                        << "]=" << vars(j[0] + a, j[1] + b, j[2] + c, vi)
+              std::cerr << "  val[" << a << "," << b << "," << c << "]="
+                        << vars(j[0] + a, j[1] + b, j[2] + c, vi.index())
                         << "\n";
     }
     assert(isfinite(val));
@@ -464,7 +461,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
   if (reflection_z) {
     symmetry_reflected_z.resize(npoints);
     assert(ghext->num_patches() == 1);
-    constexpr int patch = 0;
+    constexpr patch_t patch{0};
     const amrex::Geometry &geom = ghext->patch(patch).amrcore->Geom(0);
     const CCTK_REAL *restrict const xmin = geom.ProbLo();
 #pragma omp simd
@@ -489,7 +486,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
 
 #pragma omp simd
   for (int n = 0; n < npoints; ++n) {
-    const int patch = patches.at(n);
+    const patch_t patch{patches.at(n)};
     const amrex::Geometry &geom = ghext->patch(patch).amrcore->Geom(0);
     const CCTK_REAL *restrict const xmin = geom.ProbLo();
     const CCTK_REAL *restrict const xmax = geom.ProbHi();
@@ -535,10 +532,11 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     const PinnedParticleTile &pinned_particle_tile =
         pinned_particle_tiles.at(patch);
 
-    const auto &restrict patchdata = ghext->patch(patch);
+    const auto &restrict patchdata = ghext->patch(patch_t{patch});
     containers.at(patch) = patchdata.amrcore.get();
     const int level = 0;
-    const auto &restrict leveldata = patchdata.level(level);
+    const auto &restrict leveldata =
+        patchdata.level(level_t{patchdata.patch, level});
     const amrex::MFIter mfi(*leveldata.fab);
     // The mfi can be invalid if the number of processes does not evenly divide
     // the number of blocks
@@ -635,30 +633,20 @@ void CarpetX::InterpolationSetup::Interpolate(
   const int nprocs = amrex::ParallelDescriptor::NProcs();
   std::vector<std::vector<CCTK_REAL> > results(nprocs); // [nprocs]
 
-  // Interpolate
-  constexpr int tl = 0;
-  struct givi_t {
-    int gi, vi;
-  };
-  std::vector<givi_t> givis(nvars);
-  for (int v = 0; v < nvars; ++v) {
-    int gi = CCTK_GroupIndexFromVarI(varinds[v]);
-    assert(gi >= 0);
-    assert(gi < CCTK_NumGroups());
-    int vi = varinds[v] - CCTK_FirstVarIndexI(gi);
-    assert(vi >= 0);
-    assert(vi < CCTK_NumVarsInGroupI(gi));
-    givis.at(v) = {gi, vi};
-  }
+  constexpr tl_t tl{0};
+  std::vector<variable_t> givis;
+  givis.reserve(nvars);
+  for (int v = 0; v < nvars; ++v)
+    givis.push_back(variable(var_t{varinds[v]}));
 
   rat64 min_level_iteration_used = -1;
   rat64 max_level_iteration_used = -1;
   for (const auto &patchdata : ghext->patches()) {
-    const int patch = patchdata.patch;
+    const int patch = patchdata.patch.index();
     for (const auto &leveldata : patchdata.levels()) {
-      const int level = leveldata.level;
+      const level_t level = leveldata.level;
 
-      for (amrex::ParConstIter<3, 2> pti(containers.at(patch), level);
+      for (amrex::ParConstIter<3, 2> pti(containers.at(patch), level.index());
            pti.isValid(); ++pti) {
         const MFPointer mfp(pti);
         const GridDesc grid(leveldata, mfp);
@@ -690,8 +678,8 @@ void CarpetX::InterpolationSetup::Interpolate(
         std::vector<std::vector<CCTK_REAL> > varresults(nvars);
 
         for (int v = 0; v < nvars; ++v) {
-          const int gi = givis.at(v).gi;
-          const int vi = givis.at(v).vi;
+          const gi_t gi = givis.at(v).gi;
+          const vi_t vi = givis.at(v).vi;
           const auto &restrict groupdata = leveldata.group(gi);
           const int centering = groupdata.indextype[0] * 0b100 +
                                 groupdata.indextype[1] * 0b010 +
@@ -719,36 +707,31 @@ void CarpetX::InterpolationSetup::Interpolate(
             switch (interpolation_order) {
             case 0: {
               const interpolator<CCTK_REAL, 0, 0b000> interp{
-                  grid,  gi,   vi,     patch,
-                  level, vars, derivs, patch_allowed_boundaries};
+                  grid, gi, vi, level, vars, derivs, patch_allowed_boundaries};
               interp.interpolate3d(particles, varresult);
               break;
             }
             case 1: {
               const interpolator<CCTK_REAL, 1, 0b000> interp{
-                  grid,  gi,   vi,     patch,
-                  level, vars, derivs, patch_allowed_boundaries};
+                  grid, gi, vi, level, vars, derivs, patch_allowed_boundaries};
               interp.interpolate3d(particles, varresult);
               break;
             }
             case 2: {
               const interpolator<CCTK_REAL, 2, 0b000> interp{
-                  grid,  gi,   vi,     patch,
-                  level, vars, derivs, patch_allowed_boundaries};
+                  grid, gi, vi, level, vars, derivs, patch_allowed_boundaries};
               interp.interpolate3d(particles, varresult);
               break;
             }
             case 3: {
               const interpolator<CCTK_REAL, 3, 0b000> interp{
-                  grid,  gi,   vi,     patch,
-                  level, vars, derivs, patch_allowed_boundaries};
+                  grid, gi, vi, level, vars, derivs, patch_allowed_boundaries};
               interp.interpolate3d(particles, varresult);
               break;
             }
             case 4: {
               const interpolator<CCTK_REAL, 4, 0b000> interp{
-                  grid,  gi,   vi,     patch,
-                  level, vars, derivs, patch_allowed_boundaries};
+                  grid, gi, vi, level, vars, derivs, patch_allowed_boundaries};
               interp.interpolate3d(particles, varresult);
               break;
             }
@@ -767,36 +750,31 @@ void CarpetX::InterpolationSetup::Interpolate(
             switch (interpolation_order) {
             case 0: {
               const interpolator<CCTK_REAL, 0, 0b111> interp{
-                  grid,  gi,   vi,     patch,
-                  level, vars, derivs, patch_allowed_boundaries};
+                  grid, gi, vi, level, vars, derivs, patch_allowed_boundaries};
               interp.interpolate3d(particles, varresult);
               break;
             }
             case 1: {
               const interpolator<CCTK_REAL, 1, 0b111> interp{
-                  grid,  gi,   vi,     patch,
-                  level, vars, derivs, patch_allowed_boundaries};
+                  grid, gi, vi, level, vars, derivs, patch_allowed_boundaries};
               interp.interpolate3d(particles, varresult);
               break;
             }
             case 2: {
               const interpolator<CCTK_REAL, 2, 0b111> interp{
-                  grid,  gi,   vi,     patch,
-                  level, vars, derivs, patch_allowed_boundaries};
+                  grid, gi, vi, level, vars, derivs, patch_allowed_boundaries};
               interp.interpolate3d(particles, varresult);
               break;
             }
             case 3: {
               const interpolator<CCTK_REAL, 3, 0b111> interp{
-                  grid,  gi,   vi,     patch,
-                  level, vars, derivs, patch_allowed_boundaries};
+                  grid, gi, vi, level, vars, derivs, patch_allowed_boundaries};
               interp.interpolate3d(particles, varresult);
               break;
             }
             case 4: {
               const interpolator<CCTK_REAL, 4, 0b111> interp{
-                  grid,  gi,   vi,     patch,
-                  level, vars, derivs, patch_allowed_boundaries};
+                  grid, gi, vi, level, vars, derivs, patch_allowed_boundaries};
               interp.interpolate3d(particles, varresult);
               break;
             }

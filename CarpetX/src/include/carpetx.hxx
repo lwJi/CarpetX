@@ -19,10 +19,15 @@
 
 #include <array>
 #include <cmath>
+#include <compare>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
+#include <source_location>
+#include <span>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -30,6 +35,48 @@
 namespace CarpetX {
 
 using rat64 = Arith::rational<std::int64_t>;
+
+template <class Derived> struct index_t {
+  constexpr explicit index_t(const int i) : i_(i) {}
+  constexpr int index() const { return i_; }
+  friend constexpr auto operator<=>(index_t, index_t) = default;
+  friend constexpr bool operator==(index_t, index_t) = default;
+
+private:
+  int i_;
+};
+
+template <class Derived>
+std::ostream &operator<<(std::ostream &os, const index_t<Derived> i) {
+  return os << i.index();
+}
+
+template <class Derived> struct index_hash {
+  std::size_t operator()(const index_t<Derived> i) const noexcept {
+    return std::hash<int>()(i.index());
+  }
+};
+
+struct patch_t : index_t<patch_t> {
+  using index_t::index_t;
+};
+
+struct gi_t : index_t<gi_t> {
+  using index_t::index_t;
+};
+
+struct tl_t : index_t<tl_t> {
+  using index_t::index_t;
+  constexpr tl_t next() const { return tl_t{index() + 1}; }
+};
+
+struct vi_t : index_t<vi_t> {
+  using index_t::index_t;
+};
+
+struct var_t : index_t<var_t> {
+  using index_t::index_t;
+};
 
 enum class symmetry_t {
   none,
@@ -40,18 +87,36 @@ enum class symmetry_t {
 std::ostream &operator<<(std::ostream &os, symmetry_t symmetry);
 
 struct level_t {
-  int patch, level;
+  constexpr level_t(const patch_t patch, const int level)
+      : patch_(patch), level_(level) {}
+  constexpr patch_t patch() const { return patch_; }
+  constexpr int index() const { return level_; }
+  level_t
+  parent(std::source_location site = std::source_location::current()) const;
+  std::optional<level_t> child() const;
+  friend constexpr auto operator<=>(level_t, level_t) = default;
+  friend constexpr bool operator==(level_t, level_t) = default;
+
+private:
+  patch_t patch_;
+  int level_;
 };
 
 struct group_t {
   level_t level;
-  int gi;
+  gi_t gi;
 };
 
-int num_patches();
-int num_levels(int patch);
+struct variable_t {
+  gi_t gi;
+  vi_t vi;
+};
 
-level_t parent(level_t level);
+variable_t variable(var_t var);
+
+int num_patches();
+int num_levels(patch_t patch);
+
 rat64 iteration(level_t level);
 rat64 delta_iteration(level_t level);
 const amrex::Geometry &geometry(level_t level);
@@ -62,8 +127,26 @@ std::array<int, Loop::dim> indextype(group_t group);
 std::array<int, Loop::dim> nghostzones(group_t group);
 
 struct window_t {
-  int min_level, max_level;
-  int min_patch, max_patch;
+  static window_t
+  one_level(level_t level,
+            std::source_location site = std::source_location::current());
+  static window_t
+  levels(int min_level, int max_level,
+         std::source_location site = std::source_location::current());
+  window_t
+  narrow(int min_level, int max_level,
+         std::source_location site = std::source_location::current()) const;
+
+  level_t
+  coarsest(std::source_location site = std::source_location::current()) const;
+  level_t
+  finest(std::source_location site = std::source_location::current()) const;
+
+  struct bounds_t {
+    int min, max;
+  };
+  constexpr bounds_t level_bounds() const { return {min_level_, max_level_}; }
+  constexpr bounds_t patch_bounds() const { return {min_patch_, max_patch_}; }
 
   void loop_serially(const std::function<void(level_t level)> &kernel) const;
   void
@@ -71,6 +154,18 @@ struct window_t {
   void loop_parallel(
       const std::function<void(level_t level, int index, int component,
                                const cGH *cctkGH)> &kernel) const;
+
+  friend constexpr bool operator==(const window_t &,
+                                   const window_t &) = default;
+
+private:
+  constexpr window_t(const int min_level, const int max_level,
+                     const int min_patch, const int max_patch)
+      : min_level_(min_level), max_level_(max_level), min_patch_(min_patch),
+        max_patch_(max_patch) {}
+
+  int min_level_, max_level_;
+  int min_patch_, max_patch_;
 };
 
 window_t active_window();
@@ -148,7 +243,7 @@ inline constexpr valid_t make_valid_ghosts() {
 }
 inline constexpr valid_t make_valid_all() { return ~valid_t(); }
 
-const amrex::MultiFab &data(group_t group, int tl);
+const amrex::MultiFab &data(group_t group, tl_t tl);
 
 class write_t {
 public:
@@ -164,11 +259,11 @@ private:
   struct impl;
   std::unique_ptr<impl> p;
   explicit write_t(std::unique_ptr<impl> p) noexcept;
-  friend write_t write(group_t group, int tl, valid_t leaves_valid,
+  friend write_t write(group_t group, tl_t tl, valid_t leaves_valid,
                        const char *what);
 };
 
-write_t write(group_t group, int tl, valid_t leaves_valid, const char *what);
+write_t write(group_t group, tl_t tl, valid_t leaves_valid, const char *what);
 
 class scratch_t {
 public:
@@ -190,19 +285,19 @@ private:
 
 scratch_t scratch(group_t group);
 
-valid_t valid(group_t group, int tl, int vi);
-void require_valid(group_t group, int tl, valid_t where, const char *why);
-void invalidate(window_t window, const std::vector<int> &groups, int tl,
+valid_t valid(group_t group, tl_t tl, vi_t vi);
+void require_valid(group_t group, tl_t tl, valid_t where, const char *why);
+void invalidate(window_t window, std::span<const gi_t> groups, tl_t tl,
                 const char *why);
 
-void sync(window_t window, const std::vector<int> &groups);
-void sync_ghosts_only(window_t window, const std::vector<int> &groups,
-                      int tl = -1);
-void prolongate_ghosts(window_t window, const std::vector<int> &groups,
-                       int tl = -1);
-void prolongate_aligned(window_t window, const std::vector<int> &groups,
-                        int tl = -1);
-void restrict_no_poison(window_t window, const std::vector<int> &groups);
+void sync(window_t window, std::span<const gi_t> groups);
+void sync_ghosts_only(window_t window, std::span<const gi_t> groups);
+void sync_ghosts_only(window_t window, std::span<const gi_t> groups, tl_t tl);
+void prolongate_ghosts(window_t window, std::span<const gi_t> groups);
+void prolongate_ghosts(window_t window, std::span<const gi_t> groups, tl_t tl);
+void prolongate_aligned(window_t window, std::span<const gi_t> groups);
+void prolongate_aligned(window_t window, std::span<const gi_t> groups, tl_t tl);
+void restrict_no_poison(window_t window, std::span<const gi_t> groups);
 void synchronize();
 
 template <typename T, int D> struct reduction {
@@ -309,7 +404,7 @@ std::ostream &operator<<(std::ostream &os, const reduction<T, D> &red) {
             << "}\n";
 }
 
-reduction<CCTK_REAL, Loop::dim> reduce(int gi, int vi, int tl);
+reduction<CCTK_REAL, Loop::dim> reduce(gi_t gi, vi_t vi, tl_t tl);
 
 class Interval;
 
@@ -353,5 +448,16 @@ public:
 };
 
 } // namespace CarpetX
+
+template <>
+struct std::hash<CarpetX::patch_t> : CarpetX::index_hash<CarpetX::patch_t> {};
+template <>
+struct std::hash<CarpetX::gi_t> : CarpetX::index_hash<CarpetX::gi_t> {};
+template <>
+struct std::hash<CarpetX::tl_t> : CarpetX::index_hash<CarpetX::tl_t> {};
+template <>
+struct std::hash<CarpetX::vi_t> : CarpetX::index_hash<CarpetX::vi_t> {};
+template <>
+struct std::hash<CarpetX::var_t> : CarpetX::index_hash<CarpetX::var_t> {};
 
 #endif

@@ -86,7 +86,7 @@ struct statecomp_t {
     std::optional<CarpetX::scratch_t> tmp;
   };
   vector<entry_t> entries;
-  int timelevel = 0;
+  CarpetX::tl_t timelevel{0};
 
   statecomp_t copy() const;
 
@@ -141,9 +141,9 @@ inline int groupindex(const int other_gi, std::string gn) {
   return gi;
 }
 
-inline int get_group_rhs(const int gi) {
-  assert(gi >= 0);
-  const int tags = CCTK_GroupTagsTableI(gi);
+inline std::optional<CarpetX::gi_t> get_group_rhs(const CarpetX::gi_t gi) {
+  assert(gi.index() >= 0);
+  const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   std::vector<char> rhs_buf(1000);
   const int iret =
@@ -158,21 +158,23 @@ inline int get_group_rhs(const int gi) {
 
   const std::string str(rhs_buf.data());
   if (str.empty())
-    return -1; // No RHS specified
+    return std::nullopt;
 
-  const int rhs = groupindex(gi, str);
+  const int rhs = groupindex(gi.index(), str);
   if (rhs < 0)
     CCTK_VERROR("Variable group \"%s\" declares a RHS group \"%s\". "
                 "That group does not exist.",
-                CCTK_FullGroupName(gi), str.c_str());
-  assert(rhs != gi);
+                CCTK_FullGroupName(gi.index()), str.c_str());
+  const CarpetX::gi_t rhs_gi{rhs};
+  assert(rhs_gi != gi);
 
-  return rhs;
+  return rhs_gi;
 }
 
-inline std::vector<int> get_group_dependents(const int gi) {
-  assert(gi >= 0);
-  const int tags = CCTK_GroupTagsTableI(gi);
+inline std::vector<CarpetX::gi_t>
+get_group_dependents(const CarpetX::gi_t gi) {
+  assert(gi.index() >= 0);
+  const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   std::vector<char> dependents_buf(1000);
   const int iret = Util_TableGetString(tags, dependents_buf.size(),
@@ -185,7 +187,7 @@ inline std::vector<int> get_group_dependents(const int gi) {
     assert(0);
   }
 
-  std::vector<int> dependents;
+  std::vector<CarpetX::gi_t> dependents;
   const std::string str(dependents_buf.data());
   std::size_t pos = 0;
   for (;;) {
@@ -194,19 +196,18 @@ inline std::vector<int> get_group_dependents(const int gi) {
       ++pos;
     if (pos == str.size())
       break;
-    // Read group name
     const std::size_t group_begin = pos;
     while (pos < str.size() && !std::isspace(str[pos]))
       ++pos;
     const std::size_t group_end = pos;
     const std::string groupname =
         str.substr(group_begin, group_end - group_begin);
-    const int dep_gi = groupindex(gi, groupname);
+    const int dep_gi = groupindex(gi.index(), groupname);
     if (dep_gi < 0)
       CCTK_VERROR("Variable group \"%s\" declares a dependent group \"%s\". "
                   "That group does not exist.",
-                  CCTK_FullGroupName(gi), groupname.c_str());
-    dependents.push_back(dep_gi);
+                  CCTK_FullGroupName(gi.index()), groupname.c_str());
+    dependents.push_back(CarpetX::gi_t{dep_gi});
   }
 
   return dependents;

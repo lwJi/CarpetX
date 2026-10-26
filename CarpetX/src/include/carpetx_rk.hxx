@@ -24,7 +24,7 @@ constexpr int rk_dense_output_stages(const rk_dense_output_t dense_output) {
 }
 
 struct rk_pair_t {
-  int state_gi, rhs_gi;
+  gi_t state, rhs;
 };
 
 struct rk_config_t {
@@ -34,9 +34,9 @@ struct rk_config_t {
 
   int nstages() const { return b.size(); }
   bool feeds_flux_registers() const { return !b.empty(); }
-  bool is_integrated(const int gi) const {
+  bool is_integrated(const gi_t gi) const {
     for (const rk_pair_t &pair : integrated)
-      if (pair.state_gi == gi)
+      if (pair.state == gi)
         return true;
     return false;
   }

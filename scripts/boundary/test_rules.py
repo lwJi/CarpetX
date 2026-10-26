@@ -142,6 +142,225 @@ class Validity(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/driver.cxx", text, Lang.CXX), [Finding(4, "validity", "why.set_all(valid_t(), r);")])
 
 
+class Directions(unittest.TestCase):
+    FORWARDED = (
+        "int SyncGroupsByDirI(const window_t window,\n"
+        "                     const cGH *restrict cctkGH, int numgroups,\n"
+        "                     const int *groups, const int *directions);\n"
+    )
+    FLESH_OVERLOAD = (
+        "int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,\n"
+        "                             const int *groups, const int *directions);\n"
+    )
+    FLESH_DEFINITION = (
+        "int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,\n"
+        "                             const int numgroups, const int *const groups,\n"
+        "                             const int *const directions) {\n"
+        "  assert(active_levels);\n"
+        "  const std::vector<gi_t> gis(groups, groups + numgroups);\n"
+        "  return SyncGroups(*active_levels, cctkGH, gis);\n"
+        "}\n"
+    )
+
+    def test_directions_reported(self):
+        for name in ["CarpetX/src/schedule.hxx", "CarpetX/src/sync_restrict.cxx", "CarpetX/src/sync_restrict_internal.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(
+                    reported(name, self.FORWARDED),
+                    [("directions", "const int *groups, const int *directions);")],
+                )
+        text = "  return SyncGroups(*active_levels, cctkGH, numgroups, groups, directions);\n"
+        self.assertEqual(reported("CarpetX/src/schedule.cxx", text), [("directions", text.strip())])
+
+    def test_directions_allowed_in_flesh_overload(self):
+        self.assertEqual(reported("CarpetX/src/schedule.hxx", self.FLESH_OVERLOAD), [])
+        self.assertEqual(reported("CarpetX/src/schedule.cxx", self.FLESH_DEFINITION), [])
+        self.assertEqual(reported("CarpetX/src/schedule.hxx", self.FLESH_OVERLOAD + "\n" + self.FORWARDED), [("directions", "const int *groups, const int *directions);")])
+
+    def test_other_files_are_not_the_sync_layer(self):
+        for name in ["CarpetX/src/io_meta.cxx", "CarpetX/src/driver.hxx", "ODESolvers/src/solve.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.FORWARDED), [])
+
+    def test_a_longer_name_is_not_the_parameter(self):
+        self.assertEqual(reported("CarpetX/src/sync_restrict.cxx", "std::vector<int> output_directions;\nint all_directions_done;\n"), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n" + self.FORWARDED
+        self.assertEqual(findings("CarpetX/src/schedule.hxx", text, Lang.CXX), [Finding(4, "directions", "const int *groups, const int *directions);")])
+
+
+class VarIndex(unittest.TestCase):
+    ADDITIONS = [
+        "cctkGH->data[group.firstvarindex + vi][tl.index()] = nullptr;",
+        "CCTK_FullVarName(groupdata.record.firstvarindex+vi),",
+        "const int varindex = CCTK_FirstVarIndexI(gi.index()) + vi;",
+        "CCTK_FullVarName(CCTK_FirstVarIndexI(wr.gi.index()) + wr.vi));",
+        "varname = CCTK_VarName(CCTK_FirstVarIndexI (gi) + vi);",
+        "return var_t{group.firstvarindex + vi.index()};",
+    ]
+    RECORD_VAR = (
+        "    var_t var(const vi_t vi) const {\n"
+        "      assert(variables().contains(vi));\n"
+        "      return var_t{firstvarindex + vi.index()};\n"
+        "    }\n"
+    )
+
+    def test_varindex_reported(self):
+        for line in self.ADDITIONS:
+            for name in ["CarpetX/src/valid.cxx", "CarpetX/src/io_silo.cxx", "CarpetX/src/driver.hxx", "CarpetX/src/include/carpetx.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("varindex", line)])
+
+    def test_varindex_allowed_in_record_var(self):
+        self.assertEqual(reported("CarpetX/src/driver.hxx", self.RECORD_VAR), [])
+        self.assertEqual(
+            reported("CarpetX/src/schedule.cxx", self.RECORD_VAR),
+            [("varindex", "return var_t{firstvarindex + vi.index()};")],
+        )
+
+    def test_other_arithmetic_is_not_an_addition(self):
+        for text in [
+            "firstvarindex = CCTK_FirstVarIndexI(gi.index());\n",
+            "return variable_t{gi_t{gi}, vi_t{var.index() - CCTK_FirstVarIndexI(gi)}};\n",
+            "int firstvarindex;\n",
+            "const int n = firstvarindex_count + 1;\n",
+            "const int n = myfirstvarindex + 1;\n",
+            "varname = CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/valid.cxx", text), [])
+
+    def test_other_thorns_are_not_checked(self):
+        self.assertEqual(reported("PDESolvers/src/solve.cxx", "  " + self.ADDITIONS[2] + "\n"), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported("CarpetX/src/make.code.defn", "X = firstvarindex + 1\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n" + self.ADDITIONS[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/schedule.cxx", text, Lang.CXX), [Finding(2, "varindex", self.ADDITIONS[0])])
+
+
+class Window(unittest.TestCase):
+    USES = [
+        "struct active_levels_t;",
+        "int SyncGroupsByDirI(const active_levels_t &active_levels,",
+        "const std::optional<active_levels_t> &scheduled_levels();",
+        "active_levels = std::make_optional<active_levels_t>(0, level + 1);",
+    ]
+
+    def test_window_reported(self):
+        for line in self.USES:
+            for name in ["CarpetX/src/schedule.hxx", "CarpetX/src/sync_restrict.cxx", "CarpetX/src/include/carpetx.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("window", line)])
+
+    def test_the_window_type_and_the_scheduler_state_are_fine(self):
+        for text in [
+            "std::optional<window_t> active_levels;\n",
+            "active_levels = window_t::levels(0, 1);\n",
+            "struct active_levels_type;\n",
+            "my_active_levels_t x;\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/schedule.cxx", text), [])
+
+    def test_other_thorns_are_not_checked(self):
+        self.assertEqual(reported("ODESolvers/src/solve.cxx", self.USES[0] + "\n"), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported("CarpetX/src/make.code.defn", "X = active_levels_t\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n" + self.USES[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/valid.hxx", text, Lang.CXX), [Finding(2, "window", self.USES[0])])
+
+
+class Index(unittest.TestCase):
+    BARE = [
+        "void EnsureRKBuffers(int patch, int level, gi_t gi);",
+        "const GroupRecord &record(const int gi, const std::source_location site) const;",
+        "void Restrict(const cGH *cctkGH, int min_level, int max_level,",
+        "bool window_is_restricted(int min_level, int max_level);",
+        "valid_t valid(group_t group, tl_t tl, int vi);",
+        "void prolongate_ghosts(window_t window, std::span<const gi_t> groups, int tl = -1);",
+        "int min_patch, max_patch;",
+    ]
+
+    def test_index_reported(self):
+        for line in self.BARE:
+            for name in ["CarpetX/src/subcycling.hxx", "CarpetX/src/driver.hxx", "CarpetX/src/include/carpetx.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("index", line)])
+
+    def test_index_allowed_in_the_handle_constructors_and_window_bounds(self):
+        text = (
+            "struct level_t {\n"
+            "  constexpr level_t(const patch_t patch, const int level)\n"
+            "      : patch_(patch), level_(level) {}\n"
+            "};\n"
+            "struct window_t {\n"
+            "  static window_t\n"
+            "  levels(int min_level, int max_level,\n"
+            "         std::source_location site = std::source_location::current());\n"
+            "  window_t\n"
+            "  narrow(int min_level, int max_level,\n"
+            "         std::source_location site = std::source_location::current()) const;\n"
+            "private:\n"
+            "  constexpr window_t(const int min_level, const int max_level,\n"
+            "                     const int min_patch, const int max_patch)\n"
+            "      : min_level_(min_level) {}\n"
+            "  int min_level_, max_level_;\n"
+            "};\n"
+        )
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", text), [])
+
+    def test_index_allowed_in_flesh_and_amrex_signatures(self):
+        self.assertEqual(reported("CarpetX/src/schedule.hxx", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);\n"), [])
+        text = (
+            "  virtual void ErrorEst(int level, amrex::TagBoxArray &tags, amrex::Real time,\n"
+            "                        int ngrow) override;\n"
+            "  virtual void ClearLevel(int level) override;\n"
+        )
+        self.assertEqual(reported("CarpetX/src/driver.hxx", text), [])
+
+    def test_index_allowed_only_where_the_signature_is_fixed(self):
+        self.assertEqual(
+            reported("CarpetX/src/driver.hxx", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);\n"),
+            [("index", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);")],
+        )
+        self.assertEqual(
+            reported("CarpetX/src/schedule.hxx", "window_t narrow(int min_level, int max_level);\n"),
+            [("index", "window_t narrow(int min_level, int max_level);")],
+        )
+        self.assertEqual(
+            reported("CarpetX/src/include/carpetx.hxx", "int num_levels(int patch);\n"),
+            [("index", "int num_levels(int patch);")],
+        )
+
+    def test_index_only_in_carpetx_headers(self):
+        for name in ["CarpetX/src/schedule.cxx", "ODESolvers/src/solve.hxx", "TestCarpetXAPI/src/api_test.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.BARE[0] + "\n"), [])
+
+    def test_other_ints_are_not_indices(self):
+        for text in [
+            "int levels;\n",
+            "int level_count, gi_rhs, tls;\n",
+            "void f(int patches, int min_levels, int vi0);\n",
+            "int index() const;\n",
+            "int min_level_, max_level_;\n",
+            "void f(level_t level, gi_t gi, tl_t tl, vi_t vi, patch_t patch);\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/driver.hxx", text), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n\n" + self.BARE[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/subcycling.hxx", text, Lang.CXX), [Finding(3, "index", self.BARE[0])])
+
+
 class NewFindings(unittest.TestCase):
     def test_only_lines_absent_before_are_new(self):
         a = Finding(1, "include", '#include "../../CarpetX/src/driver.hxx"')
@@ -211,17 +430,30 @@ class Report(unittest.TestCase):
         self.assertEqual(
             render([]),
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
-            "no validity call outside valid.cxx",
+            "no validity call outside valid.cxx, no directions in the sync layer, "
+            "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
+            "no bare index int in a CarpetX header",
         )
 
     def test_counts(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
         c = ("CarpetX/src/driver.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
+        d = ("CarpetX/src/schedule.hxx", Finding(2, "directions", "const int *groups, const int *directions);"))
+        e = ("CarpetX/src/valid.cxx", Finding(5, "varindex", "CCTK_FullVarName(groupdata.record.firstvarindex + vi),"))
         self.assertEqual(summary([a]), "✗ boundary: 1 private include")
         self.assertEqual(summary([a, a, b]), "✗ boundary: 2 private includes, 1 stray marker")
         self.assertEqual(summary([c]), "✗ boundary: 1 validity call outside valid.cxx")
         self.assertEqual(summary([b, c, c]), "✗ boundary: 1 stray marker, 2 validity calls outside valid.cxx")
+        self.assertEqual(summary([d]), "✗ boundary: 1 directions parameter in the sync layer")
+        self.assertEqual(summary([c, d, d]), "✗ boundary: 1 validity call outside valid.cxx, 2 directions parameters in the sync layer")
+        self.assertEqual(summary([e]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var")
+        self.assertEqual(summary([d, e, e]), "✗ boundary: 1 directions parameter in the sync layer, 2 firstvarindex additions outside GroupRecord::var")
+        w = ("CarpetX/src/schedule.hxx", Finding(3, "window", "struct active_levels_t;"))
+        i = ("CarpetX/src/subcycling.hxx", Finding(4, "index", "void EnsureRKBuffers(int patch, int level, gi_t gi);"))
+        self.assertEqual(summary([w]), "✗ boundary: 1 active_levels_t use")
+        self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in a CarpetX header")
+        self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in a CarpetX header")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))

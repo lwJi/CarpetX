@@ -5,6 +5,7 @@
 
 #include "driver.hxx"
 #include "loop.hxx"
+#include "sync_restrict_internal.hxx"
 
 #include <cctk.h>
 #include <cctk_Schedule.h>
@@ -14,6 +15,7 @@
 #include <cassert>
 #include <functional>
 #include <optional>
+#include <span>
 #include <type_traits>
 #include <vector>
 
@@ -24,39 +26,32 @@ int Initialise(tFleshConfig *config);
 int Evolve(tFleshConfig *config);
 int Shutdown(tFleshConfig *config);
 
-void RestrictNoPoison(const cGH *cctkGH, int min_level, int max_level,
-                      const std::vector<int> &groups);
+void RestrictNoPoison(const cGH *cctkGH, window_t window,
+                      std::span<const gi_t> groups);
 
-struct active_levels_t;
+int SyncGroupsByDirI(window_t window, const cGH *restrict cctkGH,
+                     std::span<const gi_t> groups);
 
-int SyncGroupsByDirI(const active_levels_t &active_levels,
-                     const cGH *restrict cctkGH, int numgroups,
-                     const int *groups, const int *directions);
+int SyncGroupsByDirISubcycling(window_t window, const cGH *restrict cctkGH,
+                               std::span<const gi_t> groups);
 
-int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
-                               const cGH *restrict cctkGH, int numgroups,
-                               const int *groups, const int *directions);
-
-int SyncGroups(const active_levels_t &active_levels, const cGH *restrict cctkGH,
-               int numgroups, const int *groups, const int *directions);
+int SyncGroups(window_t window, const cGH *restrict cctkGH,
+               std::span<const gi_t> groups);
 
 int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,
                              const int *groups, const int *directions);
 
-int SyncGroupsByDirIProlongateOnly(const active_levels_t &active_levels,
-                                   const cGH *restrict cctkGH, int numgroups,
-                                   const int *groups, const int *directions,
-                                   int tl = -1);
+int SyncGroupsByDirIProlongateOnly(window_t window, const cGH *restrict cctkGH,
+                                   std::span<const gi_t> groups,
+                                   timelevels_t tls);
 
-int SyncGroupsByDirIProlongateOnlyAligned(const active_levels_t &active_levels,
+int SyncGroupsByDirIProlongateOnlyAligned(window_t window,
                                           const cGH *restrict cctkGH,
-                                          int numgroups, const int *groups,
-                                          const int *directions, int tl = -1);
+                                          std::span<const gi_t> groups,
+                                          timelevels_t tls);
 
-int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
-                              const cGH *restrict cctkGH, int numgroups,
-                              const int *groups, const int *directions,
-                              int tl = -1);
+int SyncGroupsByDirIGhostOnly(window_t window, const cGH *restrict cctkGH,
+                              std::span<const gi_t> groups, timelevels_t tls);
 
 int CallFunction(void *function, cFunctionData *attribute, void *data);
 
@@ -70,54 +65,31 @@ int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct active_levels_t {
-  int min_level, max_level;
-  int min_patch, max_patch;
+void loop_coarse_to_fine(
+    window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel);
 
-  active_levels_t(const int min_level, const int max_level, const int min_patch,
-                  const int max_patch);
-  active_levels_t(const int min_level, const int max_level);
-  active_levels_t();
-  explicit active_levels_t(window_t window);
-  window_t window() const;
+void loop_fine_to_coarse(
+    window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel);
 
-private:
-  void assert_consistent_iterations() const;
+inline void loop_serially(
+    const window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel) {
+  loop_coarse_to_fine(window, kernel);
+}
 
-public:
-  // Loop over all active patches of all active levels from coarsest
-  // to finest
-  void loop_coarse_to_fine(
-      const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
-      const;
+void loop_parallel(
+    window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
+                             int component, const cGH *cctkGH)> &kernel);
 
-  // Loop over all active patches of all active levels from finest to
-  // coarsest
-  void loop_fine_to_coarse(
-      const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
-      const;
+void loop_serially(
+    window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
+                             int component, const cGH *cctkGH)> &kernel);
 
-  // Loop over all active patches of all active levels serially
-  void loop_serially(
-      const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
-      const {
-    loop_coarse_to_fine(kernel);
-  }
-
-  // Loop over all components of all active patches of all active
-  // levels in parallel
-  void loop_parallel(
-      const std::function<void(int patch, int level, int index, int component,
-                               const cGH *cctkGH)> &kernel) const;
-
-  // Loop over all components of all active patches of all active
-  // levels serially
-  void loop_serially(
-      const std::function<void(int patch, int level, int index, int component,
-                               const cGH *cctkGH)> &kernel) const;
-};
-
-const std::optional<active_levels_t> &scheduled_levels();
+const std::optional<window_t> &scheduled_levels();
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -168,7 +140,6 @@ struct GridDesc : GridDescBase {
   GridDesc(const cGH *cctkGH) : GridDescBase(cctkGH) {}
 };
 
-// TODO: remove this
 struct GridPtrDesc : GridDesc {
   amrex::Dim3 cactus_offset;
 
@@ -176,13 +147,16 @@ struct GridPtrDesc : GridDesc {
   GridPtrDesc(const GHExt::PatchData::LevelData &leveldata,
               const MFPointer &mfp);
 
-  template <typename T> T *ptr(const amrex::Array4<T> &vars, int vi) const {
-    return vars.ptr(cactus_offset.x, cactus_offset.y, cactus_offset.z, vi);
+  template <typename T>
+  T *ptr(const amrex::Array4<T> &vars, const vi_t vi) const {
+    return vars.ptr(cactus_offset.x, cactus_offset.y, cactus_offset.z,
+                    vi.index());
   }
   template <typename T>
-  T &idx(const amrex::Array4<T> &vars, int i, int j, int k, int vi) const {
+  T &idx(const amrex::Array4<T> &vars, int i, int j, int k,
+         const vi_t vi) const {
     return vars(cactus_offset.x + i, cactus_offset.y + i, cactus_offset.z + j,
-                vi);
+                vi.index());
   }
 };
 
@@ -202,18 +176,20 @@ struct GridPtrDesc1 : GridDesc {
                const GHExt::PatchData::LevelData::GroupData &groupdata,
                int component);
 
-  template <typename T> T *ptr(const amrex::Array4<T> &vars, int vi) const {
+  template <typename T>
+  T *ptr(const amrex::Array4<T> &vars, const vi_t vi) const {
     return vars.ptr(cactus_offset.x + gimin[0], cactus_offset.y + gimin[1],
-                    cactus_offset.z + gimin[2], vi);
+                    cactus_offset.z + gimin[2], vi.index());
   }
   template <typename T>
-  T &idx(const amrex::Array4<T> &vars, int i, int j, int k, int vi) const {
+  T &idx(const amrex::Array4<T> &vars, int i, int j, int k,
+         const vi_t vi) const {
     return vars(cactus_offset.x + gimin[0] + i, cactus_offset.y + gimin[1] + j,
-                cactus_offset.z + gimin[2] + k, vi);
+                cactus_offset.z + gimin[2] + k, vi.index());
   }
 
   template <typename T>
-  GF3D1<T> gf3d(const amrex::Array4<T> &vars, int vi) const {
+  GF3D1<T> gf3d(const amrex::Array4<T> &vars, const vi_t vi) const {
     return GF3D1<T>(ptr(vars, vi), gimin, gimax, gash);
   }
 
@@ -247,8 +223,8 @@ void update_cctkGH(cGH *restrict cctkGH, const cGH *restrict sourceGH);
 void update_cctkGHs(cGH *restrict cctkGH);
 void enter_global_mode(cGH *restrict cctkGH);
 void leave_global_mode(cGH *restrict cctkGH);
-void enter_level_mode(cGH *restrict cctkGH, int level);
-void leave_level_mode(cGH *restrict cctkGH, int level);
+void enter_level_mode(cGH *restrict cctkGH, level_t level);
+void leave_level_mode(cGH *restrict cctkGH, level_t level);
 void enter_patch_mode(cGH *restrict cctkGH,
                       const GHExt::PatchData::LevelData &restrict leveldata);
 void leave_patch_mode(cGH *restrict cctkGH,

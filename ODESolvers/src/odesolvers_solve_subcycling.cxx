@@ -14,24 +14,25 @@ namespace {
 
 struct solve_setup_t {
   statecomp_t var, rhs;
-  std::vector<int> var_groups, rhs_groups, dep_groups;
+  std::vector<CarpetX::gi_t> var_groups, rhs_groups, dep_groups;
   int nvars = 0;
 };
 
 solve_setup_t collect_solve_setup(const CarpetX::window_t window) {
   solve_setup_t s;
-  s.var.timelevel = 0;
-  s.rhs.timelevel = 0;
+  s.var.timelevel = CarpetX::tl_t{0};
+  s.rhs.timelevel = CarpetX::tl_t{0};
   bool do_accumulate_nvars = true;
   window.loop_serially([&](const CarpetX::level_t level) {
-    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      if (CCTK_GroupTypeI(gi) != CCTK_GF)
+    for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
+      if (CCTK_GroupTypeI(gi0) != CCTK_GF)
         continue;
-      const int rhs_gi = get_group_rhs(gi);
-      if (rhs_gi >= 0) {
-        assert(rhs_gi != gi);
+      const CarpetX::gi_t gi{gi0};
+      const std::optional<CarpetX::gi_t> rhs_gi = get_group_rhs(gi);
+      if (rhs_gi) {
+        assert(*rhs_gi != gi);
         const CarpetX::group_t group{level, gi};
-        const CarpetX::group_t rhs_group{level, rhs_gi};
+        const CarpetX::group_t rhs_group{level, *rhs_gi};
         assert(CarpetX::numvars(rhs_group) == CarpetX::numvars(group));
         s.var.entries.push_back({group, std::nullopt});
         s.rhs.entries.push_back({rhs_group, std::nullopt});
@@ -39,7 +40,7 @@ solve_setup_t collect_solve_setup(const CarpetX::window_t window) {
         if (do_accumulate_nvars) {
           s.nvars += CarpetX::numvars(group);
           s.var_groups.push_back(gi);
-          s.rhs_groups.push_back(rhs_gi);
+          s.rhs_groups.push_back(*rhs_gi);
           const auto &dependents = get_group_dependents(gi);
           s.dep_groups.insert(s.dep_groups.end(), dependents.begin(),
                               dependents.end());
@@ -71,10 +72,10 @@ solve_setup_t collect_solve_setup(const CarpetX::window_t window) {
     s.dep_groups.erase(last, s.dep_groups.end());
   }
 
-  for (const int gi : s.var_groups)
+  for (const CarpetX::gi_t gi : s.var_groups)
     assert(std::find(s.dep_groups.begin(), s.dep_groups.end(), gi) ==
            s.dep_groups.end());
-  for (const int gi : s.rhs_groups)
+  for (const CarpetX::gi_t gi : s.rhs_groups)
     assert(std::find(s.var_groups.begin(), s.var_groups.end(), gi) ==
            s.var_groups.end());
 
@@ -144,7 +145,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     if (verbose)
       CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
     statecomp_t::lincomb(var, a0, as, vars, CarpetX::make_valid_int());
-    CarpetX::invalidate(window, dep_groups, 0,
+    CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
                         "ODESolvers updated the state vector");
     t = old_time + c;
   };
@@ -257,8 +258,8 @@ extern "C" void ODESolvers_CheckTimelevels(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 
   for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-    if (get_group_rhs(gi) < 0)
-      continue; // not an ODE-evolved group
+    if (!get_group_rhs(CarpetX::gi_t{gi}))
+      continue;
     const int ntls = CCTK_ActiveTimeLevelsGI(cctkGH, gi);
     if (ntls >= 2)
       CCTK_VERROR("ODESolvers subcycling requires evolved groups to have a "

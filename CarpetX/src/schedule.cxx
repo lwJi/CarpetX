@@ -84,18 +84,17 @@ double gettime() {
 } // namespace
 
 namespace {
-std::optional<active_levels_t> active_levels;
+std::optional<window_t> active_levels;
 } // namespace
 
-const std::optional<active_levels_t> &scheduled_levels() {
-  return active_levels;
-}
+const std::optional<window_t> &scheduled_levels() { return active_levels; }
 
 int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,
                              const int numgroups, const int *const groups,
                              const int *const directions) {
   assert(active_levels);
-  return SyncGroups(*active_levels, cctkGH, numgroups, groups, directions);
+  const std::vector<gi_t> gis(groups, groups + numgroups);
+  return SyncGroups(*active_levels, cctkGH, gis);
 }
 
 namespace {
@@ -106,46 +105,41 @@ amrex::Orientation orient(int d, int f) {
 int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
                        const int *requested_tls, int *status, const bool inc);
 
-int WidenMinLevel(int initial_min_level, rat64 target_iteration) {
-  int min_level = initial_min_level;
-  for (int level = min_level - 1; level >= 0; --level) {
-    const rat64 coarse_iteration = ghext->level(0, level).iteration;
-    if (coarse_iteration == target_iteration)
-      min_level = level;
-    else
-      break;
-  }
-  return min_level;
+level_t WidenMinLevel(level_t level, const rat64 target_iteration) {
+  while (level.index() > 0 &&
+         ghext->level(level.parent()).iteration == target_iteration)
+    level = level.parent();
+  return level;
 }
 
-std::vector<std::pair<int, int> > ClockGroups() {
-  std::vector<std::pair<int, int> > groups;
-  int max_level = ghext->num_levels();
-  while (max_level > 0) {
-    const rat64 clock = ghext->level(0, max_level - 1).iteration;
-    const int min_level = WidenMinLevel(max_level - 1, clock);
-    groups.emplace_back(min_level, max_level);
-    max_level = min_level;
-  }
+window_t ClockGroupBelow(const int max_level) {
+  const level_t finest = window_t::levels(0, max_level).finest();
+  const level_t coarsest =
+      WidenMinLevel(finest, ghext->level(finest).iteration);
+  return window_t::levels(coarsest.index(), max_level);
+}
+
+std::vector<window_t> ClockGroups() {
+  std::vector<window_t> groups;
+  for (int max_level = ghext->num_levels(); max_level > 0;
+       max_level = groups.back().level_bounds().min)
+    groups.push_back(ClockGroupBelow(max_level));
   std::reverse(groups.begin(), groups.end());
   assert((ghext->use_subcycling || groups.size() <= 1) &&
          "without subcycling every level shares one clock");
   return groups;
 }
 
-std::pair<int, int> FinestClockGroup() {
-  const int max_level = ghext->num_levels();
-  const rat64 finest_clock = ghext->level(0, max_level - 1).iteration;
-  const int min_level = WidenMinLevel(max_level - 1, finest_clock);
-  assert((ghext->use_subcycling || min_level == 0) &&
+window_t FinestClockGroup() {
+  const window_t group = ClockGroupBelow(ghext->num_levels());
+  assert((ghext->use_subcycling || group.level_bounds().min == 0) &&
          "without subcycling the end-of-step window holds every level");
-  return {min_level, max_level};
+  return group;
 }
 
-int LastStepIteration(const int level, const int current_iteration) {
-  const auto &patchdata0 = ghext->patch(0);
-  const auto &finest = patchdata0.level(ghext->num_levels() - 1);
-  const auto &leveldata = patchdata0.level(level);
+int LastStepIteration(const level_t level, const int current_iteration) {
+  const auto &finest = ghext->level(all_levels().finest());
+  const auto &leveldata = ghext->level(level);
   const rat64 steps_since =
       (finest.iteration - (leveldata.iteration - leveldata.delta_iteration)) /
       finest.delta_iteration;
@@ -165,9 +159,9 @@ std::string format_clock(const rat64 &clock) {
 }
 } // namespace
 
-// See subcycling.hxx
-bool window_is_restricted(const int min_level, const int max_level) {
-  assert(min_level >= 0 && min_level < max_level);
+bool window_is_restricted(const window_t window) {
+  const auto [min_level, max_level] = window.level_bounds();
+  assert(min_level < max_level);
   return max_level == ghext->num_levels() && max_level - min_level >= 2;
 }
 
@@ -181,9 +175,10 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
                  ghost_size >= 0 ? ghost_size : ghost_size_y,
                  ghost_size >= 0 ? ghost_size : ghost_size_z};
 
-  const auto &patchdata = ghext->patch(leveldata.patch);
+  const auto &patchdata = ghext->patch(leveldata.level.patch());
   const amrex::IntVect ng(nghostzones[0], nghostzones[1], nghostzones[2]);
-  const amrex::Box &domain = patchdata.amrcore->Geom(leveldata.level).Domain();
+  const amrex::Box &domain =
+      patchdata.amrcore->Geom(leveldata.level.index()).Domain();
   const amrex::Box &vbx = mfp.validbox(); // interior region (without ghosts)
   const amrex::Box &fbx = mfp.fabbox(ng); // allocated array
   const amrex::Box &gbx = mfp.growntilebox(ng); // current region (with ghosts)
@@ -191,9 +186,8 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
   for (int d = 0; d < dim; ++d)
     assert(domain.type(d) == amrex::IndexType::CELL);
 
-  // Level, patch, and component
-  level = leveldata.level;
-  patch = leveldata.patch;
+  level = leveldata.level.index();
+  patch = leveldata.level.patch().index();
   component = mfp.index();
 
   // Global shape
@@ -235,7 +229,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
   const CCTK_REAL *restrict const global_x0 = geom.ProbLo();
   const CCTK_REAL *restrict const global_dx = geom.CellSize();
   for (int d = 0; d < dim; ++d) {
-    const int levfac = 1 << leveldata.level;
+    const int levfac = 1 << leveldata.level.index();
     // Offset between this level's and the coarsest level's origin as
     // multiple of the grid spacing
     const int levoff = (1 - levfac) * (1 - 2 * nghostzones[d]);
@@ -280,7 +274,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
   // `global_component` is the global component index.
   // There is no tiling.
 
-  const auto &patchdata = ghext->patch(leveldata.patch);
+  const auto &patchdata = ghext->patch(leveldata.level.patch());
 
   const amrex::FabArrayBase &fab = *leveldata.fab;
 
@@ -288,14 +282,14 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
   const amrex::Box &vbx =
       fab.box(component);      // interior region (without ghosts)
   const amrex::Box &gbx = fbx; // current region (with ghosts)
-  const amrex::Box &domain = patchdata.amrcore->Geom(leveldata.level).Domain();
+  const amrex::Box &domain =
+      patchdata.amrcore->Geom(leveldata.level.index()).Domain();
 
   for (int d = 0; d < dim; ++d)
     assert(domain.type(d) == amrex::IndexType::CELL);
 
-  // Level, patch, and component
-  level = leveldata.level;
-  patch = leveldata.patch;
+  level = leveldata.level.index();
+  patch = leveldata.level.patch().index();
   this->component = component;
 
   // The number of ghostzones in each direction
@@ -321,7 +315,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
     ubnd[d] = fbx[orient(d, 1)] + 1 + nghostzones[d];
   }
 
-  const auto &symmetries = ghext->patch(leveldata.patch).symmetries;
+  const auto &symmetries = patchdata.symmetries;
   for (int d = 0; d < dim; ++d)
     for (int f = 0; f < 2; ++f)
       bbox[f][d] = vbx[orient(d, f)] == domain[orient(d, f)] &&
@@ -342,7 +336,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
   const CCTK_REAL *restrict const global_x0 = geom.ProbLo();
   const CCTK_REAL *restrict const global_dx = geom.CellSize();
   for (int d = 0; d < dim; ++d) {
-    const int levfac = 1 << leveldata.level;
+    const int levfac = 1 << leveldata.level.index();
     // Offset between this level's and the coarsest level's origin as
     // multiple of the grid spacing
     const int levoff = (1 - levfac) * (1 - 2 * nghostzones[d]);
@@ -606,11 +600,11 @@ void enter_global_mode(cGH *restrict cctkGH) {
     if (group.kind == group_kind::grid_function)
       continue;
     const auto &restrict arraygroupdata = group.array();
-    for (int tl = 0; tl < group.num_timelevels(); ++tl) {
+    for (const tl_t tl : group.timelevels()) {
       const auto &restrict vars = arraygroupdata.timelevel(tl).data;
-      for (int vi = 0; vi < group.numvars; ++vi)
-        cctkGH->data[group.firstvarindex + vi][tl] =
-            const_cast<void *>(vars.data_at(vi * arraygroupdata.array_size));
+      for (const vi_t vi : group.variables())
+        cctkGH->data[group.var(vi).index()][tl.index()] = const_cast<void *>(
+            vars.data_at(vi.index() * arraygroupdata.array_size));
     }
   }
 
@@ -622,9 +616,9 @@ void leave_global_mode(cGH *restrict cctkGH) {
   for (const auto &group : ghext->records()) {
     if (group.kind == group_kind::grid_function)
       continue;
-    for (int tl = 0; tl < group.num_timelevels(); ++tl)
-      for (int vi = 0; vi < group.numvars; ++vi)
-        cctkGH->data[group.firstvarindex + vi][tl] = nullptr;
+    for (const tl_t tl : group.timelevels())
+      for (const vi_t vi : group.variables())
+        cctkGH->data[group.var(vi).index()][tl.index()] = nullptr;
   }
 
   for (int d = 0; d < dim; ++d)
@@ -633,15 +627,13 @@ void leave_global_mode(cGH *restrict cctkGH) {
   assert(in_meta_mode(cctkGH));
 }
 
-// Set cctkGH entries for level mode
-void enter_level_mode(cGH *restrict cctkGH, const int level) {
+void enter_level_mode(cGH *restrict cctkGH, const level_t level) {
   DECLARE_CCTK_PARAMETERS;
   assert(in_global_mode(cctkGH));
 
-  cctkGH->cctk_level = level;
+  cctkGH->cctk_level = level.index();
   for (int d = 0; d < dim; ++d) {
-    // The refinement factor over the top level (coarsest) grid
-    const int levfac = 1 << level;
+    const int levfac = 1 << level.index();
     cctkGH->cctk_levfac[d] = levfac;
     // Offset between this level's and the coarsest level's origin as multiple
     // of the grid spacing
@@ -653,7 +645,7 @@ void enter_level_mode(cGH *restrict cctkGH, const int level) {
 
   assert(in_level_mode(cctkGH));
 }
-void leave_level_mode(cGH *restrict cctkGH, const int level) {
+void leave_level_mode(cGH *restrict cctkGH, const level_t level) {
   assert(in_level_mode(cctkGH));
   cctkGH->cctk_level = undefined;
   for (int d = 0; d < dim; ++d)
@@ -670,10 +662,11 @@ void enter_patch_mode(cGH *restrict cctkGH,
   DECLARE_CCTK_PARAMETERS;
   assert(in_level_mode(cctkGH));
 
-  const auto &patchdata = ghext->patch(leveldata.patch);
+  const auto &patchdata = ghext->patch(leveldata.level.patch());
 
-  cctkGH->cctk_patch = leveldata.patch;
-  const amrex::Box &domain = patchdata.amrcore->Geom(leveldata.level).Domain();
+  cctkGH->cctk_patch = leveldata.level.patch().index();
+  const amrex::Box &domain =
+      patchdata.amrcore->Geom(leveldata.level.index()).Domain();
   const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
   const CCTK_REAL *restrict const global_x0 = geom.ProbLo();
   const CCTK_REAL *restrict const global_dx = geom.CellSize();
@@ -731,11 +724,11 @@ void enter_local_mode(cGH *restrict cctkGH,
 
   for (const auto &groupdata : leveldata.groups()) {
     const GridPtrDesc1 grid1(leveldata, groupdata, mfp);
-    for (int tl = 0; tl < groupdata.num_timelevels(); ++tl) {
+    for (const tl_t tl : groupdata.record.timelevels()) {
       const amrex::Array4<CCTK_REAL> vars =
           groupdata.timelevel(tl).mfab->array(mfp.index());
-      for (int vi = 0; vi < groupdata.record.numvars; ++vi)
-        cctkGH->data[groupdata.record.firstvarindex + vi][tl] =
+      for (const vi_t vi : groupdata.record.variables())
+        cctkGH->data[groupdata.record.var(vi).index()][tl.index()] =
             grid1.ptr(vars, vi);
     }
   }
@@ -789,9 +782,9 @@ void leave_local_mode(cGH *restrict cctkGH,
     for (int f = 0; f < 2; ++f)
       cctkGH->cctk_bbox[2 * d + f] = undefined;
   for (const auto &groupdata : leveldata.groups())
-    for (int tl = 0; tl < groupdata.num_timelevels(); ++tl)
-      for (int vi = 0; vi < groupdata.record.numvars; ++vi)
-        cctkGH->data[groupdata.record.firstvarindex + vi][tl] = nullptr;
+    for (const tl_t tl : groupdata.record.timelevels())
+      for (const vi_t vi : groupdata.record.variables())
+        cctkGH->data[groupdata.record.var(vi).index()][tl.index()] = nullptr;
   assert(in_patch_mode(cctkGH));
 }
 
@@ -808,37 +801,16 @@ extern "C" CCTK_INT CarpetX_GetCallFunctionCount() {
 #endif
 }
 
-active_levels_t::active_levels_t(const int min_level, const int max_level,
-                                 const int min_patch, const int max_patch)
-    : min_level(min_level), max_level(max_level), min_patch(min_patch),
-      max_patch(max_patch) {
-  if (min_level < 0 || max_level > ghext->num_levels() || min_level > max_level)
-    CCTK_VERROR("CarpetX window levels [%d, %d) must lie within [0, %d)",
-                min_level, max_level, ghext->num_levels());
-  if (min_patch < 0 || max_patch > ghext->num_patches() ||
-      min_patch > max_patch)
-    CCTK_VERROR("CarpetX window patches [%d, %d) must lie within [0, %d)",
-                min_patch, max_patch, ghext->num_patches());
-}
-active_levels_t::active_levels_t(const int min_level, const int max_level)
-    : active_levels_t(min_level, max_level, 0, ghext->num_patches()) {}
-active_levels_t::active_levels_t() : active_levels_t(0, ghext->num_levels()) {}
-
-active_levels_t::active_levels_t(const window_t window)
-    : active_levels_t(window.min_level, window.max_level, window.min_patch,
-                      window.max_patch) {}
-
-window_t active_levels_t::window() const {
-  return window_t{min_level, max_level, min_patch, max_patch};
-}
-
-void active_levels_t::assert_consistent_iterations() const {
+static void assert_consistent_iterations(const window_t window) {
+  const auto levels = window.level_bounds();
+  const auto patches = window.patch_bounds();
   rat64 good_iteration = -1;
-  for (int level = min_level; level < max_level; ++level) {
-    for (int patch = min_patch; patch < max_patch; ++patch) {
-      const auto &patchdata = ghext->patch(patch);
+  for (int level = levels.min; level < levels.max; ++level) {
+    for (int patch = patches.min; patch < patches.max; ++patch) {
+      const auto &patchdata = ghext->patch(patch_t{patch});
       if (level < patchdata.num_levels()) {
-        const auto &leveldata = patchdata.level(level);
+        const auto &leveldata =
+            patchdata.level(level_t{patchdata.patch, level});
         const auto &iteration = leveldata.iteration;
         if (good_iteration == -1)
           good_iteration = iteration;
@@ -848,53 +820,54 @@ void active_levels_t::assert_consistent_iterations() const {
   }
 }
 
-void active_levels_t::loop_coarse_to_fine(
-    const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
-    const {
+void loop_coarse_to_fine(
+    const window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel) {
   assert(omp_get_num_threads() == 1);
-  assert_consistent_iterations();
-  for (int level = min_level; level < max_level; ++level) {
-    for (int patch = min_patch; patch < max_patch; ++patch) {
-      auto &patchdata = ghext->patch(patch);
+  assert_consistent_iterations(window);
+  const auto levels = window.level_bounds();
+  const auto patches = window.patch_bounds();
+  for (int level = levels.min; level < levels.max; ++level) {
+    for (int patch = patches.min; patch < patches.max; ++patch) {
+      auto &patchdata = ghext->patch(patch_t{patch});
       if (level < patchdata.num_levels())
-        kernel(patchdata.level(level));
+        kernel(patchdata.level(level_t{patchdata.patch, level}));
     }
   }
 }
 
-void active_levels_t::loop_fine_to_coarse(
-    const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
-    const {
+void loop_fine_to_coarse(
+    const window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel) {
   assert(omp_get_num_threads() == 1);
-  assert_consistent_iterations();
-  for (int level = max_level - 1; level >= min_level; --level) {
-    for (int patch = min_patch; patch < max_patch; ++patch) {
-      auto &patchdata = ghext->patch(patch);
+  assert_consistent_iterations(window);
+  const auto levels = window.level_bounds();
+  const auto patches = window.patch_bounds();
+  for (int level = levels.max - 1; level >= levels.min; --level) {
+    for (int patch = patches.min; patch < patches.max; ++patch) {
+      auto &patchdata = ghext->patch(patch_t{patch});
       if (level < patchdata.num_levels())
-        kernel(patchdata.level(level));
+        kernel(patchdata.level(level_t{patchdata.patch, level}));
     }
   }
 }
 
-// Loop over all components of all active patches of all active levels
-// in parallel
-void active_levels_t::loop_parallel(
-    const std::function<void(int patch, int level, int index, int component,
-                             const cGH *cctkGH)> &kernel) const {
+void loop_parallel(
+    const window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
+                             int component, const cGH *cctkGH)> &kernel) {
   assert(omp_get_num_threads() == 1);
   task_manager tasks;
 
-  loop_coarse_to_fine([&](const auto &restrict leveldata) {
+  loop_coarse_to_fine(window, [&](auto &restrict leveldata) {
     int component = 0;
     const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync().EnableTiling();
     const auto &fab0 = *leveldata.fab;
     for (amrex::MFIter mfi(fab0, mfitinfo); mfi.isValid(); ++mfi, ++component) {
       const int index = mfi.index();
       tasks.submit_serially([&kernel, &leveldata, index, component]() {
-        const int patch = leveldata.patch;
-        const int level = leveldata.level;
         cGH *restrict const localGH = leveldata.get_local_cctkGH(component);
-        kernel(patch, level, index, component, localGH);
+        kernel(leveldata, index, component, localGH);
       });
     }
   });
@@ -904,21 +877,18 @@ void active_levels_t::loop_parallel(
   // There is an implicit OpenMP barrier here.
 }
 
-// Loop over all components of all active patches of all active levels
-// serially
-void active_levels_t::loop_serially(
-    const std::function<void(int patch, int level, int index, int component,
-                             const cGH *cctkGH)> &kernel) const {
-  loop_coarse_to_fine([&](const auto &restrict leveldata) {
+void loop_serially(
+    const window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
+                             int component, const cGH *cctkGH)> &kernel) {
+  loop_coarse_to_fine(window, [&](auto &restrict leveldata) {
     int component = 0;
     const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync().EnableTiling();
     const auto &fab0 = *leveldata.fab;
     for (amrex::MFIter mfi(fab0, mfitinfo); mfi.isValid(); ++mfi, ++component) {
       const int index = mfi.index();
-      const int patch = leveldata.patch;
-      const int level = leveldata.level;
       cGH *restrict const localGH = leveldata.get_local_cctkGH(component);
-      kernel(patch, level, index, component, localGH);
+      kernel(leveldata, index, component, localGH);
     }
   });
 }
@@ -1020,7 +990,9 @@ std::ostream &operator<<(std::ostream &os, const rdwr_t rdwr) {
 }
 
 struct clause_t {
-  int gi, vi, tl;
+  gi_t gi;
+  vi_t vi;
+  tl_t tl;
   valid_t valid;
 
   friend bool operator==(const clause_t &x, const clause_t &y) {
@@ -1044,11 +1016,8 @@ std::vector<clause_t> decode_clauses(const cFunctionData *restrict attribute,
   result.reserve(attribute->n_RDWR);
   for (int n = 0; n < attribute->n_RDWR; ++n) {
     const RDWR_entry &restrict RDWR = attribute->RDWR[n];
-    int gi = CCTK_GroupIndexFromVarI(RDWR.varindex);
-    assert(gi >= 0);
-    int vi = RDWR.varindex - CCTK_FirstVarIndexI(gi);
-    assert(vi >= 0 && vi < CCTK_NumVarsInGroupI(gi));
-    int tl = RDWR.timelevel;
+    const auto [gi, vi] = variable(var_t{RDWR.varindex});
+    const tl_t tl{RDWR.timelevel};
     int where;
     switch (rdwr) {
     case rdwr_t::read:
@@ -1144,8 +1113,8 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
   bool have_last_step_iterations = true;
   for (auto &patchdata : ghext->patches()) {
     for (auto &leveldata : patchdata.levels()) {
-      const int patch = leveldata.patch;
-      const int level = leveldata.level;
+      const int patch = leveldata.level.patch().index();
+      const int level = leveldata.level.index();
       const GHExt::recovered_level_t *recovered = nullptr;
       if (patch < int(ghext->recovered_levels.size()) &&
           level < int(ghext->recovered_levels.at(patch).size()))
@@ -1167,21 +1136,24 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
   const int num_groups = clock_groups.size();
 
   std::ostringstream clocks_buf;
-  for (const auto &leveldata : ghext->patch(0).levels())
-    clocks_buf << (leveldata.level == 0 ? "" : ", ") << "L" << leveldata.level
-               << " " << format_clock(leveldata.iteration);
+  for (const auto &leveldata : ghext->patch(patch_t{0}).levels())
+    clocks_buf << (leveldata.level.index() == 0 ? "" : ", ") << "L"
+               << leveldata.level.index() << " "
+               << format_clock(leveldata.iteration);
   const std::string clocks = clocks_buf.str();
 #pragma omp critical
   CCTK_VINFO("Level clocks (coarse steps): %s -> %d clock group%s",
              clocks.c_str(), num_groups, num_groups == 1 ? "" : "s");
 
   if (!have_last_step_iterations) {
-    for (const auto &[min_level, max_level] : clock_groups) {
+    for (const window_t &group : clock_groups) {
+      const auto [min_level, max_level] = group.level_bounds();
       const int last_step_iteration =
-          LastStepIteration(max_level - 1, checkpoint_iteration);
+          LastStepIteration(group.finest(), checkpoint_iteration);
       for (auto &patchdata : ghext->patches())
         for (auto &leveldata : patchdata.levels())
-          if (leveldata.level >= min_level && leveldata.level < max_level)
+          if (leveldata.level.index() >= min_level &&
+              leveldata.level.index() < max_level)
             leveldata.last_step_iteration = last_step_iteration;
     }
     if (num_groups >= 2 && CCTK_MyProc(nullptr) == 0)
@@ -1193,23 +1165,25 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
                  checkpoint_iteration, num_groups, clocks.c_str());
   }
 
-  for (const auto &[min_level, max_level] : clock_groups) {
+  for (const window_t &group : clock_groups) {
+    const auto [min_level, max_level] = group.level_bounds();
     const int group_last_step_iteration =
-        ghext->level(0, max_level - 1).last_step_iteration;
+        ghext->level(group.finest()).last_step_iteration;
     for (const auto &patchdata : ghext->patches())
       for (const auto &leveldata : patchdata.levels())
-        if (leveldata.level >= min_level && leveldata.level < max_level &&
+        if (leveldata.level.index() >= min_level &&
+            leveldata.level.index() < max_level &&
             leveldata.last_step_iteration != group_last_step_iteration)
           CCTK_VERROR("Checkpoint at iteration %d is inconsistent: patch %d "
                       "level %d has last-step iteration %d, but its "
                       "clock group [%d,%d) has %d",
-                      checkpoint_iteration, leveldata.patch, leveldata.level,
-                      leveldata.last_step_iteration, min_level, max_level,
-                      group_last_step_iteration);
+                      checkpoint_iteration, leveldata.level.patch().index(),
+                      leveldata.level.index(), leveldata.last_step_iteration,
+                      min_level, max_level, group_last_step_iteration);
   }
 
   const int finest_last_step_iteration =
-      ghext->level(0, ghext->num_levels() - 1).last_step_iteration;
+      ghext->level(all_levels().finest()).last_step_iteration;
   if (finest_last_step_iteration != checkpoint_iteration)
     CCTK_VERROR("Checkpoint at iteration %d is inconsistent: its finest clock "
                 "group has last-step iteration %d",
@@ -1222,7 +1196,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
   ghext->recovered_iteration = cctkGH->cctk_iteration;
 
   assert(!active_levels);
-  active_levels = std::make_optional<active_levels_t>();
+  active_levels = all_levels();
 
   CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
 
@@ -1239,7 +1213,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
   RecoverGH(cctkGH);
   CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
 
-  active_levels = std::optional<active_levels_t>();
+  active_levels = std::nullopt;
 
   for (const auto &patchdata : ghext->patches())
     for (const auto &leveldata : patchdata.levels())
@@ -1295,15 +1269,16 @@ void FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(active_levels);
-  const int min_level = active_levels->min_level;
-  const int max_level = active_levels->max_level;
-  assert(FinestClockGroup() == std::make_pair(min_level, max_level));
-  SetStepTime(cctkGH, max_level - 1, ghext->level(0, max_level - 1).iteration);
-  active_levels->loop_serially([&](auto &restrict leveldata) {
+  const window_t window = *active_levels;
+  assert(FinestClockGroup() == window);
+  const auto &finest = ghext->level(window.finest());
+  SetStepTime(cctkGH, finest.level.index(), finest.iteration);
+  loop_serially(window, [&](auto &restrict leveldata) {
     assert(leveldata.last_step_iteration == cctkGH->cctk_iteration);
   });
 
-  if (!window_is_restricted(min_level, max_level)) {
+  const int min_level = window.level_bounds().min;
+  if (!window_is_restricted(window)) {
     // Only the finest level is at the current time: nothing to restrict
     if (verbose)
 #pragma omp critical
@@ -1316,29 +1291,15 @@ void FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
     // the last RK stage's ODESolvers_PostStep left them, consistent
     // everywhere
     CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
-    // Flux-register correction (reflux) of every level pair in the window,
-    // finest pair first, so that each pair is corrected exactly once per
-    // coarse step and before the fine state is restricted onto the
-    // corrected coarse cells. The window is the alignment test: with three
-    // levels, [1,3) refluxes the pair (1,2) only, and a later [0,3) refluxes
-    // (1,2) and then (0,1). Like the restriction, it changes only coarse
-    // interior cells; the ODESolvers_PostStep at POSTRESTRICT below repairs
-    // the ghosts and the dependents of both (subcycling.hxx). Evolve requests
-    // it only under subcycling: without it every step completes every pair,
-    // and ODESolvers_Solve applies the registers itself at its final stage,
-    // before the ODESolvers_PostStep that repairs what the correction
-    // invalidated. Initialise never does, since no step has completed yet.
     if (reflux)
-      Reflux(cctkGH, min_level, max_level);
-    // Restrict the groups the restrict tag selects, the same level pairs as
-    // the reflux
+      Reflux(cctkGH, window);
     assert(do_restrict);
-    const std::vector<int> groups = collect_restrictable_groups();
+    const std::vector<gi_t> groups = collect_restrictable_groups();
     if (ghext->use_subcycling)
-      RestrictNoPoison(cctkGH, min_level, max_level, groups);
+      RestrictNoPoison(cctkGH, window, groups);
     else
-      Restrict(cctkGH, min_level, max_level, groups);
-    ProlongateAfterRestriction(*active_levels, cctkGH);
+      Restrict(cctkGH, window, groups);
+    ProlongateAfterRestriction(window, cctkGH);
     CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
   }
 }
@@ -1347,15 +1308,15 @@ void FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
 static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
   const recovery_traversal_scope scope;
 
-  for (const auto &group : ClockGroups()) {
-    const auto &[min_level, max_level] = group;
-    const auto &finest = ghext->level(0, max_level - 1);
+  for (const window_t &group : ClockGroups()) {
+    const auto [min_level, max_level] = group.level_bounds();
+    const auto &finest = ghext->level(group.finest());
 
     assert(!active_levels);
-    active_levels = std::make_optional<active_levels_t>(min_level, max_level);
+    active_levels = group;
 
     cctkGH->cctk_iteration = finest.last_step_iteration;
-    SetStepTime(cctkGH, max_level - 1, finest.iteration);
+    SetStepTime(cctkGH, finest.level.index(), finest.iteration);
 
 #pragma omp critical
     CCTK_VINFO("POST_RECOVER_VARIABLES on levels [%d,%d): iteration %d, "
@@ -1366,22 +1327,13 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
     RecoverRKBoundary(*active_levels, cctkGH);
     CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
 
-    active_levels = std::optional<active_levels_t>();
+    active_levels = std::nullopt;
   }
 
 #pragma omp critical
   CCTK_VINFO("Recovery does not rerun restriction, POSTSTEP or ANALYSIS");
 }
 
-// Recover from a checkpoint: rebuild the hierarchy and its state
-// (RecoverHierarchy), recompute what the checkpoint does not hold once per
-// clock group (RecomputePerClockGroup), then traverse CCTK_CPINITIAL and
-// write the initial output once, in the finest group's window. Recovery never
-// runs CarpetX_PreRestrict, restriction, CCTK_POSTRESTRICT, CCTK_POSTSTEP or
-// CCTK_ANALYSIS, with or without subcycling. A CCTK_CHECKPOINT or
-// CCTK_TERMINATE checkpoint was written after all of them; an initial-data
-// checkpoint (CCTK_CPINITIAL) after POSTSTEP but before ANALYSIS. Results
-// recomputed in CCTK_POST_RECOVER_VARIABLES are reproduced either way.
 static void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -1402,16 +1354,14 @@ static void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
              cctkGH->cctk_iteration, double(cctkGH->cctk_time),
              double(cctkGH->cctk_delta_time));
 
-  const auto window = FinestClockGroup();
   assert(!active_levels);
-  active_levels =
-      std::make_optional<active_levels_t>(window.first, window.second);
+  active_levels = FinestClockGroup();
 
   CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
   if (out_initial_data)
     CCTK_OutputGH(cctkGH);
 
-  active_levels = std::optional<active_levels_t>();
+  active_levels = std::nullopt;
 }
 
 int Initialise(tFleshConfig *config) {
@@ -1463,14 +1413,14 @@ int Initialise(tFleshConfig *config) {
   for (const auto &patchdata : ghext->patches())
     assert(patchdata.num_levels() == 0);
   assert(!active_levels);
-  active_levels = std::make_optional<active_levels_t>(0, 0);
+  active_levels = window_t::levels(0, 0);
 
   CCTK_Traverse(cctkGH, "CCTK_WRAGH");
   CCTK_Traverse(cctkGH, "CCTK_PARAMCHECK");
   CCTKi_FinaliseParamWarn();
   warn_inert_flux_tags();
 
-  active_levels = std::optional<active_levels_t>();
+  active_levels = std::nullopt;
 
   CCTK_VINFO("Setting initial values for max_grid_size values for all levels");
   for (const auto &patchdata : ghext->patches()) {
@@ -1516,16 +1466,15 @@ int Initialise(tFleshConfig *config) {
                  double(cctkGH->cctk_delta_time));
 
       assert(!active_levels);
-      active_levels = std::make_optional<active_levels_t>(0, 1);
+      active_levels = window_t::levels(0, 1);
       CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
-      active_levels = std::optional<active_levels_t>();
+      active_levels = std::nullopt;
     }
 
     if (CCTK_MyProc(nullptr) == 0) {
       for (const auto &patchdata : ghext->patches()) {
-        const int level = 0;
         const cGH *const patchGH =
-            ghext->get_patch_cctkGH(level, patchdata.patch);
+            patchdata.level(level_t{patchdata.patch, 0}).get_patch_cctkGH();
         const int *restrict const gsh = patchGH->cctk_gsh;
         const int *restrict const nghostzones = patchGH->cctk_nghostzones;
         CCTK_REAL x0[dim], x1[dim], dx[dim];
@@ -1537,7 +1486,7 @@ int Initialise(tFleshConfig *config) {
         }
 #pragma omp critical
         {
-          CCTK_VINFO("Patch %d:", patchdata.patch);
+          CCTK_VINFO("Patch %d:", patchdata.patch.index());
           CCTK_VINFO("  Grid extent:");
           CCTK_VINFO("    gsh=[%d,%d,%d]", gsh[0], gsh[1], gsh[2]);
           const auto &bf = patchdata.amrcore->blockingFactor(0);
@@ -1570,14 +1519,14 @@ int Initialise(tFleshConfig *config) {
         assert(patchdata.amrcore->finestLevel() <= level);
 
       assert(!active_levels);
-      active_levels = std::make_optional<active_levels_t>(0, level + 1);
+      active_levels = all_levels();
 
       InputGH(cctkGH);
       CCTK_Traverse(cctkGH, "CCTK_INITIAL");
       CCTK_Traverse(cctkGH, "CCTK_POSTINITIAL");
       CCTK_Traverse(cctkGH, "CCTK_POSTPOSTINITIAL");
 
-      active_levels = std::optional<active_levels_t>();
+      active_levels = std::nullopt;
 
       bool did_modify_any_level;
       {
@@ -1602,44 +1551,44 @@ int Initialise(tFleshConfig *config) {
 
 #pragma omp critical
           {
-            const double pts0 = patchdata.level(0).fab->boxArray().d_numPts();
+            const double pts0 = patchdata.level(level_t{patchdata.patch, 0})
+                                    .fab->boxArray()
+                                    .d_numPts();
             for (const auto &leveldata : patchdata.levels()) {
               const int sz = leveldata.fab->size();
               const double pts = leveldata.fab->boxArray().d_numPts();
-              if (leveldata.level == 0) {
+              const int level = leveldata.level.index();
+              if (level == 0) {
                 CCTK_VINFO(
-                    "  level %d: %d boxes, %.0f cells (%.4g%%)",
-                    leveldata.level, sz, pts,
-                    100 * pts /
-                        (ldexp(CCTK_REAL(1), dim * leveldata.level) * pts0));
+                    "  level %d: %d boxes, %.0f cells (%.4g%%)", level, sz, pts,
+                    100 * pts / (ldexp(CCTK_REAL(1), dim * level) * pts0));
               } else {
-                const double ptsc = patchdata.level(leveldata.level - 1)
+                const double ptsc = patchdata.level(leveldata.level.parent())
                                         .fab->boxArray()
                                         .d_numPts();
-                CCTK_VINFO(
-                    "  level %d: %d boxes, %.0f cells (%.4g%%, %.0f%%)",
-                    leveldata.level, sz, pts,
-                    100 * pts /
-                        (ldexp(CCTK_REAL(1), dim * leveldata.level) * pts0),
-                    100 * pts / (ldexp(CCTK_REAL(1), dim) * ptsc));
+                CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%, %.0f%%)",
+                           level, sz, pts,
+                           100 * pts /
+                               (ldexp(CCTK_REAL(1), dim * level) * pts0),
+                           100 * pts / (ldexp(CCTK_REAL(1), dim) * ptsc));
               }
             }
           } // omp critical
         } // for patchdata
 
-        int first_modified_level = INT_MAX;
-        int last_modified_level = -1;
+        int min_modified_level = INT_MAX;
+        int max_modified_level = 0;
         for (const auto &patchdata : ghext->patches()) {
           for (int lev = 0; lev < int(patchdata.amrcore->level_modified.size());
                ++lev) {
             if (patchdata.amrcore->level_modified.at(lev)) {
               using std::max, std::min;
-              first_modified_level = min(first_modified_level, lev);
-              last_modified_level = max(last_modified_level, lev);
+              min_modified_level = min(min_modified_level, lev);
+              max_modified_level = max(max_modified_level, lev + 1);
             }
           }
         }
-        did_modify_any_level = last_modified_level >= first_modified_level;
+        did_modify_any_level = min_modified_level < max_modified_level;
 
         if (did_modify_any_level) {
           SetDeltaTime(cctkGH);
@@ -1649,11 +1598,11 @@ int Initialise(tFleshConfig *config) {
                      double(cctkGH->cctk_delta_time));
 
           assert(!active_levels);
-          active_levels = std::make_optional<active_levels_t>(
-              first_modified_level, last_modified_level + 1);
+          active_levels =
+              window_t::levels(min_modified_level, max_modified_level);
           CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
           CCTK_Traverse(cctkGH, "CCTK_POSTREGRID");
-          active_levels = std::optional<active_levels_t>();
+          active_levels = std::nullopt;
         }
       } // Regrid
 
@@ -1664,12 +1613,8 @@ int Initialise(tFleshConfig *config) {
 #pragma omp critical
   CCTK_VINFO("Initialized %d levels", ghext->num_levels());
 
-  // Open the end-of-step window (every level, on a fresh start), and close it
-  // after the output below
   assert(!active_levels);
-  const auto window = FinestClockGroup();
-  active_levels =
-      std::make_optional<active_levels_t>(window.first, window.second);
+  active_levels = FinestClockGroup();
   FinalizeWindow(cctkGH, false);
 
   // Checkpoint, analysis, output. The end-of-step bins are marked as in
@@ -1682,7 +1627,7 @@ int Initialise(tFleshConfig *config) {
     CCTK_OutputGH(cctkGH);
   }
 
-  active_levels = std::optional<active_levels_t>();
+  active_levels = std::nullopt;
 
   return 0;
 } // namespace CarpetX
@@ -1736,31 +1681,29 @@ bool EvolutionIsDone(cGH *restrict const cctkGH) {
 namespace {
 
 struct seed_run_t {
-  active_levels_t levels;
+  window_t levels;
   valid_t seed;
 };
 
-std::vector<seed_run_t> seed_runs(const active_levels_t &active_levels,
-                                  const int gi, const int vi) {
-  const int min_level = active_levels.min_level;
-  std::vector<std::optional<valid_t> > seeds(active_levels.max_level -
-                                             min_level);
-  active_levels.loop_serially([&](auto &restrict leveldata) {
-    std::optional<valid_t> &seed = seeds.at(leveldata.level - min_level);
-    const valid_t level_seed = leveldata.group(gi).timelevel(1).valid(vi);
+std::vector<seed_run_t> seed_runs(const window_t window, const gi_t gi,
+                                  const vi_t vi) {
+  const auto levels = window.level_bounds();
+  std::vector<std::optional<valid_t> > seeds(levels.max - levels.min);
+  loop_serially(window, [&](auto &restrict leveldata) {
+    std::optional<valid_t> &seed =
+        seeds.at(leveldata.level.index() - levels.min);
+    const valid_t level_seed = leveldata.group(gi).timelevel(tl_t{1}).valid(vi);
     assert(!seed || *seed == level_seed);
     seed = level_seed;
   });
   std::vector<seed_run_t> runs;
-  for (int lo = min_level; lo < active_levels.max_level;) {
-    const std::optional<valid_t> seed = seeds.at(lo - min_level);
+  for (int lo = levels.min; lo < levels.max;) {
+    const std::optional<valid_t> seed = seeds.at(lo - levels.min);
     int hi = lo + 1;
-    while (hi < active_levels.max_level && seeds.at(hi - min_level) == seed)
+    while (hi < levels.max && seeds.at(hi - levels.min) == seed)
       ++hi;
     if (seed)
-      runs.push_back({active_levels_t(lo, hi, active_levels.min_patch,
-                                      active_levels.max_patch),
-                      *seed});
+      runs.push_back({window.narrow(lo, hi), *seed});
     lo = hi;
   }
   return runs;
@@ -1778,8 +1721,9 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
 
   const int num_groups = CCTK_NumGroups();
   const bool presync_only = CCTK_EQUALS(presync_mode, "presync-only");
-  std::vector<int> presync_groups;
-  for (int gi = 0; gi < num_groups; ++gi) {
+  std::vector<gi_t> presync_groups;
+  for (int gi0 = 0; gi0 < num_groups; ++gi0) {
+    const gi_t gi{gi0};
     const auto &group = ghext->record(gi);
     const int ntls0 = group.num_timelevels();
     if (ntls0 == 0)
@@ -1787,7 +1731,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
 
     if (group.kind == group_kind::grid_function) {
       assert(active_levels);
-      active_levels->loop_serially([&](auto &restrict leveldata) {
+      loop_serially(*active_levels, [&](auto &restrict leveldata) {
         auto &restrict groupdata = leveldata.group(gi);
         const int ntls = groupdata.num_timelevels();
         assert(ntls == ntls0);
@@ -1797,11 +1741,12 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
             cGH *const local_cctkGH = local_cctkGH_ptr.get();
             const int component = local_cctkGH->cctk_component;
             const GridPtrDesc1 grid1(leveldata, groupdata, component);
-            for (int tl = 0; tl < ntls; ++tl) {
+            for (const tl_t tl : groupdata.record.timelevels()) {
               const amrex::Array4<CCTK_REAL> vars =
                   groupdata.timelevel(tl).mfab->array(component);
-              for (int vi = 0; vi < groupdata.record.numvars; ++vi)
-                local_cctkGH->data[groupdata.record.firstvarindex + vi][tl] =
+              for (const vi_t vi : groupdata.record.variables())
+                local_cctkGH
+                    ->data[groupdata.record.var(vi).index()][tl.index()] =
                     grid1.ptr(vars, vi);
             }
           }
@@ -1810,33 +1755,36 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       if (ntls0 > 1) {
         if (group.do_evolve) {
           invalidate(*active_levels, {.gi = gi,
-                                      .tl = 0,
+                                      .tl = tl_t{0},
                                       .where = make_valid_all(),
                                       .event = "CycleTimelevels"});
         } else {
           std::vector<write_scope_t> scopes;
-          for (int vi = 0; vi < group.numvars; ++vi)
+          for (const vi_t vi : group.variables())
             for (const seed_run_t &run : seed_runs(*active_levels, gi, vi))
               scopes.push_back(open_write(
                   run.levels,
                   {.gi = gi,
-                   .tl = 0,
+                   .tl = tl_t{0},
                    .vi = vi,
                    .fills = run.seed,
                    .keeps = {},
                    .event = "CycleTimelevels (seed from old time level)"}));
-          active_levels->loop_serially([&](auto &restrict leveldata) {
+          loop_serially(*active_levels, [&](auto &restrict leveldata) {
             auto &restrict groupdata = leveldata.group(gi);
-            amrex::MultiFab::Copy(*groupdata.timelevel(0).mfab,
-                                  *groupdata.timelevel(1).mfab, 0, 0,
-                                  groupdata.record.numvars,
-                                  groupdata.timelevel(0).mfab->nGrowVect());
+            amrex::MultiFab::Copy(
+                *groupdata.timelevel(tl_t{0}).mfab,
+                *groupdata.timelevel(tl_t{1}).mfab, 0, 0,
+                groupdata.record.numvars,
+                groupdata.timelevel(tl_t{0}).mfab->nGrowVect());
           });
         }
       }
       if (group.do_evolve) {
-        for (int tl = (ntls0 == 1 ? 0 : 1); tl < ntls0; ++tl) {
-          if (tl == 0 && presync_only)
+        for (const tl_t tl : group.timelevels()) {
+          if (ntls0 > 1 && tl == tl_t{0})
+            continue;
+          if (tl == tl_t{0} && presync_only)
             presync_groups.push_back(gi);
           else
             require(*active_levels,
@@ -1850,7 +1798,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       if (ntls0 > 1) {
         ghext->record(gi).array().rotate_timelevels();
         invalidate_array({.gi = gi,
-                          .tl = 0,
+                          .tl = tl_t{0},
                           .where = make_valid_int(),
                           .event = "CycleTimelevels"});
       }
@@ -1858,8 +1806,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
 
   } // for gi
   if (!presync_groups.empty()) {
-    SyncGroupsByDirI(*active_levels, cctkGH, presync_groups.size(),
-                     presync_groups.data(), nullptr);
+    SyncGroupsByDirI(*active_levels, cctkGH, presync_groups);
   }
 }
 
@@ -1918,7 +1865,8 @@ int Evolve(tFleshConfig *config) {
 
         int min_active_level = -1;
         for (int level = patchdata.num_levels() - 1; level >= 0; --level) {
-          if (patchdata.level(level).iteration != iteration) {
+          if (patchdata.level(level_t{patchdata.patch, level}).iteration !=
+              iteration) {
             break;
           }
           min_active_level = level;
@@ -1959,46 +1907,44 @@ int Evolve(tFleshConfig *config) {
         {
           CCTK_VINFO("  old levels %d, new levels %d", old_numlevels,
                      new_numlevels);
-          double pts0 = patchdata.level(0).fab->boxArray().d_numPts();
+          double pts0 = patchdata.level(level_t{patchdata.patch, 0})
+                            .fab->boxArray()
+                            .d_numPts();
           assert(!active_levels);
           for (const auto &leveldata : patchdata.levels()) {
             const int sz = leveldata.fab->size();
             const double pts = leveldata.fab->boxArray().d_numPts();
-            if (leveldata.level == 0) {
-              CCTK_VINFO(
-                  "  level %d: %d boxes, %.0f cells (%.4g%%)", leveldata.level,
-                  sz, pts,
-                  100 * pts /
-                      (ldexp(CCTK_REAL(1), dim * leveldata.level) * pts0));
+            const int level = leveldata.level.index();
+            if (level == 0) {
+              CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%)", level, sz,
+                         pts,
+                         100 * pts / (ldexp(CCTK_REAL(1), dim * level) * pts0));
             } else {
-              const double ptsc = patchdata.level(leveldata.level - 1)
+              const double ptsc = patchdata.level(leveldata.level.parent())
                                       .fab->boxArray()
                                       .d_numPts();
-              CCTK_VINFO(
-                  "  level %d: %d boxes, %.0f cells (%.4g%%, %.0f%%)",
-                  leveldata.level, sz, pts,
-                  100 * pts /
-                      (ldexp(CCTK_REAL(1), dim * leveldata.level) * pts0),
-                  100 * pts / (ldexp(CCTK_REAL(1), dim) * ptsc));
+              CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%, %.0f%%)",
+                         level, sz, pts,
+                         100 * pts / (ldexp(CCTK_REAL(1), dim * level) * pts0),
+                         100 * pts / (ldexp(CCTK_REAL(1), dim) * ptsc));
             }
           }
         } // omp critical
       } // for patchdata
 
-      int first_modified_level = INT_MAX;
-      int last_modified_level = -1;
+      int min_modified_level = INT_MAX;
+      int max_modified_level = 0;
       for (const auto &patchdata : ghext->patches()) {
         for (int lev = 0; lev < int(patchdata.amrcore->level_modified.size());
              ++lev) {
           if (patchdata.amrcore->level_modified.at(lev)) {
             using std::max, std::min;
-            first_modified_level = min(first_modified_level, lev);
-            last_modified_level = max(last_modified_level, lev);
+            min_modified_level = min(min_modified_level, lev);
+            max_modified_level = max(max_modified_level, lev + 1);
           }
         }
       }
-      const bool did_modify_any_level =
-          last_modified_level >= first_modified_level;
+      const bool did_modify_any_level = min_modified_level < max_modified_level;
 
       if (did_modify_any_level) {
         SetDeltaTime(cctkGH);
@@ -2008,11 +1954,11 @@ int Evolve(tFleshConfig *config) {
                    double(cctkGH->cctk_delta_time));
 
         assert(!active_levels);
-        active_levels = std::make_optional<active_levels_t>(
-            first_modified_level, last_modified_level + 1);
+        active_levels =
+            window_t::levels(min_modified_level, max_modified_level);
         CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
         CCTK_Traverse(cctkGH, "CCTK_POSTREGRID");
-        active_levels = std::optional<active_levels_t>();
+        active_levels = std::nullopt;
       }
     } // Regrid
 
@@ -2026,25 +1972,26 @@ int Evolve(tFleshConfig *config) {
 
     for (int min_level = 0, max_level; min_level < ghext->num_levels();
          min_level = max_level) {
-      max_level = min_level + 1;
-
-      while (max_level < ghext->num_levels()) {
+      max_level = min_level;
+      while (++max_level < ghext->num_levels()) {
         bool level_is_subcycling_level = false;
         for (const auto &patchdata : ghext->patches())
           if (max_level < patchdata.num_levels())
             level_is_subcycling_level |=
-                patchdata.level(max_level).is_subcycling_level;
+                patchdata.level(level_t{patchdata.patch, max_level})
+                    .is_subcycling_level;
         if (level_is_subcycling_level)
           break;
-        ++max_level;
       }
 
       rat64 level_iteration = -1;
       rat64 level_delta_iteration = -1;
       for (const auto &patchdata : ghext->patches()) {
         if (min_level < patchdata.num_levels()) {
-          level_iteration = patchdata.level(min_level).iteration;
-          level_delta_iteration = patchdata.level(min_level).delta_iteration;
+          const auto &leveldata =
+              patchdata.level(level_t{patchdata.patch, min_level});
+          level_iteration = leveldata.iteration;
+          level_delta_iteration = leveldata.delta_iteration;
           break;
         }
       }
@@ -2055,13 +2002,10 @@ int Evolve(tFleshConfig *config) {
       if (level_iteration > iteration)
         continue;
 
-      // must not terminate loop iteration due to active_levels being reset at
-      // bootom of loop body
-      active_levels = std::make_optional<active_levels_t>(min_level, max_level);
+      active_levels = window_t::levels(min_level, max_level);
 
-      // Advance iteration number on this batch of levels
       level_iteration += level_delta_iteration;
-      active_levels->loop_serially([&](auto &restrict leveldata) {
+      loop_serially(*active_levels, [&](auto &restrict leveldata) {
         leveldata.iteration += leveldata.delta_iteration;
         assert(level_iteration == leveldata.iteration);
         assert(level_delta_iteration == leveldata.delta_iteration);
@@ -2077,40 +2021,24 @@ int Evolve(tFleshConfig *config) {
       CCTK_Traverse(cctkGH, "CCTK_PRESTEP");
       CCTK_Traverse(cctkGH, "CCTK_EVOL");
 
-      // reset active_levels to include all levels that have caught up to the
-      // current timestep
-      min_level = WidenMinLevel(min_level, level_iteration);
-      active_levels = std::make_optional<active_levels_t>(min_level, max_level);
+      active_levels = window_t::levels(
+          WidenMinLevel(active_levels->coarsest(), level_iteration).index(),
+          max_level);
 
-      // Every level of the widened window has now reached its clock at this
-      // iteration; checkpoints record it, and recovery replays
-      // CCTK_POST_RECOVER_VARIABLES in this context
-      active_levels->loop_serially([&](auto &restrict leveldata) {
+      loop_serially(*active_levels, [&](auto &restrict leveldata) {
         leveldata.last_step_iteration = cctkGH->cctk_iteration;
       });
 
-      active_levels = std::optional<active_levels_t>();
+      active_levels = std::nullopt;
     } // for min_level, max_level
 
-    // End of step, once per iteration, after the finest level has stepped
-    // (it steps in every iteration, in the last batch): open the window of
-    // levels that now share its time (FinestClockGroup), finalize it, then
-    // traverse POSTSTEP and ANALYSIS on it. A coarser level that stepped
-    // ahead of the finest level keeps its last end-of-step results until a
-    // later window covers it. Without subcycling the window holds every
-    // level. Under subcycling a sync in either bin, or in CCTK_CHECKPOINT
-    // below on the same window, aborts unless it does (tail_traversal_scope).
     assert(!active_levels);
-    const auto window = FinestClockGroup();
-    active_levels =
-        std::make_optional<active_levels_t>(window.first, window.second);
+    active_levels = FinestClockGroup();
     FinalizeWindow(cctkGH, ghext->use_subcycling);
     TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
     TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
 
-    // Every level of the window has now run its end of step at this
-    // iteration; the recovery hint in error_if_parent_invalid reads it
-    active_levels->loop_serially([&](auto &restrict leveldata) {
+    loop_serially(*active_levels, [&](auto &restrict leveldata) {
       leveldata.last_finalized_iteration = cctkGH->cctk_iteration;
     });
 
@@ -2120,8 +2048,7 @@ int Evolve(tFleshConfig *config) {
     const double output_finish_time = gettime();
     total_evolution_output_time += output_finish_time - output_start_time;
 
-    // Mark all levels inactive now that we are done processing a time step
-    active_levels = std::optional<active_levels_t>();
+    active_levels = std::nullopt;
 
     const double waiting_start_time = gettime();
     MPI_Barrier(MPI_COMM_WORLD);
@@ -2202,7 +2129,6 @@ int Evolve(tFleshConfig *config) {
   return 0;
 } // namespace CarpetX
 
-// Schedule shutdown
 int Shutdown(tFleshConfig *config) {
   assert(config);
   cGH *restrict const cctkGH = config->GH[0];
@@ -2215,23 +2141,16 @@ int Shutdown(tFleshConfig *config) {
   CCTK_VINFO("Shutting down...");
 
   assert(!active_levels);
-  // CCTK_TERMINATE must run on the same level range that completed the last
-  // full iteration; under subcycling, that includes coarser time-aligned
-  // levels. This is the last iteration's end-of-step window, so under
-  // subcycling a sync aborts unless it holds every level
-  // (tail_traversal_scope).
-  const auto window = FinestClockGroup();
-  active_levels =
-      std::make_optional<active_levels_t>(window.first, window.second);
+  active_levels = FinestClockGroup();
 
   TraverseTailBin(cctkGH, "CCTK_TERMINATE");
 
-  active_levels = std::optional<active_levels_t>();
-  active_levels = std::make_optional<active_levels_t>(0, 0);
+  active_levels = std::nullopt;
+  active_levels = window_t::levels(0, 0);
 
   CCTK_Traverse(cctkGH, "CCTK_SHUTDOWN");
 
-  active_levels = std::optional<active_levels_t>();
+  active_levels = std::nullopt;
   assert(!ghext);
 
   return 0;
@@ -2240,22 +2159,23 @@ int Shutdown(tFleshConfig *config) {
 static void check_storage_clauses(const cFunctionData *restrict attribute) {
   int offender_count = 0;
 
-  const auto group_inactive = [](int gi) {
+  const auto group_inactive = [](const gi_t gi) {
     return !ghext->record(gi).has_storage();
   };
 
-  const auto report = [&](const char *clause_kind, int gi, int vi, int tl) {
+  const auto report = [&](const char *clause_kind, const gi_t gi,
+                          const std::optional<vi_t> vi, const tl_t tl) {
     ++offender_count;
-    const char *const groupname = CCTK_FullGroupName(gi);
-    if (vi >= 0) {
-      const int first_var = CCTK_FirstVarIndexI(gi);
-      const char *const varname = CCTK_VarName(first_var + vi);
+    const char *const groupname = CCTK_FullGroupName(gi.index());
+    if (vi) {
+      const char *const varname =
+          CCTK_VarName(ghext->record(gi).var(*vi).index());
       CCTK_VWARN(CCTK_WARN_ALERT,
                  "Storage check: %s::%s (%s) clause %s references "
                  "group %s variable %s timelevel %d without active STORAGE",
                  attribute->thorn, attribute->routine, attribute->where,
                  clause_kind, groupname ? groupname : "<unknown>",
-                 varname ? varname : "<unknown>", tl);
+                 varname ? varname : "<unknown>", tl.index());
     } else {
       CCTK_VWARN(CCTK_WARN_ALERT,
                  "Storage check: %s::%s (%s) clause %s references "
@@ -2269,24 +2189,23 @@ static void check_storage_clauses(const cFunctionData *restrict attribute) {
     const RDWR_entry &entry = attribute->RDWR[n];
     if (entry.where_rd == 0 && entry.where_wr == 0 && entry.where_inv == 0)
       continue;
-    const int gi = CCTK_GroupIndexFromVarI(entry.varindex);
-    assert(gi >= 0);
+    const auto [gi, vi] = variable(var_t{entry.varindex});
     if (!group_inactive(gi))
       continue;
-    const int vi = entry.varindex - CCTK_FirstVarIndexI(gi);
+    const tl_t tl{entry.timelevel};
     if (entry.where_rd != 0)
-      report("READS", gi, vi, entry.timelevel);
+      report("READS", gi, vi, tl);
     if (entry.where_wr != 0)
-      report("WRITES", gi, vi, entry.timelevel);
+      report("WRITES", gi, vi, tl);
     if (entry.where_inv != 0)
-      report("INVALIDATES", gi, vi, entry.timelevel);
+      report("INVALIDATES", gi, vi, tl);
   }
 
   for (int n = 0; n < attribute->n_SyncGroups; ++n) {
-    const int gi = attribute->SyncGroups[n];
+    const gi_t gi{attribute->SyncGroups[n]};
     if (!group_inactive(gi))
       continue;
-    report("SYNC", gi, /*vi=*/-1, /*tl=*/0);
+    report("SYNC", gi, std::nullopt, tl_t{0});
   }
 
   if (offender_count > 0)
@@ -2348,11 +2267,11 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   if (CCTK_EQUALS(presync_mode, "presync-only")) {
     const std::vector<clause_t> &reads =
         decode_clauses(attribute, rdwr_t::read);
-    std::set<int> sync_set;
+    std::set<gi_t> sync_set;
     for (const auto &rd : reads) {
-      if (CCTK_GroupTypeI(rd.gi) == CCTK_GF) {
+      if (CCTK_GroupTypeI(rd.gi.index()) == CCTK_GF) {
 
-        active_levels->loop_serially([&](const auto &restrict leveldata) {
+        loop_serially(*active_levels, [&](const auto &restrict leveldata) {
           const valid_t &need = rd.valid;
           const valid_t have =
               leveldata.group(rd.gi).timelevel(rd.tl).valid(rd.vi);
@@ -2362,24 +2281,23 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       }
     }
     if (!sync_set.empty()) {
-      std::vector<int> sync_vec(sync_set.begin(), sync_set.end());
-      SyncGroupsByDirI(*active_levels, cctkGH, sync_vec.size(), sync_vec.data(),
-                       nullptr);
+      const std::vector<gi_t> sync_vec(sync_set.begin(), sync_set.end());
+      SyncGroupsByDirI(*active_levels, cctkGH, sync_vec);
     }
   }
 
   {
-    std::set<int> touched;
+    std::set<gi_t> touched;
     for (const rdwr_t rdwr : {rdwr_t::read, rdwr_t::write})
       for (const auto &clause : decode_clauses(attribute, rdwr))
         touched.insert(clause.gi);
     for (int n = 0; n < attribute->n_SyncGroups; ++n)
-      touched.insert(attribute->SyncGroups[n]);
-    for (const int gi : touched) {
+      touched.insert(gi_t{attribute->SyncGroups[n]});
+    for (const gi_t gi : touched) {
       const auto &group = ghext->record(gi);
       if (group.kind != group_kind::grid_function || !group.has_storage())
         continue;
-      active_levels->loop_serially([&](const auto &restrict leveldata) {
+      loop_serially(*active_levels, [&](const auto &restrict leveldata) {
         const auto &restrict groupdata = leveldata.group(gi);
         const int open_writes = groupdata.open_write_count();
         if (open_writes > 0)
@@ -2390,8 +2308,8 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                       cctkGH->cctk_iteration, attribute->where,
                       attribute->thorn, attribute->routine,
                       groupdata.record.groupname.c_str(), open_writes,
-                      open_writes == 1 ? "" : "s", groupdata.patch,
-                      groupdata.level);
+                      open_writes == 1 ? "" : "s",
+                      groupdata.level.patch().index(), groupdata.level.index());
       });
     }
   }
@@ -2407,7 +2325,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                                 .vi = rd.vi,
                                 .where = rd.valid,
                                 .event = event + " checking input"};
-      if (CCTK_GroupTypeI(rd.gi) == CCTK_GF)
+      if (CCTK_GroupTypeI(rd.gi.index()) == CCTK_GF)
         require(*active_levels, spec);
       else
         require_array(spec);
@@ -2429,12 +2347,12 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     const std::vector<clause_t> &writes =
         decode_clauses(attribute, rdwr_t::write);
     for (const auto &wr : writes) {
-      const int ntls = ghext->record(wr.gi).num_timelevels();
-      if (ntls == 0)
+      const GHExt::GroupRecord &record = ghext->record(wr.gi);
+      if (!record.has_storage())
         continue;
-      if (wr.tl >= ntls)
-        CCTK_VERROR("Accessing non-existent timelevel %d of variable %s", wr.tl,
-                    CCTK_FullVarName(CCTK_FirstVarIndexI(wr.gi) + wr.vi));
+      if (!record.timelevels().contains(wr.tl))
+        CCTK_VERROR("Accessing non-existent timelevel %d of variable %s",
+                    wr.tl.index(), CCTK_FullVarName(record.var(wr.vi).index()));
       clause_t cl = wr;
       cl.valid = valid_t();
       valid_t need;
@@ -2446,7 +2364,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                               .fills = wr.valid,
                               .keeps = ~(wr.valid & ~need),
                               .event = event};
-      if (CCTK_GroupTypeI(wr.gi) == CCTK_GF)
+      if (CCTK_GroupTypeI(wr.gi.index()) == CCTK_GF)
         write_scopes.push_back(open_write(*active_levels, spec));
       else
         array_write_scopes.push_back(open_array_write(spec));
@@ -2468,9 +2386,9 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       }
     }
     for (const auto &wr : writes) {
-      if (wr.tl >= int(gfs.at(wr.gi).at(wr.vi).size()))
-        gfs.at(wr.gi).at(wr.vi).resize(wr.tl + 1);
-      gfs.at(wr.gi).at(wr.vi).at(wr.tl) |= wr.valid;
+      if (wr.tl.index() >= int(gfs.at(wr.gi.index()).at(wr.vi.index()).size()))
+        gfs.at(wr.gi.index()).at(wr.vi.index()).resize(wr.tl.index() + 1);
+      gfs.at(wr.gi.index()).at(wr.vi.index()).at(wr.tl.index()) |= wr.valid;
     }
 
     checksums = calculate_checksums(*active_levels, gfs);
@@ -2479,9 +2397,9 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   const mode_t mode = decode_mode(attribute);
   switch (mode) {
   case mode_t::local:
-    // Call function once per tile
-    active_levels->loop_parallel([&](int patch, int level, int index,
-                                     int component, const cGH *local_cctkGH) {
+    loop_parallel(*active_levels, [&](GHExt::PatchData::LevelData &leveldata,
+                                      int index, int component,
+                                      const cGH *local_cctkGH) {
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
       CCTK_CallFunction(function, attribute, const_cast<cGH *>(local_cctkGH));
     });
@@ -2520,7 +2438,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                                    .vi = inv.vi,
                                    .where = inv.valid,
                                    .event = event};
-      if (CCTK_GroupTypeI(inv.gi) == CCTK_GF)
+      if (CCTK_GroupTypeI(inv.gi.index()) == CCTK_GF)
         invalidate(*active_levels, spec);
       else
         invalidate_array(spec);
@@ -2537,7 +2455,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   return didsync;
 }
 
-// storage handling
 namespace {
 int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
                        const int *requested_tls, int *status, const bool inc) {
@@ -2560,7 +2477,8 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
 
   int min_num_timelevels = INT_MAX;
   for (int n = 0; n < n_groups; ++n) {
-    const int gid = groups[n];
+    const gi_t gi{groups[n]};
+    const int gid = gi.index();
     const int declared_tls = CCTK_DeclaredTimeLevelsGI(gid);
     int ntls = requested_tls[n];
     if (ntls == -1)
@@ -2641,7 +2559,7 @@ int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {
     }
   }
   assert(gi < CCTK_NumGroups());
-  return ghext->record(gi).has_storage() ? 1 : 0;
+  return ghext->record(gi_t{gi}).has_storage() ? 1 : 0;
 }
 
 int EnableGroupStorage(const cGH *cctkGH, const char *groupname) {
