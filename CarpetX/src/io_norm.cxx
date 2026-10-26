@@ -102,8 +102,9 @@ void OutputNorms(const cGH *restrict cctkGH) {
 
   if (is_root) {
     if (group_enabled_changed) {
-      for (int gi = 0; gi < numgroups; ++gi) {
-        if (!group_enabled.at(gi))
+      for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+        const gi_t gi{gi0};
+        if (!group_enabled.at(gi.index()))
           continue;
         const auto &group = ghext->record(gi);
         if (group.kind != group_kind::grid_function || !group.has_storage())
@@ -127,7 +128,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
           continue;
 
         std::ostringstream buf;
-        std::string groupname = CCTK_FullGroupName(gi);
+        std::string groupname = CCTK_FullGroupName(gi.index());
         groupname = std::regex_replace(groupname, std::regex("::"), "-");
         for (auto &ch : groupname)
           ch = std::tolower(ch);
@@ -157,8 +158,9 @@ void OutputNorms(const cGH *restrict cctkGH) {
     }
   }
 
-  for (int gi = 0; gi < numgroups; ++gi) {
-    if (!group_enabled.at(gi))
+  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+    const gi_t gi{gi0};
+    if (!group_enabled.at(gi.index()))
       continue;
     const auto &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function || !group.has_storage())
@@ -185,7 +187,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
     output_file_description_t ofd;
     if (is_root) {
       std::ostringstream buf;
-      std::string groupname = CCTK_FullGroupName(gi);
+      std::string groupname = CCTK_FullGroupName(gi.index());
       groupname = std::regex_replace(groupname, std::regex("::"), "-");
       for (auto &ch : groupname)
         ch = std::tolower(ch);

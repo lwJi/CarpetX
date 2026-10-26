@@ -29,7 +29,6 @@ using Arith::pown;
 
 namespace {
 
-// Interpolate a grid function at one point, dimensionally recursive
 template <typename T, int order, int centering> struct interpolator {
   static constexpr vect<bool, dim> indextype{(centering & 0b100) != 0,
                                              (centering & 0b010) != 0,
@@ -37,7 +36,7 @@ template <typename T, int order, int centering> struct interpolator {
 
   const GridDescBase &grid;
 #ifdef CCTK_DEBUG
-  const int gi;
+  const gi_t gi;
 #endif
   const int vi;
 #ifdef CCTK_DEBUG
@@ -49,7 +48,7 @@ template <typename T, int order, int centering> struct interpolator {
   // Allow outer boundaries as interpolation sources
   const vect<vect<bool, dim>, 2> allowed_boundaries;
 
-  interpolator(const GridDescBase &grid, CCTK_ATTRIBUTE_UNUSED const int gi,
+  interpolator(const GridDescBase &grid, CCTK_ATTRIBUTE_UNUSED const gi_t gi,
                const int vi, const int patch, const int level,
                const amrex::Array4<const T> &vars, const vect<int, dim> &derivs,
                const vect<vect<bool, dim>, 2> &allowed_boundaries)
@@ -71,7 +70,6 @@ template <typename T, int order, int centering> struct interpolator {
 
   // TODO: Check whether interpolated variables are valid
 
-  // Base case: only access a grid point
   template <int dir>
   std::enable_if_t<(dir == -1), T>
   interpolate(const vect<int, dim> &i, const vect<CCTK_REAL, dim> &di) const {
@@ -85,7 +83,7 @@ template <typename T, int order, int centering> struct interpolator {
     using std::isfinite;
     if (!(isfinite(val))) {
       std::cerr << "!isfinite gi=" << gi
-                << " groupname=" << CCTK_FullGroupName(gi) << " vi=" << vi
+                << " groupname=" << CCTK_FullGroupName(gi.index()) << " vi=" << vi
                 << " i=" << i << " di=" << di << " val=" << val << "\n";
       for (int c = -1; c <= +1; ++c)
         for (int b = -1; b <= +1; ++b)
@@ -635,20 +633,21 @@ void CarpetX::InterpolationSetup::Interpolate(
   const int nprocs = amrex::ParallelDescriptor::NProcs();
   std::vector<std::vector<CCTK_REAL> > results(nprocs); // [nprocs]
 
-  // Interpolate
   constexpr int tl = 0;
   struct givi_t {
-    int gi, vi;
+    gi_t gi;
+    int vi;
   };
-  std::vector<givi_t> givis(nvars);
+  std::vector<givi_t> givis;
+  givis.reserve(nvars);
   for (int v = 0; v < nvars; ++v) {
-    int gi = CCTK_GroupIndexFromVarI(varinds[v]);
-    assert(gi >= 0);
-    assert(gi < CCTK_NumGroups());
-    int vi = varinds[v] - CCTK_FirstVarIndexI(gi);
+    const gi_t gi{CCTK_GroupIndexFromVarI(varinds[v])};
+    assert(gi.index() >= 0);
+    assert(gi.index() < CCTK_NumGroups());
+    const int vi = varinds[v] - CCTK_FirstVarIndexI(gi.index());
     assert(vi >= 0);
-    assert(vi < CCTK_NumVarsInGroupI(gi));
-    givis.at(v) = {gi, vi};
+    assert(vi < CCTK_NumVarsInGroupI(gi.index()));
+    givis.push_back({gi, vi});
   }
 
   rat64 min_level_iteration_used = -1;
@@ -690,7 +689,7 @@ void CarpetX::InterpolationSetup::Interpolate(
         std::vector<std::vector<CCTK_REAL> > varresults(nvars);
 
         for (int v = 0; v < nvars; ++v) {
-          const int gi = givis.at(v).gi;
+          const gi_t gi = givis.at(v).gi;
           const int vi = givis.at(v).vi;
           const auto &restrict groupdata = leveldata.group(gi);
           const int centering = groupdata.indextype[0] * 0b100 +

@@ -95,7 +95,8 @@ int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,
                              const int numgroups, const int *const groups,
                              const int *const directions) {
   assert(active_levels);
-  return SyncGroups(*active_levels, cctkGH, numgroups, groups, directions);
+  const std::vector<gi_t> gis(groups, groups + numgroups);
+  return SyncGroups(*active_levels, cctkGH, gis);
 }
 
 namespace {
@@ -1020,7 +1021,8 @@ std::ostream &operator<<(std::ostream &os, const rdwr_t rdwr) {
 }
 
 struct clause_t {
-  int gi, vi, tl;
+  gi_t gi;
+  int vi, tl;
   valid_t valid;
 
   friend bool operator==(const clause_t &x, const clause_t &y) {
@@ -1044,10 +1046,10 @@ std::vector<clause_t> decode_clauses(const cFunctionData *restrict attribute,
   result.reserve(attribute->n_RDWR);
   for (int n = 0; n < attribute->n_RDWR; ++n) {
     const RDWR_entry &restrict RDWR = attribute->RDWR[n];
-    int gi = CCTK_GroupIndexFromVarI(RDWR.varindex);
-    assert(gi >= 0);
-    int vi = RDWR.varindex - CCTK_FirstVarIndexI(gi);
-    assert(vi >= 0 && vi < CCTK_NumVarsInGroupI(gi));
+    const gi_t gi{CCTK_GroupIndexFromVarI(RDWR.varindex)};
+    assert(gi.index() >= 0);
+    int vi = RDWR.varindex - CCTK_FirstVarIndexI(gi.index());
+    assert(vi >= 0 && vi < CCTK_NumVarsInGroupI(gi.index()));
     int tl = RDWR.timelevel;
     int where;
     switch (rdwr) {
@@ -1330,10 +1332,8 @@ void FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
     // invalidated. Initialise never does, since no step has completed yet.
     if (reflux)
       Reflux(cctkGH, min_level, max_level);
-    // Restrict the groups the restrict tag selects, the same level pairs as
-    // the reflux
     assert(do_restrict);
-    const std::vector<int> groups = collect_restrictable_groups();
+    const std::vector<gi_t> groups = collect_restrictable_groups();
     if (ghext->use_subcycling)
       RestrictNoPoison(cctkGH, min_level, max_level, groups);
     else
@@ -1741,7 +1741,7 @@ struct seed_run_t {
 };
 
 std::vector<seed_run_t> seed_runs(const active_levels_t &active_levels,
-                                  const int gi, const int vi) {
+                                  const gi_t gi, const int vi) {
   const int min_level = active_levels.min_level;
   std::vector<std::optional<valid_t> > seeds(active_levels.max_level -
                                              min_level);
@@ -1778,8 +1778,9 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
 
   const int num_groups = CCTK_NumGroups();
   const bool presync_only = CCTK_EQUALS(presync_mode, "presync-only");
-  std::vector<int> presync_groups;
-  for (int gi = 0; gi < num_groups; ++gi) {
+  std::vector<gi_t> presync_groups;
+  for (int gi0 = 0; gi0 < num_groups; ++gi0) {
+    const gi_t gi{gi0};
     const auto &group = ghext->record(gi);
     const int ntls0 = group.num_timelevels();
     if (ntls0 == 0)
@@ -1858,8 +1859,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
 
   } // for gi
   if (!presync_groups.empty()) {
-    SyncGroupsByDirI(*active_levels, cctkGH, presync_groups.size(),
-                     presync_groups.data(), nullptr);
+    SyncGroupsByDirI(*active_levels, cctkGH, presync_groups);
   }
 }
 
@@ -2240,15 +2240,16 @@ int Shutdown(tFleshConfig *config) {
 static void check_storage_clauses(const cFunctionData *restrict attribute) {
   int offender_count = 0;
 
-  const auto group_inactive = [](int gi) {
+  const auto group_inactive = [](const gi_t gi) {
     return !ghext->record(gi).has_storage();
   };
 
-  const auto report = [&](const char *clause_kind, int gi, int vi, int tl) {
+  const auto report = [&](const char *clause_kind, const gi_t gi, int vi,
+                          int tl) {
     ++offender_count;
-    const char *const groupname = CCTK_FullGroupName(gi);
+    const char *const groupname = CCTK_FullGroupName(gi.index());
     if (vi >= 0) {
-      const int first_var = CCTK_FirstVarIndexI(gi);
+      const int first_var = CCTK_FirstVarIndexI(gi.index());
       const char *const varname = CCTK_VarName(first_var + vi);
       CCTK_VWARN(CCTK_WARN_ALERT,
                  "Storage check: %s::%s (%s) clause %s references "
@@ -2269,11 +2270,11 @@ static void check_storage_clauses(const cFunctionData *restrict attribute) {
     const RDWR_entry &entry = attribute->RDWR[n];
     if (entry.where_rd == 0 && entry.where_wr == 0 && entry.where_inv == 0)
       continue;
-    const int gi = CCTK_GroupIndexFromVarI(entry.varindex);
-    assert(gi >= 0);
+    const gi_t gi{CCTK_GroupIndexFromVarI(entry.varindex)};
+    assert(gi.index() >= 0);
     if (!group_inactive(gi))
       continue;
-    const int vi = entry.varindex - CCTK_FirstVarIndexI(gi);
+    const int vi = entry.varindex - CCTK_FirstVarIndexI(gi.index());
     if (entry.where_rd != 0)
       report("READS", gi, vi, entry.timelevel);
     if (entry.where_wr != 0)
@@ -2283,7 +2284,7 @@ static void check_storage_clauses(const cFunctionData *restrict attribute) {
   }
 
   for (int n = 0; n < attribute->n_SyncGroups; ++n) {
-    const int gi = attribute->SyncGroups[n];
+    const gi_t gi{attribute->SyncGroups[n]};
     if (!group_inactive(gi))
       continue;
     report("SYNC", gi, /*vi=*/-1, /*tl=*/0);
@@ -2348,9 +2349,9 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   if (CCTK_EQUALS(presync_mode, "presync-only")) {
     const std::vector<clause_t> &reads =
         decode_clauses(attribute, rdwr_t::read);
-    std::set<int> sync_set;
+    std::set<gi_t> sync_set;
     for (const auto &rd : reads) {
-      if (CCTK_GroupTypeI(rd.gi) == CCTK_GF) {
+      if (CCTK_GroupTypeI(rd.gi.index()) == CCTK_GF) {
 
         active_levels->loop_serially([&](const auto &restrict leveldata) {
           const valid_t &need = rd.valid;
@@ -2362,20 +2363,19 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       }
     }
     if (!sync_set.empty()) {
-      std::vector<int> sync_vec(sync_set.begin(), sync_set.end());
-      SyncGroupsByDirI(*active_levels, cctkGH, sync_vec.size(), sync_vec.data(),
-                       nullptr);
+      const std::vector<gi_t> sync_vec(sync_set.begin(), sync_set.end());
+      SyncGroupsByDirI(*active_levels, cctkGH, sync_vec);
     }
   }
 
   {
-    std::set<int> touched;
+    std::set<gi_t> touched;
     for (const rdwr_t rdwr : {rdwr_t::read, rdwr_t::write})
       for (const auto &clause : decode_clauses(attribute, rdwr))
         touched.insert(clause.gi);
     for (int n = 0; n < attribute->n_SyncGroups; ++n)
-      touched.insert(attribute->SyncGroups[n]);
-    for (const int gi : touched) {
+      touched.insert(gi_t{attribute->SyncGroups[n]});
+    for (const gi_t gi : touched) {
       const auto &group = ghext->record(gi);
       if (group.kind != group_kind::grid_function || !group.has_storage())
         continue;
@@ -2407,7 +2407,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                                 .vi = rd.vi,
                                 .where = rd.valid,
                                 .event = event + " checking input"};
-      if (CCTK_GroupTypeI(rd.gi) == CCTK_GF)
+      if (CCTK_GroupTypeI(rd.gi.index()) == CCTK_GF)
         require(*active_levels, spec);
       else
         require_array(spec);
@@ -2434,7 +2434,8 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
         continue;
       if (wr.tl >= ntls)
         CCTK_VERROR("Accessing non-existent timelevel %d of variable %s", wr.tl,
-                    CCTK_FullVarName(CCTK_FirstVarIndexI(wr.gi) + wr.vi));
+                    CCTK_FullVarName(CCTK_FirstVarIndexI(wr.gi.index()) +
+                                     wr.vi));
       clause_t cl = wr;
       cl.valid = valid_t();
       valid_t need;
@@ -2446,7 +2447,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                               .fills = wr.valid,
                               .keeps = ~(wr.valid & ~need),
                               .event = event};
-      if (CCTK_GroupTypeI(wr.gi) == CCTK_GF)
+      if (CCTK_GroupTypeI(wr.gi.index()) == CCTK_GF)
         write_scopes.push_back(open_write(*active_levels, spec));
       else
         array_write_scopes.push_back(open_array_write(spec));
@@ -2468,9 +2469,9 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       }
     }
     for (const auto &wr : writes) {
-      if (wr.tl >= int(gfs.at(wr.gi).at(wr.vi).size()))
-        gfs.at(wr.gi).at(wr.vi).resize(wr.tl + 1);
-      gfs.at(wr.gi).at(wr.vi).at(wr.tl) |= wr.valid;
+      if (wr.tl >= int(gfs.at(wr.gi.index()).at(wr.vi).size()))
+        gfs.at(wr.gi.index()).at(wr.vi).resize(wr.tl + 1);
+      gfs.at(wr.gi.index()).at(wr.vi).at(wr.tl) |= wr.valid;
     }
 
     checksums = calculate_checksums(*active_levels, gfs);
@@ -2520,7 +2521,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                                    .vi = inv.vi,
                                    .where = inv.valid,
                                    .event = event};
-      if (CCTK_GroupTypeI(inv.gi) == CCTK_GF)
+      if (CCTK_GroupTypeI(inv.gi.index()) == CCTK_GF)
         invalidate(*active_levels, spec);
       else
         invalidate_array(spec);
@@ -2537,7 +2538,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   return didsync;
 }
 
-// storage handling
 namespace {
 int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
                        const int *requested_tls, int *status, const bool inc) {
@@ -2560,7 +2560,8 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
 
   int min_num_timelevels = INT_MAX;
   for (int n = 0; n < n_groups; ++n) {
-    const int gid = groups[n];
+    const gi_t gi{groups[n]};
+    const int gid = gi.index();
     const int declared_tls = CCTK_DeclaredTimeLevelsGI(gid);
     int ntls = requested_tls[n];
     if (ntls == -1)
@@ -2641,7 +2642,7 @@ int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {
     }
   }
   assert(gi < CCTK_NumGroups());
-  return ghext->record(gi).has_storage() ? 1 : 0;
+  return ghext->record(gi_t{gi}).has_storage() ? 1 : 0;
 }
 
 int EnableGroupStorage(const cGH *cctkGH, const char *groupname) {

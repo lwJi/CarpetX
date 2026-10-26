@@ -143,7 +143,7 @@ void error_if_invalid(const ArrayGroupData &groupdata, const int vi,
         groupdata.timelevel(tl).why_valid(vi).explanation().c_str());
 }
 
-void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
+void poison_invalid_gf(const active_levels_t &active_levels, const gi_t gi,
                        const int vi, const int tl, const valid_t where) {
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_values || !where.valid_any())
@@ -192,7 +192,7 @@ void poison_invalid_gf(const active_levels_t &active_levels, const int gi,
   synchronize();
 }
 
-void check_valid_gf(const active_levels_t &active_levels, const int gi,
+void check_valid_gf(const active_levels_t &active_levels, const gi_t gi,
                     const int vi, const int tl, const valid_t where,
                     const std::function<std::string()> &msg) {
   DECLARE_CCTK_PARAMETERS;
@@ -338,7 +338,7 @@ void check_valid_gf(const active_levels_t &active_levels, const int gi,
                     });
   });
 
-  const int varindex = CCTK_FirstVarIndexI(gi) + vi;
+  const int varindex = CCTK_FirstVarIndexI(gi.index()) + vi;
   CCTK_VWARN(CCTK_WARN_ALERT,
              "%s: Grid function \"%s\" contains %td nans, infinities, or "
              "poison in box (%g,%g,%g):(%g,%g,%g); expected valid %s",
@@ -386,13 +386,13 @@ int array_elements(const ArrayGroupData &arraygroupdata) {
   return n_elems;
 }
 
-void poison_ga_interior(ArrayGroupData &arraygroupdata, const int gi,
+void poison_ga_interior(ArrayGroupData &arraygroupdata, const gi_t gi,
                         const int vi, const int tl) {
   static Timer timer("poison_invalid<GA>");
   Interval interval(timer);
 
   cGroup group;
-  int ierr = CCTK_GroupData(gi, &group);
+  int ierr = CCTK_GroupData(gi.index(), &group);
   assert(!ierr);
 
   const int n_elems = array_elements(arraygroupdata);
@@ -421,13 +421,13 @@ void poison_ga_interior(ArrayGroupData &arraygroupdata, const int gi,
   }
 }
 
-std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const int gi,
+std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const gi_t gi,
                             const int vi, const int tl) {
   static Timer timer("check_valid<GA>");
   Interval interval(timer);
 
   cGroup group;
-  int ierr = CCTK_GroupData(gi, &group);
+  int ierr = CCTK_GroupData(gi.index(), &group);
   assert(!ierr);
 
   using std::isnan;
@@ -472,7 +472,7 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const int gi,
   return nan_count;
 }
 
-void poison_invalid_ga(const int gi, const int vi, const int tl,
+void poison_invalid_ga(const gi_t gi, const int vi, const int tl,
                        const valid_t where) {
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_arrays || !where.valid_int)
@@ -480,7 +480,7 @@ void poison_invalid_ga(const int gi, const int vi, const int tl,
   poison_ga_interior(ghext->record(gi).array(), gi, vi, tl);
 }
 
-void check_valid_ga(const int gi, const int vi, const int tl,
+void check_valid_ga(const gi_t gi, const int vi, const int tl,
                     const valid_t where,
                     const std::function<std::string()> &msg) {
   DECLARE_CCTK_PARAMETERS;
@@ -512,10 +512,10 @@ std::function<std::string()> event_reason(const std::string &event,
   return [text]() { return text; };
 }
 
-std::vector<int> variables_of(const int gi, const std::optional<int> vi) {
+std::vector<int> variables_of(const gi_t gi, const std::optional<int> vi) {
   if (vi)
     return {*vi};
-  const int numvars = CCTK_NumVarsInGroupI(gi);
+  const int numvars = CCTK_NumVarsInGroupI(gi.index());
   assert(numvars >= 0);
   std::vector<int> vis(numvars);
   for (int v = 0; v < numvars; ++v)
@@ -692,13 +692,13 @@ checksums_t calculate_checksums(
 
       for (int vi = 0; vi < groupdata.record.numvars; ++vi) {
         for (int tl = 0; tl < groupdata.num_timelevels(); ++tl) {
-          const int gi = groupdata.record.groupindex;
+          const gi_t gi = groupdata.record.groupindex;
           const tiletag_t tiletag(patch, level, component, gi, vi, tl);
 
           const valid_t valid = groupdata.timelevel(tl).valid(vi);
-          if (tl >= int(will_write.at(gi).at(vi).size()))
+          if (tl >= int(will_write.at(gi.index()).at(vi).size()))
             continue;
-          const auto &wr = will_write.at(gi).at(vi).at(tl);
+          const auto &wr = will_write.at(gi.index()).at(vi).at(tl);
           valid_t to_check = valid & ~wr;
 
           // Check only those variables which are valid, and where
@@ -762,7 +762,7 @@ void check_checksums(const active_levels_t &active_levels,
 
       for (int vi = 0; vi < groupdata.record.numvars; ++vi) {
         for (int tl = 0; tl < groupdata.num_timelevels(); ++tl) {
-          const int gi = groupdata.record.groupindex;
+          const gi_t gi = groupdata.record.groupindex;
           const tiletag_t tiletag(patch, level, component, gi, vi, tl);
 
           if (!checksums.count(tiletag))

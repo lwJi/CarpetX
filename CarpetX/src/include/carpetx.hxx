@@ -19,10 +19,13 @@
 
 #include <array>
 #include <cmath>
+#include <compare>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <ostream>
+#include <span>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -30,6 +33,30 @@
 namespace CarpetX {
 
 using rat64 = Arith::rational<std::int64_t>;
+
+template <class Derived> struct index_t {
+  constexpr explicit index_t(const int i) : i_(i) {}
+  constexpr int index() const { return i_; }
+  friend constexpr auto operator<=>(index_t, index_t) = default;
+
+private:
+  int i_;
+};
+
+template <class Derived>
+std::ostream &operator<<(std::ostream &os, const index_t<Derived> i) {
+  return os << i.index();
+}
+
+template <class Derived> struct index_hash {
+  std::size_t operator()(const index_t<Derived> i) const noexcept {
+    return std::hash<int>()(i.index());
+  }
+};
+
+struct gi_t : index_t<gi_t> {
+  using index_t::index_t;
+};
 
 enum class symmetry_t {
   none,
@@ -45,7 +72,7 @@ struct level_t {
 
 struct group_t {
   level_t level;
-  int gi;
+  gi_t gi;
 };
 
 int num_patches();
@@ -192,17 +219,17 @@ scratch_t scratch(group_t group);
 
 valid_t valid(group_t group, int tl, int vi);
 void require_valid(group_t group, int tl, valid_t where, const char *why);
-void invalidate(window_t window, const std::vector<int> &groups, int tl,
+void invalidate(window_t window, std::span<const gi_t> groups, int tl,
                 const char *why);
 
-void sync(window_t window, const std::vector<int> &groups);
-void sync_ghosts_only(window_t window, const std::vector<int> &groups,
+void sync(window_t window, std::span<const gi_t> groups);
+void sync_ghosts_only(window_t window, std::span<const gi_t> groups,
                       int tl = -1);
-void prolongate_ghosts(window_t window, const std::vector<int> &groups,
+void prolongate_ghosts(window_t window, std::span<const gi_t> groups,
                        int tl = -1);
-void prolongate_aligned(window_t window, const std::vector<int> &groups,
+void prolongate_aligned(window_t window, std::span<const gi_t> groups,
                         int tl = -1);
-void restrict_no_poison(window_t window, const std::vector<int> &groups);
+void restrict_no_poison(window_t window, std::span<const gi_t> groups);
 void synchronize();
 
 template <typename T, int D> struct reduction {
@@ -309,7 +336,7 @@ std::ostream &operator<<(std::ostream &os, const reduction<T, D> &red) {
             << "}\n";
 }
 
-reduction<CCTK_REAL, Loop::dim> reduce(int gi, int vi, int tl);
+reduction<CCTK_REAL, Loop::dim> reduce(gi_t gi, int vi, int tl);
 
 class Interval;
 
@@ -353,5 +380,8 @@ public:
 };
 
 } // namespace CarpetX
+
+template <>
+struct std::hash<CarpetX::gi_t> : CarpetX::index_hash<CarpetX::gi_t> {};
 
 #endif

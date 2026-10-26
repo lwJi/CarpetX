@@ -258,7 +258,7 @@ rk_fill_fpinfo(const amrex::MultiFab &finemfab,
 
 } // namespace
 
-void EnsureRKBuffers(const int patch, const int level, const int gi) {
+void EnsureRKBuffers(const int patch, const int level, const gi_t gi) {
   // The buffers only exist under subcycling, and only for the groups the time
   // integrator advances: it alone fills the bands (StoreRKOldState /
   // StoreRKStage) and publishes that set, read through group_is_integrated.
@@ -327,7 +327,7 @@ void EnsureRKBuffers(const int patch, const int level, const int gi) {
 }
 
 void StoreRKOldState(const int patch, const int level,
-                     const std::vector<int> &var_groups, const int tl) {
+                     const std::span<const gi_t> var_groups, const int tl) {
   if (!ghext->use_subcycling)
     return;
   const auto &patchdata = ghext->patch(patch);
@@ -337,13 +337,13 @@ void StoreRKOldState(const int patch, const int level,
   const amrex::Periodicity &period =
       patchdata.amrcore->Geom(level).periodicity();
 
-  for (const int gi : var_groups) {
+  for (const gi_t gi : var_groups) {
     const GroupData &groupdata = leveldata.group(gi);
     if (!group_is_integrated(gi))
       CCTK_VERROR("Group \"%s\" is integrated under subcycling but is not "
                   "among the integrated groups the time integrator registered "
                   "(CarpetX::register_integrator, AT WRAGH)",
-                  CCTK_FullGroupName(gi));
+                  CCTK_FullGroupName(gi.index()));
     // The finest level has no children to prolongate to.
     if (!have_child)
       continue;
@@ -357,8 +357,8 @@ void StoreRKOldState(const int patch, const int level,
 }
 
 void StoreRKStage(const int patch, const int level,
-                  const std::vector<int> &var_groups,
-                  const std::vector<int> &rhs_groups, const int stage) {
+                  const std::span<const gi_t> var_groups,
+                  const std::span<const gi_t> rhs_groups, const int stage) {
   if (!ghext->use_subcycling)
     return;
   assert(stage >= 1 && stage <= num_rk_stages());
@@ -383,7 +383,7 @@ void StoreRKStage(const int patch, const int level,
 }
 
 void FillRKBoundary(const int patch, const int level,
-                    const std::vector<int> &var_groups, const int tl,
+                    const std::span<const gi_t> var_groups, const int tl,
                     const int stage, const CCTK_REAL xsi, const CCTK_REAL dtc) {
   if (level == 0)
     return;
@@ -406,7 +406,7 @@ void FillRKBoundary(const int patch, const int level,
   task_manager tasks2;
   task_manager tasks3;
 
-  for (const int gi : var_groups) {
+  for (const gi_t gi : var_groups) {
     GroupData &groupdata = leveldata.group(gi);
     const GroupData &coarsegroupdata = coarseleveldata.group(gi);
     assert(coarsegroupdata.record.numvars == groupdata.record.numvars);

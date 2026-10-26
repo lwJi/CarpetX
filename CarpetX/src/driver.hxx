@@ -404,10 +404,10 @@ struct GHExt {
   };
 
   struct GroupRecord {
-    GroupRecord(int gi, int num_timelevels);
+    GroupRecord(gi_t gi, int num_timelevels);
 
     std::string groupname;
-    int groupindex;
+    gi_t groupindex;
     int firstvarindex;
     int numvars;
     bool do_checkpoint;
@@ -447,18 +447,18 @@ struct GHExt {
   };
 
   const GroupRecord &record(
-      const int gi,
+      const gi_t gi,
       const std::source_location site = std::source_location::current()) const {
     if (!storage_frozen)
       refuse(site, "CarpetX group %d has no record yet: storage is not frozen",
-             gi);
-    if (gi < 0 || gi >= int(group_records.size()))
-      refuse(site, "group index %d does not exist: there are %d groups", gi,
-             int(group_records.size()));
-    return group_records[gi];
+             gi.index());
+    if (gi.index() < 0 || gi.index() >= int(group_records.size()))
+      refuse(site, "group index %d does not exist: there are %d groups",
+             gi.index(), int(group_records.size()));
+    return group_records[gi.index()];
   }
   GroupRecord &
-  record(const int gi,
+  record(const gi_t gi,
          const std::source_location site = std::source_location::current()) {
     return const_cast<GroupRecord &>(std::as_const(*this).record(gi, site));
   }
@@ -680,8 +680,7 @@ struct GHExt {
         // not checkpointed (not a freg_* band) and not valid-tracked; rebuilt
         // with freg when the level is remade on regrid.
         std::unique_ptr<amrex::FluxRegister> freg_scratch;
-        // associated flux group indices
-        std::array<int, dim> fluxes; // [dir]
+        std::optional<std::array<gi_t, dim> > fluxes;
 
         struct scratch_slot_t {
           std::unique_ptr<amrex::MultiFab> mfab;
@@ -702,24 +701,24 @@ struct GHExt {
         }
       };
 
-      const GroupData &group(const int gi,
+      const GroupData &group(const gi_t gi,
                              const std::source_location site =
                                  std::source_location::current()) const {
-        if (gi < 0 || gi >= int(groupdata.size()))
-          refuse(site, "group index %d does not exist: there are %d groups", gi,
-                 int(groupdata.size()));
-        const GroupData *const gd = groupdata[gi].get();
+        if (gi.index() < 0 || gi.index() >= int(groupdata.size()))
+          refuse(site, "group index %d does not exist: there are %d groups",
+                 gi.index(), int(groupdata.size()));
+        const GroupData *const gd = groupdata[gi.index()].get();
         if (!gd)
           refuse(site, "group %s is not a grid function group",
-                 CCTK_FullGroupName(gi));
+                 CCTK_FullGroupName(gi.index()));
         if (gd->num_timelevels() == 0)
           refuse(site,
                  "group %s has no storage on patch %d, refinement level %d",
-                 CCTK_FullGroupName(gi), patch, level);
+                 CCTK_FullGroupName(gi.index()), patch, level);
         return *gd;
       }
       GroupData &
-      group(const int gi,
+      group(const gi_t gi,
             const std::source_location site = std::source_location::current()) {
         return const_cast<GroupData &>(std::as_const(*this).group(gi, site));
       }
@@ -920,17 +919,13 @@ GHExt &driver();
 int num_rk_stages();
 rk_dense_output_t registered_dense_output();
 
-std::array<int, dim> get_group_fluxes(int gi);
+std::optional<std::array<gi_t, dim> > get_group_fluxes(gi_t gi);
 
 void warn_inert_flux_tags();
 
-// Group tag "checkpoint"; absent -> yes. Reads only the tags table, so valid
-// from PARAMCHECK on. Defined in driver.cxx.
-bool get_group_checkpoint_flag(int gi);
+bool get_group_checkpoint_flag(gi_t gi);
 
-// Group tag "evolve"; absent -> the "checkpoint" tag (absent -> yes). Reads
-// only the tags table, so valid from PARAMCHECK on. Defined in driver.cxx.
-bool get_group_evolve_flag(int gi);
+bool get_group_evolve_flag(gi_t gi);
 
 // True iff every level of every patch sits at the same subcycling iteration,
 // i.e. the checkpoint is time-aligned. Always true without subcycling. When
@@ -966,12 +961,7 @@ enum class band_kind { ks_source, old_source, flux_register };
 // flux_register. Shared by both IO backends.
 std::string subcycling_band_tag(band_kind kind, int stage = -1);
 
-// The source band that level `level` fills as a parent: owned by the child
-// level's GroupData. Null on the finest level, for groups that are not
-// integrated, and where the coarse-fine footprint is empty. For
-// flux_register, null unless the child owns a register for this group (an
-// integrated group with a fluxes= tag under do_reflux).
-amrex::MultiFab *rk_source_band(int patch, int level, int gi, band_kind kind,
+amrex::MultiFab *rk_source_band(int patch, int level, gi_t gi, band_kind kind,
                                 int stage = -1);
 
 // Monotonically increasing counter. Incremented whenever the AMR grid

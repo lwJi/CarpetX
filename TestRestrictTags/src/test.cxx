@@ -64,9 +64,9 @@ extern "C" void TestRestrictTags_Init(CCTK_ARGUMENTS) {
 }
 
 extern "C" void TestRestrictTags_RestrictExplicit(CCTK_ARGUMENTS) {
-  const int gi = CCTK_GroupIndex("TestRestrictTags::nr_explicit");
-  assert(gi >= 0);
-  const std::vector<int> groups{gi};
+  const CarpetX::gi_t gi{CCTK_GroupIndex("TestRestrictTags::nr_explicit")};
+  assert(gi.index() >= 0);
+  const std::array groups{gi};
   CarpetX::restrict_no_poison(CarpetX::active_window(), groups);
 }
 

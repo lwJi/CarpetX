@@ -89,7 +89,7 @@ std::string get_simulation_name() {
 void check_silo_no_multi_tl(const std::vector<bool> &group_mask,
                             const char *operation) {
   for (const auto &group : ghext->records(group_kind::grid_function)) {
-    if (!group_mask.at(group.groupindex))
+    if (!group_mask.at(group.groupindex.index()))
       continue;
     if (group.num_timelevels() > 1)
       CCTK_VERROR("Silo %s does not support groups with ntls > 1 "
@@ -195,7 +195,7 @@ void RecoverGH(const cGH *restrict cctkGH) {
   const std::vector<bool> group_enabled = [&] {
     std::vector<bool> enabled(CCTK_NumGroups(), false);
     for (const auto &group : ghext->records())
-      enabled.at(group.groupindex) = group.do_checkpoint;
+      enabled.at(group.groupindex.index()) = group.do_checkpoint;
     return enabled;
   }();
 
@@ -313,8 +313,9 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
   CCTK_TraverseString(out_plotfile_groups, enable_group, &group_enabled,
                       CCTK_GROUP_OR_VAR);
 
-  for (int gi = 0; gi < numgroups; ++gi) {
-    if (!group_enabled.at(gi))
+  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+    const gi_t gi{gi0};
+    if (!group_enabled.at(gi.index()))
       continue;
     const auto &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function)
@@ -323,7 +324,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
     if (group.has_storage()) {
       const int tl = 0;
 
-      std::string groupname = CCTK_FullGroupName(gi);
+      std::string groupname = CCTK_FullGroupName(gi.index());
       groupname = regex_replace(groupname, std::regex("::"), "-");
       for (auto &c : groupname)
         c = tolower(c);
@@ -690,7 +691,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
     const std::vector<bool> checkpoint_group = [&] {
       std::vector<bool> enabled(CCTK_NumGroups(), false);
       for (const auto &group : ghext->records())
-        enabled.at(group.groupindex) = group.do_checkpoint;
+        enabled.at(group.groupindex.index()) = group.do_checkpoint;
       return enabled;
     }();
     OutputOpenPMD(cctkGH, checkpoint_group, checkpoint_dir, checkpoint_file,
@@ -708,7 +709,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
     const std::vector<bool> checkpoint_group = [&] {
       std::vector<bool> enabled(CCTK_NumGroups(), false);
       for (const auto &group : ghext->records())
-        enabled.at(group.groupindex) = group.do_checkpoint;
+        enabled.at(group.groupindex.index()) = group.do_checkpoint;
       return enabled;
     }();
     check_silo_no_multi_tl(checkpoint_group, "checkpoint");

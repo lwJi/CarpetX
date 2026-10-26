@@ -205,11 +205,11 @@ reduce_array(const amrex::Array4<const T> &restrict vars, const int n,
 }
 } // namespace
 
-reduction<CCTK_REAL, dim> reduce(int gi, int vi, int tl) {
+reduction<CCTK_REAL, dim> reduce(const gi_t gi, const int vi, const int tl) {
   DECLARE_CCTK_PARAMETERS;
 
   cGroup group;
-  int ierr = CCTK_GroupData(gi, &group);
+  int ierr = CCTK_GroupData(gi.index(), &group);
   assert(!ierr);
   assert(group.grouptype == CCTK_GF);
 

@@ -17,12 +17,13 @@ extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
   integrator.dense_output = rk.dense_output;
   if (!rk.implicit)
     integrator.b.assign(rk.b.begin(), rk.b.begin() + rk.nstages);
-  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-    if (CCTK_GroupTypeI(gi) != CCTK_GF)
+  for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
+    if (CCTK_GroupTypeI(gi0) != CCTK_GF)
       continue;
-    const int rhs_gi = get_group_rhs(gi);
-    if (rhs_gi >= 0)
-      integrator.integrated.push_back(CarpetX::rk_pair_t{gi, rhs_gi});
+    const CarpetX::gi_t gi{gi0};
+    const std::optional<CarpetX::gi_t> rhs_gi = get_group_rhs(gi);
+    if (rhs_gi)
+      integrator.integrated.push_back(CarpetX::rk_pair_t{gi, *rhs_gi});
   }
   CarpetX::register_integrator(integrator);
 }
@@ -47,25 +48,26 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
   const CarpetX::window_t window = CarpetX::active_window();
 
   statecomp_t var, rhs;
-  std::vector<int> var_groups, rhs_groups, dep_groups;
+  std::vector<CarpetX::gi_t> var_groups, rhs_groups, dep_groups;
   int nvars = 0;
   bool do_accumulate_nvars = true;
   window.loop_serially([&](const CarpetX::level_t level) {
-    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      if (CCTK_GroupTypeI(gi) != CCTK_GF)
+    for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
+      if (CCTK_GroupTypeI(gi0) != CCTK_GF)
         continue;
-      const int rhs_gi = get_group_rhs(gi);
-      if (rhs_gi >= 0) {
-        assert(rhs_gi != gi);
+      const CarpetX::gi_t gi{gi0};
+      const std::optional<CarpetX::gi_t> rhs_gi = get_group_rhs(gi);
+      if (rhs_gi) {
+        assert(*rhs_gi != gi);
         const CarpetX::group_t group{level, gi};
-        const CarpetX::group_t rhs_group{level, rhs_gi};
+        const CarpetX::group_t rhs_group{level, *rhs_gi};
         assert(CarpetX::numvars(rhs_group) == CarpetX::numvars(group));
         var.entries.push_back({group, std::nullopt});
         rhs.entries.push_back({rhs_group, std::nullopt});
         if (do_accumulate_nvars) {
           nvars += CarpetX::numvars(group);
           var_groups.push_back(gi);
-          rhs_groups.push_back(rhs_gi);
+          rhs_groups.push_back(*rhs_gi);
           const auto &dependents = get_group_dependents(gi);
           dep_groups.insert(dep_groups.end(), dependents.begin(),
                             dependents.end());
@@ -100,10 +102,10 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     dep_groups.erase(last, dep_groups.end());
   }
 
-  for (const int gi : var_groups)
+  for (const CarpetX::gi_t gi : var_groups)
     assert(std::find(dep_groups.begin(), dep_groups.end(), gi) ==
            dep_groups.end());
-  for (const int gi : rhs_groups)
+  for (const CarpetX::gi_t gi : rhs_groups)
     assert(std::find(var_groups.begin(), var_groups.end(), gi) ==
            var_groups.end());
 

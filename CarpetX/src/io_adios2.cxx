@@ -129,15 +129,15 @@ struct carpetx_adios2_t {
 
   ////////////////////////////////////////////////////////////////////////////////
 
-  static std::string make_varname(const int gi, const int vi,
+  static std::string make_varname(const gi_t gi, const int vi,
                                   const int patch = -1, const int reflevel = -1,
                                   const int component = -1) {
     std::string varname;
     if (vi < 0) {
       assert(0);
-      varname = CCTK_FullGroupName(gi);
+      varname = CCTK_FullGroupName(gi.index());
     } else {
-      const int v0 = CCTK_FirstVarIndexI(gi);
+      const int v0 = CCTK_FirstVarIndexI(gi.index());
       varname = CCTK_FullVarName(v0 + vi);
     }
     std::ostringstream buf;
@@ -265,11 +265,11 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
         for (const auto &leveldata : patchdata.levels()) {
 
           for (const auto &groupdata : leveldata.groups()) {
-            const int gi = groupdata.record.groupindex;
-            if (output_group.at(gi)) {
+            const gi_t gi = groupdata.record.groupindex;
+            if (output_group.at(gi.index())) {
 
               cGroup cgroup;
-              ierr = CCTK_GroupData(gi, &cgroup);
+              ierr = CCTK_GroupData(gi.index(), &cgroup);
               assert(!ierr);
               assert(cgroup.vartype == CCTK_VARIABLE_REAL);
               assert(cgroup.dim == 3);
@@ -337,13 +337,14 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                      leveldata.level);
 
         for (const auto &groupdata : leveldata.groups()) {
-          const int gi = groupdata.record.groupindex;
-          if (output_group.at(gi)) {
+          const gi_t gi = groupdata.record.groupindex;
+          if (output_group.at(gi.index())) {
             if (io_verbose)
-              CCTK_VINFO("    Writing group %s...", CCTK_FullGroupName(gi));
+              CCTK_VINFO("    Writing group %s...",
+                         CCTK_FullGroupName(gi.index()));
 
             cGroup cgroup;
-            ierr = CCTK_GroupData(gi, &cgroup);
+            ierr = CCTK_GroupData(gi.index(), &cgroup);
             assert(!ierr);
             assert(cgroup.vartype == CCTK_VARIABLE_REAL);
             assert(cgroup.dim == 3);

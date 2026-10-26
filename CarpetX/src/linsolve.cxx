@@ -9,22 +9,18 @@
 #include <AMReX_MLNodeLaplacian.H>
 
 #include <cmath>
+#include <optional>
 #include <vector>
 
 namespace CarpetX {
 
-extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
-                                     const CCTK_INT gi_rhs,
-                                     const CCTK_INT gi_res,
-                                     const CCTK_REAL reltol,
-                                     const CCTK_REAL abstol,
-                                     CCTK_REAL *restrict const res_initial,
-                                     CCTK_REAL *restrict const res_final) {
-  assert(gi_rhs >= 0);
-  assert(gi_sol >= 0);
-  const bool have_res = gi_res >= 0;
-  if (have_res)
-    assert(gi_res >= 0);
+namespace {
+
+void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
+                   const std::optional<gi_t> gi_res, const CCTK_REAL reltol,
+                   const CCTK_REAL abstol, CCTK_REAL *restrict const res_initial,
+                   CCTK_REAL *restrict const res_final) {
+  const bool have_res = gi_res.has_value();
   const int tl = 0;
   const int vi = 0;
 
@@ -76,7 +72,7 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
     const auto &restrict groupdata_sol = leveldata.group(gi_sol);
     sols.at(level) = groupdata_sol.timelevel(tl).mfab.get();
     if (have_res) {
-      const auto &restrict groupdata_res = leveldata.group(gi_res);
+      const auto &restrict groupdata_res = leveldata.group(*gi_res);
       ress.at(level) = groupdata_res.timelevel(tl).mfab.get();
     }
   }
@@ -139,6 +135,20 @@ extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
         CCTK_VINFO("norm_inf res[%d]: %g", level,
                    double(ress.at(level)->norminf(vi, 0, false, true)));
   }
+}
+
+} // namespace
+
+extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
+                                     const CCTK_INT gi_rhs,
+                                     const CCTK_INT gi_res,
+                                     const CCTK_REAL reltol,
+                                     const CCTK_REAL abstol,
+                                     CCTK_REAL *restrict const res_initial,
+                                     CCTK_REAL *restrict const res_final) {
+  solve_poisson(gi_t{gi_sol}, gi_t{gi_rhs},
+                gi_res >= 0 ? std::optional<gi_t>(gi_t{gi_res}) : std::nullopt,
+                reltol, abstol, res_initial, res_final);
 }
 
 } // namespace CarpetX

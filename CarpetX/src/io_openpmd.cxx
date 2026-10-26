@@ -368,14 +368,10 @@ struct carpetx_openpmd_t {
 
   ////////////////////////////////////////////////////////////////////////////////
 
-  // Allowed characters are only [A-Za-z_]
-  // The optional `band` tag namespaces subcycling source-band meshes apart
-  // from the regular tl=0 data (see subcycling checkpoint/recovery). An empty
-  // tag (the default) leaves regular-data mesh names unchanged.
-  static std::string make_meshname(const int gi, const int patch,
+  static std::string make_meshname(const gi_t gi, const int patch,
                                    const int level, const int tl = 0,
                                    const std::string &band = std::string()) {
-    std::string groupname = CCTK_FullGroupName(gi);
+    std::string groupname = CCTK_FullGroupName(gi.index());
     groupname = std::regex_replace(groupname, std::regex("::"), "_");
     for (auto &ch : groupname)
       ch = std::tolower(ch);
@@ -410,9 +406,8 @@ struct carpetx_openpmd_t {
   }
 #endif
 
-  // Allowed characters are only [A-Za-z_]
-  static std::string make_componentname(const int gi, const int vi) {
-    const int v0 = CCTK_FirstVarIndexI(gi);
+  static std::string make_componentname(const gi_t gi, const int vi) {
+    const int v0 = CCTK_FirstVarIndexI(gi.index());
     std::string varname = CCTK_FullVarName(v0 + vi);
     varname = std::regex_replace(varname, std::regex("::"), "_");
     for (auto &ch : varname)
@@ -903,17 +898,17 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
       }
 
       for (auto &groupdata : leveldata.groups()) {
-        const int gi = groupdata.record.groupindex;
-        if (input_group.at(gi)) {
+        const gi_t gi = groupdata.record.groupindex;
+        if (input_group.at(gi.index())) {
 
           cGroup cgroup;
-          const int ierr = CCTK_GroupData(gi, &cgroup);
+          const int ierr = CCTK_GroupData(gi.index(), &cgroup);
           assert(!ierr);
           assert(cgroup.vartype == CCTK_VARIABLE_REAL);
           assert(cgroup.dim == 3);
 
           if (io_verbose)
-            CCTK_VINFO("Reading group %s...", CCTK_FullGroupName(gi));
+            CCTK_VINFO("Reading group %s...", CCTK_FullGroupName(gi.index()));
 
           const int numvars = groupdata.record.numvars;
 
@@ -1104,14 +1099,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             } // for local_component
           } // for tl
 
-          // Subcycling coarse source bands (see OutputOpenPMD): zero-ghost
-          // MultiFabs sharing the level's idomain frame. A time-aligned
-          // checkpoint carries no bands, so a missing mesh leaves the rebuilt
-          // band untouched; a mid-cycle checkpoint must carry them for every
-          // coarse level that is ahead of a finer level, and likewise the
-          // child's flux register, which is live there (see
-          // recovered_finer_level_is_behind), so there a missing mesh (old
-          // derivative-band format, or a truncated file) is refused.
           {
             const bool need_bands = recovered_finer_level_is_behind(
                 leveldata.patch, leveldata.level);
@@ -1124,13 +1111,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
               const std::string meshname = make_meshname(
                   gi, leveldata.patch, leveldata.level, 0, band_tag);
               if (!read_iter->meshes.count(meshname)) {
-                // A do_reflux mismatch cannot reach this error: the parameter
-                // is STEERABLE = NEVER and the flesh restores it from the
-                // checkpoint before any mesh is read, so a differing par-file
-                // value aborts in IOUtil_SetAllParameters and an omitted one
-                // adopts the checkpoint's, allocating no register when that is
-                // "no". What arrives here is a checkpoint written before
-                // flux-register checkpointing existed, or a truncated one.
                 if (need_bands)
                   CCTK_VERROR(
                       "Mid-cycle checkpoint lacks %s: mesh \"%s\" (band %s) "
@@ -1140,7 +1120,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                       kind == band_kind::flux_register ? "flux-register data"
                                                        : "coarse RK step data",
                       meshname.c_str(), band_tag.c_str(),
-                      CCTK_FullGroupName(gi), leveldata.patch, leveldata.level,
+                      CCTK_FullGroupName(gi.index()), leveldata.patch,
+                      leveldata.level,
                       kind == band_kind::flux_register
                           ? "a version without flux-register checkpointing"
                           : "the derivative-band scheme");
@@ -1222,13 +1203,14 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
 
   {
     const int numgroups = CCTK_NumGroups();
-    for (int gi = 0; gi < numgroups; ++gi) {
-      if (input_group.at(gi)) {
+    for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+      const gi_t gi{gi0};
+      if (input_group.at(gi.index())) {
 
         // Check group properties
 
         cGroup cgroup;
-        const int ierr = CCTK_GroupData(gi, &cgroup);
+        const int ierr = CCTK_GroupData(gi.index(), &cgroup);
         assert(!ierr);
         if (cgroup.grouptype == CCTK_GF)
           continue;
@@ -1237,7 +1219,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
         assert(cgroup.dim <= 3);
 
         if (io_verbose)
-          CCTK_VINFO("Reading group %d %s...", gi, CCTK_FullGroupName(gi));
+          CCTK_VINFO("Reading group %d %s...", gi.index(),
+                     CCTK_FullGroupName(gi.index()));
 
         auto &groupdata = ghext->record(gi).array();
         if (!groupdata.record.has_storage())
@@ -1731,17 +1714,18 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       const openPMD::Dataset dataset(datatype, extent);
 
       for (const auto &groupdata : leveldata.groups()) {
-        const int gi = groupdata.record.groupindex;
-        if (output_group.at(gi)) {
+        const gi_t gi = groupdata.record.groupindex;
+        if (output_group.at(gi.index())) {
 
           cGroup cgroup;
-          const int ierr = CCTK_GroupData(gi, &cgroup);
+          const int ierr = CCTK_GroupData(gi.index(), &cgroup);
           assert(!ierr);
           assert(cgroup.vartype == CCTK_VARIABLE_REAL);
           assert(cgroup.dim == 3);
 
           if (io_verbose)
-            CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
+            CCTK_VINFO("Writing group %d %s...", gi.index(),
+                       CCTK_FullGroupName(gi.index()));
 
           const int numvars = groupdata.record.numvars;
 
@@ -2034,13 +2018,14 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
 
   if (!slice) {
     const int numgroups = CCTK_NumGroups();
-    for (int gi = 0; gi < numgroups; ++gi) {
-      if (output_group.at(gi)) {
+    for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+      const gi_t gi{gi0};
+      if (output_group.at(gi.index())) {
 
         // Check group properties
 
         cGroup cgroup;
-        const int ierr = CCTK_GroupData(gi, &cgroup);
+        const int ierr = CCTK_GroupData(gi.index(), &cgroup);
         assert(!ierr);
         if (cgroup.grouptype == CCTK_GF)
           continue;
@@ -2049,7 +2034,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         assert(cgroup.dim <= 3);
 
         if (io_verbose)
-          CCTK_VINFO("Writing group %d %s...", gi, CCTK_FullGroupName(gi));
+          CCTK_VINFO("Writing group %d %s...", gi.index(),
+                     CCTK_FullGroupName(gi.index()));
 
         const auto &groupdata = ghext->record(gi).array();
         if (!groupdata.record.has_storage())

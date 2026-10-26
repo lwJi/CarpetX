@@ -28,6 +28,15 @@ VALIDITY_WORD = re.compile(
     r"(\b(error_if_invalid|warn_if_invalid|poison_invalid_g[fa]|check_valid_g[fa])"
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
+SYNC_FILES = (
+    "CarpetX/src/schedule.hxx",
+    "CarpetX/src/schedule.cxx",
+    "CarpetX/src/sync_restrict.cxx",
+    "CarpetX/src/sync_restrict_internal.hxx",
+)
+DIRECTIONS_WORD = re.compile(r"\bdirections\b")
+FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
+STATEMENT_END = re.compile(r"[;{}]")
 EXCERPT_WIDTH = 72
 
 RULE = (
@@ -36,7 +45,9 @@ RULE = (
     "marker: CARPETX_INTERNAL belongs only in CarpetX/src/make.code.defn and in the\n"
     "#ifndef CARPETX_INTERNAL guard of a private CarpetX header.\n"
     "validity: a validity kernel or a why_valid_t setter is named only in CarpetX/src/valid.cxx\n"
-    "and valid.hxx; every other site opens a write scope or calls require or invalidate."
+    "and valid.hxx; every other site opens a write scope or calls require or invalidate.\n"
+    "directions: the sync layer takes a window and a list of gi_t; only the flesh-facing\n"
+    "SyncGroupsOnActiveLevels receives the flesh's directions array, and discards it."
 )
 
 
@@ -57,11 +68,17 @@ def marker_allowed(name: str, lang: Lang, line: str) -> bool:
     return is_private(name) and lang is Lang.CXX and bool(GUARD.match(line))
 
 
+def directions_allowed(name: str, statement: str) -> bool:
+    return name in SYNC_FILES and FLESH_SYNC_OVERLOAD in statement
+
+
 def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
     if lang not in CHECKED:
         return []
     found = []
+    statement = ""
     for number, line in enumerate(text.splitlines(), 1):
+        statement += line + "\n"
         if MARKER_WORD.search(line) and not marker_allowed(name, lang, line):
             found.append(Finding(number, "marker", line.strip()))
         if lang is Lang.CXX and not is_private(name):
@@ -70,6 +87,10 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
                 found.append(Finding(number, "include", line.strip()))
         if lang is Lang.CXX and is_private(name) and name not in VALIDITY_FILES and VALIDITY_WORD.search(line):
             found.append(Finding(number, "validity", line.strip()))
+        if name in SYNC_FILES and DIRECTIONS_WORD.search(line) and not directions_allowed(name, statement):
+            found.append(Finding(number, "directions", line.strip()))
+        if STATEMENT_END.search(line):
+            statement = ""
     return found
 
 
@@ -105,15 +126,17 @@ def summary(found: list[tuple[str, Finding]]) -> str:
     includes = sum(1 for _, f in found if f.rule == "include")
     markers = sum(1 for _, f in found if f.rule == "marker")
     validity = sum(1 for _, f in found if f.rule == "validity")
+    directions = sum(1 for _, f in found if f.rule == "directions")
     if not found:
         return (
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
-            "no validity call outside valid.cxx"
+            "no validity call outside valid.cxx, no directions in the sync layer"
         )
     parts = (
         ([plural(includes, "private include")] if includes else [])
         + ([plural(markers, "stray marker")] if markers else [])
         + ([plural(validity, "validity call") + " outside valid.cxx"] if validity else [])
+        + ([plural(directions, "directions parameter") + " in the sync layer"] if directions else [])
     )
     return "✗ boundary: " + ", ".join(parts)
 

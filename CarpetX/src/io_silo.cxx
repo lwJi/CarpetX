@@ -167,7 +167,7 @@ std::string make_meshname(const std::array<int, dim> &nghosts,
   return DB::legalize_name(buf.str());
 }
 
-std::string make_varname(const int gi, const int vi, const int patch = -1,
+std::string make_varname(const gi_t gi, const int vi, const int patch = -1,
                          const int reflevel = -1, const int component = -1,
                          const std::string &band = std::string()) {
   assert((patch == -1) == (reflevel == -1));
@@ -175,9 +175,9 @@ std::string make_varname(const int gi, const int vi, const int patch = -1,
   std::string varname;
   if (vi < 0) {
     assert(0);
-    varname = CCTK_FullGroupName(gi);
+    varname = CCTK_FullGroupName(gi.index());
   } else {
-    const int v0 = CCTK_FirstVarIndexI(gi);
+    const int v0 = CCTK_FirstVarIndexI(gi.index());
     varname = CCTK_FullVarName(v0 + vi);
     varname = regex_replace(varname, std::regex("::"), "-");
     for (auto &ch : varname)
@@ -623,10 +623,10 @@ void InputSilo(const cGH *restrict const cctkGH,
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
             for (const auto &groupdata : leveldata.groups()) {
-              const int gi = groupdata.record.groupindex;
+              const gi_t gi = groupdata.record.groupindex;
               if (local_has[0] && local_has[1])
                 break;
-              if (!input_group.at(gi))
+              if (!input_group.at(gi.index()))
                 continue;
               const auto probe = [&](const amrex::MultiFab *const band,
                                      const band_kind kind, const int stage) {
@@ -673,8 +673,8 @@ void InputSilo(const cGH *restrict const cctkGH,
                                                  leveldata.level))
               continue;
             for (const auto &groupdata : leveldata.groups()) {
-              const int gi = groupdata.record.groupindex;
-              if (!input_group.at(gi))
+              const gi_t gi = groupdata.record.groupindex;
+              if (!input_group.at(gi.index()))
                 continue;
               const amrex::MultiFab *const band = rk_source_band(
                   patchdata.patch, leveldata.level, gi, band_kind::old_source);
@@ -687,7 +687,8 @@ void InputSilo(const cGH *restrict const cctkGH,
                   "incomplete. Restart from a time-aligned checkpoint.",
                   subcycling_band_tag(band_kind::old_source).c_str(),
                   subcycling_band_tag(band_kind::ks_source, 0).c_str(),
-                  CCTK_FullGroupName(gi), patchdata.patch, leveldata.level);
+                  CCTK_FullGroupName(gi.index()), patchdata.patch,
+                  leveldata.level);
             }
           }
         }
@@ -700,22 +701,14 @@ void InputSilo(const cGH *restrict const cctkGH,
                                                  leveldata.level))
               continue;
             for (const auto &groupdata : leveldata.groups()) {
-              const int gi = groupdata.record.groupindex;
-              if (!input_group.at(gi))
+              const gi_t gi = groupdata.record.groupindex;
+              if (!input_group.at(gi.index()))
                 continue;
               const amrex::MultiFab *const band =
                   rk_source_band(patchdata.patch, leveldata.level, gi,
                                  band_kind::flux_register, 0);
               if (!band || band->empty())
                 continue; // no register for this group
-              // A do_reflux mismatch cannot reach this error: the parameter
-              // is STEERABLE = NEVER and the flesh restores it from the
-              // checkpoint before any variable is read, so a differing
-              // par-file value aborts in IOUtil_SetAllParameters and an
-              // omitted one adopts the checkpoint's, allocating no register
-              // when that is "no". What arrives here is a checkpoint written
-              // before flux-register checkpointing existed, or a truncated
-              // one.
               CCTK_VERROR(
                   "Mid-cycle checkpoint lacks flux-register data (bands "
                   "%s..) for group %s on patch %d level %d. The checkpoint "
@@ -723,7 +716,8 @@ void InputSilo(const cGH *restrict const cctkGH,
                   "checkpointing or is incomplete. Restart from a "
                   "time-aligned checkpoint.",
                   subcycling_band_tag(band_kind::flux_register, 0).c_str(),
-                  CCTK_FullGroupName(gi), patchdata.patch, leveldata.level);
+                  CCTK_FullGroupName(gi.index()), patchdata.patch,
+                  leveldata.level);
             }
           }
         }
@@ -737,11 +731,11 @@ void InputSilo(const cGH *restrict const cctkGH,
                      leveldata.level);
 
         for (auto &groupdata : leveldata.groups()) {
-          const int gi = groupdata.record.groupindex;
-          if (!input_group.at(gi))
+          const gi_t gi = groupdata.record.groupindex;
+          if (!input_group.at(gi.index()))
             continue;
           if (io_verbose)
-            CCTK_VINFO("  Reading group %s", CCTK_FullGroupName(gi));
+            CCTK_VINFO("  Reading group %s", CCTK_FullGroupName(gi.index()));
 
           const int numvars = groupdata.record.numvars;
           const int tl = 0;
@@ -1170,8 +1164,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
         std::set<mesh_props_t> have_meshes;
         for (const auto &groupdata : leveldata.groups()) {
-          const int gi = groupdata.record.groupindex;
-          if (!output_group.at(gi))
+          const gi_t gi = groupdata.record.groupindex;
+          if (!output_group.at(gi.index()))
             continue;
 
           const int numvars = groupdata.record.numvars;
@@ -1267,9 +1261,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 for (int d = 0; d < ndims; ++d)
                   coord_ptrs[d] = coords[d].data();
               } else {
-                const int coordinate_group =
-                    CCTK_GroupIndex("CoordinatesX::vertex_coords");
-                assert(coordinate_group >= 0);
+                const gi_t coordinate_group{
+                    CCTK_GroupIndex("CoordinatesX::vertex_coords")};
+                assert(coordinate_group.index() >= 0);
                 assert(send_this_fab && write_this_fab);
                 const auto &coord_groupdata = leveldata.group(coordinate_group);
                 assert(coord_groupdata.nghostzones == groupdata.nghostzones);
@@ -1727,11 +1721,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
     }
 
     std::map<mesh_props_t, std::size_t> mesh_nblocks;
-    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      if (!output_group.at(gi))
+    for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
+      const gi_t gi{gi0};
+      if (!output_group.at(gi.index()))
         continue;
-      // TODO: Output grid arrays
-      if (CCTK_GroupTypeI(gi) != CCTK_GF)
+      if (CCTK_GroupTypeI(gi.index()) != CCTK_GF)
         continue;
 
       const auto &groupdata0 = ghext->patch(0).level(0).group(gi);

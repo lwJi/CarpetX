@@ -2,7 +2,7 @@
 
 A thorn reaches CarpetX through two headers that `CarpetX/interface.ccl` exports from `CarpetX/src/include/`: `carpetx.hxx` for everything a general thorn needs, and `carpetx_rk.hxx` for the time integrator's contract. Every other header under `CarpetX/src/` is private: it includes `internal.hxx`, which stops with `#error` unless `CARPETX_INTERNAL` is defined, and only CarpetX's own `src/make.code.defn` defines it. The public headers include nothing under `CarpetX/src/`, so a client cannot reach the driver's internals transitively either.
 
-`python3 scripts/boundary check` lists every `#include` outside `CarpetX/src/` that reaches into `CarpetX/src`, and every `CARPETX_INTERNAL` outside CarpetX's `make.code.defn` and the private headers' guard; the `Comments` workflow runs it with `--since` on every PR. The data model behind the headers (`GHExt`, `LevelData`, `GroupData`, `active_levels`, the `FillPatch_*` pipelines, the validity bookkeeping) has no public form: the public counterpart of a private name is the operation CarpetX performs with it.
+`python3 scripts/boundary check` lists every `#include` outside `CarpetX/src/` that reaches into `CarpetX/src`, every `CARPETX_INTERNAL` outside CarpetX's `make.code.defn` and the private headers' guard, and every `directions` parameter in the sync layer outside the one flesh-facing overload; the `Comments` workflow runs it with `--since` on every PR. The data model behind the headers (`GHExt`, `LevelData`, `GroupData`, `active_levels`, the `FillPatch_*` pipelines, the validity bookkeeping) has no public form: the public counterpart of a private name is the operation CarpetX performs with it.
 
 `TestCarpetXAPI` is a client of both headers, and `TestCarpetXAPI/test/errors/` holds one expected-failure parfile per refusal named below.
 
@@ -12,9 +12,11 @@ In `interface.ccl`, `USES INCLUDE HEADER: carpetx.hxx` (and `carpetx_rk.hxx` for
 
 The header is the list of calls; this file states only what a signature cannot. Every call is available between the driver's SetupGH and its Shutdown, and a bad argument is a `CCTK_VERROR`, never garbage.
 
-## Handles
+## Indices and handles
 
-A handle is made of indices and resolved on every call, so a stale one names a level that no longer exists and the call reports it instead of touching freed memory. `level_t{patch, level}` names a refinement level of a patch, `group_t{level, gi}` a grid-function group on it, and `window_t{min_level, max_level, min_patch, max_patch}` a half-open set of levels, both for traversal (`loop_serially`, `loop_coarse_to_fine`, and `loop_parallel`, whose kernel receives the component's cGH) and as the "which levels" argument of every operation. `active_window()` is the window of the current traversal and an error outside one; `all_levels()` is the whole hierarchy. `parent(level)` is an error on level 0, and `num_levels(patch)` is per patch.
+An index is a type: `gi_t` names a Cactus group. It is built explicitly from the flesh's `int`, `gi_t{CCTK_GroupIndex("…")}`, and read back only through `index()`, where a value leaves for the flesh (`CCTK_FullGroupName(gi.index())`). It does not convert to an `int` or from one implicitly, and it has no arithmetic; two of a kind compare equal and order. `TestCarpetXAPI/src/compile_checks.cxx` holds the `static_assert`s that pin this.
+
+A handle is made of indices and resolved on every call, so a stale one names a level that no longer exists and the call reports it instead of touching freed memory. `level_t{patch, level}` names a refinement level of a patch, `group_t{level, gi}` a grid-function group on it (`gi` is a `gi_t`), and `window_t{min_level, max_level, min_patch, max_patch}` a half-open set of levels, both for traversal (`loop_serially`, `loop_coarse_to_fine`, and `loop_parallel`, whose kernel receives the component's cGH) and as the "which levels" argument of every operation. `active_window()` is the window of the current traversal and an error outside one; `all_levels()` is the whole hierarchy. `parent(level)` is an error on level 0, and `num_levels(patch)` is per patch.
 
 ## Data, validity and the write scope
 
@@ -26,7 +28,7 @@ A handle is made of indices and resolved on every call, so a stale one names a l
 
 ## Communication
 
-Each operation takes a window and a list of grid-function group indices, and is an error while a write scope is open on any of them.
+Each operation takes a window and a list of grid-function groups as a `std::span<const gi_t>`, so a `std::vector<gi_t>` or a `std::array<gi_t, N>` converts in place (a braced list does not; write `std::array{gi}` for one group), and is an error while a write scope is open on any of them.
 
 - `sync(window, groups)` is a scheduled SYNC: every time level but the oldest, the subcycling variant when `use_subcycling`, and it sets the ghost and outer bits it fills. Under subcycling the SYNC of an integrated group on a refined level at iteration > 0 copies only the same-level ghosts and requires the ghost bit set already, by `state_updated` or by the driver's refill after a recovery; finding it unset is an error. On level 0 it fills and marks every ghost itself.
 - `sync_ghosts_only(window, groups, tl = -1)`: the same-level copy only; `tl = -1` is every time level but the oldest.
@@ -41,7 +43,7 @@ Each operation takes a window and a list of grid-function group indices, and is 
 
 Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step; CarpetX derives everything else.
 
-Registration is once, `AT WRAGH`: `register_integrator(rk_config_t{dense_output, b, integrated})`. `dense_output` names the method whose dense output fills the refinement boundary under subcycling (`ssprk3`, `rk4` or `none`); it is named, not inferred from the stage count, so a 3-stage method other than SSPRK3 registers `none` and cannot run under subcycling. `b` holds the final-update weight of every stage, so `b.size()` is the stage count; an implicit method registers an empty `b` and never feeds a flux register, and all-zero weights are allowed for a method that never updates the state. `integrated` holds `rk_pair_t{state_gi, rhs_gi}` pairs. CarpetX checks the record against its own parameters and refuses a bad one; the refusals are the parfiles in `TestCarpetXAPI/test/errors/`. A driver without a registration still runs; only `open_rk_step` needs one.
+Registration is once, `AT WRAGH`: `register_integrator(rk_config_t{dense_output, b, integrated})`. `dense_output` names the method whose dense output fills the refinement boundary under subcycling (`ssprk3`, `rk4` or `none`); it is named, not inferred from the stage count, so a 3-stage method other than SSPRK3 registers `none` and cannot run under subcycling. `b` holds the final-update weight of every stage, so `b.size()` is the stage count; an implicit method registers an empty `b` and never feeds a flux register, and all-zero weights are allowed for a method that never updates the state. `integrated` holds `rk_pair_t{state, rhs}` pairs of `gi_t`. CarpetX checks the record against its own parameters and refuses a bad one; the refusals are the parfiles in `TestCarpetXAPI/test/errors/`. A driver without a registration still runs; only `open_rk_step` needs one.
 
 `run_schedule_group_at(cctkGH, "G", t, delta_time)` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH, traverses the group, and restores both. `delta_time` is the raw `cctk_delta_time` the group sees, so pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.
 

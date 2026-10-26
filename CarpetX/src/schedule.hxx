@@ -14,6 +14,7 @@
 #include <cassert>
 #include <functional>
 #include <optional>
+#include <span>
 #include <type_traits>
 #include <vector>
 
@@ -25,38 +26,35 @@ int Evolve(tFleshConfig *config);
 int Shutdown(tFleshConfig *config);
 
 void RestrictNoPoison(const cGH *cctkGH, int min_level, int max_level,
-                      const std::vector<int> &groups);
+                      std::span<const gi_t> groups);
 
 struct active_levels_t;
 
 int SyncGroupsByDirI(const active_levels_t &active_levels,
-                     const cGH *restrict cctkGH, int numgroups,
-                     const int *groups, const int *directions);
+                     const cGH *restrict cctkGH, std::span<const gi_t> groups);
 
 int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
-                               const cGH *restrict cctkGH, int numgroups,
-                               const int *groups, const int *directions);
+                               const cGH *restrict cctkGH,
+                               std::span<const gi_t> groups);
 
 int SyncGroups(const active_levels_t &active_levels, const cGH *restrict cctkGH,
-               int numgroups, const int *groups, const int *directions);
+               std::span<const gi_t> groups);
 
 int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,
                              const int *groups, const int *directions);
 
 int SyncGroupsByDirIProlongateOnly(const active_levels_t &active_levels,
-                                   const cGH *restrict cctkGH, int numgroups,
-                                   const int *groups, const int *directions,
-                                   int tl = -1);
+                                   const cGH *restrict cctkGH,
+                                   std::span<const gi_t> groups, int tl = -1);
 
 int SyncGroupsByDirIProlongateOnlyAligned(const active_levels_t &active_levels,
                                           const cGH *restrict cctkGH,
-                                          int numgroups, const int *groups,
-                                          const int *directions, int tl = -1);
+                                          std::span<const gi_t> groups,
+                                          int tl = -1);
 
 int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
-                              const cGH *restrict cctkGH, int numgroups,
-                              const int *groups, const int *directions,
-                              int tl = -1);
+                              const cGH *restrict cctkGH,
+                              std::span<const gi_t> groups, int tl = -1);
 
 int CallFunction(void *function, cFunctionData *attribute, void *data);
 

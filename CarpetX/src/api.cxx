@@ -9,9 +9,9 @@
 #include <cstddef>
 #include <memory>
 #include <source_location>
+#include <span>
 #include <string>
 #include <utility>
-#include <vector>
 
 namespace CarpetX {
 
@@ -33,12 +33,12 @@ void require_no_open_write(
 }
 
 active_levels_t require_operable(const window_t window,
-                                 const std::vector<int> &groups) {
-  for (const int gi : groups)
+                                 const std::span<const gi_t> groups) {
+  for (const gi_t gi : groups)
     driver().record(gi);
   const active_levels_t active_levels(window);
   active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
-    for (const int gi : groups)
+    for (const gi_t gi : groups)
       if (driver().record(gi).has_storage())
         require_no_open_write(leveldata.group(gi));
   });
@@ -197,7 +197,7 @@ resolve_scratch(const group_t group, const std::size_t slot) {
     refuse(std::source_location::current(),
            "scratch buffer %d of group %s on patch %d, refinement level %d no "
            "longer exists: the level was remade while the scratch_t was held",
-           int(slot), CCTK_FullGroupName(group.gi), group.level.patch,
+           int(slot), CCTK_FullGroupName(group.gi.index()), group.level.patch,
            group.level.level);
   return pool.at(slot);
 }
@@ -270,12 +270,12 @@ void require_valid(const group_t group, const int tl, const valid_t where,
           {.gi = group.gi, .tl = tl, .where = where, .event = event_name(why)});
 }
 
-void invalidate(const window_t window, const std::vector<int> &groups,
+void invalidate(const window_t window, const std::span<const gi_t> groups,
                 const int tl, const char *const why) {
   const operation_scope_t op("CarpetX::invalidate");
   const active_levels_t active_levels = require_operable(window, groups);
   const std::string event = event_name(why);
-  for (const int gi : groups) {
+  for (const gi_t gi : groups) {
     active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
       leveldata.group(gi).timelevel(tl);
     });
@@ -284,39 +284,38 @@ void invalidate(const window_t window, const std::vector<int> &groups,
   }
 }
 
-void sync(const window_t window, const std::vector<int> &groups) {
+void sync(const window_t window, const std::span<const gi_t> groups) {
   const operation_scope_t op("CarpetX::sync");
   const active_levels_t active_levels = require_operable(window, groups);
-  SyncGroups(active_levels, driver().get_global_cctkGH(), groups.size(),
-             groups.data(), nullptr);
+  SyncGroups(active_levels, driver().get_global_cctkGH(), groups);
 }
 
-void sync_ghosts_only(const window_t window, const std::vector<int> &groups,
-                      const int tl) {
+void sync_ghosts_only(const window_t window,
+                      const std::span<const gi_t> groups, const int tl) {
   const operation_scope_t op("CarpetX::sync_ghosts_only");
   const active_levels_t active_levels = require_operable(window, groups);
-  SyncGroupsByDirIGhostOnly(active_levels, driver().get_global_cctkGH(),
-                            groups.size(), groups.data(), nullptr, tl);
+  SyncGroupsByDirIGhostOnly(active_levels, driver().get_global_cctkGH(), groups,
+                            tl);
 }
 
-void prolongate_ghosts(const window_t window, const std::vector<int> &groups,
-                       const int tl) {
+void prolongate_ghosts(const window_t window,
+                       const std::span<const gi_t> groups, const int tl) {
   const operation_scope_t op("CarpetX::prolongate_ghosts");
   const active_levels_t active_levels = require_operable(window, groups);
   SyncGroupsByDirIProlongateOnly(active_levels, driver().get_global_cctkGH(),
-                                 groups.size(), groups.data(), nullptr, tl);
+                                 groups, tl);
 }
 
-void prolongate_aligned(const window_t window, const std::vector<int> &groups,
-                        const int tl) {
+void prolongate_aligned(const window_t window,
+                        const std::span<const gi_t> groups, const int tl) {
   const operation_scope_t op("CarpetX::prolongate_aligned");
   const active_levels_t active_levels = require_operable(window, groups);
-  SyncGroupsByDirIProlongateOnlyAligned(
-      active_levels, driver().get_global_cctkGH(), groups.size(), groups.data(),
-      nullptr, tl);
+  SyncGroupsByDirIProlongateOnlyAligned(active_levels,
+                                        driver().get_global_cctkGH(), groups, tl);
 }
 
-void restrict_no_poison(const window_t window, const std::vector<int> &groups) {
+void restrict_no_poison(const window_t window,
+                        const std::span<const gi_t> groups) {
   const operation_scope_t op("CarpetX::restrict_no_poison");
   require_operable(window, groups);
   RestrictNoPoison(driver().get_global_cctkGH(), window.min_level,

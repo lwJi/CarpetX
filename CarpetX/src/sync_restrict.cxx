@@ -19,6 +19,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -50,29 +51,28 @@ struct mark_sync_active {
   ~mark_sync_active() { sync_active = false; }
 };
 
-static void sync_log_groups(const char *label, int numgroups,
-                            const int *groups0) {
+static void sync_log_groups(const char *label,
+                            const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
   if (verbose) {
     std::ostringstream buf;
-    for (int n = 0; n < numgroups; ++n) {
+    for (std::size_t n = 0; n < groups0.size(); ++n) {
       if (n != 0)
         buf << ", ";
-      buf << CCTK_FullGroupName(groups0[n]);
+      buf << CCTK_FullGroupName(groups0[n].index());
     }
 #pragma omp critical
     CCTK_VINFO("%s %s", label, buf.str().c_str());
   }
 }
 
-static std::vector<int> sync_filter_groups(int numgroups, const int *groups0) {
-  static const int gi_regrid_error =
-      CCTK_GroupIndex("CarpetXRegrid::regrid_error");
-  assert(gi_regrid_error >= 0);
+static std::vector<gi_t> sync_filter_groups(const std::span<const gi_t> groups0) {
+  static const gi_t gi_regrid_error{
+      CCTK_GroupIndex("CarpetXRegrid::regrid_error")};
+  assert(gi_regrid_error.index() >= 0);
 
-  std::vector<int> groups;
-  for (int n = 0; n < numgroups; ++n) {
-    const int gi = groups0[n];
+  std::vector<gi_t> groups;
+  for (const gi_t gi : groups0) {
     const auto &group = ghext->record(gi);
     if (!group.has_storage() || group.kind != group_kind::grid_function)
       continue;
@@ -85,13 +85,13 @@ static std::vector<int> sync_filter_groups(int numgroups, const int *groups0) {
 }
 
 static void sync_multipatch_boundaries(const cGH *cctkGH,
-                                       const std::vector<int> &groups) {
+                                       const std::vector<gi_t> &groups) {
   static const bool have_multipatch_boundaries =
       CCTK_IsFunctionAliased("MultiPatch_Interpolate");
 
   if (have_multipatch_boundaries) {
     std::vector<CCTK_INT> cactusvarinds;
-    for (const int gi : groups) {
+    for (const gi_t gi : groups) {
       const auto &group = ghext->record(gi);
       for (int var = 0; var < group.numvars; ++var)
         cactusvarinds.push_back(group.firstvarindex + var);
@@ -102,13 +102,13 @@ static void sync_multipatch_boundaries(const cGH *cctkGH,
   }
 }
 
-static int timelevels_but_oldest(const int gi) {
+static int timelevels_but_oldest(const gi_t gi) {
   const int ntls = ghext->record(gi).num_timelevels();
   assert(ntls > 0);
   return ntls > 1 ? ntls - 1 : ntls;
 }
 
-static valid_t sync_fills(const active_levels_t &active_levels, const int gi) {
+static valid_t sync_fills(const active_levels_t &active_levels, const gi_t gi) {
   std::optional<bool> covered;
   active_levels.loop_serially([&](auto &restrict leveldata) {
     const bool level_covered =
@@ -159,7 +159,7 @@ level_window(const GHExt::PatchData::LevelData &leveldata) {
 
 static void
 error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
-                        const int gi, const int tl, const char *const label) {
+                        const gi_t gi, const int tl, const char *const label) {
   assert(leveldata.level > 0);
   const auto &restrict coarseleveldata =
       ghext->level(leveldata.patch, leveldata.level - 1);
@@ -197,8 +197,8 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
 // Restriction group selectors
 // =======================================================================
 
-std::vector<int> collect_restrictable_groups() {
-  std::vector<int> groups;
+std::vector<gi_t> collect_restrictable_groups() {
+  std::vector<gi_t> groups;
   groups.reserve(CCTK_NumGroups());
   for (const auto &group : ghext->records(group_kind::grid_function))
     if (group.do_restrict)
@@ -206,8 +206,8 @@ std::vector<int> collect_restrictable_groups() {
   return groups;
 }
 
-static std::vector<int> reprolongate_groups() {
-  std::vector<int> groups;
+static std::vector<gi_t> reprolongate_groups() {
+  std::vector<gi_t> groups;
   groups.reserve(CCTK_NumGroups());
   for (const auto &group : ghext->records(group_kind::grid_function))
     if (group.do_restrict ||
@@ -216,10 +216,10 @@ static std::vector<int> reprolongate_groups() {
   return groups;
 }
 
-static std::vector<int> sync_restrict_groups(const std::vector<int> &groups) {
-  std::vector<int> restrict_groups;
+static std::vector<gi_t> sync_restrict_groups(const std::vector<gi_t> &groups) {
+  std::vector<gi_t> restrict_groups;
   restrict_groups.reserve(groups.size());
-  for (const int gi : groups)
+  for (const gi_t gi : groups)
     if (ghext->record(gi).restrict_on_sync)
       restrict_groups.push_back(gi);
   return restrict_groups;
@@ -231,8 +231,8 @@ static std::vector<int> sync_restrict_groups(const std::vector<int> &groups) {
 
 static int SyncGroupsByDirIProlongateOnly_impl(
     const active_levels_t &active_levels, const cGH *restrict cctkGH,
-    int numgroups, const int *groups0, const int *directions,
-    const bool prolongate_on_same_iteration, const int tl_arg = -1) {
+    const std::span<const gi_t> groups0, const bool prolongate_on_same_iteration,
+    const int tl_arg = -1) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
@@ -243,12 +243,10 @@ static int SyncGroupsByDirIProlongateOnly_impl(
   Interval interval(timer);
 
   assert(cctkGH);
-  assert(numgroups >= 0);
-  assert(groups0);
 
-  sync_log_groups("SyncGroupsProlongateOnly", numgroups, groups0);
+  sync_log_groups("SyncGroupsProlongateOnly", groups0);
 
-  std::vector<int> groups = sync_filter_groups(numgroups, groups0);
+  std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   const auto prolongates_into =
       [prolongate_on_same_iteration](
@@ -274,7 +272,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
   const std::vector<level_run_t> runs =
       split_levels(active_levels, prolongates_into);
   std::vector<write_scope_t> scopes;
-  for (const int gi : groups) {
+  for (const gi_t gi : groups) {
     const auto [tl_lo, tl_hi] = timelevels_to_fill(ghext->record(gi));
     for (const level_run_t &run : runs) {
       if (!run.value)
@@ -301,7 +299,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
   task_manager tasks2;
   task_manager tasks3;
 
-  for (const int gi : groups) {
+  for (const gi_t gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
@@ -350,12 +348,12 @@ static int SyncGroupsByDirIProlongateOnly_impl(
 
   assert(sync_active);
 
-  return numgroups; // number of groups synchronized
+  return int(groups0.size());
 }
 
 int SyncGroupsByDirI(const active_levels_t &active_levels,
-                     const cGH *restrict cctkGH, int numgroups,
-                     const int *groups0, const int *directions) {
+                     const cGH *restrict cctkGH,
+                     const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
@@ -366,17 +364,15 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
   Interval interval(timer);
 
   assert(cctkGH);
-  assert(numgroups >= 0);
-  assert(groups0);
 
-  sync_log_groups("SyncGroups", numgroups, groups0);
+  sync_log_groups("SyncGroups", groups0);
 
-  std::vector<int> groups = sync_filter_groups(numgroups, groups0);
+  std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   if (CCTK_EQUALS(presync_mode, "presync-only")) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
-      std::vector<int> new_groups;
-      for (const int gi : groups) {
+      std::vector<gi_t> new_groups;
+      for (const gi_t gi : groups) {
         auto &restrict groupdata = leveldata.group(gi);
         bool need_sync = false;
         for (int tl = 0; tl < groupdata.num_timelevels(); tl++) {
@@ -414,7 +410,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
   }
 
   std::vector<write_scope_t> scopes;
-  for (const int gi : groups) {
+  for (const gi_t gi : groups) {
     const int sync_tl = timelevels_but_oldest(gi);
     const valid_t fills = sync_fills(active_levels, gi);
     for (int tl = 0; tl < sync_tl; ++tl) {
@@ -441,7 +437,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
   task_manager tasks2;
   task_manager tasks3;
 
-  for (const int gi : groups) {
+  for (const gi_t gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
@@ -505,21 +501,21 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
 
   assert(sync_active);
 
-  return numgroups; // number of groups synchronized
+  return int(groups0.size());
 }
 
 static void error_if_sync_in_tail(const active_levels_t &active_levels,
                                   const cGH *restrict const cctkGH,
-                                  const int numgroups, const int *groups0) {
-  if (!ghext->tail_bin || numgroups == 0)
+                                  const std::span<const gi_t> groups0) {
+  if (!ghext->tail_bin || groups0.empty())
     return;
   const int min_level = active_levels.min_level;
   const int max_level = active_levels.max_level;
   if (min_level == 0)
     return;
   std::ostringstream groupnames;
-  for (int n = 0; n < numgroups; ++n) {
-    const char *const groupname = CCTK_FullGroupName(groups0[n]);
+  for (std::size_t n = 0; n < groups0.size(); ++n) {
+    const char *const groupname = CCTK_FullGroupName(groups0[n].index());
     if (n != 0)
       groupnames << ", ";
     groupnames << (groupname ? groupname : "(unknown group)");
@@ -543,19 +539,19 @@ static void error_if_sync_in_tail(const active_levels_t &active_levels,
 
 static bool
 integrator_owns_coarse_fine_ghosts(const GHExt::PatchData::LevelData &leveldata,
-                                   const int gi) {
+                                   const gi_t gi) {
   return leveldata.level > 0 && group_is_integrated(gi) &&
          leveldata.iteration > 0;
 }
 
 int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
-                               const cGH *restrict cctkGH, int numgroups,
-                               const int *groups0, const int *directions) {
+                               const cGH *restrict cctkGH,
+                               const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 
-  error_if_sync_in_tail(active_levels, cctkGH, numgroups, groups0);
+  error_if_sync_in_tail(active_levels, cctkGH, groups0);
 
   mark_sync_active marked;
 
@@ -563,12 +559,10 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
   Interval interval(timer);
 
   assert(cctkGH);
-  assert(numgroups >= 0);
-  assert(groups0);
 
-  sync_log_groups("SyncGroupsBySubcycling", numgroups, groups0);
+  sync_log_groups("SyncGroupsBySubcycling", groups0);
 
-  std::vector<int> groups = sync_filter_groups(numgroups, groups0);
+  std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   const char *const prolongation_label =
       "SyncGroupsByDirISubcycling on coarse level before prolongation";
@@ -576,11 +570,12 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
   struct ghost_check_t {
     active_levels_t levels;
-    int gi, tl;
+    gi_t gi;
+    int tl;
   };
   std::vector<ghost_check_t> integrated_ghosts;
   std::vector<write_scope_t> scopes;
-  for (const int gi : groups) {
+  for (const gi_t gi : groups) {
     const int sync_tl = timelevels_but_oldest(gi);
     const std::vector<level_run_t> runs = split_levels(
         active_levels, [gi](const GHExt::PatchData::LevelData &leveldata) {
@@ -619,7 +614,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
   task_manager tasks2;
   task_manager tasks3;
 
-  for (const int gi : groups) {
+  for (const gi_t gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
@@ -737,36 +732,36 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
   assert(sync_active);
 
-  return numgroups; // number of groups synchronized
+  return int(groups0.size());
 }
 
 int SyncGroups(const active_levels_t &active_levels,
-               const cGH *restrict const cctkGH, const int numgroups,
-               const int *const groups, const int *const directions) {
+               const cGH *restrict const cctkGH,
+               const std::span<const gi_t> groups) {
   return (ghext->use_subcycling ? SyncGroupsByDirISubcycling
-                                : SyncGroupsByDirI)(
-      active_levels, cctkGH, numgroups, groups, directions);
+                                : SyncGroupsByDirI)(active_levels, cctkGH,
+                                                    groups);
 }
 
 int SyncGroupsByDirIProlongateOnly(const active_levels_t &active_levels,
-                                   const cGH *restrict cctkGH, int numgroups,
-                                   const int *groups0, const int *directions,
+                                   const cGH *restrict cctkGH,
+                                   const std::span<const gi_t> groups0,
                                    const int tl) {
-  return SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, numgroups,
-                                             groups0, directions, false, tl);
+  return SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups0,
+                                             false, tl);
 }
 
 int SyncGroupsByDirIProlongateOnlyAligned(const active_levels_t &active_levels,
                                           const cGH *restrict cctkGH,
-                                          int numgroups, const int *groups0,
-                                          const int *directions, const int tl) {
-  return SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, numgroups,
-                                             groups0, directions, true, tl);
+                                          const std::span<const gi_t> groups0,
+                                          const int tl) {
+  return SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups0,
+                                             true, tl);
 }
 
 int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
-                              const cGH *restrict cctkGH, int numgroups,
-                              const int *groups0, const int *directions,
+                              const cGH *restrict cctkGH,
+                              const std::span<const gi_t> groups0,
                               const int tl_arg) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -778,12 +773,10 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
   Interval interval(timer);
 
   assert(cctkGH);
-  assert(numgroups >= 0);
-  assert(groups0);
 
-  sync_log_groups("SyncGroupsGhostOnly", numgroups, groups0);
+  sync_log_groups("SyncGroupsGhostOnly", groups0);
 
-  std::vector<int> groups = sync_filter_groups(numgroups, groups0);
+  std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   // We need to loop over groups, patches, and levels in a definite
   // order so that AMReX's communication pattern does not get
@@ -794,7 +787,7 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
   task_manager tasks1;
   task_manager tasks2;
 
-  for (const int gi : groups) {
+  for (const gi_t gi : groups) {
     active_levels.loop_serially([&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
@@ -823,14 +816,13 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
 
   assert(sync_active);
 
-  return numgroups; // number of groups synchronized
+  return int(groups0.size());
 }
 
 void ProlongateAfterRestriction(const active_levels_t &active_levels,
                                 const cGH *cctkGH) {
-  const std::vector<int> groups = reprolongate_groups();
-  SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups.size(),
-                                      groups.data(), nullptr, true);
+  const std::vector<gi_t> groups = reprolongate_groups();
+  SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups, true);
 }
 
 // =======================================================================
@@ -909,9 +901,9 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
   const active_levels_t this_level(level, level + 1, patch, patch + 1);
 
   for (const auto &groupdata : leveldata.groups()) {
-    if (groupdata.fluxes[0] < 0)
+    if (!groupdata.fluxes)
       continue;
-    const int gi = groupdata.record.groupindex;
+    const gi_t gi = groupdata.record.groupindex;
 
     amrex::FluxRegister *const child_freg =
         childleveldata ? childleveldata->group(gi).freg.get() : nullptr;
@@ -927,7 +919,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
       std::ostringstream buf;
       buf << "AccumulateFluxes: flux of " << groupdata.record.groupname
           << " in direction " << d << " at RK stage " << stage;
-      require(this_level, {.gi = groupdata.fluxes.at(d),
+      require(this_level, {.gi = groupdata.fluxes->at(d),
                            .tl = tl,
                            .where = make_valid_int(),
                            .event = buf.str()});
@@ -945,7 +937,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
           face_areas(patchdata.amrcore->Geom(level));
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
-            *leveldata.group(groupdata.fluxes.at(d)).timelevel(tl).mfab;
+            *leveldata.group(groupdata.fluxes->at(d)).timelevel(tl).mfab;
         const CCTK_REAL area_d = area[d];
         for (const auto side :
              {amrex::Orientation::low, amrex::Orientation::high}) {
@@ -982,7 +974,7 @@ void AccumulateFluxes(const int patch, const int level, const int stage,
     if (own_freg) {
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
-            *leveldata.group(groupdata.fluxes.at(d)).timelevel(tl).mfab;
+            *leveldata.group(groupdata.fluxes->at(d)).timelevel(tl).mfab;
         const amrex::MultiFab &area = *leveldata.face_area[d];
         assert(area.ixType() == flux.ixType());
         assert(area.DistributionMap() == flux.DistributionMap());
@@ -1010,7 +1002,7 @@ static void reflux_level(const cGH *cctkGH, const int level) {
     const int tl = 0;
 
     for (const auto &groupdata : leveldata.groups()) {
-      const int gi = groupdata.record.groupindex;
+      const gi_t gi = groupdata.record.groupindex;
       const auto &finegroupdata = fineleveldata.group(gi);
 
       // If the group has a flux register on the fine level
@@ -1072,14 +1064,13 @@ void Reflux(const cGH *cctkGH, const int min_level, const int max_level) {
 // =======================================================================
 
 static void restrict_level(const cGH *cctkGH, const int level,
-                           const std::vector<int> &groups,
+                           const std::span<const gi_t> groups,
                            const valid_t coarse_keeps) {
   static Timer timer("Restrict");
   Interval interval(timer);
 
-  int gi_regrid_error = -1;
-  gi_regrid_error = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
-  assert(gi_regrid_error >= 0);
+  const gi_t gi_regrid_error{CCTK_GroupIndex("CarpetXRegrid::regrid_error")};
+  assert(gi_regrid_error.index() >= 0);
 
   for (const auto &patchdata : ghext->patches()) {
     const int patch = patchdata.patch;
@@ -1090,7 +1081,7 @@ static void restrict_level(const cGH *cctkGH, const int level,
       const active_levels_t active_fine_levels(level + 1, level + 2, patch,
                                                patch + 1);
 
-      for (const int gi : groups) {
+      for (const gi_t gi : groups) {
         const auto &groupdata = leveldata.group(gi);
         const auto &finegroupdata = fineleveldata.group(gi);
         const amrex::IntVect reffact{2, 2, 2};
@@ -1157,7 +1148,7 @@ static void restrict_level(const cGH *cctkGH, const int level,
 }
 
 void Restrict(const cGH *cctkGH, const int min_level, const int max_level,
-              const std::vector<int> &groups) {
+              const std::span<const gi_t> groups) {
   assert(min_level >= 0 && max_level <= ghext->num_levels());
   if (groups.empty())
     return;
@@ -1166,7 +1157,7 @@ void Restrict(const cGH *cctkGH, const int min_level, const int max_level,
 }
 
 void RestrictNoPoison(const cGH *cctkGH, const int min_level,
-                      const int max_level, const std::vector<int> &groups) {
+                      const int max_level, const std::span<const gi_t> groups) {
   assert(min_level >= 0 && max_level <= ghext->num_levels());
   if (groups.empty())
     return;

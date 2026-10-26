@@ -11,6 +11,7 @@
 #include <AMReX_MFIter.H>
 #include <AMReX_MultiFab.H>
 
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <vector>
@@ -29,17 +30,17 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE T written_function(const T x,
   return cos(pi * x) * cos(pi * y) * cos(pi * z);
 }
 
-int state_group() {
+CarpetX::gi_t state_group() {
   const int gi = CCTK_GroupIndex("TestCarpetXAPI::state");
   assert(gi >= 0);
-  return gi;
+  return CarpetX::gi_t{gi};
 }
 
-int group(const char *const name) {
+CarpetX::gi_t group(const char *const name) {
   const int gi = CCTK_GroupIndex(name);
   if (gi < 0)
     CCTK_VERROR("Group %s does not exist", name);
-  return gi;
+  return CarpetX::gi_t{gi};
 }
 
 CarpetX::rk_config_t integrator(const char *const state, const char *const rhs,
@@ -167,8 +168,8 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     CCTK_ERROR("CarpetX::open_rk_step ran without a registered integrator");
   }
 
-  const int gi = state_group();
-  const std::vector<int> groups{gi};
+  const CarpetX::gi_t gi = state_group();
+  const std::array groups{gi};
   const CarpetX::window_t window = CarpetX::active_window();
 
   if (CCTK_EQUALS(mode, "level-missing")) {
@@ -188,7 +189,8 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
 
   if (CCTK_EQUALS(mode, "prolongate-unwritten-parent") &&
       window.max_level > 1) {
-    CarpetX::prolongate_ghosts(window, {group("TestCarpetXAPI::state_rhs")});
+    CarpetX::prolongate_ghosts(window,
+                               std::array{group("TestCarpetXAPI::state_rhs")});
     CCTK_ERROR("CarpetX::prolongate_ghosts filled the ghosts of state_rhs on "
                "level 1 from a parent level that nothing has written");
   }

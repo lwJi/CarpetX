@@ -380,8 +380,8 @@ std::array<std::array<boundary_t, dim>, 2> get_group_boundaries(const int gi) {
   return boundaries;
 }
 
-bool get_group_checkpoint_flag(const int gi) {
-  int tags = CCTK_GroupTagsTableI(gi);
+bool get_group_checkpoint_flag(const gi_t gi) {
+  int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   char buf[100];
   int iret = Util_TableGetString(tags, sizeof buf, buf, "checkpoint");
@@ -401,8 +401,8 @@ bool get_group_checkpoint_flag(const int gi) {
   }
 }
 
-std::optional<bool> get_group_restrict_tag(const int gi) {
-  int tags = CCTK_GroupTagsTableI(gi);
+std::optional<bool> get_group_restrict_tag(const gi_t gi) {
+  int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   char buf[100];
   int iret = Util_TableGetString(tags, sizeof buf, buf, "restrict");
@@ -422,8 +422,8 @@ std::optional<bool> get_group_restrict_tag(const int gi) {
   }
 }
 
-bool get_group_evolve_flag(const int gi) {
-  int tags = CCTK_GroupTagsTableI(gi);
+bool get_group_evolve_flag(const gi_t gi) {
+  int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   char buf[100];
   int iret = Util_TableGetString(tags, sizeof buf, buf, "evolve");
@@ -483,9 +483,9 @@ std::array<int, dim> get_group_indextype(const int gi) {
   return indextype;
 }
 
-std::array<int, dim> get_group_fluxes(const int gi) {
-  assert(gi >= 0);
-  const int tags = CCTK_GroupTagsTableI(gi);
+std::optional<std::array<gi_t, dim> > get_group_fluxes(const gi_t gi) {
+  assert(gi.index() >= 0);
+  const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   std::vector<char> fluxes_buf(1000);
   const int iret =
@@ -509,22 +509,22 @@ std::array<int, dim> get_group_fluxes(const int gi) {
     strs.push_back(str.substr(begin, end - begin));
   }
 
-  std::array<int, dim> fluxes;
-  fluxes.fill(-1);
   if (strs.empty())
-    return fluxes; // No fluxes specified
+    return std::nullopt;
 
   assert(strs.size() == dim); // Check number of fluxes
-  for (int d = 0; d < dim; ++d) {
+  const auto flux = [&](const int d) {
     auto str1 = strs[d];
     if (str1.find(':') == std::string::npos) {
-      const char *const impl = CCTK_GroupImplementationI(gi);
+      const char *const impl = CCTK_GroupImplementationI(gi.index());
       str1 = std::string(impl) + "::" + str1;
     }
-    int gi1 = CCTK_GroupIndex(str1.c_str());
-    assert(gi1 >= 0); // Check fluxes are valid groups
-    fluxes[d] = gi1;
-  }
+    const gi_t gi1{CCTK_GroupIndex(str1.c_str())};
+    assert(gi1.index() >= 0);
+    return gi1;
+  };
+  static_assert(dim == 3);
+  const std::array<gi_t, dim> fluxes{flux(0), flux(1), flux(2)};
 
   for (int d = 0; d < dim; ++d)
     for (int d1 = d + 1; d1 < dim; ++d1)
@@ -532,8 +532,8 @@ std::array<int, dim> get_group_fluxes(const int gi) {
   return fluxes;
 }
 
-bool group_is_integrated(const int gi) {
-  assert(gi >= 0 && gi < CCTK_NumGroups());
+bool group_is_integrated(const gi_t gi) {
+  assert(gi.index() >= 0 && gi.index() < CCTK_NumGroups());
   const std::optional<rk_config_t> &integrator = ghext->rk();
   return integrator && integrator->is_integrated(gi);
 }
@@ -548,10 +548,10 @@ rk_dense_output_t registered_dense_output() {
   return integrator ? integrator->dense_output : rk_dense_output_t::none;
 }
 
-bool group_has_flux_register(const int gi) {
-  assert(gi >= 0 && gi < CCTK_NumGroups());
-  return ghext->do_reflux && CCTK_GroupTypeI(gi) == CCTK_GF &&
-         group_is_integrated(gi) && get_group_fluxes(gi)[0] >= 0;
+bool group_has_flux_register(const gi_t gi) {
+  assert(gi.index() >= 0 && gi.index() < CCTK_NumGroups());
+  return ghext->do_reflux && CCTK_GroupTypeI(gi.index()) == CCTK_GF &&
+         group_is_integrated(gi) && get_group_fluxes(gi).has_value();
 }
 
 void warn_inert_flux_tags() {
@@ -562,9 +562,10 @@ void warn_inert_flux_tags() {
   if (CCTK_MyProc(nullptr) != 0)
     return;
   if (!ghext->do_reflux) {
-    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      if (CCTK_GroupTypeI(gi) == CCTK_GF && integrator &&
-          integrator->is_integrated(gi) && get_group_fluxes(gi)[0] >= 0) {
+    for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
+      const gi_t gi{gi0};
+      if (CCTK_GroupTypeI(gi.index()) == CCTK_GF && integrator &&
+          integrator->is_integrated(gi) && get_group_fluxes(gi)) {
         CCTK_INFO("Grid functions integrated by ODESolvers carry fluxes= "
                   "tags, but refluxing at coarse-fine boundaries is off; set "
                   "CarpetX::do_reflux = yes to enable it");
@@ -573,8 +574,9 @@ void warn_inert_flux_tags() {
     }
     return;
   }
-  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-    if (CCTK_GroupTypeI(gi) != CCTK_GF || get_group_fluxes(gi)[0] < 0 ||
+  for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
+    const gi_t gi{gi0};
+    if (CCTK_GroupTypeI(gi.index()) != CCTK_GF || !get_group_fluxes(gi) ||
         group_has_flux_register(gi))
       continue;
     CCTK_VWARN(CCTK_WARN_ALERT,
@@ -582,7 +584,7 @@ void warn_inert_flux_tags() {
                "ODESolvers: no flux register is allocated for it, and it is "
                "not refluxed at coarse-fine boundaries (see "
                "CarpetX::do_reflux)",
-               CCTK_FullGroupName(gi));
+               CCTK_FullGroupName(gi.index()));
   }
 }
 
@@ -753,9 +755,9 @@ get_interpolator(const GHExt::PatchData::LevelData::GroupData &groupdata) {
   DECLARE_CCTK_PARAMETERS;
 
   const std::string group_prolongation_type =
-      get_group_prolongation_type(groupdata.record.groupindex);
+      get_group_prolongation_type(groupdata.record.groupindex.index());
   const int group_prolongation_order =
-      get_group_prolongation_order(groupdata.record.groupindex);
+      get_group_prolongation_order(groupdata.record.groupindex.index());
   const std::array<int, dim> &group_indextype = groupdata.indextype;
 
   return get_interpolator(group_prolongation_type, group_prolongation_order,
@@ -911,8 +913,8 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
   const int numgroups = CCTK_NumGroups();
   assert(groupdata.empty());
   groupdata.reserve(numgroups);
-  for (int gi = 0; gi < numgroups; ++gi) {
-    const GHExt::GroupRecord &group = ghext->record(gi);
+  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+    const GHExt::GroupRecord &group = ghext->record(gi_t{gi0});
     if (group.kind != group_kind::grid_function)
       groupdata.emplace_back(nullptr);
     else
@@ -921,18 +923,19 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
               group, patch, level, ba, dm, why));
   }
 
-  for (int gi = 0; gi < numgroups; ++gi) {
+  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+    const gi_t gi{gi0};
     const GHExt::GroupRecord &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function)
       continue;
-    const std::array<int, dim> fluxes = get_group_fluxes(gi);
-    if (fluxes[0] >= 0) {
+    const std::optional<std::array<gi_t, dim> > fluxes = get_group_fluxes(gi);
+    if (fluxes) {
       for (int d = 0; d < dim; ++d) {
-        assert(fluxes[d] != gi);
+        assert((*fluxes)[d] != gi);
         std::array<int, dim> flux_indextype{1, 1, 1};
         flux_indextype[d] = 0;
-        assert(get_group_indextype(fluxes[d]) == flux_indextype);
-        assert(ghext->record(fluxes[d]).numvars >= group.numvars);
+        assert(get_group_indextype((*fluxes)[d].index()) == flux_indextype);
+        assert(ghext->record((*fluxes)[d]).numvars >= group.numvars);
       }
     }
   }
@@ -970,9 +973,9 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
     const std::function<std::string()> &why)
     : record(record), patch(patch), level(level) {
-  const int gi = record.groupindex;
+  const int gi = record.groupindex.index();
   const int numvars = record.numvars;
-  const int groupindex = record.groupindex;
+  const gi_t groupindex = record.groupindex;
   cGroup cgroup;
   int ierr = CCTK_GroupData(gi, &cgroup);
   assert(!ierr);
@@ -1040,7 +1043,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
                      numvars, why);
 
   fluxes = get_group_fluxes(groupindex);
-  if (fluxes[0] >= 0) {
+  if (fluxes) {
     assert((indextype == std::array<int, dim>{1, 1, 1}));
     if (level > 0 && group_has_flux_register(groupindex)) {
       const amrex::IntVect ratio =
@@ -1129,8 +1132,9 @@ std::string subcycling_band_tag(const band_kind kind, const int stage) {
   return buf.str();
 }
 
-amrex::MultiFab *rk_source_band(const int patch, const int level, const int gi,
-                                const band_kind kind, const int stage) {
+amrex::MultiFab *rk_source_band(const int patch, const int level,
+                                const gi_t gi, const band_kind kind,
+                                const int stage) {
   const auto &patchdata = ghext->patch(patch);
   assert(level >= 0);
   if (level + 1 >= patchdata.num_levels())
@@ -1244,8 +1248,8 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
 #pragma omp critical
     CCTK_VINFO("ErrorEst patch %d level %d", patch, level);
 
-  const int gi = CCTK_GroupIndex("CarpetXRegrid::regrid_error");
-  assert(gi >= 0);
+  const gi_t gi{CCTK_GroupIndex("CarpetXRegrid::regrid_error")};
+  assert(gi.index() >= 0);
   const int vi = 0;
   const int tl = 0;
 
@@ -1301,16 +1305,15 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
                100.0 * npoints_clear / npoints_total, 100.0);
 }
 
-GHExt::GroupRecord::GroupRecord(const int gi, const int num_timelevels)
-    : num_timelevels_(num_timelevels) {
+GHExt::GroupRecord::GroupRecord(const gi_t gi, const int num_timelevels)
+    : groupindex(gi), num_timelevels_(num_timelevels) {
   cGroup cgroup;
-  const int ierr = CCTK_GroupData(gi, &cgroup);
+  const int ierr = CCTK_GroupData(gi.index(), &cgroup);
   assert(!ierr);
   assert(num_timelevels >= 0 and num_timelevels <= cgroup.numtimelevels);
 
-  groupname = CCTK_FullGroupName(gi);
-  groupindex = gi;
-  firstvarindex = CCTK_FirstVarIndexI(gi);
+  groupname = CCTK_FullGroupName(gi.index());
+  firstvarindex = CCTK_FirstVarIndexI(gi.index());
   numvars = cgroup.numvars;
   do_checkpoint = get_group_checkpoint_flag(gi);
   do_evolve = get_group_evolve_flag(gi);
@@ -1337,7 +1340,7 @@ GHExt::GroupRecord::GroupRecord(const int gi, const int num_timelevels)
 
 GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
     : record(record) {
-  const int gi = record.groupindex;
+  const int gi = record.groupindex.index();
   cGroup cgroup;
   const int ierr = CCTK_GroupData(gi, &cgroup);
   assert(!ierr);
@@ -1396,7 +1399,7 @@ void GHExt::freeze_storage() {
   assert(int(active_timelevels.size()) == numgroups);
   group_records.reserve(numgroups);
   for (int gi = 0; gi < numgroups; ++gi)
-    group_records.emplace_back(gi, active_timelevels.at(gi));
+    group_records.emplace_back(gi_t{gi}, active_timelevels.at(gi));
   storage_frozen = true;
 
   for (const GroupRecord &group : records()) {
@@ -1536,7 +1539,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
   }
 
   for (auto &groupdata : leveldata.groups()) {
-    const int gi = groupdata.record.groupindex;
+    const gi_t gi = groupdata.record.groupindex;
     auto &coarsegroupdata = coarseleveldata.group(gi);
     assert(&coarsegroupdata.record == &groupdata.record);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
@@ -1633,7 +1636,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
       };
 
   for (const auto &groupdata : leveldata.groups()) {
-    const int gi = groupdata.record.groupindex;
+    const gi_t gi = groupdata.record.groupindex;
     const auto &coarsegroupdata = coarseleveldata.group(gi);
     assert(&coarsegroupdata.record == &groupdata.record);
 
@@ -1670,7 +1673,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
                                          []() { return "RemakeLevel"; }));
 
   for (auto &groupdata : leveldata.groups()) {
-    const int gi = groupdata.record.groupindex;
+    const gi_t gi = groupdata.record.groupindex;
     auto &oldgroupdata = oldleveldata.group(gi);
     auto &coarsegroupdata = coarseleveldata.group(gi);
     assert(&coarsegroupdata.record == &groupdata.record);
@@ -1877,7 +1880,7 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::LocalTag("commongroupdata-1.0.0");
   yaml << YAML::BeginMap;
   yaml << YAML::Key << "groupname" << YAML::Value
-       << CCTK_FullGroupName(group.groupindex);
+       << CCTK_FullGroupName(group.groupindex.index());
   yaml << YAML::Key << "numvars" << YAML::Value << group.numvars;
   yaml << YAML::Key << "varnames" << YAML::Value << YAML::Flow
        << YAML::BeginSeq;
@@ -1890,7 +1893,7 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "restrict_on_sync" << YAML::Value
        << group.restrict_on_sync;
   yaml << YAML::Key << "active_timelevels" << YAML::Value
-       << (ghext ? ghext->active_timelevels.at(group.groupindex) : -1);
+       << (ghext ? ghext->active_timelevels.at(group.groupindex.index()) : -1);
   yaml << YAML::EndMap;
   return yaml;
 }
@@ -1982,8 +1985,9 @@ operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "parities" << YAML::Value << YAML::Flow
        << seqs(groupdata.parities);
   yaml << YAML::Key << "fluxes" << YAML::Value << YAML::Flow << YAML::BeginSeq;
-  for (const int flux : groupdata.fluxes)
-    yaml << (flux >= 0 ? CCTK_FullGroupName(flux) : "");
+  for (int d = 0; d < dim; ++d)
+    yaml << (groupdata.fluxes ? CCTK_FullGroupName((*groupdata.fluxes)[d].index())
+                              : "");
   yaml << YAML::EndSeq;
   yaml << YAML::EndMap;
   return yaml;
@@ -2458,7 +2462,7 @@ const int *ArrayGroupSizeB(const cGH *cctkGH, int dir, int gi,
   if (group.grouptype == CCTK_GF) {
     return &cctkGH->cctk_ash[dir];
   } else if (group.grouptype == CCTK_SCALAR or group.grouptype == CCTK_ARRAY) {
-    return &ghext->record(gi).array().ash[dir];
+    return &ghext->record(gi_t{gi}).array().ash[dir];
   } else {
     CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
                 (int)group.grouptype, CCTK_FullGroupName(gi));
@@ -2488,7 +2492,7 @@ int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {
     data->nghostzones = cctkGH->cctk_nghostzones;
     data->activetimelevels = CCTK_ActiveTimeLevelsGI(cctkGH, gi);
   } else if (group.grouptype == CCTK_SCALAR or group.grouptype == CCTK_ARRAY) {
-    const auto &arraygroupdata = ghext->record(gi).array();
+    const auto &arraygroupdata = ghext->record(gi_t{gi}).array();
     data->dim = arraygroupdata.dimension;
     data->lsh = arraygroupdata.lsh;
     data->ash = arraygroupdata.ash;

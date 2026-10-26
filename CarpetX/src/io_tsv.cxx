@@ -90,7 +90,7 @@ static out_header_t get_out_header() {
 }
 
 void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
-                 int gi, const std::vector<std::string> &varnames,
+                 const gi_t gi, const std::vector<std::string> &varnames,
                  const out_fileinfo_t out_fileinfo,
                  const out_header_t out_header) {
   std::ostringstream buf;
@@ -194,7 +194,8 @@ void OutputTSVold(const cGH *restrict cctkGH) {
   const out_header_t out_header = get_out_header();
 
   const int numgroups = CCTK_NumGroups();
-  for (int gi = 0; gi < numgroups; ++gi) {
+  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+    const gi_t gi{gi0};
     const auto &group = ghext->record(gi);
     if (group.kind != group_kind::grid_function)
       continue;
@@ -202,7 +203,7 @@ void OutputTSVold(const cGH *restrict cctkGH) {
     if (group.has_storage()) {
       const int tl = 0;
 
-      std::string groupname = CCTK_FullGroupName(gi);
+      std::string groupname = CCTK_FullGroupName(gi.index());
       groupname = regex_replace(groupname, std::regex("::"), "-");
       for (auto &c : groupname)
         c = tolower(c);
@@ -229,7 +230,7 @@ void OutputTSVold(const cGH *restrict cctkGH) {
 ////////////////////////////////////////////////////////////////////////////////
 
 void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
-                     const int gi, const bool truncate_files,
+                     const gi_t gi, const bool truncate_files,
                      const out_fileinfo_t out_fileinfo,
                      const out_header_t out_header) {
   // Output only on root process
@@ -238,7 +239,7 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
 
   const auto &arraygroupdata = ghext->record(gi).array();
   cGroup cgroup;
-  const int ierr = CCTK_GroupData(gi, &cgroup);
+  const int ierr = CCTK_GroupData(gi.index(), &cgroup);
   assert(!ierr);
 
   std::vector<std::string> varnames;
@@ -325,7 +326,7 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
 }
 
 void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
-                    const int gi, const int out_dir, const bool truncate_files,
+                    const gi_t gi, const int out_dir, const bool truncate_files,
                     const out_fileinfo_t out_fileinfo,
                     const out_header_t out_header) {
   // Output only on root process
@@ -334,7 +335,7 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
 
   const auto &arraygroupdata = ghext->record(gi).array();
   cGroup cgroup;
-  const int ierr = CCTK_GroupData(gi, &cgroup);
+  const int ierr = CCTK_GroupData(gi.index(), &cgroup);
   assert(!ierr);
 
   if (out_dir >= arraygroupdata.dimension)
@@ -441,7 +442,7 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
 }
 
 void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
-                 const int gi, const vect<bool, dim> &outdirs,
+                 const gi_t gi, const vect<bool, dim> &outdirs,
                  const vect<CCTK_REAL, dim> &outcoords,
                  const bool truncate_files, const out_fileinfo_t out_fileinfo,
                  const out_header_t out_header,
@@ -733,12 +734,13 @@ void OutputTSV(const cGH *restrict cctkGH) {
     return;
 
   const int numgroups = CCTK_NumGroups();
-  for (int gi = 0; gi < numgroups; ++gi) {
-    if (group_enabled.at(gi)) {
+  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
+    const gi_t gi{gi0};
+    if (group_enabled.at(gi.index())) {
       const auto &group = ghext->record(gi);
       if (!group.has_storage())
         continue;
-      std::string groupname = CCTK_FullGroupName(gi);
+      std::string groupname = CCTK_FullGroupName(gi.index());
       groupname = regex_replace(groupname, std::regex("::"), "-");
       for (auto &ch : groupname)
         ch = tolower(ch);

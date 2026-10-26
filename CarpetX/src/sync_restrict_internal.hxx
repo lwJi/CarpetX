@@ -3,8 +3,11 @@
 
 #include "internal.hxx"
 
+#include <carpetx.hxx>
+
 #include <cctk.h>
 
+#include <span>
 #include <vector>
 
 namespace CarpetX {
@@ -12,14 +15,12 @@ namespace CarpetX {
 // Intra-CarpetX symbols defined in sync_restrict.cxx and called from
 // schedule.cxx. Not part of the public schedule.hxx surface.
 
-// The groups the end-of-step restriction restricts (the restrict tag); one of
-// the group selectors in sync_restrict.cxx
-std::vector<int> collect_restrictable_groups();
+std::vector<gi_t> collect_restrictable_groups();
 
 struct active_levels_t;
 
 void Restrict(const cGH *cctkGH, int min_level, int max_level,
-              const std::vector<int> &groups);
+              std::span<const gi_t> groups);
 void ProlongateAfterRestriction(const active_levels_t &active_levels,
                                 const cGH *cctkGH);
 

@@ -142,6 +142,54 @@ class Validity(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/driver.cxx", text, Lang.CXX), [Finding(4, "validity", "why.set_all(valid_t(), r);")])
 
 
+class Directions(unittest.TestCase):
+    FORWARDED = (
+        "int SyncGroupsByDirI(const active_levels_t &active_levels,\n"
+        "                     const cGH *restrict cctkGH, int numgroups,\n"
+        "                     const int *groups, const int *directions);\n"
+    )
+    FLESH_OVERLOAD = (
+        "int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,\n"
+        "                             const int *groups, const int *directions);\n"
+    )
+    FLESH_DEFINITION = (
+        "int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,\n"
+        "                             const int numgroups, const int *const groups,\n"
+        "                             const int *const directions) {\n"
+        "  assert(active_levels);\n"
+        "  const std::vector<gi_t> gis(groups, groups + numgroups);\n"
+        "  return SyncGroups(*active_levels, cctkGH, gis);\n"
+        "}\n"
+    )
+
+    def test_directions_reported(self):
+        for name in ["CarpetX/src/schedule.hxx", "CarpetX/src/sync_restrict.cxx", "CarpetX/src/sync_restrict_internal.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(
+                    reported(name, self.FORWARDED),
+                    [("directions", "const int *groups, const int *directions);")],
+                )
+        text = "  return SyncGroups(*active_levels, cctkGH, numgroups, groups, directions);\n"
+        self.assertEqual(reported("CarpetX/src/schedule.cxx", text), [("directions", text.strip())])
+
+    def test_directions_allowed_in_flesh_overload(self):
+        self.assertEqual(reported("CarpetX/src/schedule.hxx", self.FLESH_OVERLOAD), [])
+        self.assertEqual(reported("CarpetX/src/schedule.cxx", self.FLESH_DEFINITION), [])
+        self.assertEqual(reported("CarpetX/src/schedule.hxx", self.FLESH_OVERLOAD + "\n" + self.FORWARDED), [("directions", "const int *groups, const int *directions);")])
+
+    def test_other_files_are_not_the_sync_layer(self):
+        for name in ["CarpetX/src/io_meta.cxx", "CarpetX/src/driver.hxx", "ODESolvers/src/solve.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.FORWARDED), [])
+
+    def test_a_longer_name_is_not_the_parameter(self):
+        self.assertEqual(reported("CarpetX/src/sync_restrict.cxx", "std::vector<int> output_directions;\nint all_directions_done;\n"), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n" + self.FORWARDED
+        self.assertEqual(findings("CarpetX/src/schedule.hxx", text, Lang.CXX), [Finding(4, "directions", "const int *groups, const int *directions);")])
+
+
 class NewFindings(unittest.TestCase):
     def test_only_lines_absent_before_are_new(self):
         a = Finding(1, "include", '#include "../../CarpetX/src/driver.hxx"')
@@ -211,17 +259,20 @@ class Report(unittest.TestCase):
         self.assertEqual(
             render([]),
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
-            "no validity call outside valid.cxx",
+            "no validity call outside valid.cxx, no directions in the sync layer",
         )
 
     def test_counts(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
         c = ("CarpetX/src/driver.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
+        d = ("CarpetX/src/schedule.hxx", Finding(2, "directions", "const int *groups, const int *directions);"))
         self.assertEqual(summary([a]), "✗ boundary: 1 private include")
         self.assertEqual(summary([a, a, b]), "✗ boundary: 2 private includes, 1 stray marker")
         self.assertEqual(summary([c]), "✗ boundary: 1 validity call outside valid.cxx")
         self.assertEqual(summary([b, c, c]), "✗ boundary: 1 stray marker, 2 validity calls outside valid.cxx")
+        self.assertEqual(summary([d]), "✗ boundary: 1 directions parameter in the sync layer")
+        self.assertEqual(summary([c, d, d]), "✗ boundary: 1 validity call outside valid.cxx, 2 directions parameters in the sync layer")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))

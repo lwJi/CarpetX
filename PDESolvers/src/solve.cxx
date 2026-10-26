@@ -17,11 +17,13 @@
 #include <petscsnes.h>
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cmath>
 #include <functional>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -91,12 +93,12 @@ enum class point_type_t {
   rest = 5
 };
 
-std::vector<CarpetX::write_t> open_writes(const std::vector<int> &gis,
+std::vector<CarpetX::write_t> open_writes(std::span<const CarpetX::gi_t> gis,
                                           const CarpetX::valid_t leaves_valid,
                                           const char *const what) {
   std::vector<CarpetX::write_t> writes;
   CarpetX::active_window().loop_serially([&](const CarpetX::level_t level) {
-    for (const int gi : gis)
+    for (const CarpetX::gi_t gi : gis)
       writes.push_back(
           CarpetX::write(CarpetX::group_t{level, gi}, tl, leaves_valid, what));
   });
@@ -104,26 +106,25 @@ std::vector<CarpetX::write_t> open_writes(const std::vector<int> &gis,
 }
 
 void define_point_type() {
-  // Decode Cactus variables
   const int vn_pt = CCTK_VarIndex("PDESolvers::point_type");
   assert(vn_pt >= 0);
-  const int gi_pt = CCTK_GroupIndexFromVarI(vn_pt);
-  assert(gi_pt >= 0);
-  const int v0_pt = CCTK_FirstVarIndexI(gi_pt);
+  const CarpetX::gi_t gi_pt{CCTK_GroupIndexFromVarI(vn_pt)};
+  assert(gi_pt.index() >= 0);
+  const int v0_pt = CCTK_FirstVarIndexI(gi_pt.index());
   assert(v0_pt >= 0);
   const int vi_pt = vn_pt - v0_pt;
   assert(vi_pt >= 0);
   const int vn_ind = CCTK_VarIndex("PDESolvers::communication_indicator");
   assert(vn_ind >= 0);
-  const int gi_ind = CCTK_GroupIndexFromVarI(vn_ind);
-  assert(gi_ind >= 0);
-  const int v0_ind = CCTK_FirstVarIndexI(gi_ind);
+  const CarpetX::gi_t gi_ind{CCTK_GroupIndexFromVarI(vn_ind)};
+  assert(gi_ind.index() >= 0);
+  const int v0_ind = CCTK_FirstVarIndexI(gi_ind.index());
   assert(v0_ind >= 0);
   const int vi_ind = vn_ind - v0_ind;
   assert(vi_ind >= 0);
 
   {
-    const auto writes = open_writes({gi_pt}, CarpetX::make_valid_all(),
+    const auto writes = open_writes(std::array{gi_pt}, CarpetX::make_valid_all(),
                                     "PDESolver::define_point_type");
     CarpetX::active_window().loop_parallel(
         [&](const CarpetX::level_t lvl, const int index, const int component,
@@ -152,7 +153,7 @@ void define_point_type() {
 
   {
     const auto writes =
-        open_writes({gi_ind}, CarpetX::make_valid_all(),
+        open_writes(std::array{gi_ind}, CarpetX::make_valid_all(),
                     "PDESolver::define_point_type before restricting");
     CarpetX::active_window().loop_parallel(
         [&](const CarpetX::level_t lvl, const int index, const int component,
@@ -169,7 +170,7 @@ void define_point_type() {
         });
   }
 
-  CarpetX::restrict_no_poison(CarpetX::active_window(), {gi_ind});
+  CarpetX::restrict_no_poison(CarpetX::active_window(), std::array{gi_ind});
 
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
                                              const int index,
@@ -194,7 +195,7 @@ void define_point_type() {
 
   {
     const auto writes =
-        open_writes({gi_ind}, CarpetX::make_valid_all(),
+        open_writes(std::array{gi_ind}, CarpetX::make_valid_all(),
                     "PDESolver::define_point_type before synchronizing");
     CarpetX::active_window().loop_parallel(
         [&](const CarpetX::level_t lvl, const int index, const int component,
@@ -210,7 +211,7 @@ void define_point_type() {
         });
   }
 
-  CarpetX::sync_ghosts_only(CarpetX::active_window(), {gi_ind}, tl);
+  CarpetX::sync_ghosts_only(CarpetX::active_window(), std::array{gi_ind}, tl);
 
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
                                              const int index,
@@ -235,7 +236,7 @@ void define_point_type() {
 
   {
     const auto writes =
-        open_writes({gi_ind}, CarpetX::make_valid_all(),
+        open_writes(std::array{gi_ind}, CarpetX::make_valid_all(),
                     "PDESolver::define_point_type before prolongating");
     CarpetX::active_window().loop_parallel(
         [&](const CarpetX::level_t lvl, const int index, const int component,
@@ -252,7 +253,7 @@ void define_point_type() {
         });
   }
 
-  CarpetX::prolongate_ghosts(CarpetX::active_window(), {gi_ind}, tl);
+  CarpetX::prolongate_ghosts(CarpetX::active_window(), std::array{gi_ind}, tl);
 
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
                                              const int index,
@@ -277,7 +278,7 @@ void define_point_type() {
         });
   });
 
-  CarpetX::invalidate(CarpetX::active_window(), {gi_ind}, tl,
+  CarpetX::invalidate(CarpetX::active_window(), std::array{gi_ind}, tl,
                       "PDESolver::define_point_type");
 
   Arith::vect<int, 6> npoints{0, 0, 0, 0, 0, 0};
@@ -325,12 +326,11 @@ void enumerate_points(
   int myproc;
   MPI_Comm_rank(MPI_COMM_WORLD, &myproc);
 
-  // Decode Cactus variables
   static const int vn_idx = CCTK_VarIndex("PDESolvers::idx");
   assert(vn_idx >= 0);
-  static const int gi_idx = CCTK_GroupIndexFromVarI(vn_idx);
-  assert(gi_idx >= 0);
-  static const int v0_idx = CCTK_FirstVarIndexI(gi_idx);
+  static const CarpetX::gi_t gi_idx{CCTK_GroupIndexFromVarI(vn_idx)};
+  assert(gi_idx.index() >= 0);
+  static const int v0_idx = CCTK_FirstVarIndexI(gi_idx.index());
   assert(v0_idx >= 0);
   static const int vi_idx = vn_idx - v0_idx;
   assert(vi_idx >= 0);
@@ -436,7 +436,7 @@ void enumerate_points(
                 MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 
   {
-    const auto writes = open_writes({gi_idx}, CarpetX::make_valid_all(),
+    const auto writes = open_writes(std::array{gi_idx}, CarpetX::make_valid_all(),
                                     "PDESolver::enumerate_points");
     CarpetX::active_window().loop_parallel(
         [&](const CarpetX::level_t lvl, const int index, const int component,
@@ -502,12 +502,12 @@ void enumerate_points(
         });
   }
 
-  CarpetX::restrict_no_poison(CarpetX::active_window(), {gi_idx});
+  CarpetX::restrict_no_poison(CarpetX::active_window(), std::array{gi_idx});
 
-  CarpetX::sync_ghosts_only(CarpetX::active_window(), {gi_idx}, tl);
+  CarpetX::sync_ghosts_only(CarpetX::active_window(), std::array{gi_idx}, tl);
 
   {
-    const auto writes = open_writes({gi_idx}, CarpetX::make_valid_all(),
+    const auto writes = open_writes(std::array{gi_idx}, CarpetX::make_valid_all(),
                                     "PDESolver::enumerate_points");
     CarpetX::active_window().loop_parallel(
         [&](const CarpetX::level_t lvl, const int index, const int component,
@@ -740,17 +740,17 @@ void copy_Cactus_to_PETSc(
   int myproc;
   MPI_Comm_rank(MPI_COMM_WORLD, &myproc);
 
-  // Decode Cactus variables
   const int nvars = varinds.size();
-  std::vector<int> gis, vis;
+  std::vector<CarpetX::gi_t> gis;
+  std::vector<int> vis;
   gis.reserve(nvars);
   vis.reserve(nvars);
   for (int vn : varinds) {
     assert(vn >= 0);
-    const int gi = CCTK_GroupIndexFromVarI(vn);
-    assert(gi >= 0);
+    const CarpetX::gi_t gi{CCTK_GroupIndexFromVarI(vn)};
+    assert(gi.index() >= 0);
     gis.push_back(gi);
-    const int v0 = CCTK_FirstVarIndexI(gi);
+    const int v0 = CCTK_FirstVarIndexI(gi.index());
     assert(v0 >= 0);
     const int vi = vn - v0;
     assert(vi >= 0);
@@ -827,17 +827,17 @@ void copy_PETSc_to_Cactus(
   int myproc;
   MPI_Comm_rank(MPI_COMM_WORLD, &myproc);
 
-  // Decode Cactus variables
   const int nvars = varinds.size();
-  std::vector<int> gis, vis;
+  std::vector<CarpetX::gi_t> gis;
+  std::vector<int> vis;
   gis.reserve(nvars);
   vis.reserve(nvars);
   for (int vn : varinds) {
     assert(vn >= 0);
-    const int gi = CCTK_GroupIndexFromVarI(vn);
-    assert(gi >= 0);
+    const CarpetX::gi_t gi{CCTK_GroupIndexFromVarI(vn)};
+    assert(gi.index() >= 0);
     gis.push_back(gi);
-    const int v0 = CCTK_FirstVarIndexI(gi);
+    const int v0 = CCTK_FirstVarIndexI(gi.index());
     assert(v0 >= 0);
     const int vi = vn - v0;
     assert(vi >= 0);
@@ -1165,15 +1165,16 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
   CallScheduleGroup(cctkGH, "PDESolvers_Residual");
   {
     const int nvars = resinds.size();
-    std::vector<int> gis, vis;
+    std::vector<CarpetX::gi_t> gis;
+    std::vector<int> vis;
     gis.reserve(nvars);
     vis.reserve(nvars);
     for (int vn : resinds) {
       assert(vn >= 0);
-      const int gi = CCTK_GroupIndexFromVarI(vn);
-      assert(gi >= 0);
+      const CarpetX::gi_t gi{CCTK_GroupIndexFromVarI(vn)};
+      assert(gi.index() >= 0);
       gis.push_back(gi);
-      const int v0 = CCTK_FirstVarIndexI(gi);
+      const int v0 = CCTK_FirstVarIndexI(gi.index());
       assert(v0 >= 0);
       const int vi = vn - v0;
       assert(vi >= 0);
