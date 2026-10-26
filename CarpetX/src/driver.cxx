@@ -86,8 +86,8 @@ void refuse(const std::source_location site, const char *const fmt, ...) {
               message.data());
 }
 
-GHExt::PatchData &GHExt::add_patch(const int patch) {
-  assert(patch == num_patches());
+GHExt::PatchData &GHExt::add_patch(const patch_t patch) {
+  assert(patch.index() == num_patches());
   return patchdata.emplace_back(patch);
 }
 
@@ -787,7 +787,7 @@ GHExt::cctkGHptr::~cctkGHptr() {
   cctkGH = nullptr;
 }
 
-GHExt::PatchData::PatchData(const int patch) : patch(patch) {
+GHExt::PatchData::PatchData(const patch_t patch) : patch(patch) {
   DECLARE_CCTK_PARAMETERS;
 
   // Domain
@@ -803,7 +803,7 @@ GHExt::PatchData::PatchData(const int patch) : patch(patch) {
     CCTK_INT ncells1[dim];
     CCTK_REAL xmin1[dim], xmax1[dim];
     const int ierr = MultiPatch_GetPatchSpecification2(
-        patch, &is_cartesian1, dim, ncells1, xmin1, xmax1);
+        patch.index(), &is_cartesian1, dim, ncells1, xmin1, xmax1);
     assert(!ierr);
     is_cartesian = is_cartesian1;
     for (int d = 0; d < dim; ++d)
@@ -816,8 +816,7 @@ GHExt::PatchData::PatchData(const int patch) : patch(patch) {
   // Refinement ratios
   const amrex::Vector<amrex::IntVect> reffacts{}; // empty
 
-  // Symmetries
-  symmetries = get_symmetries(patch);
+  symmetries = get_symmetries(patch.index());
 
   {
     const std::array faces{"lower", "upper"};
@@ -855,35 +854,36 @@ GHExt::PatchData::PatchData(const int patch) : patch(patch) {
 }
 
 GHExt::PatchData::LevelData &
-GHExt::PatchData::add_level(const int level, const amrex::BoxArray &ba,
+GHExt::PatchData::add_level(const level_t level, const amrex::BoxArray &ba,
                             const amrex::DistributionMapping &dm,
                             const std::function<std::string()> &why) {
-  assert(level == num_levels());
-  return leveldata.emplace_back(patch, level, ba, dm, why);
+  assert(level.patch() == patch && level.index() == num_levels());
+  return leveldata.emplace_back(level, ba, dm, why);
 }
 
-GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const int level,
+GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
                                                             LevelData &&fresh) {
-  assert(fresh.patch == patch && fresh.level == level);
+  assert(fresh.level == level);
   using std::swap;
   swap(this->level(level), fresh);
   return std::move(fresh);
 }
 
-void GHExt::PatchData::erase_levels_from(const int level) {
-  assert(level >= 0 && level <= num_levels());
-  leveldata.erase(leveldata.begin() + level, leveldata.end());
+void GHExt::PatchData::erase_levels_from(const level_t level) {
+  assert(level.patch() == patch && level.index() >= 0 &&
+         level.index() <= num_levels());
+  leveldata.erase(leveldata.begin() + level.index(), leveldata.end());
 }
 
-GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
+GHExt::PatchData::LevelData::LevelData(const level_t level,
                                        const amrex::BoxArray &ba,
                                        const amrex::DistributionMapping &dm,
                                        const std::function<std::string()> &why)
-    : patch(patch), level(level) {
+    : level(level) {
   DECLARE_CCTK_PARAMETERS;
 
   const int timereffact = ghext->use_subcycling ? 2 : 1;
-  if (level == 0) {
+  if (level.index() == 0) {
     // We are creating the coarsest level
     is_subcycling_level = false; // unused
     iteration = 0;
@@ -891,7 +891,7 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     last_step_iteration = 0;
     last_finalized_iteration = 0;
   } else {
-    auto &coarseleveldata = ghext->level(patch, level - 1);
+    auto &coarseleveldata = ghext->level(level.parent());
     is_subcycling_level = ghext->use_subcycling;
     iteration = coarseleveldata.iteration;
     delta_iteration = coarseleveldata.delta_iteration / timereffact;
@@ -920,7 +920,7 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     else
       groupdata.push_back(
           std::make_unique<GHExt::PatchData::LevelData::GroupData>(
-              group, patch, level, ba, dm, why));
+              group, level, ba, dm, why));
   }
 
   for (int gi0 = 0; gi0 < numgroups; ++gi0) {
@@ -940,11 +940,10 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
     }
   }
 
-  // Set up cctkGHs
-  if (int(ghext->level_cctkGHs.size()) <= level) {
+  if (int(ghext->level_cctkGHs.size()) <= level.index()) {
     cGH *const cctkGH = ghext->get_global_cctkGH();
     enter_level_mode(cctkGH, level);
-    assert(int(ghext->level_cctkGHs.size()) == level);
+    assert(int(ghext->level_cctkGHs.size()) == level.index());
     ghext->level_cctkGHs.emplace_back(copy_cctkGH(cctkGH));
     leave_level_mode(cctkGH, level);
   }
@@ -969,10 +968,10 @@ GHExt::PatchData::LevelData::LevelData(const int patch, const int level,
 }
 
 GHExt::PatchData::LevelData::GroupData::GroupData(
-    const GroupRecord &record, const int patch, const int level,
-    const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
+    const GroupRecord &record, const level_t level, const amrex::BoxArray &ba,
+    const amrex::DistributionMapping &dm,
     const std::function<std::string()> &why)
-    : record(record), patch(patch), level(level) {
+    : record(record), level(level) {
   const int gi = record.groupindex.index();
   const int numvars = record.numvars;
   const gi_t groupindex = record.groupindex;
@@ -990,7 +989,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
 
   interpolator = get_interpolator(*this); // reads groupindex, indextype
 
-  const auto &geom = ghext->patch(patch).amrcore->Geom(level);
+  const auto &geom = ghext->patch(level.patch()).amrcore->Geom(level.index());
   for (int d = 0; d < dim; ++d)
     if (geom.isPeriodic(d))
       assert(geom.Domain().length(d) >= nghostzones[d]);
@@ -1019,7 +1018,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   for (int f = 0; f < 2; ++f) {
     for (int d = 0; d < dim; ++d) {
       const auto bc =
-          ghext->patch(patch).symmetries[f][d] == symmetry_t::periodic
+          ghext->patch(level.patch()).symmetries[f][d] == symmetry_t::periodic
               ? amrex::BCType::int_dir
               : amrex::BCType::ext_dir;
       if (f == 0)
@@ -1045,20 +1044,18 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   fluxes = get_group_fluxes(groupindex);
   if (fluxes) {
     assert((indextype == std::array<int, dim>{1, 1, 1}));
-    if (level > 0 && group_has_flux_register(groupindex)) {
+    if (level.index() > 0 && group_has_flux_register(groupindex)) {
       const amrex::IntVect ratio =
-          ghext->patch(patch).amrcore->refRatio(level - 1);
-      freg =
-          std::make_unique<amrex::FluxRegister>(gba, dm, ratio, level, numvars);
+          ghext->patch(level.patch()).amrcore->refRatio(level.parent().index());
+      freg = std::make_unique<amrex::FluxRegister>(gba, dm, ratio,
+                                                   level.index(), numvars);
       // FluxRegister::define leaves the FabSets uninitialized. Zero them so
       // that a register that is never fed (e.g. ODESolvers::method =
       // "constant") is a no-op in Reflux and serializes as zeros at a
       // mid-cycle checkpoint.
       freg->setVal(0);
-      // The coarse side's staging buffer (AccumulateFluxes): the register's
-      // layout by construction. Left uninitialized; every use zeroes it.
-      freg_scratch =
-          std::make_unique<amrex::FluxRegister>(gba, dm, ratio, level, numvars);
+      freg_scratch = std::make_unique<amrex::FluxRegister>(
+          gba, dm, ratio, level.index(), numvars);
     }
   }
 }
@@ -1079,32 +1076,21 @@ bool all_levels_synchronized() {
   return true;
 }
 
-// Some level finer than (patch, level) is behind it, i.e. the window that
-// holds `level` and the finest level has not been restricted at `level`'s
-// clock yet: that happens once every level from `level` down to the finest is
-// time-aligned (see the evolve loop and window_is_restricted). The bands hold
-// this level's last step, which the child reads until that restriction. Under
-// 2:1 time refinement the child is either half a coarse step behind this
-// level, and its next substep reads the bands, or aligned with it, and
-// recovery reads them for the child's end-of-step ghosts (ODESolvers refills
-// those by dense output from the bands until that restriction, and after it
-// by spatial prolongation from the restricted parent, as the restriction did
-// for every evolved group). The pair (level, level + 1) is refluxed right
-// before that restriction, so its flux register is live until then; the pair
-// may itself be aligned with the register complete but unapplied.
-bool recovered_finer_level_is_behind(const int patch, const int level) {
+bool recovered_finer_level_is_behind(const level_t level) {
   if (!ghext->use_subcycling)
     return false;
   const auto &recovered = ghext->recovered_levels;
+  const int patch = level.patch().index();
   if (patch < 0 || patch >= int(recovered.size()))
     return false;
   const auto &levels = recovered.at(patch);
-  if (level < 0 || level + 1 >= int(levels.size()))
+  const int lev = level.index();
+  if (lev < 0 || lev + 1 >= int(levels.size()))
     return false; // finest level: nothing finer
-  const std::optional<rat64> &self = levels.at(level).iteration;
+  const std::optional<rat64> &self = levels.at(lev).iteration;
   if (!self)
     return false; // old checkpoint without per-level iteration: time-aligned
-  for (int finer = level + 1; finer < int(levels.size()); ++finer) {
+  for (int finer = lev + 1; finer < int(levels.size()); ++finer) {
     const std::optional<rat64> &finer_iteration = levels.at(finer).iteration;
     if (finer_iteration && *finer_iteration < *self)
       return true;
@@ -1132,14 +1118,13 @@ std::string subcycling_band_tag(const band_kind kind, const int stage) {
   return buf.str();
 }
 
-amrex::MultiFab *rk_source_band(const int patch, const int level,
-                                const gi_t gi, const band_kind kind,
-                                const int stage) {
-  const auto &patchdata = ghext->patch(patch);
-  assert(level >= 0);
-  if (level + 1 >= patchdata.num_levels())
+amrex::MultiFab *rk_source_band(const level_t level, const gi_t gi,
+                                const band_kind kind, const int stage) {
+  assert(level.index() >= 0);
+  const std::optional<level_t> child = level.child();
+  if (!child)
     return nullptr;
-  const auto &childleveldata = patchdata.level(level + 1);
+  const auto &childleveldata = ghext->level(*child);
   const auto &groupdata = childleveldata.group(gi);
   switch (kind) {
   case band_kind::ks_source:
@@ -1166,7 +1151,7 @@ amrex::MultiFab *rk_source_band(const int patch, const int level,
 
 bool GHExt::PatchData::LevelData::GroupData::
     all_faces_have_symmetries_or_boundaries() const {
-  const auto &symmetries = ghext->patch(patch).symmetries;
+  const auto &symmetries = ghext->patch(level.patch()).symmetries;
   bool res = true;
   for (int f = 0; f < 2; ++f)
     for (int d = 0; d < dim; ++d)
@@ -1189,7 +1174,8 @@ void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
   static Timer timer("apply_boundary_conditions");
   Interval interval(timer);
 
-  const amrex::Geometry &geom = ghext->patch(patch).amrcore->Geom(level);
+  const amrex::Geometry &geom =
+      ghext->patch(level.patch()).amrcore->Geom(level.index());
 
   if (geom.isAllPeriodic())
     return;
@@ -1217,8 +1203,7 @@ void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
 
 // amrex::AmrCore functions
 
-CactusAmrCore::CactusAmrCore() {}
-CactusAmrCore::CactusAmrCore(const int patch, const amrex::RealBox *rb,
+CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox *rb,
                              int max_level_in,
                              const amrex::Vector<int> &n_cell_in, int coord,
                              amrex::Vector<amrex::IntVect> ref_ratios,
@@ -1226,7 +1211,7 @@ CactusAmrCore::CactusAmrCore(const int patch, const amrex::RealBox *rb,
     : amrex::AmrCore(rb, max_level_in, n_cell_in, coord, ref_ratios, is_per),
       patch(patch) {}
 
-CactusAmrCore::CactusAmrCore(const int patch, const amrex::RealBox &rb,
+CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox &rb,
                              int max_level_in,
                              const amrex::Vector<int> &n_cell_in, int coord,
                              amrex::Vector<amrex::IntVect> const &ref_ratios,
@@ -1236,9 +1221,10 @@ CactusAmrCore::CactusAmrCore(const int patch, const amrex::RealBox &rb,
 
 CactusAmrCore::~CactusAmrCore() {}
 
-void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
+void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
                              const amrex::Real time, const int ngrow) {
   DECLARE_CCTK_PARAMETERS;
+  const level_t level{patch, lev};
 
   // Don't regrid before Cactus is ready to
   if (!cactus_is_initialized)
@@ -1246,21 +1232,20 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("ErrorEst patch %d level %d", patch, level);
+    CCTK_VINFO("ErrorEst patch %d level %d", patch.index(), lev);
 
   const gi_t gi{CCTK_GroupIndex("CarpetXRegrid::regrid_error")};
   assert(gi.index() >= 0);
   const vi_t vi{0};
   const tl_t tl{0};
 
-  auto &restrict leveldata = ghext->level(patch, level);
+  auto &restrict leveldata = ghext->level(level);
   auto &restrict groupdata = leveldata.group(gi);
-  require(active_levels_t(level, level + 1, patch, patch + 1),
-          {.gi = gi,
-           .tl = tl,
-           .vi = vi,
-           .where = make_valid_int(),
-           .event = "ErrorEst"});
+  require(one_level(level), {.gi = gi,
+                             .tl = tl,
+                             .vi = vi,
+                             .where = make_valid_int(),
+                             .event = "ErrorEst"});
   std::size_t npoints_set = 0, npoints_clear = 0, npoints_total = 0;
   auto mfitinfo = amrex::MFItInfo().SetDynamic(true).EnableTiling();
 #pragma omp parallel
@@ -1300,7 +1285,7 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
 #pragma omp critical
     CCTK_VINFO("ErrorEst patch %d level %d done. "
                "Set/clear/total=%td/%td/%td=%.0f%%/%.0f%%/%.0f%%",
-               patch, level, npoints_set, npoints_clear, npoints_total,
+               patch.index(), lev, npoints_set, npoints_clear, npoints_total,
                100.0 * npoints_set / npoints_total,
                100.0 * npoints_clear / npoints_total, 100.0);
 }
@@ -1413,29 +1398,33 @@ void GHExt::freeze_storage() {
   }
 }
 
-void CactusAmrCore::SetupLevel(const int level, const amrex::BoxArray &ba,
+void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
                                const amrex::DistributionMapping &dm,
                                const std::function<std::string()> &why) {
   DECLARE_CCTK_PARAMETERS;
+  assert(level.patch() == patch);
+  const int lev = level.index();
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("SetupLevel patch %d level %d", patch, level);
+    CCTK_VINFO("SetupLevel patch %d level %d", patch.index(), lev);
 
   ghext->patch(patch).add_level(level, ba, dm, why);
 
-  if (level >= int(level_modified.size()))
-    level_modified.resize(level + 1, true);
-  level_modified.at(level) = true;
+  if (lev >= int(level_modified.size()))
+    level_modified.resize(lev + 1, true);
+  level_modified.at(lev) = true;
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed); // Increment epoch
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("SetupLevel patch %d level %d done.", patch, level);
+    CCTK_VINFO("SetupLevel patch %d level %d done.", patch.index(), lev);
 }
 
-amrex::BoxArray CactusAmrCore::RechopLevel(const int level,
+amrex::BoxArray CactusAmrCore::RechopLevel(const level_t recovered_level,
                                            amrex::BoxArray ba) const {
+  assert(recovered_level.patch() == patch);
+  const int level = recovered_level.index();
   if (level == 0)
     // Level 0 always covers the full domain: regenerate the canonical
     // cold-start decomposition (maxSize + optional ChopGrids over the whole
@@ -1457,18 +1446,19 @@ amrex::BoxArray CactusAmrCore::RechopLevel(const int level,
 }
 
 void CactusAmrCore::MakeNewLevelFromScratch(
-    int level, amrex::Real time, const amrex::BoxArray &ba,
+    int lev, amrex::Real time, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm) {
   DECLARE_CCTK_PARAMETERS;
+  const level_t level{patch, lev};
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d", patch, level);
+    CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d", patch.index(), lev);
 
   SetupLevel(level, ba, dm, []() { return "MakeNewLevelFromScratch"; });
 
-  const auto &leveldata = ghext->level(patch, level);
-  const active_levels_t active_levels(level, level + 1, patch, patch + 1);
+  const auto &leveldata = ghext->level(level);
+  const active_levels_t active_levels = one_level(level);
   for (const auto &groupdata : leveldata.groups()) {
     for (const tl_t tl : groupdata.record.timelevels())
       invalidate(active_levels, {.gi = groupdata.record.groupindex,
@@ -1479,7 +1469,8 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d done.", patch, level);
+    CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d done.", patch.index(),
+               lev);
 }
 
 static tl_range regrid_prolongate_tls(const GHExt::GroupRecord &record) {
@@ -1508,31 +1499,31 @@ regrid_fills(const GHExt::PatchData::LevelData::GroupData &groupdata) {
 }
 
 void CactusAmrCore::MakeNewLevelFromCoarse(
-    const int level, const amrex::Real time, const amrex::BoxArray &ba,
+    const int lev, const amrex::Real time, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm) {
   DECLARE_CCTK_PARAMETERS;
+  const level_t level{patch, lev};
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("MakeNewLevelFromCoarse patch %d level %d", patch, level);
+    CCTK_VINFO("MakeNewLevelFromCoarse patch %d level %d", patch.index(), lev);
 
-  assert(level > 0);
+  assert(lev > 0);
 
   SetupLevel(level, ba, dm, []() { return "MakeNewLevelFromCoarse"; });
 
   auto &patchdata = ghext->patch(patch);
   auto &leveldata = patchdata.level(level);
-  auto &coarseleveldata = patchdata.level(level - 1);
-  const active_levels_t active_levels(level, level + 1, patch, patch + 1);
-  const active_levels_t active_coarse_levels(level - 1, level, patch,
-                                             patch + 1);
+  const level_t coarse = level.parent();
+  auto &coarseleveldata = patchdata.level(coarse);
+  const active_levels_t active_levels = one_level(level);
+  const active_levels_t active_coarse_levels = one_level(coarse);
 
-  // only allow creation of new levels when the source and target are aligned
-  // in time
   if (leveldata.iteration != coarseleveldata.iteration) {
     std::ostringstream msg;
-    msg << "Coarse (rl=" << (level - 1) << ", it=" << coarseleveldata.iteration
-        << ") and fine (rl=" << level << ", it=" << leveldata.iteration
+    msg << "Coarse (rl=" << coarse.index()
+        << ", it=" << coarseleveldata.iteration << ") and fine (rl=" << lev
+        << ", it=" << leveldata.iteration
         << ") grid do not align in time when regridding";
 #pragma omp critical
     CCTK_VERROR(msg.str().c_str());
@@ -1567,8 +1558,8 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
           FillPatch_NewLevel(
               groupdata, coarsegroupdata, *groupdata.timelevel(tl).mfab,
               *coarsegroupdata.timelevel(tl).mfab,
-              patchdata.amrcore->Geom(level - 1),
-              patchdata.amrcore->Geom(level), interpolator, groupdata.bcrecs);
+              patchdata.amrcore->Geom(coarse.index()),
+              patchdata.amrcore->Geom(lev), interpolator, groupdata.bcrecs);
         } else {
           invalidate(active_levels,
                      {.gi = gi,
@@ -1593,32 +1584,33 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("MakeNewLevelFromCoarse patch %d level %d done.", patch, level);
+    CCTK_VINFO("MakeNewLevelFromCoarse patch %d level %d done.", patch.index(),
+               lev);
 }
 
-void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
+void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
                                 const amrex::BoxArray &ba,
                                 const amrex::DistributionMapping &dm) {
   DECLARE_CCTK_PARAMETERS;
+  const level_t level{patch, lev};
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("RemakeLevel patch %d level %d", patch, level);
+    CCTK_VINFO("RemakeLevel patch %d level %d", patch.index(), lev);
 
   auto &patchdata = ghext->patch(patch);
   auto &leveldata = patchdata.level(level);
-  assert(leveldata.level > 0);
-  auto &coarseleveldata = patchdata.level(level - 1);
-  const active_levels_t active_levels(level, level + 1, patch, patch + 1);
-  const active_levels_t active_coarse_levels(level - 1, level, patch,
-                                             patch + 1);
+  assert(lev > 0);
+  const level_t coarse = level.parent();
+  auto &coarseleveldata = patchdata.level(coarse);
+  const active_levels_t active_levels = one_level(level);
+  const active_levels_t active_coarse_levels = one_level(coarse);
 
-  // only allow modfication of levels when the source and target are aligned in
-  // time
   if (leveldata.iteration != coarseleveldata.iteration) {
     std::ostringstream msg;
-    msg << "Coarse (rl=" << (level - 1) << ", it=" << coarseleveldata.iteration
-        << ") and fine (rl=" << level << ", it=" << leveldata.iteration
+    msg << "Coarse (rl=" << coarse.index()
+        << ", it=" << coarseleveldata.iteration << ") and fine (rl=" << lev
+        << ", it=" << leveldata.iteration
         << ") grid do not align in time when regridding";
 #pragma omp critical
     CCTK_VERROR(msg.str().c_str());
@@ -1667,7 +1659,7 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
   assert(leveldata.iteration == coarseleveldata.iteration);
 
   GHExt::PatchData::LevelData oldleveldata = patchdata.replace_level(
-      level, GHExt::PatchData::LevelData(patch, level, ba, dm,
+      level, GHExt::PatchData::LevelData(level, ba, dm,
                                          []() { return "RemakeLevel"; }));
 
   for (auto &groupdata : leveldata.groups()) {
@@ -1694,8 +1686,8 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
             groupdata, coarsegroupdata, *groupdata.timelevel(tl).mfab,
             *coarsegroupdata.timelevel(tl).mfab,
             *oldgroupdata.timelevel(tl).mfab,
-            patchdata.amrcore->Geom(level - 1), patchdata.amrcore->Geom(level),
-            interpolator, groupdata.bcrecs);
+            patchdata.amrcore->Geom(coarse.index()),
+            patchdata.amrcore->Geom(lev), interpolator, groupdata.bcrecs);
       } else {
         invalidate(active_levels,
                    {.gi = gi,
@@ -1709,28 +1701,29 @@ void CactusAmrCore::RemakeLevel(const int level, const amrex::Real time,
     } // for tl
   }
 
-  level_modified.at(level) = true;
+  level_modified.at(lev) = true;
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed); // Increment epoch
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("RemakeLevel patch %d level %d done.", patch, level);
+    CCTK_VINFO("RemakeLevel patch %d level %d done.", patch.index(), lev);
 }
 
-void CactusAmrCore::ClearLevel(const int level) {
+void CactusAmrCore::ClearLevel(const int lev) {
   DECLARE_CCTK_PARAMETERS;
+  const level_t level{patch, lev};
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("ClearLevel patch %d level %d", patch, level);
+    CCTK_VINFO("ClearLevel patch %d level %d", patch.index(), lev);
   ghext->patch(patch).erase_levels_from(level);
 
-  level_modified.resize(level);
+  level_modified.resize(lev);
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed); // Increment epoch
 
   if (verbose)
 #pragma omp critical
-    CCTK_VINFO("ClearLevel patch %d level %d done.", patch, level);
+    CCTK_VINFO("ClearLevel patch %d level %d done.", patch.index(), lev);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1973,8 +1966,9 @@ operator<<(YAML::Emitter &yaml,
     yaml << YAML::EndSeq;
   }
   yaml << YAML::EndSeq;
-  yaml << YAML::Key << "patch" << YAML::Value << groupdata.patch;
-  yaml << YAML::Key << "level" << YAML::Value << groupdata.level;
+  yaml << YAML::Key << "patch" << YAML::Value
+       << groupdata.level.patch().index();
+  yaml << YAML::Key << "level" << YAML::Value << groupdata.level.index();
   yaml << YAML::Key << "indextype" << YAML::Value << YAML::Flow
        << seq(groupdata.indextype);
   yaml << YAML::Key << "nghostzones" << YAML::Value << YAML::Flow
@@ -1994,8 +1988,9 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
                           const GHExt::PatchData::LevelData &leveldata) {
   yaml << YAML::LocalTag("leveldata-1.1.0");
   yaml << YAML::BeginMap;
-  yaml << YAML::Key << "patch" << YAML::Value << leveldata.patch;
-  yaml << YAML::Key << "level" << YAML::Value << leveldata.level;
+  yaml << YAML::Key << "patch" << YAML::Value
+       << leveldata.level.patch().index();
+  yaml << YAML::Key << "level" << YAML::Value << leveldata.level.index();
   yaml << YAML::Key << "is_subcycling_level" << YAML::Value
        << leveldata.is_subcycling_level;
   yaml << YAML::Key << "iteration" << YAML::Value << leveldata.iteration;
@@ -2015,7 +2010,7 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
                           const GHExt::PatchData &patchdata) {
   yaml << YAML::LocalTag("patchdata-1.0.0");
   yaml << YAML::BeginMap;
-  yaml << YAML::Key << "patch" << YAML::Value << patchdata.patch;
+  yaml << YAML::Key << "patch" << YAML::Value << patchdata.patch.index();
   yaml << YAML::Key << "amrcore" << YAML::Value << *patchdata.amrcore;
   yaml << YAML::Key << "leveldata" << YAML::Value << YAML::BeginSeq;
   for (const auto &leveldata : patchdata.levels())
@@ -2259,7 +2254,7 @@ int InitGH(cGH *restrict cctkGH) {
     assert(!ierr);
   }
   for (int patch = 0; patch < num_patches; ++patch)
-    ghext->add_patch(patch);
+    ghext->add_patch(patch_t{patch});
 
   ghext->use_subcycling = use_subcycling;
   ghext->do_reflux = do_reflux;
@@ -2377,8 +2372,8 @@ CarpetX_GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size,
                                CCTK_REAL *restrict const exterior_max,
                                CCTK_REAL *restrict const spacing) {
   assert(size == dim);
-  const auto &patchdata = ghext->patch(patch);
-  const auto &fab = *patchdata.level(0).fab;
+  const auto &patchdata = ghext->patch(patch_t{patch});
+  const auto &fab = *patchdata.level(level_t{patchdata.patch, 0}).fab;
   const auto &geom = patchdata.amrcore->Geom(0);
   for (int d = 0; d < dim; ++d) {
     // the domain itself (physical faces)

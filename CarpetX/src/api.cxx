@@ -30,7 +30,8 @@ void require_no_open_write(
            "group %s has %d open write scope%s (CarpetX::write) on patch %d, "
            "refinement level %d; destroy the write_t first",
            groupdata.record.groupname.c_str(), open_writes,
-           open_writes == 1 ? "" : "s", groupdata.patch, groupdata.level);
+           open_writes == 1 ? "" : "s", groupdata.level.patch().index(),
+           groupdata.level.index());
 }
 
 active_levels_t require_operable(const window_t window,
@@ -57,17 +58,22 @@ variable_t variable(const var_t var) {
 
 int num_patches() { return driver().num_patches(); }
 
-int num_levels(const int patch) {
+int num_levels(const patch_t patch) {
   const operation_scope_t op("CarpetX::num_levels");
   return driver().patch(patch).num_levels();
 }
 
-level_t parent(const level_t level) {
-  const operation_scope_t op("CarpetX::parent");
-  driver().level(level);
-  if (level.level == 0)
-    CCTK_VERROR("CarpetX level 0 of patch %d has no parent level", level.patch);
-  return level_t{level.patch, level.level - 1};
+level_t level_t::parent(const std::source_location site) const {
+  if (level_ == 0)
+    refuse(site, "CarpetX level 0 of patch %d has no parent level",
+           patch_.index());
+  return level_t{patch_, level_ - 1};
+}
+
+std::optional<level_t> level_t::child() const {
+  if (level_ + 1 < driver().num_levels(patch_))
+    return level_t{patch_, level_ + 1};
+  return std::nullopt;
 }
 
 rat64 iteration(const level_t level) {
@@ -83,14 +89,14 @@ rat64 delta_iteration(const level_t level) {
 const amrex::Geometry &geometry(const level_t level) {
   const operation_scope_t op("CarpetX::geometry");
   driver().level(level);
-  return driver().patch(level.patch).amrcore->Geom(level.level);
+  return driver().patch(level.patch()).amrcore->Geom(level.index());
 }
 
 std::array<std::array<symmetry_t, Loop::dim>, 2>
 symmetries(const level_t level) {
   const operation_scope_t op("CarpetX::symmetries");
   driver().level(level);
-  return driver().patch(level.patch).symmetries;
+  return driver().patch(level.patch()).symmetries;
 }
 
 int numvars(const group_t group) {
@@ -117,18 +123,18 @@ void window_t::loop_coarse_to_fine(
     const std::function<void(level_t level)> &kernel) const {
   active_levels_t(*this).loop_coarse_to_fine(
       [&](const GHExt::PatchData::LevelData &leveldata) {
-        kernel(level_t{leveldata.patch, leveldata.level});
+        kernel(leveldata.level);
       });
 }
 
 void window_t::loop_parallel(
     const std::function<void(level_t level, int index, int component,
                              const cGH *cctkGH)> &kernel) const {
-  active_levels_t(*this).loop_parallel([&](const int patch, const int level,
-                                           const int index, const int component,
-                                           const cGH *const cctkGH) {
-    kernel(level_t{patch, level}, index, component, cctkGH);
-  });
+  active_levels_t(*this).loop_parallel(
+      [&](const GHExt::PatchData::LevelData &leveldata, const int index,
+          const int component, const cGH *const cctkGH) {
+        kernel(leveldata.level, index, component, cctkGH);
+      });
 }
 
 window_t active_window() {
@@ -155,11 +161,6 @@ struct write_t::impl {
   write_scope_t scope;
 };
 
-active_levels_t one_level(const level_t level) {
-  return active_levels_t(level.level, level.level + 1, level.patch,
-                         level.patch + 1);
-}
-
 write_t::write_t(std::unique_ptr<impl> p) noexcept : p(std::move(p)) {}
 
 write_t::write_t(write_t &&) noexcept = default;
@@ -183,7 +184,8 @@ write_t write(const group_t group, const tl_t tl, const valid_t leaves_valid,
                 "scope%s (CarpetX::write) on patch %d, refinement level %d; "
                 "destroy that write_t before opening another",
                 tl.index(), groupdata.record.groupname.c_str(), open_writes,
-                open_writes == 1 ? "" : "s", groupdata.patch, groupdata.level);
+                open_writes == 1 ? "" : "s", groupdata.level.patch().index(),
+                groupdata.level.index());
   return write_t(std::unique_ptr<write_t::impl>(new write_t::impl{
       group, tl,
       open_write(one_level(group.level), {.gi = group.gi,
@@ -207,8 +209,8 @@ resolve_scratch(const group_t group, const std::size_t slot) {
     refuse(std::source_location::current(),
            "scratch buffer %d of group %s on patch %d, refinement level %d no "
            "longer exists: the level was remade while the scratch_t was held",
-           int(slot), CCTK_FullGroupName(group.gi.index()), group.level.patch,
-           group.level.level);
+           int(slot), CCTK_FullGroupName(group.gi.index()),
+           group.level.patch().index(), group.level.index());
   return pool.at(slot);
 }
 

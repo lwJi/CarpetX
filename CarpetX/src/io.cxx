@@ -202,11 +202,10 @@ void RecoverGH(const cGH *restrict cctkGH) {
   if (ghext->use_subcycling) {
     for (const auto &patchdata : ghext->patches())
       for (const auto &leveldata : patchdata.levels()) {
-        if (leveldata.level == 0)
+        if (leveldata.level.index() == 0)
           continue;
         for (const auto &groupdata : leveldata.groups())
-          EnsureRKBuffers(leveldata.patch, leveldata.level,
-                          groupdata.record.groupindex);
+          EnsureRKBuffers(leveldata.level, groupdata.record.groupindex);
       }
   }
 
@@ -355,10 +354,11 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
         amrex::Vector<int> iters(patchdata.num_levels());
         amrex::Vector<amrex::IntVect> reffacts(patchdata.num_levels());
         for (const auto &restrict leveldata : patchdata.levels()) {
-          mfabs.at(leveldata.level) = &*leveldata.group(gi).timelevel(tl).mfab;
-          geoms.at(leveldata.level) = patchdata.amrcore->Geom(leveldata.level);
-          iters.at(leveldata.level) = cctk_iteration;
-          reffacts.at(leveldata.level) = amrex::IntVect{2, 2, 2};
+          const int level = leveldata.level.index();
+          mfabs.at(level) = &*leveldata.group(gi).timelevel(tl).mfab;
+          geoms.at(level) = patchdata.amrcore->Geom(level);
+          iters.at(level) = cctk_iteration;
+          reffacts.at(level) = amrex::IntVect{2, 2, 2};
         }
 
         // TODO: Output all groups into a single file

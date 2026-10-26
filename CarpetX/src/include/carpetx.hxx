@@ -24,7 +24,9 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
+#include <source_location>
 #include <span>
 #include <string>
 #include <tuple>
@@ -54,6 +56,10 @@ template <class Derived> struct index_hash {
   }
 };
 
+struct patch_t : index_t<patch_t> {
+  using index_t::index_t;
+};
+
 struct gi_t : index_t<gi_t> {
   using index_t::index_t;
 };
@@ -80,7 +86,18 @@ enum class symmetry_t {
 std::ostream &operator<<(std::ostream &os, symmetry_t symmetry);
 
 struct level_t {
-  int patch, level;
+  constexpr level_t(const patch_t patch, const int level)
+      : patch_(patch), level_(level) {}
+  constexpr patch_t patch() const { return patch_; }
+  constexpr int index() const { return level_; }
+  level_t
+  parent(std::source_location site = std::source_location::current()) const;
+  std::optional<level_t> child() const;
+  friend constexpr auto operator<=>(level_t, level_t) = default;
+
+private:
+  patch_t patch_;
+  int level_;
 };
 
 struct group_t {
@@ -96,9 +113,8 @@ struct variable_t {
 variable_t variable(var_t var);
 
 int num_patches();
-int num_levels(int patch);
+int num_levels(patch_t patch);
 
-level_t parent(level_t level);
 rat64 iteration(level_t level);
 rat64 delta_iteration(level_t level);
 const amrex::Geometry &geometry(level_t level);
@@ -401,6 +417,8 @@ public:
 
 } // namespace CarpetX
 
+template <>
+struct std::hash<CarpetX::patch_t> : CarpetX::index_hash<CarpetX::patch_t> {};
 template <>
 struct std::hash<CarpetX::gi_t> : CarpetX::index_hash<CarpetX::gi_t> {};
 template <>

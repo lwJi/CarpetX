@@ -1,10 +1,12 @@
 #include "driver.hxx"
 #include "schedule.hxx"
+#include "subcycling.hxx"
 #include "sync_restrict_internal.hxx"
 #include "valid.hxx"
 
 #include <carpetx.hxx>
 
+#include <functional>
 #include <optional>
 #include <span>
 #include <type_traits>
@@ -16,6 +18,62 @@ namespace {
 template <class Group>
 concept record_takes = requires(GHExt & ext, Group group) {
   ext.record(group);
+};
+
+template <class... Args>
+concept ghext_level_takes = requires(GHExt & ext, Args... args) {
+  ext.level(args...);
+};
+
+template <class Patch>
+concept ghext_patch_takes = requires(GHExt & ext, Patch patch) {
+  ext.patch(patch);
+};
+
+template <class Patch>
+concept ghext_num_levels_takes = requires(const GHExt &ext, Patch patch) {
+  ext.num_levels(patch);
+};
+
+template <class Level>
+concept patch_level_takes =
+    requires(GHExt::PatchData & patchdata, Level level) {
+  patchdata.level(level);
+};
+
+template <class Ext, class... Args>
+concept patch_cctkGH_takes = requires(const Ext &ext, Args... args) {
+  ext.get_patch_cctkGH(args...);
+};
+
+template <class Ext, class... Args>
+concept local_cctkGH_takes = requires(const Ext &ext, Args... args) {
+  ext.get_local_cctkGH(args...);
+};
+
+template <class... Args>
+concept ensure_rk_buffers_takes = requires(Args... args) {
+  EnsureRKBuffers(args...);
+};
+
+template <class... Args>
+concept accumulate_fluxes_takes = requires(Args... args) {
+  AccumulateFluxes(args...);
+};
+
+template <class... Args> concept rk_source_band_takes = requires(Args... args) {
+  rk_source_band(args...);
+};
+
+template <class... Args>
+concept recovered_finer_takes = requires(Args... args) {
+  recovered_finer_level_is_behind(args...);
+};
+
+template <class Kernel>
+concept loop_parallel_takes =
+    requires(const active_levels_t &levels, Kernel kernel) {
+  levels.loop_parallel(kernel);
 };
 
 template <class Group>
@@ -89,6 +147,41 @@ concept grid_ptr_takes =
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
 
+static_assert(ghext_level_takes<level_t>);
+static_assert(!ghext_level_takes<int, int>);
+static_assert(!ghext_level_takes<patch_t, int>);
+
+static_assert(ghext_patch_takes<patch_t>);
+static_assert(!ghext_patch_takes<int>);
+
+static_assert(ghext_num_levels_takes<patch_t>);
+static_assert(!ghext_num_levels_takes<int>);
+
+static_assert(patch_level_takes<level_t>);
+static_assert(!patch_level_takes<int>);
+
+static_assert(patch_cctkGH_takes<GHExt::PatchData::LevelData>);
+static_assert(!patch_cctkGH_takes<GHExt, int, int>);
+static_assert(local_cctkGH_takes<GHExt::PatchData::LevelData, int>);
+static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
+
+static_assert(ensure_rk_buffers_takes<level_t, gi_t>);
+static_assert(!ensure_rk_buffers_takes<int, int, gi_t>);
+
+static_assert(accumulate_fluxes_takes<level_t, int, CCTK_REAL>);
+static_assert(!accumulate_fluxes_takes<int, int, int, CCTK_REAL>);
+
+static_assert(rk_source_band_takes<level_t, gi_t, band_kind>);
+static_assert(!rk_source_band_takes<int, int, gi_t, band_kind>);
+
+static_assert(recovered_finer_takes<level_t>);
+static_assert(!recovered_finer_takes<int, int>);
+
+static_assert(loop_parallel_takes<std::function<void(
+                  GHExt::PatchData::LevelData &, int, int, const cGH *)> >);
+static_assert(!loop_parallel_takes<
+              std::function<void(int, int, int, int, const cGH *)> >);
+
 static_assert(level_group_takes<gi_t>);
 static_assert(!level_group_takes<int>);
 
@@ -135,6 +228,13 @@ static_assert(grid_ptr_takes<vi_t>);
 static_assert(!grid_ptr_takes<int>);
 
 static_assert(std::is_same_v<decltype(GHExt::GroupRecord::groupindex), gi_t>);
+static_assert(std::is_same_v<decltype(GHExt::PatchData::patch), patch_t>);
+static_assert(
+    std::is_same_v<decltype(GHExt::PatchData::LevelData::level), level_t>);
+static_assert(
+    std::is_same_v<decltype(GHExt::PatchData::LevelData::GroupData::level),
+                   const level_t>);
+static_assert(std::is_same_v<decltype(tiletag_t::level), level_t>);
 static_assert(std::is_same_v<decltype(tiletag_t::gi), gi_t>);
 static_assert(std::is_same_v<decltype(tiletag_t::vi), vi_t>);
 static_assert(std::is_same_v<decltype(tiletag_t::tl), tl_t>);

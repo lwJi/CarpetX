@@ -104,18 +104,18 @@ public:
     loop_coarse_to_fine(kernel);
   }
 
-  // Loop over all components of all active patches of all active
-  // levels in parallel
   void loop_parallel(
-      const std::function<void(int patch, int level, int index, int component,
-                               const cGH *cctkGH)> &kernel) const;
+      const std::function<void(GHExt::PatchData::LevelData &leveldata,
+                               int index, int component, const cGH *cctkGH)>
+          &kernel) const;
 
-  // Loop over all components of all active patches of all active
-  // levels serially
   void loop_serially(
-      const std::function<void(int patch, int level, int index, int component,
-                               const cGH *cctkGH)> &kernel) const;
+      const std::function<void(GHExt::PatchData::LevelData &leveldata,
+                               int index, int component, const cGH *cctkGH)>
+          &kernel) const;
 };
+
+active_levels_t one_level(level_t level);
 
 const std::optional<active_levels_t> &scheduled_levels();
 
@@ -251,8 +251,8 @@ void update_cctkGH(cGH *restrict cctkGH, const cGH *restrict sourceGH);
 void update_cctkGHs(cGH *restrict cctkGH);
 void enter_global_mode(cGH *restrict cctkGH);
 void leave_global_mode(cGH *restrict cctkGH);
-void enter_level_mode(cGH *restrict cctkGH, int level);
-void leave_level_mode(cGH *restrict cctkGH, int level);
+void enter_level_mode(cGH *restrict cctkGH, level_t level);
+void leave_level_mode(cGH *restrict cctkGH, level_t level);
 void enter_patch_mode(cGH *restrict cctkGH,
                       const GHExt::PatchData::LevelData &restrict leveldata);
 void leave_patch_mode(cGH *restrict cctkGH,

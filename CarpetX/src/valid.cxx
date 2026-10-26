@@ -112,8 +112,8 @@ void error_if_invalid(const GroupData &groupdata, const vi_t vi, const tl_t tl,
                 "level %d, time level %d; required: %s, found: %s%s",
                 msg().c_str(),
                 CCTK_FullVarName(groupdata.record.var(vi).index()),
-                groupdata.patch, groupdata.level, tl.index(),
-                required.explanation().c_str(),
+                groupdata.level.patch().index(), groupdata.level.index(),
+                tl.index(), required.explanation().c_str(),
                 groupdata.timelevel(tl).why_valid(vi).explanation().c_str(),
                 hint ? hint().c_str() : "");
 }
@@ -128,8 +128,8 @@ void warn_if_invalid(const GroupData &groupdata, const vi_t vi, const tl_t tl,
                "level %d, time level %d; required: %s, found: %s",
                msg().c_str(),
                CCTK_FullVarName(groupdata.record.var(vi).index()),
-               groupdata.patch, groupdata.level, tl.index(),
-               required.explanation().c_str(),
+               groupdata.level.patch().index(), groupdata.level.index(),
+               tl.index(), required.explanation().c_str(),
                groupdata.timelevel(tl).why_valid(vi).explanation().c_str());
 }
 
@@ -158,11 +158,9 @@ void poison_invalid_gf(const active_levels_t &active_levels, const gi_t gi,
   CCTK_REAL poison;
   poison_value.set_to_poison(poison);
 
-  active_levels.loop_parallel([&](const int patch, const int level,
+  active_levels.loop_parallel([&](const GHExt::PatchData::LevelData &leveldata,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patch(patch);
-    const auto &leveldata = patchdata.level(level);
     const auto &restrict groupdata = leveldata.group(gi);
 
     const Loop::GridDescBaseDevice grid(cctkGH);
@@ -226,11 +224,9 @@ void check_valid_gf(const active_levels_t &active_levels, const gi_t gi,
   poison_found.operator= <run_on>(0.0);
   CCTK_REAL *restrict const poison_found_ptr = poison_found.dataPtr();
 
-  active_levels.loop_parallel([&](const int patch, const int level,
+  active_levels.loop_parallel([&](const GHExt::PatchData::LevelData &leveldata,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patch(patch);
-    const auto &leveldata = patchdata.level(level);
     const auto &restrict groupdata = leveldata.group(gi);
 
     const Loop::GridDescBaseDevice grid(cctkGH);
@@ -286,11 +282,9 @@ void check_valid_gf(const active_levels_t &active_levels, const gi_t gi,
   };
   std::vector<info_t> infos;
 
-  active_levels.loop_serially([&](const int patch, const int level,
+  active_levels.loop_serially([&](const GHExt::PatchData::LevelData &leveldata,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patch(patch);
-    const auto &leveldata = patchdata.level(level);
     const auto &restrict groupdata = leveldata.group(gi);
 
     const Loop::GridDescBaseDevice grid(cctkGH);
@@ -681,11 +675,9 @@ checksums_t calculate_checksums(
   static Timer timer("calculate_checksums");
   Interval interval(timer);
 
-  active_levels.loop_parallel([&](const int patch, const int level,
+  active_levels.loop_parallel([&](const GHExt::PatchData::LevelData &leveldata,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patch(patch);
-    const auto &leveldata = patchdata.level(level);
     for (const auto &groupdata : leveldata.groups()) {
       const Loop::GridDescBaseDevice grid(cctkGH);
       const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
@@ -693,7 +685,7 @@ checksums_t calculate_checksums(
       for (const vi_t vi : groupdata.record.variables()) {
         for (const tl_t tl : groupdata.record.timelevels()) {
           const gi_t gi = groupdata.record.groupindex;
-          const tiletag_t tiletag(patch, level, component, gi, vi, tl);
+          const tiletag_t tiletag{leveldata.level, component, gi, vi, tl};
 
           const valid_t valid = groupdata.timelevel(tl).valid(vi);
           if (tl.index() >=
@@ -754,11 +746,9 @@ void check_checksums(const active_levels_t &active_levels,
   static Timer timer("check_checksums");
   Interval interval(timer);
 
-  active_levels.loop_parallel([&](const int patch, const int level,
+  active_levels.loop_parallel([&](const GHExt::PatchData::LevelData &leveldata,
                                   const int index, const int component,
                                   const cGH *restrict const cctkGH) {
-    const auto &patchdata = ghext->patch(patch);
-    const auto &leveldata = patchdata.level(level);
     for (const auto &groupdata : leveldata.groups()) {
       const Loop::GridDescBaseDevice grid(cctkGH);
       const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
@@ -766,7 +756,7 @@ void check_checksums(const active_levels_t &active_levels,
       for (const vi_t vi : groupdata.record.variables()) {
         for (const tl_t tl : groupdata.record.timelevels()) {
           const gi_t gi = groupdata.record.groupindex;
-          const tiletag_t tiletag(patch, level, component, gi, vi, tl);
+          const tiletag_t tiletag{leveldata.level, component, gi, vi, tl};
 
           if (!checksums.count(tiletag))
             continue;

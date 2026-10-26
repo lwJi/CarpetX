@@ -27,7 +27,7 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
   // Create operator
 
   assert(ghext->num_patches() == 1);
-  const int patch = 0;
+  const patch_t patch{0};
   const auto &patchdata = ghext->patch(patch);
   amrex::Vector<amrex::Geometry> geoms(patchdata.num_levels());
   amrex::Vector<amrex::BoxArray> grids(patchdata.num_levels());
@@ -66,7 +66,7 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
   amrex::Vector<amrex::MultiFab *> sols(patchdata.num_levels());
   amrex::Vector<const amrex::MultiFab *> rhss(patchdata.num_levels());
   for (int level = 0; level < patchdata.num_levels(); ++level) {
-    const auto &restrict leveldata = patchdata.level(level);
+    const auto &restrict leveldata = patchdata.level(level_t{patch, level});
     const auto &restrict groupdata_rhs = leveldata.group(gi_rhs);
     rhss.at(level) = groupdata_rhs.timelevel(tl).mfab.get();
     const auto &restrict groupdata_sol = leveldata.group(gi_sol);

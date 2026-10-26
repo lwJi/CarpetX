@@ -152,21 +152,19 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// AMR driver
 class CactusAmrCore final : public amrex::AmrCore {
-  int patch;
+  patch_t patch;
 
 public:
   bool cactus_is_initialized = false;
   std::vector<bool> level_modified;
 
-  CactusAmrCore();
-  CactusAmrCore(int patch, const amrex::RealBox *rb, int max_level_in,
+  CactusAmrCore(patch_t patch, const amrex::RealBox *rb, int max_level_in,
                 const amrex::Vector<int> &n_cell_in, int coord = -1,
                 amrex::Vector<amrex::IntVect> ref_ratios =
                     amrex::Vector<amrex::IntVect>(),
                 const int *is_per = nullptr);
-  CactusAmrCore(int patch, const amrex::RealBox &rb, int max_level_in,
+  CactusAmrCore(patch_t patch, const amrex::RealBox &rb, int max_level_in,
                 const amrex::Vector<int> &n_cell_in, int coord,
                 amrex::Vector<amrex::IntVect> const &ref_ratios,
                 amrex::Array<int, AMREX_SPACEDIM> const &is_per);
@@ -177,15 +175,10 @@ public:
 
   virtual void ErrorEst(int level, amrex::TagBoxArray &tags, amrex::Real time,
                         int ngrow) override;
-  void SetupLevel(int level, const amrex::BoxArray &ba,
+  void SetupLevel(level_t level, const amrex::BoxArray &ba,
                   const amrex::DistributionMapping &dm,
                   const std::function<std::string()> &why);
-  // Re-partition a recovered level's covered region into a fresh box
-  // decomposition matching the current max_grid_size / node count. Pure
-  // geometry: the returned BoxArray covers exactly the same cell union as the
-  // input, so no field data is changed. Level 0 regenerates the canonical
-  // full-domain decomposition; levels > 0 coalesce then re-tile + load-balance.
-  amrex::BoxArray RechopLevel(int level, amrex::BoxArray ba) const;
+  amrex::BoxArray RechopLevel(level_t level, amrex::BoxArray ba) const;
   virtual void
   MakeNewLevelFromScratch(int level, amrex::Real time,
                           const amrex::BoxArray &ba,
@@ -513,9 +506,9 @@ struct GHExt {
     PatchData(PatchData &&) = default;
     PatchData &operator=(PatchData &&) = default;
 
-    PatchData(int patch);
+    PatchData(patch_t patch);
 
-    int patch;
+    patch_t patch;
 
     bool is_cartesian;
 
@@ -532,11 +525,11 @@ struct GHExt {
       LevelData(LevelData &&) = default;
       LevelData &operator=(LevelData &&) = default;
 
-      LevelData(const int patch, const int level, const amrex::BoxArray &ba,
+      LevelData(level_t level, const amrex::BoxArray &ba,
                 const amrex::DistributionMapping &dm,
                 const std::function<std::string()> &why);
 
-      int patch, level;
+      level_t level;
 
       // This level uses subcycling with respect to the next coarser
       // level. (Ignored for the coarsest level.)
@@ -601,13 +594,13 @@ struct GHExt {
         GroupData(GroupData &&) = delete;
         GroupData &operator=(GroupData &&) = delete;
 
-        GroupData(const GroupRecord &record, int patch, int level,
+        GroupData(const GroupRecord &record, level_t level,
                   const amrex::BoxArray &ba,
                   const amrex::DistributionMapping &dm,
                   const std::function<std::string()> &why);
 
         const GroupRecord &record;
-        int patch, level;
+        const level_t level;
 
         struct timelevel_t {
           timelevel_t(std::unique_ptr<amrex::MultiFab> mfab, int numvars,
@@ -635,8 +628,8 @@ struct GHExt {
             refuse(site,
                    "time level %d of group %s does not exist on patch %d, "
                    "refinement level %d: it has %d time levels",
-                   tl.index(), record.groupname.c_str(), patch, level,
-                   int(tls.size()));
+                   tl.index(), record.groupname.c_str(), level.patch().index(),
+                   level.index(), int(tls.size()));
           return tls[tl.index()];
         }
         timelevel_t &timelevel(
@@ -753,7 +746,8 @@ struct GHExt {
         if (gd->num_timelevels() == 0)
           refuse(site,
                  "group %s has no storage on patch %d, refinement level %d",
-                 CCTK_FullGroupName(gi.index()), patch, level);
+                 CCTK_FullGroupName(gi.index()), level.patch().index(),
+                 level.index());
         return *gd;
       }
       GroupData &
@@ -783,28 +777,29 @@ struct GHExt {
     };
 
     int num_levels() const { return leveldata.size(); }
-    const LevelData &level(const int level,
+    const LevelData &level(const level_t level,
                            const std::source_location site =
                                std::source_location::current()) const {
-      if (level < 0 || level >= num_levels())
+      assert(level.patch() == patch);
+      if (level.index() < 0 || level.index() >= num_levels())
         refuse(site,
                "CarpetX level %d does not exist on patch %d: it has %d levels",
-               level, patch, num_levels());
-      return leveldata[level];
+               level.index(), patch.index(), num_levels());
+      return leveldata[level.index()];
     }
     LevelData &
-    level(const int level,
+    level(const level_t level,
           const std::source_location site = std::source_location::current()) {
       return const_cast<LevelData &>(std::as_const(*this).level(level, site));
     }
     std::span<const LevelData> levels() const { return leveldata; }
     std::span<LevelData> levels() { return leveldata; }
 
-    LevelData &add_level(int level, const amrex::BoxArray &ba,
+    LevelData &add_level(level_t level, const amrex::BoxArray &ba,
                          const amrex::DistributionMapping &dm,
                          const std::function<std::string()> &why);
-    LevelData replace_level(int level, LevelData &&fresh);
-    void erase_levels_from(int level);
+    LevelData replace_level(level_t level, LevelData &&fresh);
+    void erase_levels_from(level_t level);
 
   private:
     std::vector<LevelData> leveldata;
@@ -815,33 +810,22 @@ struct GHExt {
 
   int num_patches() const { return patchdata.size(); }
   const PatchData &patch(
-      const int patch,
+      const patch_t patch,
       const std::source_location site = std::source_location::current()) const {
-    if (patch < 0 || patch >= num_patches())
+    if (patch.index() < 0 || patch.index() >= num_patches())
       refuse(site, "CarpetX patch %d does not exist: there are %d patches",
-             patch, num_patches());
-    return patchdata[patch];
+             patch.index(), num_patches());
+    return patchdata[patch.index()];
   }
   PatchData &
-  patch(const int patch,
+  patch(const patch_t patch,
         const std::source_location site = std::source_location::current()) {
     return const_cast<PatchData &>(std::as_const(*this).patch(patch, site));
   }
   const PatchData::LevelData &level(
-      const int patch, const int level,
-      const std::source_location site = std::source_location::current()) const {
-    return this->patch(patch, site).level(level, site);
-  }
-  PatchData::LevelData &
-  level(const int patch, const int level,
-        const std::source_location site = std::source_location::current()) {
-    return const_cast<PatchData::LevelData &>(
-        std::as_const(*this).level(patch, level, site));
-  }
-  const PatchData::LevelData &level(
       const level_t level,
       const std::source_location site = std::source_location::current()) const {
-    return this->level(level.patch, level.level, site);
+    return this->patch(level.patch(), site).level(level, site);
   }
   PatchData::LevelData &
   level(const level_t level,
@@ -863,7 +847,7 @@ struct GHExt {
   std::span<const PatchData> patches() const { return patchdata; }
   std::span<PatchData> patches() { return patchdata; }
 
-  PatchData &add_patch(int patch);
+  PatchData &add_patch(patch_t patch);
 
   // Number of active timelevels per group, populated from schedule.ccl STORAGE
   // statements during CCTKi_ScheduleGHInit. Indexed by group index; 0 means no
@@ -920,7 +904,7 @@ struct GHExt {
   // Indexed [patch][level]. Empty outside of the recovery window.
   std::vector<std::vector<recovered_level_t> > recovered_levels;
 
-  int num_levels(const int patch) const {
+  int num_levels(const patch_t patch) const {
     return this->patch(patch).num_levels();
   }
   int num_levels() const {
@@ -932,15 +916,8 @@ struct GHExt {
   }
 
   cGH *get_global_cctkGH() const { return global_cctkGH.get(); }
-  cGH *get_level_cctkGH(const int level) const {
-    return level_cctkGHs.at(level).get();
-  }
-  cGH *get_patch_cctkGH(const int level, const int patch) const {
-    return this->level(patch, level).patch_cctkGH.get();
-  }
-  cGH *get_local_cctkGH(const int level, const int patch,
-                        const int component) const {
-    return this->level(patch, level).local_cctkGHs.at(component).get();
+  cGH *get_level_cctkGH(const level_t level) const {
+    return level_cctkGHs.at(level.index()).get();
   }
 
 private:
@@ -972,19 +949,7 @@ bool get_group_evolve_flag(gi_t gi);
 // the stage derivatives) that must be serialized.
 bool all_levels_synchronized();
 
-// True when (patch, level) is a coarse level ahead of some finer level in the
-// checkpoint being recovered, so the checkpoint must carry its source bands:
-// - its evolved groups' olds/kss_*, which the child reads during its next
-//   substep if it is behind this level, and at recovery for its end-of-step
-//   ghosts if it is aligned with it but a finer level is behind;
-// - the freg_* bands of the pair (level, level + 1), whose flux register is
-//   live: level `level` has begun a coarse step whose reflux has not yet been
-//   applied.
-// Reads the iterations in ghext->recovered_levels; a missing entry
-// (checkpoint without iteration_num/den) means time-aligned, hence false.
-// Always false without subcycling and on the finest level. Only meaningful
-// during RecoverGH, while the recovered levels are still populated.
-bool recovered_finer_level_is_behind(int patch, int level);
+bool recovered_finer_level_is_behind(level_t level);
 
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
 // ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)
@@ -1000,7 +965,7 @@ enum class band_kind { ks_source, old_source, flux_register };
 // flux_register. Shared by both IO backends.
 std::string subcycling_band_tag(band_kind kind, int stage = -1);
 
-amrex::MultiFab *rk_source_band(int patch, int level, gi_t gi, band_kind kind,
+amrex::MultiFab *rk_source_band(level_t level, gi_t gi, band_kind kind,
                                 int stage = -1);
 
 // Monotonically increasing counter. Incremented whenever the AMR grid

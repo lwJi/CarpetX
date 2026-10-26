@@ -110,9 +110,9 @@ void OutputNorms(const cGH *restrict cctkGH) {
         if (group.kind != group_kind::grid_function || !group.has_storage())
           continue;
 
-        const int patch = 0;
+        const patch_t patch{0};
         const GHExt::PatchData &restrict patchdata = ghext->patch(patch);
-        const int level = 0;
+        const level_t level{patch, 0};
         const GHExt::PatchData::LevelData &restrict leveldata =
             patchdata.level(level);
         const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
@@ -166,9 +166,9 @@ void OutputNorms(const cGH *restrict cctkGH) {
     if (group.kind != group_kind::grid_function || !group.has_storage())
       continue;
 
-    const int patch = 0;
+    const patch_t patch{0};
     const GHExt::PatchData &restrict patchdata = ghext->patch(patch);
-    const int level = 0;
+    const level_t level{patch, 0};
     const GHExt::PatchData::LevelData &restrict leveldata =
         patchdata.level(level);
     const GHExt::PatchData::LevelData::GroupData &restrict groupdata =

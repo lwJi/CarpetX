@@ -13,16 +13,15 @@ namespace CarpetX {
 
 inline constexpr CCTK_REAL rk_substep_ratio = 0.5;
 
-void EnsureRKBuffers(int patch, int level, gi_t gi);
+void EnsureRKBuffers(level_t level, gi_t gi);
 
-void StoreRKOldState(int patch, int level, std::span<const gi_t> var_groups,
-                     tl_t tl);
+void StoreRKOldState(level_t level, std::span<const gi_t> var_groups, tl_t tl);
 
-void StoreRKStage(int patch, int level, std::span<const gi_t> var_groups,
+void StoreRKStage(level_t level, std::span<const gi_t> var_groups,
                   std::span<const gi_t> rhs_groups, int stage);
 
-void FillRKBoundary(int patch, int level, std::span<const gi_t> var_groups,
-                    tl_t tl, int stage, CCTK_REAL xsi, CCTK_REAL dtc);
+void FillRKBoundary(level_t level, std::span<const gi_t> var_groups, tl_t tl,
+                    int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
 bool group_is_integrated(gi_t gi);
 
@@ -48,15 +47,9 @@ void RecoverRKBoundary(const active_levels_t &active_levels, const cGH *cctkGH);
 // integrated groups' ghosts. Defined in schedule.cxx.
 bool window_is_restricted(int min_level, int max_level);
 
-// Allocate (lazily, idempotently) the cached flux geometry of (patch,
-// level): LevelData::face_area[0..dim) and LevelData::cell_volume, filled
-// with the level's constant face areas and cell volume by
-// Geom(level).GetFaceArea and GetVolume, on the level's own layout (see
-// driver.hxx). Called by AccumulateFluxes and Reflux on a level with a
-// register on either side; defined in sync_restrict.cxx.
-void EnsureFluxGeometry(int patch, int level);
+void EnsureFluxGeometry(level_t level);
 
-void AccumulateFluxes(int patch, int level, int stage, CCTK_REAL weight);
+void AccumulateFluxes(level_t level, int stage, CCTK_REAL weight);
 
 void Reflux(const cGH *cctkGH, int min_level, int max_level);
 

@@ -148,7 +148,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
     for (const auto &leveldata : patchdata.levels()) {
       const auto &groupdata = leveldata.group(gi);
       const tl_t tl{0};
-      const auto &geom = patchdata.amrcore->Geom(leveldata.level);
+      const auto &geom = patchdata.amrcore->Geom(leveldata.level.index());
       const auto &mfab = *groupdata.timelevel(tl).mfab;
       for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
         const amrex::Array4<const CCTK_REAL> &vars = mfab.array(mfi);
@@ -164,7 +164,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
                        (I[d] + CCTK_REAL(0.5) * groupdata.indextype[d]) *
                            geom.CellSize(d);
               file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time << sep
-                   << patchdata.patch << sep << leveldata.level << sep
+                   << patchdata.patch << sep << leveldata.level.index() << sep
                    << mfi.index() << sep << I[0] << sep << I[1] << sep << I[2]
                    << sep << x[0] << sep << x[1] << sep << x[2];
               for (int n = 0; n < groupdata.record.numvars; ++n)
@@ -465,9 +465,9 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
         return amrex::Orientation(d, amrex::Orientation::Side(f));
       };
 
-      const auto &geom = patchdata.amrcore->Geom(leveldata.level);
+      const auto &geom = patchdata.amrcore->Geom(leveldata.level.index());
       const amrex::Box &domain =
-          patchdata.amrcore->Geom(leveldata.level).Domain();
+          patchdata.amrcore->Geom(leveldata.level.index()).Domain();
       vect<CCTK_REAL, dim> x0, dx;
       for (int d = 0; d < dim; ++d) {
         dx[d] = geom.CellSize(d);
@@ -480,7 +480,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
         else
           icoord[d] = lrint((outcoords[d] - x0[d]) / dx[d]);
 
-      const auto &symmetries = ghext->patch(leveldata.patch).symmetries;
+      const auto &symmetries = patchdata.symmetries;
 
       const auto &mfab = *groupdata.timelevel(tl).mfab;
 
@@ -533,8 +533,8 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
               for (int i = imin[0]; i < imax[0]; ++i) {
                 const vect<int, dim> I{i, j, k};
                 const auto old_size = data.size();
-                data.push_back(patchdata.patch);
-                data.push_back(leveldata.level);
+                data.push_back(patchdata.patch.index());
+                data.push_back(leveldata.level.index());
                 for (int d = 0; d < dim; ++d)
                   data.push_back(I[d]);
                 const bool isghost = any(I < intmin || I >= intmax);

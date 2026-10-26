@@ -83,7 +83,7 @@ struct carpetx_adios2_t {
     }
   };
 
-  template <typename T, typename I, std::size_t D> struct level_t {
+  template <typename T, typename I, std::size_t D> struct level_layout_t {
     box_t<T, D> rdomain;
     std::array<bool, D> is_cell_centred;
     box_t<I, D> idomain;
@@ -118,13 +118,13 @@ struct carpetx_adios2_t {
     }
   };
 
-  template <typename T, typename I, std::size_t D> struct patch_t {
+  template <typename T, typename I, std::size_t D> struct patch_layout_t {
     box_t<T, D> rdomain;
-    std::vector<level_t<T, I, D> > levels;
+    std::vector<level_layout_t<T, I, D> > levels;
   };
 
   template <typename T, typename I, std::size_t D> struct grid_structure_t {
-    std::vector<patch_t<T, I, D> > patches;
+    std::vector<patch_layout_t<T, I, D> > patches;
   };
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -279,18 +279,17 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
               const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
               const int num_local_components = mfab.local_size();
 
-              // Loop over variables
               for (int vi = 0; vi < numvars; ++vi) {
 
                 if (!combine_components) {
 
-                  // Loop over components (AMReX boxes)
                   for (int local_component = 0;
                        local_component < num_local_components;
                        ++local_component) {
                     const int component = mfab.IndexArray().at(local_component);
-                    const std::string varname = make_varname(
-                        gi, vi, patchdata.patch, leveldata.level, component);
+                    const std::string varname =
+                        make_varname(gi, vi, patchdata.patch.index(),
+                                     leveldata.level.index(), component);
                     if (io_verbose)
                       CCTK_VINFO("      Defining variable %s...",
                                  varname.c_str());
@@ -304,8 +303,8 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
                 } else { // if combine_components
 
-                  const std::string varname =
-                      make_varname(gi, vi, patchdata.patch, leveldata.level);
+                  const std::string varname = make_varname(
+                      gi, vi, patchdata.patch.index(), leveldata.level.index());
                   if (io_verbose)
                     CCTK_VINFO("      Defining variable %s...",
                                varname.c_str());
@@ -326,14 +325,16 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       CCTK_VINFO("  Beginning step...");
     engine.BeginStep();
 
-    std::vector<patch_t<CCTK_REAL, int, 3> > patches(ghext->num_patches());
+    std::vector<patch_layout_t<CCTK_REAL, int, 3> > patches(
+        ghext->num_patches());
     for (const auto &patchdata : ghext->patches()) {
 
-      std::vector<level_t<CCTK_REAL, int, 3> > levels(patchdata.num_levels());
+      std::vector<level_layout_t<CCTK_REAL, int, 3> > levels(
+          patchdata.num_levels());
       for (const auto &leveldata : patchdata.levels()) {
         if (io_verbose)
-          CCTK_VINFO("  Writing patch %d level %d...", patchdata.patch,
-                     leveldata.level);
+          CCTK_VINFO("  Writing patch %d level %d...", patchdata.patch.index(),
+                     leveldata.level.index());
 
         for (const auto &groupdata : leveldata.groups()) {
           const gi_t gi = groupdata.record.groupindex;
@@ -354,7 +355,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             const amrex::IndexType &indextype = mfab.ixType();
 
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level);
+                patchdata.amrcore->Geom(leveldata.level.index());
             const amrex::Real *const xlo = geom.ProbLo();
             const amrex::Real *const xhi = geom.ProbHi();
             const box_t<CCTK_REAL, 3> rdomain{.lo = {xlo[0], xlo[1], xlo[2]},
@@ -380,22 +381,21 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                   .hi = {fabbox.bigEnd(0) + 1, fabbox.bigEnd(1) + 1,
                          fabbox.bigEnd(2) + 1}};
             } // for local_component
-            levels.at(leveldata.level) =
-                level_t<CCTK_REAL, int, 3>{.rdomain = rdomain,
-                                           .is_cell_centred = is_cell_centred,
-                                           .idomain = idomain,
-                                           .grids = std::move(grids)};
-            const level_t<CCTK_REAL, int, 3> &level =
-                levels.at(leveldata.level);
+            levels.at(leveldata.level.index()) =
+                level_layout_t<CCTK_REAL, int, 3>{.rdomain = rdomain,
+                                                  .is_cell_centred =
+                                                      is_cell_centred,
+                                                  .idomain = idomain,
+                                                  .grids = std::move(grids)};
+            const level_layout_t<CCTK_REAL, int, 3> &level =
+                levels.at(leveldata.level.index());
             const auto offsets_sizes = level.offsets_sizes();
             const std::vector<int> &offsets = offsets_sizes[0];
             const std::vector<int> &sizes = offsets_sizes[1];
 
-            // Loop over variables
             for (int vi = 0; vi < numvars; ++vi) {
               if (!combine_components) {
 
-                // Loop over components (AMReX boxes)
                 for (int local_component = 0;
                      local_component < num_local_components;
                      ++local_component) {
@@ -407,8 +407,9 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                   const int np = level.grids.at(local_component).size();
                   const amrex::FArrayBox &fab = mfab[component];
 
-                  const std::string varname = make_varname(
-                      gi, vi, patchdata.patch, leveldata.level, component);
+                  const std::string varname =
+                      make_varname(gi, vi, patchdata.patch.index(),
+                                   leveldata.level.index(), component);
                   if (io_verbose)
                     CCTK_VINFO("      Writing variable %s...", varname.c_str());
                   adios2::Variable<CCTK_REAL> var =
@@ -422,8 +423,8 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
               } else { // if combine_components
 
-                const std::string varname =
-                    make_varname(gi, vi, patchdata.patch, leveldata.level);
+                const std::string varname = make_varname(
+                    gi, vi, patchdata.patch.index(), leveldata.level.index());
                 if (io_verbose)
                   CCTK_VINFO("      Writing variable %s...", varname.c_str());
 
@@ -483,7 +484,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       } // for leveldata
       assert(!levels.empty());
       const auto rdomain = levels.front().rdomain;
-      patches.at(patchdata.patch) = patch_t<CCTK_REAL, int, 3>{
+      patches.at(patchdata.patch.index()) = patch_layout_t<CCTK_REAL, int, 3>{
           .rdomain = rdomain, .levels = std::move(levels)};
     } // for patchdata
     assert(!patches.empty());

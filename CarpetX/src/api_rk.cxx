@@ -262,8 +262,8 @@ integrated_groups_t integrated_groups_with_storage(const level_t level,
       refuse(std::source_location::current(),
              "integrated group %s has storage on patch %d, refinement level "
              "%d, but its right-hand side %s has none",
-             CCTK_FullGroupName(pair.state.index()), level.patch, level.level,
-             CCTK_FullGroupName(pair.rhs.index()));
+             CCTK_FullGroupName(pair.state.index()), level.patch().index(),
+             level.index(), CCTK_FullGroupName(pair.rhs.index()));
     groups.states.push_back(pair.state);
     groups.rhss.push_back(pair.rhs);
   }
@@ -275,17 +275,15 @@ std::vector<rk_level_t> integrated_levels(const window_t window,
   std::vector<rk_level_t> levels;
   active_levels_t(window).loop_coarse_to_fine(
       [&](const GHExt::PatchData::LevelData &leveldata) {
-        const level_t level{leveldata.patch, leveldata.level};
-        levels.push_back(
-            {level, integrated_groups_with_storage(level, config)});
+        levels.push_back({leveldata.level, integrated_groups_with_storage(
+                                               leveldata.level, config)});
       });
   return levels;
 }
 
 bool aligned_with_parent(const level_t level) {
-  const GHExt::PatchData &patchdata = driver().patch(level.patch);
-  return patchdata.level(level.level).iteration ==
-         patchdata.level(level.level - 1).iteration;
+  return driver().level(level).iteration ==
+         driver().level(level.parent()).iteration;
 }
 
 void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
@@ -293,11 +291,11 @@ void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
                               const int stage, const int nstages,
                               const std::string &event) {
   assert(driver().use_subcycling);
-  assert(level.level > 0);
+  assert(level.index() > 0);
   assert(stage >= 1 && stage <= nstages);
   const GHExt::PatchData::LevelData &leveldata = driver().level(level);
   const GHExt::PatchData::LevelData &parentdata =
-      driver().level(level.patch, level.level - 1);
+      driver().level(level.parent());
   const CCTK_REAL substep_start =
       aligned_with_parent(level) ? rk_substep_ratio : 0;
   const CCTK_REAL dtc =
@@ -318,7 +316,7 @@ void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
                                          .event = event}));
   }
   FillRKBoundary(
-      level.patch, level.level, states, rk_tl, end_of_substep ? 1 : stage + 1,
+      level, states, rk_tl, end_of_substep ? 1 : stage + 1,
       end_of_substep ? substep_start + rk_substep_ratio : substep_start, dtc);
 }
 
@@ -350,8 +348,7 @@ rk_step_t open_rk_step(const window_t window) {
       require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),
                     "CarpetX::open_rk_step: the RK step starts from the "
                     "state's current time level");
-    StoreRKOldState(entry.level.patch, entry.level.level, entry.groups.states,
-                    rk_tl);
+    StoreRKOldState(entry.level, entry.groups.states, rk_tl);
   }
   synchronize();
   return rk_step_t(std::move(step));
@@ -397,9 +394,8 @@ void rk_step_t::rhs_computed() {
   for (const rk_level_t &entry : p->levels) {
     const CCTK_REAL dt =
         delta_time * CCTK_REAL(driver().level(entry.level).delta_iteration);
-    AccumulateFluxes(entry.level.patch, entry.level.level, stage, weight * dt);
-    StoreRKStage(entry.level.patch, entry.level.level, entry.groups.states,
-                 entry.groups.rhss, stage);
+    AccumulateFluxes(entry.level, stage, weight * dt);
+    StoreRKStage(entry.level, entry.groups.states, entry.groups.rhss, stage);
   }
   synchronize();
 }
@@ -423,7 +419,7 @@ void rk_step_t::state_updated() {
         "CarpetX::rk_step_t::state_updated after RK stage " +
         std::to_string(stage) + " of " + std::to_string(nstages);
     for (const rk_level_t &entry : p->levels) {
-      if (entry.level.level == 0)
+      if (entry.level.index() == 0)
         continue;
       const std::vector<gi_t> &states = entry.groups.states;
       SyncGroupsByDirIGhostOnly(one_level(entry.level), cctkGH, states,
@@ -490,15 +486,15 @@ void RecoverRKBoundary(const active_levels_t &active_levels,
                                           timelevels_t::one(rk_tl));
 
   for (const rk_level_t &entry : levels) {
-    if (entry.level.level == 0)
+    if (entry.level.index() == 0)
       continue;
     const bool aligned = aligned_with_parent(entry.level);
-    if (aligned != (entry.level.level > window.min_level))
+    if (aligned != (entry.level.index() > window.min_level))
       CCTK_VERROR("CarpetX::RecoverRKBoundary on %s: refinement level %d is "
                   "%s its parent, but recovery traverses each clock group "
                   "separately, so only the group's coarsest level lags its "
                   "parent",
-                  describe(window).c_str(), entry.level.level,
+                  describe(window).c_str(), entry.level.index(),
                   aligned ? "aligned with" : "lagging");
     if (restricted && aligned)
       continue;

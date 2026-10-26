@@ -2,14 +2,18 @@
 #include <carpetx_rk.hxx>
 
 #include <array>
+#include <optional>
 #include <span>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace TestCarpetXAPI {
 namespace {
 
 using CarpetX::gi_t;
+using CarpetX::level_t;
+using CarpetX::patch_t;
 using CarpetX::tl_t;
 using CarpetX::var_t;
 using CarpetX::vi_t;
@@ -66,6 +70,22 @@ template <class Var> concept variable_takes = requires(Var var) {
 
 template <class Index> concept adds_int = requires(Index index) { index + 1; };
 
+template <class Level> concept subtracts_int = requires(Level level) {
+  level - 1;
+};
+
+template <class Level> concept reads_index = requires(Level level) {
+  level.index();
+};
+
+template <class Level> concept reads_level_field = requires(Level level) {
+  level.level;
+};
+
+template <class Patch> concept num_levels_takes = requires(Patch patch) {
+  CarpetX::num_levels(patch);
+};
+
 static_assert(std::is_constructible_v<gi_t, int>);
 static_assert(!std::is_convertible_v<int, gi_t>);
 static_assert(!std::is_convertible_v<gi_t, int>);
@@ -99,7 +119,40 @@ static_assert(!std::is_constructible_v<vi_t, tl_t>);
 static_assert(!std::is_constructible_v<tl_t, vi_t>);
 static_assert(!std::is_constructible_v<var_t, gi_t>);
 
+static_assert(std::is_constructible_v<patch_t, int>);
+static_assert(!std::is_convertible_v<int, patch_t>);
+static_assert(!std::is_convertible_v<patch_t, int>);
+static_assert(std::is_trivially_copyable_v<patch_t>);
+static_assert(!std::is_constructible_v<patch_t, gi_t>);
+static_assert(!std::is_constructible_v<gi_t, patch_t>);
+
+static_assert(std::is_constructible_v<level_t, patch_t, int>);
+static_assert(!std::is_constructible_v<level_t, int, int>);
+static_assert(!std::is_constructible_v<level_t, int, patch_t>);
+static_assert(!std::is_default_constructible_v<level_t>);
+static_assert(std::is_trivially_copyable_v<level_t>);
+static_assert(sizeof(level_t) == 2 * sizeof(int));
+static_assert(level_t{patch_t{2}, 1}.patch() == patch_t{2});
+static_assert(level_t{patch_t{2}, 1}.index() == 1);
+static_assert(level_t{patch_t{0}, 1} < level_t{patch_t{1}, 0});
+static_assert(
+    std::is_same_v<decltype(std::declval<level_t>().parent()), level_t>);
+static_assert(std::is_same_v<decltype(std::declval<level_t>().child()),
+                             std::optional<level_t> >);
+
+static_assert(reads_index<level_t>);
+static_assert(!reads_level_field<level_t>);
+
+static_assert(num_levels_takes<patch_t>);
+static_assert(!num_levels_takes<int>);
+
+static_assert(subtracts_int<int>);
+static_assert(!subtracts_int<level_t>);
+static_assert(!subtracts_int<patch_t>);
+
 static_assert(adds_int<int>);
+static_assert(!adds_int<level_t>);
+static_assert(!adds_int<patch_t>);
 static_assert(!adds_int<gi_t>);
 static_assert(!adds_int<tl_t>);
 static_assert(!adds_int<vi_t>);
@@ -152,6 +205,7 @@ static_assert(!data_takes<gi_t>);
 
 static_assert(std::is_same_v<decltype(CarpetX::rk_pair_t::state), gi_t>);
 static_assert(std::is_same_v<decltype(CarpetX::group_t::gi), gi_t>);
+static_assert(std::is_same_v<decltype(CarpetX::group_t::level), level_t>);
 static_assert(std::is_same_v<decltype(CarpetX::variable_t::gi), gi_t>);
 static_assert(std::is_same_v<decltype(CarpetX::variable_t::vi), vi_t>);
 

@@ -220,26 +220,24 @@ reduction<CCTK_REAL, dim> reduce(const gi_t gi, const vi_t vi, const tl_t tl) {
       const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
       std::unique_ptr<amrex::iMultiFab> finemask_imfab;
 
-      warn(active_levels_t(leveldata.level, leveldata.level + 1,
-                           patchdata.patch, patchdata.patch + 1),
-           {.gi = gi,
-            .tl = tl,
-            .vi = vi,
-            .where = make_valid_int(),
-            .event = "Before reduction"});
+      warn(one_level(leveldata.level), {.gi = gi,
+                                        .tl = tl,
+                                        .vi = vi,
+                                        .where = make_valid_int(),
+                                        .event = "Before reduction"});
 
       const vect<int, dim> indextype = groupdata.indextype;
 
-      const auto &restrict geom = patchdata.amrcore->Geom(leveldata.level);
+      const auto &restrict geom =
+          patchdata.amrcore->Geom(leveldata.level.index());
       const CCTK_REAL *restrict const x01 = geom.ProbLo();
       const CCTK_REAL *restrict const dx1 = geom.CellSize();
       const vect<CCTK_REAL, dim> dx = {dx1[0], dx1[1], dx1[2]};
       const vect<CCTK_REAL, dim> x0v = {x01[0], x01[1], x01[2]};
       const auto x0 = x0v + indextype * dx / 2;
 
-      const int fine_level = leveldata.level + 1;
-      if (fine_level < patchdata.num_levels()) {
-        const auto &restrict fine_leveldata = patchdata.level(fine_level);
+      if (const std::optional<level_t> fine = leveldata.level.child()) {
+        const auto &restrict fine_leveldata = patchdata.level(*fine);
         const auto &restrict fine_groupdata = fine_leveldata.group(gi);
         const amrex::MultiFab &fine_mfab = *fine_groupdata.timelevel(tl).mfab;
 

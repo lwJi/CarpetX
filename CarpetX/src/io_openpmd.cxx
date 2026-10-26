@@ -326,7 +326,7 @@ struct carpetx_openpmd_t {
     }
   };
 
-  template <typename T, typename I, std::size_t D> struct level_t {
+  template <typename T, typename I, std::size_t D> struct level_layout_t {
     box_t<T, D> rdomain;
     Arith::vect<bool, D> is_cell_centred;
     box_t<I, D> idomain;
@@ -363,7 +363,7 @@ struct carpetx_openpmd_t {
 
   template <typename T, typename I, std::size_t D> struct grid_structure_t {
     box_t<T, D> rdomain;
-    std::vector<level_t<T, I, D> > levels;
+    std::vector<level_layout_t<T, I, D> > levels;
   };
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -621,7 +621,7 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
   ghext->recovered_levels.resize(ghext->num_patches());
 
   for (auto &patchdata : ghext->patches()) {
-    const int patch = patchdata.patch;
+    const int patch = patchdata.patch.index();
     const int nlevels =
         read_iter->getAttribute("numLevels" + patch_suffixes.at(patch))
             .get<std::int64_t>();
@@ -676,14 +676,15 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
       amrex::BoxList boxlist(std::move(levboxes));
       amrex::BoxArray boxarray(std::move(boxlist));
       if (rechop_on_recovery)
-        boxarray = patchdata.amrcore->RechopLevel(level, boxarray);
+        boxarray = patchdata.amrcore->RechopLevel(
+            level_t{patchdata.patch, level}, boxarray);
       patchdata.amrcore->SetBoxArray(level, boxarray);
 
       amrex::DistributionMapping dm(boxarray);
       patchdata.amrcore->SetDistributionMap(level, dm);
 
-      patchdata.amrcore->SetupLevel(level, boxarray, dm,
-                                    []() { return "Recovering"; });
+      patchdata.amrcore->SetupLevel(level_t{patchdata.patch, level}, boxarray,
+                                    dm, []() { return "Recovering"; });
 
       auto &recovered = ghext->recovered_levels.at(patch).at(level);
 
@@ -855,13 +856,14 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
   for (auto &patchdata : ghext->patches()) {
     for (auto &leveldata : patchdata.levels()) {
       if (io_verbose)
-        CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
-                   leveldata.level);
+        CCTK_VINFO("Reading patch %d level %d", patchdata.patch.index(),
+                   leveldata.level.index());
 
       // Determine grid structure
 
       const int *const nghosts = cctkGH->cctk_nghostzones;
-      const amrex::Geometry &geom = patchdata.amrcore->Geom(leveldata.level);
+      const amrex::Geometry &geom =
+          patchdata.amrcore->Geom(leveldata.level.index());
       const amrex::Real *const xlo = geom.ProbLo();
       const amrex::Real *const xhi = geom.ProbHi();
       const amrex::Real *const dx = geom.CellSize();
@@ -875,8 +877,6 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
       const amrex::Box &dom = geom.Domain();
       const amrex::IntVect &ilo = dom.smallEnd();
       const amrex::IntVect &ihi = dom.bigEnd();
-      // The domain is always vertex centred. The tensor components are
-      // then staggered if necessary.
       const box_t<int, 3> idomain{
           .lo = {ilo[0] - input_ghosts * nghosts[0],
                  ilo[1] - input_ghosts * nghosts[1],
@@ -885,7 +885,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                  ihi[1] + input_ghosts * nghosts[1] + 1 + 1,
                  ihi[2] + input_ghosts * nghosts[2] + 1 + 1}};
       if (io_verbose) {
-        CCTK_VINFO("Level: %d", leveldata.level);
+        CCTK_VINFO("Level: %d", leveldata.level.index());
         CCTK_VINFO("  xmin: [%f,%f,%f]", double(rdomain.lo[0]),
                    double(rdomain.lo[1]), double(rdomain.lo[2]));
         CCTK_VINFO("  xmax: [%f,%f,%f]", double(rdomain.hi[0]),
@@ -926,7 +926,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             // Read mesh
 
             const std::string meshname =
-                make_meshname(gi, leveldata.patch, leveldata.level, tl);
+                make_meshname(gi, leveldata.level.patch().index(),
+                              leveldata.level.index(), tl);
             if (io_verbose)
               CCTK_VINFO("Reading mesh %s...", meshname.c_str());
             assert(read_iter->meshes.count(meshname));
@@ -963,16 +964,15 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                                              groupdata.nghostzones[1] == 0 &&
                                              groupdata.nghostzones[2] == 0;
 
-            scopes.push_back(open_write(
-                active_levels_t(leveldata.level, leveldata.level + 1,
-                                leveldata.patch, leveldata.patch + 1),
-                {.gi = gi,
-                 .tl = tl,
-                 .fills = input_ghosts || group_has_no_ghosts
-                              ? make_valid_all()
-                              : make_valid_int(),
-                 .keeps = valid_t(),
-                 .event = "InputOpenPMD"}));
+            scopes.push_back(
+                open_write(one_level(leveldata.level),
+                           {.gi = gi,
+                            .tl = tl,
+                            .fills = input_ghosts || group_has_no_ghosts
+                                         ? make_valid_all()
+                                         : make_valid_int(),
+                            .keeps = valid_t(),
+                            .event = "InputOpenPMD"}));
 
             // Loop over components (AMReX boxes)
             for (int local_component = 0;
@@ -1100,16 +1100,17 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
           } // for tl
 
           {
-            const bool need_bands = recovered_finer_level_is_behind(
-                leveldata.patch, leveldata.level);
+            const bool need_bands =
+                recovered_finer_level_is_behind(leveldata.level);
             const auto read_band = [&](amrex::MultiFab *const band,
                                        const band_kind kind, const int stage) {
               if (!band || band->empty())
                 return;
               assert(band->nGrowVect() == 0);
               const std::string band_tag = subcycling_band_tag(kind, stage);
-              const std::string meshname = make_meshname(
-                  gi, leveldata.patch, leveldata.level, tl_t{0}, band_tag);
+              const std::string meshname =
+                  make_meshname(gi, leveldata.level.patch().index(),
+                                leveldata.level.index(), tl_t{0}, band_tag);
               if (!read_iter->meshes.count(meshname)) {
                 if (need_bands)
                   CCTK_VERROR(
@@ -1120,8 +1121,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                       kind == band_kind::flux_register ? "flux-register data"
                                                        : "coarse RK step data",
                       meshname.c_str(), band_tag.c_str(),
-                      CCTK_FullGroupName(gi.index()), leveldata.patch,
-                      leveldata.level,
+                      CCTK_FullGroupName(gi.index()),
+                      leveldata.level.patch().index(), leveldata.level.index(),
                       kind == band_kind::flux_register
                           ? "a version without flux-register checkpointing"
                           : "the derivative-band scheme");
@@ -1179,17 +1180,14 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                       band_kind::ks_source, s),
-                        band_kind::ks_source, s);
-            read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                     band_kind::old_source),
-                      band_kind::old_source, -1);
-            // The child's flux register, restored so that the first reflux
-            // after recovery repays the same mismatch the uninterrupted run
-            // would have. Null (skipped) for groups without a register.
+              read_band(
+                  rk_source_band(leveldata.level, gi, band_kind::ks_source, s),
+                  band_kind::ks_source, s);
+            read_band(
+                rk_source_band(leveldata.level, gi, band_kind::old_source),
+                band_kind::old_source, -1);
             for (int f = 0; f < 2 * dim; ++f)
-              read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+              read_band(rk_source_band(leveldata.level, gi,
                                        band_kind::flux_register, f),
                         band_kind::flux_register, f);
           }
@@ -1590,7 +1588,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
     write_iter.setAttribute<std::int64_t>("numPatches", npatches);
     std::vector<std::string> patch_suffixes(npatches);
     for (const auto &patchdata : ghext->patches()) {
-      const int patch = patchdata.patch;
+      const int patch = patchdata.patch.index();
       std::ostringstream buf;
       // String attributes cannot be empty; we thus always need to use a patch
       // suffix if (ghext->num_patches() > 1)
@@ -1599,13 +1597,13 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
     }
     write_iter.setAttribute("patchSuffixes", patch_suffixes);
     for (const auto &patchdata : ghext->patches()) {
-      const int patch = patchdata.patch;
+      const int patch = patchdata.patch.index();
       const int nlevels = patchdata.num_levels();
       write_iter.setAttribute<std::int64_t>(
           "numLevels" + patch_suffixes.at(patch), nlevels);
       std::vector<std::string> level_suffixes(nlevels);
       for (const auto &leveldata : patchdata.levels()) {
-        const int level = leveldata.level;
+        const int level = leveldata.level.index();
         std::ostringstream buf;
         buf << patch_suffixes.at(patch) << "_lev" << std::setw(2)
             << std::setfill('0') << level;
@@ -1614,7 +1612,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       write_iter.setAttribute("levelSuffixes" + patch_suffixes.at(patch),
                               level_suffixes);
       for (const auto &leveldata : patchdata.levels()) {
-        const int level = leveldata.level;
+        const int level = leveldata.level.index();
         const amrex::FabArrayBase &mfab = *leveldata.fab;
         const int nchunks = mfab.size();
         std::vector<std::int64_t> chunk_infos(2 * ndims * nchunks);
@@ -1650,13 +1648,14 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
   for (const auto &patchdata : ghext->patches()) {
     for (const auto &leveldata : patchdata.levels()) {
       if (io_verbose)
-        CCTK_VINFO("Writing patch %d level %d mesh...", patchdata.patch,
-                   leveldata.level);
+        CCTK_VINFO("Writing patch %d level %d mesh...", patchdata.patch.index(),
+                   leveldata.level.index());
 
       // Determine grid structure
 
       const int *const nghosts = cctkGH->cctk_nghostzones;
-      const amrex::Geometry &geom = patchdata.amrcore->Geom(leveldata.level);
+      const amrex::Geometry &geom =
+          patchdata.amrcore->Geom(leveldata.level.index());
       const amrex::Real *const xlo = geom.ProbLo();
       const amrex::Real *const xhi = geom.ProbHi();
       const amrex::Real *const dx = geom.CellSize();
@@ -1679,11 +1678,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
           .hi = {ihi[0] + output_ghosts * nghosts[0] + 1 + 1,
                  ihi[1] + output_ghosts * nghosts[1] + 1 + 1,
                  ihi[2] + output_ghosts * nghosts[2] + 1 + 1}};
-      // When slicing, restrict the (vertex-centred) domain to a thickness-1
-      // slab at the plane. The same x0/dx frame is reused for every
-      // per-component box below so all scopes pick the same integer plane.
-      // restrict_box tests exterior bounds; this matches restrict_box_interior
-      // only because output_ghosts is false (box == intbox).
       const Arith::vect<CCTK_REAL, 3> slice_x0{xlo[0], xlo[1], xlo[2]};
       const Arith::vect<CCTK_REAL, 3> slice_dx{dx[0], dx[1], dx[2]};
       if (slice) {
@@ -1695,7 +1689,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
         idomain.hi = r->second;
       }
       if (io_verbose) {
-        CCTK_VINFO("Patch: %d, Level: %d", patchdata.patch, leveldata.level);
+        CCTK_VINFO("Patch: %d, Level: %d", patchdata.patch.index(),
+                   leveldata.level.index());
         CCTK_VINFO("  xmin: [%f,%f,%f]", double(rdomain.lo[0]),
                    double(rdomain.lo[1]), double(rdomain.lo[2]));
         CCTK_VINFO("  xmax: [%f,%f,%f]", double(rdomain.hi[0]),
@@ -1744,7 +1739,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             // Create mesh
 
             const std::string meshname =
-                make_meshname(gi, leveldata.patch, leveldata.level, tl);
+                make_meshname(gi, leveldata.level.patch().index(),
+                              leveldata.level.index(), tl);
             if (io_verbose)
               CCTK_VINFO("Defining mesh %s...", meshname.c_str());
             assert(!write_iter.meshes.contains(meshname));
@@ -1887,8 +1883,9 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
                   indextype.cellCentered(0), indextype.cellCentered(1),
                   indextype.cellCentered(2)};
 
-              const std::string meshname = make_meshname(
-                  gi, leveldata.patch, leveldata.level, tl_t{0}, band_tag);
+              const std::string meshname =
+                  make_meshname(gi, leveldata.level.patch().index(),
+                                leveldata.level.index(), tl_t{0}, band_tag);
               if (io_verbose)
                 CCTK_VINFO("Defining band mesh %s...", meshname.c_str());
               assert(!write_iter.meshes.contains(meshname));
@@ -1955,18 +1952,14 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                        band_kind::ks_source, s),
-                         band_kind::ks_source, s);
-            write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                      band_kind::old_source),
-                       band_kind::old_source, -1);
-            // The child's flux register (partially accumulated mid-cycle):
-            // six zero-ghost face MultiFabs in this level's index space,
-            // nodal in their own direction. idomain is vertex-framed, so a
-            // face plane on the domain boundary still fits the dataset.
+              write_band(
+                  rk_source_band(leveldata.level, gi, band_kind::ks_source, s),
+                  band_kind::ks_source, s);
+            write_band(
+                rk_source_band(leveldata.level, gi, band_kind::old_source),
+                band_kind::old_source, -1);
             for (int f = 0; f < 2 * dim; ++f)
-              write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+              write_band(rk_source_band(leveldata.level, gi,
                                         band_kind::flux_register, f),
                          band_kind::flux_register, f);
           } // if write_bands

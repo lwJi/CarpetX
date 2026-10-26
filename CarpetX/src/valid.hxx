@@ -119,28 +119,18 @@ struct checksum_t {
 };
 
 struct tiletag_t {
-  int patch, level, component;
+  level_t level;
+  int component;
   gi_t gi;
   vi_t vi;
   tl_t tl;
-  tiletag_t() = delete;
-  tiletag_t(int patch, int level, int component, gi_t gi, vi_t vi, tl_t tl)
-      : patch(patch), level(level), component(component), gi(gi), vi(vi),
-        tl(tl) {}
 
-  friend bool operator==(const tiletag_t &x, const tiletag_t &y) {
-    return std::make_tuple(x.patch, x.level, x.component, x.gi, x.vi, x.tl) ==
-           std::make_tuple(y.patch, y.level, y.component, y.gi, y.vi, y.tl);
-  }
-  friend bool operator<(const tiletag_t &x, const tiletag_t &y) {
-    return std::make_tuple(x.patch, x.level, x.component, x.gi, x.vi, x.tl) <
-           std::make_tuple(y.patch, y.level, y.component, y.gi, y.vi, y.tl);
-  }
+  friend auto operator<=>(const tiletag_t &, const tiletag_t &) = default;
 
   friend std::ostream &operator<<(std::ostream &os, const tiletag_t &x) {
     return os << "tiletag_t{"
-              << "patch:" << x.patch << ","
-              << "level:" << x.level << ","
+              << "patch:" << x.level.patch() << ","
+              << "level:" << x.level.index() << ","
               << "component:" << x.component << ","
               << "gi:" << x.gi << ","
               << "vi:" << x.vi << ","

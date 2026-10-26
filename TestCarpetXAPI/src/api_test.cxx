@@ -131,7 +131,7 @@ void require_flags(const CarpetX::group_t group,
   if (found != expected)
     CCTK_VERROR("TestCarpetXAPI::state on patch %d, refinement level %d is "
                 "%s %s; expected %s",
-                group.level.patch, group.level.level,
+                group.level.patch().index(), group.level.index(),
                 std::string(found).c_str(), when,
                 std::string(expected).c_str());
 }
@@ -173,16 +173,16 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   const CarpetX::window_t window = CarpetX::active_window();
 
   if (CCTK_EQUALS(mode, "level-missing")) {
-    const CarpetX::write_t write =
-        CarpetX::write(CarpetX::group_t{CarpetX::level_t{0, 99}, gi}, tl,
-                       CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
+    const CarpetX::write_t write = CarpetX::write(
+        CarpetX::group_t{CarpetX::level_t{CarpetX::patch_t{0}, 99}, gi}, tl,
+        CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
     CCTK_ERROR("CarpetX::write accepted a handle to refinement level 99, "
                "which does not exist");
   }
   if (CCTK_EQUALS(mode, "timelevel-missing")) {
     const CarpetX::write_t write = CarpetX::write(
-        CarpetX::group_t{CarpetX::level_t{0, 0}, gi}, CarpetX::tl_t{7},
-        CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
+        CarpetX::group_t{CarpetX::level_t{CarpetX::patch_t{0}, 0}, gi},
+        CarpetX::tl_t{7}, CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
     CCTK_ERROR("CarpetX::write accepted time level 7 of state, which has no "
                "such time level");
   }

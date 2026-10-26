@@ -420,7 +420,7 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
     CCTK_VINFO("Reading patch %d...", patch);
 
     CCTK_VINFO("  Found %d levels on patch %d", nlevels.at(patch), patch);
-    auto &patchdata = ghext->patch(patch);
+    auto &patchdata = ghext->patch(patch_t{patch});
     patchdata.amrcore->SetFinestLevel(nlevels.at(patch) - 1);
     ghext->recovered_levels.at(patch).resize(nlevels.at(patch));
 
@@ -473,8 +473,8 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
       amrex::DistributionMapping dm(boxarray);
       patchdata.amrcore->SetDistributionMap(level, dm);
 
-      patchdata.amrcore->SetupLevel(level, boxarray, dm,
-                                    []() { return "Recovering"; });
+      patchdata.amrcore->SetupLevel(level_t{patchdata.patch, level}, boxarray,
+                                    dm, []() { return "Recovering"; });
 
       // Read per-level iteration if present (new checkpoint format)
       {
@@ -637,8 +637,9 @@ void InputSilo(const cGH *restrict const cctkGH,
                 for (int c = 0; c < bdm.size(); ++c) {
                   if (bdm[c] / ioproc_every * ioproc_every != myproc)
                     continue; // not read by this ioproc
-                  const std::string varname = make_varname(
-                      gi, 0, patchdata.patch, leveldata.level, c, band_tag);
+                  const std::string varname =
+                      make_varname(gi, 0, patchdata.patch.index(),
+                                   leveldata.level.index(), c, band_tag);
                   if (DBInqVarExists(file.get(), varname.c_str())) {
                     found = 1;
                     return;
@@ -646,14 +647,13 @@ void InputSilo(const cGH *restrict const cctkGH,
                 }
               };
               for (int s = 0; s < max_num_rk_stages; ++s)
-                probe(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                     band_kind::ks_source, s),
+                probe(rk_source_band(leveldata.level, gi, band_kind::ks_source,
+                                     s),
                       band_kind::ks_source, s);
-              probe(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                   band_kind::old_source),
+              probe(rk_source_band(leveldata.level, gi, band_kind::old_source),
                     band_kind::old_source, -1);
               for (int f = 0; f < 2 * dim; ++f)
-                probe(rk_source_band(patchdata.patch, leveldata.level, gi,
+                probe(rk_source_band(leveldata.level, gi,
                                      band_kind::flux_register, f),
                       band_kind::flux_register, f);
             }
@@ -668,15 +668,14 @@ void InputSilo(const cGH *restrict const cctkGH,
       if (!file_has_bands) {
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            if (!recovered_finer_level_is_behind(patchdata.patch,
-                                                 leveldata.level))
+            if (!recovered_finer_level_is_behind(leveldata.level))
               continue;
             for (const auto &groupdata : leveldata.groups()) {
               const gi_t gi = groupdata.record.groupindex;
               if (!input_group.at(gi.index()))
                 continue;
-              const amrex::MultiFab *const band = rk_source_band(
-                  patchdata.patch, leveldata.level, gi, band_kind::old_source);
+              const amrex::MultiFab *const band =
+                  rk_source_band(leveldata.level, gi, band_kind::old_source);
               if (!band || band->empty())
                 continue; // not evolved, or an empty coarse-fine footprint
               CCTK_VERROR(
@@ -686,8 +685,8 @@ void InputSilo(const cGH *restrict const cctkGH,
                   "incomplete. Restart from a time-aligned checkpoint.",
                   subcycling_band_tag(band_kind::old_source).c_str(),
                   subcycling_band_tag(band_kind::ks_source, 0).c_str(),
-                  CCTK_FullGroupName(gi.index()), patchdata.patch,
-                  leveldata.level);
+                  CCTK_FullGroupName(gi.index()), patchdata.patch.index(),
+                  leveldata.level.index());
             }
           }
         }
@@ -696,16 +695,14 @@ void InputSilo(const cGH *restrict const cctkGH,
       if (!file_has_freg) {
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            if (!recovered_finer_level_is_behind(patchdata.patch,
-                                                 leveldata.level))
+            if (!recovered_finer_level_is_behind(leveldata.level))
               continue;
             for (const auto &groupdata : leveldata.groups()) {
               const gi_t gi = groupdata.record.groupindex;
               if (!input_group.at(gi.index()))
                 continue;
-              const amrex::MultiFab *const band =
-                  rk_source_band(patchdata.patch, leveldata.level, gi,
-                                 band_kind::flux_register, 0);
+              const amrex::MultiFab *const band = rk_source_band(
+                  leveldata.level, gi, band_kind::flux_register, 0);
               if (!band || band->empty())
                 continue; // no register for this group
               CCTK_VERROR(
@@ -715,8 +712,8 @@ void InputSilo(const cGH *restrict const cctkGH,
                   "checkpointing or is incomplete. Restart from a "
                   "time-aligned checkpoint.",
                   subcycling_band_tag(band_kind::flux_register, 0).c_str(),
-                  CCTK_FullGroupName(gi.index()), patchdata.patch,
-                  leveldata.level);
+                  CCTK_FullGroupName(gi.index()), patchdata.patch.index(),
+                  leveldata.level.index());
             }
           }
         }
@@ -726,8 +723,8 @@ void InputSilo(const cGH *restrict const cctkGH,
     for (auto &patchdata : ghext->patches()) {
       for (auto &leveldata : patchdata.levels()) {
         if (io_verbose)
-          CCTK_VINFO("Reading patch %d level %d", patchdata.patch,
-                     leveldata.level);
+          CCTK_VINFO("Reading patch %d level %d", patchdata.patch.index(),
+                     leveldata.level.index());
 
         for (auto &groupdata : leveldata.groups()) {
           const gi_t gi = groupdata.record.groupindex;
@@ -745,13 +742,11 @@ void InputSilo(const cGH *restrict const cctkGH,
           const std::array<int, dim> &nghosts = groupdata.nghostzones;
 
           const write_scope_t scope =
-              open_write(active_levels_t(leveldata.level, leveldata.level + 1,
-                                         patchdata.patch, patchdata.patch + 1),
-                         {.gi = gi,
-                          .tl = tl,
-                          .fills = make_valid_all(),
-                          .keeps = valid_t(),
-                          .event = "InputSilo"});
+              open_write(one_level(leveldata.level), {.gi = gi,
+                                                      .tl = tl,
+                                                      .fills = make_valid_all(),
+                                                      .keeps = valid_t(),
+                                                      .event = "InputSilo"});
 
           const int ncomponents = dm.size();
           for (int component = 0; component < ncomponents; ++component) {
@@ -798,13 +793,13 @@ void InputSilo(const cGH *restrict const cctkGH,
             }
             interval_mpi = nullptr;
 
-            // Read variable
             if (read_file) {
               static Timer timer_var("InputSilo.var");
               Interval interval_var(timer_var);
 
-              const std::string meshname = make_meshname(
-                  nghosts, patchdata.patch, leveldata.level, component);
+              const std::string meshname =
+                  make_meshname(nghosts, patchdata.patch.index(),
+                                leveldata.level.index(), component);
 
               const int centering = [&]() {
                 const int rank = indextype.cellCentered(0) +
@@ -833,8 +828,9 @@ void InputSilo(const cGH *restrict const cctkGH,
               }
 
               for (int vi = 0; vi < numvars; ++vi) {
-                const std::string varname = make_varname(
-                    gi, vi, patchdata.patch, leveldata.level, component);
+                const std::string varname =
+                    make_varname(gi, vi, patchdata.patch.index(),
+                                 leveldata.level.index(), component);
                 if (io_verbose)
                   CCTK_VINFO("      Reading variable %s", varname.c_str());
 
@@ -874,11 +870,6 @@ void InputSilo(const cGH *restrict const cctkGH,
 
           } // for component
 
-          // Subcycling coarse source bands: zero-ghost MultiFabs with their
-          // own DistributionMap, each read in its own component loop mirroring
-          // the Phase 1 write (reversed MPI). When file_has_bands, every
-          // rebuilt non-empty source band is present in full, and likewise
-          // every flux-register band when file_has_freg.
           if (file_has_bands || file_has_freg) {
             const int centering = [&]() {
               const int rank = indextype.cellCentered(0) +
@@ -946,12 +937,11 @@ void InputSilo(const cGH *restrict const cctkGH,
                   data = buffer.data();
                 }
 
-                // Read the band variables.
                 if (read_file) {
                   for (int vi = 0; vi < numvars; ++vi) {
-                    const std::string varname =
-                        make_varname(gi, vi, patchdata.patch, leveldata.level,
-                                     component, band_tag);
+                    const std::string varname = make_varname(
+                        gi, vi, patchdata.patch.index(),
+                        leveldata.level.index(), component, band_tag);
                     const DB::ptr<DBquadvar> quadvar =
                         DB::make(DBGetQuadvar(file.get(), varname.c_str()));
                     assert(quadvar);
@@ -984,22 +974,16 @@ void InputSilo(const cGH *restrict const cctkGH,
 
             if (file_has_bands) {
               for (int s = 0; s < max_num_rk_stages; ++s)
-                read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                read_band(rk_source_band(leveldata.level, gi,
                                          band_kind::ks_source, s),
                           band_kind::ks_source, s);
-              read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                       band_kind::old_source),
-                        band_kind::old_source, -1);
+              read_band(
+                  rk_source_band(leveldata.level, gi, band_kind::old_source),
+                  band_kind::old_source, -1);
             }
-            // The child's flux register (six faces), restored so that the
-            // first reflux after recovery repays the same mismatch the
-            // uninterrupted run would have. Null (skipped) for groups
-            // without a register. When absent the register stays zero; the
-            // check above guarantees it is not live, so the parent resets it
-            // before its next reflux.
             if (file_has_freg)
               for (int f = 0; f < 2 * dim; ++f)
-                read_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+                read_band(rk_source_band(leveldata.level, gi,
                                          band_kind::flux_register, f),
                           band_kind::flux_register, f);
           } // if file_has_bands || file_has_freg
@@ -1143,8 +1127,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
     for (const auto &patchdata : ghext->patches()) {
 
       if (!patchdata.is_cartesian) {
-        coordinate_minima.at(patchdata.patch).resize(patchdata.num_levels());
-        coordinate_maxima.at(patchdata.patch).resize(patchdata.num_levels());
+        coordinate_minima.at(patchdata.patch.index())
+            .resize(patchdata.num_levels());
+        coordinate_maxima.at(patchdata.patch.index())
+            .resize(patchdata.num_levels());
       }
 
       for (const auto &leveldata : patchdata.levels()) {
@@ -1153,11 +1139,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
         const int ncomponents = dm.size();
 
         if (!patchdata.is_cartesian) {
-          coordinate_minima.at(patchdata.patch)
-              .at(leveldata.level)
+          coordinate_minima.at(patchdata.patch.index())
+              .at(leveldata.level.index())
               .resize(ncomponents);
-          coordinate_maxima.at(patchdata.patch)
-              .at(leveldata.level)
+          coordinate_maxima.at(patchdata.patch.index())
+              .at(leveldata.level.index())
               .resize(ncomponents);
         }
 
@@ -1204,10 +1190,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
               src_zonecount *= ext_hi[d] - ext_lo[d];
             assert(src_zonecount >= 0 && src_zonecount <= INT_MAX);
 
-            // Geometry for this (patch, level): index 0 sits at the Cartesian
-            // coordinate x0[d], with cell size dx[d].
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level);
+                patchdata.amrcore->Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
 
@@ -1239,8 +1223,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
               static Timer timer_mesh("OutputSilo.mesh");
               Interval interval_mesh(timer_mesh);
 
-              const std::string meshname = make_meshname(
-                  nghosts, patchdata.patch, leveldata.level, component);
+              const std::string meshname =
+                  make_meshname(nghosts, patchdata.patch.index(),
+                                leveldata.level.index(), component);
 
               std::array<int, ndims> dims_vc;
               for (int d = 0; d < ndims; ++d)
@@ -1285,11 +1270,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   xmin[d] = xminmax.first;
                   xmax[d] = xminmax.second;
                 }
-                coordinate_minima.at(patchdata.patch)
-                    .at(leveldata.level)
+                coordinate_minima.at(patchdata.patch.index())
+                    .at(leveldata.level.index())
                     .at(component) = xmin;
-                coordinate_maxima.at(patchdata.patch)
-                    .at(leveldata.level)
+                coordinate_maxima.at(patchdata.patch.index())
+                    .at(leveldata.level.index())
                     .at(component) = xmax;
               }
 
@@ -1370,13 +1355,13 @@ void OutputSilo(const cGH *restrict const cctkGH,
             }
             interval_mpi = nullptr;
 
-            // Write variable
             if (write_file) {
               static Timer timer_var("OutputSilo.var");
               Interval interval_var(timer_var);
 
-              const std::string meshname = make_meshname(
-                  nghosts, patchdata.patch, leveldata.level, component);
+              const std::string meshname =
+                  make_meshname(nghosts, patchdata.patch.index(),
+                                leveldata.level.index(), component);
 
               const int centering = [&]() {
                 const int rank = indextype.cellCentered(0) +
@@ -1429,17 +1414,13 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 assert(0);
               }
 
-              // A thickness-1 slab is contiguous only for the xy plane (normal
-              // = z, the slowest axis); xz/yz planes are strided. Extract each
-              // variable's slab from the exterior-shaped `data` into a
-              // contiguous buffer before handing it to Silo. `zonecount` is the
-              // slab count (== src_zonecount when not slicing).
               std::vector<CCTK_REAL> slab;
               if (slice)
                 slab.resize(zonecount);
               for (int vi = 0; vi < numvars; ++vi) {
-                const std::string varname = make_varname(
-                    gi, vi, patchdata.patch, leveldata.level, component);
+                const std::string varname =
+                    make_varname(gi, vi, patchdata.patch.index(),
+                                 leveldata.level.index(), component);
 
                 const void *data_ptr;
                 if (slice) {
@@ -1459,12 +1440,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
           } // for component
 
-          // Subcycling coarse source bands: zero-ghost MultiFabs in this
-          // level's index space with their own DistributionMap, so each gets
-          // its own component loop. Geometry is rebuilt on recovery; we
-          // serialize only the data, namespaced by a band tag. Present on
-          // every level with children. 2D slice output covers only the main
-          // grid data, so bands are skipped entirely when slicing.
           if (write_bands && !slice) {
             const int centering = [&]() {
               const int rank = indextype.cellCentered(0) +
@@ -1485,7 +1460,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
             assert(centering != DB_EDGECENT && centering != DB_FACECENT);
 
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level);
+                patchdata.amrcore->Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
             const std::array<int, dim> band_nghosts{0, 0, 0};
@@ -1518,11 +1493,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   zonecount *= dims[d];
                 assert(zonecount >= 0 && zonecount <= INT_MAX);
 
-                // Write the band mesh (zero ghost => no LO/HI offset).
                 if (write_file) {
-                  const std::string meshname =
-                      make_meshname(band_nghosts, patchdata.patch,
-                                    leveldata.level, component, band_tag);
+                  const std::string meshname = make_meshname(
+                      band_nghosts, patchdata.patch.index(),
+                      leveldata.level.index(), component, band_tag);
 
                   std::array<int, ndims> dims_vc;
                   for (int d = 0; d < ndims; ++d)
@@ -1596,11 +1570,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   data = buffer.data();
                 }
 
-                // Write the band variables.
                 if (write_file) {
-                  const std::string meshname =
-                      make_meshname(band_nghosts, patchdata.patch,
-                                    leveldata.level, component, band_tag);
+                  const std::string meshname = make_meshname(
+                      band_nghosts, patchdata.patch.index(),
+                      leveldata.level.index(), component, band_tag);
 
                   const DB::ptr<DBoptlist> optlist =
                       DB::make(DBMakeOptlist(10));
@@ -1624,9 +1597,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
                   assert(!ierr);
 
                   for (int vi = 0; vi < numvars; ++vi) {
-                    const std::string varname =
-                        make_varname(gi, vi, patchdata.patch, leveldata.level,
-                                     component, band_tag);
+                    const std::string varname = make_varname(
+                        gi, vi, patchdata.patch.index(),
+                        leveldata.level.index(), component, band_tag);
                     const void *const data_ptr = data + vi * zonecount;
                     ierr = DBPutQuadvar1(
                         file.get(), varname.c_str(), meshname.c_str(), data_ptr,
@@ -1639,19 +1612,14 @@ void OutputSilo(const cGH *restrict const cctkGH,
             };
 
             for (int s = 0; s < max_num_rk_stages; ++s)
-              write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                        band_kind::ks_source, s),
-                         band_kind::ks_source, s);
-            write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
-                                      band_kind::old_source),
-                       band_kind::old_source, -1);
-            // The child's flux register (partially accumulated mid-cycle):
-            // six zero-ghost face MultiFabs in this level's index space,
-            // nodal in their own direction. They are serialized like the
-            // bands above, as thickness-1 slabs with the group's (zone)
-            // centering; the mesh is hidden and only the data round-trips.
+              write_band(
+                  rk_source_band(leveldata.level, gi, band_kind::ks_source, s),
+                  band_kind::ks_source, s);
+            write_band(
+                rk_source_band(leveldata.level, gi, band_kind::old_source),
+                band_kind::old_source, -1);
             for (int f = 0; f < 2 * dim; ++f)
-              write_band(rk_source_band(patchdata.patch, leveldata.level, gi,
+              write_band(rk_source_band(leveldata.level, gi,
                                         band_kind::flux_register, f),
                          band_kind::flux_register, f);
           } // if write_bands
@@ -1664,8 +1632,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
   for (const auto &patchdata : ghext->patches()) {
     if (!patchdata.is_cartesian) {
       for (const auto &leveldata : patchdata.levels()) {
-        const int patch = patchdata.patch;
-        const int level = leveldata.level;
+        const int patch = patchdata.patch.index();
+        const int level = leveldata.level.index();
         auto &minima = coordinate_minima.at(patch).at(level);
         auto &maxima = coordinate_maxima.at(patch).at(level);
         if (!minima.empty()) {
@@ -1728,7 +1696,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
       if (CCTK_GroupTypeI(gi.index()) != CCTK_GF)
         continue;
 
-      const auto &groupdata0 = ghext->patch(0).level(0).group(gi);
+      const auto &groupdata0 = ghext->level(level_t{patch_t{0}, 0}).group(gi);
       const int numvars = groupdata0.record.numvars;
       const tl_t tl{0};
       const amrex::MultiFab &mfab0 = *groupdata0.timelevel(tl).mfab;
@@ -1756,9 +1724,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
           for (int level = 0; level < nlevels; ++level) {
             comp0_level.at(level) = ncomps_total;
             for (int patch = 0; patch < npatches; ++patch) {
-              const auto &patchdata = ghext->patch(patch);
+              const auto &patchdata = ghext->patch(patch_t{patch});
               if (level < patchdata.num_levels()) {
-                const auto &leveldata = patchdata.level(level);
+                const auto &leveldata =
+                    patchdata.level(level_t{patchdata.patch, level});
                 comp0_level_patch.at(level).at(patch) = ncomps_total;
                 const amrex::DistributionMapping &dm =
                     leveldata.fab->DistributionMap();
@@ -1816,21 +1785,21 @@ void OutputSilo(const cGH *restrict const cctkGH,
             segment_data.reserve(ncomps_total);
 
             for (const auto &patchdata : ghext->patches()) {
-              const int patch = patchdata.patch;
+              const int patch = patchdata.patch.index();
               for (const auto &leveldata : patchdata.levels()) {
-                const int level = leveldata.level;
-                const int fine_level = level + 1;
-                if (fine_level < patchdata.num_levels()) {
+                const int level = leveldata.level.index();
+                if (const std::optional<level_t> fine =
+                        leveldata.level.child()) {
                   const auto &groupdata = leveldata.group(gi);
                   const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
-                  const auto &fine_leveldata = patchdata.level(fine_level);
+                  const auto &fine_leveldata = patchdata.level(*fine);
                   const auto &fine_groupdata = fine_leveldata.group(gi);
                   const amrex::MultiFab &fine_mfab =
                       *fine_groupdata.timelevel(tl).mfab;
 
                   const int ncomps = ncomps_level_patch.at(level).at(patch);
                   const int fine_comp0 =
-                      comp0_level_patch.at(fine_level).at(patch);
+                      comp0_level_patch.at(fine->index()).at(patch);
                   const amrex::BoxArray &fine_boxarray = fine_mfab.boxarray;
 
                   for (int component = 0; component < ncomps; ++component) {
@@ -2036,7 +2005,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
             const int ncomponents = mfab.size();
             if (patchdata.is_cartesian) {
               const amrex::Geometry &geom =
-                  patchdata.amrcore->Geom(leveldata.level);
+                  patchdata.amrcore->Geom(leveldata.level.index());
               const amrex::Real *const x0 = geom.ProbLo();
               const amrex::Real *const dx = geom.CellSize();
               for (int c = 0; c < ncomponents; ++c) {
@@ -2065,13 +2034,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 extents.push_back(extent);
               }
             } else { // if !patchdata.is_cartesian)
-              // The function-entry guard rejects non-Cartesian slices, so this
-              // branch is unreachable for slices and needs no slice_slab skip.
               assert(!slice);
-              const auto &minima =
-                  coordinate_minima.at(patchdata.patch).at(leveldata.level);
-              const auto &maxima =
-                  coordinate_maxima.at(patchdata.patch).at(leveldata.level);
+              const auto &minima = coordinate_minima.at(patchdata.patch.index())
+                                       .at(leveldata.level.index());
+              const auto &maxima = coordinate_maxima.at(patchdata.patch.index())
+                                       .at(leveldata.level.index());
               for (int c = 0; c < ncomponents; ++c) {
                 const amrex::Box &fabbox = mfab.fabbox(c); // exterior
                 iextent_t iextent;
@@ -2173,7 +2140,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
             const amrex::DistributionMapping &dm = mfab.DistributionMap();
             const int ncomponents = dm.size();
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level);
+                patchdata.amrcore->Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
             for (int c = 0; c < ncomponents; ++c) {
@@ -2186,7 +2153,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
                                 proc / ioproc_every);
               const std::string meshname =
                   proc_filename + ":" +
-                  make_meshname(nghosts, patchdata.patch, leveldata.level, c);
+                  make_meshname(nghosts, patchdata.patch.index(),
+                                leveldata.level.index(), c);
               meshnames.push_back(meshname);
             }
           }
@@ -2244,7 +2212,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level);
+                patchdata.amrcore->Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
             for (int c = 0; c < ncomponents; ++c) {
@@ -2330,11 +2298,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
               const amrex::DistributionMapping &dm = mfab.DistributionMap();
               const int ncomponents = dm.size();
               const amrex::Geometry &geom =
-                  patchdata.amrcore->Geom(leveldata.level);
+                  patchdata.amrcore->Geom(leveldata.level.index());
               const amrex::Real *const x0 = geom.ProbLo();
               const amrex::Real *const dx = geom.CellSize();
               for (int c = 0; c < ncomponents; ++c) {
-                // Same guard as the multimesh loops, keeping multivar aligned.
                 if (slice && !slice_slab(mfab, c, x0, dx, indextype, *slice))
                   continue; // skip components that miss the plane
                 const int proc = dm[c];
@@ -2344,7 +2311,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
                                   proc / ioproc_every);
                 const std::string varname =
                     proc_filename + ":" +
-                    make_varname(gi, vi, patchdata.patch, leveldata.level, c);
+                    make_varname(gi, vi, patchdata.patch.index(),
+                                 leveldata.level.index(), c);
                 varnames.push_back(varname);
               }
             }
@@ -2392,7 +2360,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         std::vector<int> values(num_patches);
 
         for (const auto &patchdata : ghext->patches()) {
-          values.at(patchdata.patch) = ghext->num_levels(patchdata.patch);
+          values.at(patchdata.patch.index()) = patchdata.num_levels();
         }
 
         const std::string varname =
@@ -2418,7 +2386,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
           const int dims[2] = {ncomponents, 2 * ndims};
           const std::string varname =
               dirname + "/" +
-              make_fabarraybasename(patchdata.patch, leveldata.level);
+              make_fabarraybasename(patchdata.patch.index(),
+                                    leveldata.level.index());
           ierr = DBWrite(metafile.get(), varname.c_str(), boxes.data(), dims, 2,
                          DB_INT);
           assert(!ierr);
@@ -2431,8 +2400,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
             const std::string varname =
                 dirname + "/" +
                 DB::legalize_name("iteration_num.m" +
-                                  std::to_string(patchdata.patch) + ".rl" +
-                                  std::to_string(leveldata.level));
+                                  std::to_string(patchdata.patch.index()) +
+                                  ".rl" +
+                                  std::to_string(leveldata.level.index()));
             long long val = leveldata.iteration.num;
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
@@ -2443,21 +2413,22 @@ void OutputSilo(const cGH *restrict const cctkGH,
             const std::string varname =
                 dirname + "/" +
                 DB::legalize_name("iteration_den.m" +
-                                  std::to_string(patchdata.patch) + ".rl" +
-                                  std::to_string(leveldata.level));
+                                  std::to_string(patchdata.patch.index()) +
+                                  ".rl" +
+                                  std::to_string(leveldata.level.index()));
             long long val = leveldata.iteration.den;
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
                            DB_LONG_LONG);
             assert(!ierr);
           }
-          // Write the per-level last-step iteration
           {
             const std::string varname =
                 dirname + "/" +
                 DB::legalize_name("last_step_iteration.m" +
-                                  std::to_string(patchdata.patch) + ".rl" +
-                                  std::to_string(leveldata.level));
+                                  std::to_string(patchdata.patch.index()) +
+                                  ".rl" +
+                                  std::to_string(leveldata.level.index()));
             long long val = leveldata.last_step_iteration;
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
