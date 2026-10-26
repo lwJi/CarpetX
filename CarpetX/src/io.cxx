@@ -342,12 +342,12 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
         const std::string filename = std::string(out_dir) + "/" + basename;
 
         amrex::Vector<std::string> varnames(group.numvars);
-        for (int vi = 0; vi < group.numvars; ++vi) {
+        for (const vi_t vi : group.variables()) {
           std::ostringstream buf;
-          buf << CCTK_VarName(group.firstvarindex + vi);
+          buf << CCTK_VarName(group.var(vi).index());
           for (int i = 0; i < tl.index(); ++i)
             buf << "_p";
-          varnames.at(vi) = buf.str();
+          varnames.at(vi.index()) = buf.str();
         }
 
         amrex::Vector<const amrex::MultiFab *> mfabs(patchdata.num_levels());

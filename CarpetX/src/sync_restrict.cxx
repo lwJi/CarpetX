@@ -93,8 +93,8 @@ static void sync_multipatch_boundaries(const cGH *cctkGH,
     std::vector<CCTK_INT> cactusvarinds;
     for (const gi_t gi : groups) {
       const auto &group = ghext->record(gi);
-      for (int var = 0; var < group.numvars; ++var)
-        cactusvarinds.push_back(group.firstvarindex + var);
+      for (const vi_t vi : group.variables())
+        cactusvarinds.push_back(group.var(vi).index());
     }
     MultiPatch_Interpolate(cctkGH, cactusvarinds.size(), cactusvarinds.data());
   } else {
@@ -375,7 +375,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
         for (const tl_t tl : groupdata.record.timelevels()) {
           if (need_sync)
             break;
-          for (int vi = 0; vi < groupdata.record.numvars; vi++) {
+          for (const vi_t vi : groupdata.record.variables()) {
             if (need_sync)
               break;
             const valid_t have = groupdata.timelevel(tl).valid(vi);

@@ -205,7 +205,7 @@ reduce_array(const amrex::Array4<const T> &restrict vars, const int n,
 }
 } // namespace
 
-reduction<CCTK_REAL, dim> reduce(const gi_t gi, const int vi, const tl_t tl) {
+reduction<CCTK_REAL, dim> reduce(const gi_t gi, const vi_t vi, const tl_t tl) {
   DECLARE_CCTK_PARAMETERS;
 
   cGroup group;
@@ -254,9 +254,6 @@ reduction<CCTK_REAL, dim> reduce(const gi_t gi, const int vi, const tl_t tl) {
       // CPU
 
       auto mfitinfo = amrex::MFItInfo().SetDynamic(true).EnableTiling();
-      // TODO: check that multi-threading actually helps (and we are
-      // not dominated by memory latency)
-      // TODO: document required version of OpenMP to use custom reductions
 #ifdef __NVCOMPILER
 #pragma omp parallel
       {
@@ -293,8 +290,8 @@ reduction<CCTK_REAL, dim> reduce(const gi_t gi, const int vi, const tl_t tl) {
             assert(amrex::ubound(*finemask).z == amrex::ubound(vars).z);
           }
 
-          red += reduce_array(vars, vi, tmin, tmax, indextype, imin, imax,
-                              finemask.get(), x0, dx);
+          red += reduce_array(vars, vi.index(), tmin, tmax, indextype, imin,
+                              imax, finemask.get(), x0, dx);
         }
 #ifdef __NVCOMPILER
 #pragma omp critical(CarpetX_reduce)
@@ -327,7 +324,7 @@ reduction<CCTK_REAL, dim> reduce(const gi_t gi, const int vi, const tl_t tl) {
                     : amrex::MultiArray4<const int>();
 
       const CCTK_REAL dV = prod(dx);
-      const int vi1 = vi;
+      const int vi1 = vi.index();
       const vect<int, dim> indextype1 = indextype;
 
       // First pass: the sums and the extrema

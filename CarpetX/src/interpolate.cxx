@@ -38,7 +38,7 @@ template <typename T, int order, int centering> struct interpolator {
 #ifdef CCTK_DEBUG
   const gi_t gi;
 #endif
-  const int vi;
+  const vi_t vi;
 #ifdef CCTK_DEBUG
   const int patch;
   const int level;
@@ -49,7 +49,7 @@ template <typename T, int order, int centering> struct interpolator {
   const vect<vect<bool, dim>, 2> allowed_boundaries;
 
   interpolator(const GridDescBase &grid, CCTK_ATTRIBUTE_UNUSED const gi_t gi,
-               const int vi, const int patch, const int level,
+               const vi_t vi, const int patch, const int level,
                const amrex::Array4<const T> &vars, const vect<int, dim> &derivs,
                const vect<vect<bool, dim>, 2> &allowed_boundaries)
       : grid(grid),
@@ -78,7 +78,7 @@ template <typename T, int order, int centering> struct interpolator {
 #ifdef CCTK_DEBUG
     assert(vars.contains(j[0], j[1], j[2]));
 #endif
-    const T val = vars(j, vi);
+    const T val = vars(j, vi.index());
 #ifdef CCTK_DEBUG
     using std::isfinite;
     if (!(isfinite(val))) {
@@ -89,8 +89,8 @@ template <typename T, int order, int centering> struct interpolator {
         for (int b = -1; b <= +1; ++b)
           for (int a = -1; a <= +1; ++a)
             if (vars.contains(j[0] + a, j[1] + b, j[2] + c))
-              std::cerr << "  val[" << a << "," << b << "," << c
-                        << "]=" << vars(j[0] + a, j[1] + b, j[2] + c, vi)
+              std::cerr << "  val[" << a << "," << b << "," << c << "]="
+                        << vars(j[0] + a, j[1] + b, j[2] + c, vi.index())
                         << "\n";
     }
     assert(isfinite(val));
@@ -634,21 +634,10 @@ void CarpetX::InterpolationSetup::Interpolate(
   std::vector<std::vector<CCTK_REAL> > results(nprocs); // [nprocs]
 
   constexpr tl_t tl{0};
-  struct givi_t {
-    gi_t gi;
-    int vi;
-  };
-  std::vector<givi_t> givis;
+  std::vector<variable_t> givis;
   givis.reserve(nvars);
-  for (int v = 0; v < nvars; ++v) {
-    const gi_t gi{CCTK_GroupIndexFromVarI(varinds[v])};
-    assert(gi.index() >= 0);
-    assert(gi.index() < CCTK_NumGroups());
-    const int vi = varinds[v] - CCTK_FirstVarIndexI(gi.index());
-    assert(vi >= 0);
-    assert(vi < CCTK_NumVarsInGroupI(gi.index()));
-    givis.push_back({gi, vi});
-  }
+  for (int v = 0; v < nvars; ++v)
+    givis.push_back(variable(var_t{varinds[v]}));
 
   rat64 min_level_iteration_used = -1;
   rat64 max_level_iteration_used = -1;
@@ -690,7 +679,7 @@ void CarpetX::InterpolationSetup::Interpolate(
 
         for (int v = 0; v < nvars; ++v) {
           const gi_t gi = givis.at(v).gi;
-          const int vi = givis.at(v).vi;
+          const vi_t vi = givis.at(v).vi;
           const auto &restrict groupdata = leveldata.group(gi);
           const int centering = groupdata.indextype[0] * 0b100 +
                                 groupdata.indextype[1] * 0b010 +

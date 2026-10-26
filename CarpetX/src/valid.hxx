@@ -121,10 +121,10 @@ struct checksum_t {
 struct tiletag_t {
   int patch, level, component;
   gi_t gi;
-  int vi;
+  vi_t vi;
   tl_t tl;
   tiletag_t() = delete;
-  tiletag_t(int patch, int level, int component, gi_t gi, int vi, tl_t tl)
+  tiletag_t(int patch, int level, int component, gi_t gi, vi_t vi, tl_t tl)
       : patch(patch), level(level), component(component), gi(gi), vi(vi),
         tl(tl) {}
 
@@ -169,7 +169,7 @@ void check_checksums(const active_levels_t &active_levels,
 struct write_spec_t {
   gi_t gi;
   tl_t tl;
-  std::optional<int> vi;
+  std::optional<vi_t> vi;
   valid_t fills;
   valid_t keeps;
   std::string event;
@@ -178,7 +178,7 @@ struct write_spec_t {
 struct require_spec_t {
   gi_t gi;
   tl_t tl;
-  std::optional<int> vi;
+  std::optional<vi_t> vi;
   valid_t where;
   std::string event;
   std::function<std::string()> hint;
@@ -187,7 +187,7 @@ struct require_spec_t {
 struct invalidate_spec_t {
   gi_t gi;
   tl_t tl;
-  std::optional<int> vi;
+  std::optional<vi_t> vi;
   valid_t where;
   std::string event;
 };

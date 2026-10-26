@@ -108,20 +108,10 @@ std::vector<CarpetX::write_t> open_writes(std::span<const CarpetX::gi_t> gis,
 void define_point_type() {
   const int vn_pt = CCTK_VarIndex("PDESolvers::point_type");
   assert(vn_pt >= 0);
-  const CarpetX::gi_t gi_pt{CCTK_GroupIndexFromVarI(vn_pt)};
-  assert(gi_pt.index() >= 0);
-  const int v0_pt = CCTK_FirstVarIndexI(gi_pt.index());
-  assert(v0_pt >= 0);
-  const int vi_pt = vn_pt - v0_pt;
-  assert(vi_pt >= 0);
+  const CarpetX::gi_t gi_pt = CarpetX::variable(CarpetX::var_t{vn_pt}).gi;
   const int vn_ind = CCTK_VarIndex("PDESolvers::communication_indicator");
   assert(vn_ind >= 0);
-  const CarpetX::gi_t gi_ind{CCTK_GroupIndexFromVarI(vn_ind)};
-  assert(gi_ind.index() >= 0);
-  const int v0_ind = CCTK_FirstVarIndexI(gi_ind.index());
-  assert(v0_ind >= 0);
-  const int vi_ind = vn_ind - v0_ind;
-  assert(vi_ind >= 0);
+  const CarpetX::gi_t gi_ind = CarpetX::variable(CarpetX::var_t{vn_ind}).gi;
 
   {
     const auto writes = open_writes(std::array{gi_pt}, CarpetX::make_valid_all(),
@@ -331,20 +321,10 @@ void enumerate_points(
 
   static const int vn_idx = CCTK_VarIndex("PDESolvers::idx");
   assert(vn_idx >= 0);
-  static const CarpetX::gi_t gi_idx{CCTK_GroupIndexFromVarI(vn_idx)};
-  assert(gi_idx.index() >= 0);
-  static const int v0_idx = CCTK_FirstVarIndexI(gi_idx.index());
-  assert(v0_idx >= 0);
-  static const int vi_idx = vn_idx - v0_idx;
-  assert(vi_idx >= 0);
+  static const CarpetX::gi_t gi_idx =
+      CarpetX::variable(CarpetX::var_t{vn_idx}).gi;
   const int vn_pt = CCTK_VarIndex("PDESolvers::point_type");
   assert(vn_pt >= 0);
-  const int gi_pt = CCTK_GroupIndexFromVarI(vn_pt);
-  assert(gi_pt >= 0);
-  const int v0_pt = CCTK_FirstVarIndexI(gi_pt);
-  assert(v0_pt >= 0);
-  const int vi_pt = vn_pt - v0_pt;
-  assert(vi_pt >= 0);
 
   assert(CarpetX::num_patches() == 1);
   const int nlevels = CarpetX::num_levels(0);
@@ -745,28 +725,16 @@ void copy_Cactus_to_PETSc(
 
   const int nvars = varinds.size();
   std::vector<CarpetX::gi_t> gis;
-  std::vector<int> vis;
+  std::vector<CarpetX::vi_t> vis;
   gis.reserve(nvars);
   vis.reserve(nvars);
   for (int vn : varinds) {
-    assert(vn >= 0);
-    const CarpetX::gi_t gi{CCTK_GroupIndexFromVarI(vn)};
-    assert(gi.index() >= 0);
+    const auto [gi, vi] = CarpetX::variable(CarpetX::var_t{vn});
     gis.push_back(gi);
-    const int v0 = CCTK_FirstVarIndexI(gi.index());
-    assert(v0 >= 0);
-    const int vi = vn - v0;
-    assert(vi >= 0);
     vis.push_back(vi);
   }
   static const int vn_pt = CCTK_VarIndex("PDESolvers::point_type");
   assert(vn_pt >= 0);
-  static const int gi_pt = CCTK_GroupIndexFromVarI(vn_pt);
-  assert(gi_pt >= 0);
-  static const int v0_pt = CCTK_FirstVarIndexI(gi_pt);
-  assert(v0_pt >= 0);
-  static const int vi_pt = vn_pt - v0_pt;
-  assert(vi_pt >= 0);
 
   // Get vector from PETSc
   CCTK_REAL *vec_ptr;
@@ -832,28 +800,16 @@ void copy_PETSc_to_Cactus(
 
   const int nvars = varinds.size();
   std::vector<CarpetX::gi_t> gis;
-  std::vector<int> vis;
+  std::vector<CarpetX::vi_t> vis;
   gis.reserve(nvars);
   vis.reserve(nvars);
   for (int vn : varinds) {
-    assert(vn >= 0);
-    const CarpetX::gi_t gi{CCTK_GroupIndexFromVarI(vn)};
-    assert(gi.index() >= 0);
+    const auto [gi, vi] = CarpetX::variable(CarpetX::var_t{vn});
     gis.push_back(gi);
-    const int v0 = CCTK_FirstVarIndexI(gi.index());
-    assert(v0 >= 0);
-    const int vi = vn - v0;
-    assert(vi >= 0);
     vis.push_back(vi);
   }
   static const int vn_pt = CCTK_VarIndex("PDESolvers::point_type");
   assert(vn_pt >= 0);
-  static const int gi_pt = CCTK_GroupIndexFromVarI(vn_pt);
-  assert(gi_pt >= 0);
-  static const int v0_pt = CCTK_FirstVarIndexI(gi_pt);
-  assert(v0_pt >= 0);
-  static const int vi_pt = vn_pt - v0_pt;
-  assert(vi_pt >= 0);
 
   // Get vector from PETSc
   const CCTK_REAL *vec_ptr;
@@ -1169,18 +1125,12 @@ extern "C" void PDESolvers_Solve(CCTK_ARGUMENTS) {
   {
     const int nvars = resinds.size();
     std::vector<CarpetX::gi_t> gis;
-    std::vector<int> vis;
+    std::vector<CarpetX::vi_t> vis;
     gis.reserve(nvars);
     vis.reserve(nvars);
     for (int vn : resinds) {
-      assert(vn >= 0);
-      const CarpetX::gi_t gi{CCTK_GroupIndexFromVarI(vn)};
-      assert(gi.index() >= 0);
+      const auto [gi, vi] = CarpetX::variable(CarpetX::var_t{vn});
       gis.push_back(gi);
-      const int v0 = CCTK_FirstVarIndexI(gi.index());
-      assert(v0 >= 0);
-      const int vi = vn - v0;
-      assert(vi >= 0);
       vis.push_back(vi);
     }
     const CarpetX::reduction<CCTK_REAL, 3> res_norm =

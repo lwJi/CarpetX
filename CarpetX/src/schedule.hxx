@@ -168,7 +168,6 @@ struct GridDesc : GridDescBase {
   GridDesc(const cGH *cctkGH) : GridDescBase(cctkGH) {}
 };
 
-// TODO: remove this
 struct GridPtrDesc : GridDesc {
   amrex::Dim3 cactus_offset;
 
@@ -176,13 +175,16 @@ struct GridPtrDesc : GridDesc {
   GridPtrDesc(const GHExt::PatchData::LevelData &leveldata,
               const MFPointer &mfp);
 
-  template <typename T> T *ptr(const amrex::Array4<T> &vars, int vi) const {
-    return vars.ptr(cactus_offset.x, cactus_offset.y, cactus_offset.z, vi);
+  template <typename T>
+  T *ptr(const amrex::Array4<T> &vars, const vi_t vi) const {
+    return vars.ptr(cactus_offset.x, cactus_offset.y, cactus_offset.z,
+                    vi.index());
   }
   template <typename T>
-  T &idx(const amrex::Array4<T> &vars, int i, int j, int k, int vi) const {
+  T &idx(const amrex::Array4<T> &vars, int i, int j, int k,
+         const vi_t vi) const {
     return vars(cactus_offset.x + i, cactus_offset.y + i, cactus_offset.z + j,
-                vi);
+                vi.index());
   }
 };
 
@@ -202,18 +204,20 @@ struct GridPtrDesc1 : GridDesc {
                const GHExt::PatchData::LevelData::GroupData &groupdata,
                int component);
 
-  template <typename T> T *ptr(const amrex::Array4<T> &vars, int vi) const {
+  template <typename T>
+  T *ptr(const amrex::Array4<T> &vars, const vi_t vi) const {
     return vars.ptr(cactus_offset.x + gimin[0], cactus_offset.y + gimin[1],
-                    cactus_offset.z + gimin[2], vi);
+                    cactus_offset.z + gimin[2], vi.index());
   }
   template <typename T>
-  T &idx(const amrex::Array4<T> &vars, int i, int j, int k, int vi) const {
+  T &idx(const amrex::Array4<T> &vars, int i, int j, int k,
+         const vi_t vi) const {
     return vars(cactus_offset.x + gimin[0] + i, cactus_offset.y + gimin[1] + j,
-                cactus_offset.z + gimin[2] + k, vi);
+                cactus_offset.z + gimin[2] + k, vi.index());
   }
 
   template <typename T>
-  GF3D1<T> gf3d(const amrex::Array4<T> &vars, int vi) const {
+  GF3D1<T> gf3d(const amrex::Array4<T> &vars, const vi_t vi) const {
     return GF3D1<T>(ptr(vars, vi), gimin, gimax, gash);
   }
 

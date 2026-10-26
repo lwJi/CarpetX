@@ -190,6 +190,58 @@ class Directions(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/schedule.hxx", text, Lang.CXX), [Finding(4, "directions", "const int *groups, const int *directions);")])
 
 
+class VarIndex(unittest.TestCase):
+    ADDITIONS = [
+        "cctkGH->data[group.firstvarindex + vi][tl.index()] = nullptr;",
+        "CCTK_FullVarName(groupdata.record.firstvarindex+vi),",
+        "const int varindex = CCTK_FirstVarIndexI(gi.index()) + vi;",
+        "CCTK_FullVarName(CCTK_FirstVarIndexI(wr.gi.index()) + wr.vi));",
+        "varname = CCTK_VarName(CCTK_FirstVarIndexI (gi) + vi);",
+        "return var_t{group.firstvarindex + vi.index()};",
+    ]
+    RECORD_VAR = (
+        "    var_t var(const vi_t vi) const {\n"
+        "      assert(variables().contains(vi));\n"
+        "      return var_t{firstvarindex + vi.index()};\n"
+        "    }\n"
+    )
+
+    def test_varindex_reported(self):
+        for line in self.ADDITIONS:
+            for name in ["CarpetX/src/valid.cxx", "CarpetX/src/io_silo.cxx", "CarpetX/src/driver.hxx", "CarpetX/src/include/carpetx.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("varindex", line)])
+
+    def test_varindex_allowed_in_record_var(self):
+        self.assertEqual(reported("CarpetX/src/driver.hxx", self.RECORD_VAR), [])
+        self.assertEqual(
+            reported("CarpetX/src/schedule.cxx", self.RECORD_VAR),
+            [("varindex", "return var_t{firstvarindex + vi.index()};")],
+        )
+
+    def test_other_arithmetic_is_not_an_addition(self):
+        for text in [
+            "firstvarindex = CCTK_FirstVarIndexI(gi.index());\n",
+            "return variable_t{gi_t{gi}, vi_t{var.index() - CCTK_FirstVarIndexI(gi)}};\n",
+            "int firstvarindex;\n",
+            "const int n = firstvarindex_count + 1;\n",
+            "const int n = myfirstvarindex + 1;\n",
+            "varname = CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/valid.cxx", text), [])
+
+    def test_other_thorns_are_not_checked(self):
+        self.assertEqual(reported("PDESolvers/src/solve.cxx", "  " + self.ADDITIONS[2] + "\n"), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported("CarpetX/src/make.code.defn", "X = firstvarindex + 1\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n" + self.ADDITIONS[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/schedule.cxx", text, Lang.CXX), [Finding(2, "varindex", self.ADDITIONS[0])])
+
+
 class NewFindings(unittest.TestCase):
     def test_only_lines_absent_before_are_new(self):
         a = Finding(1, "include", '#include "../../CarpetX/src/driver.hxx"')
@@ -259,7 +311,8 @@ class Report(unittest.TestCase):
         self.assertEqual(
             render([]),
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
-            "no validity call outside valid.cxx, no directions in the sync layer",
+            "no validity call outside valid.cxx, no directions in the sync layer, "
+            "no firstvarindex addition outside GroupRecord::var",
         )
 
     def test_counts(self):
@@ -267,12 +320,15 @@ class Report(unittest.TestCase):
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
         c = ("CarpetX/src/driver.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
         d = ("CarpetX/src/schedule.hxx", Finding(2, "directions", "const int *groups, const int *directions);"))
+        e = ("CarpetX/src/valid.cxx", Finding(5, "varindex", "CCTK_FullVarName(groupdata.record.firstvarindex + vi),"))
         self.assertEqual(summary([a]), "✗ boundary: 1 private include")
         self.assertEqual(summary([a, a, b]), "✗ boundary: 2 private includes, 1 stray marker")
         self.assertEqual(summary([c]), "✗ boundary: 1 validity call outside valid.cxx")
         self.assertEqual(summary([b, c, c]), "✗ boundary: 1 stray marker, 2 validity calls outside valid.cxx")
         self.assertEqual(summary([d]), "✗ boundary: 1 directions parameter in the sync layer")
         self.assertEqual(summary([c, d, d]), "✗ boundary: 1 validity call outside valid.cxx, 2 directions parameters in the sync layer")
+        self.assertEqual(summary([e]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var")
+        self.assertEqual(summary([d, e, e]), "✗ boundary: 1 directions parameter in the sync layer, 2 firstvarindex additions outside GroupRecord::var")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))

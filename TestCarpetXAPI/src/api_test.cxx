@@ -127,7 +127,7 @@ extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
 
 void require_flags(const CarpetX::group_t group,
                    const CarpetX::valid_t expected, const char *const when) {
-  const CarpetX::valid_t found = CarpetX::valid(group, tl, 0);
+  const CarpetX::valid_t found = CarpetX::valid(group, tl, CarpetX::vi_t{0});
   if (found != expected)
     CCTK_VERROR("TestCarpetXAPI::state on patch %d, refinement level %d is "
                 "%s %s; expected %s",
@@ -305,7 +305,8 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
                            "TestCarpetXAPI_Fill after CarpetX::sync");
   });
 
-  const CarpetX::reduction<CCTK_REAL, dim> red = CarpetX::reduce(gi, 0, tl);
+  const CarpetX::reduction<CCTK_REAL, dim> red =
+      CarpetX::reduce(gi, CarpetX::vi_t{0}, tl);
   if (!(red.min >= -1 && red.max <= 1 && red.vol > 0))
     CCTK_VERROR("CarpetX::reduce reports min %g, max %g, vol %g for "
                 "TestCarpetXAPI::state; expected a product of cosines on a "

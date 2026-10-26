@@ -177,8 +177,7 @@ std::string make_varname(const gi_t gi, const int vi, const int patch = -1,
     assert(0);
     varname = CCTK_FullGroupName(gi.index());
   } else {
-    const int v0 = CCTK_FirstVarIndexI(gi.index());
-    varname = CCTK_FullVarName(v0 + vi);
+    varname = CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());
     varname = regex_replace(varname, std::regex("::"), "-");
     for (auto &ch : varname)
       ch = tolower(ch);
@@ -2491,12 +2490,9 @@ void OutputSilo(const cGH *restrict const cctkGH,
           continue;
         if (CCTK_GroupTypeI(gi) != CCTK_GF)
           continue;
-        const int numvars = CCTK_NumVarsInGroupI(gi);
-        assert(numvars >= 0);
-        const int firstvar = CCTK_FirstVarIndexI(gi);
-        assert(numvars == 0 || firstvar >= 0);
-        for (int vi = 0; vi < numvars; ++vi) {
-          ofd.variables.push_back(CCTK_FullVarName(firstvar + vi));
+        const GHExt::GroupRecord &record = ghext->record(gi_t{gi});
+        for (const vi_t vi : record.variables()) {
+          ofd.variables.push_back(CCTK_FullVarName(record.var(vi).index()));
         }
       }
       ofd.iterations = {cctk_iteration};

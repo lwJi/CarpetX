@@ -5,6 +5,7 @@
 
 #include <carpetx.hxx>
 
+#include <optional>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -53,6 +54,38 @@ concept write_spec_names = requires(Group group, Timelevel tl) {
   write_spec_t{.gi = group, .tl = tl};
 };
 
+template <class Variable>
+concept write_spec_variable = requires(gi_t gi, tl_t tl, Variable vi) {
+  write_spec_t{.gi = gi, .tl = tl, .vi = vi};
+};
+
+template <class Variable>
+concept record_var_takes =
+    requires(const GHExt::GroupRecord &record, Variable vi) {
+  record.var(vi);
+};
+
+template <class Variable>
+concept timelevel_valid_takes = requires(
+    const GHExt::PatchData::LevelData::GroupData::timelevel_t &timelevel,
+    Variable vi) {
+  timelevel.valid(vi);
+};
+
+template <class Variable>
+concept array_timelevel_valid_takes =
+    requires(const GHExt::GlobalData::ArrayGroupData::timelevel_t &timelevel,
+             Variable vi) {
+  timelevel.valid(vi);
+};
+
+template <class Variable>
+concept grid_ptr_takes =
+    requires(const GridPtrDesc1 &grid, const amrex::Array4<CCTK_REAL> &vars,
+             Variable vi) {
+  grid.ptr(vars, vi);
+};
+
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
 
@@ -80,10 +113,44 @@ static_assert(!write_spec_names<tl_t, gi_t>);
 static_assert(!write_spec_names<int, tl_t>);
 static_assert(!write_spec_names<gi_t, int>);
 
+static_assert(write_spec_variable<vi_t>);
+static_assert(!write_spec_variable<gi_t>);
+static_assert(!write_spec_variable<var_t>);
+static_assert(!write_spec_variable<int>);
+
+static_assert(record_var_takes<vi_t>);
+static_assert(!record_var_takes<gi_t>);
+static_assert(!record_var_takes<var_t>);
+static_assert(!record_var_takes<int>);
+
+static_assert(timelevel_valid_takes<vi_t>);
+static_assert(!timelevel_valid_takes<tl_t>);
+static_assert(!timelevel_valid_takes<int>);
+
+static_assert(array_timelevel_valid_takes<vi_t>);
+static_assert(!array_timelevel_valid_takes<tl_t>);
+static_assert(!array_timelevel_valid_takes<int>);
+
+static_assert(grid_ptr_takes<vi_t>);
+static_assert(!grid_ptr_takes<int>);
+
 static_assert(std::is_same_v<decltype(GHExt::GroupRecord::groupindex), gi_t>);
 static_assert(std::is_same_v<decltype(tiletag_t::gi), gi_t>);
+static_assert(std::is_same_v<decltype(tiletag_t::vi), vi_t>);
 static_assert(std::is_same_v<decltype(tiletag_t::tl), tl_t>);
 static_assert(sizeof(tiletag_t) == 6 * sizeof(int));
+static_assert(std::is_same_v<decltype(write_spec_t::vi), std::optional<vi_t> >);
+static_assert(
+    std::is_same_v<decltype(require_spec_t::vi), std::optional<vi_t> >);
+static_assert(
+    std::is_same_v<decltype(invalidate_spec_t::vi), std::optional<vi_t> >);
+
+static_assert(std::is_same_v<
+              decltype(std::declval<const GHExt::GroupRecord &>().variables()),
+              index_range<vi_t> >);
+static_assert(std::is_same_v<decltype(std::declval<const GHExt::GroupRecord &>()
+                                          .var(std::declval<vi_t>())),
+                             var_t>);
 
 static_assert(std::is_same_v<
               decltype(std::declval<const GHExt::GroupRecord &>().timelevels()),

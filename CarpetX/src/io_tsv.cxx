@@ -214,12 +214,12 @@ void OutputTSVold(const cGH *restrict cctkGH) {
       const std::string filename = buf.str();
 
       amrex::Vector<std::string> varnames(group.numvars);
-      for (int vi = 0; vi < group.numvars; ++vi) {
+      for (const vi_t vi : group.variables()) {
         std::ostringstream buf;
-        buf << CCTK_VarName(group.firstvarindex + vi);
+        buf << CCTK_VarName(group.var(vi).index());
         for (int i = 0; i < tl.index(); ++i)
           buf << "_p";
-        varnames.at(vi) = buf.str();
+        varnames.at(vi.index()) = buf.str();
       }
 
       WriteTSVold(cctkGH, filename, gi, varnames, out_fileinfo_val, out_header);
@@ -243,8 +243,8 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
   assert(!ierr);
 
   std::vector<std::string> varnames;
-  for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
-    varnames.push_back(CCTK_VarName(arraygroupdata.record.firstvarindex + vi));
+  for (const vi_t vi : arraygroupdata.record.variables())
+    varnames.push_back(CCTK_VarName(arraygroupdata.record.var(vi).index()));
 
   const std::string sep = "\t";
   static std::set<std::string> did_write_file;
@@ -342,8 +342,8 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
     return;
 
   std::vector<std::string> varnames;
-  for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
-    varnames.push_back(CCTK_VarName(arraygroupdata.record.firstvarindex + vi));
+  for (const vi_t vi : arraygroupdata.record.variables())
+    varnames.push_back(CCTK_VarName(arraygroupdata.record.var(vi).index()));
 
   const std::string sep = "\t";
   static std::set<std::string> did_write_file;
@@ -613,8 +613,8 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
     iptr.erase(last, iptr.end());
 
     std::vector<std::string> varnames;
-    for (int vi = 0; vi < group.numvars; ++vi)
-      varnames.push_back(CCTK_VarName(group.firstvarindex + vi));
+    for (const vi_t vi : group.variables())
+      varnames.push_back(CCTK_VarName(group.var(vi).index()));
 
     const std::string sep = "\t";
     static std::set<std::string> did_write_file;

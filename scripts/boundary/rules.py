@@ -36,6 +36,9 @@ SYNC_FILES = (
 )
 DIRECTIONS_WORD = re.compile(r"\bdirections\b")
 FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
+VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\([^()]*\))*\))\s*\+")
+RECORD_VAR_FILE = "CarpetX/src/driver.hxx"
+RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
 STATEMENT_END = re.compile(r"[;{}]")
 EXCERPT_WIDTH = 72
 
@@ -47,7 +50,9 @@ RULE = (
     "validity: a validity kernel or a why_valid_t setter is named only in CarpetX/src/valid.cxx\n"
     "and valid.hxx; every other site opens a write scope or calls require or invalidate.\n"
     "directions: the sync layer takes a window and a list of gi_t; only the flesh-facing\n"
-    "SyncGroupsOnActiveLevels receives the flesh's directions array, and discards it."
+    "SyncGroupsOnActiveLevels receives the flesh's directions array, and discards it.\n"
+    "varindex: a flesh variable index is made from a group-relative one only by GroupRecord::var;\n"
+    "call record.var(vi) instead of adding to firstvarindex or CCTK_FirstVarIndexI(gi)."
 )
 
 
@@ -72,6 +77,10 @@ def directions_allowed(name: str, statement: str) -> bool:
     return name in SYNC_FILES and FLESH_SYNC_OVERLOAD in statement
 
 
+def varindex_allowed(name: str, line: str) -> bool:
+    return name == RECORD_VAR_FILE and bool(RECORD_VAR.search(line))
+
+
 def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
     if lang not in CHECKED:
         return []
@@ -89,6 +98,8 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
             found.append(Finding(number, "validity", line.strip()))
         if name in SYNC_FILES and DIRECTIONS_WORD.search(line) and not directions_allowed(name, statement):
             found.append(Finding(number, "directions", line.strip()))
+        if lang is Lang.CXX and name.startswith(PRIVATE_DIR) and VARINDEX_WORD.search(line) and not varindex_allowed(name, line):
+            found.append(Finding(number, "varindex", line.strip()))
         if STATEMENT_END.search(line):
             statement = ""
     return found
@@ -127,16 +138,19 @@ def summary(found: list[tuple[str, Finding]]) -> str:
     markers = sum(1 for _, f in found if f.rule == "marker")
     validity = sum(1 for _, f in found if f.rule == "validity")
     directions = sum(1 for _, f in found if f.rule == "directions")
+    varindex = sum(1 for _, f in found if f.rule == "varindex")
     if not found:
         return (
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
-            "no validity call outside valid.cxx, no directions in the sync layer"
+            "no validity call outside valid.cxx, no directions in the sync layer, "
+            "no firstvarindex addition outside GroupRecord::var"
         )
     parts = (
         ([plural(includes, "private include")] if includes else [])
         + ([plural(markers, "stray marker")] if markers else [])
         + ([plural(validity, "validity call") + " outside valid.cxx"] if validity else [])
         + ([plural(directions, "directions parameter") + " in the sync layer"] if directions else [])
+        + ([plural(varindex, "firstvarindex addition") + " outside GroupRecord::var"] if varindex else [])
     )
     return "✗ boundary: " + ", ".join(parts)
 

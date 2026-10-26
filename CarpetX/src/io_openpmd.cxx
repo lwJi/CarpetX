@@ -406,8 +406,8 @@ struct carpetx_openpmd_t {
 #endif
 
   static std::string make_componentname(const gi_t gi, const int vi) {
-    const int v0 = CCTK_FirstVarIndexI(gi.index());
-    std::string varname = CCTK_FullVarName(v0 + vi);
+    std::string varname =
+        CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());
     varname = std::regex_replace(varname, std::regex("::"), "_");
     for (auto &ch : varname)
       ch = std::tolower(ch);
@@ -1766,39 +1766,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
 
             // Define tensor components
 
-            // TODO: Set component names according to the tensor type
             std::vector<openPMD::MeshRecordComponent> record_components;
             record_components.reserve(numvars);
-#if 0
-        switch (numvars) {
-        case 1:
-          for (int vi = 0; vi < numvars; ++vi) {
-           record_omponents.push_back(mesh[openPMD::MeshRecordComponent::SCALAR]);
-          }
-          break;
-        case 3:
-          for (int vi = 0; vi < numvars; ++vi) {
-            const std::string cnames[] = {"x", "y", "z"};
-            record_components.push_back(mesh[cnames[vi]]);
-          }
-          break;
-        case 6:
-          for (int vi = 0; vi < numvars; ++vi) {
-            const std::string cnames[] = {"xx", "xy", "xz", "yy", "yz", "zz"};
-            record_components.push_back(mesh[cnames[vi]]);
-          }
-          break;
-        default:
-          CCTK_VWARN(CCTK_WARN_ALERT, "unsupported tensor type gi=%d group=%s",
-                     gi, CCTK_FullGroupName(gi));
-          for (int vi = 0; vi < numvars; ++vi) {
-          const std::string varname = CCTK_VarName(firstvarindex + vi);
-            CCTK_VINFO("Creating component %d %s", vi, varname.c_str());
-            record_components.push_back(mesh[varname]);
-          }
-          break;
-        }
-#endif
             for (int vi = 0; vi < numvars; ++vi) {
               const std::string componentname = make_componentname(gi, vi);
               record_components.push_back(mesh[componentname]);
@@ -2201,8 +2170,6 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
     }
   }
 
-  // Record the two in-plane axes for the slice files (3D path registers
-  // nothing).
   if (slice && CCTK_MyProc(nullptr) == 0) {
     output_file_description_t ofd;
     ofd.filename = *filename;
@@ -2211,10 +2178,9 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
     for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
       if (!output_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
         continue;
-      const int numvars = CCTK_NumVarsInGroupI(gi);
-      const int firstvar = CCTK_FirstVarIndexI(gi);
-      for (int vi = 0; vi < numvars; ++vi)
-        ofd.variables.push_back(CCTK_FullVarName(firstvar + vi));
+      const GHExt::GroupRecord &record = ghext->record(gi_t{gi});
+      for (const vi_t vi : record.variables())
+        ofd.variables.push_back(CCTK_FullVarName(record.var(vi).index()));
     }
     ofd.iterations = {cctk_iteration};
     for (const int d : slice->inplane_dirs())

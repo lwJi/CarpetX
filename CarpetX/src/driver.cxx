@@ -1004,9 +1004,9 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     parities.resize(numvars, parity);
   }
   assert(int(parities.size()) == numvars);
-  for (int vi = 0; vi < numvars; ++vi)
+  for (const vi_t vi : record.variables())
     for (int d = 0; d < dim; ++d)
-      assert(abs(parities.at(vi)[d]) == 1);
+      assert(abs(parities.at(vi.index())[d]) == 1);
 
   dirichlet_values = get_group_dirichlet_values(gi);
   if (dirichlet_values.empty())
@@ -1250,7 +1250,7 @@ void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,
 
   const gi_t gi{CCTK_GroupIndex("CarpetXRegrid::regrid_error")};
   assert(gi.index() >= 0);
-  const int vi = 0;
+  const vi_t vi{0};
   const tl_t tl{0};
 
   auto &restrict leveldata = ghext->level(patch, level);
@@ -1493,7 +1493,7 @@ static tl_range regrid_prolongate_tls(const GHExt::GroupRecord &record) {
 static bool
 regrid_source_valid(const GHExt::PatchData::LevelData::GroupData &groupdata,
                     const tl_t tl) {
-  for (int vi = 0; vi < groupdata.record.numvars; ++vi)
+  for (const vi_t vi : groupdata.record.variables())
     if (!groupdata.timelevel(tl).valid(vi).valid_all())
       return false;
   return true;
@@ -1881,8 +1881,8 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "numvars" << YAML::Value << group.numvars;
   yaml << YAML::Key << "varnames" << YAML::Value << YAML::Flow
        << YAML::BeginSeq;
-  for (int vi = 0; vi < group.numvars; ++vi)
-    yaml << CCTK_VarName(group.firstvarindex + vi);
+  for (const vi_t vi : group.variables())
+    yaml << CCTK_VarName(group.var(vi).index());
   yaml << YAML::EndSeq;
   yaml << YAML::Key << "do_checkpoint" << YAML::Value << group.do_checkpoint;
   yaml << YAML::Key << "do_evolve" << YAML::Value << group.do_evolve;
@@ -1946,7 +1946,7 @@ operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "valid" << YAML::Value << YAML::BeginSeq;
   for (const auto &timelevel : arraygroupdata.tls) {
     yaml << YAML::BeginSeq;
-    for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
+    for (const vi_t vi : arraygroupdata.record.variables())
       yaml << timelevel.why_valid(vi);
     yaml << YAML::EndSeq;
   }
@@ -1968,7 +1968,7 @@ operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "valid" << YAML::Value << YAML::BeginSeq;
   for (const auto &timelevel : groupdata.tls) {
     yaml << YAML::BeginSeq;
-    for (int vi = 0; vi < groupdata.record.numvars; ++vi)
+    for (const vi_t vi : groupdata.record.variables())
       yaml << timelevel.why_valid(vi);
     yaml << YAML::EndSeq;
   }

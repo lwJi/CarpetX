@@ -46,6 +46,15 @@ active_levels_t require_operable(const window_t window,
   return active_levels;
 }
 
+variable_t variable(const var_t var) {
+  const int gi = CCTK_GroupIndexFromVarI(var.index());
+  if (gi < 0)
+    CCTK_VERROR("CarpetX::variable: variable index %d does not exist: there "
+                "are %d variables",
+                var.index(), CCTK_NumVars());
+  return variable_t{gi_t{gi}, vi_t{var.index() - CCTK_FirstVarIndexI(gi)}};
+}
+
 int num_patches() { return driver().num_patches(); }
 
 int num_levels(const int patch) {
@@ -251,14 +260,14 @@ scratch_t scratch(const group_t group) {
       std::unique_ptr<scratch_t::impl>(new scratch_t::impl{group, slot}));
 }
 
-valid_t valid(const group_t group, const tl_t tl, const int vi) {
+valid_t valid(const group_t group, const tl_t tl, const vi_t vi) {
   const operation_scope_t op("CarpetX::valid");
   const auto &groupdata = driver().group(group);
   const auto &timelevel = groupdata.timelevel(tl);
-  if (vi < 0 || vi >= groupdata.record.numvars)
+  if (!groupdata.record.variables().contains(vi))
     CCTK_VERROR("CarpetX::valid: variable index %d of group %s does not "
                 "exist: it has %d variables",
-                vi, groupdata.record.groupname.c_str(),
+                vi.index(), groupdata.record.groupname.c_str(),
                 groupdata.record.numvars);
   return timelevel.valid(vi);
 }

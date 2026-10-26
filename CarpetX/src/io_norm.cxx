@@ -119,7 +119,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
             leveldata.group(gi);
 
         bool group_has_valid_variables = false;
-        for (int vi = 0; vi < group.numvars; ++vi) {
+        for (const vi_t vi : group.variables()) {
           if (!groupdata.timelevel(tl).valid(vi).valid_int)
             continue;
           group_has_valid_variables = true;
@@ -141,11 +141,11 @@ void OutputNorms(const cGH *restrict cctkGH) {
         file << "# " << ++col << ":iteration";
         file << sep << ++col << ":time";
 
-        for (int vi = 0; vi < group.numvars; ++vi) {
+        for (const vi_t vi : group.variables()) {
           if (!groupdata.timelevel(tl).valid(vi).valid_int)
             continue;
 
-          std::string varname = CCTK_FullVarName(group.firstvarindex + vi);
+          std::string varname = CCTK_FullVarName(group.var(vi).index());
           for (auto &ch : varname)
             ch = std::tolower(ch);
           for (const auto &reduction : reductions)
@@ -175,7 +175,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
         leveldata.group(gi);
 
     bool group_has_valid_variables = false;
-    for (int vi = 0; vi < group.numvars; ++vi) {
+    for (const vi_t vi : group.variables()) {
       if (!groupdata.timelevel(tl).valid(vi).valid_int)
         continue;
       group_has_valid_variables = true;
@@ -204,12 +204,12 @@ void OutputNorms(const cGH *restrict cctkGH) {
       file << cctk_iteration << sep << cctk_time;
     }
 
-    for (int vi = 0; vi < groupdata.record.numvars; ++vi) {
+    for (const vi_t vi : groupdata.record.variables()) {
       if (!groupdata.timelevel(tl).valid(vi).valid_int)
         continue;
 
       ofd.variables.push_back(
-          CCTK_FullVarName(groupdata.record.firstvarindex + vi));
+          CCTK_FullVarName(groupdata.record.var(vi).index()));
 
       const reduction<CCTK_REAL, dim> red = reduce(gi, vi, tl);
 

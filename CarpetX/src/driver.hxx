@@ -382,9 +382,11 @@ struct GHExt {
 
         AnyTypeVector data;
 
-        valid_t valid(const int vi) const { return valid_.at(vi).get(); }
-        const why_valid_t &why_valid(const int vi) const {
-          return valid_.at(vi);
+        valid_t valid(const vi_t vi) const {
+          return valid_.at(vi.index()).get();
+        }
+        const why_valid_t &why_valid(const vi_t vi) const {
+          return valid_.at(vi.index());
         }
 
       private:
@@ -443,6 +445,13 @@ struct GHExt {
     int num_timelevels() const { return num_timelevels_; }
     tl_range timelevels() const {
       return tl_range{tl_t{0}, tl_t{num_timelevels_}};
+    }
+    index_range<vi_t> variables() const {
+      return index_range<vi_t>{vi_t{0}, vi_t{numvars}};
+    }
+    var_t var(const vi_t vi) const {
+      assert(variables().contains(vi));
+      return var_t{firstvarindex + vi.index()};
     }
     bool has_storage() const { return num_timelevels_ > 0; }
 
@@ -608,9 +617,11 @@ struct GHExt {
           std::unique_ptr<amrex::MultiFab> mfab;
           int open_writes = 0;
 
-          valid_t valid(const int vi) const { return valid_.at(vi).get(); }
-          const why_valid_t &why_valid(const int vi) const {
-            return valid_.at(vi);
+          valid_t valid(const vi_t vi) const {
+            return valid_.at(vi.index()).get();
+          }
+          const why_valid_t &why_valid(const vi_t vi) const {
+            return valid_.at(vi.index());
           }
 
         private:

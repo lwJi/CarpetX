@@ -63,6 +63,14 @@ struct tl_t : index_t<tl_t> {
   constexpr tl_t next() const { return tl_t{index() + 1}; }
 };
 
+struct vi_t : index_t<vi_t> {
+  using index_t::index_t;
+};
+
+struct var_t : index_t<var_t> {
+  using index_t::index_t;
+};
+
 enum class symmetry_t {
   none,
   interpatch,
@@ -79,6 +87,13 @@ struct group_t {
   level_t level;
   gi_t gi;
 };
+
+struct variable_t {
+  gi_t gi;
+  vi_t vi;
+};
+
+variable_t variable(var_t var);
 
 int num_patches();
 int num_levels(int patch);
@@ -222,7 +237,7 @@ private:
 
 scratch_t scratch(group_t group);
 
-valid_t valid(group_t group, tl_t tl, int vi);
+valid_t valid(group_t group, tl_t tl, vi_t vi);
 void require_valid(group_t group, tl_t tl, valid_t where, const char *why);
 void invalidate(window_t window, std::span<const gi_t> groups, tl_t tl,
                 const char *why);
@@ -341,7 +356,7 @@ std::ostream &operator<<(std::ostream &os, const reduction<T, D> &red) {
             << "}\n";
 }
 
-reduction<CCTK_REAL, Loop::dim> reduce(gi_t gi, int vi, tl_t tl);
+reduction<CCTK_REAL, Loop::dim> reduce(gi_t gi, vi_t vi, tl_t tl);
 
 class Interval;
 
@@ -390,5 +405,9 @@ template <>
 struct std::hash<CarpetX::gi_t> : CarpetX::index_hash<CarpetX::gi_t> {};
 template <>
 struct std::hash<CarpetX::tl_t> : CarpetX::index_hash<CarpetX::tl_t> {};
+template <>
+struct std::hash<CarpetX::vi_t> : CarpetX::index_hash<CarpetX::vi_t> {};
+template <>
+struct std::hash<CarpetX::var_t> : CarpetX::index_hash<CarpetX::var_t> {};
 
 #endif

@@ -137,8 +137,7 @@ struct carpetx_adios2_t {
       assert(0);
       varname = CCTK_FullGroupName(gi.index());
     } else {
-      const int v0 = CCTK_FirstVarIndexI(gi.index());
-      varname = CCTK_FullVarName(v0 + vi);
+      varname = CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());
     }
     std::ostringstream buf;
     buf << varname;
