@@ -28,6 +28,7 @@ SRCS =							\
 	boundaries_impl_pos_pos_int.cxx			\
 	boundaries_impl_pos_pos_neg.cxx			\
 	boundaries_impl_pos_pos_pos.cxx			\
+	checkpoint.cxx					\
 	compile_checks.cxx				\
 	driver.cxx					\
 	fillpatch.cxx					\

@@ -315,10 +315,9 @@ int InputSiloParameters(const std::string &input_dir,
   return input_iteration;
 }
 
-void InputSiloGridStructure(cGH *restrict const cctkGH,
-                            const std::string &input_dir,
-                            const std::string &input_file,
-                            const int input_iteration) {
+checkpoint_record_t InputSiloGridStructure(const std::string &input_dir,
+                                           const std::string &input_file,
+                                           const int input_iteration) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(!input_dir.empty());
@@ -335,7 +334,7 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
   auto interval_setup = std::make_unique<Interval>(timer_setup);
 
   const MPI_Comm mpi_comm = MPI_COMM_WORLD;
-  const int myproc = CCTK_MyProc(cctkGH);
+  const int myproc = CCTK_MyProc(nullptr);
 
   const int metafile_ioproc = 0;
   const bool read_metafile = myproc == metafile_ioproc;
@@ -361,6 +360,8 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
     assert(metafile);
   }
 
+  checkpoint_record_t record;
+
   if (read_metafile) {
     const int type = DBGetVarType(metafile.get(), "cycle");
     assert(type == DB_INT);
@@ -368,10 +369,10 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
     int ndims = DBGetVarDims(metafile.get(), "cycle", 1, &dim);
     assert(ndims == 1);
     assert(dim == 1);
-    ierr = DBReadVar(metafile.get(), "cycle", &cctkGH->cctk_iteration);
+    ierr = DBReadVar(metafile.get(), "cycle", &record.iteration);
     assert(!ierr);
   }
-  MPI_Bcast(&cctkGH->cctk_iteration, 1, MPI_INT, metafile_ioproc, mpi_comm);
+  MPI_Bcast(&record.iteration, 1, MPI_INT, metafile_ioproc, mpi_comm);
 
   double dtime;
   if (read_metafile) {
@@ -385,7 +386,7 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
     assert(!ierr);
   }
   MPI_Bcast(&dtime, 1, MPI_DOUBLE, metafile_ioproc, mpi_comm);
-  cctkGH->cctk_time = dtime;
+  record.time = dtime;
 
   // Read internal driver state
   const std::string dirname = DB::legalize_name(driver_name);
@@ -406,26 +407,21 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
   }
   MPI_Bcast(&npatches, 1, MPI_INT, metafile_ioproc, mpi_comm);
   CCTK_VINFO("Found %d patches", npatches);
-  if (npatches != ghext->num_patches())
-    CCTK_VERROR(
-        "Wrong number of patches: Expected %d, found %d in the checkpoint file",
-        ghext->num_patches(), npatches);
   if (!read_metafile)
     nlevels.resize(npatches);
   MPI_Bcast(nlevels.data(), npatches, MPI_INT, metafile_ioproc, mpi_comm);
 
-  ghext->recovered_levels.resize(ghext->num_patches());
+  record.levels.resize(npatches);
 
   for (int patch = 0; patch < npatches; ++patch) {
     CCTK_VINFO("Reading patch %d...", patch);
 
     CCTK_VINFO("  Found %d levels on patch %d", nlevels.at(patch), patch);
-    auto &patchdata = ghext->patch(patch_t{patch});
-    patchdata.amrcore->SetFinestLevel(nlevels.at(patch) - 1);
-    ghext->recovered_levels.at(patch).resize(nlevels.at(patch));
+    record.levels.at(patch).resize(nlevels.at(patch));
 
     for (int level = 0; level < nlevels.at(patch); ++level) {
       CCTK_VINFO("  Reading level %d...", level);
+      auto &recovered = record.levels.at(patch).at(level);
 
       const std::string varname =
           dirname + "/" + make_fabarraybasename(patch, level);
@@ -452,31 +448,13 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
       }
       MPI_Bcast(data.data(), data.size(), MPI_INT, metafile_ioproc, mpi_comm);
 
-      amrex::Vector<amrex::Box> levboxes(nfabs);
+      recovered.boxes.resize(nfabs);
       for (int component = 0; component < nfabs; ++component) {
         const amrex::IntVect small(&data.at(2 * ndims * component));
         const amrex::IntVect big(&data.at(ndims + 2 * ndims * component));
-        levboxes.at(component) = amrex::Box(small, big);
+        recovered.boxes.at(component) = amrex::Box(small, big);
       }
 
-      // Don't set coarse level domain; this is already set by the driver
-      if (level > 0) {
-        amrex::Geometry geom = patchdata.amrcore->Geom(level - 1);
-        geom.refine({2, 2, 2});
-        patchdata.amrcore->SetGeometry(level, geom);
-      }
-
-      amrex::BoxList boxlist(std::move(levboxes));
-      amrex::BoxArray boxarray(std::move(boxlist));
-      patchdata.amrcore->SetBoxArray(level, boxarray);
-
-      amrex::DistributionMapping dm(boxarray);
-      patchdata.amrcore->SetDistributionMap(level, dm);
-
-      patchdata.amrcore->SetupLevel(level_t{patchdata.patch, level}, boxarray,
-                                    dm, []() { return "Recovering"; });
-
-      // Read per-level iteration if present (new checkpoint format)
       {
         const std::string varname_num =
             dirname + "/" +
@@ -504,13 +482,11 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
         if (have_iteration) {
           MPI_Bcast(&iter_num, 1, MPI_LONG_LONG, metafile_ioproc, mpi_comm);
           MPI_Bcast(&iter_den, 1, MPI_LONG_LONG, metafile_ioproc, mpi_comm);
-          ghext->recovered_levels.at(patch).at(level).iteration =
-              rat64(iter_num, iter_den);
+          recovered.iteration = rat64(iter_num, iter_den);
         }
         // else: old checkpoint without per-level iteration — leave as nullopt
       }
 
-      // Read the per-level last-step iteration if present
       {
         const std::string varname =
             dirname + "/" +
@@ -532,8 +508,7 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
         if (have_last_step_iteration) {
           MPI_Bcast(&last_step_iteration, 1, MPI_LONG_LONG, metafile_ioproc,
                     mpi_comm);
-          ghext->recovered_levels.at(patch).at(level).last_step_iteration =
-              int(last_step_iteration);
+          recovered.last_step_iteration = int(last_step_iteration);
         }
         // else: checkpoint predates it — leave as nullopt
       }
@@ -541,11 +516,14 @@ void InputSiloGridStructure(cGH *restrict const cctkGH,
   } // for patch
 
   interval_meta = nullptr;
+
+  return record;
 }
 
 void InputSilo(const cGH *restrict const cctkGH,
                const std::vector<bool> &input_group,
-               const std::string &input_dir, const std::string &input_file) {
+               const std::string &input_dir, const std::string &input_file,
+               const checkpoint_record_t *const recovering) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -668,7 +646,8 @@ void InputSilo(const cGH *restrict const cctkGH,
       if (!file_has_bands) {
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            if (!recovered_finer_level_is_behind(leveldata.level))
+            if (!recovering ||
+                !finer_level_is_behind(*recovering, leveldata.level))
               continue;
             for (const auto &groupdata : leveldata.groups()) {
               const gi_t gi = groupdata.record.groupindex;
@@ -695,7 +674,8 @@ void InputSilo(const cGH *restrict const cctkGH,
       if (!file_has_freg) {
         for (const auto &patchdata : ghext->patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            if (!recovered_finer_level_is_behind(leveldata.level))
+            if (!recovering ||
+                !finer_level_is_behind(*recovering, leveldata.level))
               continue;
             for (const auto &groupdata : leveldata.groups()) {
               const gi_t gi = groupdata.record.groupindex;

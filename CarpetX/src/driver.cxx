@@ -1076,28 +1076,6 @@ bool all_levels_synchronized() {
   return true;
 }
 
-bool recovered_finer_level_is_behind(const level_t level) {
-  if (!ghext->use_subcycling)
-    return false;
-  const auto &recovered = ghext->recovered_levels;
-  const int patch = level.patch().index();
-  if (patch < 0 || patch >= int(recovered.size()))
-    return false;
-  const auto &levels = recovered.at(patch);
-  const int lev = level.index();
-  if (lev < 0 || lev + 1 >= int(levels.size()))
-    return false; // finest level: nothing finer
-  const std::optional<rat64> &self = levels.at(lev).iteration;
-  if (!self)
-    return false; // old checkpoint without per-level iteration: time-aligned
-  for (int finer = lev + 1; finer < int(levels.size()); ++finer) {
-    const std::optional<rat64> &finer_iteration = levels.at(finer).iteration;
-    if (finer_iteration && *finer_iteration < *self)
-      return true;
-  }
-  return false;
-}
-
 std::string subcycling_band_tag(const band_kind kind, const int stage) {
   std::ostringstream buf;
   switch (kind) {
@@ -1445,6 +1423,22 @@ amrex::BoxArray CactusAmrCore::RechopLevel(const level_t recovered_level,
   return ba;
 }
 
+void CactusAmrCore::make_level(const level_t level, const amrex::BoxArray &ba,
+                               const amrex::DistributionMapping &dm,
+                               const std::string &why) {
+  SetupLevel(level, ba, dm, [why]() { return why; });
+
+  const auto &leveldata = ghext->level(level);
+  const window_t window = window_t::one_level(level);
+  for (const auto &groupdata : leveldata.groups()) {
+    for (const tl_t tl : groupdata.record.timelevels())
+      invalidate(window, {.gi = groupdata.record.groupindex,
+                          .tl = tl,
+                          .where = make_valid_all(),
+                          .event = why});
+  }
+}
+
 void CactusAmrCore::MakeNewLevelFromScratch(
     int lev, amrex::Real time, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm) {
@@ -1455,17 +1449,7 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 #pragma omp critical
     CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d", patch.index(), lev);
 
-  SetupLevel(level, ba, dm, []() { return "MakeNewLevelFromScratch"; });
-
-  const auto &leveldata = ghext->level(level);
-  const window_t active_levels = window_t::one_level(level);
-  for (const auto &groupdata : leveldata.groups()) {
-    for (const tl_t tl : groupdata.record.timelevels())
-      invalidate(active_levels, {.gi = groupdata.record.groupindex,
-                                 .tl = tl,
-                                 .where = make_valid_all(),
-                                 .event = "MakeNewLevelFromScratch"});
-  }
+  make_level(level, ba, dm, "MakeNewLevelFromScratch");
 
   if (verbose)
 #pragma omp critical

@@ -179,6 +179,8 @@ public:
                   const amrex::DistributionMapping &dm,
                   const std::function<std::string()> &why);
   amrex::BoxArray RechopLevel(level_t level, amrex::BoxArray ba) const;
+  void make_level(level_t level, const amrex::BoxArray &ba,
+                  const amrex::DistributionMapping &dm, const std::string &why);
   virtual void
   MakeNewLevelFromScratch(int level, amrex::Real time,
                           const amrex::BoxArray &ba,
@@ -857,15 +859,6 @@ struct GHExt {
 
   bool use_subcycling = false;
 
-  // The iteration of the checkpoint this run was started from, or -1. Set
-  // once, by RecoverHierarchy as soon as RecoverGridStructure has read it.
-  // The flesh offers no query for this (config->recovered is only
-  // Initialise's argument). A level whose last_finalized_iteration is not past
-  // it has not run its end of step since recovery, so it may still lack what
-  // the checkpoint does not hold; error messages about such a level state the
-  // recovery rule.
-  int recovered_iteration = -1;
-
   // RecomputePerClockGroup is traversing CCTK_POST_RECOVER_VARIABLES, once
   // per clock group. Set only inside that loop. Levels outside the window may
   // then be at other times, so error messages read it to explain that a
@@ -893,16 +886,6 @@ struct GHExt {
     rk_config_read.store(true, std::memory_order_relaxed);
     return rk_config;
   }
-
-  // Per-level metadata read from a checkpoint, consumed when recovery restores
-  // the level clocks in schedule.cxx. Either value is absent when the
-  // checkpoint predates it.
-  struct recovered_level_t {
-    std::optional<rat64> iteration; // iteration_num / iteration_den
-    std::optional<int> last_step_iteration;
-  };
-  // Indexed [patch][level]. Empty outside of the recovery window.
-  std::vector<std::vector<recovered_level_t> > recovered_levels;
 
   int num_levels(const patch_t patch) const {
     return this->patch(patch).num_levels();
@@ -948,8 +931,6 @@ bool get_group_evolve_flag(gi_t gi);
 // false, the coarse source bands hold the in-progress coarse step (u(t_n) and
 // the stage derivatives) that must be serialized.
 bool all_levels_synchronized();
-
-bool recovered_finer_level_is_behind(level_t level);
 
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
 // ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)

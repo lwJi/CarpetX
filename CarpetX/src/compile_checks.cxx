@@ -1,3 +1,4 @@
+#include "checkpoint.hxx"
 #include "driver.hxx"
 #include "schedule.hxx"
 #include "subcycling.hxx"
@@ -66,8 +67,9 @@ template <class... Args> concept rk_source_band_takes = requires(Args... args) {
 };
 
 template <class... Args>
-concept recovered_finer_takes = requires(Args... args) {
-  recovered_finer_level_is_behind(args...);
+concept finer_behind_takes =
+    requires(const checkpoint_record_t &record, Args... args) {
+  finer_level_is_behind(record, args...);
 };
 
 template <class Kernel>
@@ -203,8 +205,8 @@ static_assert(!accumulate_fluxes_takes<int, int, int, CCTK_REAL>);
 static_assert(rk_source_band_takes<level_t, gi_t, band_kind>);
 static_assert(!rk_source_band_takes<int, int, gi_t, band_kind>);
 
-static_assert(recovered_finer_takes<level_t>);
-static_assert(!recovered_finer_takes<int, int>);
+static_assert(finer_behind_takes<level_t>);
+static_assert(!finer_behind_takes<int, int>);
 
 static_assert(loop_parallel_takes<std::function<void(
                   GHExt::PatchData::LevelData &, int, int, const cGH *)> >);

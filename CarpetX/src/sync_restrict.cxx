@@ -1,6 +1,7 @@
 #include "schedule.hxx"
 #include "driver.hxx"
 #include "fillpatch.hxx"
+#include "io.hxx"
 #include "subcycling.hxx"
 #include "sync_restrict_internal.hxx"
 #include "task_manager.hxx"
@@ -165,8 +166,8 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
   const auto &restrict coarseleveldata = ghext->level(leveldata.level.parent());
   const auto &restrict coarsegroupdata = coarseleveldata.group(gi);
   const bool recovering =
-      ghext->recovered_iteration >= 0 &&
-      coarseleveldata.last_finalized_iteration <= ghext->recovered_iteration;
+      recovered_iteration() >= 0 &&
+      coarseleveldata.last_finalized_iteration <= recovered_iteration();
 
   const std::function<std::string()> hint = [&coarsegroupdata, tl,
                                              recovering]() -> std::string {

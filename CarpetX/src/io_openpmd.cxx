@@ -423,13 +423,14 @@ struct carpetx_openpmd_t {
 
   int InputOpenPMDParameters(const std::string &input_dir,
                              const std::string &input_file);
-  void InputOpenPMDGridStructure(cGH *cctkGH, const std::string &input_dir,
-                                 const std::string &input_file,
-                                 int input_iteration);
+  checkpoint_record_t InputOpenPMDGridStructure(const std::string &input_dir,
+                                                const std::string &input_file,
+                                                int input_iteration);
   void InputOpenPMD(const cGH *const cctkGH,
                     const std::vector<bool> &input_group,
                     const std::string &input_dir, const std::string &input_file,
-                    TimeLevelMode tl_mode = TimeLevelMode::Current);
+                    TimeLevelMode tl_mode,
+                    const checkpoint_record_t *recovering);
 
   void OutputOpenPMD(const cGH *const cctkGH,
                      const std::vector<bool> &output_group,
@@ -449,21 +450,22 @@ int InputOpenPMDParameters(const std::string &input_dir,
     carpetx_openpmd_t::self = std::make_optional<carpetx_openpmd_t>();
   return carpetx_openpmd_t::self->InputOpenPMDParameters(input_dir, input_file);
 }
-void InputOpenPMDGridStructure(cGH *cctkGH, const std::string &input_dir,
-                               const std::string &input_file,
-                               int input_iteration) {
+checkpoint_record_t InputOpenPMDGridStructure(const std::string &input_dir,
+                                              const std::string &input_file,
+                                              int input_iteration) {
   if (!carpetx_openpmd_t::self)
     carpetx_openpmd_t::self = std::make_optional<carpetx_openpmd_t>();
-  carpetx_openpmd_t::self->InputOpenPMDGridStructure(
-      cctkGH, input_dir, input_file, input_iteration);
+  return carpetx_openpmd_t::self->InputOpenPMDGridStructure(
+      input_dir, input_file, input_iteration);
 }
 void InputOpenPMD(const cGH *cctkGH, const std::vector<bool> &input_group,
                   const std::string &input_dir, const std::string &input_file,
-                  TimeLevelMode tl_mode) {
+                  TimeLevelMode tl_mode,
+                  const checkpoint_record_t *const recovering) {
   if (!carpetx_openpmd_t::self)
     carpetx_openpmd_t::self = std::make_optional<carpetx_openpmd_t>();
   carpetx_openpmd_t::self->InputOpenPMD(cctkGH, input_group, input_dir,
-                                        input_file, tl_mode);
+                                        input_file, tl_mode, recovering);
 }
 
 void OutputOpenPMD(const cGH *const cctkGH,
@@ -568,10 +570,10 @@ int carpetx_openpmd_t::InputOpenPMDParameters(const std::string &input_dir,
   return input_iteration;
 }
 
-void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
-                                                  const std::string &input_dir,
-                                                  const std::string &input_file,
-                                                  const int input_iteration) {
+checkpoint_record_t
+carpetx_openpmd_t::InputOpenPMDGridStructure(const std::string &input_dir,
+                                             const std::string &input_file,
+                                             const int input_iteration) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(!input_dir.empty());
@@ -589,8 +591,9 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
   assert(series);
   assert(read_iter);
 
-  cctkGH->cctk_iteration = input_iteration;
-  cctkGH->cctk_time = read_iter->time<double>();
+  checkpoint_record_t record;
+  record.iteration = input_iteration;
+  record.time = read_iter->time<double>();
 
   // TODO: Check whether attribute exists and has correct type
   const int ndims = read_iter->getAttribute("numDims").get<std::int64_t>();
@@ -598,10 +601,6 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
 
   const int npatches =
       read_iter->getAttribute("numPatches").get<std::int64_t>();
-  if (npatches != ghext->num_patches())
-    CCTK_VERROR(
-        "Wrong number of patches: Expected %d, found %d in the checkpoint file",
-        ghext->num_patches(), npatches);
 
   std::vector<std::string> patch_suffixes;
   if (npatches == 1) {
@@ -618,10 +617,9 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
                          .get<std::vector<std::string> >();
   }
 
-  ghext->recovered_levels.resize(ghext->num_patches());
+  record.levels.resize(npatches);
 
-  for (auto &patchdata : ghext->patches()) {
-    const int patch = patchdata.patch.index();
+  for (int patch = 0; patch < npatches; ++patch) {
     const int nlevels =
         read_iter->getAttribute("numLevels" + patch_suffixes.at(patch))
             .get<std::int64_t>();
@@ -646,16 +644,17 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
 
     assert(ndims == 3);
     assert(nlevels > 0);
-    patchdata.amrcore->SetFinestLevel(nlevels - 1);
-    ghext->recovered_levels.at(patch).resize(nlevels);
+    record.levels.at(patch).resize(nlevels);
 
     for (int level = 0; level < nlevels; ++level) {
+      auto &recovered = record.levels.at(patch).at(level);
+
       const std::vector<std::int64_t> chunk_infos =
           read_iter->getAttribute("chunkInfo" + level_suffixes.at(level))
               .get<std::vector<std::int64_t> >();
       assert(chunk_infos.size() % (2 * ndims) == 0);
       const int nfabs = chunk_infos.size() / (2 * ndims);
-      amrex::Vector<amrex::Box> levboxes(nfabs);
+      recovered.boxes.resize(nfabs);
       for (int component = 0; component < nfabs; ++component) {
         const int offset = 2 * ndims * component;
         amrex::IntVect small, big;
@@ -663,30 +662,8 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
           small[d] = chunk_infos.at(offset + 0 * ndims + ndims - 1 - d);
           big[d] = chunk_infos.at(offset + 1 * ndims + ndims - 1 - d);
         }
-        levboxes.at(component) = amrex::Box(small, big - 1);
+        recovered.boxes.at(component) = amrex::Box(small, big - 1);
       }
-
-      // Don't set coarse level domain; this is already set by the driver
-      if (level > 0) {
-        amrex::Geometry geom = patchdata.amrcore->Geom(level - 1);
-        geom.refine({2, 2, 2});
-        patchdata.amrcore->SetGeometry(level, geom);
-      }
-
-      amrex::BoxList boxlist(std::move(levboxes));
-      amrex::BoxArray boxarray(std::move(boxlist));
-      if (rechop_on_recovery)
-        boxarray = patchdata.amrcore->RechopLevel(
-            level_t{patchdata.patch, level}, boxarray);
-      patchdata.amrcore->SetBoxArray(level, boxarray);
-
-      amrex::DistributionMapping dm(boxarray);
-      patchdata.amrcore->SetDistributionMap(level, dm);
-
-      patchdata.amrcore->SetupLevel(level_t{patchdata.patch, level}, boxarray,
-                                    dm, []() { return "Recovering"; });
-
-      auto &recovered = ghext->recovered_levels.at(patch).at(level);
 
       // Read per-level iteration if present (new checkpoint format)
       const std::string iter_num_attr =
@@ -712,13 +689,14 @@ void carpetx_openpmd_t::InputOpenPMDGridStructure(cGH *cctkGH,
       // else: checkpoint predates it — leave as nullopt
     } // for level
   } // for patch
+
+  return record;
 }
 
-void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
-                                     const std::vector<bool> &input_group,
-                                     const std::string &input_dir,
-                                     const std::string &input_file,
-                                     TimeLevelMode tl_mode) {
+void carpetx_openpmd_t::InputOpenPMD(
+    const cGH *const cctkGH, const std::vector<bool> &input_group,
+    const std::string &input_dir, const std::string &input_file,
+    TimeLevelMode tl_mode, const checkpoint_record_t *const recovering) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -1101,7 +1079,8 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
 
           {
             const bool need_bands =
-                recovered_finer_level_is_behind(leveldata.level);
+                recovering &&
+                finer_level_is_behind(*recovering, leveldata.level);
             const auto read_band = [&](amrex::MultiFab *const band,
                                        const band_kind kind, const int stage) {
               if (!band || band->empty())

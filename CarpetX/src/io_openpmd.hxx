@@ -7,6 +7,7 @@
 
 #ifdef HAVE_CAPABILITY_openPMD_api
 
+#include "checkpoint.hxx"
 #include "io_slice.hxx"
 
 #include <optional>
@@ -19,12 +20,12 @@ enum class TimeLevelMode { Current, All };
 
 int InputOpenPMDParameters(const std::string &input_dir,
                            const std::string &input_file);
-void InputOpenPMDGridStructure(cGH *cctkGH, const std::string &input_dir,
-                               const std::string &input_file,
-                               int input_iteration);
+checkpoint_record_t InputOpenPMDGridStructure(const std::string &input_dir,
+                                              const std::string &input_file,
+                                              int input_iteration);
 void InputOpenPMD(const cGH *cctkGH, const std::vector<bool> &input_group,
                   const std::string &input_dir, const std::string &input_file,
-                  TimeLevelMode tl_mode = TimeLevelMode::Current);
+                  TimeLevelMode tl_mode, const checkpoint_record_t *recovering);
 
 void OutputOpenPMD(const cGH *cctkGH, const std::vector<bool> &output_group,
                    const std::string &output_dir,

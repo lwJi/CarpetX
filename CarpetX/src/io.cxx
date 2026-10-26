@@ -106,6 +106,8 @@ void check_silo_no_multi_tl(const std::vector<bool> &group_mask,
 
 int recover_iteration = -1;
 
+int recovered_iteration() { return recover_iteration; }
+
 extern "C" int CarpetX_RecoverParameters() {
   DECLARE_CCTK_PARAMETERS;
 
@@ -141,7 +143,7 @@ extern "C" int CarpetX_RecoverParameters() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void RecoverGridStructure(cGH *restrict cctkGH) {
+checkpoint_record_t RecoverGridStructure(cGH *restrict cctkGH) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -150,35 +152,40 @@ void RecoverGridStructure(cGH *restrict cctkGH) {
                 "recover_method=\"openpmd\" (got \"%s\")",
                 recover_method);
 
-  if (CCTK_EQUALS(recover_method, "openpmd")) {
+  checkpoint_record_t record = [&]() -> checkpoint_record_t {
+    if (CCTK_EQUALS(recover_method, "openpmd")) {
 
 #ifdef HAVE_CAPABILITY_openPMD_api
-    InputOpenPMDGridStructure(cctkGH, recover_dir, recover_file,
-                              recover_iteration);
+      return InputOpenPMDGridStructure(recover_dir, recover_file,
+                                       recover_iteration);
 #else
-    CCTK_VERROR(
-        "CarpetX::recover_method is set to \"openpmd\", but openPMD_api "
-        "is not enabled");
+      CCTK_VERROR(
+          "CarpetX::recover_method is set to \"openpmd\", but openPMD_api "
+          "is not enabled");
 #endif
 
-  } else if (CCTK_EQUALS(recover_method, "silo")) {
+    } else if (CCTK_EQUALS(recover_method, "silo")) {
 
 #ifdef HAVE_CAPABILITY_Silo
-    InputSiloGridStructure(cctkGH, recover_dir, recover_file,
-                           recover_iteration);
+      return InputSiloGridStructure(recover_dir, recover_file,
+                                    recover_iteration);
 #else
-    CCTK_VERROR("CarpetX::recover_method is set to \"silo\", but Silo "
-                "is not enabled");
+      CCTK_VERROR("CarpetX::recover_method is set to \"silo\", but Silo "
+                  "is not enabled");
 #endif
 
-  } else {
-    CCTK_ERROR("unknown value for paramater CarpetX::recover_method");
-  }
+    } else {
+      CCTK_ERROR("unknown value for paramater CarpetX::recover_method");
+    }
+  }();
+
+  apply_structure(cctkGH, record);
+  return record;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void RecoverGH(const cGH *restrict cctkGH) {
+void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -213,7 +220,7 @@ void RecoverGH(const cGH *restrict cctkGH) {
 
 #ifdef HAVE_CAPABILITY_openPMD_api
     InputOpenPMD(cctkGH, group_enabled, recover_dir, recover_file,
-                 TimeLevelMode::All);
+                 TimeLevelMode::All, &record);
 #else
     CCTK_VERROR(
         "CarpetX::recover_method is set to \"openpmd\", but openPMD_api "
@@ -224,7 +231,7 @@ void RecoverGH(const cGH *restrict cctkGH) {
 
 #ifdef HAVE_CAPABILITY_Silo
     check_silo_no_multi_tl(group_enabled, "recovery");
-    InputSilo(cctkGH, group_enabled, recover_dir, recover_file);
+    InputSilo(cctkGH, group_enabled, recover_dir, recover_file, &record);
 #else
     CCTK_VERROR("CarpetX::recover_method is set to \"silo\", but Silo "
                 "is not enabled");
@@ -258,11 +265,11 @@ void InputGH(const cGH *restrict cctkGH) {
   if (CCTK_EQUALS(filereader_method, "openpmd")) {
 
 #ifdef HAVE_CAPABILITY_openPMD_api
-    // TODO: handle multiple file names in `filereader_ID_files`
     const std::vector<bool> input_group =
         find_groups("openPMD", filereader_ID_vars);
     const std::string simulation_name = get_simulation_name();
-    InputOpenPMD(cctkGH, input_group, filereader_ID_dir, filereader_ID_files);
+    InputOpenPMD(cctkGH, input_group, filereader_ID_dir, filereader_ID_files,
+                 TimeLevelMode::Current, nullptr);
 #else
     // TODO: Check this at paramcheck
     CCTK_VERROR(
@@ -275,11 +282,9 @@ void InputGH(const cGH *restrict cctkGH) {
     const std::vector<bool> input_group =
         find_groups("Silo", filereader_ID_vars);
 #ifdef HAVE_CAPABILITY_Silo
-    // TODO: Stop at paramcheck time when Silo input parameters are
-    // set, but Silo is not available
-    // TODO: handle multiple file names in `filereader_ID_files`
     const std::string simulation_name = get_simulation_name();
-    InputSilo(cctkGH, input_group, filereader_ID_dir, filereader_ID_files);
+    InputSilo(cctkGH, input_group, filereader_ID_dir, filereader_ID_files,
+              nullptr);
 #else
     // TODO: Check this at paramcheck
     CCTK_VERROR("CarpetX::filereader_method is set to \"silo\", but Silo is "
