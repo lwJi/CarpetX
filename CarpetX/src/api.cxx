@@ -20,6 +20,28 @@ namespace {
 
 std::string event_name(const char *const what) { return what ? what : ""; }
 
+void require_window_bounds(const int min_level, const int max_level,
+                           const int min_patch, const int max_patch,
+                           const std::source_location site) {
+  const GHExt &ext = driver();
+  if (min_level < 0 || max_level > ext.num_levels() || min_level > max_level)
+    refuse(site, "CarpetX window levels [%d, %d) must lie within [0, %d)",
+           min_level, max_level, ext.num_levels());
+  if (min_patch < 0 || max_patch > ext.num_patches() || min_patch > max_patch)
+    refuse(site, "CarpetX window patches [%d, %d) must lie within [0, %d)",
+           min_patch, max_patch, ext.num_patches());
+}
+
+void require_window_level(const int min_level, const int max_level,
+                          const int min_patch, const int max_patch,
+                          const std::source_location site) {
+  if (min_level >= max_level || min_patch >= max_patch)
+    refuse(site,
+           "CarpetX window of patches [%d, %d), refinement levels [%d, %d) "
+           "holds no level",
+           min_patch, max_patch, min_level, max_level);
+}
+
 } // namespace
 
 void require_no_open_write(
@@ -34,17 +56,15 @@ void require_no_open_write(
            groupdata.level.index());
 }
 
-active_levels_t require_operable(const window_t window,
-                                 const std::span<const gi_t> groups) {
+void require_operable(const window_t window,
+                      const std::span<const gi_t> groups) {
   for (const gi_t gi : groups)
     driver().record(gi);
-  const active_levels_t active_levels(window);
-  active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
     for (const gi_t gi : groups)
       if (driver().record(gi).has_storage())
         require_no_open_write(leveldata.group(gi));
   });
-  return active_levels;
 }
 
 variable_t variable(const var_t var) {
@@ -114,6 +134,37 @@ std::array<int, Loop::dim> nghostzones(const group_t group) {
   return driver().group(group).nghostzones;
 }
 
+window_t window_t::one_level(const level_t level,
+                             const std::source_location site) {
+  const int patch = level.patch().index();
+  require_window_bounds(level.index(), level.index() + 1, patch, patch + 1,
+                        site);
+  return window_t{level.index(), level.index() + 1, patch, patch + 1};
+}
+
+window_t window_t::levels(const int min_level, const int max_level,
+                          const std::source_location site) {
+  const int num_patches = driver().num_patches();
+  require_window_bounds(min_level, max_level, 0, num_patches, site);
+  return window_t{min_level, max_level, 0, num_patches};
+}
+
+window_t window_t::narrow(const int min_level, const int max_level,
+                          const std::source_location site) const {
+  require_window_bounds(min_level, max_level, min_patch_, max_patch_, site);
+  return window_t{min_level, max_level, min_patch_, max_patch_};
+}
+
+level_t window_t::coarsest(const std::source_location site) const {
+  require_window_level(min_level_, max_level_, min_patch_, max_patch_, site);
+  return level_t{patch_t{min_patch_}, min_level_};
+}
+
+level_t window_t::finest(const std::source_location site) const {
+  require_window_level(min_level_, max_level_, min_patch_, max_patch_, site);
+  return level_t{patch_t{min_patch_}, max_level_ - 1};
+}
+
 void window_t::loop_serially(
     const std::function<void(level_t level)> &kernel) const {
   loop_coarse_to_fine(kernel);
@@ -121,8 +172,8 @@ void window_t::loop_serially(
 
 void window_t::loop_coarse_to_fine(
     const std::function<void(level_t level)> &kernel) const {
-  active_levels_t(*this).loop_coarse_to_fine(
-      [&](const GHExt::PatchData::LevelData &leveldata) {
+  CarpetX::loop_coarse_to_fine(
+      *this, [&](const GHExt::PatchData::LevelData &leveldata) {
         kernel(leveldata.level);
       });
 }
@@ -130,25 +181,22 @@ void window_t::loop_coarse_to_fine(
 void window_t::loop_parallel(
     const std::function<void(level_t level, int index, int component,
                              const cGH *cctkGH)> &kernel) const {
-  active_levels_t(*this).loop_parallel(
-      [&](const GHExt::PatchData::LevelData &leveldata, const int index,
-          const int component, const cGH *const cctkGH) {
+  CarpetX::loop_parallel(
+      *this, [&](const GHExt::PatchData::LevelData &leveldata, const int index,
+                 const int component, const cGH *const cctkGH) {
         kernel(leveldata.level, index, component, cctkGH);
       });
 }
 
 window_t active_window() {
-  const std::optional<active_levels_t> &levels = scheduled_levels();
+  const std::optional<window_t> &levels = scheduled_levels();
   if (!levels)
     CCTK_ERROR("CarpetX::active_window() called outside a traversal: no "
                "levels are active");
-  return levels->window();
+  return *levels;
 }
 
-window_t all_levels() {
-  GHExt &ext = driver();
-  return window_t{0, ext.num_levels(), 0, ext.num_patches()};
-}
+window_t all_levels() { return window_t::levels(0, driver().num_levels()); }
 
 const amrex::MultiFab &data(const group_t group, const tl_t tl) {
   const operation_scope_t op("CarpetX::data");
@@ -186,13 +234,14 @@ write_t write(const group_t group, const tl_t tl, const valid_t leaves_valid,
                 tl.index(), groupdata.record.groupname.c_str(), open_writes,
                 open_writes == 1 ? "" : "s", groupdata.level.patch().index(),
                 groupdata.level.index());
-  return write_t(std::unique_ptr<write_t::impl>(new write_t::impl{
-      group, tl,
-      open_write(one_level(group.level), {.gi = group.gi,
-                                          .tl = tl,
-                                          .fills = leaves_valid,
-                                          .keeps = leaves_valid,
-                                          .event = event_name(what)})}));
+  return write_t(std::unique_ptr<write_t::impl>(
+      new write_t::impl{group, tl,
+                        open_write(window_t::one_level(group.level),
+                                   {.gi = group.gi,
+                                    .tl = tl,
+                                    .fills = leaves_valid,
+                                    .keeps = leaves_valid,
+                                    .event = event_name(what)})}));
 }
 
 struct scratch_t::impl {
@@ -278,28 +327,28 @@ void require_valid(const group_t group, const tl_t tl, const valid_t where,
                    const char *const why) {
   const operation_scope_t op("CarpetX::require_valid");
   driver().group(group).timelevel(tl);
-  require(one_level(group.level),
+  require(window_t::one_level(group.level),
           {.gi = group.gi, .tl = tl, .where = where, .event = event_name(why)});
 }
 
 void invalidate(const window_t window, const std::span<const gi_t> groups,
                 const tl_t tl, const char *const why) {
   const operation_scope_t op("CarpetX::invalidate");
-  const active_levels_t active_levels = require_operable(window, groups);
+  require_operable(window, groups);
   const std::string event = event_name(why);
   for (const gi_t gi : groups) {
-    active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+    loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
       leveldata.group(gi).timelevel(tl);
     });
-    invalidate(active_levels,
+    invalidate(window,
                {.gi = gi, .tl = tl, .where = make_valid_all(), .event = event});
   }
 }
 
 void sync(const window_t window, const std::span<const gi_t> groups) {
   const operation_scope_t op("CarpetX::sync");
-  const active_levels_t active_levels = require_operable(window, groups);
-  SyncGroups(active_levels, driver().get_global_cctkGH(), groups);
+  require_operable(window, groups);
+  SyncGroups(window, driver().get_global_cctkGH(), groups);
 }
 
 namespace {
@@ -308,27 +357,26 @@ void sync_ghosts_only_timelevels(const window_t window,
                                  const std::span<const gi_t> groups,
                                  const timelevels_t tls) {
   const operation_scope_t op("CarpetX::sync_ghosts_only");
-  const active_levels_t active_levels = require_operable(window, groups);
-  SyncGroupsByDirIGhostOnly(active_levels, driver().get_global_cctkGH(), groups,
-                            tls);
+  require_operable(window, groups);
+  SyncGroupsByDirIGhostOnly(window, driver().get_global_cctkGH(), groups, tls);
 }
 
 void prolongate_ghosts_timelevels(const window_t window,
                                   const std::span<const gi_t> groups,
                                   const timelevels_t tls) {
   const operation_scope_t op("CarpetX::prolongate_ghosts");
-  const active_levels_t active_levels = require_operable(window, groups);
-  SyncGroupsByDirIProlongateOnly(active_levels, driver().get_global_cctkGH(),
-                                 groups, tls);
+  require_operable(window, groups);
+  SyncGroupsByDirIProlongateOnly(window, driver().get_global_cctkGH(), groups,
+                                 tls);
 }
 
 void prolongate_aligned_timelevels(const window_t window,
                                    const std::span<const gi_t> groups,
                                    const timelevels_t tls) {
   const operation_scope_t op("CarpetX::prolongate_aligned");
-  const active_levels_t active_levels = require_operable(window, groups);
-  SyncGroupsByDirIProlongateOnlyAligned(
-      active_levels, driver().get_global_cctkGH(), groups, tls);
+  require_operable(window, groups);
+  SyncGroupsByDirIProlongateOnlyAligned(window, driver().get_global_cctkGH(),
+                                        groups, tls);
 }
 
 } // namespace
@@ -367,8 +415,7 @@ void restrict_no_poison(const window_t window,
                         const std::span<const gi_t> groups) {
   const operation_scope_t op("CarpetX::restrict_no_poison");
   require_operable(window, groups);
-  RestrictNoPoison(driver().get_global_cctkGH(), window.min_level,
-                   window.max_level, groups);
+  RestrictNoPoison(driver().get_global_cctkGH(), window, groups);
 }
 
 } // namespace CarpetX

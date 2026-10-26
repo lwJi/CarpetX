@@ -71,9 +71,13 @@ concept recovered_finer_takes = requires(Args... args) {
 };
 
 template <class Kernel>
-concept loop_parallel_takes =
-    requires(const active_levels_t &levels, Kernel kernel) {
-  levels.loop_parallel(kernel);
+concept loop_parallel_takes = requires(window_t window, Kernel kernel) {
+  loop_parallel(window, kernel);
+};
+
+template <class Kernel>
+concept loop_fine_to_coarse_takes = requires(window_t window, Kernel kernel) {
+  loop_fine_to_coarse(window, kernel);
 };
 
 template <class Group>
@@ -96,15 +100,40 @@ concept array_timelevel_takes =
 
 template <class... Args>
 concept sync_by_dir_takes =
-    requires(const active_levels_t &levels, const cGH *cctkGH, Args... args) {
-  SyncGroupsByDirI(levels, cctkGH, args...);
+    requires(window_t window, const cGH *cctkGH, Args... args) {
+  SyncGroupsByDirI(window, cctkGH, args...);
 };
 
 template <class... Args>
 concept ghost_only_takes =
-    requires(const active_levels_t &levels, const cGH *cctkGH,
-             std::span<const gi_t> groups, Args... args) {
-  SyncGroupsByDirIGhostOnly(levels, cctkGH, groups, args...);
+    requires(window_t window, const cGH *cctkGH, std::span<const gi_t> groups,
+             Args... args) {
+  SyncGroupsByDirIGhostOnly(window, cctkGH, groups, args...);
+};
+
+template <class... Args>
+concept restrict_takes = requires(const cGH *cctkGH, Args... args) {
+  Restrict(cctkGH, args...);
+};
+
+template <class... Args>
+concept restrict_no_poison_takes = requires(const cGH *cctkGH, Args... args) {
+  RestrictNoPoison(cctkGH, args...);
+};
+
+template <class... Args>
+concept reflux_takes = requires(const cGH *cctkGH, Args... args) {
+  Reflux(cctkGH, args...);
+};
+
+template <class... Args>
+concept window_is_restricted_takes = requires(Args... args) {
+  window_is_restricted(args...);
+};
+
+template <class Window>
+concept require_takes = requires(Window window, require_spec_t spec) {
+  require(window, spec);
 };
 
 template <class Group, class Timelevel>
@@ -181,6 +210,12 @@ static_assert(loop_parallel_takes<std::function<void(
                   GHExt::PatchData::LevelData &, int, int, const cGH *)> >);
 static_assert(!loop_parallel_takes<
               std::function<void(int, int, int, int, const cGH *)> >);
+static_assert(
+    !loop_parallel_takes<std::function<void(level_t, int, int, const cGH *)> >);
+
+static_assert(loop_fine_to_coarse_takes<
+              std::function<void(GHExt::PatchData::LevelData &)> >);
+static_assert(!loop_fine_to_coarse_takes<std::function<void(level_t)> >);
 
 static_assert(level_group_takes<gi_t>);
 static_assert(!level_group_takes<int>);
@@ -195,6 +230,17 @@ static_assert(!array_timelevel_takes<int>);
 
 static_assert(sync_by_dir_takes<std::span<const gi_t> >);
 static_assert(!sync_by_dir_takes<int, const int *, const int *>);
+
+static_assert(restrict_takes<window_t, std::span<const gi_t> >);
+static_assert(!restrict_takes<int, int, std::span<const gi_t> >);
+static_assert(restrict_no_poison_takes<window_t, std::span<const gi_t> >);
+static_assert(!restrict_no_poison_takes<int, int, std::span<const gi_t> >);
+static_assert(reflux_takes<window_t>);
+static_assert(!reflux_takes<int, int>);
+static_assert(window_is_restricted_takes<window_t>);
+static_assert(!window_is_restricted_takes<int, int>);
+static_assert(require_takes<window_t>);
+static_assert(!require_takes<level_t>);
 
 static_assert(ghost_only_takes<timelevels_t>);
 static_assert(!ghost_only_takes<>);

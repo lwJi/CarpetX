@@ -243,10 +243,11 @@ void require_serial_context() {
 }
 
 std::string describe(const window_t &window) {
+  const auto levels = window_access::levels(window);
+  const auto patches = window_access::patches(window);
   std::ostringstream buf;
-  buf << "patches [" << window.min_patch << ", " << window.max_patch
-      << "), refinement levels [" << window.min_level << ", "
-      << window.max_level << ")";
+  buf << "patches [" << patches.min << ", " << patches.max
+      << "), refinement levels [" << levels.min << ", " << levels.max << ")";
   return buf.str();
 }
 
@@ -273,8 +274,8 @@ integrated_groups_t integrated_groups_with_storage(const level_t level,
 std::vector<rk_level_t> integrated_levels(const window_t window,
                                           const rk_config_t &config) {
   std::vector<rk_level_t> levels;
-  active_levels_t(window).loop_coarse_to_fine(
-      [&](const GHExt::PatchData::LevelData &leveldata) {
+  loop_coarse_to_fine(
+      window, [&](const GHExt::PatchData::LevelData &leveldata) {
         levels.push_back({leveldata.level, integrated_groups_with_storage(
                                                leveldata.level, config)});
       });
@@ -302,7 +303,7 @@ void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
       cctkGH->cctk_delta_time * CCTK_REAL(parentdata.delta_iteration);
   assert(std::isfinite(dtc) && dtc > 0);
   const bool end_of_substep = stage == nstages;
-  const active_levels_t window = one_level(level);
+  const window_t window = window_t::one_level(level);
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : states) {
     const GroupData &groupdata = leveldata.group(gi);
@@ -336,8 +337,8 @@ rk_step_t open_rk_step(const window_t window) {
   const operation_scope_t op("CarpetX::open_rk_step");
   const rk_config_t &config = require_integrator();
   require_serial_context();
-  auto step = std::make_unique<rk_step_t::impl>();
-  step->window = window;
+  auto step =
+      std::unique_ptr<rk_step_t::impl>(new rk_step_t::impl{.window = window});
   step->nstages = config.nstages();
   step->b = config.b;
   for (const rk_pair_t &pair : config.integrated)
@@ -422,13 +423,13 @@ void rk_step_t::state_updated() {
       if (entry.level.index() == 0)
         continue;
       const std::vector<gi_t> &states = entry.groups.states;
-      SyncGroupsByDirIGhostOnly(one_level(entry.level), cctkGH, states,
-                                timelevels_t::one(rk_tl));
+      SyncGroupsByDirIGhostOnly(window_t::one_level(entry.level), cctkGH,
+                                states, timelevels_t::one(rk_tl));
       fill_refinement_boundary(cctkGH, entry.level, states, stage, nstages,
                                event);
     }
   } else if (stage == p->nstages) {
-    Reflux(cctkGH, p->window.min_level, p->window.max_level);
+    Reflux(cctkGH, p->window);
   }
   synchronize();
 }
@@ -443,15 +444,13 @@ rk_step_t::~rk_step_t() {
                 describe(p->window).c_str(), p->update_count, p->nstages);
 }
 
-void RecoverRKBoundary(const active_levels_t &active_levels,
-                       const cGH *const cctkGH) {
+void RecoverRKBoundary(const window_t window, const cGH *const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
   if (!ghext->use_subcycling)
     return;
   const std::optional<rk_config_t> &integrator = ghext->rk();
   if (!integrator || integrator->integrated.empty())
     return;
-  const window_t window = active_levels.window();
   const operation_scope_t op("CarpetX::RecoverRKBoundary");
 
   if (verbose)
@@ -476,20 +475,18 @@ void RecoverRKBoundary(const active_levels_t &active_levels,
   for (const rk_pair_t &pair : integrator->integrated)
     states.push_back(pair.state);
   std::sort(states.begin(), states.end());
-  SyncGroupsByDirIGhostOnly(active_levels, ghext->get_global_cctkGH(), states,
+  SyncGroupsByDirIGhostOnly(window, ghext->get_global_cctkGH(), states,
                             timelevels_t::one(rk_tl));
-  const bool restricted =
-      window_is_restricted(window.min_level, window.max_level);
+  const bool restricted = window_is_restricted(window);
   if (restricted)
-    SyncGroupsByDirIProlongateOnlyAligned(active_levels,
-                                          ghext->get_global_cctkGH(), states,
-                                          timelevels_t::one(rk_tl));
+    SyncGroupsByDirIProlongateOnlyAligned(window, ghext->get_global_cctkGH(),
+                                          states, timelevels_t::one(rk_tl));
 
   for (const rk_level_t &entry : levels) {
     if (entry.level.index() == 0)
       continue;
     const bool aligned = aligned_with_parent(entry.level);
-    if (aligned != (entry.level.index() > window.min_level))
+    if (aligned != (entry.level.index() > window.coarsest().index()))
       CCTK_VERROR("CarpetX::RecoverRKBoundary on %s: refinement level %d is "
                   "%s its parent, but recovery traverses each clock group "
                   "separately, so only the group's coarsest level lags its "

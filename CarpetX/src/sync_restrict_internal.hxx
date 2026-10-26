@@ -32,12 +32,8 @@ private:
   std::optional<tl_t> tl_;
 };
 
-struct active_levels_t;
-
-void Restrict(const cGH *cctkGH, int min_level, int max_level,
-              std::span<const gi_t> groups);
-void ProlongateAfterRestriction(const active_levels_t &active_levels,
-                                const cGH *cctkGH);
+void Restrict(const cGH *cctkGH, window_t window, std::span<const gi_t> groups);
+void ProlongateAfterRestriction(window_t window, const cGH *cctkGH);
 
 } // namespace CarpetX
 

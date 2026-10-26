@@ -26,13 +26,6 @@
 
 namespace CarpetX {
 
-// SyncGroupsByDirI's restrict_during_sync branch calls the window operation
-// Restrict(cctkGH, min_level, max_level, groups), which
-// sync_restrict_internal.hxx declares, on the groups that the selector
-// sync_restrict_groups picks from the SYNC's list. To keep the top-down order
-// (helpers → selectors → Sync* → Reflux → Restrict*) the operation's
-// definition appears below.
-
 // =======================================================================
 // Sync helpers
 // =======================================================================
@@ -114,9 +107,9 @@ tl_range timelevels_t::range(const GHExt::GroupRecord &record,
   return tl_range{*tl_, tl_->next()};
 }
 
-static valid_t sync_fills(const active_levels_t &active_levels, const gi_t gi) {
+static valid_t sync_fills(const window_t window, const gi_t gi) {
   std::optional<bool> covered;
-  active_levels.loop_serially([&](auto &restrict leveldata) {
+  loop_serially(window, [&](auto &restrict leveldata) {
     const bool level_covered =
         leveldata.group(gi).all_faces_have_symmetries_or_boundaries();
     assert(!covered || *covered == level_covered);
@@ -127,34 +120,43 @@ static valid_t sync_fills(const active_levels_t &active_levels, const gi_t gi) {
 }
 
 struct level_run_t {
-  active_levels_t levels;
+  window_t levels;
   bool value;
 };
 
 static std::vector<level_run_t> split_levels(
-    const active_levels_t &active_levels,
+    const window_t window,
     const std::function<bool(const GHExt::PatchData::LevelData &)> &predicate) {
-  const int min_level = active_levels.min_level;
-  std::vector<std::optional<bool> > values(active_levels.max_level - min_level);
-  active_levels.loop_serially([&](auto &restrict leveldata) {
-    std::optional<bool> &value = values.at(leveldata.level.index() - min_level);
+  const auto levels = window_access::levels(window);
+  std::vector<std::optional<bool> > values(levels.max - levels.min);
+  loop_serially(window, [&](auto &restrict leveldata) {
+    std::optional<bool> &value =
+        values.at(leveldata.level.index() - levels.min);
     const bool level_value = predicate(leveldata);
     assert(!value || *value == level_value);
     value = level_value;
   });
   std::vector<level_run_t> runs;
-  for (int lo = min_level; lo < active_levels.max_level;) {
-    const std::optional<bool> value = values.at(lo - min_level);
+  for (int lo = levels.min; lo < levels.max;) {
+    const std::optional<bool> value = values.at(lo - levels.min);
     int hi = lo + 1;
-    while (hi < active_levels.max_level && values.at(hi - min_level) == value)
+    while (hi < levels.max && values.at(hi - levels.min) == value)
       ++hi;
     if (value)
-      runs.push_back({active_levels_t(lo, hi, active_levels.min_patch,
-                                      active_levels.max_patch),
-                      *value});
+      runs.push_back({window.narrow(lo, hi), *value});
     lo = hi;
   }
   return runs;
+}
+
+static void
+loop_pairs_fine_to_coarse(const window_t window,
+                          const std::function<void(level_t level)> &kernel) {
+  loop_fine_to_coarse(window,
+                      [&](const GHExt::PatchData::LevelData &leveldata) {
+                        if (leveldata.level.index() < window.finest().index())
+                          kernel(leveldata.level);
+                      });
 }
 
 static void
@@ -184,11 +186,12 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
              "recomputed in CCTK_POST_RECOVER_VARIABLES.\n";
     return "";
   };
-  require(one_level(coarseleveldata.level), {.gi = gi,
-                                             .tl = tl,
-                                             .where = make_valid_int(),
-                                             .event = label,
-                                             .hint = hint});
+  require(window_t::one_level(coarseleveldata.level),
+          {.gi = gi,
+           .tl = tl,
+           .where = make_valid_int(),
+           .event = label,
+           .hint = hint});
 }
 
 // =======================================================================
@@ -223,12 +226,15 @@ static std::vector<gi_t> sync_restrict_groups(const std::vector<gi_t> &groups) {
   return restrict_groups;
 }
 
+static void restrict_level(const cGH *cctkGH, level_t level,
+                           std::span<const gi_t> groups, valid_t coarse_keeps);
+
 // =======================================================================
 // Sync entry points
 // =======================================================================
 
 static int SyncGroupsByDirIProlongateOnly_impl(
-    const active_levels_t &active_levels, const cGH *restrict cctkGH,
+    const window_t window, const cGH *restrict cctkGH,
     const std::span<const gi_t> groups0,
     const bool prolongate_on_same_iteration, const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
@@ -258,8 +264,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
         }
         return true;
       };
-  const std::vector<level_run_t> runs =
-      split_levels(active_levels, prolongates_into);
+  const std::vector<level_run_t> runs = split_levels(window, prolongates_into);
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : groups) {
     const tl_range fill_tls = tls.range(ghext->record(gi));
@@ -289,7 +294,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
   task_manager tasks3;
 
   for (const gi_t gi : groups) {
-    active_levels.loop_serially([&](auto &restrict leveldata) {
+    loop_serially(window, [&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
       const tl_range fill_tls = tls.range(groupdata.record);
@@ -341,8 +346,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
   return int(groups0.size());
 }
 
-int SyncGroupsByDirI(const active_levels_t &active_levels,
-                     const cGH *restrict cctkGH,
+int SyncGroupsByDirI(const window_t window, const cGH *restrict cctkGH,
                      const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -360,7 +364,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   if (CCTK_EQUALS(presync_mode, "presync-only")) {
-    active_levels.loop_serially([&](auto &restrict leveldata) {
+    loop_serially(window, [&](auto &restrict leveldata) {
       std::vector<gi_t> new_groups;
       for (const gi_t gi : groups) {
         auto &restrict groupdata = leveldata.group(gi);
@@ -389,32 +393,31 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
   }
 
   if (restrict_during_sync) {
-    const int min_level = active_levels.min_level;
-    const int max_level =
-        std::min(active_levels.max_level + 1, ghext->num_levels());
-    // The do_restrict parameter governs only restriction the driver starts
-    assert(do_restrict || max_level - min_level < 2);
-    // Restrict only the groups the restrict tag allows; the ghost fill below
-    // still covers all of `groups`
-    Restrict(cctkGH, min_level, max_level, sync_restrict_groups(groups));
+    const std::vector<gi_t> restrict_groups = sync_restrict_groups(groups);
+    loop_fine_to_coarse(window,
+                        [&](const GHExt::PatchData::LevelData &leveldata) {
+                          assert(do_restrict || !leveldata.level.child());
+                          restrict_level(cctkGH, leveldata.level,
+                                         restrict_groups, make_valid_int());
+                        });
   }
 
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : groups) {
     const tl_range sync_tls =
         timelevels_t::all_but_oldest().range(ghext->record(gi));
-    const valid_t fills = sync_fills(active_levels, gi);
+    const valid_t fills = sync_fills(window, gi);
     for (const tl_t tl : sync_tls) {
-      require(active_levels, {.gi = gi,
+      require(window, {.gi = gi,
+                       .tl = tl,
+                       .where = make_valid_int(),
+                       .event = "SyncGroupsByDirI before syncing"});
+      scopes.push_back(
+          open_write(window, {.gi = gi,
                               .tl = tl,
-                              .where = make_valid_int(),
-                              .event = "SyncGroupsByDirI before syncing"});
-      scopes.push_back(open_write(
-          active_levels, {.gi = gi,
-                          .tl = tl,
-                          .fills = fills,
-                          .keeps = make_valid_int() | make_valid_outer(),
-                          .event = "SyncGroupsByDirI"}));
+                              .fills = fills,
+                              .keeps = make_valid_int() | make_valid_outer(),
+                              .event = "SyncGroupsByDirI"}));
     }
   }
 
@@ -429,7 +432,7 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
   task_manager tasks3;
 
   for (const gi_t gi : groups) {
-    active_levels.loop_serially([&](auto &restrict leveldata) {
+    loop_serially(window, [&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
       const tl_range sync_tls =
@@ -495,13 +498,12 @@ int SyncGroupsByDirI(const active_levels_t &active_levels,
   return int(groups0.size());
 }
 
-static void error_if_sync_in_tail(const active_levels_t &active_levels,
+static void error_if_sync_in_tail(const window_t window,
                                   const cGH *restrict const cctkGH,
                                   const std::span<const gi_t> groups0) {
   if (!ghext->tail_bin || groups0.empty())
     return;
-  const int min_level = active_levels.min_level;
-  const int max_level = active_levels.max_level;
+  const auto [min_level, max_level] = window_access::levels(window);
   if (min_level == 0)
     return;
   std::ostringstream groupnames;
@@ -525,7 +527,7 @@ static void error_if_sync_in_tail(const active_levels_t &active_levels,
       func ? func->thorn : "(unknown thorn)",
       func ? func->routine : "(unknown routine)", ghext->tail_bin,
       groupnames.str().c_str(), cctkGH->cctk_iteration, min_level, max_level,
-      min_level, min_level - 1);
+      min_level, window.coarsest().parent().index());
 }
 
 static bool
@@ -535,14 +537,14 @@ integrator_owns_coarse_fine_ghosts(const GHExt::PatchData::LevelData &leveldata,
          leveldata.iteration > 0;
 }
 
-int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
+int SyncGroupsByDirISubcycling(const window_t window,
                                const cGH *restrict cctkGH,
                                const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
 
-  error_if_sync_in_tail(active_levels, cctkGH, groups0);
+  error_if_sync_in_tail(window, cctkGH, groups0);
 
   mark_sync_active marked;
 
@@ -560,7 +562,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
   const char *const sync_label = "SyncGroupsByDirISubcycling before syncing";
 
   struct ghost_check_t {
-    active_levels_t levels;
+    window_t levels;
     gi_t gi;
     tl_t tl;
   };
@@ -570,7 +572,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
     const tl_range sync_tls =
         timelevels_t::all_but_oldest().range(ghext->record(gi));
     const std::vector<level_run_t> runs = split_levels(
-        active_levels, [gi](const GHExt::PatchData::LevelData &leveldata) {
+        window, [gi](const GHExt::PatchData::LevelData &leveldata) {
           return integrator_owns_coarse_fine_ghosts(leveldata, gi);
         });
     for (const level_run_t &run : runs) {
@@ -607,7 +609,7 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
   task_manager tasks3;
 
   for (const gi_t gi : groups) {
-    active_levels.loop_serially([&](auto &restrict leveldata) {
+    loop_serially(window, [&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
       const tl_range sync_tls =
@@ -615,10 +617,11 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
       if (leveldata.level.index() == 0) {
         for (const tl_t tl : sync_tls) {
-          require(one_level(leveldata.level), {.gi = gi,
-                                               .tl = tl,
-                                               .where = make_valid_int(),
-                                               .event = sync_label});
+          require(window_t::one_level(leveldata.level),
+                  {.gi = gi,
+                   .tl = tl,
+                   .where = make_valid_int(),
+                   .event = sync_label});
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
             FillPatch_Sync(tasks2, groupdata, *groupdata.timelevel(tl).mfab,
                            ghext->patch(leveldata.level.patch())
@@ -638,10 +641,11 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
         if (integrated_subiter) {
           for (const tl_t tl : sync_tls) {
-            require(one_level(leveldata.level), {.gi = gi,
-                                                 .tl = tl,
-                                                 .where = make_valid_int(),
-                                                 .event = sync_label});
+            require(window_t::one_level(leveldata.level),
+                    {.gi = gi,
+                     .tl = tl,
+                     .where = make_valid_int(),
+                     .event = sync_label});
             tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
               FillPatch_Sync(tasks2, groupdata, *groupdata.timelevel(tl).mfab,
                              ghext->patch(leveldata.level.patch())
@@ -663,10 +667,11 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
 
           for (const tl_t tl : sync_tls) {
             const bool do_blend = blend && tl == tl_t{0};
-            require(one_level(leveldata.level), {.gi = gi,
-                                                 .tl = tl,
-                                                 .where = make_valid_int(),
-                                                 .event = sync_label});
+            require(window_t::one_level(leveldata.level),
+                    {.gi = gi,
+                     .tl = tl,
+                     .where = make_valid_int(),
+                     .event = sync_label});
             error_if_parent_invalid(leveldata, gi, tl, prolongation_label);
             if (do_blend)
               error_if_parent_invalid(leveldata, gi, tl_t{1},
@@ -729,32 +734,29 @@ int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
   return int(groups0.size());
 }
 
-int SyncGroups(const active_levels_t &active_levels,
-               const cGH *restrict const cctkGH,
+int SyncGroups(const window_t window, const cGH *restrict const cctkGH,
                const std::span<const gi_t> groups) {
   return (ghext->use_subcycling ? SyncGroupsByDirISubcycling
-                                : SyncGroupsByDirI)(active_levels, cctkGH,
-                                                    groups);
+                                : SyncGroupsByDirI)(window, cctkGH, groups);
 }
 
-int SyncGroupsByDirIProlongateOnly(const active_levels_t &active_levels,
+int SyncGroupsByDirIProlongateOnly(const window_t window,
                                    const cGH *restrict cctkGH,
                                    const std::span<const gi_t> groups0,
                                    const timelevels_t tls) {
-  return SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups0,
-                                             false, tls);
+  return SyncGroupsByDirIProlongateOnly_impl(window, cctkGH, groups0, false,
+                                             tls);
 }
 
-int SyncGroupsByDirIProlongateOnlyAligned(const active_levels_t &active_levels,
+int SyncGroupsByDirIProlongateOnlyAligned(const window_t window,
                                           const cGH *restrict cctkGH,
                                           const std::span<const gi_t> groups0,
                                           const timelevels_t tls) {
-  return SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups0,
-                                             true, tls);
+  return SyncGroupsByDirIProlongateOnly_impl(window, cctkGH, groups0, true,
+                                             tls);
 }
 
-int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
-                              const cGH *restrict cctkGH,
+int SyncGroupsByDirIGhostOnly(const window_t window, const cGH *restrict cctkGH,
                               const std::span<const gi_t> groups0,
                               const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
@@ -782,7 +784,7 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
   task_manager tasks2;
 
   for (const gi_t gi : groups) {
-    active_levels.loop_serially([&](auto &restrict leveldata) {
+    loop_serially(window, [&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
 
       for (const tl_t tl : tls.range(groupdata.record)) {
@@ -807,10 +809,9 @@ int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
   return int(groups0.size());
 }
 
-void ProlongateAfterRestriction(const active_levels_t &active_levels,
-                                const cGH *cctkGH) {
+void ProlongateAfterRestriction(const window_t window, const cGH *cctkGH) {
   const std::vector<gi_t> groups = reprolongate_groups();
-  SyncGroupsByDirIProlongateOnly_impl(active_levels, cctkGH, groups, true,
+  SyncGroupsByDirIProlongateOnly_impl(window, cctkGH, groups, true,
                                       timelevels_t::all_but_oldest());
 }
 
@@ -886,7 +887,7 @@ void AccumulateFluxes(const level_t level, const int stage,
   const std::optional<level_t> child = level.child();
   const auto *const childleveldata = child ? &patchdata.level(*child) : nullptr;
   const tl_t tl{0};
-  const active_levels_t this_level = one_level(level);
+  const window_t this_level = window_t::one_level(level);
 
   for (const auto &groupdata : leveldata.groups()) {
     if (!groupdata.fluxes)
@@ -984,7 +985,7 @@ static void reflux_level(const cGH *cctkGH, const level_t level) {
   const auto &leveldata = patchdata.level(level);
   const auto &fineleveldata = patchdata.level(*fine);
   const amrex::Geometry &geom = patchdata.amrcore->Geom(level.index());
-  const active_levels_t coarse_level = one_level(level);
+  const window_t coarse_level = window_t::one_level(level);
   const tl_t tl{0};
 
   for (const auto &groupdata : leveldata.groups()) {
@@ -1024,13 +1025,11 @@ static void reflux_level(const cGH *cctkGH, const level_t level) {
   }
 }
 
-void Reflux(const cGH *cctkGH, const int min_level, const int max_level) {
+void Reflux(const cGH *cctkGH, const window_t window) {
   if (!ghext->do_reflux)
     return;
-  assert(min_level >= 0 && max_level <= ghext->num_levels());
-  for (int level = max_level - 2; level >= min_level; --level)
-    for (const auto &patchdata : ghext->patches())
-      reflux_level(cctkGH, level_t{patchdata.patch, level});
+  loop_pairs_fine_to_coarse(
+      window, [&](const level_t level) { reflux_level(cctkGH, level); });
 }
 
 // =======================================================================
@@ -1051,8 +1050,8 @@ static void restrict_level(const cGH *cctkGH, const level_t level,
     return;
   auto &leveldata = ghext->level(level);
   const auto &fineleveldata = ghext->level(*fine);
-  const active_levels_t active_levels = one_level(level);
-  const active_levels_t active_fine_levels = one_level(*fine);
+  const window_t coarse_level = window_t::one_level(level);
+  const window_t fine_level = window_t::one_level(*fine);
 
   for (const gi_t gi : groups) {
     const auto &groupdata = leveldata.group(gi);
@@ -1066,22 +1065,22 @@ static void restrict_level(const cGH *cctkGH, const level_t level,
     for (const tl_t tl :
          timelevels_t::all_but_oldest().range(groupdata.record)) {
 
-      require(active_fine_levels,
+      require(fine_level,
               {.gi = gi,
                .tl = tl,
                .where = make_valid_int(),
                .event = "Restrict on fine level before restricting"});
-      require(active_levels,
+      require(coarse_level,
               {.gi = gi,
                .tl = tl,
                .where = make_valid_int(),
                .event = "Restrict on coarse level before restricting"});
       const write_scope_t scope =
-          open_write(active_levels, {.gi = gi,
-                                     .tl = tl,
-                                     .fills = make_valid_int(),
-                                     .keeps = coarse_keeps,
-                                     .event = "Restrict"});
+          open_write(coarse_level, {.gi = gi,
+                                    .tl = tl,
+                                    .fills = make_valid_int(),
+                                    .keeps = coarse_keeps,
+                                    .event = "Restrict"});
 
 #if 1
       {
@@ -1118,26 +1117,22 @@ static void restrict_level(const cGH *cctkGH, const level_t level,
   } // for gi
 }
 
-void Restrict(const cGH *cctkGH, const int min_level, const int max_level,
+void Restrict(const cGH *cctkGH, const window_t window,
               const std::span<const gi_t> groups) {
-  assert(min_level >= 0 && max_level <= ghext->num_levels());
   if (groups.empty())
     return;
-  for (int level = max_level - 2; level >= min_level; --level)
-    for (const auto &patchdata : ghext->patches())
-      restrict_level(cctkGH, level_t{patchdata.patch, level}, groups,
-                     make_valid_int());
+  loop_pairs_fine_to_coarse(window, [&](const level_t level) {
+    restrict_level(cctkGH, level, groups, make_valid_int());
+  });
 }
 
-void RestrictNoPoison(const cGH *cctkGH, const int min_level,
-                      const int max_level, const std::span<const gi_t> groups) {
-  assert(min_level >= 0 && max_level <= ghext->num_levels());
+void RestrictNoPoison(const cGH *cctkGH, const window_t window,
+                      const std::span<const gi_t> groups) {
   if (groups.empty())
     return;
-  for (int level = max_level - 2; level >= min_level; --level)
-    for (const auto &patchdata : ghext->patches())
-      restrict_level(cctkGH, level_t{patchdata.patch, level}, groups,
-                     make_valid_all());
+  loop_pairs_fine_to_coarse(window, [&](const level_t level) {
+    restrict_level(cctkGH, level, groups, make_valid_all());
+  });
 }
 
 } // namespace CarpetX

@@ -1241,11 +1241,11 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
 
   auto &restrict leveldata = ghext->level(level);
   auto &restrict groupdata = leveldata.group(gi);
-  require(one_level(level), {.gi = gi,
-                             .tl = tl,
-                             .vi = vi,
-                             .where = make_valid_int(),
-                             .event = "ErrorEst"});
+  require(window_t::one_level(level), {.gi = gi,
+                                       .tl = tl,
+                                       .vi = vi,
+                                       .where = make_valid_int(),
+                                       .event = "ErrorEst"});
   std::size_t npoints_set = 0, npoints_clear = 0, npoints_total = 0;
   auto mfitinfo = amrex::MFItInfo().SetDynamic(true).EnableTiling();
 #pragma omp parallel
@@ -1458,7 +1458,7 @@ void CactusAmrCore::MakeNewLevelFromScratch(
   SetupLevel(level, ba, dm, []() { return "MakeNewLevelFromScratch"; });
 
   const auto &leveldata = ghext->level(level);
-  const active_levels_t active_levels = one_level(level);
+  const window_t active_levels = window_t::one_level(level);
   for (const auto &groupdata : leveldata.groups()) {
     for (const tl_t tl : groupdata.record.timelevels())
       invalidate(active_levels, {.gi = groupdata.record.groupindex,
@@ -1516,8 +1516,8 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
   auto &leveldata = patchdata.level(level);
   const level_t coarse = level.parent();
   auto &coarseleveldata = patchdata.level(coarse);
-  const active_levels_t active_levels = one_level(level);
-  const active_levels_t active_coarse_levels = one_level(coarse);
+  const window_t active_levels = window_t::one_level(level);
+  const window_t active_coarse_levels = window_t::one_level(coarse);
 
   if (leveldata.iteration != coarseleveldata.iteration) {
     std::ostringstream msg;
@@ -1603,8 +1603,8 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   assert(lev > 0);
   const level_t coarse = level.parent();
   auto &coarseleveldata = patchdata.level(coarse);
-  const active_levels_t active_levels = one_level(level);
-  const active_levels_t active_coarse_levels = one_level(coarse);
+  const window_t active_levels = window_t::one_level(level);
+  const window_t active_coarse_levels = window_t::one_level(coarse);
 
   if (leveldata.iteration != coarseleveldata.iteration) {
     std::ostringstream msg;

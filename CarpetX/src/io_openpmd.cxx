@@ -965,7 +965,7 @@ void carpetx_openpmd_t::InputOpenPMD(const cGH *const cctkGH,
                                              groupdata.nghostzones[2] == 0;
 
             scopes.push_back(
-                open_write(one_level(leveldata.level),
+                open_write(window_t::one_level(leveldata.level),
                            {.gi = gi,
                             .tl = tl,
                             .fills = input_ghosts || group_has_no_ghosts

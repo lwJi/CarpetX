@@ -86,6 +86,26 @@ template <class Patch> concept num_levels_takes = requires(Patch patch) {
   CarpetX::num_levels(patch);
 };
 
+template <class Window> concept reads_min_level = requires(Window window) {
+  window.min_level;
+};
+
+template <class Window> concept braces_from_ints = requires(int i) {
+  Window{i, i, i, i};
+};
+
+template <class Level> concept one_level_takes = requires(Level level) {
+  window_t::one_level(level);
+};
+
+template <class Window> concept operates_on = requires(Window window) {
+  CarpetX::sync(window, std::span<const gi_t>());
+};
+
+struct bare_window_t {
+  int min_level, max_level, min_patch, max_patch;
+};
+
 static_assert(std::is_constructible_v<gi_t, int>);
 static_assert(!std::is_convertible_v<int, gi_t>);
 static_assert(!std::is_convertible_v<gi_t, int>);
@@ -174,6 +194,27 @@ static_assert(variable_takes<var_t>);
 static_assert(!variable_takes<vi_t>);
 static_assert(!variable_takes<gi_t>);
 static_assert(!variable_takes<int>);
+
+static_assert(reads_min_level<bare_window_t>);
+static_assert(!reads_min_level<window_t>);
+static_assert(braces_from_ints<bare_window_t>);
+static_assert(!braces_from_ints<window_t>);
+static_assert(!std::is_constructible_v<window_t, int, int, int, int>);
+static_assert(!std::is_default_constructible_v<window_t>);
+static_assert(std::is_trivially_copyable_v<window_t>);
+static_assert(one_level_takes<level_t>);
+static_assert(!one_level_takes<int>);
+static_assert(!one_level_takes<patch_t>);
+static_assert(std::is_same_v<decltype(window_t::levels(0, 1)), window_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<window_t>().narrow(0, 1)), window_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<window_t>().coarsest()), level_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<window_t>().finest()), level_t>);
+static_assert(operates_on<window_t>);
+static_assert(!operates_on<level_t>);
+static_assert(!operates_on<bare_window_t>);
 
 static_assert(sync_takes<std::span<const gi_t> >);
 static_assert(sync_takes<std::vector<gi_t> >);

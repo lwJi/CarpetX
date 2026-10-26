@@ -27,31 +27,15 @@ bool group_is_integrated(gi_t gi);
 
 bool group_has_flux_register(gi_t gi);
 
-struct active_levels_t;
+void RecoverRKBoundary(window_t window, const cGH *cctkGH);
 
-void RecoverRKBoundary(const active_levels_t &active_levels, const cGH *cctkGH);
-
-// True iff the driver restricts the window [min_level, max_level) of
-// time-aligned levels at its end of step: the window holds the finest level
-// and at least one other. The driver then restricts the window and refills
-// the coarse-fine ghosts of every window level aligned with its parent by
-// spatial prolongation from the restricted parent
-// (ProlongateAfterRestriction, for every restricted group and, under
-// subcycling, every integrated one, whether restricted or not), after the
-// integrator's end-of-step fill. Any
-// other window keeps the integrator's fill until a later window that holds it
-// is restricted. This is the one definition of "the window is restricted";
-// FinalizeWindow, for Initialise and Evolve, calls it. During recovery the
-// window is a clock group, the window in which its levels last stepped
-// (ClockGroups), so it tells which of the two fills last wrote the
-// integrated groups' ghosts. Defined in schedule.cxx.
-bool window_is_restricted(int min_level, int max_level);
+bool window_is_restricted(window_t window);
 
 void EnsureFluxGeometry(level_t level);
 
 void AccumulateFluxes(level_t level, int stage, CCTK_REAL weight);
 
-void Reflux(const cGH *cctkGH, int min_level, int max_level);
+void Reflux(const cGH *cctkGH, window_t window);
 
 } // namespace CarpetX
 

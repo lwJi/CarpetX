@@ -42,7 +42,9 @@ def main(argv: list[str] | None = None) -> int:
         help="list every #include into CarpetX/src, every CARPETX_INTERNAL outside its guards, "
         "every validity kernel or why_valid_t setter named outside CarpetX/src/valid.cxx and valid.hxx, "
         "every directions parameter in the sync layer outside the flesh-facing SyncGroupsOnActiveLevels, "
-        "and every addition to firstvarindex or CCTK_FirstVarIndexI under CarpetX/src outside GroupRecord::var",
+        "every addition to firstvarindex or CCTK_FirstVarIndexI under CarpetX/src outside GroupRecord::var, "
+        "every active_levels_t under CarpetX/src, and every bare int group, variable, time level, patch or "
+        "level parameter in a CarpetX header outside the flesh- and AMReX-fixed signatures and the window bounds",
     )
     check.add_argument("paths", nargs="*", metavar="PATH", help="files or directories to check (default: the whole tree)")
     check.add_argument(

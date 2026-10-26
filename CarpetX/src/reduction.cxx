@@ -220,11 +220,11 @@ reduction<CCTK_REAL, dim> reduce(const gi_t gi, const vi_t vi, const tl_t tl) {
       const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
       std::unique_ptr<amrex::iMultiFab> finemask_imfab;
 
-      warn(one_level(leveldata.level), {.gi = gi,
-                                        .tl = tl,
-                                        .vi = vi,
-                                        .where = make_valid_int(),
-                                        .event = "Before reduction"});
+      warn(window_t::one_level(leveldata.level), {.gi = gi,
+                                                  .tl = tl,
+                                                  .vi = vi,
+                                                  .where = make_valid_int(),
+                                                  .event = "Before reduction"});
 
       const vect<int, dim> indextype = groupdata.indextype;
 

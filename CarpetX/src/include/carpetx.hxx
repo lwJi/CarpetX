@@ -125,8 +125,20 @@ std::array<int, Loop::dim> indextype(group_t group);
 std::array<int, Loop::dim> nghostzones(group_t group);
 
 struct window_t {
-  int min_level, max_level;
-  int min_patch, max_patch;
+  static window_t
+  one_level(level_t level,
+            std::source_location site = std::source_location::current());
+  static window_t
+  levels(int min_level, int max_level,
+         std::source_location site = std::source_location::current());
+  window_t
+  narrow(int min_level, int max_level,
+         std::source_location site = std::source_location::current()) const;
+
+  level_t
+  coarsest(std::source_location site = std::source_location::current()) const;
+  level_t
+  finest(std::source_location site = std::source_location::current()) const;
 
   void loop_serially(const std::function<void(level_t level)> &kernel) const;
   void
@@ -134,6 +146,20 @@ struct window_t {
   void loop_parallel(
       const std::function<void(level_t level, int index, int component,
                                const cGH *cctkGH)> &kernel) const;
+
+  friend constexpr bool operator==(const window_t &,
+                                   const window_t &) = default;
+
+private:
+  constexpr window_t(const int min_level, const int max_level,
+                     const int min_patch, const int max_patch)
+      : min_level_(min_level), max_level_(max_level), min_patch_(min_patch),
+        max_patch_(max_patch) {}
+
+  int min_level_, max_level_;
+  int min_patch_, max_patch_;
+
+  friend struct window_access;
 };
 
 window_t active_window();

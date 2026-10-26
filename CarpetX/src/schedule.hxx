@@ -26,36 +26,31 @@ int Initialise(tFleshConfig *config);
 int Evolve(tFleshConfig *config);
 int Shutdown(tFleshConfig *config);
 
-void RestrictNoPoison(const cGH *cctkGH, int min_level, int max_level,
+void RestrictNoPoison(const cGH *cctkGH, window_t window,
                       std::span<const gi_t> groups);
 
-struct active_levels_t;
+int SyncGroupsByDirI(window_t window, const cGH *restrict cctkGH,
+                     std::span<const gi_t> groups);
 
-int SyncGroupsByDirI(const active_levels_t &active_levels,
-                     const cGH *restrict cctkGH, std::span<const gi_t> groups);
-
-int SyncGroupsByDirISubcycling(const active_levels_t &active_levels,
-                               const cGH *restrict cctkGH,
+int SyncGroupsByDirISubcycling(window_t window, const cGH *restrict cctkGH,
                                std::span<const gi_t> groups);
 
-int SyncGroups(const active_levels_t &active_levels, const cGH *restrict cctkGH,
+int SyncGroups(window_t window, const cGH *restrict cctkGH,
                std::span<const gi_t> groups);
 
 int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,
                              const int *groups, const int *directions);
 
-int SyncGroupsByDirIProlongateOnly(const active_levels_t &active_levels,
-                                   const cGH *restrict cctkGH,
+int SyncGroupsByDirIProlongateOnly(window_t window, const cGH *restrict cctkGH,
                                    std::span<const gi_t> groups,
                                    timelevels_t tls);
 
-int SyncGroupsByDirIProlongateOnlyAligned(const active_levels_t &active_levels,
+int SyncGroupsByDirIProlongateOnlyAligned(window_t window,
                                           const cGH *restrict cctkGH,
                                           std::span<const gi_t> groups,
                                           timelevels_t tls);
 
-int SyncGroupsByDirIGhostOnly(const active_levels_t &active_levels,
-                              const cGH *restrict cctkGH,
+int SyncGroupsByDirIGhostOnly(window_t window, const cGH *restrict cctkGH,
                               std::span<const gi_t> groups, timelevels_t tls);
 
 int CallFunction(void *function, cFunctionData *attribute, void *data);
@@ -70,54 +65,43 @@ int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct active_levels_t {
-  int min_level, max_level;
-  int min_patch, max_patch;
-
-  active_levels_t(const int min_level, const int max_level, const int min_patch,
-                  const int max_patch);
-  active_levels_t(const int min_level, const int max_level);
-  active_levels_t();
-  explicit active_levels_t(window_t window);
-  window_t window() const;
-
-private:
-  void assert_consistent_iterations() const;
-
-public:
-  // Loop over all active patches of all active levels from coarsest
-  // to finest
-  void loop_coarse_to_fine(
-      const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
-      const;
-
-  // Loop over all active patches of all active levels from finest to
-  // coarsest
-  void loop_fine_to_coarse(
-      const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
-      const;
-
-  // Loop over all active patches of all active levels serially
-  void loop_serially(
-      const std::function<void(GHExt::PatchData::LevelData &level)> &kernel)
-      const {
-    loop_coarse_to_fine(kernel);
+struct window_access {
+  struct bounds_t {
+    int min, max;
+  };
+  static constexpr bounds_t levels(const window_t window) {
+    return {window.min_level_, window.max_level_};
   }
-
-  void loop_parallel(
-      const std::function<void(GHExt::PatchData::LevelData &leveldata,
-                               int index, int component, const cGH *cctkGH)>
-          &kernel) const;
-
-  void loop_serially(
-      const std::function<void(GHExt::PatchData::LevelData &leveldata,
-                               int index, int component, const cGH *cctkGH)>
-          &kernel) const;
+  static constexpr bounds_t patches(const window_t window) {
+    return {window.min_patch_, window.max_patch_};
+  }
 };
 
-active_levels_t one_level(level_t level);
+void loop_coarse_to_fine(
+    window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel);
 
-const std::optional<active_levels_t> &scheduled_levels();
+void loop_fine_to_coarse(
+    window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel);
+
+inline void loop_serially(
+    const window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel) {
+  loop_coarse_to_fine(window, kernel);
+}
+
+void loop_parallel(
+    window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
+                             int component, const cGH *cctkGH)> &kernel);
+
+void loop_serially(
+    window_t window,
+    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
+                             int component, const cGH *cctkGH)> &kernel);
+
+const std::optional<window_t> &scheduled_levels();
 
 ////////////////////////////////////////////////////////////////////////////////
 

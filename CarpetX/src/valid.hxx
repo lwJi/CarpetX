@@ -145,13 +145,10 @@ struct tiletag_t {
 
 typedef std::map<tiletag_t, checksum_t> checksums_t;
 
-struct active_levels_t;
-
 checksums_t calculate_checksums(
-    const active_levels_t &active_levels,
+    window_t window,
     const std::vector<std::vector<std::vector<valid_t> > > &will_write);
-void check_checksums(const active_levels_t &active_levels,
-                     const checksums_t &checksums,
+void check_checksums(window_t window, const checksums_t &checksums,
                      const std::function<std::string()> &where);
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -183,8 +180,7 @@ struct invalidate_spec_t {
 };
 
 class write_scope_t;
-[[nodiscard]] write_scope_t open_write(const active_levels_t &window,
-                                       write_spec_t spec);
+[[nodiscard]] write_scope_t open_write(window_t window, write_spec_t spec);
 
 class write_scope_t {
 public:
@@ -195,19 +191,18 @@ public:
   ~write_scope_t();
 
 private:
-  friend write_scope_t open_write(const active_levels_t &window,
-                                  write_spec_t spec);
-  write_scope_t(const active_levels_t &window, write_spec_t spec,
-                int iteration);
+  friend write_scope_t open_write(window_t window, write_spec_t spec);
+  write_scope_t(window_t window, write_spec_t spec, int iteration);
   window_t window;
   write_spec_t spec;
   int iteration;
+  CCTK_INT epoch;
   bool live;
 };
 
-void invalidate(const active_levels_t &window, invalidate_spec_t spec);
-void require(const active_levels_t &window, require_spec_t spec);
-void warn(const active_levels_t &window, require_spec_t spec);
+void invalidate(window_t window, invalidate_spec_t spec);
+void require(window_t window, require_spec_t spec);
+void warn(window_t window, require_spec_t spec);
 
 class array_write_scope_t;
 [[nodiscard]] array_write_scope_t open_array_write(write_spec_t spec);

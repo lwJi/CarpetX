@@ -741,12 +741,12 @@ void InputSilo(const cGH *restrict const cctkGH,
 
           const std::array<int, dim> &nghosts = groupdata.nghostzones;
 
-          const write_scope_t scope =
-              open_write(one_level(leveldata.level), {.gi = gi,
-                                                      .tl = tl,
-                                                      .fills = make_valid_all(),
-                                                      .keeps = valid_t(),
-                                                      .event = "InputSilo"});
+          const write_scope_t scope = open_write(
+              window_t::one_level(leveldata.level), {.gi = gi,
+                                                     .tl = tl,
+                                                     .fills = make_valid_all(),
+                                                     .keeps = valid_t(),
+                                                     .event = "InputSilo"});
 
           const int ncomponents = dm.size();
           for (int component = 0; component < ncomponents; ++component) {

@@ -145,8 +145,8 @@ void error_if_invalid(const ArrayGroupData &groupdata, const vi_t vi,
         groupdata.timelevel(tl).why_valid(vi).explanation().c_str());
 }
 
-void poison_invalid_gf(const active_levels_t &active_levels, const gi_t gi,
-                       const vi_t vi, const tl_t tl, const valid_t where) {
+void poison_invalid_gf(const window_t window, const gi_t gi, const vi_t vi,
+                       const tl_t tl, const valid_t where) {
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_values || !where.valid_any())
     return;
@@ -158,9 +158,9 @@ void poison_invalid_gf(const active_levels_t &active_levels, const gi_t gi,
   CCTK_REAL poison;
   poison_value.set_to_poison(poison);
 
-  active_levels.loop_parallel([&](const GHExt::PatchData::LevelData &leveldata,
-                                  const int index, const int component,
-                                  const cGH *restrict const cctkGH) {
+  loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
+                            const int index, const int component,
+                            const cGH *restrict const cctkGH) {
     const auto &restrict groupdata = leveldata.group(gi);
 
     const Loop::GridDescBaseDevice grid(cctkGH);
@@ -192,8 +192,8 @@ void poison_invalid_gf(const active_levels_t &active_levels, const gi_t gi,
   synchronize();
 }
 
-void check_valid_gf(const active_levels_t &active_levels, const gi_t gi,
-                    const vi_t vi, const tl_t tl, const valid_t where,
+void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
+                    const tl_t tl, const valid_t where,
                     const std::function<std::string()> &msg) {
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_values || !where.valid_any())
@@ -224,9 +224,9 @@ void check_valid_gf(const active_levels_t &active_levels, const gi_t gi,
   poison_found.operator= <run_on>(0.0);
   CCTK_REAL *restrict const poison_found_ptr = poison_found.dataPtr();
 
-  active_levels.loop_parallel([&](const GHExt::PatchData::LevelData &leveldata,
-                                  const int index, const int component,
-                                  const cGH *restrict const cctkGH) {
+  loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
+                            const int index, const int component,
+                            const cGH *restrict const cctkGH) {
     const auto &restrict groupdata = leveldata.group(gi);
 
     const Loop::GridDescBaseDevice grid(cctkGH);
@@ -282,9 +282,9 @@ void check_valid_gf(const active_levels_t &active_levels, const gi_t gi,
   };
   std::vector<info_t> infos;
 
-  active_levels.loop_serially([&](const GHExt::PatchData::LevelData &leveldata,
-                                  const int index, const int component,
-                                  const cGH *restrict const cctkGH) {
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata,
+                            const int index, const int component,
+                            const cGH *restrict const cctkGH) {
     const auto &restrict groupdata = leveldata.group(gi);
 
     const Loop::GridDescBaseDevice grid(cctkGH);
@@ -519,15 +519,15 @@ std::vector<vi_t> variables_of(const gi_t gi, const std::optional<vi_t> vi) {
 
 } // namespace
 
-write_scope_t::write_scope_t(const active_levels_t &active_levels,
-                             write_spec_t spec, const int iteration)
-    : window(active_levels.window()), spec(std::move(spec)),
-      iteration(iteration), live(true) {
+write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
+                             const int iteration)
+    : window(window), spec(std::move(spec)), iteration(iteration),
+      epoch(carpetx_epoch.load(std::memory_order_relaxed)), live(true) {
   const valid_t destroys = ~this->spec.keeps;
   const auto not_filled =
       event_reason(this->spec.event, " not filled", iteration);
   const std::vector<vi_t> vis = variables_of(this->spec.gi, this->spec.vi);
-  active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
     GroupData::timelevel_t &timelevel =
         leveldata.group(this->spec.gi).timelevel(this->spec.tl);
     ++timelevel.open_writes;
@@ -535,43 +535,47 @@ write_scope_t::write_scope_t(const active_levels_t &active_levels,
       timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
   });
   for (const vi_t vi : vis)
-    poison_invalid_gf(active_levels, this->spec.gi, vi, this->spec.tl,
-                      destroys);
+    poison_invalid_gf(window, this->spec.gi, vi, this->spec.tl, destroys);
 }
 
 write_scope_t::write_scope_t(write_scope_t &&other) noexcept
     : window(other.window),
       spec(std::move(other.spec)),
       iteration(other.iteration),
+      epoch(other.epoch),
       live(other.live) {
   other.live = false;
 }
 
-write_scope_t open_write(const active_levels_t &active_levels,
-                         write_spec_t spec) {
-  return write_scope_t(active_levels, std::move(spec), current_iteration());
+write_scope_t open_write(const window_t window, write_spec_t spec) {
+  return write_scope_t(window, std::move(spec), current_iteration());
 }
 
-void invalidate(const active_levels_t &active_levels, invalidate_spec_t spec) {
+void invalidate(const window_t window, invalidate_spec_t spec) {
   const write_scope_t scope =
-      open_write(active_levels, {.gi = spec.gi,
-                                 .tl = spec.tl,
-                                 .vi = spec.vi,
-                                 .fills = {},
-                                 .keeps = ~spec.where,
-                                 .event = std::move(spec.event)});
+      open_write(window, {.gi = spec.gi,
+                          .tl = spec.tl,
+                          .vi = spec.vi,
+                          .fills = {},
+                          .keeps = ~spec.where,
+                          .event = std::move(spec.event)});
 }
 
 write_scope_t::~write_scope_t() {
   if (!live)
     return;
-  const active_levels_t active_levels(window);
+  if (epoch != carpetx_epoch.load(std::memory_order_relaxed))
+    CCTK_VERROR("CarpetX write scope \"%s\" (iteration %d) on group %s, time "
+                "level %d: the grid hierarchy was regridded while the write "
+                "scope was open",
+                spec.event.c_str(), iteration,
+                ghext->record(spec.gi).groupname.c_str(), spec.tl.index());
   const auto msg = event_reason(spec.event, "", iteration);
   const auto filled = event_reason(spec.event, " filled", iteration);
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
   for (const vi_t vi : vis)
-    check_valid_gf(active_levels, spec.gi, vi, spec.tl, spec.fills, msg);
-  active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+    check_valid_gf(window, spec.gi, vi, spec.tl, spec.fills, msg);
+  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
     GroupData::timelevel_t &timelevel =
         leveldata.group(spec.gi).timelevel(spec.tl);
     for (const vi_t vi : vis)
@@ -580,22 +584,22 @@ write_scope_t::~write_scope_t() {
   });
 }
 
-void require(const active_levels_t &active_levels, require_spec_t spec) {
+void require(const window_t window, require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
-  active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
     const GroupData &groupdata = leveldata.group(spec.gi);
     for (const vi_t vi : vis)
       error_if_invalid(groupdata, vi, spec.tl, spec.where, msg, spec.hint);
   });
   for (const vi_t vi : vis)
-    check_valid_gf(active_levels, spec.gi, vi, spec.tl, spec.where, msg);
+    check_valid_gf(window, spec.gi, vi, spec.tl, spec.where, msg);
 }
 
-void warn(const active_levels_t &active_levels, require_spec_t spec) {
+void warn(const window_t window, require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
-  active_levels.loop_serially([&](GHExt::PatchData::LevelData &leveldata) {
+  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
     const GroupData &groupdata = leveldata.group(spec.gi);
     for (const vi_t vi : vis)
       warn_if_invalid(groupdata, vi, spec.tl, spec.where, msg);
@@ -663,7 +667,7 @@ void require_array(require_spec_t spec) {
 // Checksums to catch illegal modifications
 
 checksums_t calculate_checksums(
-    const active_levels_t &active_levels,
+    const window_t window,
     const std::vector<std::vector<std::vector<valid_t> > > &will_write) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -675,9 +679,9 @@ checksums_t calculate_checksums(
   static Timer timer("calculate_checksums");
   Interval interval(timer);
 
-  active_levels.loop_parallel([&](const GHExt::PatchData::LevelData &leveldata,
-                                  const int index, const int component,
-                                  const cGH *restrict const cctkGH) {
+  loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
+                            const int index, const int component,
+                            const cGH *restrict const cctkGH) {
     for (const auto &groupdata : leveldata.groups()) {
       const Loop::GridDescBaseDevice grid(cctkGH);
       const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
@@ -733,8 +737,7 @@ checksums_t calculate_checksums(
   return checksums;
 }
 
-void check_checksums(const active_levels_t &active_levels,
-                     const checksums_t &checksums,
+void check_checksums(const window_t window, const checksums_t &checksums,
                      const std::function<std::string()> &where) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -746,9 +749,9 @@ void check_checksums(const active_levels_t &active_levels,
   static Timer timer("check_checksums");
   Interval interval(timer);
 
-  active_levels.loop_parallel([&](const GHExt::PatchData::LevelData &leveldata,
-                                  const int index, const int component,
-                                  const cGH *restrict const cctkGH) {
+  loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
+                            const int index, const int component,
+                            const cGH *restrict const cctkGH) {
     for (const auto &groupdata : leveldata.groups()) {
       const Loop::GridDescBaseDevice grid(cctkGH);
       const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);

@@ -69,10 +69,9 @@ extern "C" int TestCarpetXAPI_Startup() {
   DECLARE_CCTK_PARAMETERS;
 
   if (CCTK_EQUALS(mode, "window-outside-traversal")) {
-    const CarpetX::window_t window = CarpetX::active_window();
-    CCTK_VERROR("CarpetX::active_window reported levels [%d,%d) at STARTUP, "
-                "where the driver has not opened a traversal",
-                window.min_level, window.max_level);
+    CarpetX::active_window();
+    CCTK_ERROR("CarpetX::active_window returned a window at STARTUP, where the "
+               "driver has not opened a traversal");
   }
   return 0;
 }
@@ -188,13 +187,13 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   }
 
   if (CCTK_EQUALS(mode, "prolongate-unwritten-parent") &&
-      window.max_level > 1) {
+      window.finest().index() > 0) {
     CarpetX::prolongate_ghosts(window,
                                std::array{group("TestCarpetXAPI::state_rhs")});
     CCTK_ERROR("CarpetX::prolongate_ghosts filled the ghosts of state_rhs on "
                "level 1 from a parent level that nothing has written");
   }
-  if (CCTK_EQUALS(mode, "sync-invalid-coarse") && window.max_level > 1) {
+  if (CCTK_EQUALS(mode, "sync-invalid-coarse") && window.finest().index() > 0) {
     std::vector<CarpetX::write_t> writes;
     window.loop_serially([&](const CarpetX::level_t level) {
       writes.push_back(CarpetX::write(CarpetX::group_t{level, gi}, tl,
@@ -203,15 +202,13 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
       fill_interior(level, writes.back().mfab());
     });
     writes.clear();
-    CarpetX::invalidate(
-        CarpetX::window_t{0, 1, window.min_patch, window.max_patch}, groups, tl,
-        "TestCarpetXAPI_Fill");
+    CarpetX::invalidate(window.narrow(0, 1), groups, tl, "TestCarpetXAPI_Fill");
     CarpetX::sync(window, groups);
     CCTK_ERROR("CarpetX::sync read the interior of state on level 0 after it "
                "had been invalidated");
   }
 
-  if (window.min_level != 0 || window.max_level != 1)
+  if (window.finest().index() != 0)
     return;
 
   window.loop_serially([&](const CarpetX::level_t level) {
