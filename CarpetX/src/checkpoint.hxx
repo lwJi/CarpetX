@@ -88,6 +88,10 @@ std::unique_ptr<checkpoint_codec_t> make_codec(const char *method);
 
 std::unique_ptr<checkpoint_codec_t> make_openpmd_codec();
 
+std::unique_ptr<checkpoint_codec_t> make_silo_codec();
+
+void refuse_unless_recoverable(const codec_limits_t &limits);
+
 bool finer_level_is_behind(const checkpoint_record_t &record, level_t level);
 
 checkpoint_record_t build_record(const cGH *cctkGH,

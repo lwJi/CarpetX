@@ -2,6 +2,7 @@
 
 #include "driver.hxx"
 #include "io_meta.hxx"
+#include "io_silo_names.hxx"
 #include "mpi_types.hxx"
 #include "schedule.hxx"
 #include "valid.hxx"
@@ -27,23 +28,14 @@
 #include <array>
 #include <cassert>
 #include <cstdlib>
-#if defined __cpp_lib_filesystem && __cpp_lib_filesystem < 201703L
-#include <experimental/filesystem>
-namespace filesystem = std::experimental::filesystem;
-#else
-#include <filesystem>
-namespace filesystem = std::filesystem;
-#endif
 #include <fstream>
 #include <iomanip>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -52,20 +44,6 @@ namespace CarpetX {
 namespace {
 
 constexpr bool io_verbose = true;
-
-template <typename T> struct db_datatype;
-template <> struct db_datatype<char> : std::integral_constant<int, DB_CHAR> {};
-template <>
-struct db_datatype<short> : std::integral_constant<int, DB_SHORT> {};
-template <> struct db_datatype<int> : std::integral_constant<int, DB_INT> {};
-template <> struct db_datatype<long> : std::integral_constant<int, DB_LONG> {};
-template <>
-struct db_datatype<long long> : std::integral_constant<int, DB_LONG_LONG> {};
-template <>
-struct db_datatype<float> : std::integral_constant<int, DB_FLOAT> {};
-template <>
-struct db_datatype<double> : std::integral_constant<int, DB_DOUBLE> {};
-template <typename T> constexpr int db_datatype_v = db_datatype<T>::value;
 
 // Slice membership + slab bounds for component `c`, shared by the data-write
 // and metadata passes so they skip the same components in the same order.
@@ -109,421 +87,17 @@ struct mesh_props_t {
   }
 };
 
-std::string make_subdirname(const std::string &file_name, const int iteration) {
-  std::ostringstream buf;
-  buf << file_name                                               //
-      << ".it" << std::setw(8) << std::setfill('0') << iteration //
-      << ".silo.dir";
-  return buf.str();
-}
-
-std::string make_filename(const std::string &file_name, const int iteration,
-                          const int ioserver = -1) {
-  std::ostringstream buf;
-  buf << file_name //
-      << ".it" << std::setw(8) << std::setfill('0') << iteration;
-  if (ioserver >= 0)
-    buf << ".p" << std::setw(6) << std::setfill('0') << ioserver;
-  buf << ".silo";
-  return buf.str();
-}
-
-int match_filename(const std::string &file_name) {
-  const std::regex filename_regex("[.]it(\\d+)[.]silo$",
-                                  std::regex_constants::ECMAScript);
-  std::smatch sm;
-  regex_search(file_name, sm, filename_regex);
-  if (sm.empty())
-    return -1;
-  return std::stoi(sm.str(1));
-}
-
-// The optional `band` tag namespaces subcycling source-band meshes/vars
-// apart from the regular tl=0 data (see subcycling checkpoint/recovery). An
-// empty tag (the default) leaves regular-data names byte-identical.
-std::string make_meshname(const std::array<int, dim> &nghosts,
-                          const int patch = -1, const int reflevel = -1,
-                          const int component = -1,
-                          const std::string &band = std::string()) {
-  assert((patch == -1) == (reflevel == -1));
-  assert((patch == -1) == (component == -1));
-  std::ostringstream buf;
-  if (patch >= 0)
-    buf << "box";
-  else
-    buf << "gh";
-  buf << ".ghosts";
-  for (int d = 0; d < dim; ++d) {
-    if (d > 0)
-      buf << "_";
-    buf << std::setw(2) << std::setfill('0') << nghosts[d];
-  }
-  if (patch >= 0)
-    buf << ".m" << std::setw(4) << std::setfill('0') << patch     //
-        << ".rl" << std::setw(2) << std::setfill('0') << reflevel //
-        << ".c" << std::setw(8) << std::setfill('0') << component;
-  if (!band.empty())
-    buf << ".band." << band;
-  return DB::legalize_name(buf.str());
-}
-
-std::string make_varname(const gi_t gi, const int vi, const int patch = -1,
-                         const int reflevel = -1, const int component = -1,
-                         const std::string &band = std::string()) {
-  assert((patch == -1) == (reflevel == -1));
-  assert((patch == -1) == (component == -1));
-  std::string varname;
-  if (vi < 0) {
-    assert(0);
-    varname = CCTK_FullGroupName(gi.index());
-  } else {
-    varname = CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());
-    varname = regex_replace(varname, std::regex("::"), "-");
-    for (auto &ch : varname)
-      ch = tolower(ch);
-  }
-  std::ostringstream buf;
-  buf << varname;
-  if (reflevel >= 0)
-    buf << ".m" << std::setw(4) << std::setfill('0') << patch     //
-        << ".rl" << std::setw(2) << std::setfill('0') << reflevel //
-        << ".c" << std::setw(8) << std::setfill('0') << component;
-  if (!band.empty())
-    buf << ".band." << band;
-  return DB::legalize_name(buf.str());
-}
-
-const std::string driver_name = "CarpetX";
-
-std::string make_fabarraybasename(const int patch, const int reflevel) {
-  std::ostringstream buf;
-  buf << "FabArrayBase"                                     //
-      << ".m" << std::setw(4) << std::setfill('0') << patch //
-      << ".rl" << std::setw(2) << std::setfill('0') << reflevel;
-  return DB::legalize_name(buf.str());
+std::string var_name(const gi_t gi, const int vi) {
+  return CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());
 }
 
 } // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int InputSiloParameters(const std::string &input_dir,
-                        const std::string &input_file) {
-  DECLARE_CCTK_PARAMETERS;
-
-  assert(!input_dir.empty());
-  assert(!input_file.empty());
-
-  // Set up timers
-  static Timer timer("InputSiloParameters");
-  Interval interval(timer);
-
-  static Timer timer_setup("InputSiloParameters.setup");
-  auto interval_setup = std::make_unique<Interval>(timer_setup);
-
-  const MPI_Comm mpi_comm = MPI_COMM_WORLD;
-  const int myproc = CCTK_MyProc(nullptr);
-
-  const int metafile_ioproc = 0;
-  const bool read_metafile = myproc == metafile_ioproc;
-
-  // Configure Silo library
-  DBShowErrors(DB_ALL_AND_DRVR, nullptr);
-  DBSetAllowEmptyObjects(1);
-
-  // TODO: directories instead of carefully chosen names
-
-  static Timer timer_parameters("InputSiloParameters.parameters");
-  auto interval_parameters = std::make_unique<Interval>(timer_parameters);
-
-  // Find checkpoint input iteration
-  int input_iteration = -1;
-  if (read_metafile) {
-
-    // Find latest iteration (if any)
-    try {
-      for (const auto &direntry : filesystem::directory_iterator(input_dir)) {
-        const auto &filename = direntry.path().filename().string();
-        const int iter = match_filename(filename);
-        using std::max;
-        input_iteration = max(input_iteration, iter);
-      }
-    } catch (const filesystem::filesystem_error &) {
-      // do nothing if directory does not exist
-    }
-  }
-
-  MPI_Bcast(&input_iteration, 1, MPI_INT, metafile_ioproc, mpi_comm);
-
-  if (input_iteration < 0) {
-    // Did not find a checkpoint file
-    if (io_verbose) {
-      CCTK_VINFO("Not recovering parameters:");
-      CCTK_VINFO("  Could not find a Silo checkpoint file \"%s/%s.*.silo\"",
-                 input_dir.c_str(), input_file.c_str());
-    }
-    return input_iteration;
-  }
-
-  // Read metadata
-  std::string parameters;
-  if (read_metafile) {
-    CCTK_VINFO(
-        "Recovering parameters from checkpoint file \"%s\" iteration %d",
-        make_filename(input_dir + "/" + input_file, input_iteration).c_str(),
-        input_iteration);
-
-    const std::string metafilename =
-        input_dir + "/" + make_filename(input_file, input_iteration);
-    const DB::ptr<DBfile> metafile =
-        DB::make(DBOpen(metafilename.c_str(), DB_HDF5, DB_READ));
-    assert(metafile);
-
-    // Read parameters
-    {
-      // TODO: Put this into a "drivername" subdirectory?
-      const int type = DBGetVarType(metafile.get(), "AllParameters");
-      assert(type == DB_CHAR);
-
-      int length;
-      int ndims = DBGetVarDims(metafile.get(), "AllParameters", 1, &length);
-      assert(ndims == 1);
-
-      char *const data =
-          static_cast<char *>(DBGetVar(metafile.get(), "AllParameters"));
-      assert(data);
-      parameters = std::string(data, length);
-      std::free(data);
-    }
-
-    int length = parameters.size();
-    MPI_Bcast(&length, 1, MPI_INT, metafile_ioproc, mpi_comm);
-    MPI_Bcast(parameters.data(), length, MPI_CHAR, metafile_ioproc, mpi_comm);
-
-  } else {
-
-    int length;
-    MPI_Bcast(&length, 1, MPI_INT, metafile_ioproc, mpi_comm);
-    parameters = std::string(length, ' ');
-    MPI_Bcast(parameters.data(), length, MPI_CHAR, metafile_ioproc, mpi_comm);
-  }
-
-  IOUtil_SetAllParameters(parameters.data());
-
-  interval_parameters = nullptr;
-
-  return input_iteration;
-}
-
-checkpoint_record_t InputSiloGridStructure(const std::string &input_dir,
-                                           const std::string &input_file,
-                                           const int input_iteration) {
-  DECLARE_CCTK_PARAMETERS;
-
-  assert(!input_dir.empty());
-  assert(!input_file.empty());
-  assert(input_iteration >= 0);
-
-  int ierr;
-
-  // Set up timers
-  static Timer timer("InputSiloGridStructure");
-  Interval interval(timer);
-
-  static Timer timer_setup("InputSiloGridStructure.setup");
-  auto interval_setup = std::make_unique<Interval>(timer_setup);
-
-  const MPI_Comm mpi_comm = MPI_COMM_WORLD;
-  const int myproc = CCTK_MyProc(nullptr);
-
-  const int metafile_ioproc = 0;
-  const bool read_metafile = myproc == metafile_ioproc;
-
-  // Configure Silo library
-  DBShowErrors(DB_ALL_AND_DRVR, nullptr);
-
-  constexpr int ndims = dim;
-
-  interval_setup = nullptr;
-
-  static Timer timer_meta("InputSiloGridStructure.meta");
-  auto interval_meta = std::make_unique<Interval>(timer_meta);
-
-  // Read metadata
-
-  DB::ptr<DBfile> metafile;
-  if (read_metafile) {
-    const std::string metafilename =
-        input_dir + "/" + make_filename(input_file, input_iteration);
-    // We could use DB_UNKNOWN instead of DB_HDF5
-    metafile = DB::make(DBOpen(metafilename.c_str(), DB_HDF5, DB_READ));
-    assert(metafile);
-  }
-
-  checkpoint_record_t record;
-
-  if (read_metafile) {
-    const int type = DBGetVarType(metafile.get(), "cycle");
-    assert(type == DB_INT);
-    int dim;
-    int ndims = DBGetVarDims(metafile.get(), "cycle", 1, &dim);
-    assert(ndims == 1);
-    assert(dim == 1);
-    ierr = DBReadVar(metafile.get(), "cycle", &record.iteration);
-    assert(!ierr);
-  }
-  MPI_Bcast(&record.iteration, 1, MPI_INT, metafile_ioproc, mpi_comm);
-
-  double dtime;
-  if (read_metafile) {
-    const int type = DBGetVarType(metafile.get(), "dtime");
-    assert(type == DB_DOUBLE);
-    int dim;
-    int ndims = DBGetVarDims(metafile.get(), "dtime", 1, &dim);
-    assert(ndims == 1);
-    assert(dim == 1);
-    ierr = DBReadVar(metafile.get(), "dtime", &dtime);
-    assert(!ierr);
-  }
-  MPI_Bcast(&dtime, 1, MPI_DOUBLE, metafile_ioproc, mpi_comm);
-  record.time = dtime;
-
-  // Read internal driver state
-  const std::string dirname = DB::legalize_name(driver_name);
-
-  int npatches;
-  std::vector<int> nlevels;
-  if (read_metafile) {
-    // Read number of levels
-    const std::string varname = dirname + "/" + DB::legalize_name("nlevels");
-    const int vartype = DBGetVarType(metafile.get(), varname.c_str());
-    assert(vartype == DB_INT);
-    const int varlength = DBGetVarLength(metafile.get(), varname.c_str());
-    assert(varlength >= 0);
-    npatches = varlength;
-    nlevels.resize(varlength);
-    ierr = DBReadVar(metafile.get(), varname.c_str(), nlevels.data());
-    assert(!ierr);
-  }
-  MPI_Bcast(&npatches, 1, MPI_INT, metafile_ioproc, mpi_comm);
-  CCTK_VINFO("Found %d patches", npatches);
-  if (!read_metafile)
-    nlevels.resize(npatches);
-  MPI_Bcast(nlevels.data(), npatches, MPI_INT, metafile_ioproc, mpi_comm);
-
-  record.levels.resize(npatches);
-
-  for (int patch = 0; patch < npatches; ++patch) {
-    CCTK_VINFO("Reading patch %d...", patch);
-
-    CCTK_VINFO("  Found %d levels on patch %d", nlevels.at(patch), patch);
-    record.levels.at(patch).resize(nlevels.at(patch));
-
-    for (int level = 0; level < nlevels.at(patch); ++level) {
-      CCTK_VINFO("  Reading level %d...", level);
-      auto &recovered = record.levels.at(patch).at(level);
-
-      const std::string varname =
-          dirname + "/" + make_fabarraybasename(patch, level);
-
-      int nfabs;
-      if (read_metafile) {
-        const int vartype = DBGetVarType(metafile.get(), varname.c_str());
-        assert(vartype == DB_INT);
-        int vardims[2];
-        const int varndims =
-            DBGetVarDims(metafile.get(), varname.c_str(), 2, vardims);
-        assert(varndims >= 0);
-        assert(varndims == 2);
-        assert(vardims[1] == 2 * ndims);
-        nfabs = vardims[0];
-        assert(nfabs >= 0);
-      }
-      MPI_Bcast(&nfabs, 1, MPI_INT, metafile_ioproc, mpi_comm);
-
-      std::vector<int> data(2 * ndims * nfabs);
-      if (read_metafile) {
-        ierr = DBReadVar(metafile.get(), varname.c_str(), data.data());
-        assert(!ierr);
-      }
-      MPI_Bcast(data.data(), data.size(), MPI_INT, metafile_ioproc, mpi_comm);
-
-      recovered.boxes.resize(nfabs);
-      for (int component = 0; component < nfabs; ++component) {
-        const amrex::IntVect small(&data.at(2 * ndims * component));
-        const amrex::IntVect big(&data.at(ndims + 2 * ndims * component));
-        recovered.boxes.at(component) = amrex::Box(small, big);
-      }
-
-      {
-        const std::string varname_num =
-            dirname + "/" +
-            DB::legalize_name("iteration_num.m" + std::to_string(patch) +
-                              ".rl" + std::to_string(level));
-        const std::string varname_den =
-            dirname + "/" +
-            DB::legalize_name("iteration_den.m" + std::to_string(patch) +
-                              ".rl" + std::to_string(level));
-
-        long long iter_num = 0, iter_den = 0;
-        bool have_iteration = false;
-        if (read_metafile) {
-          if (DBInqVarExists(metafile.get(), varname_num.c_str()) &&
-              DBInqVarExists(metafile.get(), varname_den.c_str())) {
-            int ierr;
-            ierr = DBReadVar(metafile.get(), varname_num.c_str(), &iter_num);
-            assert(!ierr);
-            ierr = DBReadVar(metafile.get(), varname_den.c_str(), &iter_den);
-            assert(!ierr);
-            have_iteration = true;
-          }
-        }
-        MPI_Bcast(&have_iteration, 1, MPI_C_BOOL, metafile_ioproc, mpi_comm);
-        if (have_iteration) {
-          MPI_Bcast(&iter_num, 1, MPI_LONG_LONG, metafile_ioproc, mpi_comm);
-          MPI_Bcast(&iter_den, 1, MPI_LONG_LONG, metafile_ioproc, mpi_comm);
-          recovered.iteration = rat64(iter_num, iter_den);
-        }
-        // else: old checkpoint without per-level iteration — leave as nullopt
-      }
-
-      {
-        const std::string varname =
-            dirname + "/" +
-            DB::legalize_name("last_step_iteration.m" + std::to_string(patch) +
-                              ".rl" + std::to_string(level));
-
-        long long last_step_iteration = 0;
-        bool have_last_step_iteration = false;
-        if (read_metafile) {
-          if (DBInqVarExists(metafile.get(), varname.c_str())) {
-            const int ierr = DBReadVar(metafile.get(), varname.c_str(),
-                                       &last_step_iteration);
-            assert(!ierr);
-            have_last_step_iteration = true;
-          }
-        }
-        MPI_Bcast(&have_last_step_iteration, 1, MPI_C_BOOL, metafile_ioproc,
-                  mpi_comm);
-        if (have_last_step_iteration) {
-          MPI_Bcast(&last_step_iteration, 1, MPI_LONG_LONG, metafile_ioproc,
-                    mpi_comm);
-          recovered.last_step_iteration = int(last_step_iteration);
-        }
-        // else: checkpoint predates it — leave as nullopt
-      }
-    } // for level
-  } // for patch
-
-  interval_meta = nullptr;
-
-  return record;
-}
-
 void InputSilo(const cGH *restrict const cctkGH,
                const std::vector<bool> &input_group,
-               const std::string &input_dir, const std::string &input_file,
-               const checkpoint_record_t *const recovering) {
+               const std::string &input_dir, const std::string &input_file) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -592,114 +166,6 @@ void InputSilo(const cGH *restrict const cctkGH,
       assert(file);
     }
 
-    bool file_has_bands = false;
-    bool file_has_freg = false;
-    if (ghext->use_subcycling) {
-      int local_has[2] = {0, 0}; // [0]: kss_*/olds, [1]: freg_*
-      if (read_file) {
-        for (const auto &patchdata : ghext->patches()) {
-          for (const auto &leveldata : patchdata.levels()) {
-            for (const auto &groupdata : leveldata.groups()) {
-              const gi_t gi = groupdata.record.groupindex;
-              if (local_has[0] && local_has[1])
-                break;
-              if (!input_group.at(gi.index()))
-                continue;
-              const auto probe = [&](const amrex::MultiFab *const band,
-                                     const band_kind kind, const int stage) {
-                int &found = local_has[kind == band_kind::flux_register];
-                if (found || !band || band->empty())
-                  return;
-                const std::string band_tag = subcycling_band_tag(kind, stage);
-                const amrex::DistributionMapping &bdm = band->DistributionMap();
-                for (int c = 0; c < bdm.size(); ++c) {
-                  if (bdm[c] / ioproc_every * ioproc_every != myproc)
-                    continue; // not read by this ioproc
-                  const std::string varname =
-                      make_varname(gi, 0, patchdata.patch.index(),
-                                   leveldata.level.index(), c, band_tag);
-                  if (DBInqVarExists(file.get(), varname.c_str())) {
-                    found = 1;
-                    return;
-                  }
-                }
-              };
-              for (int s = 0; s < max_num_rk_stages; ++s)
-                probe(rk_source_band(leveldata.level, gi, band_kind::ks_source,
-                                     s),
-                      band_kind::ks_source, s);
-              probe(rk_source_band(leveldata.level, gi, band_kind::old_source),
-                    band_kind::old_source, -1);
-              for (int f = 0; f < 2 * dim; ++f)
-                probe(rk_source_band(leveldata.level, gi,
-                                     band_kind::flux_register, f),
-                      band_kind::flux_register, f);
-            }
-          }
-        }
-      }
-      int global_has[2] = {0, 0};
-      MPI_Allreduce(local_has, global_has, 2, MPI_INT, MPI_MAX, mpi_comm);
-      file_has_bands = global_has[0] != 0;
-      file_has_freg = global_has[1] != 0;
-
-      if (!file_has_bands) {
-        for (const auto &patchdata : ghext->patches()) {
-          for (const auto &leveldata : patchdata.levels()) {
-            if (!recovering ||
-                !finer_level_is_behind(*recovering, leveldata.level))
-              continue;
-            for (const auto &groupdata : leveldata.groups()) {
-              const gi_t gi = groupdata.record.groupindex;
-              if (!input_group.at(gi.index()))
-                continue;
-              const amrex::MultiFab *const band =
-                  rk_source_band(leveldata.level, gi, band_kind::old_source);
-              if (!band || band->empty())
-                continue; // not evolved, or an empty coarse-fine footprint
-              CCTK_VERROR(
-                  "Mid-cycle checkpoint lacks coarse RK step data (bands %s, "
-                  "%s..) for group %s on patch %d level %d. The checkpoint "
-                  "was written by the derivative-band scheme or is "
-                  "incomplete. Restart from a time-aligned checkpoint.",
-                  subcycling_band_tag(band_kind::old_source).c_str(),
-                  subcycling_band_tag(band_kind::ks_source, 0).c_str(),
-                  CCTK_FullGroupName(gi.index()), patchdata.patch.index(),
-                  leveldata.level.index());
-            }
-          }
-        }
-      }
-
-      if (!file_has_freg) {
-        for (const auto &patchdata : ghext->patches()) {
-          for (const auto &leveldata : patchdata.levels()) {
-            if (!recovering ||
-                !finer_level_is_behind(*recovering, leveldata.level))
-              continue;
-            for (const auto &groupdata : leveldata.groups()) {
-              const gi_t gi = groupdata.record.groupindex;
-              if (!input_group.at(gi.index()))
-                continue;
-              const amrex::MultiFab *const band = rk_source_band(
-                  leveldata.level, gi, band_kind::flux_register, 0);
-              if (!band || band->empty())
-                continue; // no register for this group
-              CCTK_VERROR(
-                  "Mid-cycle checkpoint lacks flux-register data (bands "
-                  "%s..) for group %s on patch %d level %d. The checkpoint "
-                  "was written by a version without flux-register "
-                  "checkpointing or is incomplete. Restart from a "
-                  "time-aligned checkpoint.",
-                  subcycling_band_tag(band_kind::flux_register, 0).c_str(),
-                  CCTK_FullGroupName(gi.index()), patchdata.patch.index(),
-                  leveldata.level.index());
-            }
-          }
-        }
-      }
-    }
-
     for (auto &patchdata : ghext->patches()) {
       for (auto &leveldata : patchdata.levels()) {
         if (io_verbose)
@@ -718,8 +184,6 @@ void InputSilo(const cGH *restrict const cctkGH,
           amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
-
-          const std::array<int, dim> &nghosts = groupdata.nghostzones;
 
           const write_scope_t scope = open_write(
               window_t::one_level(leveldata.level), {.gi = gi,
@@ -777,10 +241,6 @@ void InputSilo(const cGH *restrict const cctkGH,
               static Timer timer_var("InputSilo.var");
               Interval interval_var(timer_var);
 
-              const std::string meshname =
-                  make_meshname(nghosts, patchdata.patch.index(),
-                                leveldata.level.index(), component);
-
               const int centering = [&]() {
                 const int rank = indextype.cellCentered(0) +
                                  indextype.cellCentered(1) +
@@ -809,8 +269,7 @@ void InputSilo(const cGH *restrict const cctkGH,
 
               for (int vi = 0; vi < numvars; ++vi) {
                 const std::string varname =
-                    make_varname(gi, vi, patchdata.patch.index(),
-                                 leveldata.level.index(), component);
+                    make_varname(var_name(gi, vi), leveldata.level, component);
                 if (io_verbose)
                   CCTK_VINFO("      Reading variable %s", varname.c_str());
 
@@ -849,125 +308,6 @@ void InputSilo(const cGH *restrict const cctkGH,
             interval_wait = nullptr;
 
           } // for component
-
-          if (file_has_bands || file_has_freg) {
-            const int centering = [&]() {
-              const int rank = indextype.cellCentered(0) +
-                               indextype.cellCentered(1) +
-                               indextype.cellCentered(2);
-              switch (rank) {
-              case 0:
-                return DB_NODECENT;
-              case 1:
-                return DB_EDGECENT;
-              case 2:
-                return DB_FACECENT;
-              case 3:
-                return DB_ZONECENT;
-              }
-              assert(0);
-            }();
-            assert(centering != DB_EDGECENT && centering != DB_FACECENT);
-
-            const auto read_band = [&](amrex::MultiFab *const band,
-                                       const band_kind kind, const int stage) {
-              if (!band || band->empty())
-                return;
-              assert(band->nGrowVect() == 0);
-              const std::string band_tag = subcycling_band_tag(kind, stage);
-              const amrex::DistributionMapping &bdm = band->DistributionMap();
-              const int bncomponents = bdm.size();
-
-              for (int component = 0; component < bncomponents; ++component) {
-                const int proc = bdm[component];
-                const int ioproc = proc / ioproc_every * ioproc_every;
-                const bool recv_this_fab = proc == myproc;
-                const bool read_this_fab = ioproc == myproc;
-                if (!(recv_this_fab || read_this_fab))
-                  continue;
-
-                const amrex::Box &fabbox =
-                    band->fabbox(component); // zero ghost
-
-                std::array<int, ndims> dims;
-                for (int d = 0; d < ndims; ++d)
-                  dims[d] = fabbox.length(d);
-                std::ptrdiff_t zonecount = 1;
-                for (int d = 0; d < ndims; ++d)
-                  zonecount *= dims[d];
-                assert(zonecount >= 0 && zonecount <= INT_MAX);
-
-                // Communicate the band fab from the I/O process, part 1.
-                const int mpi_tag = 22903; // randomly chosen, band path
-                std::vector<CCTK_REAL> buffer;
-                MPI_Request mpi_req;
-                CCTK_REAL *data = nullptr;
-                if (recv_this_fab && read_this_fab) {
-                  amrex::FArrayBox &fab = (*band)[component];
-                  data = fab.dataPtr();
-                } else if (recv_this_fab) {
-                  amrex::FArrayBox &fab = (*band)[component];
-                  assert(numvars * zonecount <= INT_MAX);
-                  MPI_Irecv(fab.dataPtr(), numvars * zonecount,
-                            mpi_datatype_v<CCTK_REAL>, ioproc, mpi_tag,
-                            mpi_comm, &mpi_req);
-                } else {
-                  buffer.resize(numvars * zonecount);
-                  assert(numvars * zonecount <= INT_MAX);
-                  data = buffer.data();
-                }
-
-                if (read_file) {
-                  for (int vi = 0; vi < numvars; ++vi) {
-                    const std::string varname = make_varname(
-                        gi, vi, patchdata.patch.index(),
-                        leveldata.level.index(), component, band_tag);
-                    const DB::ptr<DBquadvar> quadvar =
-                        DB::make(DBGetQuadvar(file.get(), varname.c_str()));
-                    assert(quadvar);
-                    assert(quadvar->ndims == ndims);
-                    for (int d = 0; d < ndims; ++d)
-                      assert(quadvar->dims[d] == dims[d]);
-                    assert(quadvar->datatype == db_datatype_v<CCTK_REAL>);
-                    assert(quadvar->centering == centering);
-                    assert(quadvar->nvals == 1);
-                    const int column_major = 0;
-                    assert(quadvar->major_order == column_major);
-                    const void *const read_ptr = quadvar->vals[0];
-                    void *const data_ptr = data + vi * zonecount;
-                    memcpy(data_ptr, read_ptr, zonecount * sizeof(CCTK_REAL));
-                  } // for vi
-                } // if read_file
-
-                // Communicate the band fab, part 2.
-                if (recv_this_fab && read_this_fab) {
-                  // do nothing
-                } else if (recv_this_fab) {
-                  MPI_Wait(&mpi_req, MPI_STATUS_IGNORE);
-                } else {
-                  assert(std::ptrdiff_t(buffer.size()) == numvars * zonecount);
-                  MPI_Send(buffer.data(), numvars * zonecount,
-                           mpi_datatype_v<CCTK_REAL>, proc, mpi_tag, mpi_comm);
-                }
-              } // for band component
-            };
-
-            if (file_has_bands) {
-              for (int s = 0; s < max_num_rk_stages; ++s)
-                read_band(rk_source_band(leveldata.level, gi,
-                                         band_kind::ks_source, s),
-                          band_kind::ks_source, s);
-              read_band(
-                  rk_source_band(leveldata.level, gi, band_kind::old_source),
-                  band_kind::old_source, -1);
-            }
-            if (file_has_freg)
-              for (int f = 0; f < 2 * dim; ++f)
-                read_band(rk_source_band(leveldata.level, gi,
-                                         band_kind::flux_register, f),
-                          band_kind::flux_register, f);
-          } // if file_has_bands || file_has_freg
-
         } // for gi
       } // for leveldata
     } // for patchdata
@@ -1204,8 +544,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
               Interval interval_mesh(timer_mesh);
 
               const std::string meshname =
-                  make_meshname(nghosts, patchdata.patch.index(),
-                                leveldata.level.index(), component);
+                  make_meshname(nghosts, leveldata.level, component);
 
               std::array<int, ndims> dims_vc;
               for (int d = 0; d < ndims; ++d)
@@ -1340,8 +679,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
               Interval interval_var(timer_var);
 
               const std::string meshname =
-                  make_meshname(nghosts, patchdata.patch.index(),
-                                leveldata.level.index(), component);
+                  make_meshname(nghosts, leveldata.level, component);
 
               const int centering = [&]() {
                 const int rank = indextype.cellCentered(0) +
@@ -1399,8 +737,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                 slab.resize(zonecount);
               for (int vi = 0; vi < numvars; ++vi) {
                 const std::string varname =
-                    make_varname(gi, vi, patchdata.patch.index(),
-                                 leveldata.level.index(), component);
+                    make_varname(var_name(gi, vi), leveldata.level, component);
 
                 const void *data_ptr;
                 if (slice) {
@@ -1475,8 +812,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
                 if (write_file) {
                   const std::string meshname = make_meshname(
-                      band_nghosts, patchdata.patch.index(),
-                      leveldata.level.index(), component, band_tag);
+                      band_nghosts, leveldata.level, component, band_tag);
 
                   std::array<int, ndims> dims_vc;
                   for (int d = 0; d < ndims; ++d)
@@ -1552,8 +888,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
                 if (write_file) {
                   const std::string meshname = make_meshname(
-                      band_nghosts, patchdata.patch.index(),
-                      leveldata.level.index(), component, band_tag);
+                      band_nghosts, leveldata.level, component, band_tag);
 
                   const DB::ptr<DBoptlist> optlist =
                       DB::make(DBMakeOptlist(10));
@@ -1578,8 +913,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
                   for (int vi = 0; vi < numvars; ++vi) {
                     const std::string varname = make_varname(
-                        gi, vi, patchdata.patch.index(),
-                        leveldata.level.index(), component, band_tag);
+                        var_name(gi, vi), leveldata.level, component, band_tag);
                     const void *const data_ptr = data + vi * zonecount;
                     ierr = DBPutQuadvar1(
                         file.get(), varname.c_str(), meshname.c_str(), data_ptr,
@@ -2133,8 +1467,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                                 proc / ioproc_every);
               const std::string meshname =
                   proc_filename + ":" +
-                  make_meshname(nghosts, patchdata.patch.index(),
-                                leveldata.level.index(), c);
+                  make_meshname(nghosts, leveldata.level, c);
               meshnames.push_back(meshname);
             }
           }
@@ -2267,7 +1600,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         assert(!ierr);
 
         for (int vi = 0; vi < numvars; ++vi) {
-          const std::string multivarname = make_varname(gi, vi);
+          const std::string multivarname = make_varname(var_name(gi, vi));
 
           std::vector<std::string> varnames;
           for (const auto &patchdata : ghext->patches()) {
@@ -2291,8 +1624,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                                   proc / ioproc_every);
                 const std::string varname =
                     proc_filename + ":" +
-                    make_varname(gi, vi, patchdata.patch.index(),
-                                 leveldata.level.index(), c);
+                    make_varname(var_name(gi, vi), leveldata.level, c);
                 varnames.push_back(varname);
               }
             }
@@ -2365,9 +1697,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
           }
           const int dims[2] = {ncomponents, 2 * ndims};
           const std::string varname =
-              dirname + "/" +
-              make_fabarraybasename(patchdata.patch.index(),
-                                    leveldata.level.index());
+              dirname + "/" + make_fabarraybasename(leveldata.level);
           ierr = DBWrite(metafile.get(), varname.c_str(), boxes.data(), dims, 2,
                          DB_INT);
           assert(!ierr);

@@ -86,19 +86,6 @@ std::string get_simulation_name() {
     name = name.substr(0, last_dot);
   return name;
 }
-
-void check_silo_no_multi_tl(const std::vector<bool> &group_mask,
-                            const char *operation) {
-  for (const auto &group : ghext->records(group_kind::grid_function)) {
-    if (!group_mask.at(group.groupindex.index()))
-      continue;
-    if (group.num_timelevels() > 1)
-      CCTK_VERROR("Silo %s does not support groups with ntls > 1 "
-                  "(group \"%s\" has %d time levels). "
-                  "Use \"openpmd\" instead.",
-                  operation, group.groupname.c_str(), group.num_timelevels());
-  }
-}
 } // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -115,24 +102,8 @@ extern "C" int CarpetX_RecoverParameters() {
   static Timer timer("RecoverParameters");
   Interval interval(timer);
 
-  if (CCTK_EQUALS(recover_method, "openpmd")) {
-
-    recover_iteration =
-        make_codec(recover_method)->read_parameters(recover_dir, recover_file);
-
-  } else if (CCTK_EQUALS(recover_method, "silo")) {
-
-#ifdef HAVE_CAPABILITY_Silo
-    if (recover_iteration < 0)
-      recover_iteration = InputSiloParameters(recover_dir, recover_file);
-#else
-    CCTK_VERROR("CarpetX::recover_method is set to \"silo\", but Silo "
-                "is not enabled");
-#endif
-
-  } else {
-    CCTK_ERROR("unknown value for paramater CarpetX::recover_method");
-  }
+  recover_iteration =
+      make_codec(recover_method)->read_parameters(recover_dir, recover_file);
 
   return recover_iteration >= 0;
 }
@@ -140,35 +111,12 @@ extern "C" int CarpetX_RecoverParameters() {
 ////////////////////////////////////////////////////////////////////////////////
 
 checkpoint_record_t RecoverGridStructure(cGH *restrict cctkGH) {
-  DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
-  if (rechop_on_recovery && !CCTK_EQUALS(recover_method, "openpmd"))
-    CCTK_VERROR("CarpetX::rechop_on_recovery is only supported for "
-                "recover_method=\"openpmd\" (got \"%s\")",
-                recover_method);
-
-  checkpoint_record_t record = [&]() -> checkpoint_record_t {
-    if (CCTK_EQUALS(recover_method, "openpmd")) {
-
-      return make_codec(recover_method)
-          ->decode_structure(recover_dir, recover_file, recover_iteration);
-
-    } else if (CCTK_EQUALS(recover_method, "silo")) {
-
-#ifdef HAVE_CAPABILITY_Silo
-      return InputSiloGridStructure(recover_dir, recover_file,
-                                    recover_iteration);
-#else
-      CCTK_VERROR("CarpetX::recover_method is set to \"silo\", but Silo "
-                  "is not enabled");
-#endif
-
-    } else {
-      CCTK_ERROR("unknown value for paramater CarpetX::recover_method");
-    }
-  }();
-
+  const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
+  refuse_unless_recoverable(codec->limits());
+  checkpoint_record_t record =
+      codec->decode_structure(recover_dir, recover_file, recover_iteration);
   apply_structure(cctkGH, record);
   return record;
 }
@@ -206,28 +154,10 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
       }
   }
 
-  if (CCTK_EQUALS(recover_method, "openpmd")) {
-
-    const std::unique_ptr<checkpoint_codec_t> codec =
-        make_codec(recover_method);
-    checkpoint_record_t recovering = record;
-    build_buffers(recovering, group_enabled, TimeLevelMode::All,
-                  codec->limits());
-    read_record(*codec, recovering, recover_dir, recover_file, "RecoverGH");
-
-  } else if (CCTK_EQUALS(recover_method, "silo")) {
-
-#ifdef HAVE_CAPABILITY_Silo
-    check_silo_no_multi_tl(group_enabled, "recovery");
-    InputSilo(cctkGH, group_enabled, recover_dir, recover_file, &record);
-#else
-    CCTK_VERROR("CarpetX::recover_method is set to \"silo\", but Silo "
-                "is not enabled");
-#endif
-
-  } else {
-    CCTK_ERROR("unknown value for paramater CarpetX::recover_method");
-  }
+  const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
+  checkpoint_record_t recovering = record;
+  build_buffers(recovering, group_enabled, TimeLevelMode::All, codec->limits());
+  read_record(*codec, recovering, recover_dir, recover_file, "RecoverGH");
 
   // Increment epoch
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
@@ -271,8 +201,7 @@ void InputGH(const cGH *restrict cctkGH) {
         find_groups("Silo", filereader_ID_vars);
 #ifdef HAVE_CAPABILITY_Silo
     const std::string simulation_name = get_simulation_name();
-    InputSilo(cctkGH, input_group, filereader_ID_dir, filereader_ID_files,
-              nullptr);
+    InputSilo(cctkGH, input_group, filereader_ID_dir, filereader_ID_files);
 #else
     // TODO: Check this at paramcheck
     CCTK_VERROR("CarpetX::filereader_method is set to \"silo\", but Silo is "
@@ -678,40 +607,17 @@ void Checkpoint(const cGH *const restrict cctkGH) {
   static Timer timer("Checkpoint");
   Interval interval(timer);
 
-  if (CCTK_EQUALS(checkpoint_method, "openpmd")) {
-
-    const std::vector<bool> checkpoint_group = [&] {
-      std::vector<bool> enabled(CCTK_NumGroups(), false);
-      for (const auto &group : ghext->records())
-        enabled.at(group.groupindex.index()) = group.do_checkpoint;
-      return enabled;
-    }();
-    const std::unique_ptr<checkpoint_codec_t> codec =
-        make_codec(checkpoint_method);
-    const checkpoint_record_t record = build_record(
-        cctkGH, checkpoint_group, TimeLevelMode::All, codec->limits());
-    codec->encode(record, checkpoint_dir, checkpoint_file);
-
-  } else if (CCTK_EQUALS(checkpoint_method, "silo")) {
-
-#ifdef HAVE_CAPABILITY_Silo
-    const std::vector<bool> checkpoint_group = [&] {
-      std::vector<bool> enabled(CCTK_NumGroups(), false);
-      for (const auto &group : ghext->records())
-        enabled.at(group.groupindex.index()) = group.do_checkpoint;
-      return enabled;
-    }();
-    check_silo_no_multi_tl(checkpoint_group, "checkpoint");
-    OutputSilo(cctkGH, checkpoint_group, checkpoint_dir, checkpoint_file);
-#else
-    // TODO: Check this at paramcheck
-    CCTK_VERROR("CarpetX::checkpoint_method is set to \"silo\", but Silo is "
-                "not enabled");
-#endif
-
-  } else {
-    CCTK_ERROR("unknown value for paramater CarpetX::checkpoint_method");
-  }
+  const std::vector<bool> checkpoint_group = [&] {
+    std::vector<bool> enabled(CCTK_NumGroups(), false);
+    for (const auto &group : ghext->records())
+      enabled.at(group.groupindex.index()) = group.do_checkpoint;
+    return enabled;
+  }();
+  const std::unique_ptr<checkpoint_codec_t> codec =
+      make_codec(checkpoint_method);
+  const checkpoint_record_t record = build_record(
+      cctkGH, checkpoint_group, TimeLevelMode::All, codec->limits());
+  codec->encode(record, checkpoint_dir, checkpoint_file);
 }
 
 namespace {

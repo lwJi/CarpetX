@@ -40,6 +40,7 @@ SRCS =							\
 	io_openpmd.cxx					\
 	io_openpmd_checkpoint.cxx			\
 	io_silo.cxx					\
+	io_silo_checkpoint.cxx			\
 	io_tsv.cxx					\
 	linsolve.cxx					\
 	logo.cxx					\

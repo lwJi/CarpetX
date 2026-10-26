@@ -68,6 +68,31 @@ std::vector<std::string> variable_names(const GHExt::GroupRecord &group) {
   return vars;
 }
 
+void refuse_unless_carried(const std::vector<bool> &mask,
+                           const codec_limits_t &limits) {
+  DECLARE_CCTK_PARAMETERS;
+  std::ostringstream uncarried;
+  int num_uncarried = 0;
+  for (const GHExt::GroupRecord &group : ghext->records()) {
+    if (!mask.at(group.groupindex.index()))
+      continue;
+    if (group.kind != group_kind::grid_function && !limits.carries_arrays)
+      continue;
+    if (group.num_timelevels() <= limits.max_timelevels)
+      continue;
+    ++num_uncarried;
+    uncarried << "\n  " << group.groupname << ": " << group.num_timelevels()
+              << " time levels, at most " << limits.max_timelevels
+              << " carried";
+  }
+  if (num_uncarried > 0)
+    CCTK_VERROR("Checkpoint method \"%s\" cannot carry %d checkpointed "
+                "group%s:%s\nUse \"openpmd\", or tag the groups "
+                "checkpoint=\"no\" if they are rebuilt at startup.",
+                checkpoint_method, num_uncarried, num_uncarried == 1 ? "" : "s",
+                uncarried.str().c_str());
+}
+
 const amrex::MultiFab *vertex_coords(const level_t level) {
   if (ghext->patch(level.patch()).is_cartesian)
     return nullptr;
@@ -94,7 +119,24 @@ std::unique_ptr<checkpoint_codec_t> make_codec(const char *const method) {
                 method);
 #endif
   }
+  if (CCTK_EQUALS(method, "silo")) {
+#ifdef HAVE_CAPABILITY_Silo
+    return make_silo_codec();
+#else
+    CCTK_VERROR("The checkpoint method \"%s\" needs Silo, which is not enabled",
+                method);
+#endif
+  }
   CCTK_VERROR("Unknown checkpoint method \"%s\"", method);
+}
+
+void refuse_unless_recoverable(const codec_limits_t &limits) {
+  DECLARE_CCTK_PARAMETERS;
+  if (rechop_on_recovery && !limits.rechops_on_recovery)
+    CCTK_VERROR("CarpetX::rechop_on_recovery is set, but the recover method "
+                "\"%s\" recovers only the grid the checkpoint was written on. "
+                "Recover with \"openpmd\", or set rechop_on_recovery = no.",
+                recover_method);
 }
 
 bool finer_level_is_behind(const checkpoint_record_t &record,
@@ -188,6 +230,8 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
                                  const std::vector<bool> &mask,
                                  const TimeLevelMode tl_mode,
                                  const codec_limits_t &limits) {
+  refuse_unless_carried(mask, limits);
+
   checkpoint_record_t record;
   record.iteration = cctkGH->cctk_iteration;
   record.time = cctkGH->cctk_time;
