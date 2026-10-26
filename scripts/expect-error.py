@@ -7,6 +7,10 @@ its combined stdout/stderr contains the text of the .expect file. The
 testsuite globs only <Thorn>/test/*.par, so a subdirectory such as
 <Thorn>/test/errors is where a parfile that must abort lives.
 
+The run's environment holds EXPECT_ERROR_PARFILE_DIR, the absolute directory
+of the .par, so that a parfile can name a file beside it, for example
+IO::recover_dir = $ENV{EXPECT_ERROR_PARFILE_DIR} + "/../checkpoints".
+
 Exit 0 when every parfile fails as expected, 1 when one does not, 2 on a
 usage or setup error.
 """
@@ -45,11 +49,14 @@ def run_case(exe: str, par: str, expect: str, timeout: float) -> tuple[bool, str
         wanted = f.read().strip()
     if not wanted:
         raise ValueError(f"{expect} is empty")
+    par = os.path.abspath(par)
+    env = dict(os.environ, EXPECT_ERROR_PARFILE_DIR=os.path.dirname(par))
     with tempfile.TemporaryDirectory() as cwd:
         try:
             proc = subprocess.run(
-                [exe, os.path.abspath(par)],
+                [exe, par],
                 cwd=cwd,
+                env=env,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,

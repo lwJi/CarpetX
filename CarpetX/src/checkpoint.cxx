@@ -76,14 +76,19 @@ void refuse_unless_carried(const std::vector<bool> &mask,
   for (const GHExt::GroupRecord &group : ghext->records()) {
     if (!mask.at(group.groupindex.index()))
       continue;
+    std::vector<std::string> reasons;
     if (group.kind != group_kind::grid_function && !limits.carries_arrays)
-      continue;
-    if (group.num_timelevels() <= limits.max_timelevels)
+      reasons.push_back("grid scalars and arrays are not carried");
+    if (group.num_timelevels() > limits.max_timelevels)
+      reasons.push_back(std::to_string(group.num_timelevels()) +
+                        " time levels, at most " +
+                        std::to_string(limits.max_timelevels) + " carried");
+    if (reasons.empty())
       continue;
     ++num_uncarried;
-    uncarried << "\n  " << group.groupname << ": " << group.num_timelevels()
-              << " time levels, at most " << limits.max_timelevels
-              << " carried";
+    uncarried << "\n  " << group.groupname << ": " << reasons.front();
+    for (std::size_t i = 1; i < reasons.size(); ++i)
+      uncarried << "; " << reasons.at(i);
   }
   if (num_uncarried > 0)
     CCTK_VERROR("Checkpoint method \"%s\" cannot carry %d checkpointed "

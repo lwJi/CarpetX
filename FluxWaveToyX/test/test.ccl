@@ -1,0 +1,19 @@
+TEST checkpoint_initial_silo
+{
+  NPROCS 1
+}
+
+TEST recover_initial_silo
+{
+  NPROCS 1
+}
+
+TEST checkpoint_subcycling_3clocks_silo
+{
+  NPROCS 1
+}
+
+TEST recover_subcycling_3clocks_silo
+{
+  NPROCS 1
+}
