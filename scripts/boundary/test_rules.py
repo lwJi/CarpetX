@@ -5,15 +5,15 @@ import subprocess
 import tempfile
 import unittest
 
-from rules import Finding, findings, new_findings, render, since_findings, summary
+from rules import Finding, findings, new_findings, render, since_findings, srcs_at, srcs_of, summary
 from files import Lang
 
 ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 GUARD = '#ifndef CARPETX_INTERNAL\n#error "CarpetX internal header; include <carpetx.hxx> instead"\n#endif\n'
 
 
-def reported(name, text, lang=Lang.CXX):
-    return [(f.rule, f.text) for f in findings(name, text, lang)]
+def reported(name, text, lang=Lang.CXX, srcs=None):
+    return [(f.rule, f.text) for f in findings(name, text, lang, srcs)]
 
 
 class Includes(unittest.TestCase):
@@ -423,6 +423,83 @@ class Codec(unittest.TestCase):
         self.assertEqual(findings(self.CODECS[0], text, Lang.CXX), [Finding(3, "codec", self.HIERARCHY[0])])
 
 
+class SrcsOf(unittest.TestCase):
+    def test_continuations_and_tabs(self):
+        text = "SRCS =\t\t\t\\\n\tapi.cxx\t\t\t\\\n\tboundaries.cxx\n\nSUBDIRS = \n\nCPPFLAGS += -DCARPETX_INTERNAL\n"
+        self.assertEqual(srcs_of(text), {"api.cxx", "boundaries.cxx"})
+        self.assertEqual(srcs_of("SRCS = \\\r\n\tapi.cxx\r\n"), {"api.cxx"})
+
+    def test_comments_name_nothing(self):
+        text = "# SRCS = old.cxx\nSRCS = a.cxx \\\n\tb.cxx # c.cxx\n#\tSRCS += d.cxx \\\n\te.cxx\n"
+        self.assertEqual(srcs_of(text), {"a.cxx", "b.cxx"})
+
+    def test_every_assignment_adds_its_words(self):
+        self.assertEqual(srcs_of("SRCS = a.cxx\nSRCS += b.cxx \\\n\tc.cxx\n  SRCS:=d.cxx\n"), {"a.cxx", "b.cxx", "c.cxx", "d.cxx"})
+
+    def test_an_empty_srcs_names_nothing(self):
+        for text in ["SRCS =\nSUBDIRS = sub\n", "SRCS = \\\n\nCPPFLAGS += -DX\n", "SRCS ="]:
+            with self.subTest(text=text):
+                self.assertEqual(srcs_of(text), set())
+
+    def test_other_variables_are_not_srcs(self):
+        self.assertEqual(srcs_of("SUBDIRS = sub\nMY_SRCS = a.cxx\nSRCSX = b.cxx\nX = SRCS = c.cxx\n"), set())
+
+    def test_srcs_at_reads_carpetx_make_code_defn(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertIsNone(srcs_at(root))
+            write(root, "CarpetX/src/make.code.defn", "SRCS = a.cxx b.cxx\n")
+            self.assertEqual(srcs_at(root), {"a.cxx", "b.cxx"})
+
+
+class Sources(unittest.TestCase):
+    SRCS = {"api.cxx", "boundaries.cxx", "boundaries_impl_int_int_neg.cxx", "io_silo_checkpoint.cxx"}
+    STRAY = "boundaries_impl_int_int.cxx is not in SRCS of CarpetX/src/make.code.defn"
+
+    def test_a_listed_source_is_fine(self):
+        for name in ["CarpetX/src/api.cxx", "CarpetX/src/boundaries_impl_int_int_neg.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, "int a;\n", srcs=self.SRCS), [])
+
+    def test_an_unlisted_source_is_reported(self):
+        self.assertEqual(reported("CarpetX/src/boundaries_impl_int_int.cxx", "int a;\n", srcs=self.SRCS), [("sources", self.STRAY)])
+        self.assertEqual(reported("CarpetX/src/boundaries_impl_int_int.cxx", "", srcs=self.SRCS), [("sources", self.STRAY)])
+
+    def test_a_word_is_matched_whole(self):
+        for name in ["CarpetX/src/checkpoint.cxx", "CarpetX/src/api_rk.cxx", "CarpetX/src/boundaries_impl.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(
+                    reported(name, "int a;\n", srcs=self.SRCS),
+                    [("sources", f"{os.path.basename(name)} is not in SRCS of CarpetX/src/make.code.defn")],
+                )
+
+    def test_other_thorns_are_out_of_scope(self):
+        for name in ["ODESolvers/src/stray.cxx", "TestCarpetXAPI/src/api.cxx", "CarpetX/stray.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, "int a;\n", srcs=self.SRCS), [])
+
+    def test_headers_are_not_sources(self):
+        for name in ["CarpetX/src/schedule.hxx", "CarpetX/src/typeprops.hh", "CarpetX/src/include/carpetx.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, "int a;\n", srcs=self.SRCS), [])
+
+    def test_the_public_headers_directory_is_out_of_scope(self):
+        self.assertEqual(reported("CarpetX/src/include/stray.cxx", "int a;\n", srcs=self.SRCS), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported("CarpetX/src/stray.cxx", "X = a\n", Lang.MAKE, srcs=self.SRCS), [])
+        self.assertEqual(reported("CarpetX/src/make.code.defn", "SRCS = api.cxx\n", Lang.MAKE, srcs=self.SRCS), [])
+
+    def test_without_srcs_the_rule_is_off(self):
+        self.assertEqual(reported("CarpetX/src/boundaries_impl_int_int.cxx", "int a;\n"), [])
+
+    def test_line_numbers(self):
+        text = '#include "boundaries_impl.hxx"\n\nint a;\n'
+        self.assertEqual(
+            findings("CarpetX/src/boundaries_impl_int_int.cxx", text, Lang.CXX, self.SRCS),
+            [Finding(1, "sources", self.STRAY)],
+        )
+
+
 class NewFindings(unittest.TestCase):
     def test_only_lines_absent_before_are_new(self):
         a = Finding(1, "include", '#include "../../CarpetX/src/driver.hxx"')
@@ -450,6 +527,17 @@ def write(root, name, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(text)
+
+
+def carpetx_base(root, *extra):
+    git(root, "init", "-q")
+    write(root, "CarpetX/interface.ccl", "IMPLEMENTS: Driver\n")
+    write(root, "CarpetX/src/make.code.defn", "SRCS = a.cxx \\\n\tb.cxx\n")
+    for name in ["a.cxx", "b.cxx", *extra]:
+        write(root, "CarpetX/src/" + name, "int a;\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base")
+    return git(root, "rev-parse", "HEAD").strip()
 
 
 class Since(unittest.TestCase):
@@ -486,6 +574,37 @@ class Since(unittest.TestCase):
             write(root, "T/src/a.cxx", '#include "../../CarpetX/src/driver.hxx"\nint a;\n')
             self.assertEqual(since_findings(root, base), [])
 
+    def test_a_name_dropped_from_srcs_strands_its_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = carpetx_base(root)
+            write(root, "CarpetX/src/make.code.defn", "SRCS = a.cxx\n")
+            self.assertEqual(
+                since_findings(root, base),
+                [("CarpetX/src/b.cxx", Finding(1, "sources", "b.cxx is not in SRCS of CarpetX/src/make.code.defn"))],
+            )
+
+    def test_a_new_source_outside_srcs_is_reported(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = carpetx_base(root)
+            write(root, "CarpetX/src/c.cxx", "int c;\n")
+            self.assertEqual(
+                since_findings(root, base),
+                [("CarpetX/src/c.cxx", Finding(1, "sources", "c.cxx is not in SRCS of CarpetX/src/make.code.defn"))],
+            )
+
+    def test_a_file_already_unlisted_at_the_base_is_not_new(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = carpetx_base(root, "stray.cxx")
+            write(root, "CarpetX/src/make.code.defn", "SRCS = a.cxx \\\n\tb.cxx\n\nCPPFLAGS += -DCARPETX_INTERNAL\n")
+            self.assertEqual(since_findings(root, base), [])
+
+    def test_a_source_deleted_with_its_name_is_not_judged(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = carpetx_base(root)
+            os.remove(os.path.join(root, "CarpetX/src/b.cxx"))
+            write(root, "CarpetX/src/make.code.defn", "SRCS = a.cxx\n")
+            self.assertEqual(since_findings(root, base), [])
+
 
 class Report(unittest.TestCase):
     def test_clean(self):
@@ -494,7 +613,8 @@ class Report(unittest.TestCase):
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
             "no validity call outside valid.cxx, no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
-            "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec",
+            "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec, "
+            "no unlisted source under CarpetX/src",
         )
 
     def test_counts(self):
@@ -519,6 +639,9 @@ class Report(unittest.TestCase):
         k = ("CarpetX/src/io_openpmd_checkpoint.cxx", Finding(5, "codec", "for (const auto &patchdata : ghext->patches()) {"))
         self.assertEqual(summary([k]), "✗ boundary: 1 hierarchy use in a checkpoint codec")
         self.assertEqual(summary([i, k, k]), "✗ boundary: 1 bare index int in a CarpetX header, 2 hierarchy uses in a checkpoint codec")
+        s = ("CarpetX/src/boundaries_impl_int_int.cxx", Finding(1, "sources", "boundaries_impl_int_int.cxx is not in SRCS of CarpetX/src/make.code.defn"))
+        self.assertEqual(summary([s]), "✗ boundary: 1 unlisted source under CarpetX/src")
+        self.assertEqual(summary([k, s, s]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 unlisted sources under CarpetX/src")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))

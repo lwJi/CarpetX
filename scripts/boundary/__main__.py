@@ -8,7 +8,7 @@ EXIT_CLEAN, EXIT_FOUND, EXIT_ERROR = 0, 1, 2
 
 
 def run_check(paths: list[str], since: str | None = None) -> int:
-    from rules import findings, render, since_findings
+    from rules import findings, render, since_findings, srcs_at
     from files import PROJECT, GitError, common_ancestor, list_covered, list_tree, read_text, resolve
 
     try:
@@ -21,8 +21,9 @@ def run_check(paths: list[str], since: str | None = None) -> int:
                 raise GitError(f"{since!r} and HEAD have no common ancestor")
             found = since_findings(PROJECT, base)
         else:
+            srcs = srcs_at(PROJECT)
             files = list_covered(paths) if paths else list_tree()
-            found = [(name, f) for name, path, lang in files for f in findings(name, read_text(path), lang)]
+            found = [(name, f) for name, path, lang in files for f in findings(name, read_text(path), lang, srcs)]
     except (FileNotFoundError, GitError, OSError, UnicodeError) as e:
         print(f"boundary check: {e}", file=sys.stderr)
         return EXIT_ERROR
@@ -45,7 +46,8 @@ def main(argv: list[str] | None = None) -> int:
         "every addition to firstvarindex or CCTK_FirstVarIndexI under CarpetX/src outside GroupRecord::var, "
         "every active_levels_t under CarpetX/src, every bare int group, variable, time level, patch or "
         "level parameter in a CarpetX header outside the flesh- and AMReX-fixed signatures and the window bounds, "
-        "and every ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx include in a checkpoint codec file",
+        "every ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx include in a checkpoint codec file, "
+        "and every .cxx under CarpetX/src that SRCS in make.code.defn does not name",
     )
     check.add_argument("paths", nargs="*", metavar="PATH", help="files or directories to check (default: the whole tree)")
     check.add_argument(

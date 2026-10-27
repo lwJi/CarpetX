@@ -12,7 +12,7 @@ COMMENTS = os.path.join(os.path.dirname(TOOL), "comments")
 if COMMENTS not in sys.path:
     sys.path.append(COMMENTS)
 
-from files import Lang, changes_since, covered, is_regular, read_text, show  # noqa: E402
+from files import Lang, changes_since, covered, git, is_regular, read_text, show, split_z  # noqa: E402
 
 MARKER = "CARPETX_INTERNAL"
 PRIVATE_DIR = "CarpetX/src/"
@@ -59,6 +59,9 @@ CODEC_FILES = (
 CODEC_WORD = re.compile(
     r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]driver\.hxx[">]'
 )
+SOURCE_SUFFIX = ".cxx"
+SRCS_LINE = re.compile(r"^[ \t]*SRCS[ \t]*[:+]?=[ \t]*(.*)$", re.M)
+MAKE_CONTINUATION = re.compile(r"\\\r?\n")
 STATEMENT_END = re.compile(r"[;{}]")
 EXCERPT_WIDTH = 72
 
@@ -79,7 +82,9 @@ RULE = (
     "(gi_t, vi_t, tl_t, patch_t, level_t, window_t), never a bare int, except in the signatures\n"
     "the flesh and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow.\n"
     "codec: a checkpoint codec (io_*_checkpoint.cxx and its io_*_names.hxx) sees only the checkpoint\n"
-    "record and its own library: no ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx."
+    "record and its own library: no ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx.\n"
+    "sources: every .cxx under CarpetX/src is a word of SRCS in CarpetX/src/make.code.defn;\n"
+    "a file the build does not compile is deleted, not kept."
 )
 
 
@@ -113,7 +118,27 @@ def index_allowed(name: str, statement: str) -> bool:
     return fixed is not None and bool(fixed.search(statement))
 
 
-def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
+def srcs_of(text: str) -> set[str]:
+    joined = MAKE_CONTINUATION.sub(" ", text)
+    code = "\n".join(line.split("#", 1)[0] for line in joined.splitlines())
+    return {word for match in SRCS_LINE.finditer(code) for word in match.group(1).split()}
+
+
+def srcs_at(root: str) -> Optional[set[str]]:
+    path = os.path.join(root, MAKE_DEFN)
+    return srcs_of(read_text(path)) if os.path.isfile(path) else None
+
+
+def source_listed(name: str, srcs: set[str]) -> bool:
+    return os.path.basename(name) in srcs
+
+
+def tracked_sources(root: str) -> list[str]:
+    names = split_z(git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", PRIVATE_DIR))
+    return sorted({name for name in names if name.endswith(SOURCE_SUFFIX) and is_regular(os.path.join(root, name))})
+
+
+def findings(name: str, text: str, lang: Optional[Lang], srcs: Optional[set[str]] = None) -> list[Finding]:
     if lang not in CHECKED:
         return []
     found = []
@@ -146,6 +171,14 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
             found.append(Finding(number, "codec", line.strip()))
         if STATEMENT_END.search(line):
             statement = ""
+    if (
+        srcs is not None
+        and lang is Lang.CXX
+        and is_private(name)
+        and name.endswith(SOURCE_SUFFIX)
+        and not source_listed(name, srcs)
+    ):
+        found.append(Finding(1, "sources", f"{os.path.basename(name)} is not in SRCS of {MAKE_DEFN}"))
     return found
 
 
@@ -161,15 +194,21 @@ def new_findings(before: list[Finding], after: list[Finding]) -> list[Finding]:
 
 
 def since_findings(root: str, base: str) -> list[tuple[str, Finding]]:
+    changed = changes_since(root, base)
+    srcs_after = srcs_at(root)
+    srcs_before = srcs_of(show(root, base, MAKE_DEFN)) if changed.get(MAKE_DEFN, MAKE_DEFN) == MAKE_DEFN else None
+    if MAKE_DEFN in changed:
+        for name in tracked_sources(root):
+            changed.setdefault(name, name)
     found = []
-    for name, old in sorted(changes_since(root, base).items()):
+    for name, old in sorted(changed.items()):
         lang = covered(name, root)
         if lang not in CHECKED:
             continue
         path = os.path.join(root, name)
         after = read_text(path) if is_regular(path) else ""
-        before = findings(old, show(root, base, old), lang) if old is not None else []
-        found.extend((name, f) for f in new_findings(before, findings(name, after, lang)))
+        before = findings(old, show(root, base, old), lang, srcs_before) if old is not None else []
+        found.extend((name, f) for f in new_findings(before, findings(name, after, lang, srcs_after)))
     return found
 
 
@@ -186,12 +225,14 @@ def summary(found: list[tuple[str, Finding]]) -> str:
     window = sum(1 for _, f in found if f.rule == "window")
     index = sum(1 for _, f in found if f.rule == "index")
     codec = sum(1 for _, f in found if f.rule == "codec")
+    sources = sum(1 for _, f in found if f.rule == "sources")
     if not found:
         return (
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
             "no validity call outside valid.cxx, no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
-            "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec"
+            "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec, "
+            "no unlisted source under CarpetX/src"
         )
     parts = (
         ([plural(includes, "private include")] if includes else [])
@@ -202,6 +243,7 @@ def summary(found: list[tuple[str, Finding]]) -> str:
         + ([plural(window, "active_levels_t use")] if window else [])
         + ([plural(index, "bare index int") + " in a CarpetX header"] if index else [])
         + ([plural(codec, "hierarchy use") + " in a checkpoint codec"] if codec else [])
+        + ([plural(sources, "unlisted source") + " under CarpetX/src"] if sources else [])
     )
     return "✗ boundary: " + ", ".join(parts)
 
