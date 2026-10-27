@@ -515,7 +515,7 @@ static void error_if_sync_in_tail(const window_t window,
       groupnames << ", ";
     groupnames << (groupname ? groupname : "(unknown group)");
   }
-  const cFunctionData *const func = ghext->last_called_function;
+  const cFunctionData *const func = scheduled_routine();
   CCTK_VERROR(
       "%s::%s (%s) requested SYNC of %s at iteration %d with "
       "CarpetX::use_subcycling = yes, while the end-of-step window holds only "

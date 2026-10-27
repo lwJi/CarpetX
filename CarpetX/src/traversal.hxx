@@ -5,6 +5,8 @@
 
 #include <carpetx.hxx>
 
+#include <cctk_Schedule.h>
+
 #include <source_location>
 
 namespace CarpetX {
@@ -38,6 +40,17 @@ public:
   recovery_scope_t &operator=(const recovery_scope_t &) = delete;
 };
 
+class routine_scope_t {
+public:
+  explicit routine_scope_t(const cFunctionData *routine);
+  ~routine_scope_t();
+  routine_scope_t(const routine_scope_t &) = delete;
+  routine_scope_t &operator=(const routine_scope_t &) = delete;
+
+private:
+  const cFunctionData *const routine;
+};
+
 window_t
 scheduled_window(const char *caller,
                  std::source_location site = std::source_location::current());
@@ -45,6 +58,8 @@ scheduled_window(const char *caller,
 const char *scheduled_tail_bin();
 
 bool in_recovery_traversal();
+
+const cFunctionData *scheduled_routine();
 
 } // namespace CarpetX
 

@@ -286,6 +286,8 @@ class Traversal(unittest.TestCase):
         "if (!tail_bin) return;",
         "recovery_traversal = true;",
         "assert(!recovery_traversal);",
+        "last_routine = attribute;",
+        "const auto *f = last_routine;",
     ]
 
     def test_traversal_reported(self):
@@ -316,6 +318,8 @@ class Traversal(unittest.TestCase):
             "tail_bin_scope_t scope(bin);\n",
             "in_recovery_traversal();\n",
             "recovery_scope_t scope;\n",
+            "scheduled_routine();\n",
+            "routine_scope_t routine_scope(attribute);\n",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/schedule.cxx", text), [])

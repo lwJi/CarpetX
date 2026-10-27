@@ -859,12 +859,6 @@ struct GHExt {
 
   bool use_subcycling = false;
 
-  // The routine CallFunction dispatched last, set on entry and again on exit,
-  // so it still names the routine when the flesh fires its SYNC clause after
-  // the routine has returned. Read only by the error message of the
-  // end-of-step sync check.
-  const cFunctionData *last_called_function = nullptr;
-
   bool do_reflux = false;
 
   std::optional<rk_config_t> rk_config;

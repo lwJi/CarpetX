@@ -85,8 +85,7 @@ double gettime() {
 
 namespace {
 std::string sync_caller() {
-  const cFunctionData *const func =
-      ghext ? ghext->last_called_function : nullptr;
+  const cFunctionData *const func = scheduled_routine();
   if (!func)
     return "SYNC";
   return std::string("SYNC from ") + func->thorn + "::" + func->routine;
@@ -2163,10 +2162,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     CCTK_VINFO("CallFunction iteration %d %s: %s::%s", cctkGH->cctk_iteration,
                attribute->where, attribute->thorn, attribute->routine);
 
-  // For the end-of-step sync check's message. ghext is gone once
-  // CarpetX_Shutdown has run, while meta-mode routines are still called.
-  if (ghext)
-    ghext->last_called_function = attribute;
+  const routine_scope_t routine_scope(attribute);
 
   const std::string routine =
       std::string(attribute->thorn) + "::" + attribute->routine;
@@ -2378,12 +2374,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
         invalidate_array(spec);
     }
   }
-
-  // The flesh fires this routine's SYNC clause after we return. A nested
-  // CallScheduleGroup may have overwritten last_called_function, so that a
-  // sync check would name the wrong routine: set it again.
-  if (ghext)
-    ghext->last_called_function = attribute;
 
   constexpr int didsync = 0;
   return didsync;

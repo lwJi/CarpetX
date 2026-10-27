@@ -10,6 +10,7 @@ namespace {
 std::optional<window_t> active_levels;
 const char *tail_bin = nullptr;
 bool recovery_traversal = false;
+const cFunctionData *last_routine = nullptr;
 } // namespace
 
 traversal_scope_t::traversal_scope_t(const window_t window,
@@ -48,6 +49,13 @@ recovery_scope_t::recovery_scope_t(const std::source_location site) {
 
 recovery_scope_t::~recovery_scope_t() { recovery_traversal = false; }
 
+routine_scope_t::routine_scope_t(const cFunctionData *const routine)
+    : routine(routine) {
+  last_routine = routine;
+}
+
+routine_scope_t::~routine_scope_t() { last_routine = routine; }
+
 window_t scheduled_window(const char *const caller,
                           const std::source_location site) {
   if (!active_levels)
@@ -58,5 +66,7 @@ window_t scheduled_window(const char *const caller,
 const char *scheduled_tail_bin() { return tail_bin; }
 
 bool in_recovery_traversal() { return recovery_traversal; }
+
+const cFunctionData *scheduled_routine() { return last_routine; }
 
 } // namespace CarpetX

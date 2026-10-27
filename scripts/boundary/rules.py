@@ -29,7 +29,7 @@ VALIDITY_WORD = re.compile(
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
 TRAVERSAL_FILES = ("CarpetX/src/traversal.cxx", "CarpetX/src/traversal.hxx")
-TRAVERSAL_WORD = re.compile(r"\b(active_levels|tail_bin|recovery_traversal)\b")
+TRAVERSAL_WORD = re.compile(r"\b(active_levels|tail_bin|recovery_traversal|last_routine)\b")
 SYNC_FILES = (
     "CarpetX/src/schedule.hxx",
     "CarpetX/src/schedule.cxx",
@@ -77,9 +77,9 @@ RULE = (
     "call record.var(vi) instead of adding to firstvarindex or CCTK_FirstVarIndexI(gi).\n"
     "window: window_t is the one \"which levels\" type; active_levels_t is gone, and a window is\n"
     "built only by active_window(), all_levels(), window_t::one_level, window_t::levels and narrow.\n"
-    "traversal: a traversal slot (active_levels, tail_bin, recovery_traversal) is named only in\n"
-    "CarpetX/src/traversal.cxx and traversal.hxx; a driver phase opens a scope, and a reader calls\n"
-    "scheduled_window(), scheduled_tail_bin() or in_recovery_traversal().\n"
+    "traversal: a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine) is named\n"
+    "only in CarpetX/src/traversal.cxx and traversal.hxx; a driver phase opens a scope, and a reader\n"
+    "calls scheduled_window(), scheduled_tail_bin(), in_recovery_traversal() or scheduled_routine().\n"
     "index: a CarpetX header names a group, variable, time level, patch or level by its type\n"
     "(gi_t, vi_t, tl_t, patch_t, level_t, window_t), never a bare int, except in the signatures\n"
     "the flesh and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow.\n"
