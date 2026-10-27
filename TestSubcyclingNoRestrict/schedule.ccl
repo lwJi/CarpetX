@@ -74,3 +74,12 @@ SCHEDULE TestSubcyclingNoRestrict_Error IN TestSubcyclingNoRestrict_Diagnostics
   READS: state(everywhere)
   WRITES: error(everywhere)
 } "Calculate error in the restricted scalar wave state"
+
+if (interpolate_on_recover) {
+  SCHEDULE TestSubcyclingNoRestrict_InterpolateOnRecover AT post_recover_variables
+  {
+    LANG: C
+    OPTIONS: global
+    READS: state(everywhere)
+  } "Interpolate u at the origin and at (3,3,3), which lie on levels in different clock groups"
+}

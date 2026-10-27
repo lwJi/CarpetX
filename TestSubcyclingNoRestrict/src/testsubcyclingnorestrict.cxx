@@ -8,6 +8,7 @@
 #include <cctk.h>
 #include <cctk_Arguments.h>
 #include <cctk_Parameters.h>
+#include <util_Table.h>
 
 #include <array>
 #include <cmath>
@@ -155,6 +156,52 @@ extern "C" void TestSubcyclingNoRestrict_Error(CCTK_ARGUMENTS) {
         u_err(p.I) = u(p.I) - u0;
         rho_err(p.I) = rho(p.I) - rho0;
       });
+}
+
+extern "C" void TestSubcyclingNoRestrict_InterpolateOnRecover(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_TestSubcyclingNoRestrict_InterpolateOnRecover;
+
+  constexpr int npoints = 2;
+  const array<CCTK_REAL, npoints> x{0.0, 3.0};
+  const array<CCTK_REAL, npoints> y{0.0, 3.0};
+  const array<CCTK_REAL, npoints> z{0.0, 3.0};
+  const void *const coords[dim] = {x.data(), y.data(), z.data()};
+
+  const CCTK_INT varinds[1] = {CCTK_VarIndex("TestSubcyclingNoRestrict::u")};
+  const CCTK_INT operand_indices[1] = {0};
+  const CCTK_INT operation_codes[1] = {0};
+
+  const int interp_handle = CCTK_InterpHandle("CarpetX");
+  if (interp_handle < 0)
+    CCTK_VERROR("Could not obtain the 'CarpetX' interpolator handle: %d",
+                interp_handle);
+
+  const int table = Util_TableCreate(UTIL_TABLE_FLAGS_DEFAULT);
+  if (table < 0)
+    CCTK_VERROR("Could not create the parameter table: %d", table);
+  int ierr = Util_TableSetInt(table, 1, "order");
+  if (ierr < 0)
+    CCTK_VERROR("Could not set order in the parameter table: %d", ierr);
+  ierr = Util_TableSetIntArray(table, 1, operand_indices, "operand_indices");
+  if (ierr < 0)
+    CCTK_VERROR("Could not set operand_indices in the parameter table: %d",
+                ierr);
+  ierr = Util_TableSetIntArray(table, 1, operation_codes, "operation_codes");
+  if (ierr < 0)
+    CCTK_VERROR("Could not set operation_codes in the parameter table: %d",
+                ierr);
+
+  array<CCTK_REAL, npoints> result;
+  const CCTK_INT output_array_type_codes[1] = {CCTK_VARIABLE_REAL};
+  void *const output_arrays[1] = {result.data()};
+
+  ierr = CCTK_InterpGridArrays(cctkGH, dim, interp_handle, table, 0, npoints,
+                               CCTK_VARIABLE_REAL, coords, 1, varinds, 1,
+                               output_array_type_codes, output_arrays);
+  if (ierr < 0)
+    CCTK_VERROR("CCTK_InterpGridArrays failed: %d", ierr);
+
+  Util_TableDestroy(table);
 }
 
 } // namespace TestSubcyclingNoRestrict
