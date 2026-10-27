@@ -159,12 +159,12 @@ bool finer_level_is_behind(const checkpoint_record_t &record,
 }
 
 void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
-                   const TimeLevelMode tl_mode, const codec_limits_t &limits) {
+                   const record_purpose purpose, const codec_limits_t &limits) {
   for (auto &patchdata : ghext->patches()) {
     for (auto &leveldata : patchdata.levels()) {
       const level_t level = leveldata.level;
-      const bool bands =
-          tl_mode == TimeLevelMode::All && finer_level_is_behind(record, level);
+      const bool bands = purpose == record_purpose::checkpoint &&
+                         finer_level_is_behind(record, level);
       for (auto &groupdata : leveldata.groups()) {
         const GHExt::GroupRecord &group = groupdata.record;
         const gi_t gi = group.groupindex;
@@ -172,7 +172,7 @@ void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
           continue;
         const std::vector<std::string> vars = variable_names(group);
 
-        const tl_range tls = tl_mode == TimeLevelMode::All
+        const tl_range tls = purpose == record_purpose::checkpoint
                                  ? group.timelevels()
                                  : tl_range{tl_t{0}, tl_t{1}};
         for (const tl_t tl : tls)
@@ -233,9 +233,9 @@ void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
 
 checkpoint_record_t build_record(const cGH *const cctkGH,
                                  const std::vector<bool> &mask,
-                                 const TimeLevelMode tl_mode,
+                                 const record_purpose purpose,
                                  const codec_limits_t &limits) {
-  if (tl_mode == TimeLevelMode::All)
+  if (purpose == record_purpose::checkpoint)
     refuse_unless_carried(mask, limits);
 
   checkpoint_record_t record;
@@ -262,7 +262,7 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
     }
   }
 
-  build_buffers(record, mask, tl_mode, limits);
+  build_buffers(record, mask, purpose, limits);
   return record;
 }
 

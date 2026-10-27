@@ -20,7 +20,7 @@
 
 namespace CarpetX {
 
-enum class TimeLevelMode { Current, All };
+enum class record_purpose { checkpoint, output };
 
 struct buffer_id_t {
   std::string group;
@@ -96,11 +96,11 @@ bool finer_level_is_behind(const checkpoint_record_t &record, level_t level);
 
 checkpoint_record_t build_record(const cGH *cctkGH,
                                  const std::vector<bool> &mask,
-                                 TimeLevelMode tl_mode,
+                                 record_purpose purpose,
                                  const codec_limits_t &limits);
 
 void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
-                   TimeLevelMode tl_mode, const codec_limits_t &limits);
+                   record_purpose purpose, const codec_limits_t &limits);
 
 void apply_structure(cGH *cctkGH, checkpoint_record_t &record);
 

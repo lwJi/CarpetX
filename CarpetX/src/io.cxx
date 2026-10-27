@@ -98,7 +98,7 @@ checkpoint_record_t encode_output(const cGH *const cctkGH,
   DECLARE_CCTK_PARAMETERS;
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(method);
   checkpoint_record_t record = build_record(
-      cctkGH, output_group, TimeLevelMode::Current, codec->limits());
+      cctkGH, output_group, record_purpose::output, codec->limits());
   codec->encode(record, out_dir, get_simulation_name());
   return record;
 }
@@ -172,7 +172,8 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
 
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
   checkpoint_record_t recovering = record;
-  build_buffers(recovering, group_enabled, TimeLevelMode::All, codec->limits());
+  build_buffers(recovering, group_enabled, record_purpose::checkpoint,
+                codec->limits());
   read_record(*codec, recovering, recover_dir, recover_file, "RecoverGH");
 
   // Increment epoch
@@ -206,7 +207,7 @@ void InputGH(const cGH *restrict cctkGH) {
   checkpoint_record_t file = codec->decode_structure(
       filereader_ID_dir, filereader_ID_files, cctk_iteration);
   checkpoint_record_t record = build_record(
-      cctkGH, input_group, TimeLevelMode::Current, codec->limits());
+      cctkGH, input_group, record_purpose::output, codec->limits());
   record.present = std::move(file.present);
   read_record(*codec, record, filereader_ID_dir, filereader_ID_files,
               "InputGH");
@@ -594,7 +595,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
   const std::unique_ptr<checkpoint_codec_t> codec =
       make_codec(checkpoint_method);
   const checkpoint_record_t record = build_record(
-      cctkGH, checkpoint_group, TimeLevelMode::All, codec->limits());
+      cctkGH, checkpoint_group, record_purpose::checkpoint, codec->limits());
   codec->encode(record, checkpoint_dir, checkpoint_file);
 }
 
