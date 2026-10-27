@@ -71,7 +71,6 @@ CarpetX::out_norm_omit_sumloc_for_backward_compatibility = yes
 
 CarpetX::out_tsv_vars = "
     FluxWaveToyX::state
-    FluxWaveToyX::error
     TestSubcycleStepping::tail_context
     TestSubcycleStepping::recovery_counts
 "
