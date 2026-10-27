@@ -152,12 +152,6 @@ struct GridPtrDesc : GridDesc {
     return vars.ptr(cactus_offset.x, cactus_offset.y, cactus_offset.z,
                     vi.index());
   }
-  template <typename T>
-  T &idx(const amrex::Array4<T> &vars, int i, int j, int k,
-         const vi_t vi) const {
-    return vars(cactus_offset.x + i, cactus_offset.y + i, cactus_offset.z + j,
-                vi.index());
-  }
 };
 
 struct GridPtrDesc1 : GridDesc {
@@ -180,12 +174,6 @@ struct GridPtrDesc1 : GridDesc {
   T *ptr(const amrex::Array4<T> &vars, const vi_t vi) const {
     return vars.ptr(cactus_offset.x + gimin[0], cactus_offset.y + gimin[1],
                     cactus_offset.z + gimin[2], vi.index());
-  }
-  template <typename T>
-  T &idx(const amrex::Array4<T> &vars, int i, int j, int k,
-         const vi_t vi) const {
-    return vars(cactus_offset.x + gimin[0] + i, cactus_offset.y + gimin[1] + j,
-                cactus_offset.z + gimin[2] + k, vi.index());
   }
 
   template <typename T>
