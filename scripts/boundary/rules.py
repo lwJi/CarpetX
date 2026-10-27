@@ -28,6 +28,8 @@ VALIDITY_WORD = re.compile(
     r"(\b(error_if_invalid|warn_if_invalid|poison_invalid_g[fa]|check_valid_g[fa])"
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
+TRAVERSAL_FILES = ("CarpetX/src/traversal.cxx", "CarpetX/src/traversal.hxx")
+TRAVERSAL_WORD = re.compile(r"\bactive_levels\b")
 SYNC_FILES = (
     "CarpetX/src/schedule.hxx",
     "CarpetX/src/schedule.cxx",
@@ -75,6 +77,8 @@ RULE = (
     "call record.var(vi) instead of adding to firstvarindex or CCTK_FirstVarIndexI(gi).\n"
     "window: window_t is the one \"which levels\" type; active_levels_t is gone, and a window is\n"
     "built only by active_window(), all_levels(), window_t::one_level, window_t::levels and narrow.\n"
+    "traversal: the scheduled window (active_levels) is named only in CarpetX/src/traversal.cxx\n"
+    "and traversal.hxx; a driver phase opens a traversal_scope_t, and a reader calls scheduled_window().\n"
     "index: a CarpetX header names a group, variable, time level, patch or level by its type\n"
     "(gi_t, vi_t, tl_t, patch_t, level_t, window_t), never a bare int, except in the signatures\n"
     "the flesh and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow.\n"
@@ -128,6 +132,8 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
                 found.append(Finding(number, "include", line.strip()))
         if lang is Lang.CXX and is_private(name) and name not in VALIDITY_FILES and VALIDITY_WORD.search(line):
             found.append(Finding(number, "validity", line.strip()))
+        if lang is Lang.CXX and is_private(name) and name not in TRAVERSAL_FILES and TRAVERSAL_WORD.search(line):
+            found.append(Finding(number, "traversal", line.strip()))
         if name in SYNC_FILES and DIRECTIONS_WORD.search(line) and not directions_allowed(name, statement):
             found.append(Finding(number, "directions", line.strip()))
         if lang is Lang.CXX and name.startswith(PRIVATE_DIR) and VARINDEX_WORD.search(line) and not varindex_allowed(name, line):
@@ -184,6 +190,7 @@ def summary(found: list[tuple[str, Finding]]) -> str:
     directions = sum(1 for _, f in found if f.rule == "directions")
     varindex = sum(1 for _, f in found if f.rule == "varindex")
     window = sum(1 for _, f in found if f.rule == "window")
+    traversal = sum(1 for _, f in found if f.rule == "traversal")
     index = sum(1 for _, f in found if f.rule == "index")
     codec = sum(1 for _, f in found if f.rule == "codec")
     if not found:
@@ -191,6 +198,7 @@ def summary(found: list[tuple[str, Finding]]) -> str:
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
             "no validity call outside valid.cxx, no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
+            "no active_levels outside traversal.cxx, "
             "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec"
         )
     parts = (
@@ -200,6 +208,7 @@ def summary(found: list[tuple[str, Finding]]) -> str:
         + ([plural(directions, "directions parameter") + " in the sync layer"] if directions else [])
         + ([plural(varindex, "firstvarindex addition") + " outside GroupRecord::var"] if varindex else [])
         + ([plural(window, "active_levels_t use")] if window else [])
+        + ([plural(traversal, "traversal use") + " outside traversal.cxx"] if traversal else [])
         + ([plural(index, "bare index int") + " in a CarpetX header"] if index else [])
         + ([plural(codec, "hierarchy use") + " in a checkpoint codec"] if codec else [])
     )

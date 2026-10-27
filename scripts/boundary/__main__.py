@@ -43,7 +43,9 @@ def main(argv: list[str] | None = None) -> int:
         "every validity kernel or why_valid_t setter named outside CarpetX/src/valid.cxx and valid.hxx, "
         "every directions parameter in the sync layer outside the flesh-facing SyncGroupsOnActiveLevels, "
         "every addition to firstvarindex or CCTK_FirstVarIndexI under CarpetX/src outside GroupRecord::var, "
-        "every active_levels_t under CarpetX/src, every bare int group, variable, time level, patch or "
+        "every active_levels_t under CarpetX/src, "
+        "every active_levels in a private CarpetX file outside traversal.cxx and traversal.hxx, "
+        "every bare int group, variable, time level, patch or "
         "level parameter in a CarpetX header outside the flesh- and AMReX-fixed signatures and the window bounds, "
         "and every ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx include in a checkpoint codec file",
     )

@@ -83,8 +83,8 @@ class Validity(unittest.TestCase):
     KERNELS = [
         "error_if_invalid(groupdata, vi, tl, make_valid_int(), msg);",
         "warn_if_invalid(groupdata, vi, tl, make_valid_int(), msg);",
-        "poison_invalid_gf(active_levels, gi, vi, tl);",
-        "check_valid_gf (active_levels, gi, vi, tl, msg);",
+        "poison_invalid_gf(window, gi, vi, tl);",
+        "check_valid_gf (window, gi, vi, tl, msg);",
         "poison_invalid_ga(gi, vi, tl);",
         "check_valid_ga(gi, vi, tl, msg);",
     ]
@@ -156,9 +156,8 @@ class Directions(unittest.TestCase):
         "int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,\n"
         "                             const int numgroups, const int *const groups,\n"
         "                             const int *const directions) {\n"
-        "  assert(active_levels);\n"
         "  const std::vector<gi_t> gis(groups, groups + numgroups);\n"
-        "  return SyncGroups(*active_levels, cctkGH, gis);\n"
+        "  return SyncGroups(scheduled_window(sync_caller(gis).c_str()), cctkGH, gis);\n"
         "}\n"
     )
 
@@ -169,7 +168,7 @@ class Directions(unittest.TestCase):
                     reported(name, self.FORWARDED),
                     [("directions", "const int *groups, const int *directions);")],
                 )
-        text = "  return SyncGroups(*active_levels, cctkGH, numgroups, groups, directions);\n"
+        text = "  return SyncGroups(scheduled_window(sync_caller(gis).c_str()), cctkGH, gis, directions);\n"
         self.assertEqual(reported("CarpetX/src/schedule.cxx", text), [("directions", text.strip())])
 
     def test_directions_allowed_in_flesh_overload(self):
@@ -245,9 +244,9 @@ class VarIndex(unittest.TestCase):
 class Window(unittest.TestCase):
     USES = [
         "struct active_levels_t;",
-        "int SyncGroupsByDirI(const active_levels_t &active_levels,",
-        "const std::optional<active_levels_t> &scheduled_levels();",
-        "active_levels = std::make_optional<active_levels_t>(0, level + 1);",
+        "int SyncGroupsByDirI(active_levels_t window, const cGH *restrict cctkGH,",
+        "active_levels_t scheduled_window(const char *caller,",
+        "const traversal_scope_t scope(active_levels_t(0, level + 1));",
     ]
 
     def test_window_reported(self):
@@ -257,14 +256,14 @@ class Window(unittest.TestCase):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("window", line)])
 
     def test_the_window_type_and_the_scheduler_state_are_fine(self):
-        for text in [
-            "std::optional<window_t> active_levels;\n",
-            "active_levels = window_t::levels(0, 1);\n",
-            "struct active_levels_type;\n",
-            "my_active_levels_t x;\n",
+        for name, text in [
+            ("CarpetX/src/traversal.cxx", "std::optional<window_t> active_levels;\n"),
+            ("CarpetX/src/traversal.cxx", "active_levels = window_t::levels(0, 1);\n"),
+            ("CarpetX/src/schedule.cxx", "struct active_levels_type;\n"),
+            ("CarpetX/src/schedule.cxx", "my_active_levels_t x;\n"),
         ]:
-            with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/schedule.cxx", text), [])
+            with self.subTest(name=name, text=text):
+                self.assertEqual(reported(name, text), [])
 
     def test_other_thorns_are_not_checked(self):
         self.assertEqual(reported("ODESolvers/src/solve.cxx", self.USES[0] + "\n"), [])
@@ -275,6 +274,46 @@ class Window(unittest.TestCase):
     def test_line_numbers(self):
         text = "int a;\n" + self.USES[0] + "\n"
         self.assertEqual(findings("CarpetX/src/valid.hxx", text, Lang.CXX), [Finding(2, "window", self.USES[0])])
+
+
+class Traversal(unittest.TestCase):
+    USES = [
+        "active_levels = std::nullopt;",
+        "assert(!active_levels);",
+        "loop_serially(*active_levels, f);",
+        "if (active_levels) return;",
+    ]
+
+    def test_traversal_reported(self):
+        for line in self.USES:
+            for name in ["CarpetX/src/schedule.cxx", "CarpetX/src/api.cxx", "CarpetX/src/driver.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("traversal", line)])
+
+    def test_the_traversal_unit_owns_the_slot(self):
+        for line in self.USES:
+            for name in ["CarpetX/src/traversal.cxx", "CarpetX/src/traversal.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_another_thorn_and_the_public_headers_may_use_the_name(self):
+        for line in self.USES:
+            for name in ["ODESolvers/src/solve.cxx", "CarpetX/src/include/carpetx.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_a_longer_name_is_not_the_slot(self):
+        self.assertEqual(reported("CarpetX/src/schedule.cxx", "active_levels_t x;\n"), [("window", "active_levels_t x;")])
+        for text in ["my_active_levels = 1;\n", "int active_levels_count;\n", "SyncGroupsOnActiveLevels(cctkGH, n, gs, ds);\n"]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/schedule.cxx", text), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported("CarpetX/src/make.code.defn", "X = active_levels\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n\n" + self.USES[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/schedule.cxx", text, Lang.CXX), [Finding(3, "traversal", self.USES[0])])
 
 
 class Index(unittest.TestCase):
@@ -494,6 +533,7 @@ class Report(unittest.TestCase):
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
             "no validity call outside valid.cxx, no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
+            "no active_levels outside traversal.cxx, "
             "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec",
         )
 
@@ -516,6 +556,9 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([w]), "✗ boundary: 1 active_levels_t use")
         self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in a CarpetX header")
         self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in a CarpetX header")
+        t = ("CarpetX/src/schedule.cxx", Finding(9, "traversal", "active_levels = std::nullopt;"))
+        self.assertEqual(summary([t]), "✗ boundary: 1 traversal use outside traversal.cxx")
+        self.assertEqual(summary([w, t, t, i]), "✗ boundary: 1 active_levels_t use, 2 traversal uses outside traversal.cxx, 1 bare index int in a CarpetX header")
         k = ("CarpetX/src/io_openpmd_checkpoint.cxx", Finding(5, "codec", "for (const auto &patchdata : ghext->patches()) {"))
         self.assertEqual(summary([k]), "✗ boundary: 1 hierarchy use in a checkpoint codec")
         self.assertEqual(summary([i, k, k]), "✗ boundary: 1 bare index int in a CarpetX header, 2 hierarchy uses in a checkpoint codec")
