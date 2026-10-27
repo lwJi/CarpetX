@@ -50,6 +50,15 @@ INDEX_FIXED = {
         r"\b(ErrorEst|MakeNewLevelFromScratch|MakeNewLevelFromCoarse|RemakeLevel|ClearLevel)\s*\("
     ),
 }
+CODEC_FILES = (
+    "CarpetX/src/io_openpmd_checkpoint.cxx",
+    "CarpetX/src/io_openpmd_names.hxx",
+    "CarpetX/src/io_silo_checkpoint.cxx",
+    "CarpetX/src/io_silo_names.hxx",
+)
+CODEC_WORD = re.compile(
+    r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]driver\.hxx[">]'
+)
 STATEMENT_END = re.compile(r"[;{}]")
 EXCERPT_WIDTH = 72
 
@@ -68,7 +77,9 @@ RULE = (
     "built only by active_window(), all_levels(), window_t::one_level, window_t::levels and narrow.\n"
     "index: a CarpetX header names a group, variable, time level, patch or level by its type\n"
     "(gi_t, vi_t, tl_t, patch_t, level_t, window_t), never a bare int, except in the signatures\n"
-    "the flesh and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow."
+    "the flesh and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow.\n"
+    "codec: a checkpoint codec (io_*_checkpoint.cxx and its io_*_names.hxx) sees only the checkpoint\n"
+    "record and its own library: no ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx."
 )
 
 
@@ -131,6 +142,8 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
             and not index_allowed(name, statement)
         ):
             found.append(Finding(number, "index", line.strip()))
+        if lang is Lang.CXX and name in CODEC_FILES and CODEC_WORD.search(line):
+            found.append(Finding(number, "codec", line.strip()))
         if STATEMENT_END.search(line):
             statement = ""
     return found
@@ -172,12 +185,13 @@ def summary(found: list[tuple[str, Finding]]) -> str:
     varindex = sum(1 for _, f in found if f.rule == "varindex")
     window = sum(1 for _, f in found if f.rule == "window")
     index = sum(1 for _, f in found if f.rule == "index")
+    codec = sum(1 for _, f in found if f.rule == "codec")
     if not found:
         return (
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
             "no validity call outside valid.cxx, no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
-            "no bare index int in a CarpetX header"
+            "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec"
         )
     parts = (
         ([plural(includes, "private include")] if includes else [])
@@ -187,6 +201,7 @@ def summary(found: list[tuple[str, Finding]]) -> str:
         + ([plural(varindex, "firstvarindex addition") + " outside GroupRecord::var"] if varindex else [])
         + ([plural(window, "active_levels_t use")] if window else [])
         + ([plural(index, "bare index int") + " in a CarpetX header"] if index else [])
+        + ([plural(codec, "hierarchy use") + " in a checkpoint codec"] if codec else [])
     )
     return "✗ boundary: " + ", ".join(parts)
 

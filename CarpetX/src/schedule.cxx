@@ -1106,31 +1106,27 @@ static void SetStepTime(cGH *restrict const cctkGH, const int level,
   }
 }
 
-static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
+static void RestoreLevelClocks(const cGH *restrict const cctkGH,
+                               const checkpoint_record_t &record) {
   const int checkpoint_iteration = cctkGH->cctk_iteration;
 
   const int iteration_ratio = 1 << (ghext->num_levels() - 1);
   bool have_last_step_iterations = true;
   for (auto &patchdata : ghext->patches()) {
     for (auto &leveldata : patchdata.levels()) {
-      const int patch = leveldata.level.patch().index();
-      const int level = leveldata.level.index();
-      const GHExt::recovered_level_t *recovered = nullptr;
-      if (patch < int(ghext->recovered_levels.size()) &&
-          level < int(ghext->recovered_levels.at(patch).size()))
-        recovered = &ghext->recovered_levels.at(patch).at(level);
-      if (recovered && recovered->iteration)
-        leveldata.iteration = *recovered->iteration;
+      const level_record_t &recovered =
+          record.levels.at(leveldata.level.patch().index())
+              .at(leveldata.level.index());
+      if (recovered.iteration)
+        leveldata.iteration = *recovered.iteration;
       else
-        // Backward compat: old checkpoint without per-level iteration
         leveldata.iteration = rat64(checkpoint_iteration) / iteration_ratio;
-      if (recovered && recovered->last_step_iteration)
-        leveldata.last_step_iteration = *recovered->last_step_iteration;
+      if (recovered.last_step_iteration)
+        leveldata.last_step_iteration = *recovered.last_step_iteration;
       else
         have_last_step_iterations = false;
     }
   }
-  ghext->recovered_levels.clear();
 
   const auto clock_groups = ClockGroups();
   const int num_groups = clock_groups.size();
@@ -1191,9 +1187,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH) {
 }
 
 static void RecoverHierarchy(cGH *restrict const cctkGH) {
-  RecoverGridStructure(cctkGH);
-  assert(ghext->recovered_iteration == -1);
-  ghext->recovered_iteration = cctkGH->cctk_iteration;
+  const checkpoint_record_t record = RecoverGridStructure(cctkGH);
 
   assert(!active_levels);
   active_levels = all_levels();
@@ -1209,8 +1203,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
     CCTK_Traverse(cctkGH, "CCTK_POSTPOSTINITIAL");
   }
 
-  // Recover
-  RecoverGH(cctkGH);
+  RecoverGH(cctkGH, record);
   CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
 
   active_levels = std::nullopt;
@@ -1220,8 +1213,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
       assert(leveldata.iteration == 0 &&
              "recovery runs BASEGRID and RECOVER_VARIABLES at clock 0");
 
-  // Restore the per-level clocks and last-step iterations
-  RestoreLevelClocks(cctkGH);
+  RestoreLevelClocks(cctkGH, record);
 
   for (auto &patchdata : ghext->patches())
     patchdata.amrcore->cactus_is_initialized = true;
@@ -1344,10 +1336,7 @@ static void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
 
   RecomputePerClockGroup(cctkGH);
 
-  // RestoreLevelClocks checked that the finest group's last-step iteration
-  // is the checkpoint's, so the group loop has left the finest
-  // group's context set
-  assert(cctkGH->cctk_iteration == ghext->recovered_iteration);
+  assert(cctkGH->cctk_iteration == recovered_iteration());
 
 #pragma omp critical
   CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",

@@ -28,6 +28,7 @@ SRCS =							\
 	boundaries_impl_pos_pos_int.cxx			\
 	boundaries_impl_pos_pos_neg.cxx			\
 	boundaries_impl_pos_pos_pos.cxx			\
+	checkpoint.cxx					\
 	compile_checks.cxx				\
 	driver.cxx					\
 	fillpatch.cxx					\
@@ -37,7 +38,9 @@ SRCS =							\
 	io_meta.cxx					\
 	io_norm.cxx					\
 	io_openpmd.cxx					\
+	io_openpmd_checkpoint.cxx			\
 	io_silo.cxx					\
+	io_silo_checkpoint.cxx			\
 	io_tsv.cxx					\
 	linsolve.cxx					\
 	logo.cxx					\

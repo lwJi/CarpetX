@@ -361,6 +361,68 @@ class Index(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/subcycling.hxx", text, Lang.CXX), [Finding(3, "index", self.BARE[0])])
 
 
+class Codec(unittest.TestCase):
+    CODECS = [
+        "CarpetX/src/io_openpmd_checkpoint.cxx",
+        "CarpetX/src/io_openpmd_names.hxx",
+        "CarpetX/src/io_silo_checkpoint.cxx",
+        "CarpetX/src/io_silo_names.hxx",
+    ]
+    HIERARCHY = [
+        "for (const auto &patchdata : ghext->patches()) {",
+        "const auto &leveldata = driver().level(level);",
+        "const auto &leveldata = CarpetX::driver ().level(level);",
+        "const GHExt::GroupRecord &group = record;",
+        "for (const LevelData &leveldata : patchdata.levels()) {",
+        "const GroupData &groupdata = leveldata.group(gi);",
+        '#include "driver.hxx"',
+        "#include <driver.hxx>",
+    ]
+
+    def test_hierarchy_access_is_reported_in_a_codec_file(self):
+        for line in self.HIERARCHY:
+            for name in self.CODECS:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("codec", line)])
+
+    def test_the_record_and_names_header_are_allowed(self):
+        text = (
+            '#include "checkpoint.hxx"\n'
+            '#include "io_openpmd_names.hxx"\n'
+            "#include <openPMD/openPMD.hpp>\n"
+            "const amrex::Geometry &geom = record.levels[p][l].geom;\n"
+            "amrex::MultiFab &mfab = *grid.mfab;\n"
+            "const std::string meshname = make_meshname(id.group, id.level);\n"
+        )
+        for name in self.CODECS:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, text), [])
+
+    def test_a_longer_name_is_not_the_hierarchy(self):
+        text = (
+            "const auto &x = my_ghext->patches();\n"
+            "my_driver();\n"
+            "struct GHExtension;\n"
+            "LevelDataView view;\n"
+            "const GroupDataset dataset;\n"
+            '#include "driver_api.hxx"\n'
+        )
+        self.assertEqual(reported(self.CODECS[0], text), [])
+
+    def test_the_slice_backend_is_out_of_scope(self):
+        line = "for (const auto &patchdata : ghext->patches()) {\n"
+        for name in ["CarpetX/src/io_openpmd.cxx", "CarpetX/src/io_silo.cxx", "CarpetX/src/checkpoint.cxx", "ODESolvers/src/io_openpmd_checkpoint.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, line), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported(self.CODECS[0], "X = ghext->patches()\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = '#include "checkpoint.hxx"\n\n' + self.HIERARCHY[0] + "\n"
+        self.assertEqual(findings(self.CODECS[0], text, Lang.CXX), [Finding(3, "codec", self.HIERARCHY[0])])
+
+
 class NewFindings(unittest.TestCase):
     def test_only_lines_absent_before_are_new(self):
         a = Finding(1, "include", '#include "../../CarpetX/src/driver.hxx"')
@@ -432,7 +494,7 @@ class Report(unittest.TestCase):
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
             "no validity call outside valid.cxx, no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
-            "no bare index int in a CarpetX header",
+            "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec",
         )
 
     def test_counts(self):
@@ -454,6 +516,9 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([w]), "✗ boundary: 1 active_levels_t use")
         self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in a CarpetX header")
         self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in a CarpetX header")
+        k = ("CarpetX/src/io_openpmd_checkpoint.cxx", Finding(5, "codec", "for (const auto &patchdata : ghext->patches()) {"))
+        self.assertEqual(summary([k]), "✗ boundary: 1 hierarchy use in a checkpoint codec")
+        self.assertEqual(summary([i, k, k]), "✗ boundary: 1 bare index int in a CarpetX header, 2 hierarchy uses in a checkpoint codec")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
