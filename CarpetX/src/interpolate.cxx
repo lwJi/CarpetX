@@ -809,7 +809,6 @@ void CarpetX::InterpolationSetup::Interpolate(
 
   const MPI_Comm comm = amrex::ParallelDescriptor::Communicator();
 
-  // check if interpolation in time (unsupported) would be needed
   if (ghext->use_subcycling) {
     const double local_iteration_used[2] = {
         min_level_iteration_used != -1
@@ -823,15 +822,10 @@ void CarpetX::InterpolationSetup::Interpolate(
                   MPI_MAX, comm);
     const double min_iteration_used = -global_iteration_used[0];
     const double max_iteration_used = +global_iteration_used[1];
-    // If no rank interpolated any point (e.g. a collective call with zero
-    // points everywhere), both reductions saw only the -inf sentinel and
-    // min > max: nothing was interpolated, so no time alignment is required.
     if (min_iteration_used <= max_iteration_used &&
         min_iteration_used != max_iteration_used) {
-      // Inside a recovery traversal the levels differ in time only because
-      // the checkpoint was written mid-cycle
       const char *const recovery_hint =
-          ghext->in_recovery_traversal
+          in_recovery_traversal()
               ? " This run is recovering from a mid-cycle checkpoint, where "
                 "levels are at different times. Results that read across "
                 "levels cannot be recomputed in "

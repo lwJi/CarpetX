@@ -1224,38 +1224,8 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
 }
 
 namespace {
-// Marks the per-group traversals of CCTK_POST_RECOVER_VARIABLES
-// (GHExt::in_recovery_traversal) for error messages, like mark_sync_active
-struct recovery_traversal_scope {
-  recovery_traversal_scope() {
-    assert(!ghext->in_recovery_traversal);
-    ghext->in_recovery_traversal = true;
-  }
-  ~recovery_traversal_scope() { ghext->in_recovery_traversal = false; }
-  recovery_traversal_scope(const recovery_traversal_scope &) = delete;
-  recovery_traversal_scope &
-  operator=(const recovery_traversal_scope &) = delete;
-};
-
-// Marks the driver's own traversal of a bin on the end-of-step window
-// (GHExt::tail_bin): CCTK_POSTSTEP and CCTK_ANALYSIS in Evolve and
-// Initialise, CCTK_CHECKPOINT in Evolve, and CCTK_TERMINATE in Shutdown. Under
-// subcycling, SyncGroupsByDirISubcycling aborts on a sync while it is set,
-// unless the window holds every level.
-struct tail_traversal_scope {
-  explicit tail_traversal_scope(const char *const bin) {
-    assert(bin);
-    assert(!ghext->tail_bin);
-    ghext->tail_bin = bin;
-  }
-  ~tail_traversal_scope() { ghext->tail_bin = nullptr; }
-  tail_traversal_scope(const tail_traversal_scope &) = delete;
-  tail_traversal_scope &operator=(const tail_traversal_scope &) = delete;
-};
-
-// Traverse a bin on the end-of-step window, marked (tail_traversal_scope)
 void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
-  const tail_traversal_scope scope(bin);
+  const tail_bin_scope_t scope(bin);
   CCTK_Traverse(cctkGH, bin);
 }
 
@@ -1299,7 +1269,7 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
 } // namespace
 
 static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
-  const recovery_traversal_scope scope;
+  const recovery_scope_t scope;
 
   for (const window_t &group : ClockGroups()) {
     const auto [min_level, max_level] = group.level_bounds();

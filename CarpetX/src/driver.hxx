@@ -859,19 +859,6 @@ struct GHExt {
 
   bool use_subcycling = false;
 
-  // RecomputePerClockGroup is traversing CCTK_POST_RECOVER_VARIABLES, once
-  // per clock group. Set only inside that loop. Levels outside the window may
-  // then be at other times, so error messages read it to explain that a
-  // result read across levels must be checkpointed.
-  bool in_recovery_traversal = false;
-
-  // The bin the driver is traversing on the end-of-step window (CCTK_POSTSTEP
-  // and CCTK_ANALYSIS in Evolve and Initialise, CCTK_CHECKPOINT in Evolve,
-  // CCTK_TERMINATE in Shutdown), or nullptr. Set only by
-  // tail_traversal_scope. Under subcycling, SyncGroupsByDirISubcycling aborts
-  // while it is set unless the window holds every level: otherwise a sync
-  // would read the coarse level outside the window, which is not finalized.
-  const char *tail_bin = nullptr;
   // The routine CallFunction dispatched last, set on entry and again on exit,
   // so it still names the routine when the flesh fires its SYNC clause after
   // the routine has returned. Read only by the error message of the

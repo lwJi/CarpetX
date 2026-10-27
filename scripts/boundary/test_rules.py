@@ -282,6 +282,10 @@ class Traversal(unittest.TestCase):
         "assert(!active_levels);",
         "loop_serially(*active_levels, f);",
         "if (active_levels) return;",
+        "ghext->tail_bin = bin;",
+        "if (!tail_bin) return;",
+        "recovery_traversal = true;",
+        "assert(!recovery_traversal);",
     ]
 
     def test_traversal_reported(self):
@@ -304,7 +308,15 @@ class Traversal(unittest.TestCase):
 
     def test_a_longer_name_is_not_the_slot(self):
         self.assertEqual(reported("CarpetX/src/schedule.cxx", "active_levels_t x;\n"), [("window", "active_levels_t x;")])
-        for text in ["my_active_levels = 1;\n", "int active_levels_count;\n", "SyncGroupsOnActiveLevels(cctkGH, n, gs, ds);\n"]:
+        for text in [
+            "my_active_levels = 1;\n",
+            "int active_levels_count;\n",
+            "SyncGroupsOnActiveLevels(cctkGH, n, gs, ds);\n",
+            "scheduled_tail_bin();\n",
+            "tail_bin_scope_t scope(bin);\n",
+            "in_recovery_traversal();\n",
+            "recovery_scope_t scope;\n",
+        ]:
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/schedule.cxx", text), [])
 
