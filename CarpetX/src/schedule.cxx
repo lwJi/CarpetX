@@ -1257,11 +1257,10 @@ void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
   CCTK_Traverse(cctkGH, bin);
 }
 
-void FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
+void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
+                    const bool reflux) {
   DECLARE_CCTK_PARAMETERS;
 
-  assert(active_levels);
-  const window_t window = *active_levels;
   assert(FinestClockGroup() == window);
   const auto &finest = ghext->level(window.finest());
   SetStepTime(cctkGH, finest.level.index(), finest.iteration);
@@ -1316,7 +1315,7 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
                min_level, max_level, cctkGH->cctk_iteration,
                double(cctkGH->cctk_time), cctkGH->cctk_timefac);
 
-    RecoverRKBoundary(*active_levels, cctkGH);
+    RecoverRKBoundary(group, cctkGH);
     CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
 
     active_levels = std::nullopt;
@@ -1603,8 +1602,9 @@ int Initialise(tFleshConfig *config) {
   CCTK_VINFO("Initialized %d levels", ghext->num_levels());
 
   assert(!active_levels);
-  active_levels = FinestClockGroup();
-  FinalizeWindow(cctkGH, false);
+  const window_t window = FinestClockGroup();
+  active_levels = window;
+  FinalizeWindow(window, cctkGH, false);
 
   // Checkpoint, analysis, output. The end-of-step bins are marked as in
   // Evolve; their window here holds every level, so a sync in them is legal
@@ -1700,7 +1700,7 @@ std::vector<seed_run_t> seed_runs(const window_t window, const gi_t gi,
 
 } // namespace
 
-void CycleTimelevels(cGH *restrict const cctkGH) {
+void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("CycleTimelevels");
@@ -1719,8 +1719,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       continue;
 
     if (group.kind == group_kind::grid_function) {
-      assert(active_levels);
-      loop_serially(*active_levels, [&](auto &restrict leveldata) {
+      loop_serially(window, [&](auto &restrict leveldata) {
         auto &restrict groupdata = leveldata.group(gi);
         const int ntls = groupdata.num_timelevels();
         assert(ntls == ntls0);
@@ -1743,14 +1742,14 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
       });
       if (ntls0 > 1) {
         if (group.do_evolve) {
-          invalidate(*active_levels, {.gi = gi,
-                                      .tl = tl_t{0},
-                                      .where = make_valid_all(),
-                                      .event = "CycleTimelevels"});
+          invalidate(window, {.gi = gi,
+                              .tl = tl_t{0},
+                              .where = make_valid_all(),
+                              .event = "CycleTimelevels"});
         } else {
           std::vector<write_scope_t> scopes;
           for (const vi_t vi : group.variables())
-            for (const seed_run_t &run : seed_runs(*active_levels, gi, vi))
+            for (const seed_run_t &run : seed_runs(window, gi, vi))
               scopes.push_back(open_write(
                   run.levels,
                   {.gi = gi,
@@ -1759,7 +1758,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
                    .fills = run.seed,
                    .keeps = {},
                    .event = "CycleTimelevels (seed from old time level)"}));
-          loop_serially(*active_levels, [&](auto &restrict leveldata) {
+          loop_serially(window, [&](auto &restrict leveldata) {
             auto &restrict groupdata = leveldata.group(gi);
             amrex::MultiFab::Copy(
                 *groupdata.timelevel(tl_t{0}).mfab,
@@ -1776,11 +1775,10 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
           if (tl == tl_t{0} && presync_only)
             presync_groups.push_back(gi);
           else
-            require(*active_levels,
-                    {.gi = gi,
-                     .tl = tl,
-                     .where = make_valid_all(),
-                     .event = "CycleTimelevels for the state vector"});
+            require(window, {.gi = gi,
+                             .tl = tl,
+                             .where = make_valid_all(),
+                             .event = "CycleTimelevels for the state vector"});
         }
       }
     } else {
@@ -1795,7 +1793,7 @@ void CycleTimelevels(cGH *restrict const cctkGH) {
 
   } // for gi
   if (!presync_groups.empty()) {
-    SyncGroupsByDirI(*active_levels, cctkGH, presync_groups);
+    SyncGroupsByDirI(window, cctkGH, presync_groups);
   }
 }
 
@@ -1991,16 +1989,17 @@ int Evolve(tFleshConfig *config) {
       if (level_iteration > iteration)
         continue;
 
-      active_levels = window_t::levels(min_level, max_level);
+      const window_t window = window_t::levels(min_level, max_level);
+      active_levels = window;
 
       level_iteration += level_delta_iteration;
-      loop_serially(*active_levels, [&](auto &restrict leveldata) {
+      loop_serially(window, [&](auto &restrict leveldata) {
         leveldata.iteration += leveldata.delta_iteration;
         assert(level_iteration == leveldata.iteration);
         assert(level_delta_iteration == leveldata.delta_iteration);
       });
 
-      CycleTimelevels(cctkGH);
+      CycleTimelevels(window, cctkGH);
 
       // Without subcycling cctk_time accumulates; SetStepTime leaves it alone
       if (!ghext->use_subcycling)
@@ -2009,25 +2008,23 @@ int Evolve(tFleshConfig *config) {
 
       CCTK_Traverse(cctkGH, "CCTK_PRESTEP");
       CCTK_Traverse(cctkGH, "CCTK_EVOL");
+      active_levels = std::nullopt;
 
-      active_levels = window_t::levels(
-          WidenMinLevel(active_levels->coarsest(), level_iteration).index(),
-          max_level);
-
-      loop_serially(*active_levels, [&](auto &restrict leveldata) {
+      const window_t widened = window_t::levels(
+          WidenMinLevel(window.coarsest(), level_iteration).index(), max_level);
+      loop_serially(widened, [&](auto &restrict leveldata) {
         leveldata.last_step_iteration = cctkGH->cctk_iteration;
       });
-
-      active_levels = std::nullopt;
     } // for min_level, max_level
 
     assert(!active_levels);
-    active_levels = FinestClockGroup();
-    FinalizeWindow(cctkGH, ghext->use_subcycling);
+    const window_t window = FinestClockGroup();
+    active_levels = window;
+    FinalizeWindow(window, cctkGH, ghext->use_subcycling);
     TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
     TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
 
-    loop_serially(*active_levels, [&](auto &restrict leveldata) {
+    loop_serially(window, [&](auto &restrict leveldata) {
       leveldata.last_finalized_iteration = cctkGH->cctk_iteration;
     });
 
