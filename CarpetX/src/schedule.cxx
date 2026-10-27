@@ -84,15 +84,12 @@ double gettime() {
 } // namespace
 
 namespace {
-std::string sync_caller(const std::span<const gi_t> groups) {
-  std::string caller = "SYNC of ";
-  for (std::size_t n = 0; n < groups.size(); ++n) {
-    const char *const groupname = CCTK_FullGroupName(groups[n].index());
-    if (n != 0)
-      caller += ", ";
-    caller += groupname ? groupname : "(unknown group)";
-  }
-  return caller;
+std::string sync_caller() {
+  const cFunctionData *const func =
+      ghext ? ghext->last_called_function : nullptr;
+  if (!func)
+    return "SYNC";
+  return std::string("SYNC from ") + func->thorn + "::" + func->routine;
 }
 } // namespace
 
@@ -100,7 +97,7 @@ int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,
                              const int numgroups, const int *const groups,
                              const int *const directions) {
   const std::vector<gi_t> gis(groups, groups + numgroups);
-  return SyncGroups(scheduled_window(sync_caller(gis).c_str()), cctkGH, gis);
+  return SyncGroups(scheduled_window(sync_caller().c_str()), cctkGH, gis);
 }
 
 namespace {
