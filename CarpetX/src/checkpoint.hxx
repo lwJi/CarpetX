@@ -54,6 +54,7 @@ struct level_record_t {
 };
 
 struct checkpoint_record_t {
+  record_purpose purpose = record_purpose::checkpoint;
   int iteration;
   CCTK_REAL time;
   CCTK_REAL delta_time;
@@ -66,13 +67,13 @@ struct checkpoint_record_t {
 struct codec_limits_t {
   bool carries_arrays;
   int max_timelevels;
-  bool recovers_on_any_rank_count;
   bool rechops_on_recovery;
 };
 
 struct checkpoint_codec_t {
   virtual ~checkpoint_codec_t() = default;
   virtual codec_limits_t limits() const = 0;
+  virtual std::string key(const buffer_id_t &id) const = 0;
   virtual int read_parameters(const std::string &dir,
                               const std::string &file) = 0;
   virtual void encode(const checkpoint_record_t &record, const std::string &dir,

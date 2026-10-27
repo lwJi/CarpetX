@@ -239,6 +239,7 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
     refuse_unless_carried(mask, limits);
 
   checkpoint_record_t record;
+  record.purpose = purpose;
   record.iteration = cctkGH->cctk_iteration;
   record.time = cctkGH->cctk_time;
   record.delta_time = cctkGH->cctk_delta_time;
@@ -318,7 +319,7 @@ void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
   int num_missing = 0;
   bool band_missing = false;
   for (const buffer_t &buffer : record.buffers) {
-    if (record.present.count(buffer.id.name()))
+    if (record.present.count(codec.key(buffer.id)))
       continue;
     ++num_missing;
     missing << "\n  " << describe(buffer.id);

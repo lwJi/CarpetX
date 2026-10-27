@@ -120,6 +120,24 @@ const std::string *band_tag(const buffer_id_t &id) {
   return std::get_if<std::string>(&id.which);
 }
 
+std::string without_component(const std::string &name) {
+  return std::regex_replace(name, std::regex("_c[0-9]{8}"), "",
+                            std::regex_constants::format_first_only);
+}
+
+std::vector<std::string> output_variables(const checkpoint_record_t &record) {
+  std::vector<std::string> variables;
+  std::set<std::string> groups;
+  for (const buffer_t &buffer : record.buffers) {
+    if (!std::holds_alternative<grid_buffer_t>(buffer.data) ||
+        band_tag(buffer.id) || !groups.insert(buffer.id.group).second)
+      continue;
+    variables.insert(variables.end(), buffer.id.vars.begin(),
+                     buffer.id.vars.end());
+  }
+  return variables;
+}
+
 std::map<std::string, const amrex::MultiFab *>
 state_buffers(const checkpoint_record_t &record) {
   std::map<std::string, const amrex::MultiFab *> states;
@@ -941,46 +959,12 @@ std::set<std::string> union_over_ranks(const std::set<std::string> &local) {
   return names;
 }
 
-std::map<std::string, std::vector<std::string> > groups_by_spelling() {
-  std::map<std::string, std::vector<std::string> > groups;
-  for (int vi = 0; vi < CCTK_NumVars(); ++vi) {
-    const std::string var = CCTK_FullVarName(vi);
-    const std::string group = CCTK_FullGroupName(CCTK_GroupIndexFromVarI(vi));
-    std::vector<std::string> &candidates =
-        groups[DB::legalize_name(silo_spelling(var))];
-    if (std::find(candidates.begin(), candidates.end(), group) ==
-        candidates.end())
-      candidates.push_back(group);
-  }
-  return groups;
-}
-
 std::set<std::string> local_inventory(DBfile *const dbfile) {
-  const std::map<std::string, std::vector<std::string> > groups =
-      groups_by_spelling();
-  const std::regex block_var(
-      "(.+)_m([0-9]+)_rl([0-9]+)_c([0-9]+)(?:_band_(.+))?");
   std::set<std::string> names;
   const DBtoc *const toc = DBGetToc(dbfile);
   assert(toc);
-  for (int i = 0; i < toc->nqvar; ++i) {
-    const std::string qvar = toc->qvar_names[i];
-    std::smatch match;
-    if (!std::regex_match(qvar, match, block_var))
-      continue;
-    const auto candidates = groups.find(match[1].str());
-    if (candidates == groups.end())
-      continue;
-    const level_t level{patch_t{std::stoi(match[2].str())},
-                        std::stoi(match[3].str())};
-    std::variant<tl_t, std::string> which = tl_t{0};
-    if (match[5].matched)
-      which = match[5].str();
-    for (const std::string &group : candidates->second)
-      names.insert(buffer_id_t{
-          .group = group, .vars = {}, .level = level, .which = which}
-                       .name());
-  }
+  for (int i = 0; i < toc->nqvar; ++i)
+    names.insert(without_component(toc->qvar_names[i]));
   return names;
 }
 
@@ -1087,8 +1071,13 @@ struct silo_codec_t final : checkpoint_codec_t {
   codec_limits_t limits() const override {
     return {.carries_arrays = false,
             .max_timelevels = 1,
-            .recovers_on_any_rank_count = false,
             .rechops_on_recovery = false};
+  }
+  std::string key(const buffer_id_t &id) const override {
+    const std::string *const tag = band_tag(id);
+    return without_component(make_varname(id.vars.at(0), id.level,
+                                          id.level ? 0 : -1,
+                                          tag ? *tag : std::string()));
   }
 
   int read_parameters(const std::string &dir, const std::string &file) override;
@@ -1268,6 +1257,12 @@ void silo_codec_t::encode(const checkpoint_record_t &record,
         .coordinate_maxima = writer.coordinate_maxima};
     metafile_writer.write(dir);
   }
+
+  if (record.purpose == record_purpose::output)
+    OutputMeta_RegisterOutputFile(silo_output_description(
+        dir + "/" + make_filename(file, record.iteration),
+        "3D CarpetX HDF5 Silo output", output_variables(record),
+        record.iteration, {0, 1, 2}));
 }
 
 checkpoint_record_t silo_codec_t::decode_structure(const std::string &dir,

@@ -30,7 +30,6 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
-#include <optional>
 #include <regex>
 #include <string>
 #include <utility>
@@ -92,15 +91,13 @@ std::string get_simulation_name() {
   return name;
 }
 
-checkpoint_record_t encode_output(const cGH *const cctkGH,
-                                  const char *const method,
-                                  const std::vector<bool> &output_group) {
+void encode_output(const cGH *const cctkGH, const char *const method,
+                   const std::vector<bool> &output_group) {
   DECLARE_CCTK_PARAMETERS;
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(method);
-  checkpoint_record_t record = build_record(
-      cctkGH, output_group, record_purpose::output, codec->limits());
-  codec->encode(record, out_dir, get_simulation_name());
-  return record;
+  codec->encode(build_record(cctkGH, output_group, record_purpose::output,
+                             codec->limits()),
+                out_dir, get_simulation_name());
 }
 } // namespace
 
@@ -505,13 +502,8 @@ int OutputGH(const cGH *restrict cctkGH) {
     if (every > 0 && cctk_iteration % every == 0) {
       const std::vector<bool> group_enabled =
           find_groups("Silo", out_silo_vars);
-      if (selects_any(group_enabled)) {
-        const checkpoint_record_t record =
-            encode_output(cctkGH, "silo", group_enabled);
-        if (!record.buffers.empty())
-          RegisterSiloOutput(cctkGH, group_enabled, out_dir,
-                             get_simulation_name(), std::nullopt);
-      }
+      if (selects_any(group_enabled))
+        encode_output(cctkGH, "silo", group_enabled);
     }
   }
 

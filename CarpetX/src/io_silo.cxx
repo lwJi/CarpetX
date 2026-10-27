@@ -90,43 +90,32 @@ std::string var_name(const gi_t gi, const int vi) {
   return CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());
 }
 
-} // namespace
-
-////////////////////////////////////////////////////////////////////////////////
-
 void RegisterSiloOutput(const cGH *restrict const cctkGH,
                         const std::vector<bool> &output_group,
                         const std::string &output_dir,
-                        const std::string &output_file,
-                        const std::optional<slice_t> &slice) {
-  output_file_description_t ofd;
-  ofd.filename =
-      output_dir + "/" + make_filename(output_file, cctkGH->cctk_iteration);
-  ofd.description = slice ? "2D CarpetX HDF5 Silo slice output"
-                          : "3D CarpetX HDF5 Silo output";
-  ofd.writer_thorn = CCTK_THORNSTRING;
+                        const std::string &output_file, const slice_t &slice) {
+  std::vector<std::string> variables;
   for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
     if (!output_group.at(gi))
       continue;
     if (CCTK_GroupTypeI(gi) != CCTK_GF)
       continue;
     const GHExt::GroupRecord &record = ghext->record(gi_t{gi});
-    for (const vi_t vi : record.variables()) {
-      ofd.variables.push_back(CCTK_FullVarName(record.var(vi).index()));
-    }
+    for (const vi_t vi : record.variables())
+      variables.push_back(CCTK_FullVarName(record.var(vi).index()));
   }
-  ofd.iterations = {cctkGH->cctk_iteration};
-  if (slice)
-    for (const int d : slice->inplane_dirs())
-      ofd.output_directions.push_back(d);
-  else
-    for (int d = 0; d < dim; ++d)
-      ofd.output_directions.push_back(d);
-  ofd.format_name = "CarpetX/Silo/HDF5";
-  ofd.format_version = {1, 0, 0};
-
-  OutputMeta_RegisterOutputFile(std::move(ofd));
+  std::vector<int> output_directions;
+  for (const int d : slice.inplane_dirs())
+    output_directions.push_back(d);
+  OutputMeta_RegisterOutputFile(silo_output_description(
+      output_dir + "/" + make_filename(output_file, cctkGH->cctk_iteration),
+      "2D CarpetX HDF5 Silo slice output", std::move(variables),
+      cctkGH->cctk_iteration, std::move(output_directions)));
 }
+
+} // namespace
+
+////////////////////////////////////////////////////////////////////////////////
 
 void OutputSilo(const cGH *restrict const cctkGH,
                 const std::vector<bool> &output_group,
@@ -882,12 +871,6 @@ void OutputSilo(const cGH *, const std::vector<bool> &, const std::string &,
                 const std::string &, const slice_t &) {
   CCTK_ERROR("Silo is not enabled. The parameter "
              "CarpetX::out_silo_2d_vars must be empty.");
-}
-
-void RegisterSiloOutput(const cGH *, const std::vector<bool> &,
-                        const std::string &, const std::string &,
-                        const std::optional<slice_t> &) {
-  CCTK_ERROR("Silo is not enabled");
 }
 } // namespace CarpetX
 

@@ -2,6 +2,7 @@
 #define CARPETX_CARPETX_IO_SILO_NAMES_HXX
 
 #include "internal.hxx"
+#include "io_meta.hxx"
 
 #include <carpetx.hxx>
 
@@ -20,6 +21,8 @@
 #include <sstream>
 #include <string>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace CarpetX {
 
@@ -112,6 +115,22 @@ inline std::string make_varname(
   if (!band.empty())
     buf << ".band." << band;
   return DB::legalize_name(buf.str());
+}
+
+inline output_file_description_t
+silo_output_description(const std::string &filename,
+                        const std::string &description,
+                        std::vector<std::string> variables, const int iteration,
+                        std::vector<int> output_directions) {
+  return {.filename = filename,
+          .description = description,
+          .writer_thorn = CCTK_THORNSTRING,
+          .variables = std::move(variables),
+          .iterations = {iteration},
+          .output_directions = std::move(output_directions),
+          .reductions = {},
+          .format_name = "CarpetX/Silo/HDF5",
+          .format_version = {1, 0, 0}};
 }
 
 inline std::string make_fabarraybasename(const level_t level) {

@@ -27,10 +27,8 @@
 #include <functional>
 #include <iomanip>
 #include <limits>
-#include <map>
 #include <memory>
 #include <optional>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -404,8 +402,10 @@ struct openpmd_codec_t final : checkpoint_codec_t {
   codec_limits_t limits() const override {
     return {.carries_arrays = true,
             .max_timelevels = std::numeric_limits<int>::max(),
-            .recovers_on_any_rank_count = true,
             .rechops_on_recovery = true};
+  }
+  std::string key(const buffer_id_t &id) const override {
+    return mesh_name(id);
   }
 
   int read_parameters(const std::string &dir, const std::string &file) override;
@@ -688,35 +688,9 @@ checkpoint_record_t openpmd_codec_t::decode_structure(const std::string &dir,
     }
   }
 
-  std::map<std::string, std::string> groups;
-  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-    const std::string group = CCTK_FullGroupName(gi);
-    groups.emplace(openpmd_spelling(group), group);
-  }
-  const std::regex grid_mesh(
-      "(.+)_patch([0-9]+)_lev([0-9]+)(?:_tl([0-9]+))?(?:_band_(.+))?");
   for (auto iter = read_iter.meshes.begin(); iter != read_iter.meshes.end();
-       ++iter) {
-    const std::string &meshname = iter->first;
-    std::smatch match;
-    const bool is_grid = std::regex_match(meshname, match, grid_mesh);
-    const auto group = groups.find(is_grid ? match[1].str() : meshname);
-    if (group == groups.end())
-      continue;
-    std::optional<level_t> level;
-    std::variant<tl_t, std::string> which = tl_t{0};
-    if (is_grid) {
-      level = level_t{patch_t{std::stoi(match[2].str())},
-                      std::stoi(match[3].str())};
-      if (match[5].matched)
-        which = match[5].str();
-      else if (match[4].matched)
-        which = tl_t{std::stoi(match[4].str())};
-    }
-    record.present.insert(buffer_id_t{
-        .group = group->second, .vars = {}, .level = level, .which = which}
-                              .name());
-  }
+       ++iter)
+    record.present.insert(iter->first);
 
   read_iter.close();
   return record;
