@@ -66,3 +66,8 @@ SRCS =							\
 SUBDIRS = 
 
 CPPFLAGS += -DCARPETX_INTERNAL
+
+STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(SRCDIR)/*.cxx)))
+ifneq ($(STRAY_SRCS),)
+$(error CarpetX/src/make.code.defn: not in SRCS: $(STRAY_SRCS))
+endif
