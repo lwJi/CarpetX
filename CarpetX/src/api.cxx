@@ -189,11 +189,7 @@ void window_t::loop_parallel(
 }
 
 window_t active_window() {
-  const std::optional<window_t> &levels = scheduled_levels();
-  if (!levels)
-    CCTK_ERROR("CarpetX::active_window() called outside a traversal: no "
-               "levels are active");
-  return *levels;
+  return scheduled_window("CarpetX::active_window()");
 }
 
 window_t all_levels() { return window_t::levels(0, driver().num_levels()); }

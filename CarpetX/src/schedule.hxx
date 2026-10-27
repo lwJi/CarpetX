@@ -6,6 +6,7 @@
 #include "driver.hxx"
 #include "loop.hxx"
 #include "sync_restrict_internal.hxx"
+#include "traversal.hxx"
 
 #include <cctk.h>
 #include <cctk_Schedule.h>
@@ -88,8 +89,6 @@ void loop_serially(
     window_t window,
     const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
                              int component, const cGH *cctkGH)> &kernel);
-
-const std::optional<window_t> &scheduled_levels();
 
 ////////////////////////////////////////////////////////////////////////////////
 
