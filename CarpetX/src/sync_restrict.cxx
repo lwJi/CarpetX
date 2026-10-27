@@ -502,7 +502,8 @@ int SyncGroupsByDirI(const window_t window, const cGH *restrict cctkGH,
 static void error_if_sync_in_tail(const window_t window,
                                   const cGH *restrict const cctkGH,
                                   const std::span<const gi_t> groups0) {
-  if (!ghext->tail_bin || groups0.empty())
+  const char *const bin = scheduled_tail_bin();
+  if (!bin || groups0.empty())
     return;
   const auto [min_level, max_level] = window.level_bounds();
   if (min_level == 0)
@@ -514,7 +515,7 @@ static void error_if_sync_in_tail(const window_t window,
       groupnames << ", ";
     groupnames << (groupname ? groupname : "(unknown group)");
   }
-  const cFunctionData *const func = ghext->last_called_function;
+  const cFunctionData *const func = scheduled_routine();
   CCTK_VERROR(
       "%s::%s (%s) requested SYNC of %s at iteration %d with "
       "CarpetX::use_subcycling = yes, while the end-of-step window holds only "
@@ -526,9 +527,8 @@ static void error_if_sync_in_tail(const window_t window,
       "outputs that need a stencil stay interior and their ghosts are "
       "invalid.",
       func ? func->thorn : "(unknown thorn)",
-      func ? func->routine : "(unknown routine)", ghext->tail_bin,
-      groupnames.str().c_str(), cctkGH->cctk_iteration, min_level, max_level,
-      min_level, min_level - 1);
+      func ? func->routine : "(unknown routine)", bin, groupnames.str().c_str(),
+      cctkGH->cctk_iteration, min_level, max_level, min_level, min_level - 1);
 }
 
 static bool
