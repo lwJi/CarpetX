@@ -1486,8 +1486,8 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
   auto &leveldata = patchdata.level(level);
   const level_t coarse = level.parent();
   auto &coarseleveldata = patchdata.level(coarse);
-  const window_t active_levels = window_t::one_level(level);
-  const window_t active_coarse_levels = window_t::one_level(coarse);
+  const window_t fine_levels = window_t::one_level(level);
+  const window_t coarse_levels = window_t::one_level(coarse);
 
   if (leveldata.iteration != coarseleveldata.iteration) {
     std::ostringstream msg;
@@ -1513,13 +1513,13 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
         const bool do_fill = groupdata.record.do_evolve ||
                              regrid_source_valid(coarsegroupdata, tl);
         if (do_fill) {
-          require(active_coarse_levels,
+          require(coarse_levels,
                   {.gi = gi,
                    .tl = tl,
                    .where = make_valid_all(),
                    .event = "MakeNewLevelFromCoarse before prolongation"});
           const write_scope_t scope = open_write(
-              active_levels,
+              fine_levels,
               {.gi = gi,
                .tl = tl,
                .fills = fills,
@@ -1531,7 +1531,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
               patchdata.amrcore->Geom(coarse.index()),
               patchdata.amrcore->Geom(lev), interpolator, groupdata.bcrecs);
         } else {
-          invalidate(active_levels,
+          invalidate(fine_levels,
                      {.gi = gi,
                       .tl = tl,
                       .where = make_valid_all(),
@@ -1539,7 +1539,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
                                "because source was invalid at regrid time"});
         }
       } else {
-        invalidate(active_levels,
+        invalidate(fine_levels,
                    {.gi = gi,
                     .tl = tl,
                     .where = make_valid_all(),
@@ -1573,8 +1573,8 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   assert(lev > 0);
   const level_t coarse = level.parent();
   auto &coarseleveldata = patchdata.level(coarse);
-  const window_t active_levels = window_t::one_level(level);
-  const window_t active_coarse_levels = window_t::one_level(coarse);
+  const window_t fine_levels = window_t::one_level(level);
+  const window_t coarse_levels = window_t::one_level(coarse);
 
   if (leveldata.iteration != coarseleveldata.iteration) {
     std::ostringstream msg;
@@ -1604,15 +1604,14 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
     for (const tl_t tl : groupdata.record.timelevels()) {
       if (!transports(coarsegroupdata, groupdata, tl))
         continue;
-      require(active_coarse_levels,
-              {.gi = gi,
-               .tl = tl,
-               .where = make_valid_all(),
-               .event = "RemakeLevel before prolongation"});
-      require(active_levels, {.gi = gi,
+      require(coarse_levels, {.gi = gi,
                               .tl = tl,
                               .where = make_valid_all(),
                               .event = "RemakeLevel before prolongation"});
+      require(fine_levels, {.gi = gi,
+                            .tl = tl,
+                            .where = make_valid_all(),
+                            .event = "RemakeLevel before prolongation"});
     } // for tl
   }
 
@@ -1647,11 +1646,11 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
     for (const tl_t tl : groupdata.record.timelevels()) {
       if (transports(coarsegroupdata, oldgroupdata, tl)) {
         const write_scope_t scope = open_write(
-            active_levels, {.gi = gi,
-                            .tl = tl,
-                            .fills = fills,
-                            .keeps = {},
-                            .event = "RemakeLevel after prolongation"});
+            fine_levels, {.gi = gi,
+                          .tl = tl,
+                          .fills = fills,
+                          .keeps = {},
+                          .event = "RemakeLevel after prolongation"});
         FillPatch_RemakeLevel(
             groupdata, coarsegroupdata, *groupdata.timelevel(tl).mfab,
             *coarsegroupdata.timelevel(tl).mfab,
@@ -1659,7 +1658,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
             patchdata.amrcore->Geom(coarse.index()),
             patchdata.amrcore->Geom(lev), interpolator, groupdata.bcrecs);
       } else {
-        invalidate(active_levels,
+        invalidate(fine_levels,
                    {.gi = gi,
                     .tl = tl,
                     .where = make_valid_all(),
