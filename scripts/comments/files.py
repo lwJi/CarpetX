@@ -151,8 +151,9 @@ class GitError(RuntimeError):
     pass
 
 
-def git(root: str, *args: str, check: bool = True) -> bytes:
-    proc = subprocess.run(["git", "-C", root, *args], stdin=subprocess.DEVNULL, capture_output=True)
+def git(root: str, *args: str, check: bool = True, input: Optional[bytes] = None) -> bytes:
+    stdin = subprocess.DEVNULL if input is None else None
+    proc = subprocess.run(["git", "-C", root, *args], stdin=stdin, input=input, capture_output=True)
     if check and proc.returncode != 0:
         why = decode(proc.stderr).strip().split("\n")[0]
         raise GitError(f"git {' '.join(args[:2])} exited with status {proc.returncode}: {why}")
@@ -201,19 +202,95 @@ def untracked(root: str) -> list[str]:
     return split_z(git(root, "ls-files", "-z", "--others", "--exclude-standard"))
 
 
-def changes_since(root: str, rev: str) -> dict[str, Optional[str]]:
-    fields = split_z(git(root, "diff", "-z", "--name-status", "-M", "--no-ext-diff", rev))
-    found: dict[str, Optional[str]] = {}
+def name_status(fields: list[str]) -> list[tuple[str, str, str]]:
+    found = []
     i = 0
     while i < len(fields):
         status = fields[i][:1]
         if status in ("R", "C"):
-            found[fields[i + 2]] = fields[i + 1]
+            found.append((status, fields[i + 1], fields[i + 2]))
             i += 3
-            continue
+        else:
+            found.append((status, fields[i + 1], fields[i + 1]))
+            i += 2
+    return found
+
+
+def follow(trail: dict[str, Optional[str]], changes: list[tuple[str, str, str]]) -> dict[str, Optional[str]]:
+    born: dict[str, Optional[str]] = {}
+    gone = set()
+    for status, old, new in changes:
+        if status in ("R", "C"):
+            born[new] = trail.get(old, old)
+        elif status == "A":
+            born[new] = None
+        if status in ("R", "D"):
+            gone.add(old)
+    kept = {name: back for name, back in trail.items() if name not in gone}
+    kept.update(born)
+    return kept
+
+
+def first_parent_steps(root: str, start: str) -> Optional[list[tuple[str, str]]]:
+    lines = decode(git(root, "rev-list", "--first-parent", "--reverse", "--parents", f"{start}..HEAD")).splitlines()
+    path = [line.split() for line in lines if line]
+    joins = [k for k, ids in enumerate(path) if start in ids[1:]]
+    if not joins:
+        return None
+    k = joins[0]
+    return [(path[k][0], start)] + [(ids[0], ids[1]) for ids in path[k + 1 :]]
+
+
+STEP_CHANGES: dict[tuple[str, str], list[tuple[str, str, str]]] = {}
+
+
+def step_changes(root: str, steps: list[tuple[str, str]]) -> list[list[tuple[str, str, str]]]:
+    missing = [step for step in steps if step not in STEP_CHANGES]
+    if missing:
+        pairs = "".join(f"{commit} {parent}\n" for commit, parent in missing).encode()
+        out = split_z(git(root, "diff-tree", "--stdin", "-r", "-z", "-M", "--name-status", input=pairs))
+        parent_of = dict(missing)
+        step, block = None, []
+        for field in out + [""]:
+            if field in parent_of or field == "":
+                if step is not None:
+                    STEP_CHANGES[step] = name_status(block)
+                step = (field, parent_of[field]) if field else None
+                block = []
+            else:
+                block.append(field)
+        for step in missing:
+            STEP_CHANGES.setdefault(step, [])
+    return [STEP_CHANGES[step] for step in steps]
+
+
+def renames_since(root: str, rev: str) -> Optional[dict[str, Optional[str]]]:
+    start = resolve(root, rev)
+    head = resolve(root, "HEAD")
+    if start is None or head is None:
+        return None
+    steps = [] if start == head else first_parent_steps(root, start)
+    if steps is None:
+        return None
+    trail: dict[str, Optional[str]] = {}
+    for changes in step_changes(root, steps):
+        trail = follow(trail, changes)
+    worktree = split_z(git(root, "diff", "-z", "--name-status", "-M", "--no-ext-diff", "HEAD"))
+    return follow(trail, name_status(worktree))
+
+
+def changes_since(root: str, rev: str) -> dict[str, Optional[str]]:
+    fields = split_z(git(root, "diff", "-z", "--name-status", "-M", "--no-ext-diff", rev))
+    found: dict[str, Optional[str]] = {}
+    for status, old, new in name_status(fields):
         if status != "D":
-            found[fields[i + 1]] = None if status == "A" else fields[i + 1]
-        i += 2
+            found[new] = None if status == "A" else old
+    trail = renames_since(root, rev)
+    if trail is not None:
+        for name in found:
+            back = trail.get(name, name)
+            if back is not None:
+                found[name] = back
     for name in untracked(root):
         found.setdefault(name, None)
     return found

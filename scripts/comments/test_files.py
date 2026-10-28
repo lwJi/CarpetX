@@ -23,6 +23,9 @@ from files import (
 )
 
 ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+LONG = "".join(f"line {n}\n" for n in range(40))
+SHORT = LONG[: len("line 0\nline 1\nline 2\n")]
+OTHER = "".join(f"other {n}\n" for n in range(40))
 
 
 def write_files(root, contents):
@@ -206,6 +209,62 @@ class Git(unittest.TestCase):
         write_files(self.root, {"T/a.ccl": "a\n", "T/b.ccl": "b\n"})
         git(self.root, "add", "T/a.ccl")
         self.assertEqual(changes_since(self.root, EMPTY_TREE), {"T/a.ccl": None, "T/b.ccl": None})
+
+    def direct(self, rev):
+        return git(self.root, "diff", "--name-status", "-M", rev).split("\n")
+
+    def test_a_rename_is_followed_through_a_later_commit_that_shrinks_the_file(self):
+        base = self.commit({"T/a.ccl": LONG})
+        git(self.root, "switch", "-q", "-c", "work")
+        git(self.root, "mv", "T/a.ccl", "T/b.ccl")
+        self.commit({})
+        self.commit({"T/b.ccl": SHORT})
+        self.assertIn("A\tT/b.ccl", self.direct(base))
+        self.assertEqual(changes_since(self.root, base), {"T/b.ccl": "T/a.ccl"})
+
+    def test_a_second_rename_leads_back_to_the_first_name(self):
+        base = self.commit({"T/a.ccl": LONG})
+        git(self.root, "switch", "-q", "-c", "work")
+        git(self.root, "mv", "T/a.ccl", "T/b.ccl")
+        self.commit({})
+        git(self.root, "mv", "T/b.ccl", "T/c.ccl")
+        self.commit({})
+        write_files(self.root, {"T/c.ccl": SHORT})
+        self.assertIn("A\tT/c.ccl", self.direct(base))
+        self.assertEqual(changes_since(self.root, base), {"T/c.ccl": "T/a.ccl"})
+
+    def test_a_file_new_on_the_branch_stays_new(self):
+        base = self.commit({"T/a.ccl": LONG})
+        git(self.root, "switch", "-q", "-c", "work")
+        git(self.root, "mv", "T/a.ccl", "T/b.ccl")
+        self.commit({"T/n.ccl": OTHER})
+        self.commit({"T/b.ccl": SHORT})
+        git(self.root, "mv", "T/n.ccl", "T/m.ccl")
+        self.commit({})
+        write_files(self.root, {"T/u.ccl": "u\n"})
+        self.assertEqual(changes_since(self.root, base), {"T/b.ccl": "T/a.ccl", "T/m.ccl": None, "T/u.ccl": None})
+
+    def test_a_rename_merged_in_is_followed_through_the_merge_s_first_parent_diff(self):
+        base = self.commit({"T/a.ccl": LONG, "T/c.ccl": OTHER})
+        git(self.root, "switch", "-q", "-c", "side")
+        git(self.root, "mv", "T/a.ccl", "T/b.ccl")
+        side = self.commit({})
+        git(self.root, "switch", "-q", "-c", "work", base)
+        git(self.root, "mv", "T/c.ccl", "T/d.ccl")
+        self.commit({})
+        git(self.root, "merge", "--no-ff", "-q", "-m", "m", "side")
+        self.commit({"T/b.ccl": SHORT, "T/d.ccl": OTHER[: len(SHORT)]})
+        self.assertIn("A\tT/b.ccl", self.direct(base))
+        self.assertEqual(changes_since(self.root, base), {"T/b.ccl": "T/a.ccl", "T/d.ccl": "T/c.ccl"})
+        self.assertEqual(changes_since(self.root, side), {"T/b.ccl": "T/b.ccl", "T/d.ccl": "T/c.ccl"})
+
+    def test_without_a_rename_on_the_way_the_direct_diff_stands(self):
+        base = self.commit({"T/a.ccl": LONG, "T/c.ccl": OTHER})
+        git(self.root, "switch", "-q", "-c", "work")
+        git(self.root, "rm", "-q", "T/a.ccl", "T/c.ccl")
+        self.commit({})
+        self.commit({"T/a.ccl": SHORT, "T/d.ccl": OTHER})
+        self.assertEqual(changes_since(self.root, base), {"T/a.ccl": "T/a.ccl", "T/d.ccl": "T/c.ccl"})
 
     def test_list_tree_lists_tracked_and_untracked_files_but_not_ignored_ones(self):
         self.commit({"T/interface.ccl": "", "T/src/a.cxx": "", ".gitignore": "*.par\n"})
