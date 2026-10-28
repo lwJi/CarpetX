@@ -1,6 +1,6 @@
 SRCS =
 
-SUBDIRS = util traversal hierarchy comm ops io schedule api flesh
+SUBDIRS = util traversal hierarchy comm regrid ops io schedule api flesh
 
 export EXTRA_DEFINES := $(sort $(EXTRA_DEFINES) CARPETX_INTERNAL)
 
