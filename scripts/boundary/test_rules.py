@@ -225,7 +225,7 @@ class VarIndex(unittest.TestCase):
             "int firstvarindex;\n",
             "const int n = firstvarindex_count + 1;\n",
             "const int n = myfirstvarindex + 1;\n",
-            "varname = CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());\n",
+            "varname = CCTK_FullVarName(driver().record(gi).var(vi_t{vi}).index());\n",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/valid.cxx", text), [])
@@ -282,7 +282,7 @@ class Traversal(unittest.TestCase):
         "assert(!active_levels);",
         "loop_serially(*active_levels, f);",
         "if (active_levels) return;",
-        "ghext->tail_bin = bin;",
+        "driver().tail_bin = bin;",
         "if (!tail_bin) return;",
         "recovery_traversal = true;",
         "assert(!recovery_traversal);",
@@ -438,7 +438,8 @@ class Codec(unittest.TestCase):
         for line in self.HIERARCHY:
             for name in self.CODECS:
                 with self.subTest(name=name, line=line):
-                    self.assertEqual(reported(name, "  " + line + "\n"), [("codec", line)])
+                    door = [("door", line)] if "ghext" in line else []
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("codec", line)] + door)
 
     def test_the_record_and_names_header_are_allowed(self):
         text = (
@@ -465,7 +466,7 @@ class Codec(unittest.TestCase):
         self.assertEqual(reported(self.CODECS[0], text), [])
 
     def test_the_slice_backend_is_out_of_scope(self):
-        line = "for (const auto &patchdata : ghext->patches()) {\n"
+        line = "for (const auto &patchdata : driver().patches()) {\n"
         for name in ["CarpetX/src/io_openpmd.cxx", "CarpetX/src/io_silo.cxx", "CarpetX/src/checkpoint.cxx", "ODESolvers/src/io_openpmd_checkpoint.cxx"]:
             with self.subTest(name=name):
                 self.assertEqual(reported(name, line), [])
@@ -475,7 +476,58 @@ class Codec(unittest.TestCase):
 
     def test_line_numbers(self):
         text = '#include "checkpoint.hxx"\n\n' + self.HIERARCHY[0] + "\n"
-        self.assertEqual(findings(self.CODECS[0], text, Lang.CXX), [Finding(3, "codec", self.HIERARCHY[0])])
+        self.assertEqual(
+            findings(self.CODECS[0], text, Lang.CXX),
+            [Finding(3, "codec", self.HIERARCHY[0]), Finding(3, "door", self.HIERARCHY[0])],
+        )
+
+
+class Door(unittest.TestCase):
+    USES = [
+        "for (auto &p : ghext->patches())",
+        "assert(!ghext);",
+        "// ghext is gone once CarpetX_Shutdown has run",
+        'yaml << YAML::LocalTag("ghext-2.0.0");',
+    ]
+
+    def test_door_reported(self):
+        for line in self.USES:
+            for name in ["CarpetX/src/schedule.cxx", "CarpetX/src/io.cxx", "CarpetX/src/driver.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("door", line)])
+
+    def test_driver_cxx_owns_the_pointer(self):
+        for line in self.USES:
+            with self.subTest(line=line):
+                self.assertEqual(reported("CarpetX/src/driver.cxx", line + "\n"), [])
+
+    def test_another_thorn_and_the_public_headers_may_use_the_name(self):
+        for line in self.USES:
+            for name in ["ODESolvers/src/solve.cxx", "CarpetX/src/include/carpetx.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_a_longer_name_is_not_the_pointer(self):
+        for text in [
+            "const auto &x = my_ghext->patches();\n",
+            "int ghext_handle = -1;\n",
+            "struct GHExtension;\n",
+            "const GHExt &ext = driver();\n",
+        ]:
+            for name in ["CarpetX/src/schedule.cxx", "CarpetX/src/io.cxx", "CarpetX/src/driver.hxx"]:
+                with self.subTest(name=name, text=text):
+                    self.assertEqual(reported(name, text), [])
+
+    def test_a_codec_naming_it_is_reported_under_both_rules(self):
+        line = "for (const auto &patchdata : ghext->patches()) {"
+        self.assertEqual(reported("CarpetX/src/io_silo_checkpoint.cxx", line + "\n"), [("codec", line), ("door", line)])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported("CarpetX/src/make.code.defn", "X = ghext\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n\n" + self.USES[1] + "\n"
+        self.assertEqual(findings("CarpetX/src/schedule.cxx", text, Lang.CXX), [Finding(3, "door", self.USES[1])])
 
 
 class NewFindings(unittest.TestCase):
@@ -550,7 +602,8 @@ class Report(unittest.TestCase):
             "no validity call outside valid.cxx, no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
             "no active_levels outside traversal.cxx, "
-            "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec",
+            "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec, "
+            "and the hierarchy has one door",
         )
 
     def test_counts(self):
@@ -578,6 +631,9 @@ class Report(unittest.TestCase):
         k = ("CarpetX/src/io_openpmd_checkpoint.cxx", Finding(5, "codec", "for (const auto &patchdata : ghext->patches()) {"))
         self.assertEqual(summary([k]), "✗ boundary: 1 hierarchy use in a checkpoint codec")
         self.assertEqual(summary([i, k, k]), "✗ boundary: 1 bare index int in a CarpetX header, 2 hierarchy uses in a checkpoint codec")
+        g = ("CarpetX/src/schedule.cxx", Finding(12, "door", "for (auto &p : ghext->patches())"))
+        self.assertEqual(summary([g]), "✗ boundary: 1 raw hierarchy name outside driver.cxx")
+        self.assertEqual(summary([k, g, g]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 raw hierarchy names outside driver.cxx")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
