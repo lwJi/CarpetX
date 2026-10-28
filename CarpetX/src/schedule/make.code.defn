@@ -1,7 +1,8 @@
 SRCS =							\
 	evolve.cxx
 
-STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(SRCDIR)/$(CCTK_THIS_SUBDIR)*.cxx)))
+STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
+STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))
 ifneq ($(STRAY_SRCS),)
-$(error CarpetX/src/$(CCTK_THIS_SUBDIR)make.code.defn: not in SRCS: $(STRAY_SRCS))
+$(error CarpetX/src/$(notdir $(STRAY_DIR:/=))/make.code.defn: not in SRCS: $(STRAY_SRCS))
 endif
