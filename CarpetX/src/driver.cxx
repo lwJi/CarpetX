@@ -56,6 +56,8 @@ GHExt &driver() {
   return *ghext;
 }
 
+void assert_hierarchy_destroyed() { assert(!ghext); }
+
 namespace {
 thread_local const char *operation_name = nullptr;
 }

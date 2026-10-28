@@ -895,6 +895,7 @@ private:
 extern std::unique_ptr<GHExt> ghext;
 
 GHExt &driver();
+void assert_hierarchy_destroyed();
 
 int num_rk_stages();
 rk_dense_output_t registered_dense_output();
