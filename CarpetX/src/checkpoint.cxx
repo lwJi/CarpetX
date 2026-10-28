@@ -100,16 +100,17 @@ void refuse_unless_carried(const std::vector<bool> &mask,
 
 const amrex::MultiFab *vertex_coords(const level_t level) {
   const GHExt &ext = driver();
-  if (ext.patch(level.patch()).is_cartesian)
+  const auto &leveldata = ext.level(level);
+  if (leveldata.patchdata().is_cartesian)
     return nullptr;
   const int gi = CCTK_GroupIndex("CoordinatesX::vertex_coords");
   if (gi < 0 || !ext.record(gi_t{gi}).has_storage())
     return nullptr;
-  return ext.level(level).group(gi_t{gi}).timelevel(tl_t{0}).mfab.get();
+  return leveldata.group(gi_t{gi}).timelevel(tl_t{0}).mfab.get();
 }
 
 void snapshot_geometry(level_record_t &record, const level_t level) {
-  record.geom = driver().patch(level.patch()).amrcore->Geom(level.index());
+  record.geom = driver().level(level).geom();
   record.vertex_coords = vertex_coords(level);
 }
 

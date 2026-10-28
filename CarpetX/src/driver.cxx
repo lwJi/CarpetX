@@ -93,6 +93,8 @@ void refuse(const std::source_location site, const char *const fmt, ...) {
 
 GHExt::PatchData &GHExt::add_patch(const patch_t patch) {
   assert(patch.index() == num_patches());
+  for (const PatchData &existing : patchdata)
+    assert(existing.num_levels() == 0);
   return patchdata.emplace_back(patch);
 }
 
@@ -864,12 +866,12 @@ GHExt::PatchData::add_level(const level_t level, const amrex::BoxArray &ba,
                             const amrex::DistributionMapping &dm,
                             const std::function<std::string()> &why) {
   assert(level.patch() == patch && level.index() == num_levels());
-  return leveldata.emplace_back(level, ba, dm, why);
+  return leveldata.emplace_back(*this, level, ba, dm, why);
 }
 
 GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
                                                             LevelData &&fresh) {
-  assert(fresh.level == level);
+  assert(fresh.level == level && &fresh.patchdata() == this);
   using std::swap;
   swap(this->level(level), fresh);
   return std::move(fresh);
@@ -881,11 +883,12 @@ void GHExt::PatchData::erase_levels_from(const level_t level) {
   leveldata.erase(leveldata.begin() + level.index(), leveldata.end());
 }
 
-GHExt::PatchData::LevelData::LevelData(const level_t level,
+GHExt::PatchData::LevelData::LevelData(PatchData &patchdata,
+                                       const level_t level,
                                        const amrex::BoxArray &ba,
                                        const amrex::DistributionMapping &dm,
                                        const std::function<std::string()> &why)
-    : level(level) {
+    : level(level), patchdata_(&patchdata) {
   DECLARE_CCTK_PARAMETERS;
 
   GHExt &ext = driver();
@@ -898,7 +901,7 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
     last_step_iteration = 0;
     last_finalized_iteration = 0;
   } else {
-    auto &coarseleveldata = ext.level(level.parent());
+    auto &coarseleveldata = parent();
     is_subcycling_level = ext.use_subcycling;
     iteration = coarseleveldata.iteration;
     delta_iteration = coarseleveldata.delta_iteration / timereffact;
@@ -927,7 +930,7 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
     else
       groupdata.push_back(
           std::make_unique<GHExt::PatchData::LevelData::GroupData>(
-              group, level, ba, dm, why));
+              patchdata, group, level, ba, dm, why));
   }
 
   for (int gi0 = 0; gi0 < numgroups; ++gi0) {
@@ -975,10 +978,10 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
 }
 
 GHExt::PatchData::LevelData::GroupData::GroupData(
-    const GroupRecord &record, const level_t level, const amrex::BoxArray &ba,
-    const amrex::DistributionMapping &dm,
+    const PatchData &patchdata, const GroupRecord &record, const level_t level,
+    const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
     const std::function<std::string()> &why)
-    : record(record), level(level) {
+    : record(record), level(level), patchdata_(patchdata) {
   const int gi = record.groupindex.index();
   const int numvars = record.numvars;
   const gi_t groupindex = record.groupindex;
@@ -996,11 +999,9 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
 
   interpolator = get_interpolator(*this); // reads groupindex, indextype
 
-  const GHExt &ext = driver();
-  const auto &geom = ext.patch(level.patch()).amrcore->Geom(level.index());
   for (int d = 0; d < dim; ++d)
-    if (geom.isPeriodic(d))
-      assert(geom.Domain().length(d) >= nghostzones[d]);
+    if (geom().isPeriodic(d))
+      assert(geom().Domain().length(d) >= nghostzones[d]);
 
   boundaries = get_group_boundaries(gi);
   parities = get_group_parities(gi);
@@ -1025,10 +1026,9 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   amrex::BCRec bcrec;
   for (int f = 0; f < 2; ++f) {
     for (int d = 0; d < dim; ++d) {
-      const auto bc =
-          ext.patch(level.patch()).symmetries[f][d] == symmetry_t::periodic
-              ? amrex::BCType::int_dir
-              : amrex::BCType::ext_dir;
+      const auto bc = patchdata.symmetries[f][d] == symmetry_t::periodic
+                          ? amrex::BCType::int_dir
+                          : amrex::BCType::ext_dir;
       if (f == 0)
         bcrec.setLo(d, bc);
       else
@@ -1054,7 +1054,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     assert((indextype == std::array<int, dim>{1, 1, 1}));
     if (level.index() > 0 && group_has_flux_register(groupindex)) {
       const amrex::IntVect ratio =
-          ext.patch(level.patch()).amrcore->refRatio(level.parent().index());
+          patchdata.amrcore->refRatio(level.parent().index());
       freg = std::make_unique<amrex::FluxRegister>(gba, dm, ratio,
                                                    level.index(), numvars);
       // FluxRegister::define leaves the FabSets uninitialized. Zero them so
@@ -1123,7 +1123,7 @@ amrex::MultiFab *rk_source_band(const level_t level, const gi_t gi,
 
 bool GHExt::PatchData::LevelData::GroupData::
     all_faces_have_symmetries_or_boundaries() const {
-  const auto &symmetries = driver().patch(level.patch()).symmetries;
+  const auto &symmetries = patchdata().symmetries;
   bool res = true;
   for (int f = 0; f < 2; ++f)
     for (int d = 0; d < dim; ++d)
@@ -1146,8 +1146,7 @@ void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
   static Timer timer("apply_boundary_conditions");
   Interval interval(timer);
 
-  const amrex::Geometry &geom =
-      driver().patch(level.patch()).amrcore->Geom(level.index());
+  const amrex::Geometry &geom = this->geom();
 
   if (geom.isAllPeriodic())
     return;
@@ -1636,7 +1635,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   assert(leveldata.iteration == coarseleveldata.iteration);
 
   GHExt::PatchData::LevelData oldleveldata = patchdata.replace_level(
-      level, GHExt::PatchData::LevelData(level, ba, dm,
+      level, GHExt::PatchData::LevelData(patchdata, level, ba, dm,
                                          []() { return "RemakeLevel"; }));
 
   for (auto &groupdata : leveldata.groups()) {

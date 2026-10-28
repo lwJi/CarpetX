@@ -164,8 +164,7 @@ loop_pairs_fine_to_coarse(const window_t window,
 static void
 error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
                         const gi_t gi, const tl_t tl, const char *const label) {
-  const auto &restrict coarseleveldata =
-      driver().level(leveldata.level.parent());
+  const auto &restrict coarseleveldata = leveldata.parent();
   const auto &restrict coarsegroupdata = coarseleveldata.group(gi);
   const bool recovering =
       recovered_iteration() >= 0 &&
@@ -263,8 +262,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
         if (leveldata.level.index() == 0)
           return false;
         if (ext.use_subcycling && prolongate_on_same_iteration) {
-          const auto &restrict coarseleveldata =
-              ext.level(leveldata.level.parent());
+          const auto &restrict coarseleveldata = leveldata.parent();
           return leveldata.iteration == coarseleveldata.iteration;
         }
         return true;
@@ -307,8 +305,7 @@ static int SyncGroupsByDirIProlongateOnly_impl(
       if (!prolongates_into(leveldata))
         return;
 
-      const auto &restrict coarseleveldata =
-          ext.level(leveldata.level.parent());
+      const auto &restrict coarseleveldata = leveldata.parent();
 
       auto &restrict coarsegroupdata = coarseleveldata.group(gi);
       assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
@@ -320,16 +317,12 @@ static int SyncGroupsByDirIProlongateOnly_impl(
                                 "SyncGroupsByDirIProlongateOnly on coarse "
                                 "level before prolongation");
         tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
-                                &coarsegroupdata, interpolator, tl, &ext]() {
-          FillPatch_ProlongateOnly(
-              tasks2, tasks3, groupdata, coarsegroupdata,
-              *groupdata.timelevel(tl).mfab,
-              *coarsegroupdata.timelevel(tl).mfab,
-              ext.patch(leveldata.level.patch())
-                  .amrcore->Geom(leveldata.level.index()),
-              ext.patch(leveldata.level.patch())
-                  .amrcore->Geom(leveldata.level.parent().index()),
-              interpolator, groupdata.bcrecs);
+                                &coarsegroupdata, interpolator, tl]() {
+          FillPatch_ProlongateOnly(tasks2, tasks3, groupdata, coarsegroupdata,
+                                   *groupdata.timelevel(tl).mfab,
+                                   *coarsegroupdata.timelevel(tl).mfab,
+                                   leveldata.geom(), leveldata.parent().geom(),
+                                   interpolator, groupdata.bcrecs);
         });
 
       } // for tl
@@ -448,10 +441,9 @@ int SyncGroupsByDirI(const window_t window, const cGH *restrict cctkGH,
         // Copy from adjacent boxes on same level
 
         for (const tl_t tl : sync_tls) {
-          tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl, &ext]() {
+          tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
             FillPatch_Sync(tasks2, groupdata, *groupdata.timelevel(tl).mfab,
-                           ext.patch(leveldata.level.patch())
-                               .amrcore->Geom(leveldata.level.index()));
+                           leveldata.geom());
           });
         } // for tl
 
@@ -459,8 +451,7 @@ int SyncGroupsByDirI(const window_t window, const cGH *restrict cctkGH,
         // Copy from adjacent boxes on same level, and interpolate
         // from next coarser level
 
-        const auto &restrict coarseleveldata =
-            ext.level(leveldata.level.parent());
+        const auto &restrict coarseleveldata = leveldata.parent();
         auto &restrict coarsegroupdata = coarseleveldata.group(gi);
         assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
 
@@ -471,16 +462,12 @@ int SyncGroupsByDirI(const window_t window, const cGH *restrict cctkGH,
               leveldata, gi, tl,
               "SyncGroupsByDirI on coarse level before prolongation");
           tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
-                                  &coarsegroupdata, interpolator, tl, &ext]() {
+                                  &coarsegroupdata, interpolator, tl]() {
             FillPatch_ProlongateGhosts(
                 tasks2, tasks3, groupdata, coarsegroupdata,
                 *groupdata.timelevel(tl).mfab,
-                *coarsegroupdata.timelevel(tl).mfab,
-                ext.patch(leveldata.level.patch())
-                    .amrcore->Geom(leveldata.level.index()),
-                ext.patch(leveldata.level.patch())
-                    .amrcore->Geom(leveldata.level.parent().index()),
-                interpolator, groupdata.bcrecs);
+                *coarsegroupdata.timelevel(tl).mfab, leveldata.geom(),
+                leveldata.parent().geom(), interpolator, groupdata.bcrecs);
           });
 
         } // for tl
@@ -629,17 +616,15 @@ int SyncGroupsByDirISubcycling(const window_t window,
                    .tl = tl,
                    .where = make_valid_int(),
                    .event = sync_label});
-          tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl, &ext]() {
+          tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
             FillPatch_Sync(tasks2, groupdata, *groupdata.timelevel(tl).mfab,
-                           ext.patch(leveldata.level.patch())
-                               .amrcore->Geom(leveldata.level.index()));
+                           leveldata.geom());
           });
         } // for tl
 
       } else { // if leveldata.level > 0
 
-        const auto &restrict coarseleveldata =
-            ext.level(leveldata.level.parent());
+        const auto &restrict coarseleveldata = leveldata.parent();
         auto &restrict coarsegroupdata = coarseleveldata.group(gi);
         assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
 
@@ -653,11 +638,9 @@ int SyncGroupsByDirISubcycling(const window_t window,
                      .tl = tl,
                      .where = make_valid_int(),
                      .event = sync_label});
-            tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl,
-                                    &ext]() {
+            tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
               FillPatch_Sync(tasks2, groupdata, *groupdata.timelevel(tl).mfab,
-                             ext.patch(leveldata.level.patch())
-                                 .amrcore->Geom(leveldata.level.index()));
+                             leveldata.geom());
             });
           } // for tl
         } else {
@@ -690,16 +673,13 @@ int SyncGroupsByDirISubcycling(const window_t window,
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
             tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                     &coarsegroupdata, interpolator, tl,
-                                    cmfab_old, tl_w_new, &ext]() {
+                                    cmfab_old, tl_w_new]() {
               FillPatch_ProlongateGhosts(
                   tasks2, tasks3, groupdata, coarsegroupdata,
                   *groupdata.timelevel(tl).mfab,
-                  *coarsegroupdata.timelevel(tl).mfab,
-                  ext.patch(leveldata.level.patch())
-                      .amrcore->Geom(leveldata.level.index()),
-                  ext.patch(leveldata.level.patch())
-                      .amrcore->Geom(leveldata.level.parent().index()),
-                  interpolator, groupdata.bcrecs, cmfab_old, tl_w_new);
+                  *coarsegroupdata.timelevel(tl).mfab, leveldata.geom(),
+                  leveldata.parent().geom(), interpolator, groupdata.bcrecs,
+                  cmfab_old, tl_w_new);
             });
           } // for tl
         }
@@ -780,7 +760,6 @@ int SyncGroupsByDirIGhostOnly(const window_t window, const cGH *restrict cctkGH,
 
   sync_log_groups("SyncGroupsGhostOnly", groups0);
 
-  const GHExt &ext = driver();
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   // We need to loop over groups, patches, and levels in a definite
@@ -797,10 +776,9 @@ int SyncGroupsByDirIGhostOnly(const window_t window, const cGH *restrict cctkGH,
       auto &restrict groupdata = leveldata.group(gi);
 
       for (const tl_t tl : tls.range(groupdata.record)) {
-        tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl, &ext]() {
+        tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl]() {
           FillPatch_Sync(tasks2, groupdata, *groupdata.timelevel(tl).mfab,
-                         ext.patch(leveldata.level.patch())
-                             .amrcore->Geom(leveldata.level.index()));
+                         leveldata.geom());
         });
       } // for tl
     });
@@ -851,8 +829,7 @@ static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
 }
 
 void EnsureFluxGeometry(const level_t level) {
-  const auto &patchdata = driver().patch(level.patch());
-  const auto &leveldata = patchdata.level(level);
+  const auto &leveldata = driver().level(level);
 
   // All four are allocated together, or none is
   [[maybe_unused]] const auto have_all_or_none = [&]() {
@@ -866,7 +843,7 @@ void EnsureFluxGeometry(const level_t level) {
   if (leveldata.cell_volume)
     return;
 
-  const amrex::Geometry &geom = patchdata.amrcore->Geom(level.index());
+  const amrex::Geometry &geom = leveldata.geom();
   assert(leveldata.fab);
   const amrex::BoxArray &ba = leveldata.fab->boxArray();
   const amrex::DistributionMapping &dm = leveldata.fab->DistributionMap();

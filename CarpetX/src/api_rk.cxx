@@ -283,8 +283,8 @@ std::vector<rk_level_t> integrated_levels(const window_t window,
 }
 
 bool aligned_with_parent(const level_t level) {
-  return driver().level(level).iteration ==
-         driver().level(level.parent()).iteration;
+  const GHExt::PatchData::LevelData &leveldata = driver().level(level);
+  return leveldata.iteration == leveldata.parent().iteration;
 }
 
 void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
@@ -295,8 +295,7 @@ void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
   assert(level.index() > 0);
   assert(stage >= 1 && stage <= nstages);
   const GHExt::PatchData::LevelData &leveldata = driver().level(level);
-  const GHExt::PatchData::LevelData &parentdata =
-      driver().level(level.parent());
+  const GHExt::PatchData::LevelData &parentdata = leveldata.parent();
   const CCTK_REAL substep_start =
       aligned_with_parent(level) ? rk_substep_ratio : 0;
   const CCTK_REAL dtc =

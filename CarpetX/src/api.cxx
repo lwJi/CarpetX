@@ -108,15 +108,13 @@ rat64 delta_iteration(const level_t level) {
 
 const amrex::Geometry &geometry(const level_t level) {
   const operation_scope_t op("CarpetX::geometry");
-  driver().level(level);
-  return driver().patch(level.patch()).amrcore->Geom(level.index());
+  return driver().level(level).geom();
 }
 
 std::array<std::array<symmetry_t, Loop::dim>, 2>
 symmetries(const level_t level) {
   const operation_scope_t op("CarpetX::symmetries");
-  driver().level(level);
-  return driver().patch(level.patch()).symmetries;
+  return driver().level(level).patchdata().symmetries;
 }
 
 int numvars(const group_t group) {

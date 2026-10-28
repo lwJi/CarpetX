@@ -266,8 +266,7 @@ void EnsureRKBuffers(const level_t level, const gi_t gi) {
     return;
 
   assert(level.index() >= 1);
-  const auto &patchdata = ext.patch(level.patch());
-  const auto &leveldata = patchdata.level(level);
+  const auto &leveldata = ext.level(level);
   const GroupData &groupdata = leveldata.group(gi);
   const int num_rk_stages = CarpetX::num_rk_stages();
   assert(num_rk_stages >= 0 && num_rk_stages <= max_num_rk_stages);
@@ -286,9 +285,9 @@ void EnsureRKBuffers(const level_t level, const gi_t gi) {
     return;
 
   const amrex::MultiFab &mfab = *groupdata.timelevel(tl_t{0}).mfab;
-  const amrex::FabArrayBase::FPinfo &fpc = rk_fill_fpinfo(
-      mfab, groupdata.interpolator, patchdata.amrcore->Geom(level.index()),
-      patchdata.amrcore->Geom(level.parent().index()));
+  const amrex::FabArrayBase::FPinfo &fpc =
+      rk_fill_fpinfo(mfab, groupdata.interpolator, leveldata.geom(),
+                     leveldata.parent().geom());
   // Empty coarse-fine footprint: all buffers stay null
   if (fpc.ba_crse_patch.empty())
     return;
@@ -377,12 +376,10 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
   if (!ext.use_subcycling)
     return;
 
-  auto &patchdata = ext.patch(level.patch());
-  auto &leveldata = patchdata.level(level);
-  const level_t parent = level.parent();
-  const auto &coarseleveldata = patchdata.level(parent);
-  const auto &fgeom = patchdata.amrcore->Geom(level.index());
-  const auto &cgeom = patchdata.amrcore->Geom(parent.index());
+  auto &leveldata = ext.level(level);
+  const auto &coarseleveldata = leveldata.parent();
+  const auto &fgeom = leveldata.geom();
+  const auto &cgeom = coarseleveldata.geom();
   const rk_dense_output_t dense_output = registered_dense_output();
 
   // We need to loop over groups in a definite order so that AMReX's

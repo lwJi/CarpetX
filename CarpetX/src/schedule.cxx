@@ -180,7 +180,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
                  ghost_size >= 0 ? ghost_size : ghost_size_y,
                  ghost_size >= 0 ? ghost_size : ghost_size_z};
 
-  const auto &patchdata = driver().patch(leveldata.level.patch());
+  const auto &patchdata = leveldata.patchdata();
   const amrex::IntVect ng(nghostzones[0], nghostzones[1], nghostzones[2]);
   const amrex::Box &domain =
       patchdata.amrcore->Geom(leveldata.level.index()).Domain();
@@ -279,7 +279,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
   // `global_component` is the global component index.
   // There is no tiling.
 
-  const auto &patchdata = driver().patch(leveldata.level.patch());
+  const auto &patchdata = leveldata.patchdata();
 
   const amrex::FabArrayBase &fab = *leveldata.fab;
 
@@ -665,7 +665,7 @@ void enter_patch_mode(cGH *restrict cctkGH,
   DECLARE_CCTK_PARAMETERS;
   assert(in_level_mode(cctkGH));
 
-  const auto &patchdata = driver().patch(leveldata.level.patch());
+  const auto &patchdata = leveldata.patchdata();
 
   cctkGH->cctk_patch = leveldata.level.patch().index();
   const amrex::Box &domain =

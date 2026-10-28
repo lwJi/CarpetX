@@ -527,11 +527,21 @@ struct GHExt {
       LevelData(LevelData &&) = default;
       LevelData &operator=(LevelData &&) = default;
 
-      LevelData(level_t level, const amrex::BoxArray &ba,
+      LevelData(PatchData &patchdata, level_t level, const amrex::BoxArray &ba,
                 const amrex::DistributionMapping &dm,
                 const std::function<std::string()> &why);
 
       level_t level;
+
+      const PatchData &patchdata() const { return *patchdata_; }
+      PatchData &patchdata() { return *patchdata_; }
+      const LevelData &parent() const {
+        return patchdata().level(level.parent());
+      }
+      LevelData &parent() { return patchdata().level(level.parent()); }
+      const amrex::Geometry &geom() const {
+        return patchdata().amrcore->Geom(level.index());
+      }
 
       // This level uses subcycling with respect to the next coarser
       // level. (Ignored for the coarsest level.)
@@ -596,13 +606,18 @@ struct GHExt {
         GroupData(GroupData &&) = delete;
         GroupData &operator=(GroupData &&) = delete;
 
-        GroupData(const GroupRecord &record, level_t level,
-                  const amrex::BoxArray &ba,
+        GroupData(const PatchData &patchdata, const GroupRecord &record,
+                  level_t level, const amrex::BoxArray &ba,
                   const amrex::DistributionMapping &dm,
                   const std::function<std::string()> &why);
 
         const GroupRecord &record;
         const level_t level;
+
+        const PatchData &patchdata() const { return patchdata_; }
+        const amrex::Geometry &geom() const {
+          return patchdata().amrcore->Geom(level.index());
+        }
 
         struct timelevel_t {
           timelevel_t(std::unique_ptr<amrex::MultiFab> mfab, int numvars,
@@ -724,6 +739,7 @@ struct GHExt {
 
       private:
         std::vector<timelevel_t> tls;
+        const PatchData &patchdata_;
 
         friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                          const GroupData &groupdata);
@@ -773,6 +789,7 @@ struct GHExt {
 
     private:
       std::vector<std::unique_ptr<GroupData> > groupdata;
+      PatchData *patchdata_;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const LevelData &leveldata);
