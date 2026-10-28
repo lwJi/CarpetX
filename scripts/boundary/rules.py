@@ -47,10 +47,9 @@ TRAVERSAL_WORD = re.compile(r"\b(active_levels|tail_bin|recovery_traversal|last_
 DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
 SYNC_FILES = (
-    layer_path("schedule", "schedule.hxx"),
-    layer_path("schedule", "evolve.cxx"),
+    layer_path("comm", "comm.hxx"),
     layer_path("comm", "sync_restrict.cxx"),
-    layer_path("comm", "sync_restrict_internal.hxx"),
+    layer_path("schedule", "evolve.cxx"),
 )
 DIRECTIONS_WORD = re.compile(r"\bdirections\b")
 FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
@@ -62,8 +61,9 @@ INDEX_PARAM = re.compile(r"\bint\s+(gi|vi|tl|patch|level|min_level|max_level|min
 INDEX_FIXED = {
     PUBLIC_DIR + "carpetx.hxx": re.compile(r"\b(level_t|window_t|levels|narrow)\s*\("),
     layer_path("schedule", "schedule.hxx"): re.compile(
-        r"\b(QueryGroupStorageB|GroupStorageIncrease|GroupStorageDecrease|SyncGroupsOnActiveLevels)\s*\("
+        r"\b(QueryGroupStorageB|GroupStorageIncrease|GroupStorageDecrease)\s*\("
     ),
+    layer_path("comm", "comm.hxx"): re.compile(r"\b(SyncGroupsOnActiveLevels)\s*\("),
     layer_path("hierarchy", "driver.hxx"): re.compile(
         r"\b(ErrorEst|MakeNewLevelFromScratch|MakeNewLevelFromCoarse|RemakeLevel|ClearLevel)\s*\("
     ),

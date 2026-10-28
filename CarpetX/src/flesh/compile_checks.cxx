@@ -1,8 +1,8 @@
 #include "io/checkpoint.hxx"
 #include "hierarchy/driver.hxx"
-#include "schedule/schedule.hxx"
+#include "hierarchy/loops.hxx"
 #include "comm/subcycling.hxx"
-#include "comm/sync_restrict_internal.hxx"
+#include "comm/comm.hxx"
 #include "hierarchy/valid.hxx"
 
 #include <carpetx.hxx>

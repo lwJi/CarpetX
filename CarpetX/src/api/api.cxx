@@ -2,8 +2,9 @@
 
 #include "api/api.hxx"
 #include "hierarchy/driver.hxx"
-#include "schedule/schedule.hxx"
-#include "comm/sync_restrict_internal.hxx"
+#include "hierarchy/loops.hxx"
+#include "comm/comm.hxx"
+#include "traversal/traversal.hxx"
 
 #include <cctk.h>
 

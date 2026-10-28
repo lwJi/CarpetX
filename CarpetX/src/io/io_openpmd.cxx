@@ -4,7 +4,6 @@
 #include "io/io_meta.hxx"
 #include "io/io_openpmd_names.hxx"
 #include "io/io_slice.hxx"
-#include "schedule/schedule.hxx"
 #include <carpetx.hxx>
 
 #include <div.hxx>

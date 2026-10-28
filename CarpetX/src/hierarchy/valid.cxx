@@ -1,5 +1,5 @@
 #include "hierarchy/driver.hxx"
-#include "schedule/schedule.hxx"
+#include "hierarchy/loops.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/valid.hxx"
 

@@ -6,7 +6,6 @@
 #include <carpetx.hxx>
 
 #include "hierarchy/driver.hxx"
-#include "schedule/schedule.hxx"
 
 #include <span>
 

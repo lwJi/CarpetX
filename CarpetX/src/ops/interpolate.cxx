@@ -2,7 +2,8 @@
 #include "ops/interp.hxx"
 #include "util/mpi_types.hxx"
 #include "ops/reduction.hxx"
-#include "schedule/schedule.hxx"
+#include "hierarchy/loops.hxx"
+#include "traversal/traversal.hxx"
 
 #include <defs.hxx>
 

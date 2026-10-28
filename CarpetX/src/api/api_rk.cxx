@@ -3,6 +3,8 @@
 #include "api/api.hxx"
 #include "hierarchy/driver.hxx"
 #include "schedule/schedule.hxx"
+#include "hierarchy/loops.hxx"
+#include "comm/comm.hxx"
 #include "comm/subcycling.hxx"
 #include "hierarchy/valid.hxx"
 #include <carpetx.hxx>

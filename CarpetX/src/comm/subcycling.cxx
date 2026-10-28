@@ -2,7 +2,7 @@
 
 #include "hierarchy/driver.hxx"
 #include "comm/fillpatch.hxx"
-#include "schedule/schedule.hxx"
+#include "hierarchy/loops.hxx"
 #include "util/task_manager.hxx"
 
 #include <AMReX_FabArray.H>     // MultiArray4, MultiFab::arrays()

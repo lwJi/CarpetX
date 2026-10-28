@@ -8,6 +8,8 @@
 #include <loop_device.hxx>
 #include "comm/prolongate_3d_rf2.hxx"
 #include "schedule/schedule.hxx"
+#include "hierarchy/loops.hxx"
+#include "comm/comm.hxx"
 #include "comm/subcycling.hxx"
 #include <carpetx.hxx>
 

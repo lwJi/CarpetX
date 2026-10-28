@@ -178,7 +178,7 @@ class Directions(unittest.TestCase):
     )
 
     def test_directions_reported(self):
-        for name in ["CarpetX/src/schedule/schedule.hxx", "CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/comm/sync_restrict_internal.hxx"]:
+        for name in ["CarpetX/src/comm/comm.hxx", "CarpetX/src/comm/sync_restrict.cxx"]:
             with self.subTest(name=name):
                 self.assertEqual(
                     reported(name, self.FORWARDED),
@@ -188,12 +188,12 @@ class Directions(unittest.TestCase):
         self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", text), [("directions", text.strip())])
 
     def test_directions_allowed_in_flesh_overload(self):
-        self.assertEqual(reported("CarpetX/src/schedule/schedule.hxx", self.FLESH_OVERLOAD), [])
+        self.assertEqual(reported("CarpetX/src/comm/comm.hxx", self.FLESH_OVERLOAD), [])
         self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", self.FLESH_DEFINITION), [])
-        self.assertEqual(reported("CarpetX/src/schedule/schedule.hxx", self.FLESH_OVERLOAD + "\n" + self.FORWARDED), [("directions", "const int *groups, const int *directions);")])
+        self.assertEqual(reported("CarpetX/src/comm/comm.hxx", self.FLESH_OVERLOAD + "\n" + self.FORWARDED), [("directions", "const int *groups, const int *directions);")])
 
     def test_other_files_are_not_the_sync_layer(self):
-        for name in ["CarpetX/src/io/io_meta.cxx", "CarpetX/src/hierarchy/driver.hxx", "ODESolvers/src/solve.cxx"]:
+        for name in ["CarpetX/src/schedule/schedule.hxx", "CarpetX/src/io/io_meta.cxx", "CarpetX/src/hierarchy/driver.hxx", "ODESolvers/src/solve.cxx"]:
             with self.subTest(name=name):
                 self.assertEqual(reported(name, self.FORWARDED), [])
 
@@ -202,7 +202,7 @@ class Directions(unittest.TestCase):
 
     def test_line_numbers(self):
         text = "int a;\n" + self.FORWARDED
-        self.assertEqual(findings("CarpetX/src/schedule/schedule.hxx", text, Lang.CXX), [Finding(4, "directions", "const int *groups, const int *directions);")])
+        self.assertEqual(findings("CarpetX/src/comm/comm.hxx", text, Lang.CXX), [Finding(4, "directions", "const int *groups, const int *directions);")])
 
 
 class VarIndex(unittest.TestCase):
@@ -397,9 +397,16 @@ class Index(unittest.TestCase):
         self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", text), [])
 
     def test_index_allowed_only_where_the_signature_is_fixed(self):
+        for name in ["CarpetX/src/hierarchy/driver.hxx", "CarpetX/src/comm/comm.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(
+                    reported(name, "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);\n"),
+                    [("index", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);")],
+                )
+        self.assertEqual(reported("CarpetX/src/comm/comm.hxx", "int SyncGroupsOnActiveLevels(const cGH *cctkGH, int gi);\n"), [])
         self.assertEqual(
-            reported("CarpetX/src/hierarchy/driver.hxx", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);\n"),
-            [("index", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);")],
+            reported("CarpetX/src/schedule/schedule.hxx", "int SyncGroupsOnActiveLevels(const cGH *cctkGH, int gi);\n"),
+            [("index", "int SyncGroupsOnActiveLevels(const cGH *cctkGH, int gi);")],
         )
         self.assertEqual(
             reported("CarpetX/src/schedule/schedule.hxx", "window_t narrow(int min_level, int max_level);\n"),
@@ -678,7 +685,7 @@ class Report(unittest.TestCase):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
         c = ("CarpetX/src/hierarchy/hierarchy.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
-        d = ("CarpetX/src/schedule/schedule.hxx", Finding(2, "directions", "const int *groups, const int *directions);"))
+        d = ("CarpetX/src/comm/comm.hxx", Finding(2, "directions", "const int *groups, const int *directions);"))
         e = ("CarpetX/src/hierarchy/valid.cxx", Finding(5, "varindex", "CCTK_FullVarName(groupdata.record.firstvarindex + vi),"))
         self.assertEqual(summary([a]), "✗ boundary: 1 private include")
         self.assertEqual(summary([a, a, b]), "✗ boundary: 2 private includes, 1 stray marker")

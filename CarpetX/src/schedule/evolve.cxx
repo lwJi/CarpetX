@@ -1,10 +1,12 @@
 #include "schedule/schedule.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/loops.hxx"
 #include "comm/fillpatch.hxx"
 #include "io/io.hxx"
 #include <loop.hxx>
 #include "comm/subcycling.hxx"
-#include "comm/sync_restrict_internal.hxx"
+#include "comm/comm.hxx"
+#include "traversal/traversal.hxx"
 #include "util/task_manager.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/valid.hxx"

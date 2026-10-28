@@ -7,7 +7,6 @@
 #include "io/io_silo.hxx"
 #include "io/io_slice.hxx"
 #include "io/io_tsv.hxx"
-#include "schedule/schedule.hxx"
 #include "comm/subcycling.hxx"
 #include <carpetx.hxx>
 

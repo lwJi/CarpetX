@@ -4,7 +4,6 @@
 #include "io/io_meta.hxx"
 #include "io/io_silo_names.hxx"
 #include "util/mpi_types.hxx"
-#include "schedule/schedule.hxx"
 #include <carpetx.hxx>
 
 #include <tuple.hxx>
