@@ -1,7 +1,8 @@
 SRCS =							\
 	group_tags.cxx					\
 	hierarchy.cxx					\
-	valid.cxx
+	valid.cxx					\
+	yaml.cxx
 
 STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(SRCDIR)/$(CCTK_THIS_SUBDIR)*.cxx)))
 ifneq ($(STRAY_SRCS),)
