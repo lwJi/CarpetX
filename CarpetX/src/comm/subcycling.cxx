@@ -1,0 +1,453 @@
+#include "comm/subcycling.hxx"
+
+#include "hierarchy/driver.hxx"
+#include "comm/fillpatch.hxx"
+#include "schedule/schedule.hxx"
+#include "util/task_manager.hxx"
+
+#include <AMReX_FabArray.H>     // MultiArray4, MultiFab::arrays()
+#include <AMReX_FabArrayBase.H> // FabArrayBase::TheFPinfo
+#include <AMReX_Geometry.H>
+#include <AMReX_GpuContainers.H> // amrex::GpuArray
+#include <AMReX_GpuDevice.H>     // amrex::Gpu::synchronize
+#include <AMReX_IntVect.H>
+#include <AMReX_Interpolater.H>
+#include <AMReX_MFParallelFor.H> // amrex::ParallelFor(MF, IntVect, ncomp, F)
+#include <AMReX_MultiFab.H>
+#include <AMReX_Periodicity.H>
+
+#include <array>
+#include <cassert>
+#include <memory>
+#include <vector>
+
+namespace CarpetX {
+
+namespace {
+
+using GroupData = GHExt::PatchData::LevelData::GroupData;
+
+template <int RKSTAGES>
+void rk_dense_output_impl(amrex::MultiFab &crse_patch,
+                          const amrex::MultiFab &old_band,
+                          const std::array<std::unique_ptr<amrex::MultiFab>,
+                                           max_num_rk_stages> &ks_bands,
+                          const int stage, const CCTK_REAL xsi,
+                          const CCTK_REAL dtc) {
+  static_assert(RKSTAGES == 3 || RKSTAGES == 4,
+                "rk_dense_output only supports RKSTAGES == 3 or 4");
+  assert(stage > 0 && stage <= RKSTAGES);
+
+  constexpr CCTK_REAL r = rk_substep_ratio;
+
+  const int nvars = crse_patch.nComp();
+  assert(old_band.nComp() == nvars);
+  assert(old_band.boxArray() == crse_patch.boxArray());
+  // The kernel below indexes all MultiFabs with one local box index
+  assert(old_band.DistributionMap() == crse_patch.DistributionMap());
+
+  const CCTK_REAL xsi2 = xsi * xsi;
+
+  // Stage the coarse old state u(t_n); the polynomial is then accumulated in
+  // place on the coarse patch.
+  amrex::MultiFab::Copy(crse_patch, old_band, 0, 0, nvars, 0);
+
+  auto yf_arrs = crse_patch.arrays();
+  amrex::GpuArray<amrex::MultiArray4<const CCTK_REAL>, RKSTAGES> kcs_arrs;
+  for (int s = 0; s < RKSTAGES; ++s) {
+    assert(ks_bands[s]);
+    assert(ks_bands[s]->nComp() == nvars);
+    assert(ks_bands[s]->boxArray() == crse_patch.boxArray());
+    assert(ks_bands[s]->DistributionMap() == crse_patch.DistributionMap());
+    kcs_arrs[s] = ks_bands[s]->const_arrays();
+  }
+
+  if constexpr (RKSTAGES == 3) {
+    // AMReX RK3 (SSPRK3) dense-output coefficients, a degree-2 Taylor
+    // expansion over S_old + k1, k2, k3 (no uttt term).
+    const std::array<CCTK_REAL, 3> b = {
+        xsi - (5. / 6.) * xsi2, // b1
+        (1. / 6.) * xsi2,       // b2
+        (2. / 3.) * xsi2        // b3
+    };
+    const std::array<CCTK_REAL, 3> bt = {
+        1.0 - (5. / 3.) * xsi, // bt1
+        (1. / 3.) * xsi,       // bt2
+        (4. / 3.) * xsi        // bt3
+    };
+    constexpr std::array<CCTK_REAL, 3> btt = {
+        -5. / 3., // btt1
+        1. / 3.,  // btt2
+        4. / 3.   // btt3
+    };
+
+    if (stage == 1) {
+      amrex::ParallelFor(
+          crse_patch, amrex::IntVect{0}, nvars,
+          [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
+            const std::array<CCTK_REAL, 3> kk = {kcs_arrs[0][b_](i, j, k, n),
+                                                 kcs_arrs[1][b_](i, j, k, n),
+                                                 kcs_arrs[2][b_](i, j, k, n)};
+            const CCTK_REAL uu = b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2];
+            yf_arrs[b_](i, j, k, n) += dtc * uu;
+          });
+    } else if (stage == 2) {
+      amrex::ParallelFor(
+          crse_patch, amrex::IntVect{0}, nvars,
+          [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
+            const std::array<CCTK_REAL, 3> kk = {kcs_arrs[0][b_](i, j, k, n),
+                                                 kcs_arrs[1][b_](i, j, k, n),
+                                                 kcs_arrs[2][b_](i, j, k, n)};
+            const CCTK_REAL uu = b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2];
+            const CCTK_REAL ut = bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2];
+            // note r*ut (not 0.5*r*ut as in the RK4 stage 2)
+            yf_arrs[b_](i, j, k, n) += dtc * (uu + r * ut);
+          });
+    } else { // stage 3
+      const CCTK_REAL r2 = r * r;
+      amrex::ParallelFor(
+          crse_patch, amrex::IntVect{0}, nvars,
+          [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
+            const std::array<CCTK_REAL, 3> kk = {kcs_arrs[0][b_](i, j, k, n),
+                                                 kcs_arrs[1][b_](i, j, k, n),
+                                                 kcs_arrs[2][b_](i, j, k, n)};
+            const CCTK_REAL uu = b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2];
+            const CCTK_REAL ut = bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2];
+            const CCTK_REAL utt =
+                btt[0] * kk[0] + btt[1] * kk[1] + btt[2] * kk[2];
+            yf_arrs[b_](i, j, k, n) +=
+                dtc * (uu + 0.5 * r * ut + 0.25 * r2 * utt);
+          });
+    }
+  } else { // RKSTAGES == 4
+    const CCTK_REAL xsi3 = xsi2 * xsi;
+
+    // Coefficients for the dense output formulas (U, Ut, Utt, Uttt)
+    const std::array<CCTK_REAL, 4> b = {
+        xsi - 1.5 * xsi2 + (2. / 3.) * xsi3, // b1
+        xsi2 - (2. / 3.) * xsi3,             // b2
+        xsi2 - (2. / 3.) * xsi3,             // b3
+        -0.5 * xsi2 + (2. / 3.) * xsi3       // b4
+    };
+    const std::array<CCTK_REAL, 4> bt = {
+        1.0 - 3.0 * xsi + 2.0 * xsi2, // bt1
+        2.0 * xsi - 2.0 * xsi2,       // bt2
+        2.0 * xsi - 2.0 * xsi2,       // bt3
+        -xsi + 2.0 * xsi2             // bt4
+    };
+    const std::array<CCTK_REAL, 4> btt = {
+        -3.0 + 4.0 * xsi, // btt1
+        2.0 - 4.0 * xsi,  // btt2
+        2.0 - 4.0 * xsi,  // btt3
+        -1.0 + 4.0 * xsi  // btt4
+    };
+    constexpr std::array<CCTK_REAL, 4> bttt = {
+        4.0,  // bttt1
+        -4.0, // bttt2
+        -4.0, // bttt3
+        4.0   // bttt4
+    };
+
+    if (stage == 1) {
+      amrex::ParallelFor(
+          crse_patch, amrex::IntVect{0}, nvars,
+          [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
+            const std::array<CCTK_REAL, 4> kk = {
+                kcs_arrs[0][b_](i, j, k, n), kcs_arrs[1][b_](i, j, k, n),
+                kcs_arrs[2][b_](i, j, k, n), kcs_arrs[3][b_](i, j, k, n)};
+            const CCTK_REAL uu =
+                b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2] + b[3] * kk[3];
+            yf_arrs[b_](i, j, k, n) += dtc * uu;
+          });
+    } else if (stage == 2) {
+      amrex::ParallelFor(
+          crse_patch, amrex::IntVect{0}, nvars,
+          [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
+            const std::array<CCTK_REAL, 4> kk = {
+                kcs_arrs[0][b_](i, j, k, n), kcs_arrs[1][b_](i, j, k, n),
+                kcs_arrs[2][b_](i, j, k, n), kcs_arrs[3][b_](i, j, k, n)};
+            const CCTK_REAL uu =
+                b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2] + b[3] * kk[3];
+            const CCTK_REAL ut =
+                bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2] + bt[3] * kk[3];
+            yf_arrs[b_](i, j, k, n) += dtc * (uu + 0.5 * r * ut);
+          });
+    } else { // stage 3 or stage 4
+      const CCTK_REAL r2 = r * r;
+      const CCTK_REAL r3 = r2 * r;
+      const CCTK_REAL at = (stage == 3) ? 0.5 * r : r;
+      const CCTK_REAL att = (stage == 3) ? 0.25 * r2 : 0.5 * r2;
+      const CCTK_REAL attt = (stage == 3) ? 0.0625 * r3 : 0.125 * r3;
+      const CCTK_REAL ak = (stage == 3) ? -4.0 : 4.0;
+      amrex::ParallelFor(
+          crse_patch, amrex::IntVect{0}, nvars,
+          [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
+            const std::array<CCTK_REAL, 4> kk = {
+                kcs_arrs[0][b_](i, j, k, n), kcs_arrs[1][b_](i, j, k, n),
+                kcs_arrs[2][b_](i, j, k, n), kcs_arrs[3][b_](i, j, k, n)};
+            const CCTK_REAL uu =
+                b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2] + b[3] * kk[3];
+            const CCTK_REAL ut =
+                bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2] + bt[3] * kk[3];
+            const CCTK_REAL utt = btt[0] * kk[0] + btt[1] * kk[1] +
+                                  btt[2] * kk[2] + btt[3] * kk[3];
+            const CCTK_REAL uttt = bttt[0] * kk[0] + bttt[1] * kk[1] +
+                                   bttt[2] * kk[2] + bttt[3] * kk[3];
+            yf_arrs[b_](i, j, k, n) +=
+                dtc * (uu + at * ut + att * utt +
+                       attt * (uttt + ak * (kk[2] - kk[1])));
+          });
+    }
+  }
+
+  // Wait for the device kernel before the result is consumed.
+  amrex::Gpu::synchronize();
+}
+
+void rk_dense_output(amrex::MultiFab &crse_patch,
+                     const amrex::MultiFab &old_band,
+                     const std::array<std::unique_ptr<amrex::MultiFab>,
+                                      max_num_rk_stages> &ks_bands,
+                     const rk_dense_output_t dense_output, const int stage,
+                     const CCTK_REAL xsi, const CCTK_REAL dtc) {
+  switch (dense_output) {
+  case rk_dense_output_t::ssprk3:
+    rk_dense_output_impl<3>(crse_patch, old_band, ks_bands, stage, xsi, dtc);
+    break;
+  case rk_dense_output_t::rk4:
+    rk_dense_output_impl<4>(crse_patch, old_band, ks_bands, stage, xsi, dtc);
+    break;
+  default:
+    CCTK_ERROR("Subcycling dense output: the registered integrator has no "
+               "dense output (CarpetX::register_integrator refuses that under "
+               "CarpetX::use_subcycling)");
+  }
+}
+
+// Interior-only copy of `src` into a zero-ghost source band. Source-band boxes
+// may lie outside the domain in periodic directions (they are coarsenings of
+// the children's periodically grown cf-ghost footprint), so the copy must be
+// allowed to wrap around, exactly as FillPatch_Prolongate's coarse-patch copy
+// does.
+void copy_interior_to_band(amrex::MultiFab &band, const amrex::MultiFab &src,
+                           const amrex::Periodicity &period) {
+  assert(band.ixType() == src.ixType());
+  assert(band.nComp() == src.nComp());
+  band.ParallelCopy(src, 0, 0, band.nComp(), amrex::IntVect{0},
+                    amrex::IntVect{0}, period);
+}
+
+// The FPinfo of the RK boundary fill into `finemfab`: the same lookup as in
+// FillPatch_Prolongate. The refinement ratio, the ghost width (that of
+// `finemfab`) and the absent EB index space are fixed here, so that the
+// allocation (EnsureRKBuffers) and the empty-footprint check (FillRKBoundary)
+// cannot drift apart. Cached by AMReX; the returned reference lives as long as
+// `finemfab`'s layout does.
+const amrex::FabArrayBase::FPinfo &
+rk_fill_fpinfo(const amrex::MultiFab &finemfab,
+               amrex::Interpolater *const interpolator,
+               const amrex::Geometry &fgeom, const amrex::Geometry &cgeom) {
+  const amrex::IntVect ratio{2, 2, 2};
+  const amrex::EB2::IndexSpace *const index_space = nullptr;
+  const amrex::InterpolaterBoxCoarsener &coarsener =
+      interpolator->BoxCoarsener(ratio);
+  return amrex::FabArrayBase::TheFPinfo(finemfab, finemfab,
+                                        finemfab.nGrowVect(), coarsener, fgeom,
+                                        cgeom, index_space);
+}
+
+} // namespace
+
+void EnsureRKBuffers(const level_t level, const gi_t gi) {
+  const GHExt &ext = driver();
+  if (!ext.use_subcycling)
+    return;
+  if (!group_is_integrated(gi))
+    return;
+
+  assert(level.index() >= 1);
+  const auto &patchdata = ext.patch(level.patch());
+  const auto &leveldata = patchdata.level(level);
+  const GroupData &groupdata = leveldata.group(gi);
+  const int num_rk_stages = CarpetX::num_rk_stages();
+  assert(num_rk_stages >= 0 && num_rk_stages <= max_num_rk_stages);
+
+  // All four are allocated together, or none is
+  [[maybe_unused]] const auto have_all_or_none = [&]() {
+    const bool have = bool(groupdata.rk_crse_patch);
+    bool good = bool(groupdata.rk_fine_patch) == have &&
+                bool(groupdata.old_source_band) == have;
+    for (int stage = 0; stage < num_rk_stages; ++stage)
+      good = good && bool(groupdata.ks_source_band[stage]) == have;
+    return good;
+  };
+  assert(have_all_or_none());
+  if (groupdata.rk_crse_patch)
+    return;
+
+  const amrex::MultiFab &mfab = *groupdata.timelevel(tl_t{0}).mfab;
+  const amrex::FabArrayBase::FPinfo &fpc = rk_fill_fpinfo(
+      mfab, groupdata.interpolator, patchdata.amrcore->Geom(level.index()),
+      patchdata.amrcore->Geom(level.parent().index()));
+  // Empty coarse-fine footprint: all buffers stay null
+  if (fpc.ba_crse_patch.empty())
+    return;
+
+  const int ncomps = mfab.nComp();
+  groupdata.rk_crse_patch = std::make_unique<amrex::MultiFab>(
+      fpc.ba_crse_patch, fpc.dm_patch, ncomps, 0, amrex::MFInfo(),
+      *fpc.fact_crse_patch);
+  groupdata.rk_fine_patch = std::make_unique<amrex::MultiFab>(
+      fpc.ba_fine_patch, fpc.dm_patch, ncomps, 0, amrex::MFInfo(),
+      *fpc.fact_fine_patch);
+
+  const int numvars = groupdata.record.numvars;
+  assert(numvars == ncomps);
+  for (int stage = 0; stage < num_rk_stages; ++stage)
+    groupdata.ks_source_band[stage] = std::make_unique<amrex::MultiFab>(
+        fpc.ba_crse_patch, fpc.dm_patch, numvars, 0);
+  groupdata.old_source_band = std::make_unique<amrex::MultiFab>(
+      fpc.ba_crse_patch, fpc.dm_patch, numvars, 0);
+
+  assert(have_all_or_none());
+}
+
+void StoreRKOldState(const level_t level,
+                     const std::span<const gi_t> var_groups, const tl_t tl) {
+  const GHExt &ext = driver();
+  if (!ext.use_subcycling)
+    return;
+  const auto &patchdata = ext.patch(level.patch());
+  const auto &leveldata = patchdata.level(level);
+  const std::optional<level_t> child = level.child();
+  const amrex::Periodicity &period =
+      patchdata.amrcore->Geom(level.index()).periodicity();
+
+  for (const gi_t gi : var_groups) {
+    const GroupData &groupdata = leveldata.group(gi);
+    if (!group_is_integrated(gi))
+      CCTK_VERROR("Group \"%s\" is integrated under subcycling but is not "
+                  "among the integrated groups the time integrator registered "
+                  "(CarpetX::register_integrator, AT WRAGH)",
+                  CCTK_FullGroupName(gi.index()));
+    if (!child)
+      continue;
+    EnsureRKBuffers(*child, gi);
+    const GroupData &childgroupdata = patchdata.level(*child).group(gi);
+    if (!childgroupdata.old_source_band)
+      continue;
+    copy_interior_to_band(*childgroupdata.old_source_band,
+                          *groupdata.timelevel(tl).mfab, period);
+  }
+}
+
+void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
+                  const std::span<const gi_t> rhs_groups, const int stage) {
+  const GHExt &ext = driver();
+  if (!ext.use_subcycling)
+    return;
+  assert(stage >= 1 && stage <= num_rk_stages());
+  assert(var_groups.size() == rhs_groups.size());
+  const int s = stage - 1;
+  const auto &patchdata = ext.patch(level.patch());
+  const std::optional<level_t> child = level.child();
+  if (!child)
+    return;
+  const auto &leveldata = patchdata.level(level);
+  const auto &childleveldata = patchdata.level(*child);
+  const amrex::Periodicity &period =
+      patchdata.amrcore->Geom(level.index()).periodicity();
+
+  for (size_t i = 0; i < var_groups.size(); ++i) {
+    const GroupData &childgroupdata = childleveldata.group(var_groups[i]);
+    const GroupData &rhs_groupdata = leveldata.group(rhs_groups[i]);
+    if (!childgroupdata.ks_source_band[s])
+      continue;
+    copy_interior_to_band(*childgroupdata.ks_source_band[s],
+                          *rhs_groupdata.timelevel(tl_t{0}).mfab, period);
+  }
+}
+
+void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
+                    const tl_t tl, const int stage, const CCTK_REAL xsi,
+                    const CCTK_REAL dtc) {
+  if (level.index() == 0)
+    return;
+  GHExt &ext = driver();
+  if (!ext.use_subcycling)
+    return;
+
+  auto &patchdata = ext.patch(level.patch());
+  auto &leveldata = patchdata.level(level);
+  const level_t parent = level.parent();
+  const auto &coarseleveldata = patchdata.level(parent);
+  const auto &fgeom = patchdata.amrcore->Geom(level.index());
+  const auto &cgeom = patchdata.amrcore->Geom(parent.index());
+  const rk_dense_output_t dense_output = registered_dense_output();
+
+  // We need to loop over groups in a definite order so that AMReX's
+  // communication pattern does not get confused (as in
+  // SyncGroupsByDirIProlongateOnly_impl), hence the serial task managers.
+  // tasks1 evaluates the dense output, tasks2 starts the prolongation, tasks3
+  // finishes it.
+  task_manager tasks1;
+  task_manager tasks2;
+  task_manager tasks3;
+
+  for (const gi_t gi : var_groups) {
+    GroupData &groupdata = leveldata.group(gi);
+    const GroupData &coarsegroupdata = coarseleveldata.group(gi);
+    assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
+    // Only integrated groups have bands, and only for them does the
+    // subcycling SYNC leave the coarse-fine ghosts to this function
+    assert(group_is_integrated(gi));
+
+    amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+
+    // As in FillPatch_Prolongate: without ghosts there is nothing to fill
+    if (mfab.nGrowVect().max() == 0)
+      continue;
+
+    // This level owns the bands; the parent filled them (StoreRKOldState ran
+    // on it before this level stepped, or recovery read them). Nothing is
+    // allocated here. A null band means an empty coarse-fine footprint, i.e.
+    // nothing to prolongate -- and not that nobody allocated the buffers.
+    if (!groupdata.old_source_band) {
+      assert(rk_fill_fpinfo(mfab, groupdata.interpolator, fgeom, cgeom)
+                 .ba_crse_patch.empty());
+      continue;
+    }
+    const amrex::MultiFab &old_band = *groupdata.old_source_band;
+
+    // Persistent work buffers, allocated together with the bands
+    assert(groupdata.rk_crse_patch && groupdata.rk_fine_patch);
+    amrex::MultiFab &crse_patch = *groupdata.rk_crse_patch;
+    amrex::MultiFab &fine_patch = *groupdata.rk_fine_patch;
+
+    tasks1.submit_serially(
+        [&groupdata, &crse_patch, &old_band, dense_output, stage, xsi, dtc]() {
+          rk_dense_output(crse_patch, old_band, groupdata.ks_source_band,
+                          dense_output, stage, xsi, dtc);
+        });
+
+    // Coarse BC on the combined state, spatial interpolation with the group's
+    // operator, scatter into the fine ghost halo, fine BC: the same back half
+    // every other coarse-to-fine fill takes.
+    tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
+                            &fine_patch, &fgeom, &cgeom]() {
+      Prolongate_Start(groupdata, coarsegroupdata, mfab, crse_patch, fine_patch,
+                       fgeom, cgeom, groupdata.interpolator, groupdata.bcrecs);
+    });
+    tasks3.submit_serially(
+        [&groupdata, &mfab]() { Prolongate_Finish(groupdata, mfab); });
+  }
+
+  tasks1.run_tasks_serially();
+  synchronize();
+  tasks2.run_tasks_serially();
+  synchronize();
+  tasks3.run_tasks_serially();
+  synchronize();
+}
+
+} // namespace CarpetX

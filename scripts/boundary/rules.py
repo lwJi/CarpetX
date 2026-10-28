@@ -18,49 +18,64 @@ MARKER = "CARPETX_INTERNAL"
 PRIVATE_DIR = "CarpetX/src/"
 PUBLIC_DIR = "CarpetX/src/include/"
 MAKE_DEFN = "CarpetX/src/make.code.defn"
+LAYERS = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+
+
+def layer_path(layer: str, basename: str) -> str:
+    assert layer in LAYERS, layer
+    return f"{PRIVATE_DIR}{layer}/{basename}"
+
+
+def layer_of(name: str) -> Optional[str]:
+    if not name.startswith(PRIVATE_DIR):
+        return None
+    parts = name[len(PRIVATE_DIR) :].split("/")
+    return parts[0] if len(parts) == 2 and parts[0] in LAYERS else None
+
+
 CHECKED = (Lang.CXX, Lang.MAKE)
 MARKER_WORD = re.compile(r"CARPETX_INTERNAL\b")
 GUARD = re.compile(r"^\s*#\s*ifndef\s+CARPETX_INTERNAL\s*$")
 INCLUDE_INTO_SRC = re.compile(r'^\s*#\s*include\s*(?:"[^"]*CarpetX/src[^"]*"|<[^>]*CarpetX/src[^>]*>)')
-VALIDITY_FILES = ("CarpetX/src/valid.cxx", "CarpetX/src/valid.hxx")
+VALIDITY_FILES = (layer_path("hierarchy", "valid.cxx"), layer_path("hierarchy", "valid.hxx"))
 VALIDITY_WORD = re.compile(
     r"(\b(error_if_invalid|warn_if_invalid|poison_invalid_g[fa]|check_valid_g[fa])"
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
-TRAVERSAL_FILES = ("CarpetX/src/traversal.cxx", "CarpetX/src/traversal.hxx")
+TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(r"\b(active_levels|tail_bin|recovery_traversal|last_routine)\b")
-DOOR_FILE = "CarpetX/src/driver.cxx"
+DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
 SYNC_FILES = (
-    "CarpetX/src/schedule.hxx",
-    "CarpetX/src/schedule.cxx",
-    "CarpetX/src/sync_restrict.cxx",
-    "CarpetX/src/sync_restrict_internal.hxx",
+    layer_path("schedule", "schedule.hxx"),
+    layer_path("schedule", "evolve.cxx"),
+    layer_path("comm", "sync_restrict.cxx"),
+    layer_path("comm", "sync_restrict_internal.hxx"),
 )
 DIRECTIONS_WORD = re.compile(r"\bdirections\b")
 FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
 VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\([^()]*\))*\))\s*\+")
-RECORD_VAR_FILE = "CarpetX/src/driver.hxx"
+RECORD_VAR_FILE = layer_path("hierarchy", "driver.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
 INDEX_PARAM = re.compile(r"\bint\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch)\b")
 INDEX_FIXED = {
-    "CarpetX/src/include/carpetx.hxx": re.compile(r"\b(level_t|window_t|levels|narrow)\s*\("),
-    "CarpetX/src/schedule.hxx": re.compile(
+    PUBLIC_DIR + "carpetx.hxx": re.compile(r"\b(level_t|window_t|levels|narrow)\s*\("),
+    layer_path("schedule", "schedule.hxx"): re.compile(
         r"\b(QueryGroupStorageB|GroupStorageIncrease|GroupStorageDecrease|SyncGroupsOnActiveLevels)\s*\("
     ),
-    "CarpetX/src/driver.hxx": re.compile(
+    layer_path("hierarchy", "driver.hxx"): re.compile(
         r"\b(ErrorEst|MakeNewLevelFromScratch|MakeNewLevelFromCoarse|RemakeLevel|ClearLevel)\s*\("
     ),
 }
 CODEC_FILES = (
-    "CarpetX/src/io_openpmd_checkpoint.cxx",
-    "CarpetX/src/io_openpmd_names.hxx",
-    "CarpetX/src/io_silo_checkpoint.cxx",
-    "CarpetX/src/io_silo_names.hxx",
+    layer_path("io", "io_openpmd_checkpoint.cxx"),
+    layer_path("io", "io_openpmd_names.hxx"),
+    layer_path("io", "io_silo_checkpoint.cxx"),
+    layer_path("io", "io_silo_names.hxx"),
 )
 CODEC_WORD = re.compile(
-    r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]driver\.hxx[">]'
+    r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]hierarchy/driver\.hxx[">]'
 )
 STATEMENT_END = re.compile(r"[;{}]")
 EXCERPT_WIDTH = 72
@@ -181,7 +196,7 @@ RULES = (
         files=private_cxx,
         word=VALIDITY_WORD,
         allowed=in_files(VALIDITY_FILES),
-        text="validity: a validity kernel or a why_valid_t setter is named only in CarpetX/src/valid.cxx\n"
+        text="validity: a validity kernel or a why_valid_t setter is named only in CarpetX/src/hierarchy/valid.cxx\n"
         "and valid.hxx; every other site opens a write scope or calls require or invalidate.",
         noun="validity call",
         where="outside valid.cxx",
@@ -226,7 +241,7 @@ RULES = (
         word=TRAVERSAL_WORD,
         allowed=in_files(TRAVERSAL_FILES),
         text="traversal: a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine) is named\n"
-        "only in CarpetX/src/traversal.cxx and traversal.hxx; a driver phase opens a scope, and a reader\n"
+        "only in CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, and a reader\n"
         "calls scheduled_window(), scheduled_tail_bin(), in_recovery_traversal() or scheduled_routine().",
         noun="traversal use",
         where="outside traversal.cxx",
@@ -250,7 +265,7 @@ RULES = (
         word=CODEC_WORD,
         allowed=never,
         text="codec: a checkpoint codec (io_*_checkpoint.cxx and its io_*_names.hxx) sees only the checkpoint\n"
-        "record and its own library: no ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx.",
+        "record and its own library: no ghext->, driver(), GHExt, LevelData, GroupData or hierarchy/driver.hxx.",
         noun="hierarchy use",
         where="in a checkpoint codec",
         clean="no hierarchy access in a checkpoint codec",
@@ -260,10 +275,10 @@ RULES = (
         files=private_cxx,
         word=DOOR_WORD,
         allowed=is_name(DOOR_FILE),
-        text="door: the hierarchy pointer ghext is named only in CarpetX/src/driver.cxx; every other file\n"
-        "calls driver().",
+        text="door: the hierarchy pointer ghext is named only in CarpetX/src/hierarchy/hierarchy.cxx; every other\n"
+        "file calls driver().",
         noun="raw hierarchy name",
-        where="outside driver.cxx",
+        where="outside hierarchy.cxx",
         clean="the hierarchy has one door",
     ),
 )

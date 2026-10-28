@@ -1,0 +1,16 @@
+SRCS =							\
+	checkpoint.cxx					\
+	io.cxx						\
+	io_adios2.cxx					\
+	io_meta.cxx					\
+	io_norm.cxx					\
+	io_openpmd.cxx					\
+	io_openpmd_checkpoint.cxx			\
+	io_silo.cxx					\
+	io_silo_checkpoint.cxx				\
+	io_tsv.cxx
+
+STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(SRCDIR)/$(CCTK_THIS_SUBDIR)*.cxx)))
+ifneq ($(STRAY_SRCS),)
+$(error CarpetX/src/$(CCTK_THIS_SUBDIR)make.code.defn: not in SRCS: $(STRAY_SRCS))
+endif

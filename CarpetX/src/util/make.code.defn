@@ -1,0 +1,10 @@
+SRCS =							\
+	logo.cxx					\
+	mpi_types.cxx					\
+	task_manager.cxx				\
+	timer.cxx
+
+STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(SRCDIR)/$(CCTK_THIS_SUBDIR)*.cxx)))
+ifneq ($(STRAY_SRCS),)
+$(error CarpetX/src/$(CCTK_THIS_SUBDIR)make.code.defn: not in SRCS: $(STRAY_SRCS))
+endif
