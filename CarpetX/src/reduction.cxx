@@ -214,7 +214,7 @@ reduction<CCTK_REAL, dim> reduce(const gi_t gi, const vi_t vi, const tl_t tl) {
   assert(group.grouptype == CCTK_GF);
 
   reduction<CCTK_REAL, dim> red;
-  for (auto &restrict patchdata : ghext->patches()) {
+  for (auto &restrict patchdata : driver().patches()) {
     for (auto &restrict leveldata : patchdata.levels()) {
       const auto &restrict groupdata = leveldata.group(gi);
       const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;

@@ -226,7 +226,7 @@ struct carpetx_openpmd_t {
 
   static std::string make_componentname(const gi_t gi, const int vi) {
     return CarpetX::make_componentname(
-        CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index()));
+        CCTK_FullVarName(driver().record(gi).var(vi_t{vi}).index()));
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -359,7 +359,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
     write_iter.setAttribute("AllParameters", parameters);
   }
 
-  for (const auto &patchdata : ghext->patches()) {
+  const GHExt &ext = driver();
+  for (const auto &patchdata : ext.patches()) {
     for (const auto &leveldata : patchdata.levels()) {
       if (io_verbose)
         CCTK_VINFO("Writing patch %d level %d mesh...", patchdata.patch.index(),
@@ -580,7 +581,7 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
     for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
       if (!output_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
         continue;
-      const GHExt::GroupRecord &record = ghext->record(gi_t{gi});
+      const GHExt::GroupRecord &record = ext.record(gi_t{gi});
       for (const vi_t vi : record.variables())
         ofd.variables.push_back(CCTK_FullVarName(record.var(vi).index()));
     }

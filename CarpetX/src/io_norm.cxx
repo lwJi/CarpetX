@@ -100,18 +100,19 @@ void OutputNorms(const cGH *restrict cctkGH) {
     });
   }
 
+  const GHExt &ext = driver();
   if (is_root) {
     if (group_enabled_changed) {
       for (int gi0 = 0; gi0 < numgroups; ++gi0) {
         const gi_t gi{gi0};
         if (!group_enabled.at(gi.index()))
           continue;
-        const auto &group = ghext->record(gi);
+        const auto &group = ext.record(gi);
         if (group.kind != group_kind::grid_function || !group.has_storage())
           continue;
 
         const patch_t patch{0};
-        const GHExt::PatchData &restrict patchdata = ghext->patch(patch);
+        const GHExt::PatchData &restrict patchdata = ext.patch(patch);
         const level_t level{patch, 0};
         const GHExt::PatchData::LevelData &restrict leveldata =
             patchdata.level(level);
@@ -162,12 +163,12 @@ void OutputNorms(const cGH *restrict cctkGH) {
     const gi_t gi{gi0};
     if (!group_enabled.at(gi.index()))
       continue;
-    const auto &group = ghext->record(gi);
+    const auto &group = ext.record(gi);
     if (group.kind != group_kind::grid_function || !group.has_storage())
       continue;
 
     const patch_t patch{0};
-    const GHExt::PatchData &restrict patchdata = ghext->patch(patch);
+    const GHExt::PatchData &restrict patchdata = ext.patch(patch);
     const level_t level{patch, 0};
     const GHExt::PatchData::LevelData &restrict leveldata =
         patchdata.level(level);

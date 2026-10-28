@@ -87,7 +87,7 @@ struct mesh_props_t {
 };
 
 std::string var_name(const gi_t gi, const int vi) {
-  return CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());
+  return CCTK_FullVarName(driver().record(gi).var(vi_t{vi}).index());
 }
 
 void RegisterSiloOutput(const cGH *restrict const cctkGH,
@@ -100,7 +100,7 @@ void RegisterSiloOutput(const cGH *restrict const cctkGH,
       continue;
     if (CCTK_GroupTypeI(gi) != CCTK_GF)
       continue;
-    const GHExt::GroupRecord &record = ghext->record(gi_t{gi});
+    const GHExt::GroupRecord &record = driver().record(gi_t{gi});
     for (const vi_t vi : record.variables())
       variables.push_back(CCTK_FullVarName(record.var(vi).index()));
   }
@@ -173,7 +173,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
   constexpr int ndims = dim;
 
-  for (const auto &patchdata : ghext->patches())
+  const GHExt &ext = driver();
+  for (const auto &patchdata : ext.patches())
     if (!patchdata.is_cartesian)
       CCTK_VERROR("2D Silo slice output is only supported for "
                   "Cartesian patches");
@@ -228,7 +229,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
       }
     }
 
-    for (const auto &patchdata : ghext->patches()) {
+    for (const auto &patchdata : ext.patches()) {
 
       for (const auto &leveldata : patchdata.levels()) {
 
@@ -514,7 +515,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
       if (CCTK_GroupTypeI(gi.index()) != CCTK_GF)
         continue;
 
-      const auto &groupdata0 = ghext->level(level_t{patch_t{0}, 0}).group(gi);
+      const auto &groupdata0 = ext.level(level_t{patch_t{0}, 0}).group(gi);
       const int numvars = groupdata0.record.numvars;
       const tl_t tl{0};
       const amrex::MultiFab &mfab0 = *groupdata0.timelevel(tl).mfab;
@@ -530,7 +531,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         typedef std::array<std::array<CCTK_REAL, ndims>, 2> extent_t;
         std::vector<extent_t> extents;
 
-        for (const auto &patchdata : ghext->patches()) {
+        for (const auto &patchdata : ext.patches()) {
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(gi);
             const tl_t tl{0};
@@ -560,7 +561,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         // Write multimesh
 
         std::vector<std::string> meshnames;
-        for (const auto &patchdata : ghext->patches()) {
+        for (const auto &patchdata : ext.patches()) {
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(gi);
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
@@ -631,7 +632,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
         std::vector<int> zonecounts;
         zonecounts.reserve(meshnames.size());
-        for (const auto &patchdata : ghext->patches()) {
+        for (const auto &patchdata : ext.patches()) {
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(gi);
             const tl_t tl{0};
@@ -701,7 +702,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
           const std::string multivarname = make_varname(var_name(gi, vi));
 
           std::vector<std::string> varnames;
-          for (const auto &patchdata : ghext->patches()) {
+          for (const auto &patchdata : ext.patches()) {
             for (const auto &leveldata : patchdata.levels()) {
               const auto &groupdata = leveldata.group(gi);
               const tl_t tl{0};
@@ -759,11 +760,11 @@ void OutputSilo(const cGH *restrict const cctkGH,
       assert(!ierr);
 
       {
-        const auto num_patches = ghext->num_patches();
+        const auto num_patches = ext.num_patches();
 
         std::vector<int> values(num_patches);
 
-        for (const auto &patchdata : ghext->patches()) {
+        for (const auto &patchdata : ext.patches()) {
           values.at(patchdata.patch.index()) = patchdata.num_levels();
         }
 
@@ -775,7 +776,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         assert(!ierr);
       }
 
-      for (const auto &patchdata : ghext->patches()) {
+      for (const auto &patchdata : ext.patches()) {
         for (const auto &leveldata : patchdata.levels()) {
           const amrex::FabArrayBase &fab = *leveldata.fab;
           const int ncomponents = fab.size();
@@ -796,7 +797,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         }
       }
 
-      for (const auto &patchdata : ghext->patches()) {
+      for (const auto &patchdata : ext.patches()) {
         for (const auto &leveldata : patchdata.levels()) {
           {
             const std::string varname =

@@ -458,11 +458,12 @@ CarpetX::InterpolationSetup::InterpolationSetup(
   assert(!reflection_upper_y);
   assert(!reflection_upper_z);
 
+  const GHExt &ext = driver();
   if (reflection_z) {
     symmetry_reflected_z.resize(npoints);
-    assert(ghext->num_patches() == 1);
+    assert(ext.num_patches() == 1);
     constexpr patch_t patch{0};
-    const amrex::Geometry &geom = ghext->patch(patch).amrcore->Geom(0);
+    const amrex::Geometry &geom = ext.patch(patch).amrcore->Geom(0);
     const CCTK_REAL *restrict const xmin = geom.ProbLo();
 #pragma omp simd
     for (int n = 0; n < npoints; ++n) {
@@ -487,7 +488,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
 #pragma omp simd
   for (int n = 0; n < npoints; ++n) {
     const patch_t patch{patches.at(n)};
-    const amrex::Geometry &geom = ghext->patch(patch).amrcore->Geom(0);
+    const amrex::Geometry &geom = ext.patch(patch).amrcore->Geom(0);
     const CCTK_REAL *restrict const xmin = geom.ProbLo();
     const CCTK_REAL *restrict const xmax = geom.ProbHi();
     const CCTK_REAL *restrict const dx = geom.CellSize();
@@ -499,9 +500,8 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     posz[n] = clamp(localsz[n], xmin[2] + dx[2] / 2, xmax[2] - dx[2] / 2);
   }
 
-  // Create particle containers
-  std::vector<PinnedParticleTile> pinned_particle_tiles(ghext->num_patches());
-  for (int patch = 0; patch < ghext->num_patches(); ++patch) {
+  std::vector<PinnedParticleTile> pinned_particle_tiles(ext.num_patches());
+  for (int patch = 0; patch < ext.num_patches(); ++patch) {
     PinnedParticleTile &pinned_particle_tile = pinned_particle_tiles.at(patch);
     // here the two slots represents components in the structure-of-arrays (SoA)
     // layout
@@ -527,12 +527,12 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     pinned_particle_tiles.at(patch).push_back(p);
   }
 
-  containers.resize(ghext->num_patches());
-  for (int patch = 0; patch < ghext->num_patches(); ++patch) {
+  containers.resize(ext.num_patches());
+  for (int patch = 0; patch < ext.num_patches(); ++patch) {
     const PinnedParticleTile &pinned_particle_tile =
         pinned_particle_tiles.at(patch);
 
-    const auto &restrict patchdata = ghext->patch(patch_t{patch});
+    const auto &restrict patchdata = ext.patch(patch_t{patch});
     containers.at(patch) = patchdata.amrcore.get();
     const int level = 0;
     const auto &restrict leveldata =
@@ -641,7 +641,8 @@ void CarpetX::InterpolationSetup::Interpolate(
 
   rat64 min_level_iteration_used = -1;
   rat64 max_level_iteration_used = -1;
-  for (const auto &patchdata : ghext->patches()) {
+  const GHExt &ext = driver();
+  for (const auto &patchdata : ext.patches()) {
     const int patch = patchdata.patch.index();
     for (const auto &leveldata : patchdata.levels()) {
       const level_t level = leveldata.level;
@@ -809,7 +810,7 @@ void CarpetX::InterpolationSetup::Interpolate(
 
   const MPI_Comm comm = amrex::ParallelDescriptor::Communicator();
 
-  if (ghext->use_subcycling) {
+  if (ext.use_subcycling) {
     const double local_iteration_used[2] = {
         min_level_iteration_used != -1
             ? -double(min_level_iteration_used)
@@ -945,10 +946,7 @@ extern "C" void CarpetX_Interpolate(const CCTK_POINTER_TO_CONST cctkGH_,
 
   const InterpolationSetup setup(cctkGH, npoints, globalsx, globalsy, globalsz);
 
-  // Replicate original behaviour:
-  // allow_boundaries=true  -> allow stencil on all faces
-  // allow_boundaries=false -> forbid stencil on all bbox faces
-  const int npatches = ghext->num_patches();
+  const int npatches = driver().num_patches();
   const vect<vect<bool, dim>, 2> uniform{
       {{bool(allow_boundaries), bool(allow_boundaries), bool(allow_boundaries)},
        {bool(allow_boundaries), bool(allow_boundaries),

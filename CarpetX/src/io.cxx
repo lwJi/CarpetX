@@ -150,15 +150,16 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
                cctk_iteration, double(cctk_time), double(runtime / 3600));
   }
 
+  const GHExt &ext = driver();
   const std::vector<bool> group_enabled = [&] {
     std::vector<bool> enabled(CCTK_NumGroups(), false);
-    for (const auto &group : ghext->records())
+    for (const auto &group : ext.records())
       enabled.at(group.groupindex.index()) = group.do_checkpoint;
     return enabled;
   }();
 
-  if (ghext->use_subcycling) {
-    for (const auto &patchdata : ghext->patches())
+  if (ext.use_subcycling) {
+    for (const auto &patchdata : ext.patches())
       for (const auto &leveldata : patchdata.levels()) {
         if (leveldata.level.index() == 0)
           continue;
@@ -231,11 +232,12 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
   CCTK_TraverseString(out_plotfile_groups, enable_group, &group_enabled,
                       CCTK_GROUP_OR_VAR);
 
+  const GHExt &ext = driver();
   for (int gi0 = 0; gi0 < numgroups; ++gi0) {
     const gi_t gi{gi0};
     if (!group_enabled.at(gi.index()))
       continue;
-    const auto &group = ghext->record(gi);
+    const auto &group = ext.record(gi);
     if (group.kind != group_kind::grid_function)
       continue;
 
@@ -247,13 +249,13 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
       for (auto &c : groupname)
         c = tolower(c);
 
-      for (const auto &restrict patchdata : ghext->patches()) {
+      for (const auto &restrict patchdata : ext.patches()) {
 
         const std::string basename = [&]() {
           std::ostringstream buf;
           buf << groupname << ".it" << std::setw(8) << std::setfill('0')
               << cctk_iteration;
-          if (ghext->num_patches() > 1)
+          if (ext.num_patches() > 1)
             buf << ".m" << std::setw(2) << std::setfill('0') << patchdata.patch;
           return buf.str();
         }();
@@ -377,7 +379,7 @@ void OutputMetadata(const cGH *restrict cctkGH) {
     YAML::Emitter yaml;
     yaml << YAML::Comment("CarpetX Metadata");
     yaml << YAML::BeginDoc;
-    yaml << YAML::LocalTag("carpetx-metadata-1.0.0");
+    yaml << YAML::LocalTag("carpetx-metadata-1.1.0");
     yaml << YAML::BeginMap;
     yaml << YAML::Key << "nghostzones";
     yaml << YAML::Value << YAML::Flow << YAML::BeginSeq;
@@ -390,8 +392,8 @@ void OutputMetadata(const cGH *restrict cctkGH) {
     yaml << YAML::Value << cctk_time;
     yaml << YAML::Key << "delta_time";
     yaml << YAML::Value << cctk_delta_time;
-    yaml << YAML::Key << "ghext";
-    yaml << YAML::Value << *ghext;
+    yaml << YAML::Key << "hierarchy";
+    yaml << YAML::Value << driver();
     yaml << YAML::EndMap;
     yaml << YAML::EndDoc;
 
@@ -580,7 +582,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
 
   const std::vector<bool> checkpoint_group = [&] {
     std::vector<bool> enabled(CCTK_NumGroups(), false);
-    for (const auto &group : ghext->records())
+    for (const auto &group : driver().records())
       enabled.at(group.groupindex.index()) = group.do_checkpoint;
     return enabled;
   }();
