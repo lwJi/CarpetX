@@ -1,6 +1,7 @@
 #include "comm/subcycling.hxx"
 
 #include "hierarchy/driver.hxx"
+#include "hierarchy/group_tags.hxx"
 #include "comm/fillpatch.hxx"
 #include "hierarchy/loops.hxx"
 #include "util/task_manager.hxx"

@@ -1,5 +1,6 @@
 #include "hierarchy/loops.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/group_tags.hxx"
 #include "comm/fillpatch.hxx"
 #include "comm/subcycling.hxx"
 #include "comm/comm.hxx"

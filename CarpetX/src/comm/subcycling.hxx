@@ -23,10 +23,6 @@ void StoreRKStage(level_t level, std::span<const gi_t> var_groups,
 void FillRKBoundary(level_t level, std::span<const gi_t> var_groups, tl_t tl,
                     int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
-bool group_is_integrated(gi_t gi);
-
-bool group_has_flux_register(gi_t gi);
-
 void RecoverRKBoundary(window_t window, const cGH *cctkGH);
 
 bool window_is_restricted(window_t window);

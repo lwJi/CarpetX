@@ -1,4 +1,5 @@
 SRCS =							\
+	group_tags.cxx					\
 	hierarchy.cxx					\
 	valid.cxx
 

@@ -2,6 +2,7 @@
 
 #include "api/api.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/group_tags.hxx"
 #include "schedule/schedule.hxx"
 #include "hierarchy/loops.hxx"
 #include "comm/comm.hxx"

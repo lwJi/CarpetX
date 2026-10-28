@@ -880,17 +880,6 @@ private:
 GHExt &driver();
 void assert_hierarchy_destroyed();
 
-int num_rk_stages();
-rk_dense_output_t registered_dense_output();
-
-std::optional<std::array<gi_t, dim> > get_group_fluxes(gi_t gi);
-
-void warn_inert_flux_tags();
-
-bool get_group_checkpoint_flag(gi_t gi);
-
-bool get_group_evolve_flag(gi_t gi);
-
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
 // ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)
 // snapshot, flux_register the six face FabSets of the child's flux register
