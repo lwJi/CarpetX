@@ -185,15 +185,15 @@ class Directions(unittest.TestCase):
                     [("directions", "const int *groups, const int *directions);")],
                 )
         text = "  return SyncGroups(scheduled_window(sync_caller(gis).c_str()), cctkGH, gis, directions);\n"
-        self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", text), [("directions", text.strip())])
+        self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", text), [("directions", text.strip())])
 
     def test_directions_allowed_in_flesh_overload(self):
         self.assertEqual(reported("CarpetX/src/comm/comm.hxx", self.FLESH_OVERLOAD), [])
-        self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", self.FLESH_DEFINITION), [])
+        self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", self.FLESH_DEFINITION), [])
         self.assertEqual(reported("CarpetX/src/comm/comm.hxx", self.FLESH_OVERLOAD + "\n" + self.FORWARDED), [("directions", "const int *groups, const int *directions);")])
 
     def test_other_files_are_not_the_sync_layer(self):
-        for name in ["CarpetX/src/schedule/schedule.hxx", "CarpetX/src/io/io_meta.cxx", "CarpetX/src/hierarchy/driver.hxx", "ODESolvers/src/solve.cxx"]:
+        for name in ["CarpetX/src/schedule/schedule.hxx", "CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_meta.cxx", "CarpetX/src/hierarchy/driver.hxx", "ODESolvers/src/solve.cxx"]:
             with self.subTest(name=name):
                 self.assertEqual(reported(name, self.FORWARDED), [])
 

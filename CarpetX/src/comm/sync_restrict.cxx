@@ -23,6 +23,7 @@
 #include <optional>
 #include <span>
 #include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -747,6 +748,22 @@ int SyncGroups(const window_t window, const cGH *restrict const cctkGH,
                const std::span<const gi_t> groups) {
   return (driver().use_subcycling ? SyncGroupsByDirISubcycling
                                   : SyncGroupsByDirI)(window, cctkGH, groups);
+}
+
+namespace {
+std::string sync_caller() {
+  const cFunctionData *const func = scheduled_routine();
+  if (!func)
+    return "SYNC";
+  return std::string("SYNC from ") + func->thorn + "::" + func->routine;
+}
+} // namespace
+
+int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,
+                             const int numgroups, const int *const groups,
+                             const int *const directions) {
+  const std::vector<gi_t> gis(groups, groups + numgroups);
+  return SyncGroups(scheduled_window(sync_caller().c_str()), cctkGH, gis);
 }
 
 int SyncGroupsByDirIProlongateOnly(const window_t window,

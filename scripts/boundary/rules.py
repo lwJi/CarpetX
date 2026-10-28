@@ -49,7 +49,6 @@ DOOR_WORD = re.compile(r"\bghext\b")
 SYNC_FILES = (
     layer_path("comm", "comm.hxx"),
     layer_path("comm", "sync_restrict.cxx"),
-    layer_path("schedule", "evolve.cxx"),
 )
 DIRECTIONS_WORD = re.compile(r"\bdirections\b")
 FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
