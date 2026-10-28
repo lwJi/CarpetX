@@ -76,6 +76,17 @@ extern "C" int TestCarpetXAPI_Startup() {
   return 0;
 }
 
+extern "C" int TestCarpetXAPI_AfterShutdown() {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (CCTK_EQUALS(mode, "hierarchy-absent")) {
+    CarpetX::num_levels(CarpetX::patch_t{0});
+    CCTK_ERROR("CarpetX::num_levels returned after Driver_Shutdown, where the "
+               "grid hierarchy no longer exists");
+  }
+  return 0;
+}
+
 extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 

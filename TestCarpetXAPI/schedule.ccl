@@ -23,3 +23,9 @@ SCHEDULE TestCarpetXAPI_Check AT initial AFTER TestCarpetXAPI_Fill
   LANG: C
   READS: state(everywhere)
 } "Abort unless state holds the written function everywhere, ghosts included"
+
+SCHEDULE TestCarpetXAPI_AfterShutdown AT shutdown AFTER Driver_Shutdown
+{
+  LANG: C
+  OPTIONS: meta
+} "Call CarpetX::num_levels after the driver has destroyed the grid hierarchy when TestCarpetXAPI::mode says so"
