@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 import rules
-from rules import LAYERS, MAKE_DEFN, RULE, Finding, findings, layer_of, layer_path, new_findings, render, since_findings, summary
+from rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, RULE, Finding, below, findings, layer_of, layer_path, new_findings, render, since_findings, summary
 from files import PROJECT, Lang
 import hooks
 
@@ -50,8 +50,8 @@ class Includes(unittest.TestCase):
         self.assertEqual(reported("T/src/make.code.defn", '#include "../../CarpetX/src/driver.hxx"\n', Lang.MAKE), [])
         self.assertEqual(reported("T/interface.ccl", '#include "../../CarpetX/src/driver.hxx"\n', Lang.INTERFACE), [])
 
-    def test_carpetx_own_sources_may_include_siblings_by_any_path(self):
-        self.assertEqual(reported("CarpetX/src/hierarchy/hierarchy.cxx", '#include "../src/driver.hxx"\n'), [])
+    def test_carpetx_own_sources_are_left_to_the_layer_rule(self):
+        self.assertEqual(reported("CarpetX/src/hierarchy/hierarchy.cxx", '#include "../src/driver.hxx"\n'), [("layer", '#include "../src/driver.hxx"')])
 
     def test_line_numbers(self):
         text = 'int a;\n#include "../../CarpetX/src/driver.hxx"\n'
@@ -316,7 +316,8 @@ class Traversal(unittest.TestCase):
         for line in self.USES:
             for name in ["CarpetX/src/traversal/traversal.cxx", "CarpetX/src/traversal/traversal.hxx"]:
                 with self.subTest(name=name, line=line):
-                    self.assertEqual(reported(name, line + "\n"), [])
+                    door = [("door", line)] if "driver()" in line else []
+                    self.assertEqual(reported(name, line + "\n"), door)
 
     def test_another_thorn_and_the_public_headers_may_use_the_name(self):
         for line in self.USES:
@@ -567,10 +568,157 @@ class Door(unittest.TestCase):
 
     def test_only_c_and_cxx_files_are_checked(self):
         self.assertEqual(reported("CarpetX/src/make.code.defn", "X = ghext\n", Lang.MAKE), [])
+        self.assertEqual(reported("CarpetX/src/traversal/make.code.defn", "X = driver()\n", Lang.MAKE), [])
 
     def test_line_numbers(self):
         text = "int a;\n\n" + self.USES[1] + "\n"
         self.assertEqual(findings("CarpetX/src/schedule/evolve.cxx", text, Lang.CXX), [Finding(3, "door", self.USES[1])])
+
+    CALLS = [
+        "GHExt &ext = driver();",
+        "const auto &leveldata = driver().level(level);",
+        "for (const auto &patchdata : CarpetX::driver ().patches()) {",
+        "refuse(site, driver( ).num_patches() == 0, msg);",
+        "// driver() refuses once the hierarchy is gone",
+    ]
+
+    def test_driver_is_reported_below_the_hierarchy(self):
+        for line in self.CALLS:
+            for name in [
+                "CarpetX/src/traversal/traversal.cxx",
+                "CarpetX/src/traversal/traversal.hxx",
+                "CarpetX/src/util/refuse.cxx",
+                "CarpetX/src/util/task_manager.hxx",
+            ]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("door", line)])
+
+    def test_the_hierarchy_and_every_layer_above_it_call_driver(self):
+        for line in self.CALLS:
+            for name in [layer_path(layer, "x.cxx") for layer in HIERARCHY_LAYERS] + [
+                "CarpetX/src/hierarchy/valid.cxx",
+                "CarpetX/src/io/io.cxx",
+                "CarpetX/src/flesh/aliased.cxx",
+            ]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_a_private_file_outside_the_layers_does_not_call_driver(self):
+        for name in ["CarpetX/src/internal.hxx", "CarpetX/src/extra/x.cxx", "CarpetX/src/hierarchy/sub/x.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.CALLS[0] + "\n"), [("door", self.CALLS[0])])
+
+    def test_another_thorn_and_the_public_headers_may_call_driver(self):
+        for name in ["ODESolvers/src/solve.cxx", "CarpetX/src/include/carpetx.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.CALLS[0] + "\n"), [])
+
+    def test_a_longer_name_or_an_argument_is_not_the_door(self):
+        for text in [
+            "my_driver();\n",
+            "driver_handle();\n",
+            "drivers().clear();\n",
+            "auto *door = &driver;\n",
+            "int driver = 0;\n",
+            "driver(level);\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/traversal/traversal.cxx", text), [])
+
+    def test_a_line_naming_both_is_one_finding(self):
+        line = "assert(ghext.get() == &driver());"
+        self.assertEqual(reported("CarpetX/src/traversal/traversal.cxx", line + "\n"), [("door", line)])
+        self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", line + "\n"), [("door", line)])
+        self.assertEqual(reported("CarpetX/src/hierarchy/hierarchy.cxx", line + "\n"), [])
+
+    def test_line_numbers_of_a_driver_call(self):
+        text = "int a;\n" + self.CALLS[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/util/refuse.cxx", text, Lang.CXX), [Finding(2, "door", self.CALLS[0])])
+
+
+class Layer(unittest.TestCase):
+    def test_a_file_includes_its_own_layer_and_the_layers_below_it(self):
+        for line in [
+            '#include "comm/comm.hxx"',
+            '#include "comm/boundaries_impl.hxx"',
+            '#include "hierarchy/driver.hxx"',
+            '#include "traversal/traversal.hxx"',
+            '#include "util/refuse.hxx"',
+            '#include "util/typeprops.hh"',
+            '  #  include   "hierarchy/loops.hxx"  // the loops',
+        ]:
+            with self.subTest(line=line):
+                self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", line + "\n"), [])
+
+    def test_an_include_from_a_higher_layer_is_reported(self):
+        for line in [
+            '#include "schedule/schedule.hxx"',
+            '#include "io/io.hxx"',
+            '#include "ops/interp.hxx"',
+            '#include "regrid/regrid.hxx"',
+            '#include "flesh/startup.hxx"',
+        ]:
+            with self.subTest(line=line):
+                self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", line + "\n"), [("layer", line)])
+        self.assertEqual(reported("CarpetX/src/api/api.hxx", '#include "flesh/startup.hxx"\n'), [("layer", '#include "flesh/startup.hxx"')])
+
+    def test_each_layer_sees_exactly_the_layers_up_to_its_own(self):
+        for layer in LAYERS:
+            for other in LAYERS:
+                line = f'#include "{other}/x.hxx"'
+                expected = [] if LAYERS.index(other) <= LAYERS.index(layer) else [("layer", line)]
+                for name in [layer_path(layer, "x.cxx"), layer_path(layer, "x.hxx")]:
+                    with self.subTest(name=name, line=line):
+                        self.assertEqual(reported(name, line + "\n"), expected)
+
+    def test_an_unqualified_private_name_is_reported(self):
+        for line in ['#include "driver.hxx"', '#include "schedule.hxx"', '#include "valid.hxx"', '#include "loop.hxx"']:
+            for name in ["CarpetX/src/hierarchy/hierarchy.cxx", "CarpetX/src/hierarchy/valid.cxx", "CarpetX/src/comm/fillpatch.hxx", "CarpetX/src/flesh/startup.cxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("layer", line)])
+
+    def test_a_relative_or_unknown_path_is_reported(self):
+        for line in [
+            '#include "../x.hxx"',
+            '#include "../hierarchy/driver.hxx"',
+            '#include "comm/../schedule/schedule.hxx"',
+            '#include "./comm/comm.hxx"',
+            '#include "extra/x.hxx"',
+            '#include "include/carpetx.hxx"',
+            '#include "CarpetX/src/hierarchy/driver.hxx"',
+        ]:
+            with self.subTest(line=line):
+                self.assertEqual(reported("CarpetX/src/flesh/startup.cxx", line + "\n"), [("layer", line)])
+
+    def test_the_root_header_passes_everywhere(self):
+        for name in [layer_path(layer, "x.hxx") for layer in LAYERS] + ["CarpetX/src/extra/x.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, '#include "internal.hxx"\n'), [])
+
+    def test_a_private_file_outside_the_layers_includes_only_the_root_header(self):
+        for name in ["CarpetX/src/internal.hxx", "CarpetX/src/extra/x.cxx", "CarpetX/src/comm/sub/x.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, '#include "util/refuse.hxx"\n'), [("layer", '#include "util/refuse.hxx"')])
+
+    def test_angle_includes_are_judged_only_when_they_name_a_layer(self):
+        text = "#include <carpetx.hxx>\n#include <loop_device.hxx>\n#include <AMReX.H>\n#include <openPMD/openPMD.hpp>\n#include <yaml-cpp/yaml.h>\n"
+        self.assertEqual(reported("CarpetX/src/util/logo.cxx", text), [])
+        self.assertEqual(reported("CarpetX/src/comm/fillpatch.cxx", "#include <hierarchy/driver.hxx>\n"), [])
+        self.assertEqual(reported("CarpetX/src/comm/fillpatch.cxx", "#include <io/io.hxx>\n"), [("layer", "#include <io/io.hxx>")])
+
+    def test_mentions_outside_an_include_are_not_includes(self):
+        text = 'const char *p = "schedule/schedule.hxx";\n// #include "schedule/schedule.hxx"\n#define X "io/io.hxx"\n'
+        self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", text), [])
+
+    def test_other_thorns_public_headers_and_make_files_are_not_checked(self):
+        line = '#include "schedule/schedule.hxx"\n'
+        self.assertEqual(reported("ODESolvers/src/solve.cxx", line), [])
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", line), [])
+        self.assertEqual(reported("CarpetX/src/comm/make.code.defn", line, Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = '#include "comm/comm.hxx"\n#include "hierarchy/driver.hxx"\n#include "schedule/schedule.hxx"\n'
+        self.assertEqual(findings("CarpetX/src/comm/sync_restrict.cxx", text, Lang.CXX), [Finding(3, "layer", '#include "schedule/schedule.hxx"')])
 
 
 class Layers(unittest.TestCase):
@@ -597,6 +745,21 @@ class Layers(unittest.TestCase):
         self.assertEqual(layer_path("hierarchy", "driver.hxx"), "CarpetX/src/hierarchy/driver.hxx")
         with self.assertRaises(AssertionError):
             layer_path("loops", "loops.hxx")
+
+    def test_a_layer_sees_itself_and_every_layer_before_it(self):
+        self.assertEqual(below("util"), ("util",))
+        self.assertEqual(below("comm"), ("util", "traversal", "hierarchy", "comm"))
+        self.assertEqual(below("flesh"), LAYERS)
+        for layer in LAYERS:
+            with self.subTest(layer=layer):
+                self.assertEqual(below(layer)[-1], layer)
+        with self.assertRaises(AssertionError):
+            below("loops")
+
+    def test_the_hierarchy_and_the_layers_above_it_may_call_driver(self):
+        self.assertEqual(HIERARCHY_LAYERS, below("flesh")[len(below("traversal")) :])
+        self.assertEqual(HIERARCHY_LAYERS[0], "hierarchy")
+        self.assertEqual(set(LAYERS) - set(HIERARCHY_LAYERS), {"util", "traversal"})
 
     def test_every_file_a_rule_names_exists(self):
         named = (
@@ -698,7 +861,8 @@ class Report(unittest.TestCase):
             "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
             "no active_levels outside traversal.cxx, "
             "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec, "
-            "and the hierarchy has one door",
+            "every internal include at or below its own layer, "
+            "and the hierarchy has one door that util/ and traversal/ never use",
         )
 
     def test_counts(self):
@@ -727,8 +891,11 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([k]), "✗ boundary: 1 hierarchy use in a checkpoint codec")
         self.assertEqual(summary([i, k, k]), "✗ boundary: 1 bare index int in a CarpetX header, 2 hierarchy uses in a checkpoint codec")
         g = ("CarpetX/src/schedule/evolve.cxx", Finding(12, "door", "for (auto &p : ghext->patches())"))
-        self.assertEqual(summary([g]), "✗ boundary: 1 raw hierarchy name outside hierarchy.cxx")
-        self.assertEqual(summary([k, g, g]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 raw hierarchy names outside hierarchy.cxx")
+        self.assertEqual(summary([g]), "✗ boundary: 1 hierarchy use the door does not allow")
+        self.assertEqual(summary([k, g, g]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 hierarchy uses the door does not allow")
+        y = ("CarpetX/src/comm/sync_restrict.cxx", Finding(3, "layer", '#include "schedule/schedule.hxx"'))
+        self.assertEqual(summary([y]), "✗ boundary: 1 include outside the layer order")
+        self.assertEqual(summary([g, y, y, k]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 includes outside the layer order, 1 hierarchy use the door does not allow")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
@@ -748,13 +915,23 @@ SOURCE = "namespace CarpetX {\nvoid Evolve() {\n}\n} // namespace CarpetX\n"
 PLANT = ("void Evolve() {\n", "void Evolve() {\n  for (auto &p : ghext->patches())\n")
 PLANTED = SOURCE.replace(*PLANT)
 DENIAL = "CarpetX/src/schedule/evolve.cxx:3   door       for (auto &p : ghext->patches())"
-DOOR_SUMMARY = "✗ boundary: 1 raw hierarchy name outside hierarchy.cxx"
+DOOR_SUMMARY = "✗ boundary: 1 hierarchy use the door does not allow"
+LAYER_SUMMARY = "✗ boundary: 1 include outside the layer order"
+SYNC_SOURCE = '#include "comm/comm.hxx"\n#include "hierarchy/driver.hxx"\n\nnamespace CarpetX {\nvoid sync() {\n}\n} // namespace CarpetX\n'
+TRAVERSAL_SOURCE = '#include "traversal/traversal.hxx"\n#include "util/refuse.hxx"\n\nnamespace CarpetX {\nvoid scope() {\n}\n} // namespace CarpetX\n'
 PROJECT_FILES = {
     "CarpetX/interface.ccl": "IMPLEMENTS: Driver\n",
     "CarpetX/src/schedule/evolve.cxx": SOURCE,
     "CarpetX/src/hierarchy/hierarchy.cxx": SOURCE,
+    "CarpetX/src/comm/sync_restrict.cxx": SYNC_SOURCE,
+    "CarpetX/src/traversal/traversal.cxx": TRAVERSAL_SOURCE,
     "CarpetX/README": "not covered\n",
 }
+UPWARD_PLANT = ('#include "hierarchy/driver.hxx"\n', '#include "hierarchy/driver.hxx"\n#include "schedule/schedule.hxx"\n')
+UPWARD_DENIAL = 'CarpetX/src/comm/sync_restrict.cxx:3   layer      #include "schedule/schedule.hxx"'
+BARE_PLANT = ("namespace CarpetX {\n", '#include "driver.hxx"\n\nnamespace CarpetX {\n')
+DRIVER_PLANT = ("void scope() {\n", "void scope() {\n  const GHExt &ext = driver();\n")
+DRIVER_DENIAL = "CarpetX/src/traversal/traversal.cxx:6   door       const GHExt &ext = driver();"
 
 
 def project(test):
@@ -813,6 +990,34 @@ class Hooks(unittest.TestCase):
 
     def test_the_door_file_may_name_it(self):
         self.assertEqual(self.edit("CarpetX/src/hierarchy/hierarchy.cxx", *PLANT), "")
+
+    def test_an_upward_include_is_denied_under_layer(self):
+        lines = denial(self, self.edit("CarpetX/src/comm/sync_restrict.cxx", *UPWARD_PLANT))
+        self.assertEqual(lines[0], UPWARD_DENIAL)
+        self.assertEqual(lines[1:-1], RULE.split("\n"))
+        self.assertEqual(lines[-1], LAYER_SUMMARY)
+
+    def test_an_unqualified_private_include_is_denied_under_layer_anywhere(self):
+        for name, line in [
+            ("CarpetX/src/schedule/evolve.cxx", 1),
+            ("CarpetX/src/hierarchy/hierarchy.cxx", 1),
+            ("CarpetX/src/comm/sync_restrict.cxx", 4),
+            ("CarpetX/src/traversal/traversal.cxx", 4),
+        ]:
+            with self.subTest(name=name):
+                lines = denial(self, self.edit(name, *BARE_PLANT))
+                self.assertEqual(lines[0], f'{name}:{line}   layer      #include "driver.hxx"')
+                self.assertEqual(lines[-1], LAYER_SUMMARY)
+
+    def test_a_driver_call_below_the_hierarchy_is_denied_under_door(self):
+        lines = denial(self, self.edit("CarpetX/src/traversal/traversal.cxx", *DRIVER_PLANT))
+        self.assertEqual(lines[0], DRIVER_DENIAL)
+        self.assertEqual(lines[-1], DOOR_SUMMARY)
+
+    def test_what_the_layers_allow_passes(self):
+        self.assertEqual(self.edit("CarpetX/src/schedule/evolve.cxx", "namespace CarpetX {\n", '#include "comm/comm.hxx"\n\nnamespace CarpetX {\n'), "")
+        self.assertEqual(self.edit("CarpetX/src/comm/sync_restrict.cxx", "void sync() {\n", "void sync() {\n  const GHExt &ext = driver();\n"), "")
+        self.assertEqual(self.edit("CarpetX/src/traversal/traversal.cxx", '#include "util/refuse.hxx"\n', '#include "util/refuse.hxx"\n#include "internal.hxx"\n'), "")
 
     def test_only_what_the_edit_adds_is_new(self):
         write(self.root, "CarpetX/src/schedule/evolve.cxx", PLANTED)
@@ -935,6 +1140,9 @@ class Settings(unittest.TestCase):
         self.assertEqual(denial(self, result.stdout)[0], DENIAL)
         result = self.run_command(command, self.root, edit_payload(self.root, "CarpetX/src/hierarchy/hierarchy.cxx", *PLANT))
         self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
+        result = self.run_command(command, self.root, edit_payload(self.root, "CarpetX/src/comm/sync_restrict.cxx", *UPWARD_PLANT))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(denial(self, result.stdout)[0], UPWARD_DENIAL)
 
     def test_the_stop_command_runs_the_project_s_tool(self):
         [(_, command)] = configured("Stop")

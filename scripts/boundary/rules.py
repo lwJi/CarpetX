@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import textwrap
 from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -19,6 +20,9 @@ PRIVATE_DIR = "CarpetX/src/"
 PUBLIC_DIR = "CarpetX/src/include/"
 MAKE_DEFN = "CarpetX/src/make.code.defn"
 LAYERS = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+HIERARCHY_LAYERS = LAYERS[LAYERS.index("hierarchy") :]
+UNDER_HIERARCHY = LAYERS[: LAYERS.index("hierarchy")]
+ROOT_HEADER = "internal.hxx"
 
 
 def layer_path(layer: str, basename: str) -> str:
@@ -31,6 +35,15 @@ def layer_of(name: str) -> Optional[str]:
         return None
     parts = name[len(PRIVATE_DIR) :].split("/")
     return parts[0] if len(parts) == 2 and parts[0] in LAYERS else None
+
+
+def below(layer: str) -> tuple[str, ...]:
+    assert layer in LAYERS, layer
+    return LAYERS[: LAYERS.index(layer) + 1]
+
+
+def dirs(layers: tuple[str, ...], conjunction: str) -> str:
+    return f" {conjunction} ".join(f"{layer}/" for layer in layers)
 
 
 CHECKED = (Lang.CXX, Lang.MAKE)
@@ -46,6 +59,9 @@ TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("travers
 TRAVERSAL_WORD = re.compile(r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b")
 DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
+DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
+GHEXT_OR_DRIVER_CALL = re.compile(f"{DOOR_WORD.pattern}|{DRIVER_CALL.pattern}")
+LAYER_INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<((?:' + "|".join(LAYERS) + r')/[^>]*)>)')
 SYNC_FILES = (
     layer_path("comm", "comm.hxx"),
     layer_path("comm", "sync_restrict.cxx"),
@@ -78,6 +94,7 @@ CODEC_WORD = re.compile(
 )
 STATEMENT_END = re.compile(r"[;{}]")
 EXCERPT_WIDTH = 72
+RULE_WIDTH = 104
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
 
 Files = Callable[[str, Lang], bool]
@@ -141,10 +158,6 @@ def in_files(names: tuple[str, ...]) -> Callable[..., bool]:
     return lambda name, *_: name in names
 
 
-def is_name(path: str) -> Callable[..., bool]:
-    return lambda name, *_: name == path
-
-
 def never(name: str, line: str, statement: str) -> bool:
     return False
 
@@ -166,6 +179,22 @@ def varindex_allowed(name: str, line: str, statement: str) -> bool:
 def index_allowed(name: str, line: str, statement: str) -> bool:
     fixed = INDEX_FIXED.get(name)
     return fixed is not None and bool(fixed.search(statement))
+
+
+def layer_allowed(name: str, line: str, statement: str) -> bool:
+    quoted, angled = LAYER_INCLUDE.search(line).groups()
+    path = quoted if quoted is not None else angled
+    if path == ROOT_HEADER:
+        return True
+    parts = path.split("/")
+    layer = layer_of(name)
+    return len(parts) > 1 and ".." not in parts and layer is not None and parts[0] in below(layer)
+
+
+def door_allowed(name: str, line: str, statement: str) -> bool:
+    if DOOR_WORD.search(line) and name != DOOR_FILE:
+        return False
+    return not DRIVER_CALL.search(line) or layer_of(name) in HIERARCHY_LAYERS
 
 
 RULES = (
@@ -272,15 +301,30 @@ RULES = (
         clean="no hierarchy access in a checkpoint codec",
     ),
     Rule(
+        "layer",
+        files=private_cxx,
+        word=LAYER_INCLUDE,
+        allowed=layer_allowed,
+        text=textwrap.fill(
+            "layer: a private CarpetX file includes internal.hxx and the headers of its own layer or a lower one, "
+            f'each as "<layer>/<name>.hxx"; the layers, lowest first, are {", ".join(LAYERS)}.',
+            width=RULE_WIDTH,
+        ),
+        noun="include",
+        where="outside the layer order",
+        clean="every internal include at or below its own layer",
+    ),
+    Rule(
         "door",
         files=private_cxx,
-        word=DOOR_WORD,
-        allowed=is_name(DOOR_FILE),
+        word=GHEXT_OR_DRIVER_CALL,
+        allowed=door_allowed,
         text="door: the hierarchy pointer ghext is named only in CarpetX/src/hierarchy/hierarchy.cxx; every other\n"
-        "file calls driver().",
-        noun="raw hierarchy name",
-        where="outside hierarchy.cxx",
-        clean="the hierarchy has one door",
+        f"file calls driver(), and only from {HIERARCHY_LAYERS[0]}/ or a layer above it, never from "
+        f"{dirs(UNDER_HIERARCHY, 'or')}.",
+        noun="hierarchy use",
+        where="the door does not allow",
+        clean=f"the hierarchy has one door that {dirs(UNDER_HIERARCHY, 'and')} never use",
     ),
 )
 RULE = "\n".join([PREAMBLE] + [rule.text for rule in RULES])
