@@ -1,5 +1,5 @@
 #include "traversal/traversal.hxx"
-#include "hierarchy/driver.hxx"
+#include "util/refuse.hxx"
 
 #include <cassert>
 #include <optional>
@@ -11,6 +11,7 @@ std::optional<window_t> active_levels;
 const char *tail_bin = nullptr;
 bool recovery_traversal = false;
 const cFunctionData *last_routine = nullptr;
+std::optional<int> recover_iteration;
 } // namespace
 
 traversal_scope_t::traversal_scope_t(const window_t window,
@@ -56,6 +57,16 @@ routine_scope_t::routine_scope_t(const cFunctionData *const routine)
 
 routine_scope_t::~routine_scope_t() { last_routine = routine; }
 
+void record_recovered_iteration(const int iteration,
+                                const std::source_location site) {
+  if (recover_iteration)
+    refuse(site,
+           "the recovered iteration is already %d: it is recorded once per "
+           "run, when the parameters are recovered",
+           *recover_iteration);
+  recover_iteration = iteration;
+}
+
 window_t scheduled_window(const char *const caller,
                           const std::source_location site) {
   if (!active_levels)
@@ -68,5 +79,7 @@ const char *scheduled_tail_bin() { return tail_bin; }
 bool in_recovery_traversal() { return recovery_traversal; }
 
 const cFunctionData *scheduled_routine() { return last_routine; }
+
+int recovered_iteration() { return recover_iteration.value_or(-1); }
 
 } // namespace CarpetX

@@ -8,6 +8,7 @@
 #include "io/io_slice.hxx"
 #include "io/io_tsv.hxx"
 #include "comm/subcycling.hxx"
+#include "traversal/traversal.hxx"
 #include <carpetx.hxx>
 
 #include <CactusBase/IOUtil/src/ioGH.h>
@@ -104,20 +105,16 @@ void encode_output(const cGH *const cctkGH, const char *const method,
 
 // Recovering
 
-int recover_iteration = -1;
-
-int recovered_iteration() { return recover_iteration; }
-
 extern "C" int CarpetX_RecoverParameters() {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("RecoverParameters");
   Interval interval(timer);
 
-  recover_iteration =
-      make_codec(recover_method)->read_parameters(recover_dir, recover_file);
+  record_recovered_iteration(
+      make_codec(recover_method)->read_parameters(recover_dir, recover_file));
 
-  return recover_iteration >= 0;
+  return recovered_iteration() >= 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -128,7 +125,7 @@ checkpoint_record_t RecoverGridStructure(cGH *restrict cctkGH) {
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
   refuse_unless_recoverable(codec->limits());
   checkpoint_record_t record =
-      codec->decode_structure(recover_dir, recover_file, recover_iteration);
+      codec->decode_structure(recover_dir, recover_file, recovered_iteration());
   apply_structure(cctkGH, record);
   return record;
 }
@@ -561,7 +558,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
 
   static int last_checkpoint_iteration = -1;
 
-  if (cctkGH->cctk_iteration == recover_iteration) {
+  if (cctkGH->cctk_iteration == recovered_iteration()) {
     CCTK_VINFO(
         "Recovered from checkpoint at iteration %d; skipping checkpointing",
         cctkGH->cctk_iteration);

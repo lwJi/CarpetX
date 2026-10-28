@@ -347,6 +347,26 @@ class Traversal(unittest.TestCase):
         text = "int a;\n\n" + self.USES[0] + "\n"
         self.assertEqual(findings("CarpetX/src/schedule/evolve.cxx", text, Lang.CXX), [Finding(3, "traversal", self.USES[0])])
 
+    def test_the_recovered_iteration_is_a_slot(self):
+        for line in [
+            "int recover_iteration = -1;",
+            "recover_iteration = codec->read_parameters(recover_dir, recover_file);",
+            "return recover_iteration >= 0;",
+            "if (cctkGH->cctk_iteration == recover_iteration) {",
+        ]:
+            with self.subTest(line=line):
+                self.assertEqual(reported("CarpetX/src/io/io.cxx", "  " + line + "\n"), [("traversal", line)])
+                self.assertEqual(reported("CarpetX/src/traversal/traversal.cxx", line + "\n"), [])
+
+    def test_the_recovered_iteration_readers_are_not_the_slot(self):
+        for text in [
+            "record_recovered_iteration(codec->read_parameters(recover_dir, recover_file));\n",
+            "return recovered_iteration() >= 0;\n",
+            "assert(cctkGH->cctk_iteration == recovered_iteration());\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/io/io.cxx", text), [])
+
 
 class Index(unittest.TestCase):
     BARE = [

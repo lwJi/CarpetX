@@ -1,7 +1,6 @@
 #include "hierarchy/loops.hxx"
 #include "hierarchy/driver.hxx"
 #include "comm/fillpatch.hxx"
-#include "io/io.hxx"
 #include "comm/subcycling.hxx"
 #include "comm/comm.hxx"
 #include "traversal/traversal.hxx"

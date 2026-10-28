@@ -61,6 +61,11 @@ bool in_recovery_traversal();
 
 const cFunctionData *scheduled_routine();
 
+void record_recovered_iteration(
+    int iteration, std::source_location site = std::source_location::current());
+
+int recovered_iteration();
+
 } // namespace CarpetX
 
 #endif

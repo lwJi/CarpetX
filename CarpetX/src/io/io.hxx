@@ -12,7 +12,6 @@ namespace CarpetX {
 checkpoint_record_t RecoverGridStructure(cGH *cctkGH);
 void RecoverGH(const cGH *cctkGH, const checkpoint_record_t &record);
 void InputGH(const cGH *cctkGH);
-int recovered_iteration();
 
 int OutputGH(const cGH *cctkGH);
 

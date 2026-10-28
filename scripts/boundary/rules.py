@@ -43,7 +43,7 @@ VALIDITY_WORD = re.compile(
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
-TRAVERSAL_WORD = re.compile(r"\b(active_levels|tail_bin|recovery_traversal|last_routine)\b")
+TRAVERSAL_WORD = re.compile(r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b")
 DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
 SYNC_FILES = (
@@ -240,9 +240,11 @@ RULES = (
         files=private_cxx,
         word=TRAVERSAL_WORD,
         allowed=in_files(TRAVERSAL_FILES),
-        text="traversal: a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine) is named\n"
-        "only in CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, and a reader\n"
-        "calls scheduled_window(), scheduled_tail_bin(), in_recovery_traversal() or scheduled_routine().",
+        text="traversal: a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine,\n"
+        "recover_iteration) is named only in CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver\n"
+        "phase opens a scope, parameter recovery calls record_recovered_iteration() once, and a reader calls\n"
+        "scheduled_window(), scheduled_tail_bin(), in_recovery_traversal(), scheduled_routine() or\n"
+        "recovered_iteration().",
         noun="traversal use",
         where="outside traversal.cxx",
         clean="no active_levels outside traversal.cxx",

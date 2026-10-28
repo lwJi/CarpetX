@@ -5,6 +5,7 @@
 
 #include <loop.hxx>
 #include "hierarchy/valid.hxx"
+#include "util/refuse.hxx"
 
 #include <carpetx.hxx>
 #include <carpetx_rk.hxx>
@@ -68,22 +69,6 @@ private:
   Index begin_, end_;
 };
 using tl_range = index_range<tl_t>;
-
-[[noreturn]] void refuse(std::source_location site, const char *fmt, ...)
-    CCTK_ATTRIBUTE_FORMAT(printf, 2, 3);
-
-class operation_scope_t {
-public:
-  explicit operation_scope_t(const char *name);
-  ~operation_scope_t();
-  operation_scope_t(const operation_scope_t &) = delete;
-  operation_scope_t &operator=(const operation_scope_t &) = delete;
-
-private:
-  const char *const previous;
-};
-
-const char *current_operation();
 
 enum class group_kind { grid_function, array, scalar };
 

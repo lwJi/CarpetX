@@ -1,6 +1,7 @@
 SRCS =							\
 	logo.cxx					\
 	mpi_types.cxx					\
+	refuse.cxx					\
 	task_manager.cxx				\
 	timer.cxx
 
