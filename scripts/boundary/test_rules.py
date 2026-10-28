@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import io
+import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
-from rules import Finding, findings, new_findings, render, since_findings, summary
-from files import Lang
+from rules import RULE, Finding, findings, new_findings, render, since_findings, summary
+from files import PROJECT, Lang
+import hooks
 
+TOOL = os.path.dirname(os.path.abspath(__file__))
+SETTINGS = os.path.join(PROJECT, ".claude", "settings.json")
 ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 GUARD = '#ifndef CARPETX_INTERNAL\n#error "CarpetX internal header; include <carpetx.hxx> instead"\n#endif\n'
 
@@ -647,6 +654,211 @@ class Report(unittest.TestCase):
             lines[-1],
             "✗ boundary: 1 private include, 1 stray marker, 1 validity call outside valid.cxx",
         )
+
+
+SOURCE = "namespace CarpetX {\nvoid Evolve() {\n}\n} // namespace CarpetX\n"
+PLANT = ("void Evolve() {\n", "void Evolve() {\n  for (auto &p : ghext->patches())\n")
+PLANTED = SOURCE.replace(*PLANT)
+DENIAL = "CarpetX/src/schedule.cxx:3   door       for (auto &p : ghext->patches())"
+DOOR_SUMMARY = "✗ boundary: 1 raw hierarchy name outside driver.cxx"
+PROJECT_FILES = {
+    "CarpetX/interface.ccl": "IMPLEMENTS: Driver\n",
+    "CarpetX/src/schedule.cxx": SOURCE,
+    "CarpetX/src/driver.cxx": SOURCE,
+    "CarpetX/README": "not covered\n",
+}
+
+
+def project(test):
+    tmp = tempfile.TemporaryDirectory()
+    test.addCleanup(tmp.cleanup)
+    root = os.path.realpath(tmp.name)
+    for name, text in PROJECT_FILES.items():
+        write(root, name, text)
+    return root
+
+
+def edit_payload(root, name, old, new):
+    return {"tool_name": "Edit", "tool_input": {"file_path": os.path.join(root, name), "old_string": old, "new_string": new}, "cwd": root}
+
+
+def denial(test, output):
+    test.assertTrue(output, "the hook printed nothing")
+    decision = json.loads(output)["hookSpecificOutput"]
+    test.assertEqual(decision["hookEventName"], "PreToolUse")
+    test.assertEqual(decision["permissionDecision"], "deny")
+    return decision["permissionDecisionReason"].split("\n")
+
+
+def skip_message(test, output):
+    message = json.loads(output)
+    test.assertEqual(list(message), ["systemMessage"])
+    test.assertTrue(message["systemMessage"].startswith("boundary check skipped: "), message)
+
+
+class Hooks(unittest.TestCase):
+    def setUp(self):
+        self.root = project(self)
+
+    def run_edit(self, payload):
+        out = io.StringIO()
+        raw = payload if isinstance(payload, str) else json.dumps(payload)
+        self.assertEqual(hooks.hook_edit(raw, out, root=self.root), 0)
+        return out.getvalue()
+
+    def edit(self, name, old, new):
+        return self.run_edit(edit_payload(self.root, name, old, new))
+
+    def write_tool(self, name, content):
+        return self.run_edit({"tool_name": "Write", "tool_input": {"file_path": os.path.join(self.root, name), "content": content}})
+
+    def run_stop(self, payload):
+        out = io.StringIO()
+        self.assertEqual(hooks.hook_stop(json.dumps(payload), out, root=self.root), 0)
+        return out.getvalue()
+
+    def test_a_planted_ghext_is_denied_under_door(self):
+        lines = denial(self, self.edit("CarpetX/src/schedule.cxx", *PLANT))
+        self.assertEqual(lines[0], DENIAL)
+        self.assertEqual(lines[1:-1], RULE.split("\n"))
+        self.assertEqual(lines[-1], DOOR_SUMMARY)
+
+    def test_the_door_file_may_name_it(self):
+        self.assertEqual(self.edit("CarpetX/src/driver.cxx", *PLANT), "")
+
+    def test_only_what_the_edit_adds_is_new(self):
+        write(self.root, "CarpetX/src/schedule.cxx", PLANTED)
+        self.assertEqual(self.edit("CarpetX/src/schedule.cxx", "void Evolve()", "void Initialise()"), "")
+        lines = denial(self, self.edit("CarpetX/src/schedule.cxx", "}\n} //", "  assert(!ghext);\n}\n} //"))
+        self.assertEqual(lines[0], "CarpetX/src/schedule.cxx:4   door       assert(!ghext);")
+
+    def test_a_write_and_a_new_file_are_judged_whole(self):
+        self.assertEqual(denial(self, self.write_tool("CarpetX/src/schedule.cxx", PLANTED))[0], DENIAL)
+        self.assertEqual(denial(self, self.edit("CarpetX/src/new.cxx", "", PLANTED))[0], DENIAL.replace("schedule", "new"))
+        self.assertEqual(self.write_tool("CarpetX/src/new.cxx", SOURCE), "")
+
+    def test_an_edit_that_does_not_apply_is_left_to_the_edit_tool(self):
+        self.assertEqual(self.edit("CarpetX/src/schedule.cxx", "int nope;\n", "ghext->patches();\n"), "")
+
+    def test_files_the_check_does_not_read_pass(self):
+        self.assertEqual(self.edit("CarpetX/README", "not covered\n", "ghext->patches();\n"), "")
+        self.assertEqual(self.write_tool("CarpetX/schedule.ccl", "# ghext\n"), "")
+        self.assertEqual(self.write_tool("Other/src/a.cxx", PLANTED), "")
+        with tempfile.TemporaryDirectory() as other:
+            self.assertEqual(self.run_edit(edit_payload(other, "CarpetX/src/a.cxx", "", PLANTED)), "")
+
+    def test_a_relative_path_is_taken_from_cwd(self):
+        payload = edit_payload(self.root, "CarpetX/src/schedule.cxx", *PLANT)
+        payload["tool_input"]["file_path"] = "CarpetX/src/schedule.cxx"
+        self.assertEqual(denial(self, self.run_edit(payload))[0], DENIAL)
+
+    def test_a_bad_payload_is_a_system_message(self):
+        for payload in [
+            "not json",
+            "[]",
+            {"tool_name": "Edit", "tool_input": {"file_path": os.path.join(self.root, "CarpetX/src/schedule.cxx"), "new_string": "x"}},
+            {"tool_name": "Teleport", "tool_input": {"file_path": os.path.join(self.root, "CarpetX/src/schedule.cxx")}},
+        ]:
+            with self.subTest(payload=payload):
+                skip_message(self, self.run_edit(payload))
+
+    def test_the_stop_hook_blocks_once_on_what_the_branch_added(self):
+        with mock.patch.dict(os.environ, ISOLATED_GIT):
+            git(self.root, "init", "-q", "-b", "dev")
+            git(self.root, "add", "-A")
+            git(self.root, "commit", "-q", "-m", "base")
+            git(self.root, "switch", "-q", "-c", "work")
+            self.assertEqual(self.run_stop({"stop_hook_active": False}), "")
+            write(self.root, "CarpetX/src/schedule.cxx", PLANTED)
+            git(self.root, "commit", "-q", "-am", "plant")
+            decision = json.loads(self.run_stop({"stop_hook_active": False}))
+            self.assertEqual(sorted(decision), ["decision", "reason"])
+            self.assertEqual(decision["decision"], "block")
+            lines = decision["reason"].split("\n")
+            self.assertEqual((lines[0], lines[-1]), (DENIAL, DOOR_SUMMARY))
+            self.assertEqual(self.run_stop({"stop_hook_active": True}), "")
+            write(self.root, "CarpetX/src/schedule.cxx", SOURCE)
+            self.assertEqual(self.run_stop({"stop_hook_active": False}), "")
+
+    def test_a_bad_stop_payload_or_no_repository_is_a_system_message(self):
+        out = io.StringIO()
+        hooks.hook_stop("[]", out, root=self.root)
+        skip_message(self, out.getvalue())
+        skip_message(self, self.run_stop({"stop_hook_active": False}))
+
+
+def configured(event):
+    with open(SETTINGS) as f:
+        entries = json.load(f)["hooks"].get(event, [])
+    return [
+        (entry.get("matcher"), hook["command"])
+        for entry in entries
+        for hook in entry["hooks"]
+        if "scripts/boundary" in hook["command"]
+    ]
+
+
+def copy_tools(root):
+    for tool in ("boundary", "comments"):
+        shutil.copytree(
+            os.path.join(os.path.dirname(TOOL), tool),
+            os.path.join(root, "scripts", tool),
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
+
+
+@unittest.skipUnless(os.path.isfile(SETTINGS), "needs .claude/settings.json")
+class Settings(unittest.TestCase):
+    def setUp(self):
+        self.root = project(self)
+
+    def run_command(self, command, project_dir, payload):
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+        if project_dir is not None:
+            env["CLAUDE_PROJECT_DIR"] = project_dir
+        return subprocess.run(["sh", "-c", command], input=json.dumps(payload), env=env, capture_output=True, text=True)
+
+    def test_three_entries_run_the_boundary_hooks(self):
+        [(matcher, edit)] = configured("PreToolUse")
+        self.assertEqual(matcher, "Edit|Write")
+        self.assertTrue(edit.endswith('python3 "$d" hook-edit'), edit)
+        for event in ("Stop", "SubagentStop"):
+            with self.subTest(event=event):
+                [(matcher, stop)] = configured(event)
+                self.assertIsNone(matcher)
+                self.assertEqual(stop, edit.replace("hook-edit", "hook-stop"))
+
+    def test_the_commands_are_silent_where_the_tool_is_absent(self):
+        for event, payload in [
+            ("PreToolUse", edit_payload(self.root, "CarpetX/src/schedule.cxx", *PLANT)),
+            ("Stop", {"stop_hook_active": False}),
+        ]:
+            [(_, command)] = configured(event)
+            for project_dir in [self.root, None]:
+                with self.subTest(event=event, project_dir=project_dir):
+                    result = self.run_command(command, project_dir, payload)
+                    self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+
+    def test_the_edit_command_runs_the_project_s_tool(self):
+        [(_, command)] = configured("PreToolUse")
+        copy_tools(self.root)
+        result = self.run_command(command, self.root, edit_payload(self.root, "CarpetX/src/schedule.cxx", *PLANT))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(denial(self, result.stdout)[0], DENIAL)
+        result = self.run_command(command, self.root, edit_payload(self.root, "CarpetX/src/driver.cxx", *PLANT))
+        self.assertEqual((result.returncode, result.stdout), (0, ""), result.stderr)
+
+    def test_the_stop_command_runs_the_project_s_tool(self):
+        [(_, command)] = configured("Stop")
+        copy_tools(self.root)
+        with mock.patch.dict(os.environ, ISOLATED_GIT):
+            git(self.root, "init", "-q", "-b", "dev")
+            git(self.root, "add", "-A")
+            git(self.root, "commit", "-q", "-m", "base")
+            write(self.root, "CarpetX/src/schedule.cxx", PLANTED)
+            result = self.run_command(command, self.root, {"stop_hook_active": False})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["decision"], "block")
 
 
 if __name__ == "__main__":

@@ -546,7 +546,12 @@ class Cli(Project):
 def configured(event):
     with open(SETTINGS) as f:
         entries = json.load(f)["hooks"].get(event, [])
-    return [(entry.get("matcher"), hook["command"]) for entry in entries for hook in entry["hooks"]]
+    return [
+        (entry.get("matcher"), hook["command"])
+        for entry in entries
+        for hook in entry["hooks"]
+        if "scripts/comments" in hook["command"]
+    ]
 
 
 def configured_pretooluse():

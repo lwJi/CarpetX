@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import traceback
 
 EXIT_CLEAN, EXIT_FOUND, EXIT_ERROR = 0, 1, 2
+HOOKS = {"hook-edit": "hook_edit", "hook-stop": "hook_stop"}
 
 
 def run_check(paths: list[str], since: str | None = None) -> int:
@@ -31,25 +33,33 @@ def run_check(paths: list[str], since: str | None = None) -> int:
     return EXIT_FOUND if found else EXIT_CLEAN
 
 
+def run_hook(name: str) -> int:
+    try:
+        import hooks
+
+        raw = sys.stdin.buffer.read()
+    except Exception as e:
+        print(json.dumps({"systemMessage": f"boundary check skipped: {type(e).__name__}: {e}"}))
+        return 0
+    return getattr(hooks, name)(raw, sys.stdout)
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="python3 scripts/boundary",
-        description="A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md).",
-    )
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) == 1 and argv[0] in HOOKS:
+        return run_hook(HOOKS[argv[0]])
+    try:
+        from rules import PREAMBLE, RULE, RULES, series
+    except Exception:
+        traceback.print_exc()
+        return EXIT_ERROR
+    parser = argparse.ArgumentParser(prog="python3 scripts/boundary", description=PREAMBLE)
     commands = parser.add_subparsers(dest="command", required=True)
     check = commands.add_parser(
         "check",
-        help="list every #include into CarpetX/src, every CARPETX_INTERNAL outside its guards, "
-        "every validity kernel or why_valid_t setter named outside CarpetX/src/valid.cxx and valid.hxx, "
-        "every directions parameter in the sync layer outside the flesh-facing SyncGroupsOnActiveLevels, "
-        "every addition to firstvarindex or CCTK_FirstVarIndexI under CarpetX/src outside GroupRecord::var, "
-        "every active_levels_t under CarpetX/src, "
-        "every active_levels, tail_bin, recovery_traversal or last_routine in a private CarpetX file "
-        "outside traversal.cxx and traversal.hxx, "
-        "every bare int group, variable, time level, patch or "
-        "level parameter in a CarpetX header outside the flesh- and AMReX-fixed signatures and the window bounds, "
-        "every ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx include in a checkpoint codec file, "
-        "and every ghext in a private CarpetX file outside driver.cxx",
+        help="list every " + series([rule.phrase(rule.noun) for rule in RULES]),
+        description=RULE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     check.add_argument("paths", nargs="*", metavar="PATH", help="files or directories to check (default: the whole tree)")
     check.add_argument(
@@ -57,7 +67,11 @@ def main(argv: list[str] | None = None) -> int:
         metavar="REV",
         help="report only the lines the working tree added since its merge base with REV (what CI checks)",
     )
+    commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a boundary finding")
+    commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a boundary finding")
     args = parser.parse_args(argv)
+    if args.command in HOOKS:
+        return run_hook(HOOKS[args.command])
     if args.since is not None and args.paths:
         parser.error("--since takes no PATH: it judges every thorn file the tree changed since its merge base with REV")
     try:

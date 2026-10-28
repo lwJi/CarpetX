@@ -17,6 +17,7 @@ from files import (
     read_text,
     repo_name,
     show,
+    simulate_edit,
 )
 from judge import Verdict, judge_all
 from report import render_change
@@ -29,23 +30,6 @@ def emit(out, message: dict) -> None:
 def skipped(out, e: Exception) -> int:
     emit(out, {"systemMessage": f"comment check skipped: {type(e).__name__}: {e}"})
     return 0
-
-
-def simulate_edit(tool_name: str, tool_input: dict, before: Optional[str]) -> Optional[str]:
-    if tool_name == "Write":
-        return tool_input["content"]
-    if tool_name != "Edit":
-        raise ValueError(f"unexpected tool {tool_name!r}")
-    old, new = tool_input["old_string"], tool_input["new_string"]
-    if old == "":
-        return new if not before else None
-    if before is None:
-        return None
-    replace_all = bool(tool_input.get("replace_all", False))
-    count = before.count(old)
-    if count == 0 or (count > 1 and not replace_all):
-        return None
-    return before.replace(old, new, -1 if replace_all else 1)
 
 
 def starts(root: str, base: Optional[str] = None) -> list[str]:
