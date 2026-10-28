@@ -1,4 +1,5 @@
 #include "hierarchy/driver.hxx"
+#include "ops/linsolve.hxx"
 
 #include <cctk.h>
 #include <cctk_Arguments.h>
@@ -13,8 +14,6 @@
 #include <vector>
 
 namespace CarpetX {
-
-namespace {
 
 void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
                    const std::optional<gi_t> gi_res, const CCTK_REAL reltol,
@@ -136,20 +135,6 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
         CCTK_VINFO("norm_inf res[%d]: %g", level,
                    double(ress.at(level)->norminf(vi, 0, false, true)));
   }
-}
-
-} // namespace
-
-extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
-                                     const CCTK_INT gi_rhs,
-                                     const CCTK_INT gi_res,
-                                     const CCTK_REAL reltol,
-                                     const CCTK_REAL abstol,
-                                     CCTK_REAL *restrict const res_initial,
-                                     CCTK_REAL *restrict const res_final) {
-  solve_poisson(gi_t{gi_sol}, gi_t{gi_rhs},
-                gi_res >= 0 ? std::optional<gi_t>(gi_t{gi_res}) : std::nullopt,
-                reltol, abstol, res_initial, res_final);
 }
 
 } // namespace CarpetX

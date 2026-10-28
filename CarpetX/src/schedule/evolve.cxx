@@ -18,20 +18,6 @@
 
 #include <AMReX_MultiFabUtil.H>
 
-#if defined _OPENMP
-#include <omp.h>
-#elif defined __HIPCC__
-#define omp_get_max_threads() 1
-#define omp_get_num_threads() 1
-#define omp_get_thread_num() 0
-#define omp_in_parallel() 0
-#else
-static inline int omp_get_max_threads() { return 1; }
-static inline int omp_get_num_threads() { return 1; }
-static inline int omp_get_thread_num() { return 0; }
-static inline int omp_in_parallel() { return 0; }
-#endif
-
 #include <sys/time.h>
 
 #include <algorithm>
@@ -81,53 +67,6 @@ double gettime() {
   return tv.tv_sec + tv.tv_usec / 1.0e+6;
 }
 } // namespace
-
-// Should this be passed in `cGH`?
-int CallFunction_count = -1;
-extern "C" CCTK_INT CarpetX_GetCallFunctionCount() {
-#ifndef AMREX_USE_GPU
-  // CPU: use hardware thread index
-  return omp_get_thread_num();
-#else
-  // GPU: count tiles
-  assert(CallFunction_count >= 0);
-  return CallFunction_count;
-#endif
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-extern "C" void CarpetX_GetLoopBoxAll(const void *restrict const cctkGH_,
-                                      const CCTK_INT size,
-                                      CCTK_INT *restrict const loop_min,
-                                      CCTK_INT *restrict const loop_max) {
-  const cGH *restrict const cctkGH = static_cast<const cGH *>(cctkGH_);
-  assert(size == dim);
-  const GridDescBase grid(cctkGH);
-  vect<int, dim> imin, imax;
-  // Assumd cell centred box
-  grid.box_all<1, 1, 1>(grid.nghostzones, imin, imax);
-  for (int d = 0; d < dim; ++d)
-    loop_min[d] = imin[d];
-  for (int d = 0; d < dim; ++d)
-    loop_max[d] = imax[d];
-}
-
-extern "C" void CarpetX_GetLoopBoxInt(const void *restrict const cctkGH_,
-                                      const CCTK_INT size,
-                                      CCTK_INT *restrict const loop_min,
-                                      CCTK_INT *restrict const loop_max) {
-  const cGH *restrict const cctkGH = static_cast<const cGH *>(cctkGH_);
-  assert(size == dim);
-  const GridDescBase grid(cctkGH);
-  vect<int, dim> imin, imax;
-  // Assumd cell centred box
-  grid.box_int<1, 1, 1>(grid.nghostzones, imin, imax);
-  for (int d = 0; d < dim; ++d)
-    loop_min[d] = imin[d];
-  for (int d = 0; d < dim; ++d)
-    loop_max[d] = imax[d];
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 

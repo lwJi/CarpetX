@@ -105,20 +105,6 @@ void encode_output(const cGH *const cctkGH, const char *const method,
 
 // Recovering
 
-extern "C" int CarpetX_RecoverParameters() {
-  DECLARE_CCTK_PARAMETERS;
-
-  static Timer timer("RecoverParameters");
-  Interval interval(timer);
-
-  record_recovered_iteration(
-      make_codec(recover_method)->read_parameters(recover_dir, recover_file));
-
-  return recovered_iteration() >= 0;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
 checkpoint_record_t RecoverGridStructure(cGH *restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -602,6 +588,8 @@ namespace {
 // because one had already been written for this iteration.
 int last_walltime_trigger_runtime = 0; // seconds
 
+} // namespace
+
 // Whether the walltime criterion `IO::checkpoint_every_walltime_hours` is met
 // at run time `runtime` (seconds since the start of this run), advancing the
 // trigger's state when it is.
@@ -647,67 +635,6 @@ std::string DescribeTriggers(const char *const name1, const bool fired1,
     description += name2;
   }
   return description;
-}
-
-} // namespace
-
-extern "C" void CarpetX_CheckpointInitial(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS;
-  DECLARE_CCTK_PARAMETERS;
-
-  int runtime = CCTK_RunTime(); // seconds
-  MPI_Bcast(&runtime, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-  // Setting up initial conditions can take a long time, so the walltime
-  // criterion is evaluated here as well and not only during the evolution
-  const bool checkpoint_by_walltime = CheckWalltimeTrigger(runtime);
-
-  if (checkpoint_ID || checkpoint_by_walltime) {
-    CCTK_VINFO("Checkpointing initial conditions at iteration %d, time %f, run "
-               "time %.2f h (triggered by %s)",
-               cctk_iteration, double(cctk_time), double(runtime / 3600.0),
-               DescribeTriggers("checkpoint_ID", checkpoint_ID,
-                                "checkpoint_every_walltime_hours",
-                                checkpoint_by_walltime)
-                   .c_str());
-    Checkpoint(cctkGH);
-  }
-}
-
-extern "C" void CarpetX_Checkpoint(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS;
-  DECLARE_CCTK_PARAMETERS;
-
-  int runtime = CCTK_RunTime(); // seconds
-  MPI_Bcast(&runtime, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-  const bool checkpoint_by_iteration =
-      checkpoint_every > 0 && cctk_iteration % checkpoint_every == 0;
-  const bool checkpoint_by_walltime = CheckWalltimeTrigger(runtime);
-
-  if (checkpoint_by_iteration || checkpoint_by_walltime) {
-    CCTK_VINFO("Checkpointing at iteration %d, time %f, run time %.2f h "
-               "(triggered by %s)",
-               cctk_iteration, double(cctk_time), double(runtime / 3600.0),
-               DescribeTriggers("checkpoint_every", checkpoint_by_iteration,
-                                "checkpoint_every_walltime_hours",
-                                checkpoint_by_walltime)
-                   .c_str());
-    Checkpoint(cctkGH);
-  }
-}
-
-extern "C" void CarpetX_CheckpointTerminate(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS;
-  DECLARE_CCTK_PARAMETERS;
-
-  if (checkpoint_on_terminate) {
-    const int runtime = CCTK_RunTime(); // seconds
-    CCTK_VINFO("Checkpointing before terminating at iteration %d, time %f, run "
-               "time %.2f h",
-               cctk_iteration, double(cctk_time), double(runtime / 3600.0));
-    Checkpoint(cctkGH);
-  }
 }
 
 } // namespace CarpetX

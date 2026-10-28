@@ -1,5 +1,8 @@
 SRCS =							\
-	compile_checks.cxx
+	aliased.cxx					\
+	compile_checks.cxx				\
+	scheduled.cxx					\
+	startup.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))

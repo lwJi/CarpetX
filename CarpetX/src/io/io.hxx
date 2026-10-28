@@ -7,6 +7,8 @@
 
 #include <cctk.h>
 
+#include <string>
+
 namespace CarpetX {
 
 checkpoint_record_t RecoverGridStructure(cGH *cctkGH);
@@ -14,6 +16,11 @@ void RecoverGH(const cGH *cctkGH, const checkpoint_record_t &record);
 void InputGH(const cGH *cctkGH);
 
 int OutputGH(const cGH *cctkGH);
+
+void Checkpoint(const cGH *cctkGH);
+bool CheckWalltimeTrigger(int runtime);
+std::string DescribeTriggers(const char *name1, bool fired1, const char *name2,
+                             bool fired2);
 
 } // namespace CarpetX
 

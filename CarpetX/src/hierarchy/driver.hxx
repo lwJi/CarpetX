@@ -878,6 +878,8 @@ private:
 };
 
 GHExt &driver();
+GHExt &create_hierarchy();
+void destroy_hierarchy();
 void assert_hierarchy_destroyed();
 
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
@@ -900,8 +902,6 @@ amrex::MultiFab *rk_source_band(level_t level, gi_t gi, band_kind kind,
 // Monotonically increasing counter. Incremented whenever the AMR grid
 // hierarchy is invalidated (regridding, recovery). Starts at 0.
 extern std::atomic<CCTK_INT> carpetx_epoch;
-
-extern "C" CCTK_INT CarpetX_GetEpoch(void);
 
 } // namespace CarpetX
 
