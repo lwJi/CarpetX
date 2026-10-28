@@ -1,7 +1,11 @@
 #include "comm/boundaries.hxx"
 #include "comm/boundaries_impl.hxx"
 
+#include <carpetx.hxx>
 #include <vect.hxx>
+
+#include <cctk.h>
+#include <cctk_Parameters.h>
 
 #include <AMReX.H>
 
@@ -93,6 +97,34 @@ void BoundaryCondition::apply() const {
   apply_on_face<NEG, POS, POS>();
   apply_on_face<INT, POS, POS>();
   apply_on_face<POS, POS, POS>();
+}
+
+void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
+    amrex::MultiFab &mfab) const {
+  DECLARE_CCTK_PARAMETERS;
+
+  static Timer timer("apply_boundary_conditions");
+  Interval interval(timer);
+
+  const amrex::Geometry &geom =
+      driver().patch(level.patch()).amrcore->Geom(level.index());
+
+  if (geom.isAllPeriodic())
+    return;
+
+  const amrex::Box &domain = geom.Domain();
+  amrex::Box gdomain = amrex::convert(domain, mfab.boxArray().ixType());
+  for (int d = 0; d < dim; ++d)
+    if (geom.isPeriodic(d))
+      gdomain.grow(d, mfab.nGrow(d));
+
+  const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync();
+#pragma omp parallel
+  for (amrex::MFIter mfi(mfab, mfitinfo); mfi.isValid(); ++mfi) {
+    amrex::FArrayBox &dest = mfab[mfi];
+    if (!gdomain.contains(dest.box()))
+      BoundaryCondition(*this, dest).apply();
+  }
 }
 
 } // namespace CarpetX

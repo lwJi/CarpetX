@@ -14,6 +14,7 @@
 
 #include <array>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace CarpetX {
@@ -40,6 +41,9 @@ std::vector<std::array<int, dim> > get_group_parities(gi_t gi);
 std::vector<CCTK_REAL> get_group_dirichlet_values(gi_t gi);
 std::vector<CCTK_REAL> get_group_robin_values(gi_t gi);
 
+amrex::Interpolater *get_interpolator(std::string prolongation_type,
+                                      int prolongation_order,
+                                      std::array<int, dim> indextype);
 amrex::Interpolater *
 get_interpolator(const GHExt::PatchData::LevelData::GroupData &groupdata);
 

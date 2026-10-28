@@ -1,7 +1,6 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 
-#include "comm/boundaries.hxx"
 #include "hierarchy/loops.hxx"
 #include <carpetx.hxx>
 
@@ -435,38 +434,6 @@ void GHExt::PatchData::LevelData::GroupData::rotate_timelevels() {
   assert(num_timelevels() > 1);
   assert(open_write_count() == 0);
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
-}
-
-void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
-    amrex::MultiFab &mfab) const {
-  DECLARE_CCTK_PARAMETERS;
-
-  static Timer timer("apply_boundary_conditions");
-  Interval interval(timer);
-
-  const amrex::Geometry &geom =
-      driver().patch(level.patch()).amrcore->Geom(level.index());
-
-  if (geom.isAllPeriodic())
-    return;
-
-  // Create a grown domain box containing valid + periodic cells
-  const amrex::Box &domain = geom.Domain();
-  amrex::Box gdomain = amrex::convert(domain, mfab.boxArray().ixType());
-  for (int d = 0; d < dim; ++d)
-    if (geom.isPeriodic(d))
-      gdomain.grow(d, mfab.nGrow(d));
-
-  // Do not tile because the boundary boxes are likely already small
-  const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync();
-#pragma omp parallel
-  for (amrex::MFIter mfi(mfab, mfitinfo); mfi.isValid(); ++mfi) {
-    amrex::FArrayBox &dest = mfab[mfi];
-    // If there are cells not in the valid + periodic grown box, then
-    // we need to fill them here
-    if (!gdomain.contains(dest.box()))
-      BoundaryCondition(*this, dest).apply();
-  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
