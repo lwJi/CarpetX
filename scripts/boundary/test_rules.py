@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from collections import namedtuple
 from unittest import mock
 
 import rules
@@ -786,6 +787,79 @@ class Layers(unittest.TestCase):
                     continue
                 with self.subTest(name=name):
                     self.assertIn(layer_of(name), subdirs)
+
+
+MAP = os.path.join(PROJECT, "agent_docs", "carpetx-internals.md")
+MAP_HEADER = "| layer | owns | may include | driver() | rule |"
+MAP_SEPARATOR = re.compile(r"^\|(\s*:?-+:?\s*\|){5}$")
+MAP_LAYER = re.compile(r"(?<![\w/])(" + "|".join(LAYERS) + r")/")
+MapRow = namedtuple("MapRow", "layer owns may_include driver rule")
+
+
+class Map(unittest.TestCase):
+    def rows(self, text):
+        lines = text.splitlines()
+        self.assertEqual(lines.count(MAP_HEADER), 1, f"one table under {MAP_HEADER}")
+        start = lines.index(MAP_HEADER) + 1
+        self.assertRegex(lines[start], MAP_SEPARATOR)
+        rows = []
+        for line in lines[start + 1 :]:
+            if not line.startswith("|"):
+                break
+            cells = [cell.strip().replace("`", "") for cell in line.strip().strip("|").split("|")]
+            self.assertEqual(len(cells), len(MapRow._fields), line)
+            rows.append(MapRow(*cells))
+        return rows
+
+    def check(self, rows):
+        self.assertEqual([row.layer for row in rows], [f"{layer}/" for layer in LAYERS])
+        for i, row in enumerate(rows):
+            layer = row.layer.rstrip("/")
+            self.assertEqual(below(layer), tuple(r.layer.rstrip("/") for r in rows[: i + 1]))
+            previous = rows[i - 1].layer.rstrip("/") if i else layer
+            self.assertEqual(MAP_LAYER.findall(row.may_include), [previous], row)
+            if i:
+                self.assertIn("and below", row.may_include, row)
+            self.assertIn(row.driver, ("yes", "no"), row)
+            self.assertEqual(row.driver == "yes", layer in HIERARCHY_LAYERS, row)
+
+    def map_rows(self):
+        with open(MAP) as f:
+            return self.rows(f.read())
+
+    def test_the_map_s_table_is_the_rule_table(self):
+        self.check(self.map_rows())
+
+    def test_a_missing_reordered_or_wrong_row_fails(self):
+        rows = self.map_rows()
+        swapped = rows[:3] + [rows[4], rows[3]] + rows[5:]
+        for name, mutated in [
+            ("first row missing", rows[1:]),
+            ("last row missing", rows[:-1]),
+            ("a middle row missing", rows[:4] + rows[5:]),
+            ("two rows swapped", swapped),
+            ("a row too many", rows + [rows[-1]]),
+            ("may include skips a row", rows[:5] + [rows[5]._replace(may_include="comm/ and below")] + rows[6:]),
+            ("may include names no row", rows[:1] + [rows[1]._replace(may_include="the layers below")] + rows[2:]),
+            ("may include only the row before", rows[:1] + [rows[1]._replace(may_include="util/")] + rows[2:]),
+            ("driver() below the hierarchy", rows[:1] + [rows[1]._replace(driver="yes")] + rows[2:]),
+            ("no driver() in the hierarchy", rows[:2] + [rows[2]._replace(driver="no")] + rows[3:]),
+            ("driver() neither yes nor no", rows[:-1] + [rows[-1]._replace(driver="some")]),
+        ]:
+            with self.subTest(name=name), self.assertRaises(AssertionError):
+                self.check(mutated)
+
+    def test_the_table_is_found_under_its_header_and_ends_at_the_first_other_line(self):
+        rows = [
+            f"| `{layer}/` | x | `{LAYERS[i - 1] if i else layer}/`{' and below' if i else ''} | "
+            f"{'yes' if layer in HIERARCHY_LAYERS else 'no'} | layer |"
+            for i, layer in enumerate(LAYERS)
+        ]
+        table = "\n".join([MAP_HEADER, "|---|---|---|---|---|"] + rows)
+        self.check(self.rows("# Map\n\nProse.\n\n" + table + "\n\nMore prose | with a bar.\n| not | a | row |\n"))
+        for text in ["no table\n", table + "\n\n" + table + "\n", table.replace("|---|", "| x |", 1)]:
+            with self.subTest(text=text[:40]), self.assertRaises(AssertionError):
+                self.rows(text)
 
 
 class NewFindings(unittest.TestCase):
