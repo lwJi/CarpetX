@@ -144,7 +144,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
   }
   }
 
-  for (const auto &patchdata : ghext->patches()) {
+  for (const auto &patchdata : driver().patches()) {
     for (const auto &leveldata : patchdata.levels()) {
       const auto &groupdata = leveldata.group(gi);
       const tl_t tl{0};
@@ -196,7 +196,7 @@ void OutputTSVold(const cGH *restrict cctkGH) {
   const int numgroups = CCTK_NumGroups();
   for (int gi0 = 0; gi0 < numgroups; ++gi0) {
     const gi_t gi{gi0};
-    const auto &group = ghext->record(gi);
+    const auto &group = driver().record(gi);
     if (group.kind != group_kind::grid_function)
       continue;
 
@@ -237,7 +237,7 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
   if (CCTK_MyProc(nullptr) > 0)
     return;
 
-  const auto &arraygroupdata = ghext->record(gi).array();
+  const auto &arraygroupdata = driver().record(gi).array();
   cGroup cgroup;
   const int ierr = CCTK_GroupData(gi.index(), &cgroup);
   assert(!ierr);
@@ -333,7 +333,7 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
   if (CCTK_MyProc(nullptr) > 0)
     return;
 
-  const auto &arraygroupdata = ghext->record(gi).array();
+  const auto &arraygroupdata = driver().record(gi).array();
   cGroup cgroup;
   const int ierr = CCTK_GroupData(gi.index(), &cgroup);
   assert(!ierr);
@@ -447,14 +447,15 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
                  const bool truncate_files, const out_fileinfo_t out_fileinfo,
                  const out_header_t out_header,
                  const bool output_boundary_points) {
-  const auto &group = ghext->record(gi);
+  const GHExt &ext = driver();
+  const auto &group = ext.record(gi);
 
   const int nintvalues = 1 + 1 + dim + 1;
   const int nvalues = nintvalues + dim + group.numvars;
 
   std::vector<CCTK_REAL> data;
   data.reserve(10000);
-  for (const auto &patchdata : ghext->patches()) {
+  for (const auto &patchdata : ext.patches()) {
     for (const auto &leveldata : patchdata.levels()) {
       const auto &groupdata = leveldata.group(gi);
 
@@ -737,7 +738,7 @@ void OutputTSV(const cGH *restrict cctkGH) {
   for (int gi0 = 0; gi0 < numgroups; ++gi0) {
     const gi_t gi{gi0};
     if (group_enabled.at(gi.index())) {
-      const auto &group = ghext->record(gi);
+      const auto &group = driver().record(gi);
       if (!group.has_storage())
         continue;
       std::string groupname = CCTK_FullGroupName(gi.index());

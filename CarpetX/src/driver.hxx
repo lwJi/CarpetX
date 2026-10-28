@@ -888,13 +888,12 @@ private:
   std::vector<GroupRecord> group_records;
   std::vector<PatchData> patchdata;
 
-  friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ghext);
-  friend std::ostream &operator<<(std::ostream &os, const GHExt &ghext);
+  friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ext);
+  friend std::ostream &operator<<(std::ostream &os, const GHExt &ext);
 };
 
-extern std::unique_ptr<GHExt> ghext;
-
 GHExt &driver();
+void assert_hierarchy_destroyed();
 
 int num_rk_stages();
 rk_dense_output_t registered_dense_output();

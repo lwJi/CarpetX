@@ -26,9 +26,10 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
 
   // Create operator
 
-  assert(ghext->num_patches() == 1);
+  const GHExt &ext = driver();
+  assert(ext.num_patches() == 1);
   const patch_t patch{0};
-  const auto &patchdata = ghext->patch(patch);
+  const auto &patchdata = ext.patch(patch);
   amrex::Vector<amrex::Geometry> geoms(patchdata.num_levels());
   amrex::Vector<amrex::BoxArray> grids(patchdata.num_levels());
   amrex::Vector<amrex::DistributionMapping> dmaps(patchdata.num_levels());

@@ -259,28 +259,14 @@ rk_fill_fpinfo(const amrex::MultiFab &finemfab,
 } // namespace
 
 void EnsureRKBuffers(const level_t level, const gi_t gi) {
-  // The buffers only exist under subcycling, and only for the groups the time
-  // integrator advances: it alone fills the bands (StoreRKOldState /
-  // StoreRKStage) and publishes that set, read through group_is_integrated.
-  // do_evolve is no substitute, since it defaults to the checkpoint flag and is
-  // thus also set for checkpointed groups that are never integrated. The
-  // subcycling SYNC (SyncGroupsByDirISubcycling) and FillRKBoundary key on the
-  // same predicate, so the groups with bands are exactly the groups whose
-  // coarse-fine ghosts the SYNC leaves to FillRKBoundary. Recovery calls this
-  // for every group and then expects a mid-cycle checkpoint to carry each band
-  // allocated here, so this must match what the evolution allocates. It does
-  // for checkpoints written with this per-group geometry, and for older ones
-  // from runs whose integrated groups did not mix prolongation operators or
-  // ghost widths. A mid-cycle checkpoint that an older driver wrote from a run
-  // that did mix them carries bands on another group's geometry; that is not
-  // handled.
-  if (!ghext->use_subcycling)
+  const GHExt &ext = driver();
+  if (!ext.use_subcycling)
     return;
   if (!group_is_integrated(gi))
     return;
 
   assert(level.index() >= 1);
-  const auto &patchdata = ghext->patch(level.patch());
+  const auto &patchdata = ext.patch(level.patch());
   const auto &leveldata = patchdata.level(level);
   const GroupData &groupdata = leveldata.group(gi);
   const int num_rk_stages = CarpetX::num_rk_stages();
@@ -328,9 +314,10 @@ void EnsureRKBuffers(const level_t level, const gi_t gi) {
 
 void StoreRKOldState(const level_t level,
                      const std::span<const gi_t> var_groups, const tl_t tl) {
-  if (!ghext->use_subcycling)
+  const GHExt &ext = driver();
+  if (!ext.use_subcycling)
     return;
-  const auto &patchdata = ghext->patch(level.patch());
+  const auto &patchdata = ext.patch(level.patch());
   const auto &leveldata = patchdata.level(level);
   const std::optional<level_t> child = level.child();
   const amrex::Periodicity &period =
@@ -356,12 +343,13 @@ void StoreRKOldState(const level_t level,
 
 void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
                   const std::span<const gi_t> rhs_groups, const int stage) {
-  if (!ghext->use_subcycling)
+  const GHExt &ext = driver();
+  if (!ext.use_subcycling)
     return;
   assert(stage >= 1 && stage <= num_rk_stages());
   assert(var_groups.size() == rhs_groups.size());
   const int s = stage - 1;
-  const auto &patchdata = ghext->patch(level.patch());
+  const auto &patchdata = ext.patch(level.patch());
   const std::optional<level_t> child = level.child();
   if (!child)
     return;
@@ -385,10 +373,11 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
                     const CCTK_REAL dtc) {
   if (level.index() == 0)
     return;
-  if (!ghext->use_subcycling)
+  GHExt &ext = driver();
+  if (!ext.use_subcycling)
     return;
 
-  auto &patchdata = ghext->patch(level.patch());
+  auto &patchdata = ext.patch(level.patch());
   auto &leveldata = patchdata.level(level);
   const level_t parent = level.parent();
   const auto &coarseleveldata = patchdata.level(parent);

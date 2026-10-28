@@ -31,7 +31,7 @@ namespace CarpetX {
 BoundaryCondition::BoundaryCondition(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     amrex::FArrayBox &dest)
-    : groupdata(groupdata), patchdata(ghext->patch(groupdata.level.patch())),
+    : groupdata(groupdata), patchdata(driver().patch(groupdata.level.patch())),
       geom(patchdata.amrcore->Geom(groupdata.level.index())), dest(dest),
       imin{geom.Domain().smallEnd(0), geom.Domain().smallEnd(1),
            geom.Domain().smallEnd(2)},

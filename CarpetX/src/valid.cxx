@@ -334,7 +334,7 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
                     });
   });
 
-  const var_t var = ghext->record(gi).var(vi);
+  const var_t var = driver().record(gi).var(vi);
   CCTK_VWARN(CCTK_WARN_ALERT,
              "%s: Grid function \"%s\" contains %td nans, infinities, or "
              "poison in box (%g,%g,%g):(%g,%g,%g); expected valid %s",
@@ -473,7 +473,7 @@ void poison_invalid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_arrays || !where.valid_int)
     return;
-  poison_ga_interior(ghext->record(gi).array(), gi, vi, tl);
+  poison_ga_interior(driver().record(gi).array(), gi, vi, tl);
 }
 
 void check_valid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
@@ -482,7 +482,7 @@ void check_valid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_arrays || !where.valid_int)
     return;
-  const auto &restrict arraygroupdata = ghext->record(gi).array();
+  const auto &restrict arraygroupdata = driver().record(gi).array();
   const std::size_t nan_count = count_ga_poison(arraygroupdata, gi, vi, tl);
   if (nan_count == 0)
     return;
@@ -496,7 +496,7 @@ void check_valid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
 ////////////////////////////////////////////////////////////////////////////////
 
 int current_iteration() {
-  const cGH *const cctkGH = ghext->get_global_cctkGH();
+  const cGH *const cctkGH = driver().get_global_cctkGH();
   return cctkGH ? cctkGH->cctk_iteration : 0;
 }
 
@@ -512,7 +512,7 @@ std::vector<vi_t> variables_of(const gi_t gi, const std::optional<vi_t> vi) {
   if (vi)
     return {*vi};
   std::vector<vi_t> vis;
-  for (const vi_t v : ghext->record(gi).variables())
+  for (const vi_t v : driver().record(gi).variables())
     vis.push_back(v);
   return vis;
 }
@@ -569,7 +569,7 @@ write_scope_t::~write_scope_t() {
                 "level %d: the grid hierarchy was regridded while the write "
                 "scope was open",
                 spec.event.c_str(), iteration,
-                ghext->record(spec.gi).groupname.c_str(), spec.tl.index());
+                driver().record(spec.gi).groupname.c_str(), spec.tl.index());
   const auto msg = event_reason(spec.event, "", iteration);
   const auto filled = event_reason(spec.event, " filled", iteration);
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
@@ -612,7 +612,7 @@ array_write_scope_t::array_write_scope_t(write_spec_t spec, const int iteration)
   const auto not_filled =
       event_reason(this->spec.event, " not filled", iteration);
   ArrayGroupData::timelevel_t &timelevel =
-      ghext->record(this->spec.gi).array().timelevel(this->spec.tl);
+      driver().record(this->spec.gi).array().timelevel(this->spec.tl);
   for (const vi_t vi : variables_of(this->spec.gi, this->spec.vi)) {
     timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
     poison_invalid_ga(this->spec.gi, vi, this->spec.tl, destroys);
@@ -646,7 +646,7 @@ array_write_scope_t::~array_write_scope_t() {
   const auto msg = event_reason(spec.event, "", iteration);
   const auto filled = event_reason(spec.event, " filled", iteration);
   ArrayGroupData::timelevel_t &timelevel =
-      ghext->record(spec.gi).array().timelevel(spec.tl);
+      driver().record(spec.gi).array().timelevel(spec.tl);
   for (const vi_t vi : variables_of(spec.gi, spec.vi)) {
     check_valid_ga(spec.gi, vi, spec.tl, spec.fills, msg);
     timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);
@@ -655,7 +655,7 @@ array_write_scope_t::~array_write_scope_t() {
 
 void require_array(require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
-  const ArrayGroupData &arraygroupdata = ghext->record(spec.gi).array();
+  const ArrayGroupData &arraygroupdata = driver().record(spec.gi).array();
   for (const vi_t vi : variables_of(spec.gi, spec.vi)) {
     error_if_invalid(arraygroupdata, vi, spec.tl, spec.where, msg);
     check_valid_ga(spec.gi, vi, spec.tl, spec.where, msg);

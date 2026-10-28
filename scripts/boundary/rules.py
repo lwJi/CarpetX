@@ -30,6 +30,8 @@ VALIDITY_WORD = re.compile(
 )
 TRAVERSAL_FILES = ("CarpetX/src/traversal.cxx", "CarpetX/src/traversal.hxx")
 TRAVERSAL_WORD = re.compile(r"\b(active_levels|tail_bin|recovery_traversal|last_routine)\b")
+DOOR_FILE = "CarpetX/src/driver.cxx"
+DOOR_WORD = re.compile(r"\bghext\b")
 SYNC_FILES = (
     "CarpetX/src/schedule.hxx",
     "CarpetX/src/schedule.cxx",
@@ -84,7 +86,9 @@ RULE = (
     "(gi_t, vi_t, tl_t, patch_t, level_t, window_t), never a bare int, except in the signatures\n"
     "the flesh and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow.\n"
     "codec: a checkpoint codec (io_*_checkpoint.cxx and its io_*_names.hxx) sees only the checkpoint\n"
-    "record and its own library: no ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx."
+    "record and its own library: no ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx.\n"
+    "door: the hierarchy pointer ghext is named only in CarpetX/src/driver.cxx; every other file\n"
+    "calls driver()."
 )
 
 
@@ -151,6 +155,8 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
             found.append(Finding(number, "index", line.strip()))
         if lang is Lang.CXX and name in CODEC_FILES and CODEC_WORD.search(line):
             found.append(Finding(number, "codec", line.strip()))
+        if lang is Lang.CXX and is_private(name) and name != DOOR_FILE and DOOR_WORD.search(line):
+            found.append(Finding(number, "door", line.strip()))
         if STATEMENT_END.search(line):
             statement = ""
     return found
@@ -194,13 +200,15 @@ def summary(found: list[tuple[str, Finding]]) -> str:
     traversal = sum(1 for _, f in found if f.rule == "traversal")
     index = sum(1 for _, f in found if f.rule == "index")
     codec = sum(1 for _, f in found if f.rule == "codec")
+    door = sum(1 for _, f in found if f.rule == "door")
     if not found:
         return (
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
             "no validity call outside valid.cxx, no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
             "no active_levels outside traversal.cxx, "
-            "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec"
+            "no bare index int in a CarpetX header, no hierarchy access in a checkpoint codec, "
+            "and the hierarchy has one door"
         )
     parts = (
         ([plural(includes, "private include")] if includes else [])
@@ -212,6 +220,7 @@ def summary(found: list[tuple[str, Finding]]) -> str:
         + ([plural(traversal, "traversal use") + " outside traversal.cxx"] if traversal else [])
         + ([plural(index, "bare index int") + " in a CarpetX header"] if index else [])
         + ([plural(codec, "hierarchy use") + " in a checkpoint codec"] if codec else [])
+        + ([plural(door, "raw hierarchy name") + " outside driver.cxx"] if door else [])
     )
     return "✗ boundary: " + ", ".join(parts)
 

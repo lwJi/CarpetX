@@ -48,7 +48,8 @@ def main(argv: list[str] | None = None) -> int:
         "outside traversal.cxx and traversal.hxx, "
         "every bare int group, variable, time level, patch or "
         "level parameter in a CarpetX header outside the flesh- and AMReX-fixed signatures and the window bounds, "
-        "and every ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx include in a checkpoint codec file",
+        "every ghext->, driver(), GHExt, LevelData, GroupData or driver.hxx include in a checkpoint codec file, "
+        "and every ghext in a private CarpetX file outside driver.cxx",
     )
     check.add_argument("paths", nargs="*", metavar="PATH", help="files or directories to check (default: the whole tree)")
     check.add_argument(

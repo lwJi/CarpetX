@@ -137,7 +137,7 @@ struct carpetx_adios2_t {
       assert(0);
       varname = CCTK_FullGroupName(gi.index());
     } else {
-      varname = CCTK_FullVarName(ghext->record(gi).var(vi_t{vi}).index());
+      varname = CCTK_FullVarName(driver().record(gi).var(vi_t{vi}).index());
     }
     std::ostringstream buf;
     buf << varname;
@@ -204,6 +204,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
     const int nprocs = CCTK_nProcs(cctkGH);
 
+    const GHExt &ext = driver();
     if (!io) {
 
       if (io_verbose)
@@ -259,7 +260,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       if (io_verbose)
         CCTK_VINFO("  Defining variables...");
 
-      for (const auto &patchdata : ghext->patches()) {
+      for (const auto &patchdata : ext.patches()) {
 
         for (const auto &leveldata : patchdata.levels()) {
 
@@ -325,9 +326,8 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
       CCTK_VINFO("  Beginning step...");
     engine.BeginStep();
 
-    std::vector<patch_layout_t<CCTK_REAL, int, 3> > patches(
-        ghext->num_patches());
-    for (const auto &patchdata : ghext->patches()) {
+    std::vector<patch_layout_t<CCTK_REAL, int, 3> > patches(ext.num_patches());
+    for (const auto &patchdata : ext.patches()) {
 
       std::vector<level_layout_t<CCTK_REAL, int, 3> > levels(
           patchdata.num_levels());

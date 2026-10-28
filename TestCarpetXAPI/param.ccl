@@ -1,4 +1,4 @@
-KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Register at WRAGH, and TestCarpetXAPI_Fill at CCTK_INITIAL"
+KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Register at WRAGH, TestCarpetXAPI_Fill at CCTK_INITIAL, and TestCarpetXAPI_AfterShutdown at SHUTDOWN"
 {
   "write-scope"       :: "write the interior of state through a write scope that states interior validity, then sync; TestCarpetXAPI_Check reads state everywhere"
   "sync-during-write" :: "call CarpetX::sync on state while a write scope on it is open; CarpetX aborts the run"
@@ -20,6 +20,7 @@ KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Regist
   "integrated-not-checkpointed" :: "register an integrator that integrates unsaved, which is tagged checkpoint=no; CarpetX aborts the run"
   "rhs-repeated"       :: "open an RK step on level 0 and report the right-hand side of RK stage 1 computed twice, without state_updated in between; CarpetX aborts the run"
   "step-closed-early"  :: "open an RK step on level 0 and close it after one of its four stages; CarpetX aborts the run"
+  "hierarchy-absent"   :: "call CarpetX::num_levels at SHUTDOWN after Driver_Shutdown, once the driver has destroyed the grid hierarchy; CarpetX aborts the run"
 } "write-scope"
 
 CCTK_REAL tolerance "Largest absolute difference between state and the function the fill wrote that TestCarpetXAPI_Check accepts"

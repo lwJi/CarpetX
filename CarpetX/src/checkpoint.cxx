@@ -73,7 +73,7 @@ void refuse_unless_carried(const std::vector<bool> &mask,
   DECLARE_CCTK_PARAMETERS;
   std::ostringstream uncarried;
   int num_uncarried = 0;
-  for (const GHExt::GroupRecord &group : ghext->records()) {
+  for (const GHExt::GroupRecord &group : driver().records()) {
     if (!mask.at(group.groupindex.index()))
       continue;
     std::vector<std::string> reasons;
@@ -99,16 +99,17 @@ void refuse_unless_carried(const std::vector<bool> &mask,
 }
 
 const amrex::MultiFab *vertex_coords(const level_t level) {
-  if (ghext->patch(level.patch()).is_cartesian)
+  const GHExt &ext = driver();
+  if (ext.patch(level.patch()).is_cartesian)
     return nullptr;
   const int gi = CCTK_GroupIndex("CoordinatesX::vertex_coords");
-  if (gi < 0 || !ghext->record(gi_t{gi}).has_storage())
+  if (gi < 0 || !ext.record(gi_t{gi}).has_storage())
     return nullptr;
-  return ghext->level(level).group(gi_t{gi}).timelevel(tl_t{0}).mfab.get();
+  return ext.level(level).group(gi_t{gi}).timelevel(tl_t{0}).mfab.get();
 }
 
 void snapshot_geometry(level_record_t &record, const level_t level) {
-  record.geom = ghext->patch(level.patch()).amrcore->Geom(level.index());
+  record.geom = driver().patch(level.patch()).amrcore->Geom(level.index());
   record.vertex_coords = vertex_coords(level);
 }
 
@@ -160,7 +161,8 @@ bool finer_level_is_behind(const checkpoint_record_t &record,
 
 void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
                    const record_purpose purpose, const codec_limits_t &limits) {
-  for (auto &patchdata : ghext->patches()) {
+  GHExt &ext = driver();
+  for (auto &patchdata : ext.patches()) {
     for (auto &leveldata : patchdata.levels()) {
       const level_t level = leveldata.level;
       const bool bands = purpose == record_purpose::checkpoint &&
@@ -211,12 +213,12 @@ void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
 
   if (!limits.carries_arrays)
     return;
-  for (const GHExt::GroupRecord &group : ghext->records()) {
+  for (const GHExt::GroupRecord &group : ext.records()) {
     if (group.kind == group_kind::grid_function ||
         !mask.at(group.groupindex.index()))
       continue;
     GHExt::GlobalData::ArrayGroupData &arraydata =
-        ghext->record(group.groupindex).array();
+        ext.record(group.groupindex).array();
     assert(!has_ghosts(arraydata.nghostzones));
     GHExt::GlobalData::AnyTypeVector &data = arraydata.timelevel(tl_t{0}).data;
     record.buffers.push_back(
@@ -247,8 +249,9 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
   record.parameters = parameters;
   std::free(parameters);
 
-  record.levels.resize(ghext->num_patches());
-  for (const auto &patchdata : ghext->patches()) {
+  const GHExt &ext = driver();
+  record.levels.resize(ext.num_patches());
+  for (const auto &patchdata : ext.patches()) {
     std::vector<level_record_t> &levels =
         record.levels.at(patchdata.patch.index());
     levels.resize(patchdata.num_levels());
@@ -271,15 +274,16 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record) {
   DECLARE_CCTK_PARAMETERS;
 
   const int npatches = record.levels.size();
-  if (npatches != ghext->num_patches())
+  GHExt &ext = driver();
+  if (npatches != ext.num_patches())
     CCTK_VERROR(
         "Wrong number of patches: Expected %d, found %d in the checkpoint file",
-        ghext->num_patches(), npatches);
+        ext.num_patches(), npatches);
 
   cctkGH->cctk_iteration = record.iteration;
   cctkGH->cctk_time = record.time;
 
-  for (auto &patchdata : ghext->patches()) {
+  for (auto &patchdata : ext.patches()) {
     std::vector<level_record_t> &levels =
         record.levels.at(patchdata.patch.index());
     const int nlevels = levels.size();
@@ -339,6 +343,7 @@ void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
 
   std::vector<write_scope_t> scopes;
   std::vector<array_write_scope_t> array_scopes;
+  const GHExt &ext = driver();
   for (const buffer_t &buffer : record.buffers) {
     const tl_t *const tl = std::get_if<tl_t>(&buffer.id.which);
     if (!tl)
@@ -346,7 +351,7 @@ void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
     const gi_t gi{CCTK_GroupIndex(buffer.id.group.c_str())};
     assert(gi.index() >= 0);
     if (buffer.id.level) {
-      const auto &groupdata = ghext->level(*buffer.id.level).group(gi);
+      const auto &groupdata = ext.level(*buffer.id.level).group(gi);
       scopes.push_back(open_write(window_t::one_level(*buffer.id.level),
                                   {.gi = gi,
                                    .tl = *tl,
@@ -356,7 +361,7 @@ void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
                                    .keeps = valid_t(),
                                    .event = event}));
     } else {
-      const auto &arraydata = ghext->record(gi).array();
+      const auto &arraydata = ext.record(gi).array();
       array_scopes.push_back(open_array_write(
           {.gi = gi,
            .tl = *tl,

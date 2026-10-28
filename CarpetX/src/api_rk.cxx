@@ -446,9 +446,10 @@ rk_step_t::~rk_step_t() {
 
 void RecoverRKBoundary(const window_t window, const cGH *const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
-  if (!ghext->use_subcycling)
+  const GHExt &ext = driver();
+  if (!ext.use_subcycling)
     return;
-  const std::optional<rk_config_t> &integrator = ghext->rk();
+  const std::optional<rk_config_t> &integrator = ext.rk();
   if (!integrator || integrator->integrated.empty())
     return;
   const operation_scope_t op("CarpetX::RecoverRKBoundary");
@@ -475,11 +476,11 @@ void RecoverRKBoundary(const window_t window, const cGH *const cctkGH) {
   for (const rk_pair_t &pair : integrator->integrated)
     states.push_back(pair.state);
   std::sort(states.begin(), states.end());
-  SyncGroupsByDirIGhostOnly(window, ghext->get_global_cctkGH(), states,
+  SyncGroupsByDirIGhostOnly(window, ext.get_global_cctkGH(), states,
                             timelevels_t::one(rk_tl));
   const bool restricted = window_is_restricted(window);
   if (restricted)
-    SyncGroupsByDirIProlongateOnlyAligned(window, ghext->get_global_cctkGH(),
+    SyncGroupsByDirIProlongateOnlyAligned(window, ext.get_global_cctkGH(),
                                           states, timelevels_t::one(rk_tl));
 
   for (const rk_level_t &entry : levels) {
