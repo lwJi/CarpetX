@@ -25,8 +25,6 @@ void FillRKBoundary(level_t level, std::span<const gi_t> var_groups, tl_t tl,
 
 void RecoverRKBoundary(window_t window, const cGH *cctkGH);
 
-bool window_is_restricted(window_t window);
-
 void EnsureFluxGeometry(level_t level);
 
 void AccumulateFluxes(level_t level, int stage, CCTK_REAL weight);

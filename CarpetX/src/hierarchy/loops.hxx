@@ -40,6 +40,12 @@ void loop_serially(
     const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
                              int component, const cGH *cctkGH)> &kernel);
 
+bool window_is_restricted(window_t window);
+
+inline amrex::Orientation orient(int d, int f) {
+  return amrex::Orientation(d, amrex::Orientation::Side(f));
+}
+
 struct MFPointer {
   int m_index;
   amrex::Box m_validbox;
@@ -145,12 +151,15 @@ struct GridPtrDesc1 : GridDesc {
 cGH *copy_cctkGH(const cGH *restrict const sourceGH);
 void delete_cctkGH(cGH *cctkGH);
 
+enum class mode_t { unknown, local, patch, level, global, meta };
+
 bool in_local_mode(const cGH *restrict cctkGH);
 bool in_patch_mode(const cGH *restrict cctkGH);
 bool in_level_mode(const cGH *restrict cctkGH);
 bool in_global_mode(const cGH *restrict cctkGH);
 bool in_meta_mode(const cGH *restrict cctkGH);
 
+void setup_cctkGH(cGH *restrict cctkGH);
 void update_cctkGH(cGH *restrict cctkGH, const cGH *restrict sourceGH);
 void update_cctkGHs(cGH *restrict cctkGH);
 void enter_global_mode(cGH *restrict cctkGH);

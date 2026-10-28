@@ -1,6 +1,9 @@
 SRCS =							\
+	grid.cxx					\
 	group_tags.cxx					\
 	hierarchy.cxx					\
+	loops.cxx					\
+	modes.cxx					\
 	valid.cxx					\
 	yaml.cxx
 
