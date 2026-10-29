@@ -1,6 +1,7 @@
 #include "io/io.hxx"
 #include "io/checkpoint.hxx"
 #include "traversal/traversal.hxx"
+#include "util/refuse.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -14,6 +15,7 @@
 namespace CarpetX {
 
 extern "C" int CarpetX_RecoverParameters() {
+  const operation_scope_t op("CarpetX::RecoverParameters");
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("RecoverParameters");

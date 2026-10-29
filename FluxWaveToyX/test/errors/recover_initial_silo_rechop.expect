@@ -1,1 +1,1 @@
-CarpetX::rechop_on_recovery is set, but the recover method "silo" recovers only the grid the checkpoint was written on
+CarpetX::RecoverGridStructure: CarpetX::rechop_on_recovery is set, but the recover method "silo" recovers only the grid the checkpoint was written on
