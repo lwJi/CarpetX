@@ -245,7 +245,7 @@ inline constexpr valid_t make_valid_all() { return ~valid_t(); }
 
 const amrex::MultiFab &data(group_t group, tl_t tl);
 
-class write_t {
+class [[nodiscard]] write_t {
 public:
   write_t(write_t &&other) noexcept;
   write_t(const write_t &) = delete;
@@ -253,7 +253,8 @@ public:
   write_t &operator=(write_t &&) = delete;
   ~write_t();
 
-  amrex::MultiFab &mfab();
+  amrex::MultiFab &mfab() &;
+  void mfab() && = delete;
 
 private:
   struct impl;
@@ -265,7 +266,7 @@ private:
 
 write_t write(group_t group, tl_t tl, valid_t leaves_valid, const char *what);
 
-class scratch_t {
+class [[nodiscard]] scratch_t {
 public:
   scratch_t(scratch_t &&other) noexcept;
   scratch_t(const scratch_t &) = delete;
@@ -273,8 +274,10 @@ public:
   scratch_t &operator=(scratch_t &&) = delete;
   ~scratch_t();
 
-  amrex::MultiFab &mfab();
-  const amrex::MultiFab &mfab() const;
+  amrex::MultiFab &mfab() &;
+  const amrex::MultiFab &mfab() const &;
+  void mfab() && = delete;
+  void mfab() const && = delete;
 
 private:
   struct impl;
