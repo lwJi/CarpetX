@@ -224,7 +224,6 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
       if (io_verbose)
         CCTK_VINFO("  Creating IO object...");
-      // The name "IO" must be unique in the ADIOS object
       io = adios.DeclareIO("IO");
       const int num_aggregators = [&]() {
         if (CCTK_EQUALS(out_mode, "proc"))
@@ -233,7 +232,9 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
           return div_ceil(nprocs, out_proc_every);
         if (CCTK_EQUALS(out_mode, "onefile"))
           return 1;
-        assert(0);
+        refuse(std::source_location::current(),
+               "IO::out_mode is \"%s\", which this writer does not know",
+               out_mode);
       }();
       assert(num_aggregators > 0);
       io.SetParameters({

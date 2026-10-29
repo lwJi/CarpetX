@@ -3,6 +3,7 @@
 
 #include "internal.hxx"
 
+#include "util/refuse.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -20,6 +21,7 @@
 #include <iomanip>
 #include <optional>
 #include <regex>
+#include <source_location>
 #include <sstream>
 #include <string>
 
@@ -65,10 +67,11 @@ inline openPMD::Format get_format() {
   if (CCTK_EQUALS(openpmd_format, "GENERIC"))
     return openPMD::Format::GENERIC;
 #endif
-  CCTK_VERROR("The openPMD format \"%s\" is not supported in version %d.%d.%d "
-              "of the openPMD_api library",
-              openpmd_format, OPENPMDAPI_VERSION_MAJOR,
-              OPENPMDAPI_VERSION_MINOR, OPENPMDAPI_VERSION_PATCH);
+  refuse(std::source_location::current(),
+         "The openPMD format \"%s\" is not supported in version %d.%d.%d of "
+         "the openPMD_api library",
+         openpmd_format, OPENPMDAPI_VERSION_MAJOR, OPENPMDAPI_VERSION_MINOR,
+         OPENPMDAPI_VERSION_PATCH);
 }
 
 constexpr openPMD::IterationEncoding iterationEncoding =

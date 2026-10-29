@@ -334,6 +334,7 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml, parameters) {
 }
 
 void OutputMetadata(const cGH *restrict cctkGH) {
+  const operation_scope_t op("CarpetX::OutputMetadata");
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 

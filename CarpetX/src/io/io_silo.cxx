@@ -145,7 +145,8 @@ void write_silo_slice(const cGH *restrict const cctkGH,
       return out_proc_every;
     if (CCTK_EQUALS(out_mode, "onefile"))
       return nprocs;
-    assert(0);
+    refuse(std::source_location::current(),
+           "IO::out_mode is \"%s\", which this writer does not know", out_mode);
   }();
   assert(ioproc_every > 0);
 
@@ -434,14 +435,12 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                                  &hide_from_gui);
               assert(!ierr);
 
-              if (centering == DB_EDGECENT || centering == DB_FACECENT) {
-                // Need to find the other 2 edge- or face-centered
-                // variables, and output them as well. Maybe output all
-                // 3 when the x- or xy-centered value is output? Maybe
-                // add a "sibling" tag to such grid functions to find
-                // these other components?
-                assert(0);
-              }
+              if (centering == DB_EDGECENT || centering == DB_FACECENT)
+                refuse(std::source_location::current(),
+                       "2D Silo slice output supports only vertex- and "
+                       "cell-centered grid functions; group %s is edge- or "
+                       "face-centered",
+                       groupdata.record.groupname.c_str());
 
               std::vector<CCTK_REAL> slab(zonecount);
               for (const vi_t vi : groupdata.record.variables()) {

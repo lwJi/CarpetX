@@ -250,6 +250,7 @@ void OutputMeta_RegisterOutputFile(
 }
 
 void OutputMeta(const cGH *restrict const cctkGH) {
+  const operation_scope_t op("CarpetX::OutputMeta");
   DECLARE_CCTK_PARAMETERS;
 
   // Only the root process outputs metadata

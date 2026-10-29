@@ -8,6 +8,7 @@
 #ifdef HAVE_CAPABILITY_Silo
 
 #include "util/mpi_types.hxx"
+#include "util/refuse.hxx"
 
 #include <silo.hxx>
 
@@ -36,6 +37,7 @@
 #include <optional>
 #include <regex>
 #include <set>
+#include <source_location>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -76,7 +78,8 @@ int ioproc_every(const int nprocs) {
   }
   if (CCTK_EQUALS(out_mode, "onefile"))
     return nprocs;
-  CCTK_VERROR("Unexpected IO::out_mode \"%s\"", out_mode);
+  refuse(std::source_location::current(),
+         "IO::out_mode is \"%s\", which this writer does not know", out_mode);
 }
 
 int db_centering(const amrex::IndexType &indextype) {
