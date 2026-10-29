@@ -416,8 +416,7 @@ void warn_inert_flux_tags() {
   if (CCTK_MyProc(nullptr) != 0)
     return;
   if (!ext.do_reflux) {
-    for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
-      const gi_t gi{gi0};
+    for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()})) {
       if (CCTK_GroupTypeI(gi.index()) == CCTK_GF && integrator &&
           integrator->is_integrated(gi) && get_group_fluxes(gi)) {
         CCTK_INFO("Grid functions integrated by ODESolvers carry fluxes= "
@@ -428,8 +427,7 @@ void warn_inert_flux_tags() {
     }
     return;
   }
-  for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
-    const gi_t gi{gi0};
+  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()})) {
     if (CCTK_GroupTypeI(gi.index()) != CCTK_GF || !get_group_fluxes(gi) ||
         group_has_flux_register(gi))
       continue;

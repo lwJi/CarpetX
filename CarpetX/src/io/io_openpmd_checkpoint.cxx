@@ -148,50 +148,48 @@ void load_raw(openPMD::MeshRecordComponent &component, T *const ptr,
 #endif
 }
 
-openPMD::Datatype array_datatype(const int vartype) {
+openPMD::Datatype array_datatype(const var_type vartype) {
   switch (vartype) {
-  case CCTK_VARIABLE_REAL:
+  case var_type::real:
     return openPMD::determineDatatype<CCTK_REAL>();
-  case CCTK_VARIABLE_INT:
+  case var_type::integer:
     return openPMD::determineDatatype<CCTK_INT>();
-  case CCTK_VARIABLE_COMPLEX:
+  case var_type::complex:
     return openPMD::determineDatatype<CCTK_COMPLEX>();
   }
-  CCTK_VERROR("Unexpected variable type %d", vartype);
+  CCTK_VERROR("CarpetX: unknown var_type value %d", int(vartype));
 }
 
-void store_array(openPMD::MeshRecordComponent &component, const int vartype,
-                 const void *const ptr, const openPMD::Offset &start,
-                 const openPMD::Extent &count) {
+void store_array(openPMD::MeshRecordComponent &component,
+                 const var_type vartype, const void *const ptr,
+                 const openPMD::Offset &start, const openPMD::Extent &count) {
   switch (vartype) {
-  case CCTK_VARIABLE_REAL:
+  case var_type::real:
     store_raw(component, static_cast<const CCTK_REAL *>(ptr), start, count);
     return;
-  case CCTK_VARIABLE_INT:
+  case var_type::integer:
     store_raw(component, static_cast<const CCTK_INT *>(ptr), start, count);
     return;
-  case CCTK_VARIABLE_COMPLEX:
+  case var_type::complex:
     store_raw(component, static_cast<const CCTK_COMPLEX *>(ptr), start, count);
     return;
   }
-  CCTK_VERROR("Unexpected variable type %d", vartype);
 }
 
-void load_array(openPMD::MeshRecordComponent &component, const int vartype,
+void load_array(openPMD::MeshRecordComponent &component, const var_type vartype,
                 void *const ptr, const openPMD::Offset &start,
                 const openPMD::Extent &count) {
   switch (vartype) {
-  case CCTK_VARIABLE_REAL:
+  case var_type::real:
     load_raw(component, static_cast<CCTK_REAL *>(ptr), start, count);
     return;
-  case CCTK_VARIABLE_INT:
+  case var_type::integer:
     load_raw(component, static_cast<CCTK_INT *>(ptr), start, count);
     return;
-  case CCTK_VARIABLE_COMPLEX:
+  case var_type::complex:
     load_raw(component, static_cast<CCTK_COMPLEX *>(ptr), start, count);
     return;
   }
-  CCTK_VERROR("Unexpected variable type %d", vartype);
 }
 
 void extract_interior(CCTK_REAL *const dst, const CCTK_REAL *const src,
@@ -319,8 +317,7 @@ void write_array(openPMD::Iteration &write_iter, const buffer_id_t &id,
   if (!is_ioproc)
     return;
   const openPMD::Offset start{0, 0, 0};
-  const std::size_t varsize =
-      num_points(array.shape) * CCTK_VarTypeSize(array.vartype);
+  const std::size_t varsize = num_points(array.shape) * size_of(array.vartype);
   for (std::size_t vi = 0; vi < components.size(); ++vi)
     store_array(components.at(vi), array.vartype,
                 static_cast<const char *>(array.data) + vi * varsize, start,
@@ -389,8 +386,7 @@ void read_array(openPMD::Iteration &read_iter, const buffer_id_t &id,
 
   const openPMD::Offset start{0, 0, 0};
   const openPMD::Extent count = reversed<std::uint64_t>(array.shape);
-  const std::size_t varsize =
-      num_points(array.shape) * CCTK_VarTypeSize(array.vartype);
+  const std::size_t varsize = num_points(array.shape) * size_of(array.vartype);
   for (std::size_t vi = 0; vi < components.size(); ++vi) {
     assert_inside(start, count, components.at(vi).getExtent());
     load_array(components.at(vi), array.vartype,

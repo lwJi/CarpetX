@@ -382,33 +382,26 @@ int array_elements(const ArrayGroupData &arraygroupdata) {
   return n_elems;
 }
 
-void poison_ga_interior(ArrayGroupData &arraygroupdata, const gi_t gi,
-                        const vi_t vi, const tl_t tl) {
+void poison_ga_interior(ArrayGroupData &arraygroupdata, const vi_t vi,
+                        const tl_t tl) {
   static Timer timer("poison_invalid<GA>");
   Interval interval(timer);
 
-  cGroup group;
-  int ierr = CCTK_GroupData(gi.index(), &group);
-  assert(!ierr);
-
   const int n_elems = array_elements(arraygroupdata);
-  assert(group.vartype == CCTK_VARIABLE_COMPLEX ||
-         group.vartype == CCTK_VARIABLE_REAL ||
-         group.vartype == CCTK_VARIABLE_INT);
-  switch (group.vartype) {
-  case CCTK_VARIABLE_COMPLEX: {
+  switch (arraygroupdata.record.var_type) {
+  case var_type::complex: {
     CCTK_COMPLEX *restrict ptr = static_cast<CCTK_COMPLEX *>(
         arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
     const poison_value_t<CCTK_COMPLEX> poison_value;
     poison_value.set_to_poison(ptr, n_elems);
   } break;
-  case CCTK_VARIABLE_REAL: {
+  case var_type::real: {
     CCTK_REAL *restrict ptr = static_cast<CCTK_REAL *>(
         arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
     const poison_value_t<CCTK_REAL> poison_value;
     poison_value.set_to_poison(ptr, n_elems);
   } break;
-  case CCTK_VARIABLE_INT: {
+  case var_type::integer: {
     CCTK_INT *restrict ptr = static_cast<CCTK_INT *>(
         arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
     const poison_value_t<CCTK_INT> poison_value;
@@ -417,22 +410,18 @@ void poison_ga_interior(ArrayGroupData &arraygroupdata, const gi_t gi,
   }
 }
 
-std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const gi_t gi,
-                            const vi_t vi, const tl_t tl) {
+std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const vi_t vi,
+                            const tl_t tl) {
   static Timer timer("check_valid<GA>");
   Interval interval(timer);
-
-  cGroup group;
-  int ierr = CCTK_GroupData(gi.index(), &group);
-  assert(!ierr);
 
   using std::isnan;
 
   std::size_t nan_count{0};
 
   const int n_elems = array_elements(arraygroupdata);
-  switch (group.vartype) {
-  case CCTK_VARIABLE_COMPLEX: {
+  switch (arraygroupdata.record.var_type) {
+  case var_type::complex: {
     const poison_value_t<CCTK_COMPLEX> poison_value;
     const CCTK_COMPLEX *restrict const ptr =
         static_cast<const CCTK_COMPLEX *const>(
@@ -444,7 +433,7 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const gi_t gi,
         ++nan_count;
     }
   } break;
-  case CCTK_VARIABLE_REAL: {
+  case var_type::real: {
     const poison_value_t<CCTK_REAL> poison_value;
     const CCTK_REAL *restrict const ptr = static_cast<const CCTK_REAL *const>(
         arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
@@ -454,7 +443,7 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const gi_t gi,
         ++nan_count;
     }
   } break;
-  case CCTK_VARIABLE_INT: {
+  case var_type::integer: {
     const poison_value_t<CCTK_INT> poison_value;
     const CCTK_INT *restrict const ptr = static_cast<const CCTK_INT *const>(
         arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
@@ -473,7 +462,7 @@ void poison_invalid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_arrays || !where.valid_int)
     return;
-  poison_ga_interior(driver().record(gi).array(), gi, vi, tl);
+  poison_ga_interior(driver().record(gi).array(), vi, tl);
 }
 
 void check_valid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
@@ -483,7 +472,7 @@ void check_valid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
   if (!poison_undefined_arrays || !where.valid_int)
     return;
   const auto &restrict arraygroupdata = driver().record(gi).array();
-  const std::size_t nan_count = count_ga_poison(arraygroupdata, gi, vi, tl);
+  const std::size_t nan_count = count_ga_poison(arraygroupdata, vi, tl);
   if (nan_count == 0)
     return;
   CCTK_VERROR("%s: Grid array \"%s\" has %td nans on time level %d; "

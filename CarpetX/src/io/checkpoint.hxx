@@ -3,6 +3,7 @@
 
 #include "internal.hxx"
 
+#include "util/var_type.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -36,7 +37,7 @@ struct grid_buffer_t {
 
 struct array_buffer_t {
   void *data;
-  int vartype;
+  var_type vartype;
   std::vector<int> shape;
 };
 

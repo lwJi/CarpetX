@@ -217,8 +217,8 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
   const int numgroups = CCTK_NumGroups();
   assert(groupdata.empty());
   groupdata.reserve(numgroups);
-  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
-    const GHExt::GroupRecord &group = ext.record(gi_t{gi0});
+  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
+    const GHExt::GroupRecord &group = ext.record(gi);
     if (group.kind != group_kind::grid_function)
       groupdata.emplace_back(nullptr);
     else
@@ -227,8 +227,7 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
               group, level, ba, dm, why));
   }
 
-  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
-    const gi_t gi{gi0};
+  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
     const GHExt::GroupRecord &group = ext.record(gi);
     if (group.kind != group_kind::grid_function)
       continue;
@@ -276,17 +275,11 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     const amrex::DistributionMapping &dm,
     const std::function<std::string()> &why)
     : record(record), level(level) {
-  const int gi = record.groupindex.index();
   const int numvars = record.numvars;
   const gi_t groupindex = record.groupindex;
-  cGroup cgroup;
-  int ierr = CCTK_GroupData(gi, &cgroup);
-  assert(!ierr);
 
   assert(record.kind == group_kind::grid_function);
-  assert(cgroup.vartype == CCTK_VARIABLE_REAL);
-  assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
-  assert(cgroup.dim == dim);
+  assert(record.var_type == var_type::real);
 
   indextype = get_group_indextype(groupindex);
   nghostzones = get_group_nghostzones(groupindex);
@@ -467,28 +460,35 @@ GHExt::GroupRecord::GroupRecord(const gi_t gi, const int num_timelevels)
     CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
                 (int)cgroup.grouptype, groupname.c_str());
   }
-  if (kind != group_kind::grid_function)
+  const std::optional<CarpetX::var_type> type =
+      var_type_from_cctk(cgroup.vartype);
+  if (!type)
+    refuse(std::source_location::current(),
+           "group %s has variable type %s, which CarpetX does not store",
+           groupname.c_str(), CCTK_VarTypeName(cgroup.vartype));
+  var_type = *type;
+  if (kind == group_kind::grid_function) {
+    assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
+    assert(cgroup.dim == dim);
+  } else {
+    assert(cgroup.disttype == CCTK_DISTRIB_CONSTANT);
+    assert(cgroup.dim >= 0);
+    assert(cgroup.dim <= dim);
     array_ = std::make_unique<GlobalData::ArrayGroupData>(*this);
+  }
 }
 
 GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
     : record(record) {
-  const int gi = record.groupindex.index();
-  cGroup cgroup;
-  const int ierr = CCTK_GroupData(gi, &cgroup);
-  assert(!ierr);
   assert(record.kind != group_kind::grid_function);
-  assert(cgroup.disttype == CCTK_DISTRIB_CONSTANT);
-  assert(cgroup.dim >= 0);
-  assert(cgroup.dim <= dim);
+  dimension = CCTK_GroupDimI(record.groupindex.index());
 
-  CCTK_INT const *const *const sz = CCTK_GroupSizesI(gi);
+  CCTK_INT const *const *const sz = CCTK_GroupSizesI(record.groupindex.index());
   array_size = 1;
-  for (int d = 0; d < cgroup.dim; ++d)
+  for (int d = 0; d < dimension; ++d)
     array_size = array_size * *sz[d];
 
-  dimension = cgroup.dim;
-  for (int d = 0; d < cgroup.dim; ++d) {
+  for (int d = 0; d < dimension; ++d) {
     lsh[d] = *sz[d];
     ash[d] = *sz[d];
     gsh[d] = *sz[d];
@@ -497,7 +497,7 @@ GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
     ubnd[d] = *sz[d] - 1;
     bbox[2 * d] = bbox[2 * d + 1] = 1;
   }
-  for (int d = cgroup.dim; d < dim; ++d) {
+  for (int d = dimension; d < dim; ++d) {
     lsh[d] = 1;
     ash[d] = 1;
     gsh[d] = 1;
@@ -510,8 +510,9 @@ GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
   const int ntls = record.num_timelevels();
   tls.reserve(ntls);
   for (int tl = 0; tl < ntls; ++tl)
-    tls.emplace_back(AnyTypeVector(cgroup.vartype, record.numvars * array_size),
-                     record.numvars, []() { return "freeze_storage"; });
+    tls.emplace_back(
+        AnyTypeVector(record.var_type, record.numvars * array_size),
+        record.numvars, []() { return "freeze_storage"; });
 }
 
 void GHExt::GlobalData::ArrayGroupData::rotate_timelevels() {
@@ -531,8 +532,8 @@ void GHExt::freeze_storage() {
   const int numgroups = CCTK_NumGroups();
   assert(int(active_timelevels.size()) == numgroups);
   group_records.reserve(numgroups);
-  for (int gi = 0; gi < numgroups; ++gi)
-    group_records.emplace_back(gi_t{gi}, active_timelevels.at(gi));
+  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups}))
+    group_records.emplace_back(gi, active_timelevels.at(gi.index()));
   storage_frozen = true;
 
   for (const GroupRecord &group : records()) {
@@ -544,6 +545,15 @@ void GHExt::freeze_storage() {
                         .where = make_valid_int(),
                         .event = "freeze_storage"});
   }
+}
+
+const GHExt::GroupRecord &
+GHExt::record_of(const var_t var, const std::source_location site) const {
+  const gi_t gi{CCTK_GroupIndexFromVarI(var.index())};
+  if (gi.index() < 0)
+    refuse(site, "variable index %d does not exist: there are %d variables",
+           var.index(), CCTK_NumVars());
+  return record(gi, site);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -119,19 +119,16 @@ operator<<(std::ostream &os,
            const GHExt::GlobalData::AnyTypeVector::AnyTypeScalarRef &scalar) {
   const char sep = '\t';
   switch (scalar._vect.type()) {
-  case CCTK_VARIABLE_REAL:
+  case var_type::real:
     os << *(CCTK_REAL *)scalar._vect.data_at(scalar._idx);
     break;
-  case CCTK_VARIABLE_INT:
+  case var_type::integer:
     os << *(CCTK_INT *)scalar._vect.data_at(scalar._idx);
     break;
-  case CCTK_VARIABLE_COMPLEX: {
+  case var_type::complex: {
     CCTK_COMPLEX value = *(CCTK_COMPLEX *)scalar._vect.data_at(scalar._idx);
     os << value.real() << sep << value.imag();
   } break;
-  default:
-    assert(0 && "Unexpected variable type");
-    break;
   }
   return os;
 }
@@ -168,20 +165,17 @@ operator<<(YAML::Emitter &yaml,
            const GHExt::GlobalData::AnyTypeVector::AnyTypeScalarRef
                &anytypescalarref) {
   switch (anytypescalarref._vect.type()) {
-  case CCTK_VARIABLE_COMPLEX:
+  case var_type::complex:
     yaml << *(const CCTK_COMPLEX *)anytypescalarref._vect.data_at(
         anytypescalarref._idx);
     break;
-  case CCTK_VARIABLE_REAL:
+  case var_type::real:
     yaml << *(const CCTK_REAL *)anytypescalarref._vect.data_at(
         anytypescalarref._idx);
     break;
-  case CCTK_VARIABLE_INT:
+  case var_type::integer:
     yaml << *(const CCTK_INT *)anytypescalarref._vect.data_at(
         anytypescalarref._idx);
-    break;
-  default:
-    CCTK_VERROR("Cannot handle type %d", anytypescalarref._vect.type());
     break;
   }
   return yaml;
