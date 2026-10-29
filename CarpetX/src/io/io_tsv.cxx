@@ -189,6 +189,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
 }
 
 void OutputTSVold(const cGH *restrict cctkGH) {
+  const operation_scope_t op("CarpetX::OutputTSVold");
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
