@@ -15,6 +15,7 @@
 #include <AMReX_Geometry.H>
 #include <AMReX_Vector.H>
 
+#include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <memory>
@@ -39,7 +40,9 @@ std::string buffer_id_t::name() const {
   return buf.str();
 }
 
-int checkpoint_record_t::num_patches() const { return levels_.size(); }
+int checkpoint_record_t::num_patches() const {
+  return levels_.empty() ? 0 : levels_.rbegin()->first.patch().index() + 1;
+}
 
 std::vector<patch_t> checkpoint_record_t::patches() const {
   std::vector<patch_t> result;
@@ -49,52 +52,41 @@ std::vector<patch_t> checkpoint_record_t::patches() const {
   return result;
 }
 
-const std::vector<level_record_t> &
-checkpoint_record_t::patch_levels(const patch_t patch,
-                                  const std::source_location site) const {
-  const int p = patch.index();
-  if (p < 0 || p >= num_patches())
-    refuse(site, "patch %d is not in the checkpoint record: it has %d patches",
-           p, num_patches());
-  return levels_[p];
-}
-
 int checkpoint_record_t::num_levels(const patch_t patch,
                                     const std::source_location site) const {
-  return patch_levels(patch, site).size();
+  return levels(patch, site).size();
 }
 
 std::vector<level_t>
 checkpoint_record_t::levels(const patch_t patch,
                             const std::source_location site) const {
-  const int nlevels = num_levels(patch, site);
   std::vector<level_t> result;
-  result.reserve(nlevels);
-  for (int lev = 0; lev < nlevels; ++lev)
-    result.push_back(level_t{patch, lev});
+  for (const auto &[level, levelrecord] : levels_)
+    if (level.patch() == patch)
+      result.push_back(level);
+  if (result.empty())
+    refuse(site, "patch %d is not in the checkpoint record: it has %d patches",
+           patch.index(), num_patches());
   return result;
 }
 
 std::vector<level_t> checkpoint_record_t::levels() const {
   std::vector<level_t> result;
-  for (const patch_t patch : patches())
-    for (const level_t level : levels(patch))
-      result.push_back(level);
+  result.reserve(levels_.size());
+  for (const auto &[level, levelrecord] : levels_)
+    result.push_back(level);
   return result;
 }
 
 const level_record_t &
 checkpoint_record_t::level_record(const level_t level,
                                   const std::source_location site) const {
-  const std::vector<level_record_t> &records =
-      patch_levels(level.patch(), site);
-  const int lev = level.index();
-  if (lev < 0 || lev >= int(records.size()))
+  const auto found = levels_.find(level);
+  if (found == levels_.end())
     refuse(site,
-           "refinement level %d of patch %d is not in the checkpoint record: "
-           "the patch has %d levels",
-           lev, level.patch().index(), int(records.size()));
-  return records[lev];
+           "refinement level %d of patch %d is not in the checkpoint record",
+           level.index(), level.patch().index());
+  return found->second;
 }
 
 level_record_t &
@@ -105,11 +97,12 @@ checkpoint_record_t::level_record(const level_t level,
 }
 
 level_record_t &checkpoint_record_t::add_level(const patch_t patch) {
-  const int p = patch.index();
-  assert(p >= 0 && p <= num_patches());
-  if (p == num_patches())
-    levels_.emplace_back();
-  return levels_[p].emplace_back();
+  assert(patch.index() >= 0 && patch.index() <= num_patches());
+  const int nlevels =
+      std::count_if(levels_.begin(), levels_.end(), [&](const auto &entry) {
+        return entry.first.patch() == patch;
+      });
+  return levels_[level_t{patch, nlevels}];
 }
 
 namespace {

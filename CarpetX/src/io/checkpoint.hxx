@@ -12,6 +12,7 @@
 #include <AMReX_Geometry.H>
 #include <AMReX_MultiFab.H>
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -83,10 +84,7 @@ struct checkpoint_record_t {
   level_record_t &add_level(patch_t patch);
 
 private:
-  const std::vector<level_record_t> &
-  patch_levels(patch_t patch, std::source_location site) const;
-
-  std::vector<std::vector<level_record_t> > levels_;
+  std::map<level_t, level_record_t> levels_;
 };
 
 struct codec_limits_t {
