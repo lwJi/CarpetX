@@ -257,16 +257,11 @@ void OutputOpenPMD(const cGH *const cctkGH) {
 
   for (const GHExt::GroupRecord &group :
        selection.records(group_kind::grid_function))
-    switch (group.var_type) {
-    case var_type::real:
-      break;
-    case var_type::integer:
-    case var_type::complex:
+    if (group.var_type != var_type::real)
       refuse(std::source_location::current(),
              "openPMD-2D writes only real grid functions; group %s is %s",
              group.groupname.c_str(),
              CCTK_VarTypeName(cctk_code(group.var_type)));
-    }
 
   if (!carpetx_openpmd_t::self)
     carpetx_openpmd_t::self = std::make_optional<carpetx_openpmd_t>();

@@ -2,6 +2,7 @@
 #include "hierarchy/loops.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/valid.hxx"
+#include "util/var_type.hxx"
 
 #include <loop_device.hxx>
 
@@ -17,6 +18,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -388,26 +390,23 @@ void poison_ga_interior(ArrayGroupData &arraygroupdata, const vi_t vi,
   Interval interval(timer);
 
   const int n_elems = array_elements(arraygroupdata);
-  switch (arraygroupdata.record.var_type) {
-  case var_type::complex: {
-    CCTK_COMPLEX *restrict ptr = static_cast<CCTK_COMPLEX *>(
+  visit(arraygroupdata.record.var_type, [&](const auto tag) {
+    using T = typename decltype(tag)::type;
+    T *restrict const ptr = static_cast<T *>(
         arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
-    const poison_value_t<CCTK_COMPLEX> poison_value;
+    const poison_value_t<T> poison_value;
     poison_value.set_to_poison(ptr, n_elems);
-  } break;
-  case var_type::real: {
-    CCTK_REAL *restrict ptr = static_cast<CCTK_REAL *>(
-        arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
-    const poison_value_t<CCTK_REAL> poison_value;
-    poison_value.set_to_poison(ptr, n_elems);
-  } break;
-  case var_type::integer: {
-    CCTK_INT *restrict ptr = static_cast<CCTK_INT *>(
-        arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
-    const poison_value_t<CCTK_INT> poison_value;
-    poison_value.set_to_poison(ptr, n_elems);
-  } break;
-  }
+  });
+}
+
+template <typename T> bool has_nan(const T &value) {
+  using std::isnan;
+  if constexpr (std::is_same_v<T, CCTK_COMPLEX>)
+    return isnan(value.real()) || isnan(value.imag());
+  else if constexpr (std::is_floating_point_v<T>)
+    return isnan(value);
+  else
+    return false;
 }
 
 std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const vi_t vi,
@@ -415,46 +414,19 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const vi_t vi,
   static Timer timer("check_valid<GA>");
   Interval interval(timer);
 
-  using std::isnan;
-
-  std::size_t nan_count{0};
-
   const int n_elems = array_elements(arraygroupdata);
-  switch (arraygroupdata.record.var_type) {
-  case var_type::complex: {
-    const poison_value_t<CCTK_COMPLEX> poison_value;
-    const CCTK_COMPLEX *restrict const ptr =
-        static_cast<const CCTK_COMPLEX *const>(
-            arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
-    for (int i = 0; i < n_elems; i++) {
-      if (CCTK_BUILTIN_EXPECT(poison_value.is_poison(ptr[i]) ||
-                                  isnan(ptr[i].real()) || isnan(ptr[i].imag()),
+  return visit(arraygroupdata.record.var_type, [&](const auto tag) {
+    using T = typename decltype(tag)::type;
+    const poison_value_t<T> poison_value;
+    const T *restrict const ptr = static_cast<const T *>(
+        arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
+    std::size_t nan_count{0};
+    for (int i = 0; i < n_elems; i++)
+      if (CCTK_BUILTIN_EXPECT(poison_value.is_poison(ptr[i]) || has_nan(ptr[i]),
                               false))
         ++nan_count;
-    }
-  } break;
-  case var_type::real: {
-    const poison_value_t<CCTK_REAL> poison_value;
-    const CCTK_REAL *restrict const ptr = static_cast<const CCTK_REAL *const>(
-        arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
-    for (int i = 0; i < n_elems; i++) {
-      if (CCTK_BUILTIN_EXPECT(poison_value.is_poison(ptr[i]) || isnan(ptr[i]),
-                              false))
-        ++nan_count;
-    }
-  } break;
-  case var_type::integer: {
-    const poison_value_t<CCTK_INT> poison_value;
-    const CCTK_INT *restrict const ptr = static_cast<const CCTK_INT *const>(
-        arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
-    for (int i = 0; i < n_elems; i++) {
-      if (CCTK_BUILTIN_EXPECT(poison_value.is_poison(ptr[i]), false))
-        ++nan_count;
-    }
-  } break;
-  }
-
-  return nan_count;
+    return nan_count;
+  });
 }
 
 void poison_invalid_ga(const gi_t gi, const vi_t vi, const tl_t tl,

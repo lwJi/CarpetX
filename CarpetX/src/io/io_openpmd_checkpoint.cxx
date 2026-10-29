@@ -149,47 +149,27 @@ void load_raw(openPMD::MeshRecordComponent &component, T *const ptr,
 }
 
 openPMD::Datatype array_datatype(const var_type vartype) {
-  switch (vartype) {
-  case var_type::real:
-    return openPMD::determineDatatype<CCTK_REAL>();
-  case var_type::integer:
-    return openPMD::determineDatatype<CCTK_INT>();
-  case var_type::complex:
-    return openPMD::determineDatatype<CCTK_COMPLEX>();
-  }
-  CCTK_VERROR("CarpetX: unknown var_type value %d", int(vartype));
+  return visit(vartype, [](const auto tag) {
+    return openPMD::determineDatatype<typename decltype(tag)::type>();
+  });
 }
 
 void store_array(openPMD::MeshRecordComponent &component,
                  const var_type vartype, const void *const ptr,
                  const openPMD::Offset &start, const openPMD::Extent &count) {
-  switch (vartype) {
-  case var_type::real:
-    store_raw(component, static_cast<const CCTK_REAL *>(ptr), start, count);
-    return;
-  case var_type::integer:
-    store_raw(component, static_cast<const CCTK_INT *>(ptr), start, count);
-    return;
-  case var_type::complex:
-    store_raw(component, static_cast<const CCTK_COMPLEX *>(ptr), start, count);
-    return;
-  }
+  visit(vartype, [&](const auto tag) {
+    using T = typename decltype(tag)::type;
+    store_raw(component, static_cast<const T *>(ptr), start, count);
+  });
 }
 
 void load_array(openPMD::MeshRecordComponent &component, const var_type vartype,
                 void *const ptr, const openPMD::Offset &start,
                 const openPMD::Extent &count) {
-  switch (vartype) {
-  case var_type::real:
-    load_raw(component, static_cast<CCTK_REAL *>(ptr), start, count);
-    return;
-  case var_type::integer:
-    load_raw(component, static_cast<CCTK_INT *>(ptr), start, count);
-    return;
-  case var_type::complex:
-    load_raw(component, static_cast<CCTK_COMPLEX *>(ptr), start, count);
-    return;
-  }
+  visit(vartype, [&](const auto tag) {
+    using T = typename decltype(tag)::type;
+    load_raw(component, static_cast<T *>(ptr), start, count);
+  });
 }
 
 void extract_interior(CCTK_REAL *const dst, const CCTK_REAL *const src,
