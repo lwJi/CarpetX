@@ -1,7 +1,10 @@
 #include "io/io_tsv.hxx"
 
+#include "io/selection.hxx"
 #include "hierarchy/driver.hxx"
 #include "util/mpi_types.hxx"
+#include "util/refuse.hxx"
+#include "util/var_type.hxx"
 #include <carpetx.hxx>
 
 #include <cctk_Arguments.h>
@@ -15,8 +18,10 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <regex>
 #include <set>
+#include <source_location>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -25,14 +30,14 @@
 
 namespace CarpetX {
 
-// Which information to output in the header
 enum out_fileinfo_t {
   fileinfo_none = 0x0,
   fileinfo_create_date = 0x1,
   fileinfo_parameter_filename = 0x2,
   fileinfo_axis_labels = 0x4
 };
-static out_fileinfo_t get_out_fileinfo() {
+static out_fileinfo_t get_out_fileinfo(
+    const std::source_location site = std::source_location::current()) {
   DECLARE_CCTK_PARAMETERS;
   if (CCTK_EQUALS(out_fileinfo, "none"))
     return fileinfo_none;
@@ -45,7 +50,8 @@ static out_fileinfo_t get_out_fileinfo() {
   if (CCTK_EQUALS(out_fileinfo, "all"))
     return out_fileinfo_t(fileinfo_create_date | fileinfo_parameter_filename |
                           fileinfo_axis_labels);
-  CCTK_ERROR("Internal error");
+  refuse(site, "IO::out_fileinfo is \"%s\", which this writer does not know",
+         out_fileinfo);
 }
 
 // Collect the information we may want to put into headers
@@ -76,9 +82,9 @@ static fileinfo_t get_fileinfo() {
   return fileinfo;
 }
 
-// How to output the headers
 enum out_header_t { header_none, header_comment, header_plain };
-static out_header_t get_out_header() {
+static out_header_t get_out_header(
+    const std::source_location site = std::source_location::current()) {
   DECLARE_CCTK_PARAMETERS;
   if (CCTK_EQUALS(out_tsv_header, "none"))
     return header_none;
@@ -86,7 +92,9 @@ static out_header_t get_out_header() {
     return header_comment;
   if (CCTK_EQUALS(out_tsv_header, "plain"))
     return header_plain;
-  CCTK_ERROR("Internal error");
+  refuse(site,
+         "CarpetX::out_tsv_header is \"%s\", which this writer does not know",
+         out_tsv_header);
 }
 
 void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
@@ -193,58 +201,49 @@ void OutputTSVold(const cGH *restrict cctkGH) {
   const out_fileinfo_t out_fileinfo_val = get_out_fileinfo();
   const out_header_t out_header = get_out_header();
 
-  const int numgroups = CCTK_NumGroups();
-  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
-    const gi_t gi{gi0};
-    const auto &group = driver().record(gi);
-    if (group.kind != group_kind::grid_function)
-      continue;
+  for (const GHExt::GroupRecord &group :
+       driver().records(group_kind::grid_function)) {
+    const tl_t tl{0};
 
-    if (group.has_storage()) {
-      const tl_t tl{0};
+    std::string groupname = group.groupname;
+    groupname = regex_replace(groupname, std::regex("::"), "-");
+    for (auto &c : groupname)
+      c = tolower(c);
+    std::ostringstream buf;
+    buf << out_dir << "/" << groupname;
+    buf << ".it" << std::setw(6) << std::setfill('0') << cctk_iteration;
+    buf << ".p" << std::setw(4) << std::setfill('0') << CCTK_MyProc(nullptr);
+    const std::string filename = buf.str();
 
-      std::string groupname = CCTK_FullGroupName(gi.index());
-      groupname = regex_replace(groupname, std::regex("::"), "-");
-      for (auto &c : groupname)
-        c = tolower(c);
+    amrex::Vector<std::string> varnames(group.numvars);
+    for (const vi_t vi : group.variables()) {
       std::ostringstream buf;
-      buf << out_dir << "/" << groupname;
-      buf << ".it" << std::setw(6) << std::setfill('0') << cctk_iteration;
-      buf << ".p" << std::setw(4) << std::setfill('0') << CCTK_MyProc(nullptr);
-      const std::string filename = buf.str();
-
-      amrex::Vector<std::string> varnames(group.numvars);
-      for (const vi_t vi : group.variables()) {
-        std::ostringstream buf;
-        buf << CCTK_VarName(group.var(vi).index());
-        for (int i = 0; i < tl.index(); ++i)
-          buf << "_p";
-        varnames.at(vi.index()) = buf.str();
-      }
-
-      WriteTSVold(cctkGH, filename, gi, varnames, out_fileinfo_val, out_header);
+      buf << CCTK_VarName(group.var(vi).index());
+      for (int i = 0; i < tl.index(); ++i)
+        buf << "_p";
+      varnames.at(vi.index()) = buf.str();
     }
+
+    WriteTSVold(cctkGH, filename, group.groupindex, varnames, out_fileinfo_val,
+                out_header);
   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
-                     const gi_t gi, const bool truncate_files,
+                     const GHExt::GroupRecord &group, const bool truncate_files,
                      const out_fileinfo_t out_fileinfo,
                      const out_header_t out_header) {
   // Output only on root process
   if (CCTK_MyProc(nullptr) > 0)
     return;
 
-  const auto &arraygroupdata = driver().record(gi).array();
-  cGroup cgroup;
-  const int ierr = CCTK_GroupData(gi.index(), &cgroup);
-  assert(!ierr);
+  const auto &arraygroupdata = group.array();
 
   std::vector<std::string> varnames;
-  for (const vi_t vi : arraygroupdata.record.variables())
-    varnames.push_back(CCTK_VarName(arraygroupdata.record.var(vi).index()));
+  for (const vi_t vi : group.variables())
+    varnames.push_back(CCTK_VarName(group.var(vi).index()));
 
   const std::string sep = "\t";
   static std::set<std::string> did_write_file;
@@ -262,11 +261,8 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
        << std::scientific;
 
   if (file.tellp() == 0) {
-    // Output header if the file is empty, i.e. the first time we write to this
-    // file
     switch (out_header) {
     case header_none:
-      // no header
       break;
     case header_comment: {
       fileinfo_t fileinfo = get_fileinfo();
@@ -282,33 +278,33 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
         file << "# 1:iteration" << sep << "2:time";
         int col = 3;
         for (const auto &varname : varnames)
-          if (cgroup.vartype == CCTK_VARIABLE_REAL ||
-              cgroup.vartype == CCTK_VARIABLE_INT) {
+          switch (group.var_type) {
+          case var_type::real:
+          case var_type::integer:
             file << sep << col++ << ":" << varname;
-          } else if (cgroup.vartype == CCTK_VARIABLE_COMPLEX) {
+            break;
+          case var_type::complex:
             file << sep << col++ << ":" << varname << ".real";
             file << sep << col++ << ":" << varname << ".imag";
-          } else {
-            CCTK_ERROR("internal error");
+            break;
           }
         file << "\n";
       }
       break;
     }
     case header_plain: {
-      // We can only output axis labels when using the "plain" format;
-      // everything else would break TSV "standard" (and confuse TSV readers)
       if (out_fileinfo & fileinfo_axis_labels) {
         file << "iteration" << sep << "time";
         for (const auto &varname : varnames)
-          if (cgroup.vartype == CCTK_VARIABLE_REAL ||
-              cgroup.vartype == CCTK_VARIABLE_INT) {
+          switch (group.var_type) {
+          case var_type::real:
+          case var_type::integer:
             file << sep << varname;
-          } else if (cgroup.vartype == CCTK_VARIABLE_COMPLEX) {
+            break;
+          case var_type::complex:
             file << sep << varname << "_real";
             file << sep << varname << "_imag";
-          } else {
-            CCTK_ERROR("internal error");
+            break;
           }
         file << "\n";
       }
@@ -320,30 +316,28 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
   file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time;
   const tl_t tl{0};
   const auto &data = arraygroupdata.timelevel(tl).data;
-  for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
-    file << sep << data[vi];
+  for (const vi_t vi : group.variables())
+    file << sep << data[vi.index()];
   file << "\n";
 }
 
 void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
-                    const gi_t gi, const int out_dir, const bool truncate_files,
+                    const GHExt::GroupRecord &group, const int out_dir,
+                    const bool truncate_files,
                     const out_fileinfo_t out_fileinfo,
                     const out_header_t out_header) {
   // Output only on root process
   if (CCTK_MyProc(nullptr) > 0)
     return;
 
-  const auto &arraygroupdata = driver().record(gi).array();
-  cGroup cgroup;
-  const int ierr = CCTK_GroupData(gi.index(), &cgroup);
-  assert(!ierr);
+  const auto &arraygroupdata = group.array();
 
   if (out_dir >= arraygroupdata.dimension)
     return;
 
   std::vector<std::string> varnames;
-  for (const vi_t vi : arraygroupdata.record.variables())
-    varnames.push_back(CCTK_VarName(arraygroupdata.record.var(vi).index()));
+  for (const vi_t vi : group.variables())
+    varnames.push_back(CCTK_VarName(group.var(vi).index()));
 
   const std::string sep = "\t";
   static std::set<std::string> did_write_file;
@@ -361,11 +355,8 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
        << std::scientific;
 
   if (file.tellp() == 0) {
-    // Output header if the file is empty, i.e. the first time we write to this
-    // file
     switch (out_header) {
     case header_none:
-      // no header
       break;
     case header_comment: {
       fileinfo_t fileinfo = get_fileinfo();
@@ -385,36 +376,36 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
           file << sep << col++ << ":"
                << "ijk"[dir];
         for (const auto &varname : varnames)
-          if (cgroup.vartype == CCTK_VARIABLE_REAL ||
-              cgroup.vartype == CCTK_VARIABLE_INT) {
+          switch (group.var_type) {
+          case var_type::real:
+          case var_type::integer:
             file << sep << col++ << ":" << varname;
-          } else if (cgroup.vartype == CCTK_VARIABLE_COMPLEX) {
+            break;
+          case var_type::complex:
             file << sep << col++ << ":" << varname << ".real";
             file << sep << col++ << ":" << varname << ".imag";
-          } else {
-            CCTK_ERROR("internal error");
+            break;
           }
         file << "\n";
       }
       break;
     }
     case header_plain: {
-      // We can only output axis labels when using the "plain" format;
-      // everything else would break TSV "standard" (and confuse TSV readers)
       if (out_fileinfo & fileinfo_axis_labels) {
         file << "iteration";
         file << sep << "time";
         for (int dir = 0; dir < arraygroupdata.dimension; ++dir)
           file << sep << "ijk"[dir];
         for (const auto &varname : varnames)
-          if (cgroup.vartype == CCTK_VARIABLE_REAL ||
-              cgroup.vartype == CCTK_VARIABLE_INT) {
+          switch (group.var_type) {
+          case var_type::real:
+          case var_type::integer:
             file << sep << varname;
-          } else if (cgroup.vartype == CCTK_VARIABLE_COMPLEX) {
+            break;
+          case var_type::complex:
             file << sep << varname << "_real";
             file << sep << varname << "_imag";
-          } else {
-            CCTK_ERROR("internal error");
+            break;
           }
         file << "\n";
       }
@@ -435,20 +426,20 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
       file << sep << (dir == out_dir ? i : 0);
     const tl_t tl{0};
     const auto &data = arraygroupdata.timelevel(tl).data;
-    for (int vi = 0; vi < arraygroupdata.record.numvars; ++vi)
-      file << sep << data[np * vi + DI[out_dir] * i];
+    for (const vi_t vi : group.variables())
+      file << sep << data[np * vi.index() + DI[out_dir] * i];
     file << "\n";
   }
 }
 
 void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
-                 const gi_t gi, const vect<bool, dim> &outdirs,
+                 const GHExt::GroupRecord &group,
+                 const vect<bool, dim> &outdirs,
                  const vect<CCTK_REAL, dim> &outcoords,
                  const bool truncate_files, const out_fileinfo_t out_fileinfo,
                  const out_header_t out_header,
                  const bool output_boundary_points) {
   const GHExt &ext = driver();
-  const auto &group = ext.record(gi);
 
   const int nintvalues = 1 + 1 + dim + 1;
   const int nvalues = nintvalues + dim + group.numvars;
@@ -457,7 +448,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
   data.reserve(10000);
   for (const auto &patchdata : ext.patches()) {
     for (const auto &leveldata : patchdata.levels()) {
-      const auto &groupdata = leveldata.group(gi);
+      const auto &groupdata = leveldata.group(group.groupindex);
 
       const tl_t tl{0};
 
@@ -542,8 +533,8 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
                 data.push_back(isghost);
                 for (int d = 0; d < dim; ++d)
                   data.push_back(x0[d] + I[d] * dx[d]);
-                for (int vi = 0; vi < groupdata.record.numvars; ++vi)
-                  data.push_back(vars(i, j, k, vi));
+                for (const vi_t vi : group.variables())
+                  data.push_back(vars(i, j, k, vi.index()));
                 assert(data.size() == old_size + nvalues);
               }
             }
@@ -691,11 +682,15 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
 }
 
 void OutputTSV(const cGH *restrict cctkGH) {
+  const operation_scope_t op("CarpetX::OutputTSV");
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
-  if (out_tsv_vars[0] == '\0')
+  const group_selection_t selection =
+      group_selection_t::select_groups("out_tsv_vars", out_tsv_vars);
+  if (selection.empty())
     return;
+  selection.log("TSV", std::nullopt);
 
   static Timer timer("OutputTSVUni");
   Interval interval(timer);
@@ -712,69 +707,40 @@ void OutputTSV(const cGH *restrict cctkGH) {
   // ourselves whether this is the beginning of a simulation.
   const bool truncate_files = IO_TruncateOutputFiles(cctkGH);
 
-  // Find output groups
-  const std::vector<bool> group_enabled = [&] {
-    std::vector<bool> enabled(CCTK_NumGroups(), false);
-    const auto callback{
-        [](const int index, const char *const optstring, void *const arg) {
-          std::vector<bool> &enabled = *static_cast<std::vector<bool> *>(arg);
-          enabled.at(CCTK_GroupIndexFromVarI(index)) = true;
-        }};
-    CCTK_TraverseString(out_tsv_vars, callback, &enabled, CCTK_GROUP_OR_VAR);
-    if (verbose) {
-      CCTK_VINFO("TSV output for groups:");
-      for (int gi = 0; gi < CCTK_NumGroups(); ++gi)
-        if (enabled.at(gi))
-          CCTK_VINFO("  %s", CCTK_FullGroupName(gi));
-    }
-    return enabled;
-  }();
-  const auto num_out_groups =
-      count(group_enabled.begin(), group_enabled.end(), true);
-  if (num_out_groups == 0)
-    return;
-
-  const int numgroups = CCTK_NumGroups();
-  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
-    const gi_t gi{gi0};
-    if (group_enabled.at(gi.index())) {
-      const auto &group = driver().record(gi);
-      if (!group.has_storage())
-        continue;
-      std::string groupname = CCTK_FullGroupName(gi.index());
-      groupname = regex_replace(groupname, std::regex("::"), "-");
-      for (auto &ch : groupname)
-        ch = tolower(ch);
-      std::ostringstream buf;
-      buf << out_dir << "/" << groupname;
-      if (!combine_iterations)
-        buf << ".it" << std::setw(6) << std::setfill('0') << cctk_iteration;
-      const std::string basename = buf.str();
-      switch (group.kind) {
-      case group_kind::scalar:
-        WriteTSVScalars(cctkGH, basename + ".tsv", gi, truncate_files,
-                        out_fileinfo_val, out_header);
-        break;
-      case group_kind::array:
-        WriteTSVArrays(cctkGH, basename + ".x.tsv", gi, 0, truncate_files,
-                       out_fileinfo_val, out_header);
-        WriteTSVArrays(cctkGH, basename + ".y.tsv", gi, 1, truncate_files,
-                       out_fileinfo_val, out_header);
-        WriteTSVArrays(cctkGH, basename + ".z.tsv", gi, 2, truncate_files,
-                       out_fileinfo_val, out_header);
-        break;
-      case group_kind::grid_function:
-        WriteTSVGFs(cctkGH, basename + ".x.tsv", gi, {true, false, false},
-                    {0, out_xline_y, out_xline_z}, truncate_files,
-                    out_fileinfo_val, out_header, output_boundary_points);
-        WriteTSVGFs(cctkGH, basename + ".y.tsv", gi, {false, true, false},
-                    {out_yline_x, 0, out_yline_z}, truncate_files,
-                    out_fileinfo_val, out_header, output_boundary_points);
-        WriteTSVGFs(cctkGH, basename + ".z.tsv", gi, {false, false, true},
-                    {out_zline_x, out_zline_y, 0}, truncate_files,
-                    out_fileinfo_val, out_header, output_boundary_points);
-        break;
-      }
+  for (const GHExt::GroupRecord &group : selection.records()) {
+    std::string groupname = group.groupname;
+    groupname = regex_replace(groupname, std::regex("::"), "-");
+    for (auto &ch : groupname)
+      ch = tolower(ch);
+    std::ostringstream buf;
+    buf << out_dir << "/" << groupname;
+    if (!combine_iterations)
+      buf << ".it" << std::setw(6) << std::setfill('0') << cctk_iteration;
+    const std::string basename = buf.str();
+    switch (group.kind) {
+    case group_kind::scalar:
+      WriteTSVScalars(cctkGH, basename + ".tsv", group, truncate_files,
+                      out_fileinfo_val, out_header);
+      break;
+    case group_kind::array:
+      WriteTSVArrays(cctkGH, basename + ".x.tsv", group, 0, truncate_files,
+                     out_fileinfo_val, out_header);
+      WriteTSVArrays(cctkGH, basename + ".y.tsv", group, 1, truncate_files,
+                     out_fileinfo_val, out_header);
+      WriteTSVArrays(cctkGH, basename + ".z.tsv", group, 2, truncate_files,
+                     out_fileinfo_val, out_header);
+      break;
+    case group_kind::grid_function:
+      WriteTSVGFs(cctkGH, basename + ".x.tsv", group, {true, false, false},
+                  {0, out_xline_y, out_xline_z}, truncate_files,
+                  out_fileinfo_val, out_header, output_boundary_points);
+      WriteTSVGFs(cctkGH, basename + ".y.tsv", group, {false, true, false},
+                  {out_yline_x, 0, out_yline_z}, truncate_files,
+                  out_fileinfo_val, out_header, output_boundary_points);
+      WriteTSVGFs(cctkGH, basename + ".z.tsv", group, {false, false, true},
+                  {out_zline_x, out_zline_y, 0}, truncate_files,
+                  out_fileinfo_val, out_header, output_boundary_points);
+      break;
     }
   }
 }
