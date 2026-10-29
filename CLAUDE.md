@@ -8,6 +8,8 @@ This repository is organized as Cactus thorns. Each top-level directory such as 
 
 Do **not** read reference test data files (e.g. `*/test/*/*.tsv`, `*/test/*/*.h5`, or other large numerical output) unless the user explicitly asks for it. They are large, binary-like, and rarely informative for code-level reasoning. Inspect the `.par` parameter file and the thorn source instead.
 
+CarpetX's own sources are ten layers, one directory each under `CarpetX/src/`, and a file includes only its own layer or a lower one. Before adding code to CarpetX, read `agent_docs/carpetx-internals.md`, which says what each layer owns and which `scripts/boundary` rules hold the lines between them; the edit hook enforces them, and `python3 scripts/boundary check` shows what it would report. Other thorns reach CarpetX only through `<carpetx.hxx>` and `<carpetx_rk.hxx>`, described in `agent_docs/carpetx-public-api.md`.
+
 ## Build & Test
 
 ```bash

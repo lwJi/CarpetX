@@ -1,0 +1,130 @@
+#include "comm/boundaries.hxx"
+#include "comm/boundaries_impl.hxx"
+
+#include <carpetx.hxx>
+#include <vect.hxx>
+
+#include <cctk.h>
+#include <cctk_Parameters.h>
+
+#include <AMReX.H>
+
+#include <algorithm>
+#include <cmath>
+#include <sstream>
+#include <type_traits>
+#include <vector>
+
+namespace CarpetX {
+
+// TODO: The algorithm below applies symmetry and boundary conditions
+// in all directions "at once", and thus has to be able to apply
+// multiple boundary conditions simultaneously. This adds complexity
+// and makes the code slow to build.
+//
+// An alternative would be to apply symmetry and boundary conditions
+// sequentially, first on faces, then edges, then corners. On edges
+// and corners we would choose one (preferred) symmetry or boundary
+// condition to be applied there. This would simplify the code, reduce
+// build times, and also improve run time. It would not be necessary
+// any more to run on edges or corners; instead, one could extend some
+// of the faces to cover edges and corners.
+
+////////////////////////////////////////////////////////////////////////////////
+
+BoundaryCondition::BoundaryCondition(
+    const GHExt::PatchData::LevelData::GroupData &groupdata,
+    amrex::FArrayBox &dest)
+    : groupdata(groupdata), patchdata(driver().patch(groupdata.level.patch())),
+      geom(patchdata.amrcore->Geom(groupdata.level.index())), dest(dest),
+      imin{geom.Domain().smallEnd(0), geom.Domain().smallEnd(1),
+           geom.Domain().smallEnd(2)},
+      imax{geom.Domain().bigEnd(0) + 1 + !groupdata.indextype[0],
+           geom.Domain().bigEnd(1) + 1 + !groupdata.indextype[1],
+           geom.Domain().bigEnd(2) + 1 + !groupdata.indextype[2]},
+      // Vertices are shifted outwards by 1/2 grid spacing
+      xmin{geom.ProbLo(0) + CCTK_REAL(0.5) * groupdata.indextype[0] - 1,
+           geom.ProbLo(1) + CCTK_REAL(0.5) * groupdata.indextype[1] - 1,
+           geom.ProbLo(2) + CCTK_REAL(0.5) * groupdata.indextype[2] - 1},
+      xmax{geom.ProbHi(0) - CCTK_REAL(0.5) * groupdata.indextype[0] + 1,
+           geom.ProbHi(1) - CCTK_REAL(0.5) * groupdata.indextype[1] + 1,
+           geom.ProbHi(2) - CCTK_REAL(0.5) * groupdata.indextype[2] + 1},
+      dx{geom.CellSize(0), geom.CellSize(1), geom.CellSize(2)},
+      dmin{dest.box().smallEnd(0), dest.box().smallEnd(1),
+           dest.box().smallEnd(2)},
+      dmax{dest.box().bigEnd(0) + 1, dest.box().bigEnd(1) + 1,
+           dest.box().bigEnd(2) + 1},
+      layout(dmin, dmax), destptr(dest.dataPtr()) {
+
+  // Check centering
+  for (int d = 0; d < dim; ++d)
+    assert((dest.box().type(d) == amrex::IndexType::CELL) ==
+           groupdata.indextype[d]);
+
+  // Ensure the destination array is large enough
+  for (int d = 0; d < dim; ++d) {
+    assert(dest.box().smallEnd(d) <= dmin[d]);
+    assert(dest.box().bigEnd(d) + 1 >= dmax[d]);
+  }
+}
+
+void BoundaryCondition::apply() const {
+  apply_on_face<NEG, NEG, NEG>();
+  apply_on_face<INT, NEG, NEG>();
+  apply_on_face<POS, NEG, NEG>();
+  apply_on_face<NEG, INT, NEG>();
+  apply_on_face<INT, INT, NEG>();
+  apply_on_face<POS, INT, NEG>();
+  apply_on_face<NEG, POS, NEG>();
+  apply_on_face<INT, POS, NEG>();
+  apply_on_face<POS, POS, NEG>();
+
+  apply_on_face<NEG, NEG, INT>();
+  apply_on_face<INT, NEG, INT>();
+  apply_on_face<POS, NEG, INT>();
+  apply_on_face<NEG, INT, INT>();
+  apply_on_face<POS, INT, INT>();
+  apply_on_face<NEG, POS, INT>();
+  apply_on_face<INT, POS, INT>();
+  apply_on_face<POS, POS, INT>();
+
+  apply_on_face<NEG, NEG, POS>();
+  apply_on_face<INT, NEG, POS>();
+  apply_on_face<POS, NEG, POS>();
+  apply_on_face<NEG, INT, POS>();
+  apply_on_face<INT, INT, POS>();
+  apply_on_face<POS, INT, POS>();
+  apply_on_face<NEG, POS, POS>();
+  apply_on_face<INT, POS, POS>();
+  apply_on_face<POS, POS, POS>();
+}
+
+void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
+    amrex::MultiFab &mfab) const {
+  DECLARE_CCTK_PARAMETERS;
+
+  static Timer timer("apply_boundary_conditions");
+  Interval interval(timer);
+
+  const amrex::Geometry &geom =
+      driver().patch(level.patch()).amrcore->Geom(level.index());
+
+  if (geom.isAllPeriodic())
+    return;
+
+  const amrex::Box &domain = geom.Domain();
+  amrex::Box gdomain = amrex::convert(domain, mfab.boxArray().ixType());
+  for (int d = 0; d < dim; ++d)
+    if (geom.isPeriodic(d))
+      gdomain.grow(d, mfab.nGrow(d));
+
+  const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync();
+#pragma omp parallel
+  for (amrex::MFIter mfi(mfab, mfitinfo); mfi.isValid(); ++mfi) {
+    amrex::FArrayBox &dest = mfab[mfi];
+    if (!gdomain.contains(dest.box()))
+      BoundaryCondition(*this, dest).apply();
+  }
+}
+
+} // namespace CarpetX

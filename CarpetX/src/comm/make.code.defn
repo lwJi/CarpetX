@@ -1,0 +1,47 @@
+SRCS =							\
+	boundaries.cxx					\
+	boundaries_impl_int_int_neg.cxx			\
+	boundaries_impl_int_int_pos.cxx			\
+	boundaries_impl_int_neg_int.cxx			\
+	boundaries_impl_int_neg_neg.cxx			\
+	boundaries_impl_int_neg_pos.cxx			\
+	boundaries_impl_int_pos_int.cxx			\
+	boundaries_impl_int_pos_neg.cxx			\
+	boundaries_impl_int_pos_pos.cxx			\
+	boundaries_impl_neg_int_int.cxx			\
+	boundaries_impl_neg_int_neg.cxx			\
+	boundaries_impl_neg_int_pos.cxx			\
+	boundaries_impl_neg_neg_int.cxx			\
+	boundaries_impl_neg_neg_neg.cxx			\
+	boundaries_impl_neg_neg_pos.cxx			\
+	boundaries_impl_neg_pos_int.cxx			\
+	boundaries_impl_neg_pos_neg.cxx			\
+	boundaries_impl_neg_pos_pos.cxx			\
+	boundaries_impl_pos_int_int.cxx			\
+	boundaries_impl_pos_int_neg.cxx			\
+	boundaries_impl_pos_int_pos.cxx			\
+	boundaries_impl_pos_neg_int.cxx			\
+	boundaries_impl_pos_neg_neg.cxx			\
+	boundaries_impl_pos_neg_pos.cxx			\
+	boundaries_impl_pos_pos_int.cxx			\
+	boundaries_impl_pos_pos_neg.cxx			\
+	boundaries_impl_pos_pos_pos.cxx			\
+	fillpatch.cxx					\
+	prolongate_3d_rf2.cxx				\
+	prolongate_3d_rf2_impl_cons.cxx			\
+	prolongate_3d_rf2_impl_ddf.cxx			\
+	prolongate_3d_rf2_impl_eno.cxx			\
+	prolongate_3d_rf2_impl_hermite.cxx		\
+	prolongate_3d_rf2_impl_minmod.cxx		\
+	prolongate_3d_rf2_impl_natural.cxx		\
+	prolongate_3d_rf2_impl_poly.cxx			\
+	prolongate_3d_rf2_impl_poly_cons3lfb.cxx	\
+	prolongate_3d_rf2_impl_poly_eno3lfb.cxx		\
+	subcycling.cxx					\
+	sync_restrict.cxx
+
+STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
+STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))
+ifneq ($(STRAY_SRCS),)
+$(error CarpetX/src/$(notdir $(STRAY_DIR:/=))/make.code.defn: not in SRCS: $(STRAY_SRCS))
+endif

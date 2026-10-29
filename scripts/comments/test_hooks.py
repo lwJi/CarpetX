@@ -209,6 +209,10 @@ STOP_FILES = {
 }
 
 
+BIG = "// why big\nint keep = 1;\n\n" + "".join(f"int f{n} = {n};\n" for n in range(40))
+SHRUNK = "// why big\nint keep = 1;\n"
+
+
 def with_m(default):
     return PARAM[: -len("} 1\n")] + f"}} {default}\n"
 
@@ -239,6 +243,18 @@ class Branch(unittest.TestCase):
         git(self.root, "switch", "-q", "work")
         self.commit({"Thorn/test/t.par": "Thorn::n = 3\n"})
         self.merge("upstream")
+
+    def on_dev(self, files):
+        git(self.root, "switch", "-q", "dev")
+        self.commit(files)
+        git(self.root, "switch", "-q", "work")
+        git(self.root, "merge", "-q", "--ff-only", "dev")
+
+    def rename_then_shrink(self, shrunk):
+        self.on_dev({"Thorn/src/big.cxx": BIG})
+        git(self.root, "mv", "Thorn/src/big.cxx", "Thorn/src/kept.cxx")
+        git(self.root, "commit", "-q", "-m", "rename")
+        self.commit({"Thorn/src/kept.cxx": shrunk})
 
     def append(self, name, text):
         with open(os.path.join(self.root, name), "a") as f:
@@ -314,6 +330,17 @@ class HookStop(Branch):
         self.assertEqual(self.run_hook(), "")
         self.append("Thorn/test/test.ccl", "# new\n")
         self.assertEqual(self.blocked(self.run_hook())[0], "Thorn/test/test.ccl:11   new       # new")
+
+    def test_a_renamed_file_shrunk_in_a_later_commit_keeps_its_comments(self):
+        self.rename_then_shrink(SHRUNK)
+        self.assertEqual(self.run_hook(), "")
+
+    def test_a_comment_added_to_a_renamed_and_shrunk_file_is_reported(self):
+        self.rename_then_shrink(SHRUNK)
+        self.append("Thorn/src/kept.cxx", "int z = 0; // added\n")
+        lines = self.blocked(self.run_hook())
+        self.assertEqual(lines[0], "Thorn/src/kept.cxx:3   new       // added")
+        self.assertEqual(lines[-1], "✗ no-comments: 1 new comment line")
 
     def test_a_renamed_and_rewritten_file_is_judged_as_new(self):
         git(self.root, "mv", "Thorn/param.ccl", "Thorn/test/test.ccl")
@@ -448,6 +475,11 @@ class HookEditOnABranch(Branch):
         self.assertEqual(self.edit("Thorn/param.ccl", "INT n", "# old prose\nINT n"), "")
         self.assertEqual(self.stop(), "")
 
+    def test_a_comment_deleted_from_a_renamed_and_shrunk_file_can_be_put_back(self):
+        self.rename_then_shrink("int keep = 1;\n")
+        self.assertEqual(self.edit("Thorn/src/kept.cxx", "int keep", "// why big\nint keep"), "")
+        self.assertEqual(self.stop(), "")
+
     def test_code_the_branch_changed_under_a_comment_can_be_changed_back(self):
         self.commit({"Thorn/param.ccl": PARAM.replace("} 1\n\n", "} 2\n\n")})
         self.assertTrue(self.stop())
@@ -546,7 +578,12 @@ class Cli(Project):
 def configured(event):
     with open(SETTINGS) as f:
         entries = json.load(f)["hooks"].get(event, [])
-    return [(entry.get("matcher"), hook["command"]) for entry in entries for hook in entry["hooks"]]
+    return [
+        (entry.get("matcher"), hook["command"])
+        for entry in entries
+        for hook in entry["hooks"]
+        if "scripts/comments" in hook["command"]
+    ]
 
 
 def configured_pretooluse():
@@ -693,6 +730,23 @@ class CheckSince(unittest.TestCase):
         result = self.run_tool("check", "--since", "dev")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/test/t.par:2   new       # why")
+        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 new comment line")
+
+    def test_a_file_renamed_and_then_shrunk_is_judged_under_its_old_name(self):
+        write_files(self.root, {"Thorn/src/big.cxx": BIG})
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "big")
+        base = git(self.root, "rev-parse", "HEAD").strip()
+        git(self.root, "mv", "Thorn/src/big.cxx", "Thorn/src/kept.cxx")
+        git(self.root, "commit", "-q", "-m", "rename")
+        write_files(self.root, {"Thorn/src/kept.cxx": SHRUNK})
+        git(self.root, "commit", "-q", "-am", "shrink")
+        result = self.run_tool("check", "--since", base)
+        self.assertEqual((result.returncode, result.stdout), (0, CLEAN), result.stderr)
+        self.append("Thorn/src/kept.cxx", "int z = 0; // added\n")
+        result = self.run_tool("check", "--since", base)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stdout.split("\n")[0], "Thorn/src/kept.cxx:3   new       // added")
         self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 new comment line")
 
     def test_a_rev_with_no_common_ancestor_exits_2(self):

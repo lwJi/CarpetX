@@ -1,0 +1,14 @@
+SRCS =							\
+	grid.cxx					\
+	group_tags.cxx					\
+	hierarchy.cxx					\
+	loops.cxx					\
+	modes.cxx					\
+	valid.cxx					\
+	yaml.cxx
+
+STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
+STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))
+ifneq ($(STRAY_SRCS),)
+$(error CarpetX/src/$(notdir $(STRAY_DIR:/=))/make.code.defn: not in SRCS: $(STRAY_SRCS))
+endif
