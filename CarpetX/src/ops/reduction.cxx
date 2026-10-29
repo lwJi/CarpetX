@@ -207,10 +207,7 @@ reduce_array(const amrex::Array4<const T> &restrict vars, const int n,
 reduction<CCTK_REAL, dim> reduce(const gi_t gi, const vi_t vi, const tl_t tl) {
   DECLARE_CCTK_PARAMETERS;
 
-  cGroup group;
-  int ierr = CCTK_GroupData(gi.index(), &group);
-  assert(!ierr);
-  assert(group.grouptype == CCTK_GF);
+  assert(driver().record(gi).kind == group_kind::grid_function);
 
   reduction<CCTK_REAL, dim> red;
   for (auto &restrict patchdata : driver().patches()) {
