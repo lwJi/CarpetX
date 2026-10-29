@@ -247,12 +247,12 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
       amrex::Vector<int> iters(patchdata.num_levels());
       amrex::Vector<amrex::IntVect> reffacts(patchdata.num_levels());
       for (const auto &restrict leveldata : patchdata.levels()) {
-        const int level = leveldata.level.index();
-        mfabs.at(level) =
+        const level_t level = leveldata.level;
+        mfabs.at(level.index()) =
             &*leveldata.group(group.groupindex).timelevel(tl).mfab;
-        geoms.at(level) = patchdata.amrcore->Geom(level);
-        iters.at(level) = cctk_iteration;
-        reffacts.at(level) = amrex::IntVect{2, 2, 2};
+        geoms.at(level.index()) = patchdata.amrcore->Geom(level.index());
+        iters.at(level.index()) = cctk_iteration;
+        reffacts.at(level.index()) = amrex::IntVect{2, 2, 2};
       }
 
       // TODO: Output all groups into a single file
