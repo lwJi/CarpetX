@@ -5,7 +5,6 @@
 #include "io/io_norm.hxx"
 #include "io/io_openpmd.hxx"
 #include "io/io_silo.hxx"
-#include "io/io_slice.hxx"
 #include "io/io_tsv.hxx"
 #include "io/selection.hxx"
 #include "comm/subcycling.hxx"
@@ -61,10 +60,6 @@ std::vector<bool> find_groups(const char *const method,
         CCTK_VINFO("  %s", CCTK_FullGroupName(gi));
   }
   return enabled;
-}
-
-bool selects_any(const std::vector<bool> &enabled) {
-  return std::find(enabled.begin(), enabled.end(), true) != enabled.end();
 }
 
 std::string get_parameter_filename() {
@@ -471,19 +466,8 @@ int OutputGH(const cGH *restrict cctkGH) {
   {
     const int every =
         out_openpmd_2d_every == -1 ? out_every : out_openpmd_2d_every;
-    if (every > 0 && cctk_iteration % every == 0) {
-      const std::vector<bool> group_enabled =
-          find_groups("openPMD-2D", out_openpmd_2d_vars);
-      if (selects_any(group_enabled)) {
-        const std::string simulation_name = get_simulation_name();
-        OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
-                      slice_t{2, out_xyplane_z});
-        OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
-                      slice_t{1, out_xzplane_y});
-        OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".yz",
-                      slice_t{0, out_yzplane_x});
-      }
-    }
+    if (every > 0 && cctk_iteration % every == 0)
+      OutputOpenPMD(cctkGH);
   }
 
   {
