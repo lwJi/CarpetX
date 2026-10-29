@@ -1,5 +1,8 @@
 #include "io/io_meta.hxx"
 
+#include "hierarchy/driver.hxx"
+#include "util/refuse.hxx"
+
 #include <cctk.h>
 #include <cctk_Parameters.h>
 
@@ -108,139 +111,98 @@ struct real_output_file_description_t {
   operator=(real_output_file_description_t &&) = default;
 
   real_output_file_description_t(
-      output_file_description_t output_file_description);
+      output_file_description_t output_file_description,
+      std::source_location site);
 };
 
 real_output_file_description_t::real_output_file_description_t(
-    output_file_description_t ofd) {
-  if (iterations.empty())
-    return; // CCTK_ERROR("Empty iterations");
-  if (variables.empty())
-    return; // CCTK_ERROR("Empty variables");
+    output_file_description_t ofd, const std::source_location site)
+    : filename(std::move(ofd.filename)),
+      description(std::move(ofd.description)),
+      writer_thorn(std::move(ofd.writer_thorn)),
+      variables(std::move(ofd.variables)),
+      iterations(std::move(ofd.iterations)), group_type(group_type_t::none),
+      variable_dimensions(-1),
+      output_directions(std::move(ofd.output_directions)),
+      reductions(std::move(ofd.reductions)),
+      format_name(std::move(ofd.format_name)),
+      format_version(ofd.format_version) {
+  if (filename.empty())
+    refuse(site, "an output file description has an empty filename");
 
-  filename = ofd.filename;
-  // TODO: Check whether file exists
-  if (filename == "")
-    CCTK_ERROR("Empty filename");
-
-  description = ofd.description;
-
-  writer_thorn = ofd.writer_thorn;
-  const int is_active = CCTK_IsThornActive(writer_thorn.c_str());
-  if (is_active <= 0)
-    CCTK_ERROR("Writer thorn not active");
+  if (CCTK_IsThornActive(writer_thorn.c_str()) <= 0)
+    refuse(site, "output file %s: writer thorn \"%s\" is not active",
+           filename.c_str(), writer_thorn.c_str());
   for (auto &ch : writer_thorn)
     ch = std::tolower(ch);
 
-  variables = ofd.variables;
-  for (auto &var : variables) {
-    const int varindex = CCTK_VarIndex(var.c_str());
-    if (varindex < 0)
-      CCTK_VERROR("Variable \"%s\" does not exist", var.c_str());
-    for (auto &ch : var)
-      ch = std::tolower(ch);
-  }
-
-  iterations = ofd.iterations;
-  for (const auto &iter : iterations)
-    if (iter < 0)
-      CCTK_VERROR("Bad iteration number %d", iter);
-
-  if (variables.empty()) {
-    group_type = group_type_t::none;
-    variable_dimensions = -1;
-  } else {
-    const int groupindex0 = CCTK_GroupIndexFromVar(variables.front().c_str());
-    assert(groupindex0 >= 0);
-    const int grouptype0 = CCTK_GroupTypeI(groupindex0);
-    switch (grouptype0) {
-    case CCTK_GF:
-      group_type = group_type_t::gf;
-      break;
-    case CCTK_SCALAR:
-    case CCTK_ARRAY:
-      group_type = group_type_t::array;
-      break;
-    default:
-      assert(0);
-    }
-    variable_dimensions = CCTK_GroupDimI(groupindex0);
-    for (auto &var : variables) {
-      const int varindex = CCTK_VarIndex(var.c_str());
-      if (varindex < 0)
-        CCTK_VERROR("Variable \"%s\" does not exist", var.c_str());
-      for (auto &ch : var)
-        ch = std::tolower(ch);
-    }
-  }
-
-  iterations = ofd.iterations;
-  for (const auto &iter : iterations)
-    if (iter < 0)
-      CCTK_VERROR("Bad iteration number %d", iter);
+  for (const int iteration : iterations)
+    if (iteration < 0)
+      refuse(site, "output file %s: iteration %d is negative", filename.c_str(),
+             iteration);
 
   if (!variables.empty()) {
-    const int groupindex0 = CCTK_GroupIndexFromVar(variables.front().c_str());
-    assert(groupindex0 >= 0);
-    const int grouptype0 = CCTK_GroupTypeI(groupindex0);
-    switch (grouptype0) {
-    case CCTK_GF:
-      group_type = group_type_t::gf;
-      break;
-    case CCTK_SCALAR:
-    case CCTK_ARRAY:
-      group_type = group_type_t::array;
-      break;
-    default:
-      assert(0);
+    const GHExt &ext = driver();
+    const auto record_named =
+        [&](const std::string &var) -> const GHExt::GroupRecord & {
+      const int varindex = CCTK_VarIndex(var.c_str());
+      if (varindex < 0)
+        refuse(site, "output file %s: variable \"%s\" does not exist",
+               filename.c_str(), var.c_str());
+      return ext.record_of(var_t{varindex}, site);
+    };
+    const auto group_type_of = [](const GHExt::GroupRecord &record) {
+      return record.kind == group_kind::grid_function ? group_type_t::gf
+                                                      : group_type_t::array;
+    };
+    const auto dimension_of = [](const GHExt::GroupRecord &record) {
+      return record.kind == group_kind::grid_function
+                 ? dim
+                 : record.array().dimension;
+    };
+
+    const GHExt::GroupRecord &first = record_named(variables.front());
+    group_type = group_type_of(first);
+    variable_dimensions = dimension_of(first);
+    for (const std::string &var : variables) {
+      const GHExt::GroupRecord &record = record_named(var);
+      if (group_type_of(record) != group_type)
+        refuse(site,
+               "output file %s: of the variables \"%s\" and \"%s\", only one "
+               "is a grid function",
+               filename.c_str(), variables.front().c_str(), var.c_str());
+      if (dimension_of(record) != variable_dimensions)
+        refuse(site,
+               "output file %s: variable \"%s\" has %d dimensions, but "
+               "variable \"%s\" has %d",
+               filename.c_str(), var.c_str(), dimension_of(record),
+               variables.front().c_str(), variable_dimensions);
     }
-    variable_dimensions = CCTK_GroupDimI(groupindex0);
-    for (auto &var : variables) {
-      const int groupindex = CCTK_GroupIndexFromVar(var.c_str());
-      assert(groupindex >= 0);
-      const int grouptype = CCTK_GroupTypeI(groupindex);
-      group_type_t group_type1;
-      switch (grouptype) {
-      case CCTK_GF:
-        group_type1 = group_type_t::gf;
-        break;
-      case CCTK_SCALAR:
-      case CCTK_ARRAY:
-        group_type1 = group_type_t::array;
-        break;
-      default:
-        assert(0);
-      }
-      if (group_type1 != group_type)
-        CCTK_VERROR("Variable \"%s\" has wrong group type", var.c_str());
-      const int group_dim1 = CCTK_GroupDimI(groupindex);
-      if (group_dim1 != variable_dimensions)
-        CCTK_VERROR("Variable \"%s\" has wrong dimension", var.c_str());
-    }
+    for (std::string &var : variables)
+      for (auto &ch : var)
+        ch = std::tolower(ch);
+
+    for (const int dir : output_directions)
+      if (dir < 0 || dir >= variable_dimensions)
+        refuse(site,
+               "output file %s: output direction %d is out of range for "
+               "%d-dimensional variables",
+               filename.c_str(), dir, variable_dimensions);
   }
 
-  // TODO: Check whether directions are unique
-  output_directions = ofd.output_directions;
-  for (const auto &dir : output_directions)
-    if (dir < 0 || dir >= variable_dimensions)
-      CCTK_VERROR("Bad output direction %d", dir);
-
-  reductions = ofd.reductions;
-
   if (!output_directions.empty() && !reductions.empty())
-    CCTK_ERROR("Cannot have both output directions and reductions");
+    refuse(site, "output file %s has both output directions and reductions",
+           filename.c_str());
 
-  // TODO: Maintain a list of known output formats?
-  format_name = ofd.format_name;
-  if (format_name == "")
-    CCTK_VERROR("Bad format name \"%s\"", format_name.c_str());
+  if (format_name.empty())
+    refuse(site, "output file %s has an empty format name", filename.c_str());
 
-  // TODO: Maintain a list of known versions for each output format?
-  format_version = ofd.format_version;
-  for (const auto &ver : format_version)
-    if (ver < 0)
-      CCTK_VERROR("Bad format version %d.%d.%d", format_version[0],
-                  format_version[1], format_version[2]);
+  for (const int version : format_version)
+    if (version < 0)
+      refuse(site,
+             "output file %s has format version %d.%d.%d, which is negative",
+             filename.c_str(), format_version[0], format_version[1],
+             format_version[2]);
 }
 
 YAML::Emitter &operator<<(YAML::Emitter &yaml,
@@ -277,13 +239,14 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
 std::vector<real_output_file_description_t> real_output_file_descriptions;
 
 void OutputMeta_RegisterOutputFile(
-    output_file_description_t output_file_description) {
+    output_file_description_t output_file_description,
+    const std::source_location site) {
   // Only the root process outputs metadata
   if (CCTK_MyProc(nullptr) != 0)
     return;
 
-  real_output_file_descriptions.emplace_back(
-      std::move(output_file_description));
+  real_output_file_descriptions.emplace_back(std::move(output_file_description),
+                                             site);
 }
 
 void OutputMeta(const cGH *restrict const cctkGH) {
