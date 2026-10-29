@@ -250,7 +250,7 @@ void OutputOpenPMD(const cGH *const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
   const group_selection_t selection = group_selection_t::select_groups(
-      "out_openpmd_2d_vars", out_openpmd_2d_vars);
+      "CarpetX::out_openpmd_2d_vars", out_openpmd_2d_vars);
   if (selection.empty())
     return;
   selection.log("openPMD-2D", group_kind::grid_function);
@@ -660,7 +660,7 @@ namespace CarpetX {
 void OutputOpenPMD(const cGH *) {
   const operation_scope_t op("CarpetX::OutputOpenPMD");
   DECLARE_CCTK_PARAMETERS;
-  if (group_selection_t::select_groups("out_openpmd_2d_vars",
+  if (group_selection_t::select_groups("CarpetX::out_openpmd_2d_vars",
                                        out_openpmd_2d_vars)
           .empty())
     return;

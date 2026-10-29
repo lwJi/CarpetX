@@ -30,7 +30,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
   const group_selection_t selection =
-      group_selection_t::select_groups("out_norm_vars", out_norm_vars);
+      group_selection_t::select_groups("CarpetX::out_norm_vars", out_norm_vars);
   if (selection.empty())
     return;
   selection.log("Norm", group_kind::grid_function);

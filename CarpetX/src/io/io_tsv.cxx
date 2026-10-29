@@ -688,7 +688,7 @@ void OutputTSV(const cGH *restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
   const group_selection_t selection =
-      group_selection_t::select_groups("out_tsv_vars", out_tsv_vars);
+      group_selection_t::select_groups("CarpetX::out_tsv_vars", out_tsv_vars);
   if (selection.empty())
     return;
   selection.log("TSV", std::nullopt);

@@ -89,10 +89,10 @@ void encode_output(const cGH *const cctkGH, const char *const method) {
   DECLARE_CCTK_PARAMETERS;
   const bool is_openpmd = CCTK_EQUALS(method, "openpmd");
   const group_selection_t selection =
-      is_openpmd
-          ? group_selection_t::select_groups("out_openpmd_vars",
-                                             out_openpmd_vars)
-          : group_selection_t::select_groups("out_silo_vars", out_silo_vars);
+      is_openpmd ? group_selection_t::select_groups("CarpetX::out_openpmd_vars",
+                                                    out_openpmd_vars)
+                 : group_selection_t::select_groups("CarpetX::out_silo_vars",
+                                                    out_silo_vars);
   if (selection.empty())
     return;
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(method);
@@ -178,7 +178,7 @@ void InputGH(const cGH *restrict cctkGH) {
   }
 
   const group_selection_t selection = group_selection_t::select_groups(
-      "filereader_ID_vars", filereader_ID_vars);
+      "IO::filereader_ID_vars", filereader_ID_vars);
   if (selection.empty())
     return;
 
@@ -206,7 +206,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
   Interval interval(timer);
 
   const group_selection_t selection = group_selection_t::select_groups(
-      "out_plotfile_groups", out_plotfile_groups);
+      "CarpetX::out_plotfile_groups", out_plotfile_groups);
   if (selection.empty())
     return;
   selection.log("Plotfile", group_kind::grid_function);

@@ -165,8 +165,8 @@ void OutputADIOS2(const cGH *const cctkGH) {
   const operation_scope_t op("CarpetX::OutputADIOS2");
   DECLARE_CCTK_PARAMETERS;
 
-  const group_selection_t selection =
-      group_selection_t::select_groups("out_adios2_vars", out_adios2_vars);
+  const group_selection_t selection = group_selection_t::select_groups(
+      "CarpetX::out_adios2_vars", out_adios2_vars);
   if (selection.empty())
     return;
   selection.log("ADIOS2", group_kind::grid_function);
@@ -521,7 +521,8 @@ namespace CarpetX {
 void OutputADIOS2(const cGH *) {
   const operation_scope_t op("CarpetX::OutputADIOS2");
   DECLARE_CCTK_PARAMETERS;
-  if (group_selection_t::select_groups("out_adios2_vars", out_adios2_vars)
+  if (group_selection_t::select_groups("CarpetX::out_adios2_vars",
+                                       out_adios2_vars)
           .empty())
     return;
   refuse(std::source_location::current(),

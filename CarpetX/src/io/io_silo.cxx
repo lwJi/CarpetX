@@ -852,8 +852,8 @@ void OutputSilo(const cGH *restrict const cctkGH) {
   const operation_scope_t op("CarpetX::OutputSilo");
   DECLARE_CCTK_PARAMETERS;
 
-  const group_selection_t selection =
-      group_selection_t::select_groups("out_silo_2d_vars", out_silo_2d_vars);
+  const group_selection_t selection = group_selection_t::select_groups(
+      "CarpetX::out_silo_2d_vars", out_silo_2d_vars);
   if (selection.empty())
     return;
   selection.log("Silo-2D", group_kind::grid_function);
@@ -882,7 +882,8 @@ namespace CarpetX {
 void OutputSilo(const cGH *) {
   const operation_scope_t op("CarpetX::OutputSilo");
   DECLARE_CCTK_PARAMETERS;
-  if (group_selection_t::select_groups("out_silo_2d_vars", out_silo_2d_vars)
+  if (group_selection_t::select_groups("CarpetX::out_silo_2d_vars",
+                                       out_silo_2d_vars)
           .empty())
     return;
   refuse(std::source_location::current(),
