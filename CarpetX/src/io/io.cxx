@@ -82,22 +82,18 @@ group_selection_t checkpointed_groups() {
       [](const GHExt::GroupRecord &group) { return group.do_checkpoint; });
 }
 
-void encode_output(const cGH *const cctkGH, const char *const method) {
-  const operation_scope_t op(CCTK_EQUALS(method, "openpmd")
-                                 ? "CarpetX::OutputOpenPMD3D"
-                                 : "CarpetX::OutputSilo3D");
+void encode_output(const cGH *const cctkGH, const char *const operation,
+                   const char *const method, const char *const parameter_name,
+                   const char *const parameter_value) {
+  const operation_scope_t op(operation);
   DECLARE_CCTK_PARAMETERS;
-  const bool is_openpmd = CCTK_EQUALS(method, "openpmd");
   const group_selection_t selection =
-      is_openpmd ? group_selection_t::select_groups("CarpetX::out_openpmd_vars",
-                                                    out_openpmd_vars)
-                 : group_selection_t::select_groups("CarpetX::out_silo_vars",
-                                                    out_silo_vars);
+      group_selection_t::select_groups(parameter_name, parameter_value);
   if (selection.empty())
     return;
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(method);
   const codec_limits_t limits = codec->limits();
-  selection.log(is_openpmd ? "openPMD" : "Silo", carried_kind(limits));
+  selection.log(method, carried_kind(limits));
   codec->encode(build_record(cctkGH, selection, record_purpose::output, limits),
                 out_dir, get_simulation_name());
 }
@@ -429,7 +425,8 @@ int OutputGH(const cGH *restrict cctkGH) {
   {
     const int every = out_openpmd_every == -1 ? out_every : out_openpmd_every;
     if (every > 0 && cctk_iteration % every == 0)
-      encode_output(cctkGH, "openpmd");
+      encode_output(cctkGH, "CarpetX::OutputOpenPMD3D", "openpmd",
+                    "CarpetX::out_openpmd_vars", out_openpmd_vars);
   }
 
   {
@@ -448,7 +445,8 @@ int OutputGH(const cGH *restrict cctkGH) {
   {
     const int every = out_silo_every == -1 ? out_every : out_silo_every;
     if (every > 0 && cctk_iteration % every == 0)
-      encode_output(cctkGH, "silo");
+      encode_output(cctkGH, "CarpetX::OutputSilo3D", "silo",
+                    "CarpetX::out_silo_vars", out_silo_vars);
   }
 
   {
