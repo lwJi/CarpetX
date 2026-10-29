@@ -232,6 +232,26 @@ void OutputTSVold(const cGH *restrict cctkGH) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+static std::vector<std::string> column_labels(const GHExt::GroupRecord &group,
+                                              const char *const real_suffix,
+                                              const char *const imag_suffix) {
+  std::vector<std::string> labels;
+  for (const vi_t vi : group.variables()) {
+    const std::string varname = CCTK_VarName(group.var(vi).index());
+    switch (group.var_type) {
+    case var_type::real:
+    case var_type::integer:
+      labels.push_back(varname);
+      break;
+    case var_type::complex:
+      labels.push_back(varname + real_suffix);
+      labels.push_back(varname + imag_suffix);
+      break;
+    }
+  }
+  return labels;
+}
+
 void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
                      const GHExt::GroupRecord &group, const bool truncate_files,
                      const out_fileinfo_t out_fileinfo,
@@ -241,10 +261,6 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
     return;
 
   const auto &arraygroupdata = group.array();
-
-  std::vector<std::string> varnames;
-  for (const vi_t vi : group.variables())
-    varnames.push_back(CCTK_VarName(group.var(vi).index()));
 
   const std::string sep = "\t";
   static std::set<std::string> did_write_file;
@@ -278,17 +294,8 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
       if (out_fileinfo & fileinfo_axis_labels) {
         file << "# 1:iteration" << sep << "2:time";
         int col = 3;
-        for (const auto &varname : varnames)
-          switch (group.var_type) {
-          case var_type::real:
-          case var_type::integer:
-            file << sep << col++ << ":" << varname;
-            break;
-          case var_type::complex:
-            file << sep << col++ << ":" << varname << ".real";
-            file << sep << col++ << ":" << varname << ".imag";
-            break;
-          }
+        for (const std::string &label : column_labels(group, ".real", ".imag"))
+          file << sep << col++ << ":" << label;
         file << "\n";
       }
       break;
@@ -296,17 +303,8 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
     case header_plain: {
       if (out_fileinfo & fileinfo_axis_labels) {
         file << "iteration" << sep << "time";
-        for (const auto &varname : varnames)
-          switch (group.var_type) {
-          case var_type::real:
-          case var_type::integer:
-            file << sep << varname;
-            break;
-          case var_type::complex:
-            file << sep << varname << "_real";
-            file << sep << varname << "_imag";
-            break;
-          }
+        for (const std::string &label : column_labels(group, "_real", "_imag"))
+          file << sep << label;
         file << "\n";
       }
       break;
@@ -335,10 +333,6 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
 
   if (out_dir >= arraygroupdata.dimension)
     return;
-
-  std::vector<std::string> varnames;
-  for (const vi_t vi : group.variables())
-    varnames.push_back(CCTK_VarName(group.var(vi).index()));
 
   const std::string sep = "\t";
   static std::set<std::string> did_write_file;
@@ -376,17 +370,8 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
         for (int dir = 0; dir < arraygroupdata.dimension; ++dir)
           file << sep << col++ << ":"
                << "ijk"[dir];
-        for (const auto &varname : varnames)
-          switch (group.var_type) {
-          case var_type::real:
-          case var_type::integer:
-            file << sep << col++ << ":" << varname;
-            break;
-          case var_type::complex:
-            file << sep << col++ << ":" << varname << ".real";
-            file << sep << col++ << ":" << varname << ".imag";
-            break;
-          }
+        for (const std::string &label : column_labels(group, ".real", ".imag"))
+          file << sep << col++ << ":" << label;
         file << "\n";
       }
       break;
@@ -397,17 +382,8 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
         file << sep << "time";
         for (int dir = 0; dir < arraygroupdata.dimension; ++dir)
           file << sep << "ijk"[dir];
-        for (const auto &varname : varnames)
-          switch (group.var_type) {
-          case var_type::real:
-          case var_type::integer:
-            file << sep << varname;
-            break;
-          case var_type::complex:
-            file << sep << varname << "_real";
-            file << sep << varname << "_imag";
-            break;
-          }
+        for (const std::string &label : column_labels(group, "_real", "_imag"))
+          file << sep << label;
         file << "\n";
       }
       break;
