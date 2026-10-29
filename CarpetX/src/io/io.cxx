@@ -42,26 +42,6 @@ namespace CarpetX {
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace {
-std::vector<bool> find_groups(const char *const method,
-                              const char *const out_vars) {
-  DECLARE_CCTK_PARAMETERS;
-
-  std::vector<bool> enabled(CCTK_NumGroups(), false);
-  const auto callback{
-      [](const int index, const char *const optstring, void *const arg) {
-        std::vector<bool> &enabled = *static_cast<std::vector<bool> *>(arg);
-        enabled.at(driver().record_of(var_t{index}).groupindex.index()) = true;
-      }};
-  CCTK_TraverseString(out_vars, callback, &enabled, CCTK_GROUP_OR_VAR);
-  if (verbose) {
-    CCTK_VINFO("%s output for groups:", method);
-    for (int gi = 0; gi < CCTK_NumGroups(); ++gi)
-      if (enabled.at(gi))
-        CCTK_VINFO("  %s", CCTK_FullGroupName(gi));
-  }
-  return enabled;
-}
-
 std::string get_parameter_filename() {
   std::vector<char> buf(10000);
   int ilen = CCTK_ParameterFilename(buf.size(), buf.data());
@@ -441,20 +421,8 @@ int OutputGH(const cGH *restrict cctkGH) {
 
   {
     const int every = out_adios2_every == -1 ? out_every : out_adios2_every;
-    if (every > 0 && cctk_iteration % every == 0) {
-      const std::vector<bool> group_enabled =
-          find_groups("ADIOS2", out_adios2_vars);
-#ifdef HAVE_CAPABILITY_ADIOS2
-      // TODO: Stop at paramcheck time when ADIOS2 output parameters
-      // are set, but ADIOS2 is not available
-      const std::string simulation_name = get_simulation_name();
-      OutputADIOS2(cctkGH, group_enabled, out_dir, simulation_name);
-#else
-      if (strlen(out_adios2_vars) != 0)
-        CCTK_VERROR("ADIOS2 is not enabled. The parameter "
-                    "CarpetX::out_adios2_vars must be empty.");
-#endif
-    }
+    if (every > 0 && cctk_iteration % every == 0)
+      OutputADIOS2(cctkGH);
   }
 
   {

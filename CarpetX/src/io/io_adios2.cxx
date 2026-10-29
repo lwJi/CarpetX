@@ -1,6 +1,10 @@
 #include "io/io_adios2.hxx"
 
 #include "hierarchy/driver.hxx"
+#include "io/io.hxx"
+#include "io/selection.hxx"
+#include "util/refuse.hxx"
+#include "util/var_type.hxx"
 #include <carpetx.hxx>
 
 #include <div.hxx>
@@ -8,6 +12,8 @@
 #include <cctk.h>
 #include <cctk_Arguments.h>
 #include <cctk_Parameters.h>
+
+#include <source_location>
 
 #ifdef HAVE_CAPABILITY_ADIOS2
 
@@ -129,22 +135,13 @@ struct carpetx_adios2_t {
 
   ////////////////////////////////////////////////////////////////////////////////
 
-  static std::string make_varname(const gi_t gi, const int vi,
-                                  const int patch = -1, const int reflevel = -1,
+  static std::string make_varname(const GHExt::GroupRecord &group,
+                                  const vi_t vi, const level_t level,
                                   const int component = -1) {
-    std::string varname;
-    if (vi < 0) {
-      assert(0);
-      varname = CCTK_FullGroupName(gi.index());
-    } else {
-      varname = CCTK_FullVarName(driver().record(gi).var(vi_t{vi}).index());
-    }
     std::ostringstream buf;
-    buf << varname;
-    if (patch >= 0)
-      buf << ".m" << std::setw(4) << std::setfill('0') << patch;
-    if (reflevel >= 0)
-      buf << ".rl" << std::setw(2) << std::setfill('0') << reflevel;
+    buf << CCTK_FullVarName(group.var(vi).index());
+    buf << ".m" << std::setw(4) << std::setfill('0') << level.patch().index();
+    buf << ".rl" << std::setw(2) << std::setfill('0') << level.index();
     if (component >= 0)
       buf << ".c" << std::setw(8) << std::setfill('0') << component;
     return buf.str();
@@ -156,8 +153,7 @@ struct carpetx_adios2_t {
   adios2::IO io;
   adios2::Engine engine;
 
-  void OutputADIOS2(const cGH *const cctkGH,
-                    const std::vector<bool> &output_group,
+  void OutputADIOS2(const cGH *const cctkGH, const group_selection_t &selection,
                     const std::string &output_dir,
                     const std::string &output_file);
   ~carpetx_adios2_t();
@@ -165,14 +161,33 @@ struct carpetx_adios2_t {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void OutputADIOS2(const cGH *const cctkGH,
-                  const std::vector<bool> &output_group,
-                  const std::string &output_dir,
-                  const std::string &output_file) {
+void OutputADIOS2(const cGH *const cctkGH) {
+  const operation_scope_t op("CarpetX::OutputADIOS2");
+  DECLARE_CCTK_PARAMETERS;
+
+  const group_selection_t selection =
+      group_selection_t::select_groups("out_adios2_vars", out_adios2_vars);
+  if (selection.empty())
+    return;
+  selection.log("ADIOS2", group_kind::grid_function);
+
+  for (const GHExt::GroupRecord &group :
+       selection.records(group_kind::grid_function))
+    switch (group.var_type) {
+    case var_type::real:
+      break;
+    case var_type::integer:
+    case var_type::complex:
+      refuse(std::source_location::current(),
+             "ADIOS2 writes only real grid functions; group %s is %s",
+             group.groupname.c_str(),
+             CCTK_VarTypeName(cctk_code(group.var_type)));
+    }
+
   if (!carpetx_adios2_t::self)
     carpetx_adios2_t::self = std::make_optional<carpetx_adios2_t>();
-  carpetx_adios2_t::self->OutputADIOS2(cctkGH, output_group, output_dir,
-                                       output_file);
+  carpetx_adios2_t::self->OutputADIOS2(cctkGH, selection, out_dir,
+                                       get_simulation_name());
 }
 
 void ShutdownADIOS2() { carpetx_adios2_t::self.reset(); }
@@ -182,20 +197,15 @@ void ShutdownADIOS2() { carpetx_adios2_t::self.reset(); }
 std::optional<carpetx_adios2_t> carpetx_adios2_t::self;
 
 void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
-                                    const std::vector<bool> &output_group,
+                                    const group_selection_t &selection,
                                     const std::string &output_dir,
                                     const std::string &output_file) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
-  int ierr;
-
   // Set up timers
   static Timer timer("OutputADIOS2");
   Interval interval(timer);
-
-  if (std::count(output_group.begin(), output_group.end(), true) == 0)
-    return;
 
   if (io_verbose)
     CCTK_VINFO("OutputADIOS2...");
@@ -265,22 +275,13 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
         for (const auto &leveldata : patchdata.levels()) {
 
           for (const auto &groupdata : leveldata.groups()) {
-            const gi_t gi = groupdata.record.groupindex;
-            if (output_group.at(gi.index())) {
-
-              cGroup cgroup;
-              ierr = CCTK_GroupData(gi.index(), &cgroup);
-              assert(!ierr);
-              assert(cgroup.vartype == CCTK_VARIABLE_REAL);
-              assert(cgroup.dim == 3);
-
-              const int numvars = groupdata.record.numvars;
+            if (selection.contains(groupdata.record.groupindex)) {
 
               const tl_t tl{0};
               const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
               const int num_local_components = mfab.local_size();
 
-              for (int vi = 0; vi < numvars; ++vi) {
+              for (const vi_t vi : groupdata.record.variables()) {
 
                 if (!combine_components) {
 
@@ -288,9 +289,8 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                        local_component < num_local_components;
                        ++local_component) {
                     const int component = mfab.IndexArray().at(local_component);
-                    const std::string varname =
-                        make_varname(gi, vi, patchdata.patch.index(),
-                                     leveldata.level.index(), component);
+                    const std::string varname = make_varname(
+                        groupdata.record, vi, leveldata.level, component);
                     if (io_verbose)
                       CCTK_VINFO("      Defining variable %s...",
                                  varname.c_str());
@@ -304,8 +304,8 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
                 } else { // if combine_components
 
-                  const std::string varname = make_varname(
-                      gi, vi, patchdata.patch.index(), leveldata.level.index());
+                  const std::string varname =
+                      make_varname(groupdata.record, vi, leveldata.level);
                   if (io_verbose)
                     CCTK_VINFO("      Defining variable %s...",
                                varname.c_str());
@@ -337,19 +337,11 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                      leveldata.level.index());
 
         for (const auto &groupdata : leveldata.groups()) {
-          const gi_t gi = groupdata.record.groupindex;
-          if (output_group.at(gi.index())) {
+          if (selection.contains(groupdata.record.groupindex)) {
             if (io_verbose)
               CCTK_VINFO("    Writing group %s...",
-                         CCTK_FullGroupName(gi.index()));
+                         groupdata.record.groupname.c_str());
 
-            cGroup cgroup;
-            ierr = CCTK_GroupData(gi.index(), &cgroup);
-            assert(!ierr);
-            assert(cgroup.vartype == CCTK_VARIABLE_REAL);
-            assert(cgroup.dim == 3);
-
-            const int numvars = groupdata.record.numvars;
             const tl_t tl{0};
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::IndexType &indextype = mfab.ixType();
@@ -393,7 +385,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             const std::vector<int> &offsets = offsets_sizes[0];
             const std::vector<int> &sizes = offsets_sizes[1];
 
-            for (int vi = 0; vi < numvars; ++vi) {
+            for (const vi_t vi : groupdata.record.variables()) {
               if (!combine_components) {
 
                 for (int local_component = 0;
@@ -407,24 +399,23 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                   const int np = level.grids.at(local_component).size();
                   const amrex::FArrayBox &fab = mfab[component];
 
-                  const std::string varname =
-                      make_varname(gi, vi, patchdata.patch.index(),
-                                   leveldata.level.index(), component);
+                  const std::string varname = make_varname(
+                      groupdata.record, vi, leveldata.level, component);
                   if (io_verbose)
                     CCTK_VINFO("      Writing variable %s...", varname.c_str());
                   adios2::Variable<CCTK_REAL> var =
                       io.InquireVariable<CCTK_REAL>(varname);
                   assert(var);
                   var.SetSelection({{}, lsh});
-                  const CCTK_REAL *const ptr = fab.dataPtr() + vi * np;
+                  const CCTK_REAL *const ptr = fab.dataPtr() + vi.index() * np;
                   assert(ptr);
                   engine.Put(var, ptr);
                 } // for local_component
 
               } else { // if combine_components
 
-                const std::string varname = make_varname(
-                    gi, vi, patchdata.patch.index(), leveldata.level.index());
+                const std::string varname =
+                    make_varname(groupdata.record, vi, leveldata.level);
                 if (io_verbose)
                   CCTK_VINFO("      Writing variable %s...", varname.c_str());
 
@@ -437,7 +428,6 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
                   std::vector<CCTK_REAL> alldata(offsets.back());
 
-                  // Loop over components (AMReX boxes)
                   for (int local_component = 0;
                        local_component < num_local_components;
                        ++local_component) {
@@ -445,7 +435,8 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
 
                     const size_t np = sizes.at(local_component);
                     const amrex::FArrayBox &fab = mfab[component];
-                    const CCTK_REAL *const ptr = fab.dataPtr() + vi * np;
+                    const CCTK_REAL *const ptr =
+                        fab.dataPtr() + vi.index() * np;
                     assert(ptr);
 
                     std::memcpy(alldata.data() + offsets.at(local_component),
@@ -466,7 +457,8 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                     const int component = mfab.IndexArray().at(local_component);
                     const size_t np = sizes.at(local_component);
                     const amrex::FArrayBox &fab = mfab[component];
-                    const CCTK_REAL *const ptr = fab.dataPtr() + vi * np;
+                    const CCTK_REAL *const ptr =
+                        fab.dataPtr() + vi.index() * np;
                     assert(ptr);
 
                     std::memcpy(span.data() + offsets.at(local_component), ptr,
@@ -530,6 +522,16 @@ carpetx_adios2_t::~carpetx_adios2_t() {
 #else
 
 namespace CarpetX {
+void OutputADIOS2(const cGH *) {
+  const operation_scope_t op("CarpetX::OutputADIOS2");
+  DECLARE_CCTK_PARAMETERS;
+  if (group_selection_t::select_groups("out_adios2_vars", out_adios2_vars)
+          .empty())
+    return;
+  refuse(std::source_location::current(),
+         "CarpetX::out_adios2_vars is set, but this build has no ADIOS2");
+}
+
 void ShutdownADIOS2() {}
 } // namespace CarpetX
 
