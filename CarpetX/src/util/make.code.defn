@@ -3,7 +3,8 @@ SRCS =							\
 	mpi_types.cxx					\
 	refuse.cxx					\
 	task_manager.cxx				\
-	timer.cxx
+	timer.cxx					\
+	var_type.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))

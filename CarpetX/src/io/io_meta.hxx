@@ -8,6 +8,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <array>
+#include <source_location>
 #include <string>
 #include <vector>
 
@@ -50,7 +51,8 @@ struct output_file_description_t {
 };
 
 void OutputMeta_RegisterOutputFile(
-    output_file_description_t output_file_description);
+    output_file_description_t output_file_description,
+    std::source_location site = std::source_location::current());
 
 void OutputMeta(const cGH *);
 

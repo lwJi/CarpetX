@@ -1,9 +1,13 @@
 #include "io/io_openpmd.hxx"
 
 #include "hierarchy/driver.hxx"
+#include "io/io.hxx"
 #include "io/io_meta.hxx"
 #include "io/io_openpmd_names.hxx"
 #include "io/io_slice.hxx"
+#include "io/selection.hxx"
+#include "util/refuse.hxx"
+#include "util/var_type.hxx"
 #include <carpetx.hxx>
 
 #include <div.hxx>
@@ -14,6 +18,8 @@
 #include <cctk_Arguments.h>
 #include <cctk_Parameters.h>
 #include <util_Network.h>
+
+#include <source_location>
 
 #ifdef HAVE_CAPABILITY_openPMD_api
 
@@ -212,20 +218,14 @@ struct carpetx_openpmd_t {
 
   ////////////////////////////////////////////////////////////////////////////////
 
-  static std::string make_meshname(const gi_t gi, const int patch,
-                                   const int level, const tl_t tl = tl_t{0},
-                                   const std::string &band = std::string()) {
-    assert((patch == -1) == (level == -1));
-    const std::optional<level_t> where =
-        level == -1 ? std::nullopt
-                    : std::optional<level_t>(level_t{patch_t{patch}, level});
-    return CarpetX::make_meshname(CCTK_FullGroupName(gi.index()), where, tl,
-                                  band);
+  static std::string make_meshname(const GHExt::GroupRecord &group,
+                                   const level_t level, const tl_t tl) {
+    return CarpetX::make_meshname(group.groupname, level, tl);
   }
 
-  static std::string make_componentname(const gi_t gi, const int vi) {
-    return CarpetX::make_componentname(
-        CCTK_FullVarName(driver().record(gi).var(vi_t{vi}).index()));
+  static std::string make_componentname(const GHExt::GroupRecord &group,
+                                        const vi_t vi) {
+    return CarpetX::make_componentname(CCTK_FullVarName(group.var(vi).index()));
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -234,44 +234,64 @@ struct carpetx_openpmd_t {
   std::optional<openPMD::Series> series;
   std::optional<openPMD::WriteIterations> write_iters;
 
-  void OutputOpenPMD(const cGH *const cctkGH,
-                     const std::vector<bool> &output_group,
-                     const std::string &output_dir,
-                     const std::string &output_file, const slice_t &slice);
+  void write_openpmd_slice(const cGH *const cctkGH,
+                           const group_selection_t &selection,
+                           const std::string &output_dir,
+                           const std::string &output_file,
+                           const slice_t &slice);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 
 std::optional<carpetx_openpmd_t> carpetx_openpmd_t::self;
 
-void OutputOpenPMD(const cGH *const cctkGH,
-                   const std::vector<bool> &output_group,
-                   const std::string &output_dir,
-                   const std::string &output_file, const slice_t &slice) {
+void OutputOpenPMD(const cGH *const cctkGH) {
+  const operation_scope_t op("CarpetX::OutputOpenPMD");
+  DECLARE_CCTK_PARAMETERS;
+
+  const group_selection_t selection = group_selection_t::select_groups(
+      "CarpetX::out_openpmd_2d_vars", out_openpmd_2d_vars);
+  if (selection.empty())
+    return;
+  selection.log("openPMD-2D", group_kind::grid_function);
+
+  for (const GHExt::GroupRecord &group :
+       selection.records(group_kind::grid_function))
+    if (group.var_type != var_type::real)
+      refuse(std::source_location::current(),
+             "openPMD-2D writes only real grid functions; group %s is %s",
+             group.groupname.c_str(),
+             CCTK_VarTypeName(cctk_code(group.var_type)));
+
   if (!carpetx_openpmd_t::self)
     carpetx_openpmd_t::self = std::make_optional<carpetx_openpmd_t>();
-  carpetx_openpmd_t::self->OutputOpenPMD(cctkGH, output_group, output_dir,
-                                         output_file, slice);
+  const std::string simulation_name = get_simulation_name();
+  carpetx_openpmd_t::self->write_openpmd_slice(cctkGH, selection, out_dir,
+                                               simulation_name + ".xy",
+                                               slice_t{2, out_xyplane_z});
+  carpetx_openpmd_t::self->write_openpmd_slice(cctkGH, selection, out_dir,
+                                               simulation_name + ".xz",
+                                               slice_t{1, out_xzplane_y});
+  carpetx_openpmd_t::self->write_openpmd_slice(cctkGH, selection, out_dir,
+                                               simulation_name + ".yz",
+                                               slice_t{0, out_yzplane_x});
 }
 
 void ShutdownOpenPMD() { carpetx_openpmd_t::self.reset(); }
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
-                                      const std::vector<bool> &output_group,
-                                      const std::string &output_dir,
-                                      const std::string &output_file,
-                                      const slice_t &slice) {
+void carpetx_openpmd_t::write_openpmd_slice(const cGH *const cctkGH,
+                                            const group_selection_t &selection,
+                                            const std::string &output_dir,
+                                            const std::string &output_file,
+                                            const slice_t &slice) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
   // Set up timers
   static Timer timer("OutputOpenPMD");
   Interval interval(timer);
-
-  if (std::count(output_group.begin(), output_group.end(), true) == 0)
-    return;
 
   if (io_verbose)
     CCTK_VINFO("OutputOpenPMD...");
@@ -419,18 +439,12 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
       const openPMD::Dataset dataset(datatype, extent);
 
       for (const auto &groupdata : leveldata.groups()) {
-        const gi_t gi = groupdata.record.groupindex;
-        if (output_group.at(gi.index())) {
-
-          cGroup cgroup;
-          const int ierr = CCTK_GroupData(gi.index(), &cgroup);
-          assert(!ierr);
-          assert(cgroup.vartype == CCTK_VARIABLE_REAL);
-          assert(cgroup.dim == 3);
+        if (selection.contains(groupdata.record.groupindex)) {
 
           if (io_verbose)
-            CCTK_VINFO("Writing group %d %s...", gi.index(),
-                       CCTK_FullGroupName(gi.index()));
+            CCTK_VINFO("Writing group %d %s...",
+                       groupdata.record.groupindex.index(),
+                       groupdata.record.groupname.c_str());
 
           const int numvars = groupdata.record.numvars;
 
@@ -445,8 +459,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
 
           // Create mesh
 
-          const std::string meshname = make_meshname(
-              gi, leveldata.level.patch().index(), leveldata.level.index(), tl);
+          const std::string meshname =
+              make_meshname(groupdata.record, leveldata.level, tl);
           if (io_verbose)
             CCTK_VINFO("Defining mesh %s...", meshname.c_str());
           assert(!write_iter.meshes.contains(meshname));
@@ -469,8 +483,9 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
 
           std::vector<openPMD::MeshRecordComponent> record_components;
           record_components.reserve(numvars);
-          for (int vi = 0; vi < numvars; ++vi) {
-            const std::string componentname = make_componentname(gi, vi);
+          for (const vi_t vi : groupdata.record.variables()) {
+            const std::string componentname =
+                make_componentname(groupdata.record, vi);
             record_components.push_back(mesh[componentname]);
             auto &record_component = record_components.back();
             record_component.setPosition(to_vector<double>(reversed(position)));
@@ -483,8 +498,8 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
             CCTK_VINFO("Writing %d variables with %d components...", numvars,
                        num_local_components);
 
-          for (int vi = 0; vi < numvars; ++vi)
-            record_components.at(vi).resetDataset(dataset);
+          for (const vi_t vi : groupdata.record.variables())
+            record_components.at(vi.index()).resetDataset(dataset);
 
           for (int local_component = 0; local_component < num_local_components;
                ++local_component) {
@@ -546,23 +561,24 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
               assert(start.at(d) + count.at(d) <= extent.at(d));
 
             const amrex::FArrayBox &fab = mfab[component];
-            for (int vi = 0; vi < numvars; ++vi) {
-              // A thin slab (box != extbox) takes the contiguous-copy path.
+            for (const vi_t vi : groupdata.record.variables()) {
+              openPMD::MeshRecordComponent &record_component =
+                  record_components.at(vi.index());
               if (box == extbox) {
-                const CCTK_REAL *const ptr = fab.dataPtr() + vi * np;
+                const CCTK_REAL *const ptr = fab.dataPtr() + vi.index() * np;
 #if OPENPMDAPI_VERSION_GE(0, 15, 0)
-                record_components.at(vi).storeChunkRaw(ptr, start, count);
+                record_component.storeChunkRaw(ptr, start, count);
 #else
-                record_components.at(vi).storeChunk(openPMD::shareRaw(ptr),
-                                                    start, count);
+                record_component.storeChunk(openPMD::shareRaw(ptr), start,
+                                            count);
 #endif
               } else {
                 std::shared_ptr<CCTK_REAL> ptr(
                     new CCTK_REAL[np], std::default_delete<CCTK_REAL[]>());
-                extract_subbox(ptr.get(), fab.dataPtr() + vi * extbox.size(),
+                extract_subbox(ptr.get(),
+                               fab.dataPtr() + vi.index() * extbox.size(),
                                extbox.lo, extbox.hi, box.lo, box.hi);
-                record_components.at(vi).storeChunk(std::move(ptr), start,
-                                                    count);
+                record_component.storeChunk(std::move(ptr), start, count);
               }
             } // for vi
           } // for local_component
@@ -577,13 +593,10 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
     ofd.filename = *filename;
     ofd.description = "2D CarpetX openPMD slice output";
     ofd.writer_thorn = CCTK_THORNSTRING;
-    for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-      if (!output_group.at(gi) || CCTK_GroupTypeI(gi) != CCTK_GF)
-        continue;
-      const GHExt::GroupRecord &record = ext.record(gi_t{gi});
-      for (const vi_t vi : record.variables())
-        ofd.variables.push_back(CCTK_FullVarName(record.var(vi).index()));
-    }
+    for (const GHExt::GroupRecord &group :
+         selection.records(group_kind::grid_function))
+      for (const vi_t vi : group.variables())
+        ofd.variables.push_back(CCTK_FullVarName(group.var(vi).index()));
     ofd.iterations = {cctk_iteration};
     for (const int d : slice.inplane_dirs())
       ofd.output_directions.push_back(d);
@@ -644,10 +657,15 @@ void carpetx_openpmd_t::OutputOpenPMD(const cGH *const cctkGH,
 #else
 
 namespace CarpetX {
-void OutputOpenPMD(const cGH *, const std::vector<bool> &, const std::string &,
-                   const std::string &, const slice_t &) {
-  CCTK_ERROR("openPMD is not enabled. The parameter "
-             "CarpetX::out_openpmd_2d_vars must be empty.");
+void OutputOpenPMD(const cGH *) {
+  const operation_scope_t op("CarpetX::OutputOpenPMD");
+  DECLARE_CCTK_PARAMETERS;
+  if (group_selection_t::select_groups("CarpetX::out_openpmd_2d_vars",
+                                       out_openpmd_2d_vars)
+          .empty())
+    return;
+  refuse(std::source_location::current(),
+         "CarpetX::out_openpmd_2d_vars is set, but this build has no openPMD");
 }
 
 void ShutdownOpenPMD() {}

@@ -1,9 +1,13 @@
 #include "io/io_silo.hxx"
 
 #include "hierarchy/driver.hxx"
+#include "io/io.hxx"
 #include "io/io_meta.hxx"
 #include "io/io_silo_names.hxx"
+#include "io/io_slice.hxx"
+#include "io/selection.hxx"
 #include "util/mpi_types.hxx"
+#include "util/refuse.hxx"
 #include <carpetx.hxx>
 
 #include <tuple.hxx>
@@ -12,6 +16,8 @@
 #include <cctk.h>
 #include <cctk_Arguments.h>
 #include <cctk_Parameters.h>
+
+#include <source_location>
 
 #ifdef HAVE_CAPABILITY_Silo
 
@@ -85,24 +91,19 @@ struct mesh_props_t {
   }
 };
 
-std::string var_name(const gi_t gi, const int vi) {
-  return CCTK_FullVarName(driver().record(gi).var(vi_t{vi}).index());
+std::string var_name(const GHExt::GroupRecord &group, const vi_t vi) {
+  return CCTK_FullVarName(group.var(vi).index());
 }
 
 void RegisterSiloOutput(const cGH *restrict const cctkGH,
-                        const std::vector<bool> &output_group,
+                        const group_selection_t &selection,
                         const std::string &output_dir,
                         const std::string &output_file, const slice_t &slice) {
   std::vector<std::string> variables;
-  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-    if (!output_group.at(gi))
-      continue;
-    if (CCTK_GroupTypeI(gi) != CCTK_GF)
-      continue;
-    const GHExt::GroupRecord &record = driver().record(gi_t{gi});
-    for (const vi_t vi : record.variables())
-      variables.push_back(CCTK_FullVarName(record.var(vi).index()));
-  }
+  for (const GHExt::GroupRecord &group :
+       selection.records(group_kind::grid_function))
+    for (const vi_t vi : group.variables())
+      variables.push_back(var_name(group, vi));
   std::vector<int> output_directions;
   for (const int d : slice.inplane_dirs())
     output_directions.push_back(d);
@@ -112,14 +113,12 @@ void RegisterSiloOutput(const cGH *restrict const cctkGH,
       cctkGH->cctk_iteration, std::move(output_directions)));
 }
 
-} // namespace
-
 ////////////////////////////////////////////////////////////////////////////////
 
-void OutputSilo(const cGH *restrict const cctkGH,
-                const std::vector<bool> &output_group,
-                const std::string &output_dir, const std::string &output_file,
-                const slice_t &slice) {
+void write_silo_slice(const cGH *restrict const cctkGH,
+                      const group_selection_t &selection,
+                      const std::string &output_dir,
+                      const std::string &output_file, const slice_t &slice) {
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -128,9 +127,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
   // Set up timers
   static Timer timer("OutputSilo");
   Interval interval(timer);
-
-  if (std::count(output_group.begin(), output_group.end(), true) == 0)
-    return;
 
   if (io_verbose)
     CCTK_VINFO("OutputSilo...");
@@ -149,7 +145,8 @@ void OutputSilo(const cGH *restrict const cctkGH,
       return out_proc_every;
     if (CCTK_EQUALS(out_mode, "onefile"))
       return nprocs;
-    assert(0);
+    refuse(std::source_location::current(),
+           "IO::out_mode is \"%s\", which this writer does not know", out_mode);
   }();
   assert(ioproc_every > 0);
 
@@ -173,10 +170,6 @@ void OutputSilo(const cGH *restrict const cctkGH,
   constexpr int ndims = dim;
 
   const GHExt &ext = driver();
-  for (const auto &patchdata : ext.patches())
-    if (!patchdata.is_cartesian)
-      CCTK_VERROR("2D Silo slice output is only supported for "
-                  "Cartesian patches");
 
   interval_setup = nullptr;
 
@@ -237,8 +230,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
         std::set<mesh_props_t> have_meshes;
         for (const auto &groupdata : leveldata.groups()) {
-          const gi_t gi = groupdata.record.groupindex;
-          if (!output_group.at(gi.index()))
+          if (!selection.contains(groupdata.record.groupindex))
             continue;
 
           const int numvars = groupdata.record.numvars;
@@ -443,22 +435,20 @@ void OutputSilo(const cGH *restrict const cctkGH,
                                  &hide_from_gui);
               assert(!ierr);
 
-              if (centering == DB_EDGECENT || centering == DB_FACECENT) {
-                // Need to find the other 2 edge- or face-centered
-                // variables, and output them as well. Maybe output all
-                // 3 when the x- or xy-centered value is output? Maybe
-                // add a "sibling" tag to such grid functions to find
-                // these other components?
-                assert(0);
-              }
+              if (centering == DB_EDGECENT || centering == DB_FACECENT)
+                refuse(std::source_location::current(),
+                       "2D Silo slice output supports only vertex- and "
+                       "cell-centered grid functions; group %s is edge- or "
+                       "face-centered",
+                       groupdata.record.groupname.c_str());
 
               std::vector<CCTK_REAL> slab(zonecount);
-              for (int vi = 0; vi < numvars; ++vi) {
-                const std::string varname =
-                    make_varname(var_name(gi, vi), leveldata.level, component);
+              for (const vi_t vi : groupdata.record.variables()) {
+                const std::string varname = make_varname(
+                    var_name(groupdata.record, vi), leveldata.level, component);
 
-                extract_subbox(slab.data(), data + vi * src_zonecount, ext_lo,
-                               ext_hi, sub_lo, sub_hi);
+                extract_subbox(slab.data(), data + vi.index() * src_zonecount,
+                               ext_lo, ext_hi, sub_lo, sub_hi);
 
                 ierr = DBPutQuadvar1(
                     file.get(), varname.c_str(), meshname.c_str(), slab.data(),
@@ -468,7 +458,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
             } // if write_file
 
           } // for component
-        } // for gi
+        }
       } // for leveldata
     } // for patchdata
   } // write data
@@ -507,15 +497,10 @@ void OutputSilo(const cGH *restrict const cctkGH,
     }
 
     std::map<mesh_props_t, std::size_t> mesh_nblocks;
-    for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
-      const gi_t gi{gi0};
-      if (!output_group.at(gi.index()))
-        continue;
-      if (CCTK_GroupTypeI(gi.index()) != CCTK_GF)
-        continue;
-
-      const auto &groupdata0 = ext.level(level_t{patch_t{0}, 0}).group(gi);
-      const int numvars = groupdata0.record.numvars;
+    for (const GHExt::GroupRecord &group :
+         selection.records(group_kind::grid_function)) {
+      const auto &groupdata0 =
+          ext.level(level_t{patch_t{0}, 0}).group(group.groupindex);
       const tl_t tl{0};
       const amrex::MultiFab &mfab0 = *groupdata0.timelevel(tl).mfab;
       const amrex::IndexType &indextype = mfab0.ixType();
@@ -532,7 +517,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
 
         for (const auto &patchdata : ext.patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            const auto &groupdata = leveldata.group(gi);
+            const auto &groupdata = leveldata.group(group.groupindex);
             const tl_t tl{0};
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const int ncomponents = mfab.size();
@@ -562,7 +547,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         std::vector<std::string> meshnames;
         for (const auto &patchdata : ext.patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            const auto &groupdata = leveldata.group(gi);
+            const auto &groupdata = leveldata.group(group.groupindex);
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const amrex::DistributionMapping &dm = mfab.DistributionMap();
             const int ncomponents = dm.size();
@@ -633,7 +618,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
         zonecounts.reserve(meshnames.size());
         for (const auto &patchdata : ext.patches()) {
           for (const auto &leveldata : patchdata.levels()) {
-            const auto &groupdata = leveldata.group(gi);
+            const auto &groupdata = leveldata.group(group.groupindex);
             const tl_t tl{0};
             const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
             const int ncomponents = mfab.size();
@@ -697,13 +682,13 @@ void OutputSilo(const cGH *restrict const cctkGH,
         ierr = DBAddOption(optlist.get(), DBOPT_MB_BLOCK_TYPE, &quadvar);
         assert(!ierr);
 
-        for (int vi = 0; vi < numvars; ++vi) {
-          const std::string multivarname = make_varname(var_name(gi, vi));
+        for (const vi_t vi : group.variables()) {
+          const std::string multivarname = make_varname(var_name(group, vi));
 
           std::vector<std::string> varnames;
           for (const auto &patchdata : ext.patches()) {
             for (const auto &leveldata : patchdata.levels()) {
-              const auto &groupdata = leveldata.group(gi);
+              const auto &groupdata = leveldata.group(group.groupindex);
               const tl_t tl{0};
               const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
               const amrex::DistributionMapping &dm = mfab.DistributionMap();
@@ -722,7 +707,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
                                   proc / ioproc_every);
                 const std::string varname =
                     proc_filename + ":" +
-                    make_varname(var_name(gi, vi), leveldata.level, c);
+                    make_varname(var_name(group, vi), leveldata.level, c);
                 varnames.push_back(varname);
               }
             }
@@ -750,8 +735,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
           assert(!ierr);
         } // for vi
       } // write multivar
-
-    } // for gi
+    }
 
     {
       const std::string dirname = DB::legalize_name(driver_name);
@@ -852,7 +836,7 @@ void OutputSilo(const cGH *restrict const cctkGH,
       visit << make_filename(output_file, cctk_iteration) << "\n";
     }
 
-    RegisterSiloOutput(cctkGH, output_group, output_dir, output_file, slice);
+    RegisterSiloOutput(cctkGH, selection, output_dir, output_file, slice);
 
   } // if write metadata
 
@@ -862,15 +846,48 @@ void OutputSilo(const cGH *restrict const cctkGH,
     timer.print();
 }
 
+} // namespace
+
+void OutputSilo(const cGH *restrict const cctkGH) {
+  const operation_scope_t op("CarpetX::OutputSilo");
+  DECLARE_CCTK_PARAMETERS;
+
+  const group_selection_t selection = group_selection_t::select_groups(
+      "CarpetX::out_silo_2d_vars", out_silo_2d_vars);
+  if (selection.empty())
+    return;
+  selection.log("Silo-2D", group_kind::grid_function);
+
+  for (const auto &patchdata : driver().patches())
+    if (!patchdata.is_cartesian)
+      refuse(std::source_location::current(),
+             "2D Silo slice output is only supported for Cartesian patches; "
+             "patch %d is not",
+             patchdata.patch.index());
+
+  const std::string simulation_name = get_simulation_name();
+  write_silo_slice(cctkGH, selection, out_dir, simulation_name + ".xy",
+                   slice_t{2, out_xyplane_z});
+  write_silo_slice(cctkGH, selection, out_dir, simulation_name + ".xz",
+                   slice_t{1, out_xzplane_y});
+  write_silo_slice(cctkGH, selection, out_dir, simulation_name + ".yz",
+                   slice_t{0, out_yzplane_x});
+}
+
 } // namespace CarpetX
 
 #else
 
 namespace CarpetX {
-void OutputSilo(const cGH *, const std::vector<bool> &, const std::string &,
-                const std::string &, const slice_t &) {
-  CCTK_ERROR("Silo is not enabled. The parameter "
-             "CarpetX::out_silo_2d_vars must be empty.");
+void OutputSilo(const cGH *) {
+  const operation_scope_t op("CarpetX::OutputSilo");
+  DECLARE_CCTK_PARAMETERS;
+  if (group_selection_t::select_groups("CarpetX::out_silo_2d_vars",
+                                       out_silo_2d_vars)
+          .empty())
+    return;
+  refuse(std::source_location::current(),
+         "CarpetX::out_silo_2d_vars is set, but this build has no Silo");
 }
 } // namespace CarpetX
 

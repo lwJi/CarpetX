@@ -1,4 +1,7 @@
 #include "hierarchy/driver.hxx"
+#include "util/var_type.hxx"
+
+#include <type_traits>
 
 namespace std {
 template <typename T, size_t N>
@@ -118,21 +121,14 @@ std::ostream &
 operator<<(std::ostream &os,
            const GHExt::GlobalData::AnyTypeVector::AnyTypeScalarRef &scalar) {
   const char sep = '\t';
-  switch (scalar._vect.type()) {
-  case CCTK_VARIABLE_REAL:
-    os << *(CCTK_REAL *)scalar._vect.data_at(scalar._idx);
-    break;
-  case CCTK_VARIABLE_INT:
-    os << *(CCTK_INT *)scalar._vect.data_at(scalar._idx);
-    break;
-  case CCTK_VARIABLE_COMPLEX: {
-    CCTK_COMPLEX value = *(CCTK_COMPLEX *)scalar._vect.data_at(scalar._idx);
-    os << value.real() << sep << value.imag();
-  } break;
-  default:
-    assert(0 && "Unexpected variable type");
-    break;
-  }
+  visit(scalar._vect.type(), [&](const auto tag) {
+    using T = typename decltype(tag)::type;
+    const T value = *static_cast<const T *>(scalar._vect.data_at(scalar._idx));
+    if constexpr (std::is_same_v<T, CCTK_COMPLEX>)
+      os << value.real() << sep << value.imag();
+    else
+      os << value;
+  });
   return os;
 }
 
@@ -167,23 +163,11 @@ YAML::Emitter &
 operator<<(YAML::Emitter &yaml,
            const GHExt::GlobalData::AnyTypeVector::AnyTypeScalarRef
                &anytypescalarref) {
-  switch (anytypescalarref._vect.type()) {
-  case CCTK_VARIABLE_COMPLEX:
-    yaml << *(const CCTK_COMPLEX *)anytypescalarref._vect.data_at(
-        anytypescalarref._idx);
-    break;
-  case CCTK_VARIABLE_REAL:
-    yaml << *(const CCTK_REAL *)anytypescalarref._vect.data_at(
-        anytypescalarref._idx);
-    break;
-  case CCTK_VARIABLE_INT:
-    yaml << *(const CCTK_INT *)anytypescalarref._vect.data_at(
-        anytypescalarref._idx);
-    break;
-  default:
-    CCTK_VERROR("Cannot handle type %d", anytypescalarref._vect.type());
-    break;
-  }
+  visit(anytypescalarref._vect.type(), [&](const auto tag) {
+    using T = typename decltype(tag)::type;
+    yaml << *static_cast<const T *>(
+        anytypescalarref._vect.data_at(anytypescalarref._idx));
+  });
   return yaml;
 }
 

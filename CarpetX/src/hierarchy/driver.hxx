@@ -6,6 +6,7 @@
 #include <loop.hxx>
 #include "hierarchy/valid.hxx"
 #include "util/refuse.hxx"
+#include "util/var_type.hxx"
 
 #include <carpetx.hxx>
 #include <carpetx_rk.hxx>
@@ -73,6 +74,7 @@ using tl_range = index_range<tl_t>;
 enum class group_kind { grid_function, array, scalar };
 
 template <typename U> U &storage_entry(U &entry) { return entry; }
+template <typename U> U &storage_entry(U *const entry) { return *entry; }
 template <typename U> U &storage_entry(std::unique_ptr<U> &entry) {
   return *entry;
 }
@@ -229,16 +231,16 @@ struct GHExt {
                                         const AnyTypeScalarRef &scalar);
       };
 
-      AnyTypeVector() : _type(-1), _typesize(-1), _count(0), _data(nullptr) {};
-      AnyTypeVector(int type_, size_t count_)
-          : _type(-1), _typesize(-1), _count(0), _data(nullptr) {
+      AnyTypeVector()
+          : _type(std::nullopt), _typesize(-1), _count(0), _data(nullptr) {};
+      AnyTypeVector(const var_type type_, size_t count_)
+          : _type(std::nullopt), _typesize(-1), _count(0), _data(nullptr) {
         alloc(type_, count_);
         assert(_type == type_);
         assert(_typesize != -1);
         assert(_count == count_);
         assert(_data != nullptr);
       };
-      // Noncopyable for now
       AnyTypeVector(const AnyTypeVector &) = delete;
       AnyTypeVector &operator=(const AnyTypeVector &) = delete;
       AnyTypeVector &operator=(AnyTypeVector &&other) {
@@ -248,7 +250,7 @@ struct GHExt {
       AnyTypeVector(AnyTypeVector &&other)
           : _type(other._type), _typesize(other._typesize),
             _count(other._count), _data(other._data) {
-        other._type = -1;
+        other._type = std::nullopt;
         other._typesize = -1;
         other._count = 0;
         other._data = nullptr;
@@ -262,48 +264,48 @@ struct GHExt {
 
       ~AnyTypeVector() {
         if (_data != nullptr) {
-          assert(_type != -1);
+          assert(_type);
           assert(_typesize != -1);
           amrex::The_Arena()->free(_data);
-          _type = -1;
+          _type = std::nullopt;
           _typesize = -1;
           _count = 0;
           _data = nullptr;
         }
-        assert(_type == -1);
+        assert(!_type);
         assert(_typesize == -1);
         assert(_count == 0);
         assert(_data == nullptr);
       };
 
-      void alloc(int type_, size_t count_) {
-        assert(type_ == CCTK_VARIABLE_INT || type_ == CCTK_VARIABLE_REAL ||
-               type_ == CCTK_VARIABLE_COMPLEX);
-
-        assert(_type == -1);
+      void alloc(const var_type type_, size_t count_) {
+        assert(!_type);
         assert(_typesize == -1);
         assert(_count == 0);
         assert(_data == nullptr);
 
         _type = type_;
-        _typesize = CCTK_VarTypeSize(_type);
+        _typesize = size_of(type_);
         assert(_typesize > 0);
         _count = count_;
         _data = amrex::The_Arena()->alloc(_typesize * _count);
       }
 
       void free() {
-        assert(_type != -1);
+        assert(_type);
         assert(_typesize != -1);
         assert(_data != nullptr);
         amrex::The_Arena()->free(_data);
-        _type = -1;
+        _type = std::nullopt;
         _typesize = -1;
         _count = 0;
         _data = nullptr;
       }
 
-      int type() const { return _type; };
+      var_type type() const {
+        assert(_type);
+        return *_type;
+      };
       int typesize() const { return _typesize; };
 
       const void *data_at(size_t i) const {
@@ -336,7 +338,8 @@ struct GHExt {
                                        const AnyTypeVector &anytypevector);
 
     private:
-      int _type, _typesize;
+      std::optional<var_type> _type;
+      int _typesize;
       size_t _count;
       void *_data;
     };
@@ -421,6 +424,7 @@ struct GHExt {
     bool do_restrict;
     bool restrict_on_sync;
     group_kind kind;
+    CarpetX::var_type var_type;
 
     int num_timelevels() const { return num_timelevels_; }
     tl_range timelevels() const {
@@ -478,6 +482,9 @@ struct GHExt {
          const std::source_location site = std::source_location::current()) {
     return const_cast<GroupRecord &>(std::as_const(*this).record(gi, site));
   }
+  const GroupRecord &
+  record_of(var_t var,
+            std::source_location site = std::source_location::current()) const;
   auto records(const std::optional<group_kind> kind = std::nullopt) const {
     return storage_range<const GroupRecord,
                          std::vector<GroupRecord>::const_iterator,

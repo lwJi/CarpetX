@@ -5,10 +5,11 @@
 #include "io/io_norm.hxx"
 #include "io/io_openpmd.hxx"
 #include "io/io_silo.hxx"
-#include "io/io_slice.hxx"
 #include "io/io_tsv.hxx"
+#include "io/selection.hxx"
 #include "comm/subcycling.hxx"
 #include "traversal/traversal.hxx"
+#include "util/refuse.hxx"
 #include <carpetx.hxx>
 
 #include <CactusBase/IOUtil/src/ioGH.h>
@@ -30,6 +31,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <regex>
 #include <string>
 #include <utility>
@@ -40,30 +42,6 @@ namespace CarpetX {
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace {
-std::vector<bool> find_groups(const char *const method,
-                              const char *const out_vars) {
-  DECLARE_CCTK_PARAMETERS;
-
-  std::vector<bool> enabled(CCTK_NumGroups(), false);
-  const auto callback{
-      [](const int index, const char *const optstring, void *const arg) {
-        std::vector<bool> &enabled = *static_cast<std::vector<bool> *>(arg);
-        enabled.at(CCTK_GroupIndexFromVarI(index)) = true;
-      }};
-  CCTK_TraverseString(out_vars, callback, &enabled, CCTK_GROUP_OR_VAR);
-  if (verbose) {
-    CCTK_VINFO("%s output for groups:", method);
-    for (int gi = 0; gi < CCTK_NumGroups(); ++gi)
-      if (enabled.at(gi))
-        CCTK_VINFO("  %s", CCTK_FullGroupName(gi));
-  }
-  return enabled;
-}
-
-bool selects_any(const std::vector<bool> &enabled) {
-  return std::find(enabled.begin(), enabled.end(), true) != enabled.end();
-}
-
 std::string get_parameter_filename() {
   std::vector<char> buf(10000);
   int ilen = CCTK_ParameterFilename(buf.size(), buf.data());
@@ -79,6 +57,7 @@ std::string get_parameter_filename() {
     parfilename = parfilename.substr(0, suffix);
   return parfilename;
 }
+} // namespace
 
 std::string get_simulation_name() {
   std::string name = get_parameter_filename();
@@ -91,12 +70,31 @@ std::string get_simulation_name() {
   return name;
 }
 
-void encode_output(const cGH *const cctkGH, const char *const method,
-                   const std::vector<bool> &output_group) {
+namespace {
+std::optional<group_kind> carried_kind(const codec_limits_t &limits) {
+  if (limits.carries_arrays)
+    return std::nullopt;
+  return group_kind::grid_function;
+}
+
+group_selection_t checkpointed_groups() {
+  return group_selection_t::select_records(
+      [](const GHExt::GroupRecord &group) { return group.do_checkpoint; });
+}
+
+void encode_output(const cGH *const cctkGH, const char *const operation,
+                   const char *const method, const char *const parameter_name,
+                   const char *const parameter_value) {
+  const operation_scope_t op(operation);
   DECLARE_CCTK_PARAMETERS;
+  const group_selection_t selection =
+      group_selection_t::select_groups(parameter_name, parameter_value);
+  if (selection.empty())
+    return;
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(method);
-  codec->encode(build_record(cctkGH, output_group, record_purpose::output,
-                             codec->limits()),
+  const codec_limits_t limits = codec->limits();
+  selection.log(method, carried_kind(limits));
+  codec->encode(build_record(cctkGH, selection, record_purpose::output, limits),
                 out_dir, get_simulation_name());
 }
 } // namespace
@@ -106,6 +104,7 @@ void encode_output(const cGH *const cctkGH, const char *const method,
 // Recovering
 
 checkpoint_record_t RecoverGridStructure(cGH *restrict cctkGH) {
+  const operation_scope_t op("CarpetX::RecoverGridStructure");
   DECLARE_CCTK_PARAMETERS;
 
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
@@ -119,6 +118,7 @@ checkpoint_record_t RecoverGridStructure(cGH *restrict cctkGH) {
 ////////////////////////////////////////////////////////////////////////////////
 
 void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
+  const operation_scope_t op("CarpetX::RecoverGH");
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -133,12 +133,7 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
   }
 
   const GHExt &ext = driver();
-  const std::vector<bool> group_enabled = [&] {
-    std::vector<bool> enabled(CCTK_NumGroups(), false);
-    for (const auto &group : ext.records())
-      enabled.at(group.groupindex.index()) = group.do_checkpoint;
-    return enabled;
-  }();
+  const group_selection_t selection = checkpointed_groups();
 
   if (ext.use_subcycling) {
     for (const auto &patchdata : ext.patches())
@@ -152,7 +147,7 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
 
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
   checkpoint_record_t recovering = record;
-  build_buffers(recovering, group_enabled, record_purpose::checkpoint,
+  build_buffers(recovering, selection, record_purpose::checkpoint,
                 codec->limits());
   read_record(*codec, recovering, recover_dir, recover_file, "RecoverGH");
 
@@ -161,6 +156,7 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
 }
 
 void InputGH(const cGH *restrict cctkGH) {
+  const operation_scope_t op("CarpetX::InputGH");
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -177,17 +173,19 @@ void InputGH(const cGH *restrict cctkGH) {
                cctk_iteration, double(cctk_time), double(runtime / 3600.0));
   }
 
-  const std::vector<bool> input_group =
-      find_groups(filereader_method, filereader_ID_vars);
-  if (!selects_any(input_group))
+  const group_selection_t selection = group_selection_t::select_groups(
+      "IO::filereader_ID_vars", filereader_ID_vars);
+  if (selection.empty())
     return;
 
   const std::unique_ptr<checkpoint_codec_t> codec =
       make_codec(filereader_method);
+  const codec_limits_t limits = codec->limits();
+  selection.log(filereader_method, carried_kind(limits));
   checkpoint_record_t file = codec->decode_structure(
       filereader_ID_dir, filereader_ID_files, cctk_iteration);
-  checkpoint_record_t record = build_record(
-      cctkGH, input_group, record_purpose::output, codec->limits());
+  checkpoint_record_t record =
+      build_record(cctkGH, selection, record_purpose::output, limits);
   record.present = std::move(file.present);
   read_record(*codec, record, filereader_ID_dir, filereader_ID_files,
               "InputGH");
@@ -196,92 +194,80 @@ void InputGH(const cGH *restrict cctkGH) {
 ////////////////////////////////////////////////////////////////////////////////
 
 void OutputPlotfile(const cGH *restrict cctkGH) {
+  const operation_scope_t op("CarpetX::OutputPlotfile");
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("OutputPlotfile");
   Interval interval(timer);
 
-  const int numgroups = CCTK_NumGroups();
-  std::vector<bool> group_enabled(numgroups, false);
-  auto enable_group{[](int index, const char *optstring, void *callback) {
-    std::vector<bool> &group_enabled =
-        *static_cast<std::vector<bool> *>(callback);
-    // CCTK_TraverseString expands the given groups into their variables
-    // so I condense it down again to groups only
-    group_enabled.at(CCTK_GroupIndexFromVarI(index)) = true;
-  }};
-  CCTK_TraverseString(out_plotfile_groups, enable_group, &group_enabled,
-                      CCTK_GROUP_OR_VAR);
+  const group_selection_t selection = group_selection_t::select_groups(
+      "CarpetX::out_plotfile_groups", out_plotfile_groups);
+  if (selection.empty())
+    return;
+  selection.log("Plotfile", group_kind::grid_function);
 
   const GHExt &ext = driver();
-  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
-    const gi_t gi{gi0};
-    if (!group_enabled.at(gi.index()))
-      continue;
-    const auto &group = ext.record(gi);
-    if (group.kind != group_kind::grid_function)
-      continue;
+  for (const GHExt::GroupRecord &group :
+       selection.records(group_kind::grid_function)) {
+    const tl_t tl{0};
 
-    if (group.has_storage()) {
-      const tl_t tl{0};
+    std::string groupname = group.groupname;
+    groupname = regex_replace(groupname, std::regex("::"), "-");
+    for (auto &c : groupname)
+      c = tolower(c);
 
-      std::string groupname = CCTK_FullGroupName(gi.index());
-      groupname = regex_replace(groupname, std::regex("::"), "-");
-      for (auto &c : groupname)
-        c = tolower(c);
+    for (const auto &restrict patchdata : ext.patches()) {
 
-      for (const auto &restrict patchdata : ext.patches()) {
+      const std::string basename = [&]() {
+        std::ostringstream buf;
+        buf << groupname << ".it" << std::setw(8) << std::setfill('0')
+            << cctk_iteration;
+        if (ext.num_patches() > 1)
+          buf << ".m" << std::setw(2) << std::setfill('0') << patchdata.patch;
+        return buf.str();
+      }();
+      const std::string filename = std::string(out_dir) + "/" + basename;
 
-        const std::string basename = [&]() {
+      amrex::Vector<std::string> varnames(group.numvars);
+      for (const vi_t vi : group.variables()) {
+        std::ostringstream buf;
+        buf << CCTK_VarName(group.var(vi).index());
+        for (int i = 0; i < tl.index(); ++i)
+          buf << "_p";
+        varnames.at(vi.index()) = buf.str();
+      }
+
+      amrex::Vector<const amrex::MultiFab *> mfabs(patchdata.num_levels());
+      amrex::Vector<amrex::Geometry> geoms(patchdata.num_levels());
+      amrex::Vector<int> iters(patchdata.num_levels());
+      amrex::Vector<amrex::IntVect> reffacts(patchdata.num_levels());
+      for (const auto &restrict leveldata : patchdata.levels()) {
+        const level_t level = leveldata.level;
+        mfabs.at(level.index()) =
+            &*leveldata.group(group.groupindex).timelevel(tl).mfab;
+        geoms.at(level.index()) = patchdata.amrcore->Geom(level.index());
+        iters.at(level.index()) = cctk_iteration;
+        reffacts.at(level.index()) = amrex::IntVect{2, 2, 2};
+      }
+
+      // TODO: Output all groups into a single file
+      WriteMultiLevelPlotfile(filename, mfabs.size(), mfabs, varnames, geoms,
+                              cctk_time, iters, reffacts);
+
+      const bool is_root = CCTK_MyProc(nullptr) == 0;
+      if (is_root) {
+        const std::string visitname = [&]() {
           std::ostringstream buf;
-          buf << groupname << ".it" << std::setw(8) << std::setfill('0')
-              << cctk_iteration;
-          if (ext.num_patches() > 1)
-            buf << ".m" << std::setw(2) << std::setfill('0') << patchdata.patch;
+          buf << out_dir << "/" << groupname << ".visit";
           return buf.str();
         }();
-        const std::string filename = std::string(out_dir) + "/" + basename;
-
-        amrex::Vector<std::string> varnames(group.numvars);
-        for (const vi_t vi : group.variables()) {
-          std::ostringstream buf;
-          buf << CCTK_VarName(group.var(vi).index());
-          for (int i = 0; i < tl.index(); ++i)
-            buf << "_p";
-          varnames.at(vi.index()) = buf.str();
-        }
-
-        amrex::Vector<const amrex::MultiFab *> mfabs(patchdata.num_levels());
-        amrex::Vector<amrex::Geometry> geoms(patchdata.num_levels());
-        amrex::Vector<int> iters(patchdata.num_levels());
-        amrex::Vector<amrex::IntVect> reffacts(patchdata.num_levels());
-        for (const auto &restrict leveldata : patchdata.levels()) {
-          const int level = leveldata.level.index();
-          mfabs.at(level) = &*leveldata.group(gi).timelevel(tl).mfab;
-          geoms.at(level) = patchdata.amrcore->Geom(level);
-          iters.at(level) = cctk_iteration;
-          reffacts.at(level) = amrex::IntVect{2, 2, 2};
-        }
-
-        // TODO: Output all groups into a single file
-        WriteMultiLevelPlotfile(filename, mfabs.size(), mfabs, varnames, geoms,
-                                cctk_time, iters, reffacts);
-
-        const bool is_root = CCTK_MyProc(nullptr) == 0;
-        if (is_root) {
-          const std::string visitname = [&]() {
-            std::ostringstream buf;
-            buf << out_dir << "/" << groupname << ".visit";
-            return buf.str();
-          }();
-          std::ofstream visit(visitname, std::ios::app);
-          assert(visit.good());
-          visit << basename << "/Header\n";
-          visit.close();
-        } // if is_root
-      } // for patchdata
-    }
+        std::ofstream visit(visitname, std::ios::app);
+        assert(visit.good());
+        visit << basename << "/Header\n";
+        visit.close();
+      } // if is_root
+    } // for patchdata
   }
 }
 
@@ -344,6 +330,7 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml, parameters) {
 }
 
 void OutputMetadata(const cGH *restrict cctkGH) {
+  const operation_scope_t op("CarpetX::OutputMetadata");
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
@@ -431,48 +418,22 @@ int OutputGH(const cGH *restrict cctkGH) {
 
   {
     const int every = out_adios2_every == -1 ? out_every : out_adios2_every;
-    if (every > 0 && cctk_iteration % every == 0) {
-      const std::vector<bool> group_enabled =
-          find_groups("ADIOS2", out_adios2_vars);
-#ifdef HAVE_CAPABILITY_ADIOS2
-      // TODO: Stop at paramcheck time when ADIOS2 output parameters
-      // are set, but ADIOS2 is not available
-      const std::string simulation_name = get_simulation_name();
-      OutputADIOS2(cctkGH, group_enabled, out_dir, simulation_name);
-#else
-      if (strlen(out_adios2_vars) != 0)
-        CCTK_VERROR("ADIOS2 is not enabled. The parameter "
-                    "CarpetX::out_adios2_vars must be empty.");
-#endif
-    }
+    if (every > 0 && cctk_iteration % every == 0)
+      OutputADIOS2(cctkGH);
   }
 
   {
     const int every = out_openpmd_every == -1 ? out_every : out_openpmd_every;
-    if (every > 0 && cctk_iteration % every == 0) {
-      const std::vector<bool> group_enabled =
-          find_groups("openPMD", out_openpmd_vars);
-      if (selects_any(group_enabled))
-        encode_output(cctkGH, "openpmd", group_enabled);
-    }
+    if (every > 0 && cctk_iteration % every == 0)
+      encode_output(cctkGH, "CarpetX::OutputOpenPMD3D", "openpmd",
+                    "CarpetX::out_openpmd_vars", out_openpmd_vars);
   }
 
   {
     const int every =
         out_openpmd_2d_every == -1 ? out_every : out_openpmd_2d_every;
-    if (every > 0 && cctk_iteration % every == 0) {
-      const std::vector<bool> group_enabled =
-          find_groups("openPMD-2D", out_openpmd_2d_vars);
-      if (selects_any(group_enabled)) {
-        const std::string simulation_name = get_simulation_name();
-        OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
-                      slice_t{2, out_xyplane_z});
-        OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
-                      slice_t{1, out_xzplane_y});
-        OutputOpenPMD(cctkGH, group_enabled, out_dir, simulation_name + ".yz",
-                      slice_t{0, out_yzplane_x});
-      }
-    }
+    if (every > 0 && cctk_iteration % every == 0)
+      OutputOpenPMD(cctkGH);
   }
 
   {
@@ -483,29 +444,15 @@ int OutputGH(const cGH *restrict cctkGH) {
 
   {
     const int every = out_silo_every == -1 ? out_every : out_silo_every;
-    if (every > 0 && cctk_iteration % every == 0) {
-      const std::vector<bool> group_enabled =
-          find_groups("Silo", out_silo_vars);
-      if (selects_any(group_enabled))
-        encode_output(cctkGH, "silo", group_enabled);
-    }
+    if (every > 0 && cctk_iteration % every == 0)
+      encode_output(cctkGH, "CarpetX::OutputSilo3D", "silo",
+                    "CarpetX::out_silo_vars", out_silo_vars);
   }
 
   {
     const int every = out_silo_2d_every == -1 ? out_every : out_silo_2d_every;
-    if (every > 0 && cctk_iteration % every == 0) {
-      const std::vector<bool> group_enabled =
-          find_groups("Silo-2D", out_silo_2d_vars);
-      if (selects_any(group_enabled)) {
-        const std::string simulation_name = get_simulation_name();
-        OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".xy",
-                   slice_t{2, out_xyplane_z});
-        OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".xz",
-                   slice_t{1, out_xzplane_y});
-        OutputSilo(cctkGH, group_enabled, out_dir, simulation_name + ".yz",
-                   slice_t{0, out_yzplane_x});
-      }
-    }
+    if (every > 0 && cctk_iteration % every == 0)
+      OutputSilo(cctkGH);
   }
 
   OutputTSVold(cctkGH);
@@ -540,6 +487,7 @@ int OutputGH(const cGH *restrict cctkGH) {
 ////////////////////////////////////////////////////////////////////////////////
 
 void Checkpoint(const cGH *const restrict cctkGH) {
+  const operation_scope_t op("CarpetX::Checkpoint");
   DECLARE_CCTK_PARAMETERS;
 
   static int last_checkpoint_iteration = -1;
@@ -562,16 +510,11 @@ void Checkpoint(const cGH *const restrict cctkGH) {
   static Timer timer("Checkpoint");
   Interval interval(timer);
 
-  const std::vector<bool> checkpoint_group = [&] {
-    std::vector<bool> enabled(CCTK_NumGroups(), false);
-    for (const auto &group : driver().records())
-      enabled.at(group.groupindex.index()) = group.do_checkpoint;
-    return enabled;
-  }();
   const std::unique_ptr<checkpoint_codec_t> codec =
       make_codec(checkpoint_method);
-  const checkpoint_record_t record = build_record(
-      cctkGH, checkpoint_group, record_purpose::checkpoint, codec->limits());
+  const checkpoint_record_t record =
+      build_record(cctkGH, checkpointed_groups(), record_purpose::checkpoint,
+                   codec->limits());
   codec->encode(record, checkpoint_dir, checkpoint_file);
 }
 

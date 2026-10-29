@@ -2,15 +2,16 @@
 
 #include "hierarchy/driver.hxx"
 #include "io/io_meta.hxx"
+#include "io/selection.hxx"
 #include <loop.hxx>
 #include "ops/reduction.hxx"
+#include "util/refuse.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
 #include <cctk_Arguments.h>
 #include <cctk_Parameters.h>
 
-#include <algorithm>
 #include <cassert>
 #include <fstream>
 #include <iomanip>
@@ -24,46 +25,26 @@
 namespace CarpetX {
 
 void OutputNorms(const cGH *restrict cctkGH) {
+  const operation_scope_t op("CarpetX::OutputNorms");
   DECLARE_CCTK_ARGUMENTS;
   DECLARE_CCTK_PARAMETERS;
 
-  if (out_norm_vars[0] == '\0')
+  const group_selection_t selection =
+      group_selection_t::select_groups("CarpetX::out_norm_vars", out_norm_vars);
+  if (selection.empty())
     return;
+  selection.log("Norm", group_kind::grid_function);
 
   static Timer timer("OutputNorms");
   Interval interval(timer);
 
-  // Find output groups
-  const std::vector<bool> group_enabled = [&] {
-    std::vector<bool> enabled(CCTK_NumGroups(), false);
-    const auto callback{
-        [](const int index, const char *const optstring, void *const arg) {
-          std::vector<bool> &enabled = *static_cast<std::vector<bool> *>(arg);
-          enabled.at(CCTK_GroupIndexFromVarI(index)) = true;
-        }};
-    CCTK_TraverseString(out_norm_vars, callback, &enabled, CCTK_GROUP_OR_VAR);
-    if (verbose) {
-      CCTK_VINFO("Norm output for groups:");
-      for (int gi = 0; gi < CCTK_NumGroups(); ++gi)
-        if (enabled.at(gi))
-          CCTK_VINFO("  %s", CCTK_FullGroupName(gi));
-    }
-    return enabled;
-  }();
-  const auto num_out_groups =
-      std::count(group_enabled.begin(), group_enabled.end(), true);
-  if (num_out_groups == 0)
-    return;
-
-  static std::vector<bool> previous_group_enabled;
-  const bool group_enabled_changed = group_enabled != previous_group_enabled;
-  if (group_enabled_changed)
-    previous_group_enabled = group_enabled;
+  static group_selection_t previous_selection;
+  const bool selection_changed = selection != previous_selection;
+  previous_selection = selection;
 
   const bool is_root = CCTK_MyProc(nullptr) == 0;
   const std::string sep = "\t";
   const tl_t tl{0};
-  const int numgroups = CCTK_NumGroups();
   std::vector<std::string> reductions = {"min",    "max",    "sum",
                                          "avg",    "stddev", "volume",
                                          "L1norm", "L2norm", "maxabs"};
@@ -102,22 +83,16 @@ void OutputNorms(const cGH *restrict cctkGH) {
 
   const GHExt &ext = driver();
   if (is_root) {
-    if (group_enabled_changed) {
-      for (int gi0 = 0; gi0 < numgroups; ++gi0) {
-        const gi_t gi{gi0};
-        if (!group_enabled.at(gi.index()))
-          continue;
-        const auto &group = ext.record(gi);
-        if (group.kind != group_kind::grid_function || !group.has_storage())
-          continue;
-
+    if (selection_changed) {
+      for (const GHExt::GroupRecord &group :
+           selection.records(group_kind::grid_function)) {
         const patch_t patch{0};
         const GHExt::PatchData &restrict patchdata = ext.patch(patch);
         const level_t level{patch, 0};
         const GHExt::PatchData::LevelData &restrict leveldata =
             patchdata.level(level);
         const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
-            leveldata.group(gi);
+            leveldata.group(group.groupindex);
 
         bool group_has_valid_variables = false;
         for (const vi_t vi : group.variables()) {
@@ -129,7 +104,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
           continue;
 
         std::ostringstream buf;
-        std::string groupname = CCTK_FullGroupName(gi.index());
+        std::string groupname = group.groupname;
         groupname = std::regex_replace(groupname, std::regex("::"), "-");
         for (auto &ch : groupname)
           ch = std::tolower(ch);
@@ -159,21 +134,15 @@ void OutputNorms(const cGH *restrict cctkGH) {
     }
   }
 
-  for (int gi0 = 0; gi0 < numgroups; ++gi0) {
-    const gi_t gi{gi0};
-    if (!group_enabled.at(gi.index()))
-      continue;
-    const auto &group = ext.record(gi);
-    if (group.kind != group_kind::grid_function || !group.has_storage())
-      continue;
-
+  for (const GHExt::GroupRecord &group :
+       selection.records(group_kind::grid_function)) {
     const patch_t patch{0};
     const GHExt::PatchData &restrict patchdata = ext.patch(patch);
     const level_t level{patch, 0};
     const GHExt::PatchData::LevelData &restrict leveldata =
         patchdata.level(level);
     const GHExt::PatchData::LevelData::GroupData &restrict groupdata =
-        leveldata.group(gi);
+        leveldata.group(group.groupindex);
 
     bool group_has_valid_variables = false;
     for (const vi_t vi : group.variables()) {
@@ -188,7 +157,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
     output_file_description_t ofd;
     if (is_root) {
       std::ostringstream buf;
-      std::string groupname = CCTK_FullGroupName(gi.index());
+      std::string groupname = group.groupname;
       groupname = std::regex_replace(groupname, std::regex("::"), "-");
       for (auto &ch : groupname)
         ch = std::tolower(ch);
@@ -212,7 +181,7 @@ void OutputNorms(const cGH *restrict cctkGH) {
       ofd.variables.push_back(
           CCTK_FullVarName(groupdata.record.var(vi).index()));
 
-      const reduction<CCTK_REAL, dim> red = reduce(gi, vi, tl);
+      const reduction<CCTK_REAL, dim> red = reduce(group.groupindex, vi, tl);
 
       if (is_root) {
         file << sep << red.min << sep << red.max << sep << red.sum << sep

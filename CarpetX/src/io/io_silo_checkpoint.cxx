@@ -8,6 +8,7 @@
 #ifdef HAVE_CAPABILITY_Silo
 
 #include "util/mpi_types.hxx"
+#include "util/refuse.hxx"
 
 #include <silo.hxx>
 
@@ -36,6 +37,7 @@
 #include <optional>
 #include <regex>
 #include <set>
+#include <source_location>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -51,6 +53,8 @@ constexpr bool io_verbose = true;
 constexpr int ndims = Loop::dim;
 using ivect = std::array<int, ndims>;
 using extent_t = std::array<std::array<CCTK_REAL, ndims>, 2>;
+using coordinate_extents_t =
+    std::map<level_t, std::vector<std::array<CCTK_REAL, ndims> > >;
 
 template <class... Fs> struct overloaded : Fs... {
   using Fs::operator()...;
@@ -74,7 +78,8 @@ int ioproc_every(const int nprocs) {
   }
   if (CCTK_EQUALS(out_mode, "onefile"))
     return nprocs;
-  CCTK_VERROR("Unexpected IO::out_mode \"%s\"", out_mode);
+  refuse(std::source_location::current(),
+         "IO::out_mode is \"%s\", which this writer does not know", out_mode);
 }
 
 int db_centering(const amrex::IndexType &indextype) {
@@ -248,9 +253,8 @@ struct writer_t {
   int metafile_ioproc;
   DB::ptr<DBfile> dbfile;
   std::map<std::string, const amrex::MultiFab *> states;
-  std::map<std::pair<int, int>, std::set<ivect> > meshes;
-  std::vector<std::vector<std::vector<std::array<CCTK_REAL, ndims> > > >
-      coordinate_minima, coordinate_maxima;
+  std::map<level_t, std::set<ivect> > meshes;
+  coordinate_extents_t coordinate_minima, coordinate_maxima;
 
   bool writes_file() const { return bool(dbfile); }
 
@@ -281,15 +285,13 @@ struct writer_t {
 
   void write_state(const buffer_id_t &id, const amrex::MultiFab &mfab) {
     const level_t level = *id.level;
-    const level_record_t &levelrecord =
-        record.levels.at(level.patch().index()).at(level.index());
+    const level_record_t &levelrecord = record.level_record(level);
     const bool cartesian = !levelrecord.vertex_coords;
     const int numvars = id.vars.size();
     assert(mfab.nComp() == numvars);
     const amrex::IndexType &indextype = mfab.ixType();
     const ivect nghosts = to_ivect(mfab.nGrowVect());
-    std::set<ivect> &level_meshes =
-        meshes[{level.patch().index(), level.index()}];
+    std::set<ivect> &level_meshes = meshes[level];
     const bool have_mesh = level_meshes.count(nghosts);
 
     for (int component = 0; component < mfab.size(); ++component) {
@@ -331,12 +333,8 @@ struct writer_t {
             xmin[d] = xminmax.first;
             xmax[d] = xminmax.second;
           }
-          coordinate_minima.at(level.patch().index())
-              .at(level.index())
-              .at(component) = xmin;
-          coordinate_maxima.at(level.patch().index())
-              .at(level.index())
-              .at(component) = xmax;
+          coordinate_minima.at(level).at(component) = xmin;
+          coordinate_maxima.at(level).at(component) = xmax;
         }
         put_quadmesh(dbfile.get(), meshname, coord_ptrs, dims_vc,
                      cartesian ? DB_COLLINEAR : DB_NONCOLLINEAR, cartesian,
@@ -350,7 +348,7 @@ struct writer_t {
 
       if (writes_file()) {
         const int centering = db_centering(indextype);
-        for (int vi = 0; vi < numvars; ++vi)
+        for (std::size_t vi = 0; vi < id.vars.size(); ++vi)
           put_quadvar(dbfile.get(),
                       make_varname(id.vars.at(vi), level, component), meshname,
                       data + vi * zonecount, dims, centering, record.iteration,
@@ -362,8 +360,7 @@ struct writer_t {
   void write_band(const buffer_id_t &id, const amrex::MultiFab &band) {
     const level_t level = *id.level;
     const std::string &tag = *band_tag(id);
-    const level_record_t &levelrecord =
-        record.levels.at(level.patch().index()).at(level.index());
+    const level_record_t &levelrecord = record.level_record(level);
     const int numvars = id.vars.size();
     assert(band.nComp() == numvars);
     assert(band.nGrowVect() == 0);
@@ -398,7 +395,7 @@ struct writer_t {
           gather(band, component, numvars * zonecount, band_write_tag, buffer);
 
       if (writes_file())
-        for (int vi = 0; vi < numvars; ++vi)
+        for (std::size_t vi = 0; vi < id.vars.size(); ++vi)
           put_quadvar(dbfile.get(),
                       make_varname(id.vars.at(vi), level, component, tag),
                       meshname, data + vi * zonecount, dims, centering,
@@ -407,23 +404,17 @@ struct writer_t {
   }
 
   void reduce_coordinate_extents() {
-    for (std::size_t patch = 0; patch < coordinate_minima.size(); ++patch) {
-      for (std::size_t level = 0; level < coordinate_minima.at(patch).size();
-           ++level) {
-        auto &minima = coordinate_minima.at(patch).at(level);
-        auto &maxima = coordinate_maxima.at(patch).at(level);
-        if (minima.empty())
-          continue;
-        const bool isroot = myproc == metafile_ioproc;
-        MPI_Reduce(isroot ? MPI_IN_PLACE : minima.data(),
-                   isroot ? minima.data() : nullptr, ndims * minima.size(),
-                   mpi_datatype_v<CCTK_REAL>, MPI_MIN, metafile_ioproc,
-                   mpi_comm);
-        MPI_Reduce(isroot ? MPI_IN_PLACE : maxima.data(),
-                   isroot ? maxima.data() : nullptr, ndims * maxima.size(),
-                   mpi_datatype_v<CCTK_REAL>, MPI_MAX, metafile_ioproc,
-                   mpi_comm);
-      }
+    for (auto &[level, minima] : coordinate_minima) {
+      auto &maxima = coordinate_maxima.at(level);
+      if (minima.empty())
+        continue;
+      const bool isroot = myproc == metafile_ioproc;
+      MPI_Reduce(isroot ? MPI_IN_PLACE : minima.data(),
+                 isroot ? minima.data() : nullptr, ndims * minima.size(),
+                 mpi_datatype_v<CCTK_REAL>, MPI_MIN, metafile_ioproc, mpi_comm);
+      MPI_Reduce(isroot ? MPI_IN_PLACE : maxima.data(),
+                 isroot ? maxima.data() : nullptr, ndims * maxima.size(),
+                 mpi_datatype_v<CCTK_REAL>, MPI_MAX, metafile_ioproc, mpi_comm);
     }
   }
 };
@@ -431,7 +422,7 @@ struct writer_t {
 struct group_layout_t {
   std::string group;
   std::vector<std::string> vars;
-  std::vector<std::vector<const amrex::MultiFab *> > mfabs;
+  std::map<level_t, const amrex::MultiFab *> mfabs;
 };
 
 std::vector<group_layout_t> group_layouts(const checkpoint_record_t &record) {
@@ -445,20 +436,15 @@ std::vector<group_layout_t> group_layouts(const checkpoint_record_t &record) {
         index.emplace(buffer.id.group, layouts.size());
     if (inserted) {
       group_layout_t layout{.group = buffer.id.group, .vars = buffer.id.vars};
-      layout.mfabs.resize(record.levels.size());
-      for (std::size_t patch = 0; patch < record.levels.size(); ++patch)
-        layout.mfabs.at(patch).resize(record.levels.at(patch).size(), nullptr);
+      for (const level_t level : record.levels())
+        layout.mfabs.emplace(level, nullptr);
       layouts.push_back(std::move(layout));
     }
-    const level_t level = *buffer.id.level;
-    layouts.at(where->second)
-        .mfabs.at(level.patch().index())
-        .at(level.index()) = grid->mfab;
+    layouts.at(where->second).mfabs.at(*buffer.id.level) = grid->mfab;
   }
   for (const group_layout_t &layout : layouts)
-    for (const auto &patch_mfabs : layout.mfabs)
-      for (const amrex::MultiFab *const mfab : patch_mfabs)
-        assert(mfab);
+    for (const auto &level_mfab : layout.mfabs)
+      assert(level_mfab.second);
   return layouts;
 }
 
@@ -486,24 +472,20 @@ struct metafile_writer_t {
   const std::string &file;
   const int every;
   DBfile *const metafile;
-  const std::vector<std::vector<std::vector<std::array<CCTK_REAL, ndims> > > >
-      &coordinate_minima, &coordinate_maxima;
+  const coordinate_extents_t &coordinate_minima, &coordinate_maxima;
 
-  int num_patches() const { return record.levels.size(); }
-  int num_levels(const int patch) const {
-    return record.levels.at(patch).size();
-  }
+  int num_levels(const patch_t patch) const { return record.num_levels(patch); }
   int max_num_levels() const {
     int nlevels = 0;
-    for (int patch = 0; patch < num_patches(); ++patch)
+    for (const patch_t patch : record.patches())
       nlevels = std::max(nlevels, num_levels(patch));
     return nlevels;
   }
-  int num_components(const int patch, const int level) const {
-    return record.levels.at(patch).at(level).boxes.size();
+  int num_components(const level_t level) const {
+    return record.level_record(level).boxes.size();
   }
-  bool is_cartesian(const int patch) const {
-    return !record.levels.at(patch).at(0).vertex_coords;
+  bool is_cartesian(const patch_t patch) const {
+    return !record.level_record(level_t{patch, 0}).vertex_coords;
   }
 
   std::string block_path(const amrex::MultiFab &mfab,
@@ -516,36 +498,33 @@ struct metafile_writer_t {
   void write_mrgtree(const std::string &multimeshname,
                      const group_layout_t &layout) const {
     const int nlevels = max_num_levels();
-    const int npatches = num_patches();
     std::vector<int> comp0_level(nlevels);
     std::vector<int> ncomps_level(nlevels);
-    std::vector<std::vector<int> > comp0_level_patch(
-        nlevels, std::vector<int>(npatches, 0));
-    std::vector<std::vector<int> > ncomps_level_patch(
-        nlevels, std::vector<int>(npatches, 0));
+    std::map<level_t, int> comp0_level_patch, ncomps_level_patch;
     int ncomps_total = 0;
-    for (int level = 0; level < nlevels; ++level) {
-      comp0_level.at(level) = ncomps_total;
-      for (int patch = 0; patch < npatches; ++patch) {
-        if (level < num_levels(patch)) {
-          comp0_level_patch.at(level).at(patch) = ncomps_total;
-          ncomps_total += num_components(patch, level);
-          ncomps_level_patch.at(level).at(patch) =
-              ncomps_total - comp0_level_patch.at(level).at(patch);
+    for (int lev = 0; lev < nlevels; ++lev) {
+      comp0_level.at(lev) = ncomps_total;
+      for (const patch_t patch : record.patches()) {
+        if (lev < num_levels(patch)) {
+          const level_t level{patch, lev};
+          comp0_level_patch[level] = ncomps_total;
+          ncomps_total += num_components(level);
+          ncomps_level_patch[level] =
+              ncomps_total - comp0_level_patch.at(level);
         }
       }
-      ncomps_level.at(level) = ncomps_total - comp0_level.at(level);
+      ncomps_level.at(lev) = ncomps_total - comp0_level.at(lev);
     }
 
     const std::string levelmaps_name = multimeshname + "_wmrgtree_lvlMaps";
     {
       std::vector<std::vector<int> > segment_data;
       segment_data.reserve(nlevels);
-      for (int level = 0; level < nlevels; ++level) {
+      for (int lev = 0; lev < nlevels; ++lev) {
         std::vector<int> data;
-        data.reserve(ncomps_level.at(level));
-        for (int c = 0; c < ncomps_level.at(level); ++c)
-          data.push_back(comp0_level.at(level) + c);
+        data.reserve(ncomps_level.at(lev));
+        for (int c = 0; c < ncomps_level.at(lev); ++c)
+          data.push_back(comp0_level.at(lev) + c);
         segment_data.push_back(std::move(data));
       }
       put_groupelmap(metafile, levelmaps_name, nlevels, segment_data);
@@ -556,28 +535,26 @@ struct metafile_writer_t {
     {
       std::vector<std::vector<int> > segment_data;
       segment_data.reserve(ncomps_total);
-      for (int patch = 0; patch < npatches; ++patch) {
-        for (int level = 0; level < num_levels(patch); ++level) {
-          if (level + 1 < num_levels(patch)) {
-            const amrex::MultiFab &mfab = *layout.mfabs.at(patch).at(level);
-            const amrex::MultiFab &fine_mfab =
-                *layout.mfabs.at(patch).at(level + 1);
-            const int ncomps = ncomps_level_patch.at(level).at(patch);
-            const int fine_comp0 = comp0_level_patch.at(level + 1).at(patch);
-            const amrex::BoxArray &fine_boxarray = fine_mfab.boxarray;
-            for (int component = 0; component < ncomps; ++component) {
-              amrex::Box refined_box(mfab.box(component));
-              refined_box.refine(2);
-              std::vector<int> children;
-              for (const auto &ib : fine_boxarray.intersections(refined_box))
-                children.push_back(fine_comp0 + ib.first);
-              segment_data.push_back(std::move(children));
-            }
-          } else {
-            for (int component = 0; component < ncomps_level.at(level);
-                 ++component)
-              segment_data.emplace_back();
+      for (const level_t level : record.levels()) {
+        const level_t fine{level.patch(), level.index() + 1};
+        if (fine.index() < num_levels(level.patch())) {
+          const amrex::MultiFab &mfab = *layout.mfabs.at(level);
+          const amrex::MultiFab &fine_mfab = *layout.mfabs.at(fine);
+          const int ncomps = ncomps_level_patch.at(level);
+          const int fine_comp0 = comp0_level_patch.at(fine);
+          const amrex::BoxArray &fine_boxarray = fine_mfab.boxarray;
+          for (int component = 0; component < ncomps; ++component) {
+            amrex::Box refined_box(mfab.box(component));
+            refined_box.refine(2);
+            std::vector<int> children;
+            for (const auto &ib : fine_boxarray.intersections(refined_box))
+              children.push_back(fine_comp0 + ib.first);
+            segment_data.push_back(std::move(children));
           }
+        } else {
+          for (int component = 0; component < ncomps_level.at(level.index());
+               ++component)
+            segment_data.emplace_back();
         }
       }
       for (const auto &data : segment_data)
@@ -609,8 +586,8 @@ struct metafile_writer_t {
         const char *const region_name = "@level%d@n";
         std::vector<int> segment_ids;
         std::vector<int> segment_types(nlevels, DB_BLOCKCENT);
-        for (int level = 0; level < nlevels; ++level)
-          segment_ids.push_back(level);
+        for (int lev = 0; lev < nlevels; ++lev)
+          segment_ids.push_back(lev);
         ierr = DBAddRegionArray(mrgtree.get(), nlevels, &region_name, 0,
                                 levelmaps_name.c_str(), 1, segment_ids.data(),
                                 ncomps_level.data(), segment_types.data(),
@@ -719,7 +696,7 @@ struct metafile_writer_t {
   }
 
   void write_multimesh(const group_layout_t &layout) const {
-    const amrex::MultiFab &mfab0 = *layout.mfabs.at(0).at(0);
+    const amrex::MultiFab &mfab0 = *layout.mfabs.at(level_t{patch_t{0}, 0});
     const amrex::IndexType &indextype = mfab0.ixType();
     const ivect nghosts = to_ivect(mfab0.nGrowVect());
     const std::string multimeshname = make_meshname(nghosts);
@@ -730,40 +707,36 @@ struct metafile_writer_t {
     std::vector<extent_t> extents;
     std::vector<std::string> meshnames;
     std::vector<int> zonecounts;
-    for (int patch = 0; patch < num_patches(); ++patch) {
-      for (int lev = 0; lev < num_levels(patch); ++lev) {
-        const level_t level{patch_t{patch}, lev};
-        const level_record_t &levelrecord = record.levels.at(patch).at(lev);
-        const amrex::MultiFab &mfab = *layout.mfabs.at(patch).at(lev);
-        for (int c = 0; c < mfab.size(); ++c) {
-          const amrex::Box &fabbox = mfab.fabbox(c);
-          std::array<ivect, 2> iextent;
-          extent_t extent;
-          for (int d = 0; d < ndims; ++d) {
-            iextent[0][d] = fabbox.smallEnd(d);
-            iextent[1][d] = fabbox.bigEnd(d);
-            if (is_cartesian(patch)) {
-              const amrex::Geometry &geom = levelrecord.geom;
-              extent[0][d] =
-                  geom.ProbLo(d) + fabbox.smallEnd(d) * geom.CellSize(d);
-              extent[1][d] =
-                  geom.ProbLo(d) + fabbox.bigEnd(d) * geom.CellSize(d);
-            } else {
-              extent[0][d] = coordinate_minima.at(patch).at(lev).at(c)[d];
-              extent[1][d] = coordinate_maxima.at(patch).at(lev).at(c)[d];
-            }
+    for (const level_t level : record.levels()) {
+      const level_record_t &levelrecord = record.level_record(level);
+      const amrex::MultiFab &mfab = *layout.mfabs.at(level);
+      for (int c = 0; c < mfab.size(); ++c) {
+        const amrex::Box &fabbox = mfab.fabbox(c);
+        std::array<ivect, 2> iextent;
+        extent_t extent;
+        for (int d = 0; d < ndims; ++d) {
+          iextent[0][d] = fabbox.smallEnd(d);
+          iextent[1][d] = fabbox.bigEnd(d);
+          if (is_cartesian(level.patch())) {
+            const amrex::Geometry &geom = levelrecord.geom;
+            extent[0][d] =
+                geom.ProbLo(d) + fabbox.smallEnd(d) * geom.CellSize(d);
+            extent[1][d] = geom.ProbLo(d) + fabbox.bigEnd(d) * geom.CellSize(d);
+          } else {
+            extent[0][d] = coordinate_minima.at(level).at(c)[d];
+            extent[1][d] = coordinate_maxima.at(level).at(c)[d];
           }
-          iextents.push_back(iextent);
-          extents.push_back(extent);
-
-          meshnames.push_back(block_path(mfab, c) + ":" +
-                              make_meshname(nghosts, level, c));
-
-          int zonecount = 1;
-          for (int d = 0; d < ndims; ++d)
-            zonecount *= fabbox.length(d) + int(indextype.cellCentered(d));
-          zonecounts.push_back(zonecount);
         }
+        iextents.push_back(iextent);
+        extents.push_back(extent);
+
+        meshnames.push_back(block_path(mfab, c) + ":" +
+                            make_meshname(nghosts, level, c));
+
+        int zonecount = 1;
+        for (int d = 0; d < ndims; ++d)
+          zonecount *= fabbox.length(d) + int(indextype.cellCentered(d));
+        zonecounts.push_back(zonecount);
       }
     }
 
@@ -803,7 +776,7 @@ struct metafile_writer_t {
   }
 
   void write_multivars(const group_layout_t &layout) const {
-    const amrex::MultiFab &mfab0 = *layout.mfabs.at(0).at(0);
+    const amrex::MultiFab &mfab0 = *layout.mfabs.at(level_t{patch_t{0}, 0});
     std::string multimeshname = make_meshname(to_ivect(mfab0.nGrowVect()));
 
     const DB::ptr<DBoptlist> optlist = make_optlist();
@@ -819,14 +792,12 @@ struct metafile_writer_t {
 
     for (const std::string &var : layout.vars) {
       std::vector<std::string> varnames;
-      for (int patch = 0; patch < num_patches(); ++patch)
-        for (int lev = 0; lev < num_levels(patch); ++lev) {
-          const level_t level{patch_t{patch}, lev};
-          const amrex::MultiFab &mfab = *layout.mfabs.at(patch).at(lev);
-          for (int c = 0; c < mfab.size(); ++c)
-            varnames.push_back(block_path(mfab, c) + ":" +
-                               make_varname(var, level, c));
-        }
+      for (const level_t level : record.levels()) {
+        const amrex::MultiFab &mfab = *layout.mfabs.at(level);
+        for (int c = 0; c < mfab.size(); ++c)
+          varnames.push_back(block_path(mfab, c) + ":" +
+                             make_varname(var, level, c));
+      }
       std::vector<const char *> varname_ptrs;
       for (const std::string &varname : varnames)
         varname_ptrs.push_back(varname.c_str());
@@ -843,37 +814,33 @@ struct metafile_writer_t {
     assert(!ierr);
 
     {
-      const int npatches = num_patches();
-      std::vector<int> nlevels(npatches);
-      for (int patch = 0; patch < npatches; ++patch)
-        nlevels.at(patch) = num_levels(patch);
+      const int npatches = record.num_patches();
+      std::vector<int> levels_per_patch;
+      for (const patch_t patch : record.patches())
+        levels_per_patch.push_back(num_levels(patch));
       const std::string varname = dirname + "/" + DB::legalize_name("nlevels");
-      ierr = DBWrite(metafile, varname.c_str(), nlevels.data(), &npatches, 1,
-                     DB_INT);
+      ierr = DBWrite(metafile, varname.c_str(), levels_per_patch.data(),
+                     &npatches, 1, DB_INT);
       assert(!ierr);
     }
 
-    for (int patch = 0; patch < num_patches(); ++patch)
-      for (int lev = 0; lev < num_levels(patch); ++lev) {
-        const level_t level{patch_t{patch}, lev};
-        const std::vector<amrex::Box> &levelboxes =
-            record.levels.at(patch).at(lev).boxes;
-        const int ncomponents = levelboxes.size();
-        std::vector<int> boxes(2 * ndims * ncomponents);
-        for (int component = 0; component < ncomponents; ++component) {
-          const amrex::Box &box = levelboxes.at(component);
-          for (int d = 0; d < ndims; ++d) {
-            boxes[d + 2 * ndims * component] = box.smallEnd(d);
-            boxes[d + ndims + 2 * ndims * component] = box.bigEnd(d);
-          }
+    for (const level_t level : record.levels()) {
+      const std::vector<amrex::Box> &levelboxes =
+          record.level_record(level).boxes;
+      const int ncomponents = levelboxes.size();
+      std::vector<int> boxes(2 * ndims * ncomponents);
+      for (int component = 0; component < ncomponents; ++component) {
+        const amrex::Box &box = levelboxes.at(component);
+        for (int d = 0; d < ndims; ++d) {
+          boxes[d + 2 * ndims * component] = box.smallEnd(d);
+          boxes[d + ndims + 2 * ndims * component] = box.bigEnd(d);
         }
-        const int dims[2] = {ncomponents, 2 * ndims};
-        const std::string varname =
-            dirname + "/" + make_fabarraybasename(level);
-        ierr =
-            DBWrite(metafile, varname.c_str(), boxes.data(), dims, 2, DB_INT);
-        assert(!ierr);
       }
+      const int dims[2] = {ncomponents, 2 * ndims};
+      const std::string varname = dirname + "/" + make_fabarraybasename(level);
+      ierr = DBWrite(metafile, varname.c_str(), boxes.data(), dims, 2, DB_INT);
+      assert(!ierr);
+    }
 
     const auto write_clock = [&](const std::string &what, const level_t level,
                                  long long value) {
@@ -882,18 +849,16 @@ struct metafile_writer_t {
                                &value, &dims, 1, DB_LONG_LONG);
       assert(!ierr);
     };
-    for (int patch = 0; patch < num_patches(); ++patch)
-      for (int lev = 0; lev < num_levels(patch); ++lev) {
-        const level_t level{patch_t{patch}, lev};
-        const level_record_t &levelrecord = record.levels.at(patch).at(lev);
-        if (levelrecord.iteration) {
-          write_clock("iteration_num", level, levelrecord.iteration->num);
-          write_clock("iteration_den", level, levelrecord.iteration->den);
-        }
-        if (levelrecord.last_step_iteration)
-          write_clock("last_step_iteration", level,
-                      *levelrecord.last_step_iteration);
+    for (const level_t level : record.levels()) {
+      const level_record_t &levelrecord = record.level_record(level);
+      if (levelrecord.iteration) {
+        write_clock("iteration_num", level, levelrecord.iteration->num);
+        write_clock("iteration_den", level, levelrecord.iteration->den);
       }
+      if (levelrecord.last_step_iteration)
+        write_clock("last_step_iteration", level,
+                    *levelrecord.last_step_iteration);
+    }
   }
 
   void write(const std::string &dir) const {
@@ -903,7 +868,8 @@ struct metafile_writer_t {
     const std::vector<group_layout_t> layouts = group_layouts(record);
     std::set<ivect> multimeshes;
     for (const group_layout_t &layout : layouts) {
-      const ivect nghosts = to_ivect(layout.mfabs.at(0).at(0)->nGrowVect());
+      const ivect nghosts =
+          to_ivect(layout.mfabs.at(level_t{patch_t{0}, 0})->nGrowVect());
       if (multimeshes.insert(nghosts).second)
         write_multimesh(layout);
       write_multivars(layout);
@@ -1033,7 +999,7 @@ struct reader_t {
       }
 
       if (read_this_fab) {
-        for (int vi = 0; vi < numvars; ++vi) {
+        for (std::size_t vi = 0; vi < id.vars.size(); ++vi) {
           const std::string varname = make_varname(
               id.vars.at(vi), level, component, tag ? *tag : std::string());
           if (io_verbose)
@@ -1199,20 +1165,12 @@ void silo_codec_t::encode(const checkpoint_record_t &record,
                   .meshes = {},
                   .coordinate_minima = {},
                   .coordinate_maxima = {}};
-  writer.coordinate_minima.resize(record.levels.size());
-  writer.coordinate_maxima.resize(record.levels.size());
-  for (std::size_t patch = 0; patch < record.levels.size(); ++patch) {
-    const std::vector<level_record_t> &levels = record.levels.at(patch);
-    if (levels.at(0).vertex_coords == nullptr)
+  for (const level_t level : record.levels()) {
+    if (record.level_record(level_t{level.patch(), 0}).vertex_coords == nullptr)
       continue;
-    writer.coordinate_minima.at(patch).resize(levels.size());
-    writer.coordinate_maxima.at(patch).resize(levels.size());
-    for (std::size_t level = 0; level < levels.size(); ++level) {
-      writer.coordinate_minima.at(patch).at(level).resize(
-          levels.at(level).boxes.size());
-      writer.coordinate_maxima.at(patch).at(level).resize(
-          levels.at(level).boxes.size());
-    }
+    const std::size_t ncomponents = record.level_record(level).boxes.size();
+    writer.coordinate_minima[level].resize(ncomponents);
+    writer.coordinate_maxima[level].resize(ncomponents);
   }
 
   if (write_file) {
@@ -1319,30 +1277,32 @@ checkpoint_record_t silo_codec_t::decode_structure(const std::string &dir,
   const std::string dirname = DB::legalize_name(driver_name);
 
   int npatches;
-  std::vector<int> nlevels;
+  std::vector<int> levels_per_patch;
   if (read_metafile) {
     const std::string varname = dirname + "/" + DB::legalize_name("nlevels");
     assert(DBGetVarType(metafile.get(), varname.c_str()) == DB_INT);
     npatches = DBGetVarLength(metafile.get(), varname.c_str());
     assert(npatches >= 0);
-    nlevels.resize(npatches);
-    const int ierr = DBReadVar(metafile.get(), varname.c_str(), nlevels.data());
+    levels_per_patch.resize(npatches);
+    const int ierr =
+        DBReadVar(metafile.get(), varname.c_str(), levels_per_patch.data());
     assert(!ierr);
   }
   MPI_Bcast(&npatches, 1, MPI_INT, metafile_ioproc, mpi_comm);
-  nlevels.resize(npatches);
-  MPI_Bcast(nlevels.data(), npatches, MPI_INT, metafile_ioproc, mpi_comm);
+  levels_per_patch.resize(npatches);
+  MPI_Bcast(levels_per_patch.data(), npatches, MPI_INT, metafile_ioproc,
+            mpi_comm);
   if (io_verbose)
     CCTK_VINFO("Found %d patches", npatches);
 
-  record.levels.resize(npatches);
-  for (int patch = 0; patch < npatches; ++patch) {
+  for (int p = 0; p < npatches; ++p) {
+    const patch_t patch{p};
+    const int nlevels = levels_per_patch.at(p);
     if (io_verbose)
-      CCTK_VINFO("  Found %d levels on patch %d", nlevels.at(patch), patch);
-    record.levels.at(patch).resize(nlevels.at(patch));
-    for (int lev = 0; lev < nlevels.at(patch); ++lev) {
-      const level_t level{patch_t{patch}, lev};
-      level_record_t &levelrecord = record.levels.at(patch).at(lev);
+      CCTK_VINFO("  Found %d levels on patch %d", nlevels, p);
+    for (int lev = 0; lev < nlevels; ++lev) {
+      const level_t level{patch, lev};
+      level_record_t &levelrecord = record.add_level(patch);
 
       const std::string varname = dirname + "/" + make_fabarraybasename(level);
       int nfabs;

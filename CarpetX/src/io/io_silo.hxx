@@ -3,18 +3,11 @@
 
 #include "internal.hxx"
 
-#include "io/io_slice.hxx"
-
 #include <cctk.h>
-
-#include <string>
-#include <vector>
 
 namespace CarpetX {
 
-void OutputSilo(const cGH *cctkGH, const std::vector<bool> &output_group,
-                const std::string &output_dir, const std::string &output_file,
-                const slice_t &slice);
+void OutputSilo(const cGH *cctkGH);
 
 } // namespace CarpetX
 

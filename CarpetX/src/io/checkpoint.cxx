@@ -2,6 +2,8 @@
 
 #include "hierarchy/driver.hxx"
 #include "hierarchy/valid.hxx"
+#include "io/selection.hxx"
+#include "util/refuse.hxx"
 
 #include <CactusBase/IOUtil/src/ioutil_CheckpointRecovery.h>
 #include <cctk.h>
@@ -13,12 +15,14 @@
 #include <AMReX_Geometry.H>
 #include <AMReX_Vector.H>
 
+#include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -34,6 +38,71 @@ std::string buffer_id_t::name() const {
   else if (level)
     buf << ".tl" << std::get<tl_t>(which).index();
   return buf.str();
+}
+
+int checkpoint_record_t::num_patches() const {
+  return levels_.empty() ? 0 : levels_.rbegin()->first.patch().index() + 1;
+}
+
+std::vector<patch_t> checkpoint_record_t::patches() const {
+  std::vector<patch_t> result;
+  result.reserve(num_patches());
+  for (int p = 0; p < num_patches(); ++p)
+    result.push_back(patch_t{p});
+  return result;
+}
+
+int checkpoint_record_t::num_levels(const patch_t patch,
+                                    const std::source_location site) const {
+  return levels(patch, site).size();
+}
+
+std::vector<level_t>
+checkpoint_record_t::levels(const patch_t patch,
+                            const std::source_location site) const {
+  std::vector<level_t> result;
+  for (const auto &[level, levelrecord] : levels_)
+    if (level.patch() == patch)
+      result.push_back(level);
+  if (result.empty())
+    refuse(site, "patch %d is not in the checkpoint record: it has %d patches",
+           patch.index(), num_patches());
+  return result;
+}
+
+std::vector<level_t> checkpoint_record_t::levels() const {
+  std::vector<level_t> result;
+  result.reserve(levels_.size());
+  for (const auto &[level, levelrecord] : levels_)
+    result.push_back(level);
+  return result;
+}
+
+const level_record_t &
+checkpoint_record_t::level_record(const level_t level,
+                                  const std::source_location site) const {
+  const auto found = levels_.find(level);
+  if (found == levels_.end())
+    refuse(site,
+           "refinement level %d of patch %d is not in the checkpoint record",
+           level.index(), level.patch().index());
+  return found->second;
+}
+
+level_record_t &
+checkpoint_record_t::level_record(const level_t level,
+                                  const std::source_location site) {
+  return const_cast<level_record_t &>(
+      std::as_const(*this).level_record(level, site));
+}
+
+level_record_t &checkpoint_record_t::add_level(const patch_t patch) {
+  assert(patch.index() >= 0 && patch.index() <= num_patches());
+  const int nlevels =
+      std::count_if(levels_.begin(), levels_.end(), [&](const auto &entry) {
+        return entry.first.patch() == patch;
+      });
+  return levels_[level_t{patch, nlevels}];
 }
 
 namespace {
@@ -68,14 +137,13 @@ std::vector<std::string> variable_names(const GHExt::GroupRecord &group) {
   return vars;
 }
 
-void refuse_unless_carried(const std::vector<bool> &mask,
-                           const codec_limits_t &limits) {
+void refuse_unless_carried(const group_selection_t &selection,
+                           const codec_limits_t &limits,
+                           const std::source_location site) {
   DECLARE_CCTK_PARAMETERS;
   std::ostringstream uncarried;
   int num_uncarried = 0;
-  for (const GHExt::GroupRecord &group : driver().records()) {
-    if (!mask.at(group.groupindex.index()))
-      continue;
+  for (const GHExt::GroupRecord &group : selection.records()) {
     std::vector<std::string> reasons;
     if (group.kind != group_kind::grid_function && !limits.carries_arrays)
       reasons.push_back("grid scalars and arrays are not carried");
@@ -91,21 +159,22 @@ void refuse_unless_carried(const std::vector<bool> &mask,
       uncarried << "; " << reasons.at(i);
   }
   if (num_uncarried > 0)
-    CCTK_VERROR("Checkpoint method \"%s\" cannot carry %d checkpointed "
-                "group%s:%s\nUse \"openpmd\", or tag the groups "
-                "checkpoint=\"no\" if they are rebuilt at startup.",
-                checkpoint_method, num_uncarried, num_uncarried == 1 ? "" : "s",
-                uncarried.str().c_str());
+    refuse(site,
+           "Checkpoint method \"%s\" cannot carry %d checkpointed group%s:%s\n"
+           "Use \"openpmd\", or tag the groups checkpoint=\"no\" if they are "
+           "rebuilt at startup.",
+           checkpoint_method, num_uncarried, num_uncarried == 1 ? "" : "s",
+           uncarried.str().c_str());
 }
 
 const amrex::MultiFab *vertex_coords(const level_t level) {
   const GHExt &ext = driver();
   if (ext.patch(level.patch()).is_cartesian)
     return nullptr;
-  const int gi = CCTK_GroupIndex("CoordinatesX::vertex_coords");
-  if (gi < 0 || !ext.record(gi_t{gi}).has_storage())
+  const gi_t gi{CCTK_GroupIndex("CoordinatesX::vertex_coords")};
+  if (gi.index() < 0 || !ext.record(gi).has_storage())
     return nullptr;
-  return ext.level(level).group(gi_t{gi}).timelevel(tl_t{0}).mfab.get();
+  return ext.level(level).group(gi).timelevel(tl_t{0}).mfab.get();
 }
 
 void snapshot_geometry(level_record_t &record, const level_t level) {
@@ -115,51 +184,57 @@ void snapshot_geometry(level_record_t &record, const level_t level) {
 
 } // namespace
 
-std::unique_ptr<checkpoint_codec_t> make_codec(const char *const method) {
+std::unique_ptr<checkpoint_codec_t>
+make_codec(const char *const method, const std::source_location site) {
   if (CCTK_EQUALS(method, "openpmd")) {
 #ifdef HAVE_CAPABILITY_openPMD_api
     return make_openpmd_codec();
 #else
-    CCTK_VERROR("The I/O method \"%s\" needs openPMD_api, which is not enabled",
-                method);
+    refuse(site,
+           "The I/O method \"%s\" needs openPMD_api, which is not enabled",
+           method);
 #endif
   }
   if (CCTK_EQUALS(method, "silo")) {
 #ifdef HAVE_CAPABILITY_Silo
     return make_silo_codec();
 #else
-    CCTK_VERROR("The I/O method \"%s\" needs Silo, which is not enabled",
-                method);
+    refuse(site, "The I/O method \"%s\" needs Silo, which is not enabled",
+           method);
 #endif
   }
-  CCTK_VERROR("Unknown I/O method \"%s\"", method);
+  refuse(site, "Unknown I/O method \"%s\"", method);
 }
 
-void refuse_unless_recoverable(const codec_limits_t &limits) {
+void refuse_unless_recoverable(const codec_limits_t &limits,
+                               const std::source_location site) {
   DECLARE_CCTK_PARAMETERS;
   if (rechop_on_recovery && !limits.rechops_on_recovery)
-    CCTK_VERROR("CarpetX::rechop_on_recovery is set, but the recover method "
-                "\"%s\" recovers only the grid the checkpoint was written on. "
-                "Recover with \"openpmd\", or set rechop_on_recovery = no.",
-                recover_method);
+    refuse(site,
+           "CarpetX::rechop_on_recovery is set, but the recover method \"%s\" "
+           "recovers only the grid the checkpoint was written on. Recover "
+           "with \"openpmd\", or set rechop_on_recovery = no.",
+           recover_method);
 }
 
 bool finer_level_is_behind(const checkpoint_record_t &record,
                            const level_t level) {
-  const std::vector<level_record_t> &levels =
-      record.levels.at(level.patch().index());
-  const std::optional<rat64> &self = levels.at(level.index()).iteration;
+  const std::optional<rat64> &self = record.level_record(level).iteration;
   if (!self)
     return false;
-  for (int finer = level.index() + 1; finer < int(levels.size()); ++finer) {
-    const std::optional<rat64> &finer_iteration = levels.at(finer).iteration;
+  for (const level_t finer : record.levels(level.patch())) {
+    if (finer <= level)
+      continue;
+    const std::optional<rat64> &finer_iteration =
+        record.level_record(finer).iteration;
     if (finer_iteration && *finer_iteration < *self)
       return true;
   }
   return false;
 }
 
-void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
+void build_buffers(checkpoint_record_t &record,
+                   const group_selection_t &selection,
                    const record_purpose purpose, const codec_limits_t &limits) {
   GHExt &ext = driver();
   for (auto &patchdata : ext.patches()) {
@@ -170,7 +245,7 @@ void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
       for (auto &groupdata : leveldata.groups()) {
         const GHExt::GroupRecord &group = groupdata.record;
         const gi_t gi = group.groupindex;
-        if (!mask.at(gi.index()))
+        if (!selection.contains(gi))
           continue;
         const std::vector<std::string> vars = variable_names(group);
 
@@ -213,9 +288,8 @@ void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
 
   if (!limits.carries_arrays)
     return;
-  for (const GHExt::GroupRecord &group : ext.records()) {
-    if (group.kind == group_kind::grid_function ||
-        !mask.at(group.groupindex.index()))
+  for (const GHExt::GroupRecord &group : selection.records()) {
+    if (group.kind == group_kind::grid_function)
       continue;
     GHExt::GlobalData::ArrayGroupData &arraydata =
         ext.record(group.groupindex).array();
@@ -234,11 +308,12 @@ void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
 }
 
 checkpoint_record_t build_record(const cGH *const cctkGH,
-                                 const std::vector<bool> &mask,
+                                 const group_selection_t &selection,
                                  const record_purpose purpose,
-                                 const codec_limits_t &limits) {
+                                 const codec_limits_t &limits,
+                                 const std::source_location site) {
   if (purpose == record_purpose::checkpoint)
-    refuse_unless_carried(mask, limits);
+    refuse_unless_carried(selection, limits, site);
 
   checkpoint_record_t record;
   record.purpose = purpose;
@@ -250,43 +325,39 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
   std::free(parameters);
 
   const GHExt &ext = driver();
-  record.levels.resize(ext.num_patches());
   for (const auto &patchdata : ext.patches()) {
-    std::vector<level_record_t> &levels =
-        record.levels.at(patchdata.patch.index());
-    levels.resize(patchdata.num_levels());
     for (const auto &leveldata : patchdata.levels()) {
-      level_record_t &level = levels.at(leveldata.level.index());
+      level_record_t &levelrecord = record.add_level(patchdata.patch);
       const amrex::FabArrayBase &fab = *leveldata.fab;
       for (int component = 0; component < fab.size(); ++component)
-        level.boxes.push_back(fab.box(component));
-      level.iteration = leveldata.iteration;
-      level.last_step_iteration = leveldata.last_step_iteration;
-      snapshot_geometry(level, leveldata.level);
+        levelrecord.boxes.push_back(fab.box(component));
+      levelrecord.iteration = leveldata.iteration;
+      levelrecord.last_step_iteration = leveldata.last_step_iteration;
+      snapshot_geometry(levelrecord, leveldata.level);
     }
   }
 
-  build_buffers(record, mask, purpose, limits);
+  build_buffers(record, selection, purpose, limits);
   return record;
 }
 
-void apply_structure(cGH *const cctkGH, checkpoint_record_t &record) {
+void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
+                     const std::source_location site) {
   DECLARE_CCTK_PARAMETERS;
 
-  const int npatches = record.levels.size();
+  const int npatches = record.num_patches();
   GHExt &ext = driver();
   if (npatches != ext.num_patches())
-    CCTK_VERROR(
-        "Wrong number of patches: Expected %d, found %d in the checkpoint file",
-        ext.num_patches(), npatches);
+    refuse(site,
+           "Wrong number of patches: Expected %d, found %d in the checkpoint "
+           "file",
+           ext.num_patches(), npatches);
 
   cctkGH->cctk_iteration = record.iteration;
   cctkGH->cctk_time = record.time;
 
   for (auto &patchdata : ext.patches()) {
-    std::vector<level_record_t> &levels =
-        record.levels.at(patchdata.patch.index());
-    const int nlevels = levels.size();
+    const int nlevels = record.num_levels(patchdata.patch);
     assert(nlevels > 0);
     CactusAmrCore &amrcore = *patchdata.amrcore;
     amrcore.SetFinestLevel(nlevels - 1);
@@ -300,7 +371,8 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record) {
         amrcore.SetGeometry(lev, geom);
       }
 
-      const std::vector<amrex::Box> &boxes = levels.at(lev).boxes;
+      level_record_t &levelrecord = record.level_record(level);
+      const std::vector<amrex::Box> &boxes = levelrecord.boxes;
       amrex::BoxArray ba(amrex::BoxList(
           amrex::Vector<amrex::Box>(boxes.begin(), boxes.end())));
       if (rechop_on_recovery)
@@ -311,14 +383,14 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record) {
       amrcore.SetDistributionMap(lev, dm);
 
       amrcore.make_level(level, ba, dm, "Recovering");
-      snapshot_geometry(levels.at(lev), level);
+      snapshot_geometry(levelrecord, level);
     }
   }
 }
 
 void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
                  const std::string &dir, const std::string &file,
-                 const std::string &event) {
+                 const std::string &event, const std::source_location site) {
   std::ostringstream missing;
   int num_missing = 0;
   bool band_missing = false;
@@ -330,16 +402,17 @@ void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
     band_missing |= std::holds_alternative<std::string>(buffer.id.which);
   }
   if (num_missing > 0)
-    CCTK_VERROR("The checkpoint \"%s/%s\" at iteration %d lacks %d of the %d "
-                "buffers being read:%s%s",
-                dir.c_str(), file.c_str(), record.iteration, num_missing,
-                int(record.buffers.size()), missing.str().c_str(),
-                band_missing
-                    ? "\nA mid-cycle checkpoint holds the bands of every level "
-                      "whose finer level is behind. This one was written by a "
-                      "version that did not save them, or is incomplete. "
-                      "Restart from a time-aligned checkpoint."
-                    : "");
+    refuse(site,
+           "The checkpoint \"%s/%s\" at iteration %d lacks %d of the %d "
+           "buffers being read:%s%s",
+           dir.c_str(), file.c_str(), record.iteration, num_missing,
+           int(record.buffers.size()), missing.str().c_str(),
+           band_missing
+               ? "\nA mid-cycle checkpoint holds the bands of every level "
+                 "whose finer level is behind. This one was written by a "
+                 "version that did not save them, or is incomplete. "
+                 "Restart from a time-aligned checkpoint."
+               : "");
 
   std::vector<write_scope_t> scopes;
   std::vector<array_write_scope_t> array_scopes;

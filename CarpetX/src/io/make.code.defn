@@ -8,7 +8,8 @@ SRCS =							\
 	io_openpmd_checkpoint.cxx			\
 	io_silo.cxx					\
 	io_silo_checkpoint.cxx				\
-	io_tsv.cxx
+	io_tsv.cxx					\
+	selection.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))

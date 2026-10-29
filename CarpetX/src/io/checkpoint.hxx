@@ -3,6 +3,7 @@
 
 #include "internal.hxx"
 
+#include "util/var_type.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -11,14 +12,18 @@
 #include <AMReX_Geometry.H>
 #include <AMReX_MultiFab.H>
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
+#include <source_location>
 #include <string>
 #include <variant>
 #include <vector>
 
 namespace CarpetX {
+
+struct group_selection_t;
 
 enum class record_purpose { checkpoint, output };
 
@@ -36,7 +41,7 @@ struct grid_buffer_t {
 
 struct array_buffer_t {
   void *data;
-  int vartype;
+  var_type vartype;
   std::vector<int> shape;
 };
 
@@ -59,9 +64,27 @@ struct checkpoint_record_t {
   CCTK_REAL time;
   CCTK_REAL delta_time;
   std::string parameters;
-  std::vector<std::vector<level_record_t> > levels;
   std::set<std::string> present;
   std::vector<buffer_t> buffers;
+
+  int num_patches() const;
+  std::vector<patch_t> patches() const;
+  int num_levels(patch_t patch, std::source_location site =
+                                    std::source_location::current()) const;
+  std::vector<level_t>
+  levels(patch_t patch,
+         std::source_location site = std::source_location::current()) const;
+  std::vector<level_t> levels() const;
+  const level_record_t &level_record(
+      level_t level,
+      std::source_location site = std::source_location::current()) const;
+  level_record_t &
+  level_record(level_t level,
+               std::source_location site = std::source_location::current());
+  level_record_t &add_level(patch_t patch);
+
+private:
+  std::map<level_t, level_record_t> levels_;
 };
 
 struct codec_limits_t {
@@ -85,29 +108,37 @@ struct checkpoint_codec_t {
                            const std::string &dir, const std::string &file) = 0;
 };
 
-std::unique_ptr<checkpoint_codec_t> make_codec(const char *method);
+std::unique_ptr<checkpoint_codec_t>
+make_codec(const char *method,
+           std::source_location site = std::source_location::current());
 
 std::unique_ptr<checkpoint_codec_t> make_openpmd_codec();
 
 std::unique_ptr<checkpoint_codec_t> make_silo_codec();
 
-void refuse_unless_recoverable(const codec_limits_t &limits);
+void refuse_unless_recoverable(
+    const codec_limits_t &limits,
+    std::source_location site = std::source_location::current());
 
 bool finer_level_is_behind(const checkpoint_record_t &record, level_t level);
 
-checkpoint_record_t build_record(const cGH *cctkGH,
-                                 const std::vector<bool> &mask,
-                                 record_purpose purpose,
-                                 const codec_limits_t &limits);
+checkpoint_record_t
+build_record(const cGH *cctkGH, const group_selection_t &selection,
+             record_purpose purpose, const codec_limits_t &limits,
+             std::source_location site = std::source_location::current());
 
-void build_buffers(checkpoint_record_t &record, const std::vector<bool> &mask,
-                   record_purpose purpose, const codec_limits_t &limits);
+void build_buffers(checkpoint_record_t &record,
+                   const group_selection_t &selection, record_purpose purpose,
+                   const codec_limits_t &limits);
 
-void apply_structure(cGH *cctkGH, checkpoint_record_t &record);
+void apply_structure(
+    cGH *cctkGH, checkpoint_record_t &record,
+    std::source_location site = std::source_location::current());
 
 void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
                  const std::string &dir, const std::string &file,
-                 const std::string &event);
+                 const std::string &event,
+                 std::source_location site = std::source_location::current());
 
 } // namespace CarpetX
 
