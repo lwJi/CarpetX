@@ -21,6 +21,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -36,6 +37,79 @@ std::string buffer_id_t::name() const {
   else if (level)
     buf << ".tl" << std::get<tl_t>(which).index();
   return buf.str();
+}
+
+int checkpoint_record_t::num_patches() const { return levels_.size(); }
+
+std::vector<patch_t> checkpoint_record_t::patches() const {
+  std::vector<patch_t> result;
+  result.reserve(num_patches());
+  for (int p = 0; p < num_patches(); ++p)
+    result.push_back(patch_t{p});
+  return result;
+}
+
+const std::vector<level_record_t> &
+checkpoint_record_t::patch_levels(const patch_t patch,
+                                  const std::source_location site) const {
+  const int p = patch.index();
+  if (p < 0 || p >= num_patches())
+    refuse(site, "patch %d is not in the checkpoint record: it has %d patches",
+           p, num_patches());
+  return levels_[p];
+}
+
+int checkpoint_record_t::num_levels(const patch_t patch,
+                                    const std::source_location site) const {
+  return patch_levels(patch, site).size();
+}
+
+std::vector<level_t>
+checkpoint_record_t::levels(const patch_t patch,
+                            const std::source_location site) const {
+  const int nlevels = num_levels(patch, site);
+  std::vector<level_t> result;
+  result.reserve(nlevels);
+  for (int lev = 0; lev < nlevels; ++lev)
+    result.push_back(level_t{patch, lev});
+  return result;
+}
+
+std::vector<level_t> checkpoint_record_t::levels() const {
+  std::vector<level_t> result;
+  for (const patch_t patch : patches())
+    for (const level_t level : levels(patch))
+      result.push_back(level);
+  return result;
+}
+
+const level_record_t &
+checkpoint_record_t::level_record(const level_t level,
+                                  const std::source_location site) const {
+  const std::vector<level_record_t> &records =
+      patch_levels(level.patch(), site);
+  const int lev = level.index();
+  if (lev < 0 || lev >= int(records.size()))
+    refuse(site,
+           "refinement level %d of patch %d is not in the checkpoint record: "
+           "the patch has %d levels",
+           lev, level.patch().index(), int(records.size()));
+  return records[lev];
+}
+
+level_record_t &
+checkpoint_record_t::level_record(const level_t level,
+                                  const std::source_location site) {
+  return const_cast<level_record_t &>(
+      std::as_const(*this).level_record(level, site));
+}
+
+level_record_t &checkpoint_record_t::add_level(const patch_t patch) {
+  const int p = patch.index();
+  assert(p >= 0 && p <= num_patches());
+  if (p == num_patches())
+    levels_.emplace_back();
+  return levels_[p].emplace_back();
 }
 
 namespace {
@@ -104,10 +178,10 @@ const amrex::MultiFab *vertex_coords(const level_t level) {
   const GHExt &ext = driver();
   if (ext.patch(level.patch()).is_cartesian)
     return nullptr;
-  const int gi = CCTK_GroupIndex("CoordinatesX::vertex_coords");
-  if (gi < 0 || !ext.record(gi_t{gi}).has_storage())
+  const gi_t gi{CCTK_GroupIndex("CoordinatesX::vertex_coords")};
+  if (gi.index() < 0 || !ext.record(gi).has_storage())
     return nullptr;
-  return ext.level(level).group(gi_t{gi}).timelevel(tl_t{0}).mfab.get();
+  return ext.level(level).group(gi).timelevel(tl_t{0}).mfab.get();
 }
 
 void snapshot_geometry(level_record_t &record, const level_t level) {
@@ -152,13 +226,14 @@ void refuse_unless_recoverable(const codec_limits_t &limits,
 
 bool finer_level_is_behind(const checkpoint_record_t &record,
                            const level_t level) {
-  const std::vector<level_record_t> &levels =
-      record.levels.at(level.patch().index());
-  const std::optional<rat64> &self = levels.at(level.index()).iteration;
+  const std::optional<rat64> &self = record.level_record(level).iteration;
   if (!self)
     return false;
-  for (int finer = level.index() + 1; finer < int(levels.size()); ++finer) {
-    const std::optional<rat64> &finer_iteration = levels.at(finer).iteration;
+  for (const level_t finer : record.levels(level.patch())) {
+    if (finer <= level)
+      continue;
+    const std::optional<rat64> &finer_iteration =
+        record.level_record(finer).iteration;
     if (finer_iteration && *finer_iteration < *self)
       return true;
   }
@@ -257,19 +332,15 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
   std::free(parameters);
 
   const GHExt &ext = driver();
-  record.levels.resize(ext.num_patches());
   for (const auto &patchdata : ext.patches()) {
-    std::vector<level_record_t> &levels =
-        record.levels.at(patchdata.patch.index());
-    levels.resize(patchdata.num_levels());
     for (const auto &leveldata : patchdata.levels()) {
-      level_record_t &level = levels.at(leveldata.level.index());
+      level_record_t &levelrecord = record.add_level(patchdata.patch);
       const amrex::FabArrayBase &fab = *leveldata.fab;
       for (int component = 0; component < fab.size(); ++component)
-        level.boxes.push_back(fab.box(component));
-      level.iteration = leveldata.iteration;
-      level.last_step_iteration = leveldata.last_step_iteration;
-      snapshot_geometry(level, leveldata.level);
+        levelrecord.boxes.push_back(fab.box(component));
+      levelrecord.iteration = leveldata.iteration;
+      levelrecord.last_step_iteration = leveldata.last_step_iteration;
+      snapshot_geometry(levelrecord, leveldata.level);
     }
   }
 
@@ -281,7 +352,7 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
                      const std::source_location site) {
   DECLARE_CCTK_PARAMETERS;
 
-  const int npatches = record.levels.size();
+  const int npatches = record.num_patches();
   GHExt &ext = driver();
   if (npatches != ext.num_patches())
     refuse(site,
@@ -293,9 +364,7 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
   cctkGH->cctk_time = record.time;
 
   for (auto &patchdata : ext.patches()) {
-    std::vector<level_record_t> &levels =
-        record.levels.at(patchdata.patch.index());
-    const int nlevels = levels.size();
+    const int nlevels = record.num_levels(patchdata.patch);
     assert(nlevels > 0);
     CactusAmrCore &amrcore = *patchdata.amrcore;
     amrcore.SetFinestLevel(nlevels - 1);
@@ -309,7 +378,8 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
         amrcore.SetGeometry(lev, geom);
       }
 
-      const std::vector<amrex::Box> &boxes = levels.at(lev).boxes;
+      level_record_t &levelrecord = record.level_record(level);
+      const std::vector<amrex::Box> &boxes = levelrecord.boxes;
       amrex::BoxArray ba(amrex::BoxList(
           amrex::Vector<amrex::Box>(boxes.begin(), boxes.end())));
       if (rechop_on_recovery)
@@ -320,7 +390,7 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
       amrcore.SetDistributionMap(lev, dm);
 
       amrcore.make_level(level, ba, dm, "Recovering");
-      snapshot_geometry(levels.at(lev), level);
+      snapshot_geometry(levelrecord, level);
     }
   }
 }

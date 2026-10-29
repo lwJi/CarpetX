@@ -63,9 +63,30 @@ struct checkpoint_record_t {
   CCTK_REAL time;
   CCTK_REAL delta_time;
   std::string parameters;
-  std::vector<std::vector<level_record_t> > levels;
   std::set<std::string> present;
   std::vector<buffer_t> buffers;
+
+  int num_patches() const;
+  std::vector<patch_t> patches() const;
+  int num_levels(patch_t patch, std::source_location site =
+                                    std::source_location::current()) const;
+  std::vector<level_t>
+  levels(patch_t patch,
+         std::source_location site = std::source_location::current()) const;
+  std::vector<level_t> levels() const;
+  const level_record_t &level_record(
+      level_t level,
+      std::source_location site = std::source_location::current()) const;
+  level_record_t &
+  level_record(level_t level,
+               std::source_location site = std::source_location::current());
+  level_record_t &add_level(patch_t patch);
+
+private:
+  const std::vector<level_record_t> &
+  patch_levels(patch_t patch, std::source_location site) const;
+
+  std::vector<std::vector<level_record_t> > levels_;
 };
 
 struct codec_limits_t {

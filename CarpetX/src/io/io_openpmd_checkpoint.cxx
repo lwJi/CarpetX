@@ -93,8 +93,7 @@ level_layout_t level_layout(const amrex::Geometry &geom) {
 
 level_layout_t layout_of(const checkpoint_record_t &record,
                          const level_t level) {
-  return level_layout(
-      record.levels.at(level.patch().index()).at(level.index()).geom);
+  return level_layout(record.level_record(level).geom);
 }
 
 std::string series_name(const std::string &dir, const std::string &file,
@@ -110,15 +109,16 @@ std::string mesh_name(const buffer_id_t &id) {
   return make_meshname(id.group, id.level, std::get<tl_t>(id.which));
 }
 
-std::string patch_suffix(const int patch) {
+std::string patch_suffix(const patch_t patch) {
   std::ostringstream buf;
-  buf << "_patch" << std::setw(2) << std::setfill('0') << patch;
+  buf << "_patch" << std::setw(2) << std::setfill('0') << patch.index();
   return buf.str();
 }
 
-std::string level_suffix(const std::string &patch_suffix, const int level) {
+std::string level_suffix(const level_t level) {
   std::ostringstream buf;
-  buf << patch_suffix << "_lev" << std::setw(2) << std::setfill('0') << level;
+  buf << patch_suffix(level.patch()) << "_lev" << std::setw(2)
+      << std::setfill('0') << level.index();
   return buf.str();
 }
 
@@ -510,25 +510,22 @@ void openpmd_codec_t::encode(const checkpoint_record_t &record,
 
     const int ndims = Loop::dim;
     write_iter.setAttribute<std::int64_t>("numDims", ndims);
-    const int npatches = record.levels.size();
-    write_iter.setAttribute<std::int64_t>("numPatches", npatches);
-    std::vector<std::string> patch_suffixes(npatches);
-    for (int patch = 0; patch < npatches; ++patch)
-      patch_suffixes.at(patch) = patch_suffix(patch);
+    write_iter.setAttribute<std::int64_t>("numPatches", record.num_patches());
+    std::vector<std::string> patch_suffixes;
+    for (const patch_t patch : record.patches())
+      patch_suffixes.push_back(patch_suffix(patch));
     write_iter.setAttribute("patchSuffixes", patch_suffixes);
-    for (int patch = 0; patch < npatches; ++patch) {
-      const std::vector<level_record_t> &levels = record.levels.at(patch);
-      const int nlevels = levels.size();
-      write_iter.setAttribute<std::int64_t>(
-          "numLevels" + patch_suffixes.at(patch), nlevels);
-      std::vector<std::string> level_suffixes(nlevels);
-      for (int level = 0; level < nlevels; ++level)
-        level_suffixes.at(level) =
-            level_suffix(patch_suffixes.at(patch), level);
-      write_iter.setAttribute("levelSuffixes" + patch_suffixes.at(patch),
-                              level_suffixes);
-      for (int level = 0; level < nlevels; ++level) {
-        const level_record_t &levelrecord = levels.at(level);
+    for (const patch_t patch : record.patches()) {
+      const std::string psuffix = patch_suffix(patch);
+      write_iter.setAttribute<std::int64_t>("numLevels" + psuffix,
+                                            record.num_levels(patch));
+      std::vector<std::string> level_suffixes;
+      for (const level_t level : record.levels(patch))
+        level_suffixes.push_back(level_suffix(level));
+      write_iter.setAttribute("levelSuffixes" + psuffix, level_suffixes);
+      for (const level_t level : record.levels(patch)) {
+        const std::string lsuffix = level_suffix(level);
+        const level_record_t &levelrecord = record.level_record(level);
         const int nchunks = levelrecord.boxes.size();
         std::vector<std::int64_t> chunk_infos(2 * ndims * nchunks);
         for (int chunk = 0; chunk < nchunks; ++chunk) {
@@ -540,20 +537,19 @@ void openpmd_codec_t::encode(const checkpoint_record_t &record,
                 box.bigEnd()[d] + 1;
           }
         }
-        write_iter.setAttribute("chunkInfo" + level_suffixes.at(level),
-                                chunk_infos);
+        write_iter.setAttribute("chunkInfo" + lsuffix, chunk_infos);
 
         if (levelrecord.iteration) {
           write_iter.setAttribute(
-              "iteration_num" + level_suffixes.at(level),
+              "iteration_num" + lsuffix,
               static_cast<std::int64_t>(levelrecord.iteration->num));
           write_iter.setAttribute(
-              "iteration_den" + level_suffixes.at(level),
+              "iteration_den" + lsuffix,
               static_cast<std::int64_t>(levelrecord.iteration->den));
         }
         if (levelrecord.last_step_iteration)
           write_iter.setAttribute(
-              "last_step_iteration" + level_suffixes.at(level),
+              "last_step_iteration" + lsuffix,
               static_cast<std::int64_t>(*levelrecord.last_step_iteration));
       }
     }
@@ -629,9 +625,9 @@ checkpoint_record_t openpmd_codec_t::decode_structure(const std::string &dir,
   }
   assert(int(patch_suffixes.size()) == npatches);
 
-  record.levels.resize(npatches);
-  for (int patch = 0; patch < npatches; ++patch) {
-    const std::string &psuffix = patch_suffixes.at(patch);
+  for (int p = 0; p < npatches; ++p) {
+    const patch_t patch{p};
+    const std::string &psuffix = patch_suffixes.at(p);
     const int nlevels =
         read_iter.getAttribute("numLevels" + psuffix).get<std::int64_t>();
     assert(nlevels > 0);
@@ -649,10 +645,9 @@ checkpoint_record_t openpmd_codec_t::decode_structure(const std::string &dir,
     }
     assert(int(level_suffixes.size()) == nlevels);
 
-    record.levels.at(patch).resize(nlevels);
-    for (int level = 0; level < nlevels; ++level) {
-      const std::string &lsuffix = level_suffixes.at(level);
-      level_record_t &levelrecord = record.levels.at(patch).at(level);
+    for (int lev = 0; lev < nlevels; ++lev) {
+      const std::string &lsuffix = level_suffixes.at(lev);
+      level_record_t &levelrecord = record.add_level(patch);
 
       const std::vector<std::int64_t> chunk_infos =
           read_iter.getAttribute("chunkInfo" + lsuffix)

@@ -147,9 +147,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
   bool have_last_step_iterations = true;
   for (auto &patchdata : ext.patches()) {
     for (auto &leveldata : patchdata.levels()) {
-      const level_record_t &recovered =
-          record.levels.at(leveldata.level.patch().index())
-              .at(leveldata.level.index());
+      const level_record_t &recovered = record.level_record(leveldata.level);
       if (recovered.iteration)
         leveldata.iteration = *recovered.iteration;
       else
