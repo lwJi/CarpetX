@@ -54,6 +54,8 @@ then the usual
 
 Timings measured end to end in an sbx sandbox on an Apple-silicon host (18 vCPUs); the microVM gets all host CPUs by default, so it is roughly as fast as the host itself.
 
+Logs, build artifacts and reference output are where `../README.md` says, under the sandbox's `$CACTUSX`.
+
 Named sandboxes persist across `sbx stop`/restart, so `configs/`, `exe/`, `TEST/`, and the AMReX install are cached across sessions and only the first build is slow. Remove with `sbx rm <name>` to start clean.
 
 For non-interactive use (no attached agent), `sbx create` + `sbx exec` mirror the above:

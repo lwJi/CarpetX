@@ -19,7 +19,7 @@ CarpetX's own sources are ten layers, one directory each under `CarpetX/src/`, a
 
 An incremental build takes ~30 s and the testsuite ~1 min, but a from-clean build takes ~5 min â€” give `build.sh` a 10-minute timeout.
 
-To access test logs and build artifacts, read `./agent_docs/accessing-logs-and-artifacts.md`. To generate reference output for a new test, read `./agent_docs/generating-reference-output.md`.
+Where the logs and build artifacts land, and how to generate reference output for a new test, are in `agent_scripts/README.md`.
 
 ### Inside an sbx sandbox
 
@@ -34,7 +34,7 @@ The first in-sandbox `build.sh` configures and compiles from scratch (~13 min â€
 
 ## Code comments
 
-Comments in thorn files can only be deleted. Don't add a comment line or change one, and when your change edits the code under a comment (its paragraph, or the whole block that code opens), delete the whole comment. Hooks and the `Lint` CI workflow enforce this, and `python3 scripts/lint check --since origin/dev` shows what they would report. The full rule, including what counts as a thorn file and the few allowed comment lines, is in `agent_docs/code-comments.md`.
+Comments in thorn files can only be deleted. Don't add a comment line or change one, and when your change edits the code under a comment (its paragraph, or the whole block that code opens), delete the whole comment. `python3 scripts/lint check --since origin/dev` shows what the hooks and the `Lint` CI workflow would report, and `python3 scripts/lint --help` says how they run it. The full rule, including what counts as a thorn file and the few allowed comment lines, is in `agent_docs/code-comments.md`.
 
 A comment already in a file is a claim to check against the code, never the reason for a change. When your change makes a comment false that the check can't see, such as one on a declaration in a header, delete it too. Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message, never in a comment; `git log -S '<words>'` finds what deleted comments said.
 

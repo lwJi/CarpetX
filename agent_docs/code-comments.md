@@ -29,4 +29,4 @@ Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message
 
 ## How it is enforced
 
-A hook refuses an Edit or Write that adds a comment line or keeps a comment over code it changes, a Stop hook blocks the turn once if the branch has done either since `dev`, and the `Lint` workflow fails a PR that has; `python3 scripts/lint check --since origin/dev` shows what it would report, beside the `boundary` check that shares the tool, and `--only no-comments` shows this check alone. What a merge brings in from another branch is not judged, only the merge's own resolution.
+`python3 scripts/lint check --since origin/dev` shows what the hooks and the `Lint` workflow would report, beside the `boundary` check that shares the tool, and `--only no-comments` shows this check alone; `python3 scripts/lint --help` says how they run it.
