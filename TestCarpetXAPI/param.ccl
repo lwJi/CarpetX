@@ -1,4 +1,4 @@
-KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Register at WRAGH, TestCarpetXAPI_Fill at CCTK_INITIAL, and TestCarpetXAPI_AfterShutdown at SHUTDOWN"
+KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Register at WRAGH, TestCarpetXAPI_ParamCheck at PARAMCHECK, TestCarpetXAPI_Fill at CCTK_INITIAL, and TestCarpetXAPI_AfterShutdown at SHUTDOWN"
 {
   "write-scope"       :: "write the interior of state through a write scope that states interior validity, then sync; TestCarpetXAPI_Check reads state everywhere"
   "sync-during-write" :: "call CarpetX::sync on state while a write scope on it is open; CarpetX aborts the run"
@@ -10,7 +10,9 @@ KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Regist
   "prolongate-unwritten-parent" :: "fill state as write-scope does, and once the hierarchy has two levels call CarpetX::prolongate_ghosts on state_rhs, which nothing has written on the parent level; CarpetX aborts the run"
   "sync-invalid-coarse" :: "once the hierarchy has two levels fill the interior of state on both, invalidate it on level 0, then call CarpetX::sync over both levels under CarpetX::use_subcycling without poisoning; the sync reads level 0 for its own ghosts and for the refinement boundary of level 1, and CarpetX aborts the run"
   "register-twice"    :: "register a valid integrator at WRAGH, then register it again; CarpetX aborts the second call"
-  "register-after-use" :: "register a valid integrator at CCTK_INITIAL, after the driver has read its integrator record; CarpetX aborts the run"
+  "register-at-startup" :: "register a valid integrator at STARTUP, before the driver has set up its grid hierarchy; CarpetX aborts the run"
+  "register-at-paramcheck" :: "register a valid integrator at PARAMCHECK, after the driver has frozen its integrator record at the end of WRAGH; CarpetX aborts the run"
+  "register-after-use" :: "register a valid integrator at CCTK_INITIAL, after the driver has frozen its integrator record; CarpetX aborts the run"
   "unregistered-rk-call" :: "call CarpetX::open_rk_step at CCTK_INITIAL without having registered an integrator; CarpetX aborts the run"
   "window-outside-traversal" :: "call CarpetX::active_window at STARTUP, before the driver has opened any traversal; CarpetX aborts the run"
   "dense-output-stage-mismatch" :: "register a 2-stage integrator whose dense output is RK4; CarpetX aborts the run"

@@ -73,7 +73,22 @@ extern "C" int TestCarpetXAPI_Startup() {
     CCTK_ERROR("CarpetX::active_window returned a window at STARTUP, where the "
                "driver has not opened a traversal");
   }
+  if (CCTK_EQUALS(mode, "register-at-startup")) {
+    CarpetX::register_integrator(valid_integrator());
+    CCTK_ERROR("CarpetX::register_integrator accepted a registration at "
+               "STARTUP, before the driver set up its grid hierarchy");
+  }
   return 0;
+}
+
+extern "C" void TestCarpetXAPI_ParamCheck(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (CCTK_EQUALS(mode, "register-at-paramcheck")) {
+    CarpetX::register_integrator(valid_integrator());
+    CCTK_ERROR("CarpetX::register_integrator accepted a registration at "
+               "PARAMCHECK, after the driver froze its integrator record");
+  }
 }
 
 extern "C" int TestCarpetXAPI_AfterShutdown() {
@@ -170,7 +185,7 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   if (CCTK_EQUALS(mode, "register-after-use")) {
     CarpetX::register_integrator(valid_integrator());
     CCTK_ERROR("CarpetX::register_integrator accepted a registration at "
-               "CCTK_INITIAL, after the driver read its integrator record");
+               "CCTK_INITIAL, after the driver froze its integrator record");
   }
   if (CCTK_EQUALS(mode, "unregistered-rk-call")) {
     const CarpetX::rk_step_t step =

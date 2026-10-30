@@ -8,6 +8,7 @@
 #include "comm/comm.hxx"
 #include "comm/subcycling.hxx"
 #include "hierarchy/valid.hxx"
+#include "traversal/traversal.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -39,7 +40,7 @@ namespace CarpetX {
 namespace {
 
 const rk_config_t &require_integrator() {
-  const std::optional<rk_config_t> &config = driver().rk_config;
+  const std::optional<rk_config_t> &config = integrator();
   if (!config)
     refuse(std::source_location::current(),
            "no time integrator is registered; call "
@@ -154,23 +155,15 @@ void check_pair(const rk_config_t &config, const std::size_t index) {
 
 void register_integrator(const rk_config_t &config) {
   DECLARE_CCTK_PARAMETERS;
-  GHExt &ext = driver();
-  if (ext.rk_config)
-    CCTK_VERROR("CarpetX::register_integrator: a time integrator is already "
-                "registered (%d RK stages, %d integrated groups); an "
-                "integrator registers exactly once, AT WRAGH",
-                ext.rk_config->nstages(),
-                int(ext.rk_config->integrated.size()));
-  if (ext.rk_config_read)
-    CCTK_ERROR("CarpetX::register_integrator: the driver has already read its "
-               "integrator record; schedule the registration AT WRAGH");
+  const operation_scope_t op("CarpetX::register_integrator");
+  const GHExt &ext = driver();
   if (config.dense_output != rk_dense_output_t::none &&
       config.nstages() != rk_dense_output_stages(config.dense_output))
     CCTK_VERROR("CarpetX::register_integrator: the %s dense output belongs to "
                 "a method with %d RK stages, but the integrator registered %d",
                 dense_output_name(config.dense_output),
                 rk_dense_output_stages(config.dense_output), config.nstages());
-  if (use_subcycling && config.dense_output == rk_dense_output_t::none)
+  if (ext.use_subcycling && config.dense_output == rk_dense_output_t::none)
     CCTK_ERROR("CarpetX::register_integrator: CarpetX::use_subcycling = yes "
                "fills the refinement boundary by dense output, but the "
                "integrator registered dense_output = none; choose a method "
@@ -178,7 +171,7 @@ void register_integrator(const rk_config_t &config) {
   check_weights(config.b);
   for (std::size_t index = 0; index < config.integrated.size(); ++index)
     check_pair(config, index);
-  if (do_reflux && max_num_levels > 1 && !config.feeds_flux_registers())
+  if (ext.do_reflux && max_num_levels > 1 && !config.feeds_flux_registers())
     for (const rk_pair_t &pair : config.integrated)
       if (get_group_fluxes(pair.state))
         CCTK_VERROR("CarpetX::register_integrator: CarpetX::do_reflux = yes "
@@ -188,7 +181,7 @@ void register_integrator(const rk_config_t &config) {
                     "group %s, which carries a fluxes= tag; register an "
                     "explicit method or set CarpetX::do_reflux = no",
                     int(max_num_levels), CCTK_FullGroupName(pair.state.index()));
-  ext.rk_config = config;
+  record_integrator(config);
   CCTK_VINFO("Registered the time integrator: %d RK stages, dense output %s, "
              "%d integrated group%s, %s",
              config.nstages(), dense_output_name(config.dense_output),
@@ -452,7 +445,7 @@ void RecoverRKBoundary(const window_t window, const cGH *const cctkGH) {
   const GHExt &ext = driver();
   if (!ext.use_subcycling)
     return;
-  const std::optional<rk_config_t> &integrator = ext.rk();
+  const std::optional<rk_config_t> &integrator = CarpetX::integrator();
   if (!integrator || integrator->integrated.empty())
     return;
   const operation_scope_t op("CarpetX::RecoverRKBoundary");

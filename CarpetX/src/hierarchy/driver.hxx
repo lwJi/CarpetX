@@ -9,7 +9,6 @@
 #include "util/var_type.hxx"
 
 #include <carpetx.hxx>
-#include <carpetx_rk.hxx>
 #include <rational.hxx>
 #include <tuple.hxx>
 
@@ -852,13 +851,6 @@ struct GHExt {
   bool use_subcycling = false;
 
   bool do_reflux = false;
-
-  std::optional<rk_config_t> rk_config;
-  mutable std::atomic<bool> rk_config_read{false};
-  const std::optional<rk_config_t> &rk() const {
-    rk_config_read.store(true, std::memory_order_relaxed);
-    return rk_config;
-  }
 
   int num_levels(const patch_t patch) const {
     return this->patch(patch).num_levels();
