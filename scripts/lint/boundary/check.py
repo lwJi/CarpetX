@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Iterable
-
 from checks import Check
 from files import Lang
 
@@ -23,19 +21,12 @@ def common(a: list[Finding], b: list[Finding]) -> list[Finding]:
     return found
 
 
-def judge(name: str, befores: Iterable[tuple[str, str]], after: str, lang: Lang) -> list[Finding]:
-    now = findings(name, after, lang)
-    verdict = None
-    for old_name, text in befores:
-        new = new_findings(findings(old_name, text, lang), now)
-        verdict = new if verdict is None else common(verdict, new)
-        if not verdict:
-            break
-    return [] if verdict is None else verdict
+def judge(name: str, old_name: str, before: str, after: str, lang: Lang) -> list[Finding]:
+    return new_findings(findings(old_name, before, lang), findings(name, after, lang))
 
 
 def render_change(found: list[tuple[str, list[Finding]]], edit: bool = False) -> str:
     return render([(name, f) for name, verdict in found for f in verdict])
 
 
-CHECK = Check("boundary", RULE, covers, findings, judge, render, render_change)
+CHECK = Check("boundary", RULE, covers, findings, judge, common, render, render_change)

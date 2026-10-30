@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Callable
 
 from files import Lang
 
@@ -9,7 +9,8 @@ EXCERPT_WIDTH = 72
 
 Covers = Callable[[str, Lang], bool]
 Found = Callable[[str, str, Lang], list]
-Judge = Callable[[str, Iterable[tuple[str, str]], str, Lang], object]
+Judge = Callable[[str, str, str, str, Lang], object]
+Meet = Callable[[object, object], object]
 Render = Callable[[list[tuple[str, object]]], str]
 RenderChange = Callable[[list[tuple[str, object]], bool], str]
 
@@ -21,6 +22,7 @@ class Check:
     covers: Covers
     found: Found
     judge: Judge
+    meet: Meet
     render: Render
     render_change: RenderChange
 

@@ -66,13 +66,16 @@ def check_tree(paths: list[str], checks: Sequence[Check], root: str = PROJECT) -
 def judged(
     name: str, befores: Callable[[], Iterator[tuple[str, str]]], after: str, lang: Lang, checks: Sequence[Check]
 ) -> list[tuple[Check, str, object]]:
-    found = []
-    for check in checks:
-        if check.covers(name, lang):
-            verdict = check.judge(name, befores(), after, lang)
-            if verdict:
-                found.append((check, name, verdict))
-    return found
+    live = [check for check in checks if check.covers(name, lang)]
+    verdicts: dict = {}
+    for old_name, old in befores():
+        for check in live:
+            verdict = check.judge(name, old_name, old, after, lang)
+            verdicts[check] = verdict if check not in verdicts else check.meet(verdicts[check], verdict)
+        live = [check for check in live if verdicts[check]]
+        if not live:
+            break
+    return [(check, name, verdicts[check]) for check in checks if verdicts.get(check)]
 
 
 def check_since(root: str, base: str, checks: Sequence[Check]) -> Found:
