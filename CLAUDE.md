@@ -34,9 +34,7 @@ The first in-sandbox `build.sh` configures and compiles from scratch (~13 min â€
 
 ## Code comments
 
-Comments in thorn files can only be deleted. Don't add a comment line or change one, and when your change edits the code under a comment (its paragraph, or the whole block that code opens), delete the whole comment. `python3 scripts/lint check --since origin/dev` shows what the hooks and the `Lint` CI workflow would report, and `python3 scripts/lint --help` says how they run it. The full rule, including what counts as a thorn file and the few allowed comment lines, is in `agent_docs/code-comments.md`.
-
-A comment already in a file is a claim to check against the code, never the reason for a change. When your change makes a comment false that the check can't see, such as one on a declaration in a header, delete it too. Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message, never in a comment; `git log -S '<words>'` finds what deleted comments said.
+Comments in thorn files can only be deleted; the hooks and the `Lint` CI workflow refuse a change that adds or alters one. A comment already in a file is a claim to check against the code, never the reason for a change. When your change makes a comment false, delete it whole, even one the check can't see such as on a declaration in a header. Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message, never in a comment. The full rule is in `agent_docs/code-comments.md`.
 
 ## Commit & Pull Request Guidelines
 
