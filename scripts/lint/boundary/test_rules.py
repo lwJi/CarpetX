@@ -373,6 +373,35 @@ class Traversal(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/io/io.cxx", text), [])
 
+    def test_the_integrator_is_a_slot(self):
+        for line in [
+            "std::optional<rk_config_t> integrator_config;",
+            "integrator_config = config;",
+            "return integrator_config->nstages();",
+            "std::atomic<bool> integrator_sealed{false};",
+            "if (integrator_sealed) return;",
+            "integrator_sealed.store(true, std::memory_order_relaxed);",
+        ]:
+            for name in ["CarpetX/src/api/api_rk.cxx", "CarpetX/src/hierarchy/group_tags.cxx", "CarpetX/src/hierarchy/driver.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("traversal", line)])
+            for name in ["CarpetX/src/traversal/traversal.cxx", "CarpetX/src/traversal/traversal.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_the_integrator_readers_are_not_the_slot(self):
+        for text in [
+            "record_integrator(config);\n",
+            "const std::optional<rk_config_t> &config = integrator();\n",
+            "const std::optional<rk_config_t> &integrator = CarpetX::integrator();\n",
+            "return integrator && integrator->is_integrated(gi);\n",
+            "my_integrator_config = 1;\n",
+            "bool integrator_sealed_early;\n",
+        ]:
+            for name in ["CarpetX/src/api/api_rk.cxx", "CarpetX/src/hierarchy/group_tags.cxx"]:
+                with self.subTest(name=name, text=text):
+                    self.assertEqual(reported(name, text), [])
+
 
 class Index(unittest.TestCase):
     BARE = [

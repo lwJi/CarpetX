@@ -1,6 +1,7 @@
 #include "traversal/traversal.hxx"
 #include "util/refuse.hxx"
 
+#include <atomic>
 #include <cassert>
 #include <optional>
 
@@ -12,6 +13,8 @@ const char *tail_bin = nullptr;
 bool recovery_traversal = false;
 const cFunctionData *last_routine = nullptr;
 std::optional<int> recover_iteration;
+std::optional<rk_config_t> integrator_config;
+std::atomic<bool> integrator_sealed{false};
 } // namespace
 
 traversal_scope_t::traversal_scope_t(const window_t window,
@@ -67,6 +70,21 @@ void record_recovered_iteration(const int iteration,
   recover_iteration = iteration;
 }
 
+void record_integrator(const rk_config_t &config,
+                       const std::source_location site) {
+  if (integrator_config)
+    refuse(site,
+           "a time integrator is already registered (%d RK stages, %d "
+           "integrated groups); an integrator registers exactly once, AT "
+           "WRAGH",
+           integrator_config->nstages(),
+           int(integrator_config->integrated.size()));
+  if (integrator_sealed.load(std::memory_order_relaxed))
+    refuse(site, "the driver has already read its integrator record; "
+                 "schedule the registration AT WRAGH");
+  integrator_config = config;
+}
+
 window_t scheduled_window(const char *const caller,
                           const std::source_location site) {
   if (!active_levels)
@@ -81,5 +99,10 @@ bool in_recovery_traversal() { return recovery_traversal; }
 const cFunctionData *scheduled_routine() { return last_routine; }
 
 int recovered_iteration() { return recover_iteration.value_or(-1); }
+
+const std::optional<rk_config_t> &integrator() {
+  integrator_sealed.store(true, std::memory_order_relaxed);
+  return integrator_config;
+}
 
 } // namespace CarpetX
