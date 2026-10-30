@@ -1350,9 +1350,6 @@ class Doc(unittest.TestCase):
         with open(os.path.join(PROJECT, doc.MAP)) as f:
             text = f.read()
         self.assertEqual(doc.rewrite(text), text, "run python3 scripts/boundary doc --write")
-        for name, places in doc.regions(text).items():
-            with self.subTest(name=name):
-                self.assertEqual(len(places), 1)
 
     def test_the_stack_is_the_layers_top_down_with_the_door_line(self):
         lines = doc.stack().splitlines()

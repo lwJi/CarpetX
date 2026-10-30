@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Callable, Optional
+from typing import Callable
 
 from rules import HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, RULES, UNDER_HIERARCHY, below
 from files import PROJECT  # noqa: E402
@@ -81,31 +81,11 @@ def include_graph(root: str = PROJECT) -> str:
     return "\n".join(lines) + "\n"
 
 
-def opens(name: str, lines: list[str], i: int) -> Optional[int]:
-    fenced = lines[i].strip() == "```mermaid" and i + 1 < len(lines) and lines[i + 1] == mark(name)
-    return i + 1 if fenced else None
-
-
-def fence(line: str) -> bool:
-    return line.strip() == "```"
-
-
 REGIONS: tuple[tuple[str, Callable[[], str]], ...] = (("the stack", stack), ("the includes", include_graph))
 
 
-def regions(text: str) -> dict[str, list[tuple[int, int]]]:
-    lines = text.split("\n")
-    found: dict[str, list[tuple[int, int]]] = {name: [] for name, _ in REGIONS}
-    for name, _ in REGIONS:
-        for i in range(len(lines)):
-            start = opens(name, lines, i)
-            if start is None:
-                continue
-            end = start
-            while end < len(lines) and not fence(lines[end]):
-                end += 1
-            found[name].append((start, end))
-    return found
+def block(name: str) -> re.Pattern:
+    return re.compile(r"^```mermaid\n" + re.escape(mark(name)) + r"\n.*?^```$", re.MULTILINE | re.DOTALL)
 
 
 def render() -> str:
@@ -113,15 +93,11 @@ def render() -> str:
 
 
 def rewrite(text: str) -> str:
-    found = regions(text)
-    for name, places in found.items():
-        if len(places) != 1:
-            raise ValueError(f"{MAP} holds {len(places)} mermaid blocks opening with {mark(name)!r}, not one")
-    lines = text.split("\n")
-    for name, draw in sorted(REGIONS, key=lambda region: found[region[0]][0][0], reverse=True):
-        start, end = found[name][0]
-        lines[start:end] = draw().split("\n")[:-1]
-    return "\n".join(lines)
+    for name, draw in REGIONS:
+        text, n = block(name).subn(lambda m: "```mermaid\n" + draw() + "```", text)
+        if n != 1:
+            raise ValueError(f"{MAP} holds {n} mermaid blocks opening with {mark(name)!r}, not one")
+    return text
 
 
 def declares_and_defines(root: str, low: str, high: str, name: str) -> bool:
