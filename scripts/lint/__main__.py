@@ -9,12 +9,12 @@ import traceback
 EXIT_CLEAN, EXIT_FOUND, EXIT_ERROR = 0, 1, 2
 ENFORCEMENT = """\
 How the checks are run:
-  The edit hook in .claude/settings.json runs hook-edit on every Edit and Write and denies one that
-  adds a finding. The Stop and SubagentStop hooks run hook-stop and block the turn once if the branch
-  has added a finding since dev. The Lint workflow runs `check --since` from the PR's base on every PR
-  and on every push to dev. What a merge brings in from another branch is not judged, only the
-  merge's own resolution. `check --since origin/dev` shows what all of them would report; the rules
-  are in agent_docs/code-comments.md, agent_docs/carpetx-public-api.md and agent_docs/carpetx-internals.md.
+  .claude/settings.json runs hook-edit as the PreToolUse hook of Edit and Write, and hook-stop as the
+  Stop and SubagentStop hooks; both judge the branch from its merge base with dev. The Lint workflow
+  runs `check --since` from the PR's base on every PR and on every push to dev. What a merge brings in
+  from another branch is not judged, only the merge's own resolution. `check --since origin/dev` shows
+  what all of them would report; the rules are in agent_docs/code-comments.md,
+  agent_docs/carpetx-public-api.md and agent_docs/carpetx-internals.md.
 """
 HOOKS = {"hook-edit": "hook_edit", "hook-stop": "hook_stop"}
 
