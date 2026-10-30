@@ -1,15 +1,6 @@
-# Building and testing on the host
+# How to generate reference output for a new test
 
-`build.sh` and `test.sh` build and test directly on the host in the Cactus tree at `$CACTUSX` (pre-set in the host shell): this repo is symlinked into it at `$CACTUSX/arrangements/CarpetX`, and the executable they build and run is `$CACTUSX/exe/cactus_carpetx`. Inside an sbx sandbox (`sandbox/README.md`) everything below applies unchanged at the same `$CACTUSX`-relative locations, with `CACTUSX=/home/agent/cactus/Cactus` baked into the sandbox environment.
-
-## Logs and artifacts
-
-Per-test logs: `$CACTUSX/TEST/carpetx/<Thorn>/<test>.log`, with value-level differences in `<test>.diffs` (testsuite summary: `$CACTUSX/TEST/carpetx/summary.log`; when tests fail it ends with a `Tests failed:` section).
-Full run logs from the scripts: `$CACTUSX/last-build.log` and `$CACTUSX/last-test.log` (the scripts print bounded excerpts on failure; Grep/Read these for anything beyond the excerpt).
-Build artifacts: `$CACTUSX/configs/carpetx/`.
-Executable: `$CACTUSX/exe/cactus_carpetx`.
-
-## Generating reference output for a new test
+`$CACTUSX` (pre-set in the host shell) is the Cactus tree, this repo is symlinked into it at `$CACTUSX/arrangements/CarpetX`, and the executable `build.sh` builds is `$CACTUSX/exe/cactus_carpetx`; inside an sbx sandbox (`sandbox/README.md`) the same holds under the sandbox's `$CACTUSX`.
 
 Tests are auto-discovered from `<Thorn>/test/*.par` and compared against a checked-in reference directory of the same basename (`<Thorn>/test/<test>/`). To create that reference for a new `.par`, run the built executable on the par file once and copy the resulting output dir into the test tree.
 

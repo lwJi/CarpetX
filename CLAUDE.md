@@ -19,7 +19,7 @@ CarpetX's own sources are ten layers, one directory each under `CarpetX/src/`, a
 
 An incremental build takes ~30 s and the testsuite ~1 min, but a from-clean build takes ~5 min — give `build.sh` a 10-minute timeout.
 
-Where the logs and build artifacts land, and how to generate reference output for a new test, are in `agent_scripts/README.md`.
+Where the logs and build artifacts land is in `agent_scripts/accessing-logs-and-artifacts.md`; how to generate reference output for a new test is in `agent_scripts/generating-reference-output.md`.
 
 ### Inside an sbx sandbox
 
