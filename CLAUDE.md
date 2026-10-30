@@ -19,11 +19,11 @@ CarpetX's own sources are ten layers, one directory each under `CarpetX/src/`, a
 
 An incremental build takes ~30 s and the testsuite ~1 min, but a from-clean build takes ~5 min — give `build.sh` a 10-minute timeout.
 
-Where the logs and build artifacts land is in `agent_scripts/accessing-logs-and-artifacts.md`; how to generate reference output for a new test is in `agent_scripts/generating-reference-output.md`.
+`build.sh` and `test.sh` print where their logs are when they fail. `./agent_scripts/reference.sh --help` says how to make the reference output for a new test; it is the third script under `agent_scripts/`.
 
 ### Inside an sbx sandbox
 
-The same two scripts work unchanged inside a Docker Sandboxes (sbx) microVM created from the committed template (recipe and full instructions: `agent_scripts/sandbox/README.md`):
+The same scripts work unchanged inside a Docker Sandboxes (sbx) microVM created from the committed template (recipe and full instructions: `agent_scripts/sandbox/README.md`):
 
 ```bash
 sbx run -t lwji/sandbox-templates:claude-carpetx --name claude-CarpetX claude . ../amrex:ro   # on the host, from the repo root

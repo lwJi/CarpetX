@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ -z "${CACTUSX:-}" ]; then
-  echo "✗ missing required env var: CACTUSX" >&2
+  echo "✗ missing required env var: CACTUSX (the Cactus tree with this repo symlinked at arrangements/CarpetX)" >&2
   exit 1
 fi
 
