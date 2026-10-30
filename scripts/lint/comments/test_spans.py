@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from files import Lang
-from spans import layout
+from .spans import layout
 
 
 def spans(text, lang=Lang.CXX):

@@ -3,9 +3,9 @@ from __future__ import annotations
 import unittest
 
 from files import Lang
-from judge import Touched, Verdict, judge
-from report import CHANGE_RULE, REDO, RULE, change_summary, excerpt, render, render_change, summary
-from rules import Unit, units
+from .judge import Touched, Verdict, judge
+from .report import CHANGE_RULE, REDO, RULE, change_summary, excerpt, render, render_change, summary
+from .rules import Unit, units
 
 
 def found(path, text):
@@ -54,7 +54,7 @@ class Render(unittest.TestCase):
 
     def test_long_comments_are_cut(self):
         [(_, u)] = found("A/src/a.cxx", "// " + "x" * 100 + "\n")
-        self.assertEqual(excerpt(u), "// " + "x" * 69 + "…")
+        self.assertEqual(excerpt(u.text), "// " + "x" * 69 + "…")
 
     def test_a_guard_or_message_shows_its_directive(self):
         text = "\n#if 0\nint a;\n#endif\n#warning                \\\n    \"TODO: Allow different restriction operators, and ensure this is conservative\"\n"

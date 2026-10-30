@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from files import Lang
-from rules import LINE_BREAK, lex, units
-from tokens import Kind, Token
+from .rules import LINE_BREAK, lex, units
+from .tokens import Kind, Token
 
 CODE_KINDS = (Kind.CODE, Kind.DIRECTIVE)
 QUOTED = re.compile(r'"(?:\\.|[^"\\])*"?|\'(?:\\.|[^\'\\])*\'?')

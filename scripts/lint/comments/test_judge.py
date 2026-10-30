@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from files import Lang
-from judge import Touched, Verdict, judge, judge_all
-from rules import Unit
+from .judge import Touched, Verdict, judge
+from .rules import Unit
 
 
 def found(verdict):
@@ -148,20 +148,7 @@ class TouchedComments(unittest.TestCase):
         self.assertEqual(check(param, param.replace("} 1", "} 1 # why"), Lang.PARAM), [("new", 5, "# why")])
 
 
-class EveryStartingTree(unittest.TestCase):
-    def test_a_comment_another_starting_tree_has(self):
-        after = "// up\nint x;\n"
-        self.assertEqual(found(judge_all(["int x;\n", after], after, Lang.CXX)), [])
-        self.assertEqual(found(judge_all(["int x;\n", "int x;\n"], after, Lang.CXX)), [("new", 1, "// up")])
-
-    def test_code_another_starting_tree_changed(self):
-        after = "// a\nint x = 2;\n"
-        self.assertEqual(found(judge_all(["// a\nint x = 1;\n", after], after, Lang.CXX)), [])
-
-    def test_the_first_tree_names_what_is_reported(self):
-        verdict = judge_all(["// a\nint x = 1;\n", "int x = 1;\n"], "// a\nint x = 2;\n", Lang.CXX)
-        self.assertEqual(found(verdict), [("touched", 1, 1)])
-
+class Within(unittest.TestCase):
     def test_within_keeps_what_the_other_verdict_flags_on_the_same_lines(self):
         u = Unit(3, ("comment", "x"), "// x", False)
         mine = Verdict((u,), (Touched(5, 7, u),))

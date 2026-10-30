@@ -2,12 +2,12 @@
 
 This is the map of `CarpetX/src/` for code that goes into CarpetX itself. A client thorn sees none of it: it reaches CarpetX only through `<carpetx.hxx>` and `<carpetx_rk.hxx>`, described in `agent_docs/carpetx-public-api.md`.
 
-`CarpetX/src/` is ten directories, one per layer, and a file is in the layer of its directory. It includes `internal.hxx`, the public headers, and the headers of its own layer or a lower one, never a higher one, each spelled with its layer: `#include "hierarchy/driver.hxx"`, never `"driver.hxx"` or `"../hierarchy/driver.hxx"`. The two blocks below that open with a `%%` line are written by `python3 scripts/boundary doc --write` from `scripts/boundary/rules.py`, `scripts/boundary/doc.py` and the `#include` lines of the tree, and `scripts/boundary/test_rules.py` fails when they differ from what it writes; the third block is drawn by hand.
+`CarpetX/src/` is ten directories, one per layer, and a file is in the layer of its directory. It includes `internal.hxx`, the public headers, and the headers of its own layer or a lower one, never a higher one, each spelled with its layer: `#include "hierarchy/driver.hxx"`, never `"driver.hxx"` or `"../hierarchy/driver.hxx"`. The two blocks below that open with a `%%` line are written by `python3 scripts/lint doc --write` from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py` and the `#include` lines of the tree, and `scripts/lint/boundary/test_rules.py` fails when they differ from what it writes; the third block is drawn by hand.
 
 ## The stack
 
 ```mermaid
-%% python3 scripts/boundary doc --write rewrites this block: the stack
+%% python3 scripts/lint doc --write rewrites this block: the stack
 flowchart TB
   subgraph door["driver() allowed"]
     flesh["flesh/ no header"]
@@ -33,7 +33,7 @@ A solid edge is "may include": a layer includes the layer below it and, through 
 ## The includes
 
 ```mermaid
-%% python3 scripts/boundary doc --write rewrites this block: the includes
+%% python3 scripts/lint doc --write rewrites this block: the includes
 flowchart TB
   flesh["flesh/ no header"]
   api["api/"]
@@ -85,7 +85,7 @@ The two graphs above point down. The calls that go up pass through an outsider, 
 
 Put new code in the layer that owns what it works on; code that needs a header from a higher layer belongs in that layer or above it. When a value that a low layer reads is owned too high, the value moves down: the iteration a run recovered at is read by `comm/` to word one error, so it is a slot in `traversal/`, written once by `flesh/`, not a variable in `io/`, which reads the checkpoint. A lower layer may declare a function whose body needs a higher one; the higher layer defines it, the include stays downward, and the call reaches up only at link time, as the dashed edges of the stack show. `CactusAmrCore` is declared in `hierarchy/` because each `PatchData` owns one, and `regrid/` writes its callbacks; `apply_boundary_conditions` and `get_interpolator` are declared in `hierarchy/` because a group's data and tags select them, and `comm/` defines them beside the operators they use.
 
-A new `.cxx` is a word of its layer's `make.code.defn` `SRCS`; the build stops on a `.cxx` it would not compile, and such a file is deleted, not kept. A new header includes `internal.hxx` first, and its guard spells its path: `CARPETX_CARPETX_HIERARCHY_DRIVER_HXX`. A function that other layers call is declared in a header of its layer; one that only its own layer calls, in a header named after the file that defines it; one that only its own file calls stays `static` or in an anonymous namespace. A new layer is an entry of `SUBDIRS` in the root `make.code.defn` and of `LAYERS` in `scripts/boundary/rules.py`, at the same place in both; `python3 scripts/boundary doc --write` then redraws the stack and the includes.
+A new `.cxx` is a word of its layer's `make.code.defn` `SRCS`; the build stops on a `.cxx` it would not compile, and such a file is deleted, not kept. A new header includes `internal.hxx` first, and its guard spells its path: `CARPETX_CARPETX_HIERARCHY_DRIVER_HXX`. A function that other layers call is declared in a header of its layer; one that only its own layer calls, in a header named after the file that defines it; one that only its own file calls stays `static` or in an anonymous namespace. A new layer is an entry of `SUBDIRS` in the root `make.code.defn` and of `LAYERS` in `scripts/lint/boundary/rules.py`, at the same place in both; `python3 scripts/lint doc --write` then redraws the stack and the includes.
 
 ## The layers
 
@@ -115,7 +115,7 @@ Operations on grid data that other thorns ask for: interpolation, reductions, wh
 
 ### `io/`
 
-Output, checkpoint and recovery, and the file reader's input. A writer or a checkpoint works on a `group_selection_t`, built from a parameter string or from a predicate over the records, so a group without storage is never selected and no writer filters storage itself. A group's facts come from its record, never from the flesh's group table, which the `records` rule holds, and a group, variable, time level, patch or level is named by its handle type, which the `index` rule holds; another layer joins either rule by appending itself to `RECORDS_LAYERS` or `INDEX_SOURCE_LAYERS` in `scripts/boundary/rules.py` and converting what the rule then reports. The two checkpoint codecs translate between a `checkpoint_record_t` and a file and see nothing else, which the `codec` rule holds. When to output, checkpoint or recover is decided by the flesh's bins and by `schedule/`, which calls in here; `io/` does not include `schedule/`.
+Output, checkpoint and recovery, and the file reader's input. A writer or a checkpoint works on a `group_selection_t`, built from a parameter string or from a predicate over the records, so a group without storage is never selected and no writer filters storage itself. A group's facts come from its record, never from the flesh's group table, which the `records` rule holds, and a group, variable, time level, patch or level is named by its handle type, which the `index` rule holds; another layer joins either rule by appending itself to `RECORDS_LAYERS` or `INDEX_SOURCE_LAYERS` in `scripts/lint/boundary/rules.py` and converting what the rule then reports. The two checkpoint codecs translate between a `checkpoint_record_t` and a file and see nothing else, which the `codec` rule holds. When to output, checkpoint or recover is decided by the flesh's bins and by `schedule/`, which calls in here; `io/` does not include `schedule/`.
 
 ### `schedule/`
 
@@ -131,4 +131,4 @@ The flesh edge: every `extern "C"` definition in CarpetX, in one file per way th
 
 ## The check
 
-`python3 scripts/boundary check` runs the rules the stack's nodes name, with `layer`, `door`, `window`, `varindex` and `marker` in every layer and `index` in every layer's headers; `--help` prints what each holds, `scripts/boundary/rules.py` defines them, and `agent_docs/carpetx-public-api.md` describes `include` and `marker`. The edit hook in `.claude/settings.json` denies an Edit or Write that adds a finding, a Stop hook blocks the turn once if the branch has added one since `dev`, and the `Comments` workflow runs the check with `--since` on every PR.
+`python3 scripts/lint check --only boundary` runs the rules the stack's nodes name, with `layer`, `door`, `window`, `varindex` and `marker` in every layer and `index` in every layer's headers; `python3 scripts/lint check --help` prints what each holds, `scripts/lint/boundary/rules.py` defines them, and `agent_docs/carpetx-public-api.md` describes `include` and `marker`. The `boundary` check is one of the two checks of `scripts/lint`, beside `no-comments`: the edit hook in `.claude/settings.json` denies an Edit or Write that adds a finding of either, a Stop hook blocks the turn once if the branch has added one since `dev`, and the `Lint` workflow runs both with `--since` on every PR.

@@ -8,7 +8,7 @@ This repository is organized as Cactus thorns. Each top-level directory such as 
 
 Do **not** read reference test data files (e.g. `*/test/*/*.tsv`, `*/test/*/*.h5`, or other large numerical output) unless the user explicitly asks for it. They are large, binary-like, and rarely informative for code-level reasoning. Inspect the `.par` parameter file and the thorn source instead.
 
-CarpetX's own sources are ten layers, one directory each under `CarpetX/src/`, and a file includes only its own layer or a lower one. Before adding code to CarpetX, read `agent_docs/design-rules.md`, the rules the thorn is arranged to, and `agent_docs/carpetx-internals.md`, which says what each layer owns and which `scripts/boundary` rules hold the lines between them; the edit hook enforces them, and `python3 scripts/boundary check` shows what it would report. Other thorns reach CarpetX only through `<carpetx.hxx>` and `<carpetx_rk.hxx>`, described in `agent_docs/carpetx-public-api.md`.
+CarpetX's own sources are ten layers, one directory each under `CarpetX/src/`, and a file includes only its own layer or a lower one. Before adding code to CarpetX, read `agent_docs/design-rules.md`, the rules the thorn is arranged to, and `agent_docs/carpetx-internals.md`, which says what each layer owns and which `boundary` rules of `scripts/lint` hold the lines between them; the edit hook enforces them, and `python3 scripts/lint check --only boundary` shows what it would report. Other thorns reach CarpetX only through `<carpetx.hxx>` and `<carpetx_rk.hxx>`, described in `agent_docs/carpetx-public-api.md`.
 
 ## Build & Test
 
@@ -34,7 +34,7 @@ The first in-sandbox `build.sh` configures and compiles from scratch (~13 min â€
 
 ## Code comments
 
-Comments in thorn files can only be deleted. Don't add a comment line or change one, and when your change edits the code under a comment (its paragraph, or the whole block that code opens), delete the whole comment. Hooks and the `no-comments` CI check enforce this, and `python3 scripts/comments check --since origin/dev` shows what they would report. The full rule, including what counts as a thorn file and the few allowed comment lines, is in `agent_docs/code-comments.md`.
+Comments in thorn files can only be deleted. Don't add a comment line or change one, and when your change edits the code under a comment (its paragraph, or the whole block that code opens), delete the whole comment. Hooks and the `Lint` CI workflow enforce this, and `python3 scripts/lint check --since origin/dev` shows what they would report. The full rule, including what counts as a thorn file and the few allowed comment lines, is in `agent_docs/code-comments.md`.
 
 A comment already in a file is a claim to check against the code, never the reason for a change. When your change makes a comment false that the check can't see, such as one on a declaration in a header, delete it too. Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message, never in a comment; `git log -S '<words>'` finds what deleted comments said.
 

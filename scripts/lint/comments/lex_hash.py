@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from files import Lang
-from tokens import Kind, LexError, Token
+from .tokens import Kind, LexError, Token
 
 PLAIN = re.compile(r"(?P<newline>\r?\n)|(?P<space>(?:[ \t\f\v]|\r(?!\n))+)|(?P<code>[^ \t\f\v\r\n]+)")
 NEXT_LINE = re.compile(r"\r?\n|\Z")

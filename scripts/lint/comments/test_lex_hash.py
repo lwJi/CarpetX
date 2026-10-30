@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from files import Lang
-from lex_hash import lex, may_hold_comments
-from tokens import Kind, join
+from .lex_hash import lex, may_hold_comments
+from .tokens import Kind, join
 
 CCL_LANGS = (Lang.INTERFACE, Lang.PARAM, Lang.SCHEDULE, Lang.CONFIGURATION, Lang.TEST)
 ALL_LANGS = CCL_LANGS + (Lang.PAR, Lang.MAKE, Lang.FORTRAN)

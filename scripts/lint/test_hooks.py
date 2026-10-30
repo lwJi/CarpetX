@@ -12,8 +12,8 @@ from unittest import mock
 
 import hooks
 from files import PROJECT
-from hooks import simulate_edit
-from report import CHANGE_RULE, REDO
+from files import simulate_edit
+from comments.report import CHANGE_RULE, REDO
 from test_files import ISOLATED_GIT, git
 
 TOOL = os.path.dirname(os.path.abspath(__file__))
@@ -101,7 +101,7 @@ class Project(unittest.TestCase):
     def skipped(self, output):
         message = json.loads(output)
         self.assertEqual(list(message), ["systemMessage"])
-        self.assertTrue(message["systemMessage"].startswith("comment check skipped: "), message)
+        self.assertTrue(message["systemMessage"].startswith("lint check skipped: "), message)
         return message["systemMessage"]
 
 
@@ -161,9 +161,9 @@ class HookEdit(Project):
         self.assertEqual(self.edit("Thorn/src/a.cxx", "int nope;\n", "int nope; // why\n"), "")
 
     def test_a_tool_failure_is_a_system_message(self):
-        with mock.patch("spans.lex", side_effect=RuntimeError("lexer crash")):
+        with mock.patch("comments.spans.lex", side_effect=RuntimeError("lexer crash")):
             output = self.edit("Thorn/src/a.cxx", "int a = 1;\n", "int a = 1; // why\n")
-        self.assertEqual(self.skipped(output), "comment check skipped: RuntimeError: lexer crash")
+        self.assertEqual(self.skipped(output), "lint check skipped: RuntimeError: lexer crash")
 
     def test_files_that_are_not_covered_pass_untouched(self):
         self.assertEqual(self.edit("Thorn/README", "not covered\n", "// still not covered\n"), "")
@@ -309,6 +309,15 @@ class HookStop(Branch):
     def test_a_comment_committed_on_the_branch_blocks(self):
         self.commit({"Thorn/test/t.par": "Thorn::n = 2 # why\n"})
         self.assertEqual(self.blocked(self.run_hook())[0], "Thorn/test/t.par:1   new       # why")
+
+    def test_findings_of_both_checks_are_one_reason(self):
+        self.append("Thorn/src/a.cxx", '#include "../../CarpetX/src/driver.hxx" // why\n')
+        lines = self.blocked(self.run_hook())
+        self.assertEqual(lines[0], "Thorn/src/a.cxx:4   new       // why")
+        blank = lines.index("")
+        self.assertEqual(lines[blank - 1], "✗ no-comments: 1 new comment line")
+        self.assertEqual(lines[blank + 1], 'Thorn/src/a.cxx:4   include    #include "../../CarpetX/src/driver.hxx" // why')
+        self.assertEqual(lines[-1], "✗ boundary: 1 private include")
 
     def test_every_kind_of_file_is_checked(self):
         self.append("Thorn/src/a.cxx", "#if 0\n#endif\n")
@@ -500,13 +509,17 @@ class HookEditOnABranch(Branch):
 
     def test_without_the_branch_the_edit_is_judged_alone(self):
         self.assertEqual(self.edit("Thorn/param.ccl", "# old prose\n", ""), "")
-        with mock.patch("hooks.merge_base", side_effect=RuntimeError("git crashed")):
+        with mock.patch("run.merge_base", side_effect=RuntimeError("git crashed")):
             lines = self.denied(self.edit("Thorn/param.ccl", "INT n", "# old prose\nINT n"))
         self.assertEqual(lines[0], "Thorn/param.ccl:1   new       # old prose")
 
 
+def reports(result):
+    return [block.split("\n")[-1].split(":", 1)[0] if block.startswith("✓ boundary") else block.split("\n")[-1] for block in result.stdout.rstrip("\n").split("\n\n")]
+
+
 def copy_tool(root):
-    shutil.copytree(TOOL, os.path.join(root, "scripts", "comments"), ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(TOOL, os.path.join(root, "scripts", "lint"), ignore=shutil.ignore_patterns("__pycache__"))
 
 
 def edit_payload(root):
@@ -524,7 +537,7 @@ def edit_payload(root):
 class Cli(Project):
     def run_tool(self, args, stdin="", env=None):
         return subprocess.run(
-            [sys.executable, os.path.join(self.root, "scripts", "comments"), *args],
+            [sys.executable, os.path.join(self.root, "scripts", "lint"), *args],
             input=stdin, capture_output=True, text=True, env=env,
         )
 
@@ -547,9 +560,16 @@ class Cli(Project):
         result = self.run_tool(["check", os.path.join(self.root, "Thorn")])
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/src/c.cxx:1   // why")
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 comment line")
+        self.assertEqual(reports(result), ["✗ no-comments: 1 comment line", "✓ boundary"])
         result = self.run_tool(["check", os.path.join(self.root, "Thorn/src/a.cxx")])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split("\n")[:2], ["✓ no-comments: 0 comment lines", ""])
+        self.assertEqual(reports(result), ["✓ no-comments: 0 comment lines", "✓ boundary"])
+        result = self.run_tool(["check", "--only", "no-comments", os.path.join(self.root, "Thorn/src/a.cxx")])
         self.assertEqual((result.returncode, result.stdout), (0, "✓ no-comments: 0 comment lines\n"))
+        result = self.run_tool(["check", "--only", "boundary", os.path.join(self.root, "Thorn")])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(reports(result), ["✓ boundary"])
 
     def test_check_of_a_missing_path_exits_2(self):
         self.assertEqual(self.run_tool(["check", os.path.join(self.root, "nope")]).returncode, 2)
@@ -559,7 +579,7 @@ class Cli(Project):
         result = self.run_tool(["check"])
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[:2], ["Thorn/param.ccl:1   # p", "Thorn/src/c.cxx:1   // why"])
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 2 comment lines")
+        self.assertEqual(reports(result), ["✗ no-comments: 2 comment lines", "✓ boundary"])
 
     @unittest.skipIf(os.geteuid() == 0, "root reads a file without read permission")
     def test_a_file_that_cannot_be_read_names_the_file(self):
@@ -567,7 +587,7 @@ class Cli(Project):
         os.chmod(self.path("Thorn/src/c.cxx"), 0)
         result = self.run_tool(["check", os.path.join(self.root, "Thorn")])
         self.assertEqual(result.returncode, 2)
-        self.assertRegex(result.stderr, r"^comments check: Thorn/src/c\.cxx: \[Errno 13\] Permission denied")
+        self.assertRegex(result.stderr, r"^lint check: Thorn/src/c\.cxx: \[Errno 13\] Permission denied")
 
     def test_hook_stop_with_a_bad_payload_exits_0(self):
         result = self.run_tool(["hook-stop"], "not json")
@@ -582,7 +602,7 @@ def configured(event):
         (entry.get("matcher"), hook["command"])
         for entry in entries
         for hook in entry["hooks"]
-        if "scripts/comments" in hook["command"]
+        if "scripts/lint" in hook["command"]
     ]
 
 
@@ -605,7 +625,7 @@ class Settings(Project):
 
     def test_the_command_is_silent_where_the_tool_is_absent(self):
         [(_, command)] = configured_pretooluse()
-        write_files(self.root, {"scripts/comments/__pycache__/hooks.pyc": ""})
+        write_files(self.root, {"scripts/lint/__pycache__/hooks.pyc": ""})
         for project in [self.root, None]:
             result = self.run_command(command, project, edit_payload(self.root))
             self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""), project)
@@ -644,7 +664,7 @@ class Settings(Project):
         self.assertEqual(json.loads(result.stdout)["decision"], "block")
 
 
-CLEAN = "✓ no-comments: no new or touched comments\n"
+CLEAN = "✓ no-comments: no new or touched comments"
 
 
 class CheckSince(unittest.TestCase):
@@ -666,29 +686,32 @@ class CheckSince(unittest.TestCase):
 
     def run_tool(self, *args):
         return subprocess.run(
-            [sys.executable, os.path.join(self.root, "scripts", "comments"), *args], capture_output=True, text=True
+            [sys.executable, os.path.join(self.root, "scripts", "lint"), *args], capture_output=True, text=True
         )
 
     def append(self, name, text):
         with open(os.path.join(self.root, name), "a") as f:
             f.write(text)
 
+    def clean(self, result):
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(reports(result), [CLEAN, "✓ boundary"])
+
     def test_old_comments_pass_and_new_ones_fail(self):
-        result = self.run_tool("check", "--since", self.base)
-        self.assertEqual((result.returncode, result.stdout), (0, CLEAN), result.stderr)
+        self.clean(self.run_tool("check", "--since", self.base))
         self.append("Thorn/param.ccl", "# x\n")
         self.append("Thorn/test/t.par", "Thorn::n = 3\n")
         result = self.run_tool("check", "--since", self.base)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/param.ccl:11   new       # x")
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 new comment line")
+        self.assertEqual(reports(result), ["✗ no-comments: 1 new comment line", "✓ boundary"])
 
     def test_a_touched_comment_fails(self):
         write_files(self.root, {"Thorn/src/a.cxx": STOP_FILES["Thorn/src/a.cxx"].replace("a = 1", "a = 2")})
         result = self.run_tool("check", "--since", self.base)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/src/a.cxx:2   touched   // old")
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 touched comment")
+        self.assertEqual(reports(result), ["✗ no-comments: 1 touched comment", "✓ boundary"])
 
     def test_a_comment_committed_since_the_base_fails(self):
         self.append("Thorn/test/t.par", "# why\n")
@@ -704,14 +727,13 @@ class CheckSince(unittest.TestCase):
         git(self.root, "commit", "-q", "-am", "upstream")
         git(self.root, "switch", "-q", "dev")
         git(self.root, "merge", "--no-ff", "-q", "-m", "m", "upstream")
-        result = self.run_tool("check", "--since", self.base)
-        self.assertEqual((result.returncode, result.stdout), (0, CLEAN), result.stderr)
+        self.clean(self.run_tool("check", "--since", self.base))
         self.append("Thorn/test/t.par", "Thorn::n = 3 # resolution\n")
         git(self.root, "commit", "-q", "--amend", "--no-edit", "-a")
         result = self.run_tool("check", "--since", self.base)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/test/t.par:2   new       # resolution")
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 new comment line")
+        self.assertEqual(reports(result), ["✗ no-comments: 1 new comment line", "✓ boundary"])
 
     def test_a_base_that_moved_on_is_judged_from_the_merge_base(self):
         write_files(self.root, {"Thorn/test/u.par": "# dev deletes this later\nThorn::n = 4\n"})
@@ -730,7 +752,7 @@ class CheckSince(unittest.TestCase):
         result = self.run_tool("check", "--since", "dev")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/test/t.par:2   new       # why")
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 new comment line")
+        self.assertEqual(reports(result), ["✗ no-comments: 1 new comment line", "✓ boundary"])
 
     def test_a_file_renamed_and_then_shrunk_is_judged_under_its_old_name(self):
         write_files(self.root, {"Thorn/src/big.cxx": BIG})
@@ -741,13 +763,12 @@ class CheckSince(unittest.TestCase):
         git(self.root, "commit", "-q", "-m", "rename")
         write_files(self.root, {"Thorn/src/kept.cxx": SHRUNK})
         git(self.root, "commit", "-q", "-am", "shrink")
-        result = self.run_tool("check", "--since", base)
-        self.assertEqual((result.returncode, result.stdout), (0, CLEAN), result.stderr)
+        self.clean(self.run_tool("check", "--since", base))
         self.append("Thorn/src/kept.cxx", "int z = 0; // added\n")
         result = self.run_tool("check", "--since", base)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.split("\n")[0], "Thorn/src/kept.cxx:3   new       // added")
-        self.assertEqual(result.stdout.rstrip("\n").split("\n")[-1], "✗ no-comments: 1 new comment line")
+        self.assertEqual(reports(result), ["✗ no-comments: 1 new comment line", "✓ boundary"])
 
     def test_a_rev_with_no_common_ancestor_exits_2(self):
         unrelated = git(self.root, "commit-tree", "HEAD^{tree}", "-m", "unrelated").strip()

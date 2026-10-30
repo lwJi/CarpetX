@@ -5,9 +5,9 @@ import unittest
 from collections import Counter
 
 from files import PROJECT, Lang, decode, lang_of, parallel, resolve, split_z, thorns_in
-from rules import lex
-from spans import layout
-from tokens import Kind, join
+from .rules import lex
+from .spans import layout
+from .tokens import Kind, join
 
 ET0 = "6c59144364fb5e65c7355d4a445530b8503460db"
 HAVE_ET0 = resolve(PROJECT, ET0) == ET0

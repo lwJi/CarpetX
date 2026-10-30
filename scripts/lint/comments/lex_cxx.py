@@ -4,7 +4,7 @@ import bisect
 import re
 from typing import Optional
 
-from tokens import Kind, LexError, Token
+from .tokens import Kind, LexError, Token
 
 SPLICE = r"\\[ \t\f\v]*(?:\r\n|\r|\n)"
 TOKEN = re.compile(

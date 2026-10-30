@@ -3,11 +3,10 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Iterable
 
 from files import Lang
-from rules import Unit, may_hold_comments
-from spans import Comment, Layout, layout
+from .rules import Unit, may_hold_comments
+from .spans import Comment, Layout, layout
 
 
 @dataclass(frozen=True)
@@ -106,12 +105,3 @@ def judge(before: str, after: str, lang: Lang) -> Verdict:
     added = tuple(new.units[i] for i in sorted(fresh) if not new.units[i].allowed and new.units[i].line not in inside)
     return Verdict(added, tuple(touched))
 
-
-def judge_all(befores: Iterable[str], after: str, lang: Lang) -> Verdict:
-    verdict = None
-    for before in befores:
-        other = judge(before, after, lang)
-        verdict = other if verdict is None else verdict.within(other)
-        if not verdict:
-            break
-    return Verdict() if verdict is None else verdict
