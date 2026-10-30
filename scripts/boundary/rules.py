@@ -42,6 +42,12 @@ def below(layer: str) -> tuple[str, ...]:
     return LAYERS[: LAYERS.index(layer) + 1]
 
 
+def layers_of(names: tuple[str, ...]) -> tuple[str, ...]:
+    found = tuple(dict.fromkeys(layer_of(name) for name in names))
+    assert None not in found, names
+    return found
+
+
 def dirs(layers: tuple[str, ...], conjunction: str) -> str:
     return f" {conjunction} ".join(f"{layer}/" for layer in layers)
 
@@ -133,6 +139,7 @@ class Rule:
     noun: str
     where: str
     clean: str
+    home: tuple[str, ...] = ()
 
     def phrase(self, noun: str) -> str:
         return f"{noun} {self.where}" if self.where else noun
@@ -252,6 +259,7 @@ RULES = (
         noun="validity call",
         where="outside valid.cxx",
         clean="no validity call outside valid.cxx",
+        home=layers_of(VALIDITY_FILES),
     ),
     Rule(
         "directions",
@@ -263,6 +271,7 @@ RULES = (
         noun="directions parameter",
         where="in the sync layer",
         clean="no directions in the sync layer",
+        home=layers_of(SYNC_FILES),
     ),
     Rule(
         "varindex",
@@ -274,6 +283,7 @@ RULES = (
         noun="firstvarindex addition",
         where="outside GroupRecord::var",
         clean="no firstvarindex addition outside GroupRecord::var",
+        home=layers_of((RECORD_VAR_FILE,)),
     ),
     Rule(
         "window",
@@ -299,6 +309,7 @@ RULES = (
         noun="traversal use",
         where="outside traversal.cxx",
         clean="no active_levels outside traversal.cxx",
+        home=layers_of(TRAVERSAL_FILES),
     ),
     Rule(
         "index",
@@ -315,6 +326,7 @@ RULES = (
         noun="bare index int",
         where=f"in a CarpetX header or {dirs(INDEX_SOURCE_LAYERS, 'or')} source",
         clean=f"no bare index int in a CarpetX header or {dirs(INDEX_SOURCE_LAYERS, 'or')} source",
+        home=INDEX_SOURCE_LAYERS,
     ),
     Rule(
         "records",
@@ -330,6 +342,7 @@ RULES = (
         noun="group-table call",
         where=f"in {dirs(RECORDS_LAYERS, 'or')}",
         clean=f"no group-table call in {dirs(RECORDS_LAYERS, 'or')}",
+        home=RECORDS_LAYERS,
     ),
     Rule(
         "codec",
@@ -341,6 +354,7 @@ RULES = (
         noun="hierarchy use",
         where="in a checkpoint codec",
         clean="no hierarchy access in a checkpoint codec",
+        home=layers_of(CODEC_FILES),
     ),
     Rule(
         "layer",
