@@ -7,6 +7,15 @@ import sys
 import traceback
 
 EXIT_CLEAN, EXIT_FOUND, EXIT_ERROR = 0, 1, 2
+ENFORCEMENT = """\
+How the checks are run:
+  .claude/settings.json runs hook-edit as the PreToolUse hook of Edit and Write, and hook-stop as the
+  Stop and SubagentStop hooks; both judge the branch from its merge base with dev. The Lint workflow
+  runs `check --since` from the PR's base on every PR and on every push to dev. What a merge brings in
+  from another branch is not judged, only the merge's own resolution. `check --since origin/dev` shows
+  what all of them would report; the rules are in agent_docs/code-comments.md,
+  agent_docs/carpetx-public-api.md and agent_docs/carpetx-internals.md.
+"""
 HOOKS = {"hook-edit": "hook_edit", "hook-stop": "hook_stop"}
 
 
@@ -83,6 +92,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 scripts/lint",
         description="The checks the hooks and CI hold a change to: " + ", ".join(names) + ".",
+        epilog=ENFORCEMENT,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     commands = parser.add_subparsers(dest="command", required=True)
     check = commands.add_parser(
