@@ -47,7 +47,7 @@ void register_integrator(const rk_config_t &config);
 void run_schedule_group_at(const cGH *cctkGH, const char *group, CCTK_REAL time,
                            CCTK_REAL delta_time);
 
-class rk_step_t {
+class [[nodiscard]] rk_step_t {
 public:
   rk_step_t(rk_step_t &&other) noexcept;
   rk_step_t(const rk_step_t &) = delete;

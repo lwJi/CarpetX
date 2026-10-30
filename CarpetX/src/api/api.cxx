@@ -210,7 +210,7 @@ write_t::write_t(std::unique_ptr<impl> p) noexcept : p(std::move(p)) {}
 
 write_t::write_t(write_t &&) noexcept = default;
 
-amrex::MultiFab &write_t::mfab() {
+amrex::MultiFab &write_t::mfab() & {
   const operation_scope_t op("CarpetX::write_t::mfab");
   if (!p)
     CCTK_ERROR("CarpetX::write_t::mfab() called on a moved-from write scope");
@@ -266,7 +266,7 @@ scratch_t::scratch_t(std::unique_ptr<impl> p) noexcept : p(std::move(p)) {}
 
 scratch_t::scratch_t(scratch_t &&) noexcept = default;
 
-amrex::MultiFab &scratch_t::mfab() {
+amrex::MultiFab &scratch_t::mfab() & {
   const operation_scope_t op("CarpetX::scratch_t::mfab");
   if (!p)
     CCTK_ERROR("CarpetX::scratch_t::mfab() called on a moved-from scratch "
@@ -274,7 +274,7 @@ amrex::MultiFab &scratch_t::mfab() {
   return *resolve_scratch(p->group, p->slot).mfab;
 }
 
-const amrex::MultiFab &scratch_t::mfab() const {
+const amrex::MultiFab &scratch_t::mfab() const & {
   const operation_scope_t op("CarpetX::scratch_t::mfab");
   if (!p)
     CCTK_ERROR("CarpetX::scratch_t::mfab() called on a moved-from scratch "

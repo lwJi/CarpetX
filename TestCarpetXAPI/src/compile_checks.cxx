@@ -102,6 +102,10 @@ template <class Window> concept operates_on = requires(Window window) {
   CarpetX::sync(window, std::span<const gi_t>());
 };
 
+template <class Scope> concept reads_mfab = requires(Scope &&scope) {
+  std::forward<Scope>(scope).mfab();
+};
+
 struct bare_window_t {
   int min_level, max_level, min_patch, max_patch;
 };
@@ -249,6 +253,13 @@ static_assert(!invalidate_takes<gi_t>);
 static_assert(data_takes<tl_t>);
 static_assert(!data_takes<int>);
 static_assert(!data_takes<gi_t>);
+
+static_assert(reads_mfab<CarpetX::write_t &>);
+static_assert(!reads_mfab<CarpetX::write_t>);
+static_assert(reads_mfab<CarpetX::scratch_t &>);
+static_assert(reads_mfab<const CarpetX::scratch_t &>);
+static_assert(!reads_mfab<CarpetX::scratch_t>);
+static_assert(!reads_mfab<const CarpetX::scratch_t>);
 
 static_assert(std::is_same_v<decltype(CarpetX::rk_pair_t::state), gi_t>);
 static_assert(std::is_same_v<decltype(CarpetX::group_t::gi), gi_t>);
