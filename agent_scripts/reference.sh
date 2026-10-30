@@ -5,13 +5,17 @@ usage() {
 usage: agent_scripts/reference.sh <Thorn>/test/<name>.par [<sibling>]
 
 Regenerates the checked-in reference output <Thorn>/test/<name>/ for one
-test parfile, the way the testsuite would produce it:
+test parfile:
 
-  1. runs $CACTUSX/exe/cactus_carpetx on the parfile from
-     $CACTUSX/TEST/carpetx/<Thorn>/, the directory `make carpetx-testsuite`
-     runs it from, after removing that directory's <name>/, so relative
-     paths in the parfile (IO::recover_dir above all) resolve as under
-     agent_scripts/test.sh;
+  1. runs that one test through the testsuite (make carpetx-testsuite
+     restricted with CCTK_TESTSUITE_RUN_TESTS), so the run is the one
+     agent_scripts/test.sh and CI make: the same directory, which relative
+     paths in the parfile (IO::recover_dir above all) resolve from, the
+     same MPI launcher and rank count, per-test NPROCS from test.ccl
+     included. <Thorn>/test/<name>/ must exist for the testsuite to
+     discover the parfile, so it is created first when missing; the
+     testsuite's comparison against it is ignored, and only a failed
+     Cactus run stops the script, with the reference left as it was;
   2. replaces <Thorn>/test/<name>/ with the run's files whose extension is
      in the thorn's EXTENSIONS (test.ccl, default tsv), the files the
      testsuite compares, and lists the files it did not copy; a file the
@@ -21,9 +25,9 @@ test parfile, the way the testsuite would produce it:
      minus every profiling.json: that directory is the recovery input of
      recover<suffix>.par;
   4. with <sibling>, a reference directory of the same family (a name under
-     <Thorn>/test/ or a path), prints the file-set difference between the
-     new reference and the sibling and, for every *.tsv present in both,
-     whether they are identical.
+     <Thorn>/test/ or a path), prints diff -rq of the new reference against
+     it: "Only in" lines are the file-set difference, "differ" lines the
+     files present in both whose contents differ.
 
 What the script cannot decide:
 
@@ -54,9 +58,8 @@ if [ -z "${CACTUSX:-}" ]; then
   echo "✗ missing required env var: CACTUSX (the Cactus tree with this repo symlinked at arrangements/CarpetX)" >&2
   exit 1
 fi
-exe="$CACTUSX/exe/cactus_carpetx"
-if [ ! -x "$exe" ]; then
-  echo "✗ missing executable: $exe (run ./agent_scripts/build.sh)" >&2
+if [ ! -x "$CACTUSX/exe/cactus_carpetx" ]; then
+  echo "✗ missing executable: $CACTUSX/exe/cactus_carpetx (run ./agent_scripts/build.sh)" >&2
   exit 1
 fi
 
@@ -78,36 +81,49 @@ fi
 extensions="$(sed -n -E 's/^[[:space:]]*EXTENSIONS[[:space:]]+(.*)$/\1/Ip' "$testdir/test.ccl" 2>/dev/null | tr -s '[:space:]' ' ')"
 extensions="${extensions:-tsv }"
 
+refdir="$testdir/$name"
 rundir="$CACTUSX/TEST/carpetx/$thorn"
 runout="$rundir/$name"
-log="$rundir/$name.reference.log"
-mkdir -p "$rundir"
-rm -rf "$runout"
-if ! (cd "$rundir" && "$exe" "$parfile") > "$log" 2>&1; then
+log="$CACTUSX/last-reference.log"
+mkdir -p "$refdir"
+if ! (cd "$CACTUSX" && CCTK_TESTSUITE_RUN_TESTS="$thorn/$name" make carpetx-testsuite PROMPT=no) > "$log" 2>&1 ||
+   grep -q 'Cactus exited with error code' "$log"; then
   echo "--- last 40 lines ---"
   tail -40 "$log"
-  echo "✗ $name.par failed — full log: $log" >&2
+  echo "✗ $name.par failed — testsuite log: $log, run log: $rundir/$name.log" >&2
+  exit 1
+fi
+if ! grep -q "^  Test $thorn: $name " "$log"; then
+  echo "✗ the testsuite did not run $thorn/$name; is $thorn in $CACTUSX/configs/carpetx/ThornList? — log: $log" >&2
   exit 1
 fi
 if [ ! -d "$runout" ]; then
-  echo "✗ the run left no $runout; does $name.par set IO::out_dir = \$parfile? — full log: $log" >&2
+  echo "✗ the run left no $runout; does $name.par set IO::out_dir = \$parfile? — log: $log" >&2
   exit 1
 fi
 
-refdir="$testdir/$name"
-rm -rf "$refdir"
-mkdir -p "$refdir"
+kept=()
 skipped=()
 while IFS= read -r -d '' f; do
   rel="${f#"$runout"/}"
-  ext="${rel##*.}"
-  if [ "$ext" != "$rel" ] && [[ " $extensions" == *" $ext "* ]]; then
-    mkdir -p "$refdir/$(dirname "$rel")"
-    cp "$f" "$refdir/$rel"
+  base="${rel##*/}"
+  ext="${base##*.}"
+  if [ "$ext" != "$base" ] && [[ " $extensions" == *" $ext "* ]]; then
+    kept+=("$rel")
   else
     skipped+=("$rel")
   fi
 done < <(find "$runout" -type f -print0 | sort -z)
+if [ "${#kept[@]}" -eq 0 ]; then
+  echo "✗ the run wrote no file with an extension in EXTENSIONS ($extensions) under $runout; $refdir is left as it was" >&2
+  exit 1
+fi
+rm -rf "$refdir"
+mkdir -p "$refdir"
+for rel in "${kept[@]}"; do
+  mkdir -p "$refdir/$(dirname "$rel")"
+  cp "$runout/$rel" "$refdir/$rel"
+done
 if [ "${#skipped[@]}" -gt 0 ]; then
   echo "not copied (extension not in EXTENSIONS: $extensions):"
   printf '  %s\n' "${skipped[@]}"
@@ -128,22 +144,10 @@ if [ -n "$sibling" ]; then
     echo "✗ no such sibling reference: $sibling" >&2
     exit 1
   fi
-  echo "--- file set: $refdir vs $sibdir ---"
-  if diff <(cd "$refdir" && ls -R) <(cd "$sibdir" && ls -R); then
-    echo "(same file set)"
+  echo "--- diff -rq $refdir $sibdir ---"
+  if diff -rq "$refdir" "$sibdir"; then
+    echo "(identical)"
   fi
-  same=0; differ=0
-  while IFS= read -r -d '' f; do
-    rel="${f#"$refdir"/}"
-    [ -f "$sibdir/$rel" ] || continue
-    if cmp -s "$f" "$sibdir/$rel"; then
-      same=$((same + 1))
-    else
-      differ=$((differ + 1))
-      echo "differs: $rel"
-    fi
-  done < <(find "$refdir" -type f -name '*.tsv' -print0 | sort -z)
-  echo "*.tsv present in both: $same identical, $differ differ"
 fi
 
 echo "✓ reference $refdir (run ./agent_scripts/test.sh before checking it in)"
