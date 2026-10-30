@@ -10,9 +10,9 @@ EXIT_CLEAN, EXIT_FOUND, EXIT_ERROR = 0, 1, 2
 HOOKS = {"hook-edit": "hook_edit", "hook-stop": "hook_stop"}
 
 
-def run_check(paths: list[str], since: str | None = None) -> int:
-    from rules import findings, render, since_findings
-    from files import PROJECT, GitError, common_ancestor, list_covered, list_tree, read_text, resolve
+def run_check(checks, paths: list[str], since: str | None = None) -> int:
+    from files import PROJECT, GitError, common_ancestor, resolve
+    from run import FileFailed, check_since, check_tree, has_findings, render, render_change
 
     try:
         if since is not None:
@@ -22,20 +22,21 @@ def run_check(paths: list[str], since: str | None = None) -> int:
             base = common_ancestor(PROJECT, rev)
             if base is None:
                 raise GitError(f"{since!r} and HEAD have no common ancestor")
-            found = since_findings(PROJECT, base)
+            found = check_since(PROJECT, base, checks)
+            report = render_change(found, every=True)
         else:
-            files = list_covered(paths) if paths else list_tree()
-            found = [(name, f) for name, path, lang in files for f in findings(name, read_text(path), lang)]
-    except (FileNotFoundError, GitError, OSError, UnicodeError) as e:
-        print(f"boundary check: {e}", file=sys.stderr)
+            found = check_tree(paths, checks)
+            report = render(found)
+    except (FileNotFoundError, FileFailed, GitError, OSError, UnicodeError) as e:
+        print(f"lint check: {e}", file=sys.stderr)
         return EXIT_ERROR
     sys.stdout.reconfigure(errors="backslashreplace")
-    print(render(found))
-    return EXIT_FOUND if found else EXIT_CLEAN
+    print(report)
+    return EXIT_FOUND if has_findings(found) else EXIT_CLEAN
 
 
 def run_doc(write: bool) -> int:
-    from doc import MAP, render, rewrite
+    from boundary.doc import MAP, render, rewrite
     from files import PROJECT
 
     if not write:
@@ -47,7 +48,7 @@ def run_doc(write: bool) -> int:
             text = f.read()
         new = rewrite(text)
     except (OSError, ValueError) as e:
-        print(f"boundary doc: {e}", file=sys.stderr)
+        print(f"lint doc: {e}", file=sys.stderr)
         return EXIT_ERROR
     if new != text:
         with open(path, "w") as f:
@@ -62,7 +63,7 @@ def run_hook(name: str) -> int:
 
         raw = sys.stdin.buffer.read()
     except Exception as e:
-        print(json.dumps({"systemMessage": f"boundary check skipped: {type(e).__name__}: {e}"}))
+        print(json.dumps({"systemMessage": f"lint check skipped: {type(e).__name__}: {e}"}))
         return 0
     return getattr(hooks, name)(raw, sys.stdout)
 
@@ -72,28 +73,41 @@ def main(argv: list[str] | None = None) -> int:
     if len(argv) == 1 and argv[0] in HOOKS:
         return run_hook(HOOKS[argv[0]])
     try:
-        from rules import PREAMBLE, RULE, RULES, series
+        from checks import CHECKS
+
+        checks = CHECKS()
     except Exception:
         traceback.print_exc()
         return EXIT_ERROR
-    parser = argparse.ArgumentParser(prog="python3 scripts/boundary", description=PREAMBLE)
+    names = [check.name for check in checks]
+    parser = argparse.ArgumentParser(
+        prog="python3 scripts/lint",
+        description="The checks the hooks and CI hold a change to: " + ", ".join(names) + ".",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     check = commands.add_parser(
         "check",
-        help="list every " + series([rule.phrase(rule.noun) for rule in RULES]),
-        description=RULE,
+        help="list every comment line outside the allow-list and every line a boundary rule reports",
+        description="\n\n".join(check.rule for check in checks),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     check.add_argument("paths", nargs="*", metavar="PATH", help="files or directories to check (default: the whole tree)")
     check.add_argument(
         "--since",
         metavar="REV",
-        help="report only the lines the working tree added since its merge base with REV (what CI checks)",
+        help="report only what the working tree added or touched since its merge base with REV (what CI checks)",
+    )
+    check.add_argument(
+        "--only",
+        action="append",
+        choices=names,
+        metavar="CHECK",
+        help="run only this check, one of " + ", ".join(names) + " (repeatable; default: every check)",
     )
     doc = commands.add_parser("doc", help="print the generated blocks of agent_docs/carpetx-internals.md: the stack and the includes")
     doc.add_argument("--write", action="store_true", help="rewrite them in agent_docs/carpetx-internals.md instead")
-    commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a boundary finding")
-    commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a boundary finding")
+    commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a finding")
+    commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a finding")
     args = parser.parse_args(argv)
     if args.command in HOOKS:
         return run_hook(HOOKS[args.command])
@@ -101,8 +115,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_doc(args.write)
     if args.since is not None and args.paths:
         parser.error("--since takes no PATH: it judges every thorn file the tree changed since its merge base with REV")
+    if args.only:
+        checks = tuple(check for check in checks if check.name in args.only)
     try:
-        return run_check(args.paths, args.since)
+        return run_check(checks, args.paths, args.since)
     except Exception:
         traceback.print_exc()
         return EXIT_ERROR

@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 
 from files import Lang
-from judge import Touched, Verdict, judge, judge_all
-from rules import Unit
+from .judge import Touched, Verdict, judge, judge_all
+from .rules import Unit
 
 
 def found(verdict):

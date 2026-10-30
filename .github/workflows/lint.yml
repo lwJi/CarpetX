@@ -1,4 +1,4 @@
-name: Comments
+name: Lint
 
 on:
   pull_request:
@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: ${{github.event_name == 'pull_request'}}
 
 jobs:
-  no-comments:
+  lint:
     runs-on: ubuntu-latest
     env:
       # The tip of the PR's base branch, or the tip `dev` had before this push.
@@ -26,17 +26,9 @@ jobs:
           fetch-depth: 0
           ref: ${{github.event.pull_request.head.sha || github.sha}}
 
-      - name: Test scripts/comments
-        run: python3 -m unittest discover -s scripts/comments
+      - name: Test scripts/lint
+        run: python3 -m unittest discover -s scripts/lint
 
-      - name: Check the comments this change adds to thorn files
+      - name: Check the comments and the private CarpetX includes this change adds
         if: ${{!cancelled() && env.BASE != '0000000000000000000000000000000000000000'}}
-        run: python3 scripts/comments check --since "$BASE"
-
-      - name: Test scripts/boundary
-        if: ${{!cancelled()}}
-        run: python3 -m unittest discover -s scripts/boundary
-
-      - name: Check the private CarpetX includes this change adds
-        if: ${{!cancelled() && env.BASE != '0000000000000000000000000000000000000000'}}
-        run: python3 scripts/boundary check --since "$BASE"
+        run: python3 scripts/lint check --since "$BASE"

@@ -6,8 +6,8 @@ from difflib import SequenceMatcher
 from typing import Iterable
 
 from files import Lang
-from rules import Unit, may_hold_comments
-from spans import Comment, Layout, layout
+from .rules import Unit, may_hold_comments
+from .spans import Comment, Layout, layout
 
 
 @dataclass(frozen=True)

@@ -4,7 +4,7 @@ import unittest
 from unittest import mock
 
 from files import Lang
-from rules import comment_words, is_constant, units
+from .rules import comment_words, is_constant, units
 
 
 def reported(text, lang=Lang.CXX):
@@ -164,7 +164,7 @@ class EverythingElse(unittest.TestCase):
         self.assertEqual(reported("double v; // m s⁻¹\n"), ["// m s⁻¹"])
 
     def test_no_comment_opener_skips_the_lexer(self):
-        with mock.patch("rules.lex", side_effect=AssertionError("lexed")):
+        with mock.patch("comments.rules.lex", side_effect=AssertionError("lexed")):
             self.assertEqual(units("int a = b / c * d;\n", Lang.CXX), [])
 
 
@@ -312,7 +312,7 @@ class HashLanguages(unittest.TestCase):
         self.assertEqual(placed(text, Lang.PAR), [(2, "# SystemTopology"), (3, "# why")])
 
     def test_no_opener_skips_the_lexer(self):
-        with mock.patch("rules.lex", side_effect=AssertionError("lexed")):
+        with mock.patch("comments.rules.lex", side_effect=AssertionError("lexed")):
             self.assertEqual(units("SCHEDULE X AT Y\n{\n} \"x\"\n", Lang.SCHEDULE), [])
             self.assertEqual(units("x = 1 # not Fortran\n", Lang.FORTRAN), [])
 

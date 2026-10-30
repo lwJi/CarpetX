@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from lex_cxx import lex
-from tokens import Kind, join
+from .lex_cxx import lex
+from .tokens import Kind, join
 
 
 def kinds(text):

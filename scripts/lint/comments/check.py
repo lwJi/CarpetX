@@ -1,0 +1,25 @@
+from __future__ import annotations
+
+from typing import Iterable
+
+from checks import Check
+from files import Lang
+
+from .judge import Verdict, judge_all
+from .report import RULE, render, render_change
+from .rules import Unit, units
+
+
+def covers(name: str, lang: Lang) -> bool:
+    return True
+
+
+def found(name: str, text: str, lang: Lang) -> list[Unit]:
+    return [u for u in units(text, lang) if not u.allowed]
+
+
+def judge(name: str, befores: Iterable[tuple[str, str]], after: str, lang: Lang) -> Verdict:
+    return judge_all((text for _, text in befores), after, lang)
+
+
+CHECK = Check("no-comments", RULE, covers, found, judge, render, render_change)

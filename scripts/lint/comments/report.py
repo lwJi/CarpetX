@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from judge import Verdict
-from rules import Unit
+from checks import excerpt, plural
+
+from .judge import Verdict
+from .rules import Unit
 
 RULE = (
     "Comments in thorn files can only be deleted (see agent_docs/code-comments.md).\n"
@@ -13,15 +15,6 @@ CHANGE_RULE = (
     + RULE
 )
 REDO = "Redo the edit so that it adds none of the new lines and deletes each touched comment whole."
-EXCERPT_WIDTH = 72
-
-
-def excerpt(u: Unit) -> str:
-    return u.text[:EXCERPT_WIDTH] + ("…" if len(u.text) > EXCERPT_WIDTH else "")
-
-
-def plural(count: int, noun: str) -> str:
-    return f"{count} {noun}" + ("" if count == 1 else "s")
 
 
 def summary(count: int) -> str:
@@ -34,7 +27,7 @@ def render(found: list[tuple[str, Unit]]) -> str:
         return summary(0)
     places = [f"{path}:{u.line}" for path, u in found]
     width = max(len(p) for p in places)
-    out = [f"{place.ljust(width)}   {excerpt(u)}" for place, (_, u) in zip(places, found)]
+    out = [f"{place.ljust(width)}   {excerpt(u.text)}" for place, (_, u) in zip(places, found)]
     out.extend(RULE.split("\n"))
     out.append(summary(len(found)))
     return "\n".join(out)
@@ -61,7 +54,7 @@ def render_change(found: list[tuple[str, Verdict]], edit: bool = False) -> str:
         return change_summary(found)
     entries.sort(key=lambda e: (e[0], e[1]))
     width = max(len(e[2]) for e in entries)
-    out = [f"{place.ljust(width)}   {kind.ljust(7)}   {excerpt(u)}" for _, _, place, kind, u in entries]
+    out = [f"{place.ljust(width)}   {kind.ljust(7)}   {excerpt(u.text)}" for _, _, place, kind, u in entries]
     out.extend(CHANGE_RULE.split("\n"))
     if edit:
         out.append(REDO)

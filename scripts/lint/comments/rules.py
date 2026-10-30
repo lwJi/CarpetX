@@ -4,10 +4,10 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-import lex_cxx
-import lex_hash
+from . import lex_cxx
+from . import lex_hash
 from files import Lang
-from tokens import Kind, Token
+from .tokens import Kind, Token
 
 CXX_HINT = re.compile(r"/[/*]|\\[ \t\f\v]*[\r\n]|_Pragma|(?:#|%:)[ \t\f\v]*(?:if|elif|warning|pragma)\b")
 NAMESPACE_CLOSER = re.compile(r"// namespace(?: [A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)?")

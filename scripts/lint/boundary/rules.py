@@ -1,19 +1,13 @@
 from __future__ import annotations
 
-import os
 import re
-import sys
 import textwrap
 from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-TOOL = os.path.dirname(os.path.abspath(__file__))
-COMMENTS = os.path.join(os.path.dirname(TOOL), "comments")
-if COMMENTS not in sys.path:
-    sys.path.append(COMMENTS)
-
-from files import Lang, changes_since, covered, is_regular, lang_of, read_text, show  # noqa: E402
+from checks import excerpt, plural
+from files import Lang, lang_of
 
 MARKER = "CARPETX_INTERNAL"
 PRIVATE_DIR = "CarpetX/src/"
@@ -114,7 +108,6 @@ CODEC_WORD = re.compile(
     r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]hierarchy/driver\.hxx[">]'
 )
 STATEMENT_END = re.compile(r"[;{}]")
-EXCERPT_WIDTH = 72
 RULE_WIDTH = 104
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
 
@@ -415,22 +408,6 @@ def new_findings(before: list[Finding], after: list[Finding]) -> list[Finding]:
     return found
 
 
-def since_findings(root: str, base: str) -> list[tuple[str, Finding]]:
-    found = []
-    for name, old in sorted(changes_since(root, base).items()):
-        lang = covered(name, root)
-        if lang not in CHECKED:
-            continue
-        path = os.path.join(root, name)
-        after = read_text(path) if is_regular(path) else ""
-        before = findings(old, show(root, base, old), lang) if old is not None else []
-        found.extend((name, f) for f in new_findings(before, findings(name, after, lang)))
-    return found
-
-
-def plural(count: int, noun: str) -> str:
-    return f"{count} {noun}" + ("" if count == 1 else "s")
-
 
 def series(items: list[str]) -> str:
     return ", ".join(items[:-1]) + ", and " + items[-1]
@@ -441,10 +418,6 @@ def summary(found: list[tuple[str, Finding]]) -> str:
         return "✓ boundary: " + series([rule.clean for rule in RULES])
     counts = Counter(f.rule for _, f in found)
     return "✗ boundary: " + ", ".join(rule.count(counts[rule.name]) for rule in RULES if counts[rule.name])
-
-
-def excerpt(text: str) -> str:
-    return text[:EXCERPT_WIDTH] + ("…" if len(text) > EXCERPT_WIDTH else "")
 
 
 def render(found: list[tuple[str, Finding]]) -> str:

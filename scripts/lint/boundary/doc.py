@@ -4,11 +4,11 @@ import os
 import re
 from typing import Callable
 
-from rules import HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, RULES, UNDER_HIERARCHY, below
-from files import PROJECT  # noqa: E402
+from .rules import HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, RULES, UNDER_HIERARCHY, below
+from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
-WRITES = "python3 scripts/boundary doc --write rewrites this"
+WRITES = "python3 scripts/lint doc --write rewrites this"
 LINK_TIME = (
     ("hierarchy", "regrid", ("CactusAmrCore",)),
     ("hierarchy", "comm", ("apply_boundary_conditions", "get_interpolator")),
