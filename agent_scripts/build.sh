@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ -z "${CACTUSX:-}" ]; then
-  echo "✗ missing required env var: CACTUSX" >&2
+  echo "✗ missing required env var: CACTUSX (the Cactus tree with this repo symlinked at arrangements/CarpetX)" >&2
   exit 1
 fi
 
@@ -21,12 +21,12 @@ if (
     -c "$cfg" \
     -t "$thornlist"
 ) > "$log" 2>&1; then
-  echo "✓ build"
+  echo "✓ build $CACTUSX/exe/cactus_carpetx"
 else
   echo "--- first error lines ---"
   grep -n -m 12 -E 'error:|Error|\*\*\*' "$log" || echo "(no obvious error lines)"
   echo "--- last 40 lines ---"
   tail -40 "$log"
-  echo "✗ build failed — full log: $log" >&2
+  echo "✗ build failed — full log: $log, build dir: $CACTUSX/configs/carpetx" >&2
   exit 1
 fi

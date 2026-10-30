@@ -9,3 +9,7 @@ tags
 
 # Virtualenv of scripts/openpmd-plot
 scripts/openpmd-plot/venv/
+
+# Per-run timings ADIOS2 (BP5) and CarpetX (out_performance) write beside test output
+profiling.json
+performance.yaml
