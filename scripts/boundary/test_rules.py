@@ -11,6 +11,7 @@ import unittest
 from collections import namedtuple
 from unittest import mock
 
+import diagram
 import rules
 from rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, RULE, Finding, below, findings, layer_of, layer_path, new_findings, render, since_findings, summary
 from files import PROJECT, Lang
@@ -1426,6 +1427,52 @@ class Settings(unittest.TestCase):
             result = self.run_command(command, self.root, {"stop_hook_active": False})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["decision"], "block")
+
+
+
+class Diagram(unittest.TestCase):
+    def test_the_map_s_stack_is_the_generated_diagram(self):
+        with open(os.path.join(PROJECT, diagram.MAP)) as f:
+            text = f.read()
+        found = diagram.blocks(text)
+        self.assertEqual(len(found), 1, f"one mermaid block opening with {diagram.MARK!r}")
+        start, end = found[0]
+        self.assertEqual("\n".join(text.split("\n")[start:end]) + "\n", diagram.diagram(), "run python3 scripts/boundary diagram --write")
+        self.assertEqual(diagram.rewrite(text), text)
+
+    def test_the_diagram_stacks_the_layers_top_down_with_the_door_line(self):
+        lines = diagram.diagram().splitlines()
+        self.assertEqual(lines[:2], [diagram.MARK, "flowchart TB"])
+        self.assertIn("  " + " --> ".join(reversed(LAYERS)), lines)
+        door = lines[lines.index('  subgraph door["driver() allowed"]') + 1 : lines.index("  end")]
+        self.assertEqual([line.split("[")[0].strip() for line in door], list(reversed(HIERARCHY_LAYERS)))
+        nodoor = lines[lines.index('  subgraph nodoor["no driver()"]') + 1 :]
+        nodoor = nodoor[: nodoor.index("  end")]
+        self.assertEqual([line.split("[")[0].strip() for line in nodoor], list(reversed(rules.UNDER_HIERARCHY)))
+        for layer in LAYERS:
+            with self.subTest(layer=layer):
+                self.assertEqual(f'"{layer}/ no header"' in diagram.diagram(), layer in diagram.NO_HEADER_LAYERS)
+
+    def test_a_layer_without_a_header_is_in_no_header_layers(self):
+        self.assertEqual(diagram.headerless(PROJECT), diagram.NO_HEADER_LAYERS)
+
+    def test_a_dashed_edge_is_declared_low_and_defined_high(self):
+        for low, high, names in diagram.LINK_TIME:
+            self.assertLess(LAYERS.index(low), LAYERS.index(high))
+            for name in names:
+                with self.subTest(low=low, high=high, name=name):
+                    self.assertTrue(diagram.declares_and_defines(PROJECT, low, high, name))
+                    self.assertIn(f'  {low} -. "', diagram.diagram())
+
+    def test_rewrite_replaces_only_the_marked_block(self):
+        stale = "```mermaid\n" + diagram.MARK + "\nflowchart TB\n  stale\n```\n"
+        other = "```mermaid\nflowchart LR\n  a --> b\n```\n"
+        text = "# map\n\n" + other + "\nprose\n\n" + stale + "\ntail\n"
+        self.assertEqual(diagram.rewrite(text), "# map\n\n" + other + "\nprose\n\n```mermaid\n" + diagram.diagram() + "```\n\ntail\n")
+        with self.assertRaises(ValueError):
+            diagram.rewrite(other)
+        with self.assertRaises(ValueError):
+            diagram.rewrite(stale + stale)
 
 
 if __name__ == "__main__":
