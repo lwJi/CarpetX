@@ -8,10 +8,9 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-from collections import namedtuple
 from unittest import mock
 
-import diagram
+import doc
 import rules
 from rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, RULE, Finding, below, findings, layer_of, layer_path, new_findings, render, since_findings, summary
 from files import PROJECT, Lang
@@ -952,90 +951,6 @@ class Layers(unittest.TestCase):
                     self.assertIn(layer_of(name), subdirs)
 
 
-MAP = os.path.join(PROJECT, "agent_docs", "carpetx-internals.md")
-MAP_HEADER = "| layer | owns | may include | driver() | rule |"
-MAP_SEPARATOR = re.compile(r"^\|(\s*:?-+:?\s*\|){5}$")
-MAP_LAYER = re.compile(r"(?<![\w/])(" + "|".join(LAYERS) + r")/")
-MapRow = namedtuple("MapRow", "layer owns may_include driver rule")
-
-
-class Map(unittest.TestCase):
-    def rows(self, text):
-        lines = text.splitlines()
-        self.assertEqual(lines.count(MAP_HEADER), 1, f"one table under {MAP_HEADER}")
-        start = lines.index(MAP_HEADER) + 1
-        self.assertRegex(lines[start], MAP_SEPARATOR)
-        rows = []
-        for line in lines[start + 1 :]:
-            if not line.startswith("|"):
-                break
-            cells = [cell.strip().replace("`", "") for cell in line.strip().strip("|").split("|")]
-            self.assertEqual(len(cells), len(MapRow._fields), line)
-            rows.append(MapRow(*cells))
-        return rows
-
-    def check(self, rows):
-        self.assertEqual([row.layer for row in rows], [f"{layer}/" for layer in LAYERS])
-        for i, row in enumerate(rows):
-            layer = row.layer.rstrip("/")
-            self.assertEqual(below(layer), tuple(r.layer.rstrip("/") for r in rows[: i + 1]))
-            previous = rows[i - 1].layer.rstrip("/") if i else layer
-            self.assertEqual(MAP_LAYER.findall(row.may_include), [previous], row)
-            if i:
-                self.assertIn("and below", row.may_include, row)
-            self.assertIn(row.driver, ("yes", "no"), row)
-            self.assertEqual(row.driver == "yes", layer in HIERARCHY_LAYERS, row)
-            named = [rule.strip() for rule in row.rule.split(",")]
-            self.assertEqual("index" in named, layer in rules.INDEX_SOURCE_LAYERS, row)
-            self.assertEqual("records" in named, layer in rules.RECORDS_LAYERS, row)
-
-    def map_rows(self):
-        with open(MAP) as f:
-            return self.rows(f.read())
-
-    def test_the_map_s_table_is_the_rule_table(self):
-        rows = self.map_rows()
-        self.check(rows)
-        self.assertEqual(rows[LAYERS.index("io")].rule, "layer, door, codec, index, records")
-
-    def test_a_missing_reordered_or_wrong_row_fails(self):
-        rows = self.map_rows()
-        swapped = rows[:3] + [rows[4], rows[3]] + rows[5:]
-        io, ops, schedule = (LAYERS.index(layer) for layer in ("io", "ops", "schedule"))
-        for name, mutated in [
-            ("first row missing", rows[1:]),
-            ("last row missing", rows[:-1]),
-            ("a middle row missing", rows[:4] + rows[5:]),
-            ("two rows swapped", swapped),
-            ("a row too many", rows + [rows[-1]]),
-            ("may include skips a row", rows[:5] + [rows[5]._replace(may_include="comm/ and below")] + rows[6:]),
-            ("may include names no row", rows[:1] + [rows[1]._replace(may_include="the layers below")] + rows[2:]),
-            ("may include only the row before", rows[:1] + [rows[1]._replace(may_include="util/")] + rows[2:]),
-            ("driver() below the hierarchy", rows[:1] + [rows[1]._replace(driver="yes")] + rows[2:]),
-            ("no driver() in the hierarchy", rows[:2] + [rows[2]._replace(driver="no")] + rows[3:]),
-            ("driver() neither yes nor no", rows[:-1] + [rows[-1]._replace(driver="some")]),
-            ("records missing where it binds", rows[:io] + [rows[io]._replace(rule="layer, door, codec, index")] + rows[io + 1 :]),
-            ("index missing where it binds", rows[:io] + [rows[io]._replace(rule="layer, door, codec, records")] + rows[io + 1 :]),
-            ("index where it binds no source", rows[:ops] + [rows[ops]._replace(rule="layer, door, index")] + rows[ops + 1 :]),
-            ("records where it does not bind", rows[:schedule] + [rows[schedule]._replace(rule="layer, door, records")] + rows[schedule + 1 :]),
-        ]:
-            with self.subTest(name=name), self.assertRaises(AssertionError):
-                self.check(mutated)
-
-    def test_the_table_is_found_under_its_header_and_ends_at_the_first_other_line(self):
-        rows = [
-            f"| `{layer}/` | x | `{LAYERS[i - 1] if i else layer}/`{' and below' if i else ''} | "
-            f"{'yes' if layer in HIERARCHY_LAYERS else 'no'} | layer"
-            f"{', index' if layer in rules.INDEX_SOURCE_LAYERS else ''}{', records' if layer in rules.RECORDS_LAYERS else ''} |"
-            for i, layer in enumerate(LAYERS)
-        ]
-        table = "\n".join([MAP_HEADER, "|---|---|---|---|---|"] + rows)
-        self.check(self.rows("# Map\n\nProse.\n\n" + table + "\n\nMore prose | with a bar.\n| not | a | row |\n"))
-        for text in ["no table\n", table + "\n\n" + table + "\n", table.replace("|---|", "| x |", 1)]:
-            with self.subTest(text=text[:40]), self.assertRaises(AssertionError):
-                self.rows(text)
-
-
 class NewFindings(unittest.TestCase):
     def test_only_lines_absent_before_are_new(self):
         a = Finding(1, "include", '#include "../../CarpetX/src/driver.hxx"')
@@ -1430,19 +1345,18 @@ class Settings(unittest.TestCase):
 
 
 
-class Diagram(unittest.TestCase):
-    def test_the_map_s_stack_is_the_generated_diagram(self):
-        with open(os.path.join(PROJECT, diagram.MAP)) as f:
+class Doc(unittest.TestCase):
+    def test_the_map_is_what_doc_writes(self):
+        with open(os.path.join(PROJECT, doc.MAP)) as f:
             text = f.read()
-        found = diagram.blocks(text)
-        self.assertEqual(len(found), 1, f"one mermaid block opening with {diagram.MARK!r}")
-        start, end = found[0]
-        self.assertEqual("\n".join(text.split("\n")[start:end]) + "\n", diagram.diagram(), "run python3 scripts/boundary diagram --write")
-        self.assertEqual(diagram.rewrite(text), text)
+        self.assertEqual(doc.rewrite(text), text, "run python3 scripts/boundary doc --write")
+        for name, places in doc.regions(text).items():
+            with self.subTest(name=name):
+                self.assertEqual(len(places), 1)
 
-    def test_the_diagram_stacks_the_layers_top_down_with_the_door_line(self):
-        lines = diagram.diagram().splitlines()
-        self.assertEqual(lines[:2], [diagram.MARK, "flowchart TB"])
+    def test_the_stack_is_the_layers_top_down_with_the_door_line(self):
+        lines = doc.stack().splitlines()
+        self.assertEqual(lines[:2], [doc.mark("the stack"), "flowchart TB"])
         self.assertIn("  " + " --> ".join(reversed(LAYERS)), lines)
         door = lines[lines.index('  subgraph door["driver() allowed"]') + 1 : lines.index("  end")]
         self.assertEqual([line.split("[")[0].strip() for line in door], list(reversed(HIERARCHY_LAYERS)))
@@ -1451,28 +1365,104 @@ class Diagram(unittest.TestCase):
         self.assertEqual([line.split("[")[0].strip() for line in nodoor], list(reversed(rules.UNDER_HIERARCHY)))
         for layer in LAYERS:
             with self.subTest(layer=layer):
-                self.assertEqual(f'"{layer}/ no header"' in diagram.diagram(), layer in diagram.NO_HEADER_LAYERS)
+                self.assertEqual(f'"{layer}/ no header"' in doc.stack(), layer in doc.NO_HEADER_LAYERS)
 
     def test_a_layer_without_a_header_is_in_no_header_layers(self):
-        self.assertEqual(diagram.headerless(PROJECT), diagram.NO_HEADER_LAYERS)
+        self.assertEqual(doc.headerless(PROJECT), doc.NO_HEADER_LAYERS)
 
     def test_a_dashed_edge_is_declared_low_and_defined_high(self):
-        for low, high, names in diagram.LINK_TIME:
+        for low, high, names in doc.LINK_TIME:
             self.assertLess(LAYERS.index(low), LAYERS.index(high))
             for name in names:
                 with self.subTest(low=low, high=high, name=name):
-                    self.assertTrue(diagram.declares_and_defines(PROJECT, low, high, name))
-                    self.assertIn(f'  {low} -. "', diagram.diagram())
+                    self.assertTrue(doc.declares_and_defines(PROJECT, low, high, name))
+                    self.assertIn(f'  {low} -. "', doc.stack())
 
-    def test_rewrite_replaces_only_the_marked_block(self):
-        stale = "```mermaid\n" + diagram.MARK + "\nflowchart TB\n  stale\n```\n"
+    def test_the_includes_are_read_from_the_tree_above_the_base(self):
+        with tempfile.TemporaryDirectory() as root:
+            src = os.path.join(root, "CarpetX", "src")
+            for layer in LAYERS:
+                os.makedirs(os.path.join(src, layer))
+            files = {
+                "flesh/a.cxx": '#include "internal.hxx"\n#include "io/io.hxx"\n#include "comm/comm.hxx"\n#include "hierarchy/driver.hxx"\n#include <ops/interp.hxx>\n',
+                "flesh/b.cxx": '#include "io/checkpoint.hxx"\n#include "io/io.hxx"\n#include "util/refuse.hxx"\n',
+                "io/x.hxx": '#include "io/io.hxx"\n#include "ops/reduction.hxx"\n#include <mpi.h>\n',
+                "comm/comm.hxx": "",
+                "comm/notes.txt": '#include "io/io.hxx"\n',
+            }
+            for name, text in files.items():
+                with open(os.path.join(src, name), "w") as f:
+                    f.write(text)
+            edges = doc.includes(root)
+            self.assertEqual(
+                list(edges.items()),
+                [
+                    (("flesh", "io"), ("checkpoint.hxx", "io.hxx")),
+                    (("flesh", "ops"), ("interp.hxx",)),
+                    (("flesh", "comm"), ("comm.hxx",)),
+                    (("io", "ops"), ("reduction.hxx",)),
+                ],
+            )
+            graph = doc.include_graph(root).splitlines()
+            self.assertEqual(graph[:2], [doc.mark("the includes"), "flowchart TB"])
+            self.assertEqual(
+                [line.split("[")[0].strip() for line in graph[2:9]],
+                [layer for layer in reversed(LAYERS) if layer not in doc.BASE_LAYERS],
+            )
+            self.assertEqual(graph[9:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops'])
+            self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("io", "comm")))
+            self.assertTrue(doc.declares_and_defines(root, "io", "flesh", "io.hxx"))
+            self.assertFalse(doc.declares_and_defines(root, "comm", "flesh", "io.hxx"))
+            self.assertFalse(doc.declares_and_defines(root, "io", "flesh", "reduction"))
+
+    def test_the_table_rows_are_the_layers_in_order(self):
+        lines = doc.table().splitlines()
+        self.assertEqual(lines[:2], [doc.TABLE_HEADER, "|---|---|---|---|---|"])
+        rows = [[cell.strip() for cell in line.strip().strip("|").split("|")] for line in lines[2:]]
+        self.assertEqual([row[0] for row in rows], [f"`{layer}/`" for layer in LAYERS])
+        for i, (layer, row) in enumerate(zip(LAYERS, rows)):
+            with self.subTest(layer=layer):
+                self.assertEqual(len(row), 5)
+                self.assertEqual(row[1], doc.OWNS[layer])
+                self.assertEqual(row[2], "`include/`, `util/`" if i == 0 else f"`{LAYERS[i - 1]}/` and below")
+                self.assertEqual(row[3], "yes" if layer in HIERARCHY_LAYERS else "no")
+                named = row[4].split(", ")
+                self.assertEqual(named[:2], ["layer", "door"])
+                self.assertEqual("index" in named, layer in rules.INDEX_SOURCE_LAYERS)
+                self.assertEqual("records" in named, layer in rules.RECORDS_LAYERS)
+        self.assertEqual(set(doc.OWNS), set(LAYERS))
+
+    def test_a_rule_in_the_table_is_a_rule_at_home_in_that_layer(self):
+        names = {rule.name for rule in rules.RULES}
+        self.assertLessEqual(set(doc.HOMES) | set(doc.BINDS), names)
+        for name, files in doc.HOMES.items():
+            layers = {layer_of(f) for f in files}
+            with self.subTest(name=name):
+                self.assertEqual(len(layers), 1, files)
+                for f in files:
+                    self.assertTrue(os.path.isfile(os.path.join(PROJECT, f)), f)
+        self.assertEqual(doc.rules_of("hierarchy"), ["layer", "door", "validity", "varindex"])
+        self.assertEqual(doc.rules_of("io"), ["layer", "door", "codec", "index", "records"])
+        self.assertEqual(doc.rules_of("ops"), ["layer", "door"])
+
+    def test_rewrite_replaces_only_the_marked_regions(self):
+        stale_stack = "```mermaid\n" + doc.mark("the stack") + "\nflowchart TB\n  stale\n```\n"
+        stale_includes = "```mermaid\n" + doc.mark("the includes") + "\n  stale\n```\n"
+        stale_table = doc.TABLE_HEADER + "\n|---|---|---|---|---|\n| stale | | | | |\n"
         other = "```mermaid\nflowchart LR\n  a --> b\n```\n"
-        text = "# map\n\n" + other + "\nprose\n\n" + stale + "\ntail\n"
-        self.assertEqual(diagram.rewrite(text), "# map\n\n" + other + "\nprose\n\n```mermaid\n" + diagram.diagram() + "```\n\ntail\n")
-        with self.assertRaises(ValueError):
-            diagram.rewrite(other)
-        with self.assertRaises(ValueError):
-            diagram.rewrite(stale + stale)
+        text = "# map\n\n" + other + "\n" + stale_stack + "\nprose | with a bar\n\n" + stale_table + "\ntail\n" + stale_includes
+        expected = (
+            "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose | with a bar\n\n" + doc.table() + "\ntail\n```mermaid\n" + doc.include_graph() + "```\n"
+        )
+        self.assertEqual(doc.rewrite(text), expected)
+        self.assertEqual(doc.rewrite(expected), expected)
+        for name, broken in [("no regions", other), ("a table twice", text + stale_table), ("no includes", text.replace(stale_includes, "")), ("the table at the end", text.replace("\ntail\n" + stale_includes, "") + stale_includes)]:
+            with self.subTest(name=name):
+                if name == "the table at the end":
+                    self.assertEqual(doc.rewrite(broken), "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose | with a bar\n\n" + doc.table() + "```mermaid\n" + doc.include_graph() + "```\n")
+                else:
+                    with self.assertRaises(ValueError):
+                        doc.rewrite(broken)
 
 
 if __name__ == "__main__":

@@ -4,10 +4,12 @@ This is the map of `CarpetX/src/` for code that goes into CarpetX itself. A clie
 
 `CarpetX/src/` is ten directories, one per layer, lowest first: `util/`, `traversal/`, `hierarchy/`, `comm/`, `regrid/`, `ops/`, `io/`, `schedule/`, `api/`, `flesh/`. The root holds only `internal.hxx`, `make.code.defn` and the public headers in `include/`. A file is in the layer of its directory, and it includes `internal.hxx`, the public headers, and the headers of its own layer or a lower one, never a higher one. Every private include names the layer it reaches into, from inside that layer too: `#include "hierarchy/driver.hxx"`, never `"driver.hxx"` or `"../hierarchy/driver.hxx"`. Each layer compiles in its own sub-make with `CarpetX/src` on the include path, so that one spelling works from every directory.
 
+The stack and the includes below and the table at the end are written by `python3 scripts/boundary doc --write`, from `LAYERS`, `HIERARCHY_LAYERS`, `INDEX_SOURCE_LAYERS` and `RECORDS_LAYERS` in `scripts/boundary/rules.py`, from `NO_HEADER_LAYERS`, `LINK_TIME`, `OWNS` and the rules' home files in `scripts/boundary/doc.py`, and from the `#include` lines of the tree. `scripts/boundary/test_rules.py` fails when any of the three differs from what `doc` writes, when a layer without a header is missing from `NO_HEADER_LAYERS`, or when a dashed edge of the stack names something not declared in its lower layer and defined in its upper one. The diagram under "Who decides" is drawn by hand and held by review.
+
 ## The stack
 
 ```mermaid
-%% python3 scripts/boundary diagram --write rewrites this block
+%% python3 scripts/boundary doc --write rewrites this block: the stack
 flowchart TB
   subgraph door["driver() allowed"]
     flesh["flesh/ no header"]
@@ -28,11 +30,38 @@ flowchart TB
   hierarchy -. "apply_boundary_conditions, get_interpolator" .-> comm
 ```
 
-A solid edge is "may include": a layer includes the headers of the layer below it and, through it, of every layer further down, which the `layer` rule holds. The two boxes are the `door` rule: `driver()` is called in the upper box and never in the lower. A dashed edge is a declaration whose body is in the higher layer, the one way a call reaches up, at link time; "Choosing the layer" below says why each exists. `regrid/` and `flesh/` have no header, so nothing includes them and `ops/` in fact includes `comm/` and below. `python3 scripts/boundary diagram` draws this block from `LAYERS` and `HIERARCHY_LAYERS` in `scripts/boundary/rules.py` and `NO_HEADER_LAYERS` and `LINK_TIME` in `scripts/boundary/diagram.py`, `--write` puts it here, and `scripts/boundary/test_rules.py` fails when the block here differs from it, when a layer without a header is missing from `NO_HEADER_LAYERS`, or when a dashed edge names something not declared in its lower layer and defined in its upper one.
+A solid edge is "may include": a layer includes the headers of the layer below it and, through it, of every layer further down, which the `layer` rule holds. The two boxes are the `door` rule: `driver()` is called in the upper box and never in the lower. A dashed edge is a declaration whose body is in the higher layer, the one way a call reaches up, at link time; "Choosing the layer" below says why each exists. `regrid/` and `flesh/` have no header, so nothing includes them and `ops/` in fact includes `comm/` and below.
+
+## The includes
+
+```mermaid
+%% python3 scripts/boundary doc --write rewrites this block: the includes
+flowchart TB
+  flesh["flesh/ no header"]
+  api["api/"]
+  schedule["schedule/"]
+  io["io/"]
+  ops["ops/"]
+  regrid["regrid/ no header"]
+  comm["comm/"]
+  flesh -- "schedule.hxx" --> schedule
+  flesh -- "checkpoint.hxx, io.hxx" --> io
+  flesh -- "interp.hxx, linsolve.hxx" --> ops
+  flesh -- "comm.hxx, subcycling.hxx" --> comm
+  api -- "schedule.hxx" --> schedule
+  api -- "comm.hxx, subcycling.hxx" --> comm
+  schedule -- "io.hxx" --> io
+  schedule -- "comm.hxx, subcycling.hxx" --> comm
+  io -- "reduction.hxx" --> ops
+  io -- "subcycling.hxx" --> comm
+  regrid -- "fillpatch.hxx" --> comm
+```
+
+The stack says what a layer may include. This is what each layer includes today, read from the `#include` lines of its files, with the headers on the edge. `util/`, `traversal/` and `hierarchy/` are not drawn: every layer reads them. A layer with no edge out of it reads only those three. An edge missing here is a coupling CarpetX does not have, which is what to weigh before adding an include.
 
 ## Who decides
 
-The stack says what a file may include. This says who calls whom while a run is on, which is a different question: a layer low in the stack does the work, and a layer above it, the flesh or AMReX decides when. An edge is a call, labelled with what it asks for. The flesh calls the overloads that `CarpetX_Startup` registered, so its edges land in the layers that define them. `hierarchy/` is not drawn: every layer of the upper box reads it through `driver()`. `traversal/` is not drawn either: `schedule/` opens its scopes and `comm/`, `ops/` and `io/` read them. This block is drawn by hand and held by review.
+The two graphs above point down. The calls that go up pass through an outsider, and they are where a layer high in the stack, the flesh or AMReX decides when a lower layer works. The flesh calls the overloads that `CarpetX_Startup` registered, so its edges land in the layers that define them. AMReX calls the callbacks in `regrid/` by virtual dispatch when `schedule/` asks it to regrid, and the calls `io/` makes on `CactusAmrCore` while recovering land in `regrid/` too, through the dashed edge of the stack. `flesh/` and `api/` hand `CallFunction` to the flesh's traversal, which calls it for every routine.
 
 ```mermaid
 flowchart LR
@@ -42,24 +71,16 @@ flowchart LR
   api["api/"]
   schedule["schedule/"]
   io["io/"]
-  ops["ops/"]
-  regrid["regrid/"]
   comm["comm/"]
+  regrid["regrid/"]
   cactus -- "extern C entries" --> flesh
   cactus -- "Initialise, Evolve, Shutdown, STORAGE, CallFunction" --> schedule
   cactus -- "CCTK_OutputGH" --> io
   cactus -- "SYNC" --> comm
   flesh -- "ScheduleTraverseGH and CallScheduleGroup hand it CallFunction" --> cactus
   api -- "run_schedule_group_at hands it CallFunction" --> cactus
-  flesh -- "Interpolate, DriverInterpolate, SolvePoisson" --> ops
-  api -- "the public communication operations" --> comm
-  schedule -- "output, checkpoint, recovery, InputGH" --> io
-  schedule -- "Restrict, Reflux, presync" --> comm
   schedule -- "regrid" --> amrex
   amrex -- "ErrorEst, MakeNewLevel, RemakeLevel, ClearLevel" --> regrid
-  io -- "reductions for the norm output" --> ops
-  io -- "RechopLevel, make_level when recovering" --> regrid
-  regrid -- "FillPatch_NewLevel, FillPatch_RemakeLevel" --> comm
 ```
 
 ## Choosing the layer
@@ -74,7 +95,7 @@ A new `.cxx` is a word of its layer's `make.code.defn` `SRCS`. Each layer's `mak
 
 A function that other layers call is declared in a header of its layer. One that only the files of its own layer call is declared in a header named after the file that defines it, as `schedule/clocks.hxx` declares what `schedule/clocks.cxx` lends to `schedule/evolve.cxx`. One that only its own file calls stays `static` or in an anonymous namespace.
 
-A new layer is an entry of `SUBDIRS` in the root `make.code.defn`, an entry of `LAYERS` in `scripts/boundary/rules.py`, and a row of the table below, at the same place in all three. `python3 scripts/boundary diagram --write` then redraws the stack. The unit tests of `scripts/boundary` check that `SUBDIRS` lists layers in the order of `LAYERS`, that every private source is in a listed layer, and that the table matches `LAYERS`.
+A new layer is an entry of `SUBDIRS` in the root `make.code.defn` and of `LAYERS` in `scripts/boundary/rules.py`, at the same place in both, and an entry of `OWNS` in `scripts/boundary/doc.py`; `python3 scripts/boundary doc --write` then redraws the stack, the includes and the table. The unit tests of `scripts/boundary` check that `SUBDIRS` lists layers in the order of `LAYERS`, that every private source is in a listed layer, and that this map is what `doc` writes.
 
 ## The layers
 
@@ -154,4 +175,4 @@ A new `PROVIDES FUNCTION` goes in `aliased.cxx`, a new scheduled function in `sc
 | `api/` | the bodies of the public API | `schedule/` and below | yes | layer, door |
 | `flesh/` | every `extern "C"` and the startup registration | `api/` and below | yes | layer, door |
 
-"And below" means every row above, and every layer may include itself, `internal.hxx` and the public headers. The `window`, `varindex` and `marker` rules hold in every layer, and `index` in every layer's headers; the "rule" column names `index` where it also judges the layer's sources, and `records` where it binds. `scripts/boundary/test_rules.py` reads this table and fails unless its rows are `LAYERS` in order, each "may include" names the row before it and the layers below it as `below()` has them, "driver()" is "yes" exactly where the `door` rule allows the call, and "rule" names `index` exactly for the layers in `INDEX_SOURCE_LAYERS` and `records` exactly for those in `RECORDS_LAYERS`; the "owns" column and the rest of "rule" are for the reader.
+"And below" means every row above, and every layer may include itself, `internal.hxx` and the public headers. The `window`, `varindex` and `marker` rules hold in every layer, and `index` in every layer's headers; the "rule" column names `layer` and `door`, then the rules whose home files are in the layer, then `index` where it also judges the layer's sources and `records` where it binds. The "owns" column is for the reader.

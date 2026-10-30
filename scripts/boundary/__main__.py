@@ -34,12 +34,12 @@ def run_check(paths: list[str], since: str | None = None) -> int:
     return EXIT_FOUND if found else EXIT_CLEAN
 
 
-def run_diagram(write: bool) -> int:
-    from diagram import MAP, diagram, rewrite
+def run_doc(write: bool) -> int:
+    from doc import MAP, render, rewrite
     from files import PROJECT
 
     if not write:
-        print(diagram(), end="")
+        print(render(), end="")
         return EXIT_CLEAN
     path = os.path.join(PROJECT, MAP)
     try:
@@ -47,7 +47,7 @@ def run_diagram(write: bool) -> int:
             text = f.read()
         new = rewrite(text)
     except (OSError, ValueError) as e:
-        print(f"boundary diagram: {e}", file=sys.stderr)
+        print(f"boundary doc: {e}", file=sys.stderr)
         return EXIT_ERROR
     if new != text:
         with open(path, "w") as f:
@@ -90,15 +90,15 @@ def main(argv: list[str] | None = None) -> int:
         metavar="REV",
         help="report only the lines the working tree added since its merge base with REV (what CI checks)",
     )
-    diagram = commands.add_parser("diagram", help="print the stack diagram of agent_docs/carpetx-internals.md from the rules")
-    diagram.add_argument("--write", action="store_true", help="rewrite the block in agent_docs/carpetx-internals.md instead")
+    doc = commands.add_parser("doc", help="print the generated parts of agent_docs/carpetx-internals.md: the stack, the includes, the table")
+    doc.add_argument("--write", action="store_true", help="rewrite them in agent_docs/carpetx-internals.md instead")
     commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a boundary finding")
     commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a boundary finding")
     args = parser.parse_args(argv)
     if args.command in HOOKS:
         return run_hook(HOOKS[args.command])
-    if args.command == "diagram":
-        return run_diagram(args.write)
+    if args.command == "doc":
+        return run_doc(args.write)
     if args.since is not None and args.paths:
         parser.error("--since takes no PATH: it judges every thorn file the tree changed since its merge base with REV")
     try:
