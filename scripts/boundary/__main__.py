@@ -90,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
         metavar="REV",
         help="report only the lines the working tree added since its merge base with REV (what CI checks)",
     )
-    doc = commands.add_parser("doc", help="print the generated parts of agent_docs/carpetx-internals.md: the stack, the includes, the table")
+    doc = commands.add_parser("doc", help="print the generated blocks of agent_docs/carpetx-internals.md: the stack and the includes")
     doc.add_argument("--write", action="store_true", help="rewrite them in agent_docs/carpetx-internals.md instead")
     commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a boundary finding")
     commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a boundary finding")

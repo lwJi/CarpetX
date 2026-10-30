@@ -22,25 +22,12 @@ from files import PROJECT  # noqa: E402
 
 MAP = "agent_docs/carpetx-internals.md"
 WRITES = "python3 scripts/boundary doc --write rewrites this"
-TABLE_HEADER = "| layer | owns | may include | driver() | rule |"
 NO_HEADER_LAYERS = ("regrid", "flesh")
 LINK_TIME = (
     ("hierarchy", "regrid", ("CactusAmrCore",)),
     ("hierarchy", "comm", ("apply_boundary_conditions", "get_interpolator")),
 )
 BASE_LAYERS = below("hierarchy")
-OWNS = {
-    "util": "`refuse`, `operation_scope_t`, task manager, timer, MPI types, logo, `typeprops`, `var_type`",
-    "traversal": "the traversal scopes, their readers, the recovered iteration",
-    "hierarchy": "`driver.hxx`, the door, the constructors, records, group tags, YAML, validity, grid descriptors, cGH modes, window loops",
-    "comm": "sync and restrict, fill-patch, boundaries, prolongation, subcycling",
-    "regrid": "the `CactusAmrCore` callback bodies",
-    "ops": "interpolation, reduction, the Poisson solver",
-    "io": "output, checkpoint and recovery, the codecs",
-    "schedule": "`Initialise`, `Evolve`, `Shutdown`, clocks, clauses, `CallFunction`, storage",
-    "api": "the bodies of the public API",
-    "flesh": 'every `extern "C"` and the startup registration',
-}
 HOMES = {
     "traversal": TRAVERSAL_FILES,
     "validity": VALIDITY_FILES,
@@ -55,16 +42,27 @@ def mark(name: str) -> str:
     return f"%% {WRITES} block: {name}"
 
 
-def node(layer: str, indent: str = "  ") -> str:
-    label = f"{layer}/" + (" no header" if layer in NO_HEADER_LAYERS else "")
+def rules_of(layer: str) -> list[str]:
+    named = ["layer", "door"]
+    named.extend(name for name, files in HOMES.items() if any(layer_of(f) == layer for f in files))
+    named.extend(name for name, layers in BINDS.items() if layer in layers)
+    return named
+
+
+def node(layer: str, indent: str = "  ", rules: bool = False) -> str:
+    label = f"{layer}/"
+    if layer in NO_HEADER_LAYERS:
+        label += " no header"
+    if rules and rules_of(layer)[2:]:
+        label += " " + ", ".join(rules_of(layer)[2:])
     return f'{indent}{layer}["{label}"]'
 
 
 def stack() -> str:
     lines = [mark("the stack"), "flowchart TB", '  subgraph door["driver() allowed"]']
-    lines.extend(node(layer, "    ") for layer in reversed(HIERARCHY_LAYERS))
+    lines.extend(node(layer, "    ", rules=True) for layer in reversed(HIERARCHY_LAYERS))
     lines.extend(["  end", '  subgraph nodoor["no driver()"]'])
-    lines.extend(node(layer, "    ") for layer in reversed(UNDER_HIERARCHY))
+    lines.extend(node(layer, "    ", rules=True) for layer in reversed(UNDER_HIERARCHY))
     lines.extend(["  end", "  " + " --> ".join(reversed(LAYERS))])
     for low, high, names in LINK_TIME:
         assert LAYERS.index(low) < LAYERS.index(high), (low, high)
@@ -101,78 +99,44 @@ def include_graph(root: str = PROJECT) -> str:
     return "\n".join(lines) + "\n"
 
 
-def rules_of(layer: str) -> list[str]:
-    named = ["layer", "door"]
-    named.extend(name for name, files in HOMES.items() if any(layer_of(f) == layer for f in files))
-    named.extend(name for name, layers in BINDS.items() if layer in layers)
-    return named
-
-
-def table() -> str:
-    rows = [TABLE_HEADER, "|---|---|---|---|---|"]
-    for i, layer in enumerate(LAYERS):
-        may_include = "`include/`, `util/`" if i == 0 else f"`{LAYERS[i - 1]}/` and below"
-        driver = "yes" if layer in HIERARCHY_LAYERS else "no"
-        rows.append(f"| `{layer}/` | {OWNS[layer]} | {may_include} | {driver} | {', '.join(rules_of(layer))} |")
-    return "\n".join(rows) + "\n"
-
-
-Opens = Callable[[list[str], int], Optional[int]]
-
-
-def mermaid(name: str) -> Opens:
-    def opens(lines: list[str], i: int) -> Optional[int]:
-        fenced = lines[i].strip() == "```mermaid" and i + 1 < len(lines) and lines[i + 1] == mark(name)
-        return i + 1 if fenced else None
-
-    return opens
-
-
-def table_opens(lines: list[str], i: int) -> Optional[int]:
-    return i if lines[i] == TABLE_HEADER else None
+def opens(name: str, lines: list[str], i: int) -> Optional[int]:
+    fenced = lines[i].strip() == "```mermaid" and i + 1 < len(lines) and lines[i + 1] == mark(name)
+    return i + 1 if fenced else None
 
 
 def fence(line: str) -> bool:
     return line.strip() == "```"
 
 
-def not_row(line: str) -> bool:
-    return not line.startswith("|")
-
-
-REGIONS: tuple[tuple[str, Opens, Callable[[str], bool], Callable[[], str]], ...] = (
-    ("the stack", mermaid("the stack"), fence, stack),
-    ("the includes", mermaid("the includes"), fence, include_graph),
-    ("the table", table_opens, not_row, table),
-)
+REGIONS: tuple[tuple[str, Callable[[], str]], ...] = (("the stack", stack), ("the includes", include_graph))
 
 
 def regions(text: str) -> dict[str, list[tuple[int, int]]]:
     lines = text.split("\n")
-    found: dict[str, list[tuple[int, int]]] = {name: [] for name, *_ in REGIONS}
-    for name, opens, closes, _ in REGIONS:
+    found: dict[str, list[tuple[int, int]]] = {name: [] for name, _ in REGIONS}
+    for name, _ in REGIONS:
         for i in range(len(lines)):
-            start = opens(lines, i)
+            start = opens(name, lines, i)
             if start is None:
                 continue
             end = start
-            while end < len(lines) and not closes(lines[end]):
+            while end < len(lines) and not fence(lines[end]):
                 end += 1
             found[name].append((start, end))
     return found
 
 
 def render() -> str:
-    return "\n".join(draw() for *_, draw in REGIONS)
+    return "\n".join(draw() for _, draw in REGIONS)
 
 
 def rewrite(text: str) -> str:
     found = regions(text)
     for name, places in found.items():
         if len(places) != 1:
-            raise ValueError(f"{MAP} holds {len(places)} regions for {name}, not one")
+            raise ValueError(f"{MAP} holds {len(places)} mermaid blocks opening with {mark(name)!r}, not one")
     lines = text.split("\n")
-    for name, _, _, draw in sorted(REGIONS, key=lambda region: found[region[0]][0][0], reverse=True):
+    for name, draw in sorted(REGIONS, key=lambda region: found[region[0]][0][0], reverse=True):
         start, end = found[name][0]
         lines[start:end] = draw().split("\n")[:-1]
     return "\n".join(lines)

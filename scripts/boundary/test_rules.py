@@ -1365,7 +1365,24 @@ class Doc(unittest.TestCase):
         self.assertEqual([line.split("[")[0].strip() for line in nodoor], list(reversed(rules.UNDER_HIERARCHY)))
         for layer in LAYERS:
             with self.subTest(layer=layer):
-                self.assertEqual(f'"{layer}/ no header"' in doc.stack(), layer in doc.NO_HEADER_LAYERS)
+                self.assertEqual(f'"{layer}/ no header' in doc.stack(), layer in doc.NO_HEADER_LAYERS)
+
+    def test_a_stack_node_names_the_rules_at_home_in_its_layer(self):
+        self.assertEqual(doc.node("io", rules=True), '  io["io/ codec, index, records"]')
+        self.assertEqual(doc.node("hierarchy", rules=True), '  hierarchy["hierarchy/ validity, varindex"]')
+        self.assertEqual(doc.node("flesh", rules=True), '  flesh["flesh/ no header"]')
+        self.assertEqual(doc.node("ops", rules=True), '  ops["ops/"]')
+        self.assertEqual(doc.node("io"), '  io["io/"]')
+        self.assertEqual(doc.rules_of("io"), ["layer", "door", "codec", "index", "records"])
+        self.assertEqual(doc.rules_of("ops"), ["layer", "door"])
+        names = {rule.name for rule in rules.RULES}
+        self.assertLessEqual(set(doc.HOMES) | set(doc.BINDS), names)
+        for name, files in doc.HOMES.items():
+            layers = {layer_of(f) for f in files}
+            with self.subTest(name=name):
+                self.assertEqual(len(layers), 1, files)
+                for f in files:
+                    self.assertTrue(os.path.isfile(os.path.join(PROJECT, f)), f)
 
     def test_a_layer_without_a_header_is_in_no_header_layers(self):
         self.assertEqual(doc.headerless(PROJECT), doc.NO_HEADER_LAYERS)
@@ -1415,55 +1432,17 @@ class Doc(unittest.TestCase):
             self.assertFalse(doc.declares_and_defines(root, "comm", "flesh", "io.hxx"))
             self.assertFalse(doc.declares_and_defines(root, "io", "flesh", "reduction"))
 
-    def test_the_table_rows_are_the_layers_in_order(self):
-        lines = doc.table().splitlines()
-        self.assertEqual(lines[:2], [doc.TABLE_HEADER, "|---|---|---|---|---|"])
-        rows = [[cell.strip() for cell in line.strip().strip("|").split("|")] for line in lines[2:]]
-        self.assertEqual([row[0] for row in rows], [f"`{layer}/`" for layer in LAYERS])
-        for i, (layer, row) in enumerate(zip(LAYERS, rows)):
-            with self.subTest(layer=layer):
-                self.assertEqual(len(row), 5)
-                self.assertEqual(row[1], doc.OWNS[layer])
-                self.assertEqual(row[2], "`include/`, `util/`" if i == 0 else f"`{LAYERS[i - 1]}/` and below")
-                self.assertEqual(row[3], "yes" if layer in HIERARCHY_LAYERS else "no")
-                named = row[4].split(", ")
-                self.assertEqual(named[:2], ["layer", "door"])
-                self.assertEqual("index" in named, layer in rules.INDEX_SOURCE_LAYERS)
-                self.assertEqual("records" in named, layer in rules.RECORDS_LAYERS)
-        self.assertEqual(set(doc.OWNS), set(LAYERS))
-
-    def test_a_rule_in_the_table_is_a_rule_at_home_in_that_layer(self):
-        names = {rule.name for rule in rules.RULES}
-        self.assertLessEqual(set(doc.HOMES) | set(doc.BINDS), names)
-        for name, files in doc.HOMES.items():
-            layers = {layer_of(f) for f in files}
-            with self.subTest(name=name):
-                self.assertEqual(len(layers), 1, files)
-                for f in files:
-                    self.assertTrue(os.path.isfile(os.path.join(PROJECT, f)), f)
-        self.assertEqual(doc.rules_of("hierarchy"), ["layer", "door", "validity", "varindex"])
-        self.assertEqual(doc.rules_of("io"), ["layer", "door", "codec", "index", "records"])
-        self.assertEqual(doc.rules_of("ops"), ["layer", "door"])
-
-    def test_rewrite_replaces_only_the_marked_regions(self):
+    def test_rewrite_replaces_only_the_marked_blocks(self):
         stale_stack = "```mermaid\n" + doc.mark("the stack") + "\nflowchart TB\n  stale\n```\n"
         stale_includes = "```mermaid\n" + doc.mark("the includes") + "\n  stale\n```\n"
-        stale_table = doc.TABLE_HEADER + "\n|---|---|---|---|---|\n| stale | | | | |\n"
         other = "```mermaid\nflowchart LR\n  a --> b\n```\n"
-        text = "# map\n\n" + other + "\n" + stale_stack + "\nprose | with a bar\n\n" + stale_table + "\ntail\n" + stale_includes
-        expected = (
-            "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose | with a bar\n\n" + doc.table() + "\ntail\n```mermaid\n" + doc.include_graph() + "```\n"
-        )
+        text = "# map\n\n" + other + "\n" + stale_stack + "\nprose\n\n" + stale_includes + "\ntail\n"
+        expected = "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose\n\n```mermaid\n" + doc.include_graph() + "```\n\ntail\n"
         self.assertEqual(doc.rewrite(text), expected)
         self.assertEqual(doc.rewrite(expected), expected)
-        for name, broken in [("no regions", other), ("a table twice", text + stale_table), ("no includes", text.replace(stale_includes, "")), ("the table at the end", text.replace("\ntail\n" + stale_includes, "") + stale_includes)]:
-            with self.subTest(name=name):
-                if name == "the table at the end":
-                    self.assertEqual(doc.rewrite(broken), "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose | with a bar\n\n" + doc.table() + "```mermaid\n" + doc.include_graph() + "```\n")
-                else:
-                    with self.assertRaises(ValueError):
-                        doc.rewrite(broken)
-
+        for name, broken in [("no blocks", other), ("the stack twice", text + stale_stack), ("no includes", text.replace(stale_includes, ""))]:
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                doc.rewrite(broken)
 
 if __name__ == "__main__":
     unittest.main()
