@@ -1363,29 +1363,23 @@ class Doc(unittest.TestCase):
         nodoor = lines[lines.index('  subgraph nodoor["no driver()"]') + 1 :]
         nodoor = nodoor[: nodoor.index("  end")]
         self.assertEqual([line.split("[")[0].strip() for line in nodoor], list(reversed(rules.UNDER_HIERARCHY)))
-        for layer in LAYERS:
-            with self.subTest(layer=layer):
-                self.assertEqual(f'"{layer}/ no header' in doc.stack(), layer in doc.NO_HEADER_LAYERS)
 
     def test_a_stack_node_names_the_rules_at_home_in_its_layer(self):
-        self.assertEqual(doc.node("io", rules=True), '  io["io/ codec, index, records"]')
-        self.assertEqual(doc.node("hierarchy", rules=True), '  hierarchy["hierarchy/ validity, varindex"]')
-        self.assertEqual(doc.node("flesh", rules=True), '  flesh["flesh/ no header"]')
-        self.assertEqual(doc.node("ops", rules=True), '  ops["ops/"]')
-        self.assertEqual(doc.node("io"), '  io["io/"]')
-        self.assertEqual(doc.rules_of("io"), ["layer", "door", "codec", "index", "records"])
-        self.assertEqual(doc.rules_of("ops"), ["layer", "door"])
-        names = {rule.name for rule in rules.RULES}
-        self.assertLessEqual(set(doc.HOMES) | set(doc.BINDS), names)
-        for name, files in doc.HOMES.items():
-            layers = {layer_of(f) for f in files}
-            with self.subTest(name=name):
-                self.assertEqual(len(layers), 1, files)
-                for f in files:
-                    self.assertTrue(os.path.isfile(os.path.join(PROJECT, f)), f)
-
-    def test_a_layer_without_a_header_is_in_no_header_layers(self):
-        self.assertEqual(doc.headerless(PROJECT), doc.NO_HEADER_LAYERS)
+        self.assertEqual(doc.node("io", (), rules=True), '  io["io/ index, records, codec"]')
+        self.assertEqual(doc.node("hierarchy", (), rules=True), '  hierarchy["hierarchy/ validity, varindex"]')
+        self.assertEqual(doc.node("flesh", ("regrid", "flesh"), rules=True), '  flesh["flesh/ no header"]')
+        self.assertEqual(doc.node("ops", ("regrid", "flesh"), rules=True), '  ops["ops/"]')
+        self.assertEqual(doc.node("io", ()), '  io["io/"]')
+        self.assertEqual(doc.rules_of("io"), ["index", "records", "codec"])
+        self.assertEqual(doc.rules_of("ops"), [])
+        for rule in rules.RULES:
+            with self.subTest(rule=rule.name):
+                self.assertLessEqual(set(rule.home), set(LAYERS))
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "directions", "varindex", "traversal", "index", "records", "codec"])
+        self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
+        self.assertEqual(rules.layers_of(rules.CODEC_FILES + rules.SYNC_FILES), ("io", "comm"))
+        with self.assertRaises(AssertionError):
+            rules.layers_of((rules.MAKE_DEFN,))
 
     def test_a_dashed_edge_is_declared_low_and_defined_high(self):
         for low, high, names in doc.LINK_TIME:
@@ -1394,6 +1388,7 @@ class Doc(unittest.TestCase):
                 with self.subTest(low=low, high=high, name=name):
                     self.assertTrue(doc.declares_and_defines(PROJECT, low, high, name))
                     self.assertIn(f'  {low} -. "', doc.stack())
+        self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "io", "CactusAmrCore"))
 
     def test_the_includes_are_read_from_the_tree_above_the_base(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1406,6 +1401,9 @@ class Doc(unittest.TestCase):
                 "io/x.hxx": '#include "io/io.hxx"\n#include "ops/reduction.hxx"\n#include <mpi.h>\n',
                 "comm/comm.hxx": "",
                 "comm/notes.txt": '#include "io/io.hxx"\n',
+                "hierarchy/driver.hxx": "class Core {\n  Core(int n);\n  void Est(const int lev, Tags &tags) const;\n};\nTags *tags_of(const Core &core);\n",
+                "regrid/r.cxx": "Core::Core(int n) : Base(n), lev(0) {}\nvoid Core::Est(const int lev,\n    Tags &tags) const {\n  helper(lev);\n}\nTags *tags_of(const Core &core) {\n  return nullptr;\n}\n",
+                "io/y.cxx": "void write(Core &core) {\n  Core &other = core;\n  other.Est(1, tags);\n  std::make_unique<Core>(1);\n}\n",
             }
             for name, text in files.items():
                 with open(os.path.join(src, name), "w") as f:
@@ -1427,10 +1425,18 @@ class Doc(unittest.TestCase):
                 [layer for layer in reversed(LAYERS) if layer not in doc.BASE_LAYERS],
             )
             self.assertEqual(graph[9:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops'])
-            self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("io", "comm")))
-            self.assertTrue(doc.declares_and_defines(root, "io", "flesh", "io.hxx"))
-            self.assertFalse(doc.declares_and_defines(root, "comm", "flesh", "io.hxx"))
-            self.assertFalse(doc.declares_and_defines(root, "io", "flesh", "reduction"))
+            self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("hierarchy", "io", "comm")))
+            for drawn in (doc.stack(root), doc.include_graph(root)):
+                self.assertIn('ops["ops/ no header"]', drawn)
+                self.assertIn('comm["comm/', drawn)
+                self.assertNotIn('comm["comm/ no header"]', drawn)
+            self.assertIn('    io["io/ index, records, codec"]', doc.stack(root))
+            for name in ("Core", "Est", "tags_of"):
+                with self.subTest(name=name):
+                    self.assertTrue(doc.declares_and_defines(root, "hierarchy", "regrid", name))
+                    self.assertFalse(doc.declares_and_defines(root, "hierarchy", "io", name))
+            self.assertFalse(doc.declares_and_defines(root, "io", "regrid", "Core"))
+            self.assertFalse(doc.declares_and_defines(root, "regrid", "io", "Core"))
 
     def test_rewrite_replaces_only_the_marked_blocks(self):
         stale_stack = "```mermaid\n" + doc.mark("the stack") + "\nflowchart TB\n  stale\n```\n"

@@ -13,7 +13,7 @@ flowchart TB
     flesh["flesh/ no header"]
     api["api/"]
     schedule["schedule/"]
-    io["io/ codec, index, records"]
+    io["io/ index, records, codec"]
     ops["ops/"]
     regrid["regrid/ no header"]
     comm["comm/ directions"]
