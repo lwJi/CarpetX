@@ -32,107 +32,6 @@ int ghext_handle = -1;
 amrex::AMReX *restrict pamrex = nullptr;
 } // namespace
 
-void *SetupGH(tFleshConfig *fc, int convLevel, cGH *cctkGH);
-int InitGH(cGH *cctkGH);
-int ScheduleTraverseGH(cGH *cctkGH, const char *where);
-
-int MyProc(const cGH *cctkGH);
-int nProcs(const cGH *cctkGH);
-int Exit(cGH *cctkGH, int retval);
-int Abort(cGH *cctkGH, int retval);
-int Barrier(const cGH *cctkGHa);
-const int *ArrayGroupSizeB(const cGH *cctkGH, int dir, int gi,
-                           const char *groupname);
-int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data);
-
-extern "C" CCTK_INT CarpetX_InterpGridArrays(
-    cGH const *const cctkGH, int const N_dims, int const local_interp_handle,
-    int const param_table_handle, int const coord_system_handle,
-    int const N_interp_points, int const interp_coords_type_code,
-    void const *const coords[], int const N_input_arrays,
-    CCTK_INT const input_array_variable_indices[], int const N_output_arrays,
-    CCTK_INT const output_array_type_codes[], void *const output_arrays[]);
-
-extern "C" int CarpetX_Startup() {
-  DECLARE_CCTK_PARAMETERS;
-
-  if (verbose)
-#pragma omp critical
-    CCTK_VINFO("Startup");
-
-  const std::vector<std::string> features{
-#ifdef AMREX_USE_MPI
-      "MPI",
-#else
-      "no MPI",
-#endif
-#ifdef AMREX_USE_OMP
-      "OpenMP",
-#else
-      "no OpenMP",
-#endif
-#ifdef AMREX_USE_GPU
-      "accelerators",
-#else
-      "no accelerators",
-#endif
-#ifdef AMREX_USE_ASSERTION
-      "debug",
-#else
-      "optimized",
-#endif
-  };
-  std::ostringstream buf;
-  buf << logo();
-  buf << "   AMR driver using AMReX " << amrex::Version() << "\n   ";
-  auto sep = "";
-  for (const auto &feature : features) {
-    buf << sep << feature;
-    sep = ", ";
-  }
-  int ierr = CCTK_RegisterBanner(buf.str().c_str());
-  assert(!ierr);
-
-  ghext_handle = CCTK_RegisterGHExtension("CarpetX");
-  assert(ghext_handle >= 0);
-  int iret = CCTK_RegisterGHExtensionSetupGH(ghext_handle, SetupGH);
-  assert(iret);
-  iret = CCTK_RegisterGHExtensionInitGH(ghext_handle, InitGH);
-  assert(iret);
-  iret = CCTK_RegisterGHExtensionScheduleTraverseGH(ghext_handle,
-                                                    ScheduleTraverseGH);
-  assert(iret);
-
-  CCTK_OverloadInitialise(Initialise);
-  CCTK_OverloadEvolve(Evolve);
-  CCTK_OverloadShutdown(Shutdown);
-  CCTK_OverloadOutputGH(OutputGH);
-
-  CCTK_OverloadMyProc(MyProc);
-  CCTK_OverloadnProcs(nProcs);
-  CCTK_OverloadExit(Exit);
-  CCTK_OverloadAbort(Abort);
-  CCTK_OverloadBarrier(Barrier);
-
-  CCTK_OverloadEnableGroupStorage(EnableGroupStorage);
-  CCTK_OverloadDisableGroupStorage(DisableGroupStorage);
-  CCTK_OverloadGroupStorageIncrease(GroupStorageIncrease);
-  CCTK_OverloadGroupStorageDecrease(GroupStorageDecrease);
-  CCTK_OverloadQueryGroupStorageB(QueryGroupStorageB);
-
-  CCTK_OverloadSyncGroupsByDirI(SyncGroupsOnActiveLevels);
-
-  CCTK_OverloadInterpGridArrays(CarpetX_InterpGridArrays);
-  CCTK_OverloadArrayGroupSizeB(ArrayGroupSizeB);
-  CCTK_OverloadGroupDynamicData(GroupDynamicData);
-
-  iret = CCTK_InterpRegisterOpLocalUniform(InterpLocalUniform, "CarpetX",
-                                           CCTK_THORNSTRING);
-  assert(!iret && "CCTK_InterpRegisterOpLocalUniform failed");
-
-  return 0;
-}
-
 void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -244,8 +143,6 @@ int ScheduleTraverseGH(cGH *restrict cctkGH, const char *where) {
   return 0;
 }
 
-void ShutdownADIOS2();
-void ShutdownOpenPMD();
 extern "C" int CarpetX_Shutdown() {
   DECLARE_CCTK_PARAMETERS;
 
@@ -253,8 +150,7 @@ extern "C" int CarpetX_Shutdown() {
 #pragma omp critical
     CCTK_VINFO("Shutdown");
 
-  ShutdownADIOS2();
-  ShutdownOpenPMD();
+  ShutdownIO();
 
   if (false) {
     int iret = CCTK_UnregisterGHExtension("CarpetX");
@@ -386,6 +282,86 @@ extern "C" CCTK_INT CarpetX_InterpGridArrays(
       coord_system_handle, N_interp_points, interp_coords_type_code, coords,
       N_input_arrays, input_array_variable_indices, N_output_arrays,
       output_array_type_codes, output_arrays);
+}
+
+extern "C" int CarpetX_Startup() {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (verbose)
+#pragma omp critical
+    CCTK_VINFO("Startup");
+
+  const std::vector<std::string> features{
+#ifdef AMREX_USE_MPI
+      "MPI",
+#else
+      "no MPI",
+#endif
+#ifdef AMREX_USE_OMP
+      "OpenMP",
+#else
+      "no OpenMP",
+#endif
+#ifdef AMREX_USE_GPU
+      "accelerators",
+#else
+      "no accelerators",
+#endif
+#ifdef AMREX_USE_ASSERTION
+      "debug",
+#else
+      "optimized",
+#endif
+  };
+  std::ostringstream buf;
+  buf << logo();
+  buf << "   AMR driver using AMReX " << amrex::Version() << "\n   ";
+  auto sep = "";
+  for (const auto &feature : features) {
+    buf << sep << feature;
+    sep = ", ";
+  }
+  int ierr = CCTK_RegisterBanner(buf.str().c_str());
+  assert(!ierr);
+
+  ghext_handle = CCTK_RegisterGHExtension("CarpetX");
+  assert(ghext_handle >= 0);
+  int iret = CCTK_RegisterGHExtensionSetupGH(ghext_handle, SetupGH);
+  assert(iret);
+  iret = CCTK_RegisterGHExtensionInitGH(ghext_handle, InitGH);
+  assert(iret);
+  iret = CCTK_RegisterGHExtensionScheduleTraverseGH(ghext_handle,
+                                                    ScheduleTraverseGH);
+  assert(iret);
+
+  CCTK_OverloadInitialise(Initialise);
+  CCTK_OverloadEvolve(Evolve);
+  CCTK_OverloadShutdown(Shutdown);
+  CCTK_OverloadOutputGH(OutputGH);
+
+  CCTK_OverloadMyProc(MyProc);
+  CCTK_OverloadnProcs(nProcs);
+  CCTK_OverloadExit(Exit);
+  CCTK_OverloadAbort(Abort);
+  CCTK_OverloadBarrier(Barrier);
+
+  CCTK_OverloadEnableGroupStorage(EnableGroupStorage);
+  CCTK_OverloadDisableGroupStorage(DisableGroupStorage);
+  CCTK_OverloadGroupStorageIncrease(GroupStorageIncrease);
+  CCTK_OverloadGroupStorageDecrease(GroupStorageDecrease);
+  CCTK_OverloadQueryGroupStorageB(QueryGroupStorageB);
+
+  CCTK_OverloadSyncGroupsByDirI(SyncGroupsOnActiveLevels);
+
+  CCTK_OverloadInterpGridArrays(CarpetX_InterpGridArrays);
+  CCTK_OverloadArrayGroupSizeB(ArrayGroupSizeB);
+  CCTK_OverloadGroupDynamicData(GroupDynamicData);
+
+  iret = CCTK_InterpRegisterOpLocalUniform(InterpLocalUniform, "CarpetX",
+                                           CCTK_THORNSTRING);
+  assert(!iret && "CCTK_InterpRegisterOpLocalUniform failed");
+
+  return 0;
 }
 
 } // namespace CarpetX

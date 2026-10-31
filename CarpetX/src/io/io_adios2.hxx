@@ -8,6 +8,7 @@
 namespace CarpetX {
 
 void OutputADIOS2(const cGH *cctkGH);
+void ShutdownADIOS2();
 
 } // namespace CarpetX
 
