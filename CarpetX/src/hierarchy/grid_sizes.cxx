@@ -37,8 +37,8 @@ amrex::Vector<amrex::IntVect> per_level_max_grid_sizes() {
                 max_parameter_levels);
 
   amrex::Vector<amrex::IntVect> sizes;
-  sizes.reserve(max_parameter_levels);
-  for (int n = 0; n < max_parameter_levels; ++n)
+  sizes.reserve(max_num_levels);
+  for (int n = 0; n < max_num_levels; ++n)
     sizes.push_back(
         amrex::IntVect{size_or_default(max_grid_sizes_x[n], max_grid_size_x),
                        size_or_default(max_grid_sizes_y[n], max_grid_size_y),
