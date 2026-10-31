@@ -22,26 +22,28 @@ namespace {
 
 std::string event_name(const char *const what) { return what ? what : ""; }
 
-void require_window_bounds(const int min_level, const int max_level,
-                           const int min_patch, const int max_patch,
+void require_window_bounds(const window_t::bounds_t levels,
+                           const window_t::bounds_t patches,
                            const std::source_location site) {
   const GHExt &ext = driver();
-  if (min_level < 0 || max_level > ext.num_levels() || min_level > max_level)
+  if (levels.min < 0 || levels.max > ext.num_levels() ||
+      levels.min > levels.max)
     refuse(site, "CarpetX window levels [%d, %d) must lie within [0, %d)",
-           min_level, max_level, ext.num_levels());
-  if (min_patch < 0 || max_patch > ext.num_patches() || min_patch > max_patch)
+           levels.min, levels.max, ext.num_levels());
+  if (patches.min < 0 || patches.max > ext.num_patches() ||
+      patches.min > patches.max)
     refuse(site, "CarpetX window patches [%d, %d) must lie within [0, %d)",
-           min_patch, max_patch, ext.num_patches());
+           patches.min, patches.max, ext.num_patches());
 }
 
-void require_window_level(const int min_level, const int max_level,
-                          const int min_patch, const int max_patch,
+void require_window_level(const window_t::bounds_t levels,
+                          const window_t::bounds_t patches,
                           const std::source_location site) {
-  if (min_level >= max_level || min_patch >= max_patch)
+  if (levels.min >= levels.max || patches.min >= patches.max)
     refuse(site,
            "CarpetX window of patches [%d, %d), refinement levels [%d, %d) "
            "holds no level",
-           min_patch, max_patch, min_level, max_level);
+           patches.min, patches.max, levels.min, levels.max);
 }
 
 } // namespace
@@ -70,12 +72,12 @@ void require_operable(const window_t window,
 }
 
 variable_t variable(const var_t var) {
-  const int gi = CCTK_GroupIndexFromVarI(var.index());
-  if (gi < 0)
+  const gi_t gi{CCTK_GroupIndexFromVarI(var.index())};
+  if (gi.index() < 0)
     CCTK_VERROR("CarpetX::variable: variable index %d does not exist: there "
                 "are %d variables",
                 var.index(), CCTK_NumVars());
-  return variable_t{gi_t{gi}, vi_t{var.index() - CCTK_FirstVarIndexI(gi)}};
+  return variable_t{gi, vi_t{var.index() - CCTK_FirstVarIndexI(gi.index())}};
 }
 
 int num_patches() { return driver().num_patches(); }
@@ -138,32 +140,33 @@ std::array<int, Loop::dim> nghostzones(const group_t group) {
 
 window_t window_t::one_level(const level_t level,
                              const std::source_location site) {
-  const int patch = level.patch().index();
-  require_window_bounds(level.index(), level.index() + 1, patch, patch + 1,
-                        site);
-  return window_t{level.index(), level.index() + 1, patch, patch + 1};
+  const patch_t patch = level.patch();
+  require_window_bounds({level.index(), level.index() + 1},
+                        {patch.index(), patch.index() + 1}, site);
+  return window_t{level.index(), level.index() + 1, patch.index(),
+                  patch.index() + 1};
 }
 
 window_t window_t::levels(const int min_level, const int max_level,
                           const std::source_location site) {
   const int num_patches = driver().num_patches();
-  require_window_bounds(min_level, max_level, 0, num_patches, site);
+  require_window_bounds({min_level, max_level}, {0, num_patches}, site);
   return window_t{min_level, max_level, 0, num_patches};
 }
 
 window_t window_t::narrow(const int min_level, const int max_level,
                           const std::source_location site) const {
-  require_window_bounds(min_level, max_level, min_patch_, max_patch_, site);
+  require_window_bounds({min_level, max_level}, patch_bounds(), site);
   return window_t{min_level, max_level, min_patch_, max_patch_};
 }
 
 level_t window_t::coarsest(const std::source_location site) const {
-  require_window_level(min_level_, max_level_, min_patch_, max_patch_, site);
+  require_window_level(level_bounds(), patch_bounds(), site);
   return level_t{patch_t{min_patch_}, min_level_};
 }
 
 level_t window_t::finest(const std::source_location site) const {
-  require_window_level(min_level_, max_level_, min_patch_, max_patch_, site);
+  require_window_level(level_bounds(), patch_bounds(), site);
   return level_t{patch_t{min_patch_}, max_level_ - 1};
 }
 

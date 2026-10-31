@@ -123,8 +123,9 @@ int InitGH(cGH *restrict cctkGH) {
     const int ierr = MultiPatch_GetSystemSpecification(&num_patches);
     assert(!ierr);
   }
-  for (int patch = 0; patch < num_patches; ++patch)
-    hierarchy_writer::add_patch(patch_t{patch});
+  for (const patch_t patch :
+       index_range<patch_t>(patch_t{0}, patch_t{num_patches}))
+    hierarchy_writer::add_patch(patch);
 
   return 0;
 }

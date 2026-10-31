@@ -399,6 +399,21 @@ static_assert(
 static_assert(tl_range{tl_t{0}, tl_t{2}}.contains(tl_t{1}));
 static_assert(!tl_range{tl_t{0}, tl_t{2}}.contains(tl_t{2}));
 
+static_assert(std::is_same_v<decltype(std::declval<const GHExt::PatchData &>()
+                                          .level_handles()),
+                             level_range>);
+static_assert(
+    std::is_same_v<decltype(*std::declval<level_range>().begin()), level_t>);
+static_assert(next_index(level_t{patch_t{0}, 0}) == level_t{patch_t{0}, 1});
+static_assert(level_range{level_t{patch_t{1}, 0}, level_t{patch_t{1}, 2}}
+                  .contains(level_t{patch_t{1}, 1}));
+static_assert(!level_range{level_t{patch_t{1}, 0}, level_t{patch_t{1}, 2}}
+                   .contains(level_t{patch_t{0}, 1}));
+static_assert(std::is_same_v<
+              decltype(std::declval<const GHExt &>().patch_handles()),
+              index_range<patch_t> >);
+static_assert(next_index(patch_t{0}) == patch_t{1});
+
 static_assert(std::is_same_v<decltype(GHExt::use_subcycling), const bool>);
 static_assert(std::is_same_v<decltype(GHExt::do_reflux), const bool>);
 static_assert(!assigns_use_subcycling<GHExt>);

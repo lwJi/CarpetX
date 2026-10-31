@@ -182,12 +182,12 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
         decode_clauses(attribute, rdwr_t::write);
     const int numgroups = CCTK_NumGroups();
     std::vector<std::vector<std::vector<valid_t> > > gfs(numgroups);
-    for (int gi = 0; gi < numgroups; ++gi) {
-      const int numvars = CCTK_NumVarsInGroupI(gi);
-      gfs.at(gi).resize(numvars);
-      for (int vi = 0; vi < numvars; ++vi) {
+    for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
+      const int numvars = CCTK_NumVarsInGroupI(gi.index());
+      gfs.at(gi.index()).resize(numvars);
+      for (const vi_t vi : index_range<vi_t>(vi_t{0}, vi_t{numvars})) {
         const int numtimelevels = 1;
-        gfs.at(gi).at(vi).resize(numtimelevels);
+        gfs.at(gi.index()).at(vi.index()).resize(numtimelevels);
       }
     }
     for (const auto &wr : writes) {
