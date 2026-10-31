@@ -103,7 +103,7 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
     assert(!ierr);
   }
 
-  return &create_hierarchy();
+  return &create_hierarchy(use_subcycling, do_reflux);
 }
 
 int InitGH(cGH *restrict cctkGH) {
@@ -124,9 +124,6 @@ int InitGH(cGH *restrict cctkGH) {
   }
   for (int patch = 0; patch < num_patches; ++patch)
     ext.add_patch(patch_t{patch});
-
-  ext.use_subcycling = use_subcycling;
-  ext.do_reflux = do_reflux;
 
   return 0;
 }

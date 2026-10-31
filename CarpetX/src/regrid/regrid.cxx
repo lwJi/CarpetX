@@ -33,12 +33,30 @@ CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox &rb,
 
 CactusAmrCore::~CactusAmrCore() {}
 
+void CactusAmrCore::mark_initialized() { cactus_is_initialized = true; }
+
+bool CactusAmrCore::is_initialized() const { return cactus_is_initialized; }
+
+void CactusAmrCore::reset_level_modified(const int num_levels) {
+  assert(num_levels >= 0);
+  level_modified.assign(num_levels, false);
+}
+
+const std::vector<bool> &CactusAmrCore::modified_levels() const {
+  return level_modified;
+}
+
+void CactusAmrCore::mark_level_modified(const level_t level) {
+  assert(level.patch() == patch);
+  level_modified.at(level.index()) = true;
+}
+
 void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
                              const amrex::Real time, const int ngrow) {
   DECLARE_CCTK_PARAMETERS;
   const level_t level{patch, lev};
 
-  if (!cactus_is_initialized)
+  if (!is_initialized())
     return;
 
   if (verbose)
@@ -114,7 +132,7 @@ void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
 
   if (lev >= int(level_modified.size()))
     level_modified.resize(lev + 1, true);
-  level_modified.at(lev) = true;
+  mark_level_modified(level);
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 
   if (verbose)
@@ -399,7 +417,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
     }
   }
 
-  level_modified.at(lev) = true;
+  mark_level_modified(level);
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 
   if (verbose)

@@ -196,8 +196,8 @@ int Initialise(tFleshConfig *config) {
       }
     }
 
-    for (auto &patchdata : ext.patches())
-      patchdata.amrcore->cactus_is_initialized = true;
+    for (const auto &patchdata : ext.patches())
+      patchdata.amrcore->mark_initialized();
 
     for (;;) {
       const int level = ext.num_levels() - 1;
@@ -225,8 +225,7 @@ int Initialise(tFleshConfig *config) {
         for (const auto &patchdata : ext.patches()) {
 
           const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
-          patchdata.amrcore->level_modified.clear();
-          patchdata.amrcore->level_modified.resize(old_numlevels, false);
+          patchdata.amrcore->reset_level_modified(old_numlevels);
           const CCTK_REAL time = 0; // dummy time
           patchdata.amrcore->regrid(0, time);
 
@@ -266,9 +265,10 @@ int Initialise(tFleshConfig *config) {
         int min_modified_level = INT_MAX;
         int max_modified_level = 0;
         for (const auto &patchdata : ext.patches()) {
-          for (int lev = 0; lev < int(patchdata.amrcore->level_modified.size());
-               ++lev) {
-            if (patchdata.amrcore->level_modified.at(lev)) {
+          const std::vector<bool> &modified =
+              patchdata.amrcore->modified_levels();
+          for (int lev = 0; lev < int(modified.size()); ++lev) {
+            if (modified.at(lev)) {
               using std::max, std::min;
               min_modified_level = min(min_modified_level, lev);
               max_modified_level = max(max_modified_level, lev + 1);
@@ -378,8 +378,7 @@ int Evolve(tFleshConfig *config) {
         assert(min_active_level != -1);
 
         const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
-        patchdata.amrcore->level_modified.clear();
-        patchdata.amrcore->level_modified.resize(old_numlevels, false);
+        patchdata.amrcore->reset_level_modified(old_numlevels);
         const CCTK_REAL time = 0; // dummy time
 
         CCTK_VINFO(
@@ -423,9 +422,10 @@ int Evolve(tFleshConfig *config) {
       int min_modified_level = INT_MAX;
       int max_modified_level = 0;
       for (const auto &patchdata : ext.patches()) {
-        for (int lev = 0; lev < int(patchdata.amrcore->level_modified.size());
-             ++lev) {
-          if (patchdata.amrcore->level_modified.at(lev)) {
+        const std::vector<bool> &modified =
+            patchdata.amrcore->modified_levels();
+        for (int lev = 0; lev < int(modified.size()); ++lev) {
+          if (modified.at(lev)) {
             using std::max, std::min;
             min_modified_level = min(min_modified_level, lev);
             max_modified_level = max(max_modified_level, lev + 1);
