@@ -2,7 +2,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "comm/fillpatch.hxx"
-#include "comm/subcycling.hxx"
+#include "comm/level_pairs.hxx"
 #include "comm/comm.hxx"
 #include "traversal/traversal.hxx"
 #include "util/task_manager.hxx"
@@ -12,14 +12,11 @@
 #include <cctk.h>
 #include <cctk_Parameters.h>
 
-#include <AMReX_FluxRegister.H>
 #include <AMReX_MultiFabUtil.H>
 
 #include <algorithm>
-#include <array>
 #include <cassert>
 #include <functional>
-#include <memory>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -151,16 +148,6 @@ static std::vector<level_run_t> split_levels(
     lo = hi;
   }
   return runs;
-}
-
-static void
-loop_pairs_fine_to_coarse(const window_t window,
-                          const std::function<void(level_t level)> &kernel) {
-  loop_fine_to_coarse(
-      window, [&](const GHExt::PatchData::LevelData &leveldata) {
-        if (leveldata.level.index() + 1 < window.level_bounds().max)
-          kernel(leveldata.level);
-      });
 }
 
 static void
@@ -841,228 +828,6 @@ void ProlongateAfterRestriction(const window_t window, const cGH *cctkGH) {
   SyncGroupsByDirIProlongateOnly_impl(window, cctkGH, groups, true,
                                       timelevels_t::all_but_oldest());
 }
-
-// =======================================================================
-// Reflux
-// =======================================================================
-
-// Face areas of one level, area[d] = prod_{j != d} dx_j. Thorns provide
-// fluxes per unit area (their RHS is -(F_{i+1/2} - F_{i-1/2}) / dx) while
-// amrex::FluxRegister::Reflux divides the register by the coarse cell
-// volume, so every contribution is multiplied by its own level's face area;
-// the fine faces under one coarse face then sum to the coarse face. CarpetX
-// levels are Cartesian, so this is one constant per level and direction.
-// The coarse side of AccumulateFluxes multiplies by these scalars; the
-// MultiFab form that FineAdd reads, LevelData::face_area, is filled by
-// amrex::Geometry::GetFaceArea with the same products (see
-// EnsureFluxGeometry), so the two agree bitwise.
-static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
-  const CCTK_REAL *const dx = geom.CellSize();
-  std::array<CCTK_REAL, dim> area;
-  for (int d = 0; d < dim; ++d) {
-    area[d] = 1;
-    for (int j = 0; j < dim; ++j)
-      if (j != d)
-        area[d] *= dx[j];
-  }
-  return area;
-}
-
-void EnsureFluxGeometry(const level_t level) {
-  const auto &patchdata = driver().patch(level.patch());
-  const auto &leveldata = patchdata.level(level);
-
-  // All four are allocated together, or none is
-  [[maybe_unused]] const auto have_all_or_none = [&]() {
-    const bool have = bool(leveldata.cell_volume);
-    bool good = true;
-    for (int d = 0; d < dim; ++d)
-      good = good && bool(leveldata.face_area[d]) == have;
-    return good;
-  };
-  assert(have_all_or_none());
-  if (leveldata.cell_volume)
-    return;
-
-  const amrex::Geometry &geom = patchdata.amrcore->Geom(level.index());
-  assert(leveldata.fab);
-  const amrex::BoxArray &ba = leveldata.fab->boxArray();
-  const amrex::DistributionMapping &dm = leveldata.fab->DistributionMap();
-  assert(ba.ixType().cellCentered());
-
-  for (int d = 0; d < dim; ++d) {
-    leveldata.face_area[d] = std::make_unique<amrex::MultiFab>();
-    geom.GetFaceArea(*leveldata.face_area[d], ba, dm, d, 0);
-  }
-  leveldata.cell_volume = std::make_unique<amrex::MultiFab>();
-  geom.GetVolume(*leveldata.cell_volume, ba, dm, 0);
-
-  assert(have_all_or_none());
-}
-
-void AccumulateFluxes(const level_t level, const int stage,
-                      const CCTK_REAL weight) {
-  const GHExt &ext = driver();
-  if (!ext.do_reflux)
-    return;
-  assert(stage >= 1 && stage <= num_rk_stages());
-
-  static Timer timer("AccumulateFluxes");
-  Interval interval(timer);
-
-  const auto &patchdata = ext.patch(level.patch());
-  const auto &leveldata = patchdata.level(level);
-  const std::optional<level_t> child = level.child();
-  const auto *const childleveldata = child ? &patchdata.level(*child) : nullptr;
-  const tl_t tl{0};
-  const window_t this_level = window_t::one_level(level);
-
-  for (const auto &groupdata : leveldata.groups()) {
-    if (!groupdata.fluxes)
-      continue;
-    const gi_t gi = groupdata.record.groupindex;
-
-    amrex::FluxRegister *const child_freg =
-        childleveldata ? childleveldata->group(gi).freg.get() : nullptr;
-    amrex::FluxRegister *const own_freg = groupdata.freg.get();
-    if (!child_freg && !own_freg)
-      continue;
-
-    EnsureFluxGeometry(level);
-
-    for (int d = 0; d < dim; ++d) {
-      std::ostringstream buf;
-      buf << "AccumulateFluxes: flux of " << groupdata.record.groupname
-          << " in direction " << d << " at RK stage " << stage;
-      require(this_level, {.gi = groupdata.fluxes->at(d),
-                           .tl = tl,
-                           .where = make_valid_int(),
-                           .event = buf.str()});
-    }
-
-    if (child_freg) {
-      amrex::FluxRegister *const child_scratch =
-          childleveldata->group(gi).freg_scratch.get();
-      assert(child_scratch);
-      if (stage == 1)
-        child_freg->setVal(0);
-      const int numvars = groupdata.record.numvars;
-      const CCTK_REAL mult = -weight;
-      const std::array<CCTK_REAL, dim> area =
-          face_areas(patchdata.amrcore->Geom(level.index()));
-      for (int d = 0; d < dim; ++d) {
-        const amrex::MultiFab &flux =
-            *leveldata.group(groupdata.fluxes->at(d)).timelevel(tl).mfab;
-        const CCTK_REAL area_d = area[d];
-        for (const auto side :
-             {amrex::Orientation::low, amrex::Orientation::high}) {
-          const amrex::Orientation face(d, side);
-          amrex::FabSet &scratch = (*child_scratch)[face];
-          amrex::FabSet &reg = (*child_freg)[face];
-          assert(scratch.boxArray() == reg.boxArray());
-          assert(scratch.DistributionMap() == reg.DistributionMap());
-          assert(scratch.nComp() == numvars && reg.nComp() == numvars);
-          scratch.setVal(0);
-          // (src, ngrow, scomp, dcomp, ncomp): valid faces only, non-periodic
-          scratch.copyFrom(flux, 0, 0, 0, numvars);
-          // Box by box over validbox(), as AMReX's own FabSet loops do: the
-          // tiled MFIter behind amrex::ParallelFor(MultiFab, ...) builds its
-          // tiles from the uncollapsed coarsened fine box of a register's
-          // BoxArray, not from its one-face-thick boxes, and would run out
-          // of bounds.
-          for (amrex::FabSetIter fsi(scratch); fsi.isValid(); ++fsi) {
-            const amrex::Box &bx = fsi.validbox();
-            const auto sfab = scratch.array(fsi);
-            amrex::ParallelFor(
-                bx, numvars,
-                [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-                  sfab(i, j, k, n) = sfab(i, j, k, n) * mult * area_d;
-                });
-          }
-          // The local `reg += scratch` of identical layouts, the same add
-          // CrseInit(ADD) performs
-          reg.plusFrom(scratch, 0, 0, numvars);
-        }
-      }
-    }
-
-    if (own_freg) {
-      for (int d = 0; d < dim; ++d) {
-        const amrex::MultiFab &flux =
-            *leveldata.group(groupdata.fluxes->at(d)).timelevel(tl).mfab;
-        const amrex::MultiFab &area = *leveldata.face_area[d];
-        assert(area.ixType() == flux.ixType());
-        assert(area.DistributionMap() == flux.DistributionMap());
-        own_freg->FineAdd(flux, area, d, 0, 0, groupdata.record.numvars,
-                          +weight);
-      }
-    }
-  }
-}
-
-static void reflux_level(const cGH *cctkGH, const level_t level) {
-  DECLARE_CCTK_PARAMETERS; // verbose
-
-  static Timer timer("Reflux");
-  Interval interval(timer);
-
-  const std::optional<level_t> fine = level.child();
-  if (!fine)
-    return;
-  const auto &patchdata = driver().patch(level.patch());
-  const auto &leveldata = patchdata.level(level);
-  const auto &fineleveldata = patchdata.level(*fine);
-  const amrex::Geometry &geom = patchdata.amrcore->Geom(level.index());
-  const window_t coarse_level = window_t::one_level(level);
-  const tl_t tl{0};
-
-  for (const auto &groupdata : leveldata.groups()) {
-    const gi_t gi = groupdata.record.groupindex;
-    const auto &finegroupdata = fineleveldata.group(gi);
-
-    // If the group has a flux register on the fine level
-    if (!finegroupdata.freg)
-      continue;
-
-    if (verbose)
-      CCTK_VINFO("Reflux: applying the flux register of levels (%d, %d) to "
-                 "%s at iteration %d",
-                 level.index(), fine->index(),
-                 groupdata.record.groupname.c_str(), cctkGH->cctk_iteration);
-
-    require(coarse_level,
-            {.gi = gi,
-             .tl = tl,
-             .where = make_valid_int(),
-             .event = "Reflux before refluxing: Coarse level data"});
-
-    EnsureFluxGeometry(level);
-
-    const write_scope_t scope =
-        open_write(coarse_level, {.gi = gi,
-                                  .tl = tl,
-                                  .fills = make_valid_int(),
-                                  .keeps = make_valid_all(),
-                                  .event = "Reflux"});
-    amrex::MultiFab &state = *groupdata.timelevel(tl).mfab;
-    const amrex::MultiFab &volume = *leveldata.cell_volume;
-    assert(volume.ixType() == state.ixType());
-    assert(volume.DistributionMap() == state.DistributionMap());
-    finegroupdata.freg->Reflux(state, volume, 1.0, 0, 0,
-                               groupdata.record.numvars, geom);
-  }
-}
-
-void Reflux(const cGH *cctkGH, const window_t window) {
-  if (!driver().do_reflux)
-    return;
-  loop_pairs_fine_to_coarse(
-      window, [&](const level_t level) { reflux_level(cctkGH, level); });
-}
-
-// =======================================================================
-// Restrict
-// =======================================================================
 
 static void restrict_level(const cGH *cctkGH, const level_t level,
                            const std::span<const gi_t> groups,
