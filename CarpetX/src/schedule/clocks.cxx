@@ -279,14 +279,14 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
   } else if (!restrict_during_sync) {
     CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
     if (reflux)
-      Reflux(cctkGH, window);
+      Reflux(window);
     assert(do_restrict);
     const std::vector<gi_t> groups = collect_restrictable_groups();
     if (ext.use_subcycling)
-      RestrictNoPoison(cctkGH, window, groups);
+      RestrictNoPoison(window, groups);
     else
-      Restrict(cctkGH, window, groups);
-    ProlongateAfterRestriction(window, cctkGH);
+      Restrict(window, groups);
+    ProlongateAfterRestriction(window);
     CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
   }
 }
@@ -510,7 +510,7 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
     }
   }
   if (!presync_groups.empty()) {
-    SyncGroupsByDirI(window, cctkGH, presync_groups);
+    SyncGroupsByDirI(window, presync_groups);
   }
 }
 
