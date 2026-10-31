@@ -237,7 +237,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
     CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
   }
 
-  GHExt &ext = driver();
+  const GHExt &ext = driver();
   for (const auto &patchdata : ext.patches())
     for (const auto &leveldata : patchdata.levels())
       assert(leveldata.iteration == 0 &&
@@ -245,8 +245,8 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
 
   RestoreLevelClocks(cctkGH, record);
 
-  for (auto &patchdata : ext.patches())
-    patchdata.amrcore->cactus_is_initialized = true;
+  for (const auto &patchdata : ext.patches())
+    patchdata.amrcore->mark_initialized();
 
   SetDeltaTime(cctkGH);
 }

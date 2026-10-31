@@ -12,6 +12,7 @@
 #include <span>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace CarpetX {
 namespace {
@@ -175,6 +176,46 @@ concept grid_ptr_takes =
   grid.ptr(vars, vi);
 };
 
+template <class Ext>
+concept assigns_use_subcycling = requires(Ext & ext) {
+  ext.use_subcycling = true;
+};
+
+template <class Ext>
+concept assigns_do_reflux = requires(Ext & ext) {
+  ext.do_reflux = true;
+};
+
+template <class Ext>
+concept assigns_active_timelevels = requires(Ext & ext, gi_t gi) {
+  ext.active_timelevels(gi) = 0;
+};
+
+template <class Ext>
+concept assigns_active_timelevels_field = requires(Ext & ext) {
+  ext.active_timelevels_.at(0) = 0;
+};
+
+template <class Ext>
+concept assigns_storage_frozen = requires(Ext & ext) {
+  ext.storage_frozen = true;
+};
+
+template <class Core>
+concept assigns_cactus_is_initialized = requires(Core & core) {
+  core.cactus_is_initialized = true;
+};
+
+template <class Core>
+concept assigns_level_modified = requires(Core & core) {
+  core.level_modified.at(0) = true;
+};
+
+template <class Core>
+concept marks_level_modified = requires(Core & core, level_t level) {
+  core.mark_level_modified(level);
+};
+
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
 
@@ -307,6 +348,30 @@ static_assert(
     std::is_same_v<decltype(*std::declval<tl_range>().begin()), tl_t>);
 static_assert(tl_range{tl_t{0}, tl_t{2}}.contains(tl_t{1}));
 static_assert(!tl_range{tl_t{0}, tl_t{2}}.contains(tl_t{2}));
+
+static_assert(std::is_same_v<decltype(GHExt::use_subcycling), const bool>);
+static_assert(std::is_same_v<decltype(GHExt::do_reflux), const bool>);
+static_assert(!assigns_use_subcycling<GHExt>);
+static_assert(!assigns_do_reflux<GHExt>);
+static_assert(!std::is_default_constructible_v<GHExt>);
+
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().active_timelevels(
+                       std::declval<gi_t>())),
+                   int>);
+static_assert(!assigns_active_timelevels<GHExt>);
+static_assert(!assigns_active_timelevels_field<GHExt>);
+static_assert(!assigns_storage_frozen<GHExt>);
+
+static_assert(std::is_same_v<
+              decltype(std::declval<const CactusAmrCore &>().modified_levels()),
+              const std::vector<bool> &>);
+static_assert(std::is_same_v<
+              decltype(std::declval<const CactusAmrCore &>().is_initialized()),
+              bool>);
+static_assert(!assigns_cactus_is_initialized<CactusAmrCore>);
+static_assert(!assigns_level_modified<CactusAmrCore>);
+static_assert(!marks_level_modified<CactusAmrCore>);
 
 } // namespace
 } // namespace CarpetX

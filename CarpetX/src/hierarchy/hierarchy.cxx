@@ -41,13 +41,11 @@ GHExt &driver() {
   return *ghext;
 }
 
-GHExt &create_hierarchy() {
+GHExt &create_hierarchy(const bool use_subcycling, const bool do_reflux) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
-  ghext = std::make_unique<GHExt>();
-  ghext->active_timelevels.assign(CCTK_NumGroups(), 0);
-  ghext->storage_frozen = false;
+  ghext = std::make_unique<GHExt>(use_subcycling, do_reflux);
   return *ghext;
 }
 
@@ -59,6 +57,10 @@ void destroy_hierarchy() {
 }
 
 void assert_hierarchy_destroyed() { assert(!ghext); }
+
+GHExt::GHExt(const bool use_subcycling, const bool do_reflux)
+    : use_subcycling(use_subcycling), do_reflux(do_reflux),
+      active_timelevels_(CCTK_NumGroups(), 0) {}
 
 GHExt::PatchData &GHExt::add_patch(const patch_t patch) {
   assert(patch.index() == num_patches());
@@ -520,6 +522,23 @@ void GHExt::GlobalData::ArrayGroupData::rotate_timelevels() {
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
 }
 
+void GHExt::record_storage(const gi_t gi, const int timelevels) {
+  assert(timelevels >= 0 &&
+         timelevels <= CCTK_DeclaredTimeLevelsGI(gi.index()));
+  int &active = active_timelevels_.at(gi.index());
+  if (!storage_frozen) {
+    active = timelevels;
+    return;
+  }
+  if (timelevels != active)
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Attempting to %s storage for group '%s' from %d to %d "
+               "timelevels after the STORAGE registry has been frozen; "
+               "ignoring",
+               timelevels > active ? "increase" : "decrease",
+               CCTK_FullGroupName(gi.index()), active, timelevels);
+}
+
 void GHExt::freeze_storage() {
   DECLARE_CCTK_PARAMETERS;
 
@@ -530,10 +549,10 @@ void GHExt::freeze_storage() {
   assert(!storage_frozen);
   assert(group_records.empty());
   const int numgroups = CCTK_NumGroups();
-  assert(int(active_timelevels.size()) == numgroups);
+  assert(int(active_timelevels_.size()) == numgroups);
   group_records.reserve(numgroups);
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups}))
-    group_records.emplace_back(gi, active_timelevels.at(gi.index()));
+    group_records.emplace_back(gi, active_timelevels_.at(gi.index()));
   storage_frozen = true;
 
   for (const GroupRecord &group : records()) {
