@@ -109,6 +109,15 @@ CODEC_FILES = (
 CODEC_WORD = re.compile(
     r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]hierarchy/driver\.hxx[">]'
 )
+PROTOTYPE_END = re.compile(r"\)\s*;\s*$")
+NOT_A_DECLARATION = re.compile(r"\s*(?:$|#|//|(?:public|protected|private)\s*:(?!:))")
+DECLARATION_START = re.compile(r"[A-Za-z_]")
+FILE_LOCAL_DECLARATION = re.compile(r"(?:static_assert|static)\b|(?:extern\s+)?template\s+(?![\s<])")
+EXTERN_C = re.compile(r'\bextern\s+"C"')
+OPERATOR_NAME = re.compile(r"\boperator\s*[^\s\w(]*")
+NOT_A_DECLARATOR = re.compile(r"[^\w\s:<>,*&]|<<")
+DECLARED_WORD = re.compile(r"[A-Za-z_]\w*(?:\s*::\s*[A-Za-z_]\w*)*")
+STATEMENT_KEYWORDS = ("return", "throw", "else", "do", "case", "new", "delete", "co_return", "co_yield", "co_await")
 STATEMENT_END = re.compile(r"[;{}]")
 RULE_WIDTH = 104
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
@@ -169,6 +178,8 @@ def carpetx_header(name: str, lang: Lang) -> bool:
 
 def index_files(name: str, lang: Lang) -> bool:
     return carpetx_header(name, lang) or (carpetx_cxx(name, lang) and layer_of(name) in INDEX_SOURCE_LAYERS)
+def carpetx_source(name: str, lang: Lang) -> bool:
+    return carpetx_cxx(name, lang) and name.endswith(".cxx")
 
 
 def records_files(name: str, lang: Lang) -> bool:
@@ -214,6 +225,25 @@ def layer_allowed(name: str, line: str, statement: str) -> bool:
     parts = path.split("/")
     layer = layer_of(name)
     return len(parts) > 1 and ".." not in parts and layer is not None and parts[0] in below(layer)
+
+
+def declaration_head(statement: str) -> str:
+    lines = statement.split("\n")
+    while lines and NOT_A_DECLARATION.match(lines[0]):
+        lines.pop(0)
+    return "\n".join(lines)
+
+
+def names_a_function(head: str) -> bool:
+    before, paren, _ = head.partition("(")
+    before = OPERATOR_NAME.sub("operator", EXTERN_C.sub("", before))
+    words = DECLARED_WORD.findall(before)
+    return bool(paren) and not NOT_A_DECLARATOR.search(before) and len(words) >= 2 and words[0] not in STATEMENT_KEYWORDS
+
+
+def prototype_allowed(name: str, line: str, statement: str) -> bool:
+    head = declaration_head(statement)
+    return not (DECLARATION_START.match(head) and names_a_function(head) and not FILE_LOCAL_DECLARATION.match(head))
 
 
 def door_allowed(name: str, line: str, statement: str) -> bool:
@@ -366,6 +396,22 @@ RULES = (
         noun="include",
         where="outside the layer order",
         clean="every internal include at or below its own layer",
+    ),
+    Rule(
+        "prototype",
+        files=carpetx_source,
+        word=PROTOTYPE_END,
+        allowed=prototype_allowed,
+        text=textwrap.fill(
+            "prototype: a CarpetX .cxx declares no function it does not define, since a prototype reaches past the "
+            "header that the layer rule judges; a declaration at column 0 that ends in ); is one. A function "
+            "another file defines is declared in a header of that file's layer and included, one this file defines "
+            "is defined above its first use, and a forward declaration only this file needs is static.",
+            width=RULE_WIDTH,
+        ),
+        noun="prototype",
+        where="in a CarpetX .cxx",
+        clean="no prototype in a CarpetX .cxx",
     ),
     Rule(
         "door",
