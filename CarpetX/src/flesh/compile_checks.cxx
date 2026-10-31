@@ -1,6 +1,7 @@
 #include "io/checkpoint.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/operations.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
 #include "comm/comm.hxx"
@@ -233,6 +234,14 @@ concept resets_level_modified = requires(Core & core, int num_levels) {
   core.reset_level_modified(num_levels);
 };
 
+template <class Ext>
+concept regrids_amrcore = requires(Ext & ext, patch_t patch) {
+  ext.patch(patch).amrcore->regrid(0, 0.0);
+};
+
+template <class Ext>
+concept marks_initialized = requires(Ext & ext) { ext.mark_initialized(); };
+
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
 
@@ -266,7 +275,10 @@ static_assert(!rk_source_band_takes<int, int, gi_t, band_kind>);
 static_assert(finer_behind_takes<level_t>);
 static_assert(!finer_behind_takes<int, int>);
 
-static_assert(loop_parallel_takes<std::function<void(
+static_assert(
+    loop_parallel_takes<std::function<void(const GHExt::PatchData::LevelData &,
+                                           int, int, const cGH *)> >);
+static_assert(!loop_parallel_takes<std::function<void(
                   GHExt::PatchData::LevelData &, int, int, const cGH *)> >);
 static_assert(!loop_parallel_takes<
               std::function<void(int, int, int, int, const cGH *)> >);
@@ -274,6 +286,8 @@ static_assert(
     !loop_parallel_takes<std::function<void(level_t, int, int, const cGH *)> >);
 
 static_assert(loop_fine_to_coarse_takes<
+              std::function<void(const GHExt::PatchData::LevelData &)> >);
+static_assert(!loop_fine_to_coarse_takes<
               std::function<void(GHExt::PatchData::LevelData &)> >);
 static_assert(!loop_fine_to_coarse_takes<std::function<void(level_t)> >);
 
@@ -418,6 +432,13 @@ static_assert(std::is_same_v<decltype(&CactusAmrCore::regrid),
 static_assert(!assigns_level_modified<CactusAmrCore>);
 static_assert(!marks_level_modified<CactusAmrCore>);
 static_assert(!resets_level_modified<CactusAmrCore>);
+
+static_assert(std::is_same_v<decltype(driver()), const GHExt &>);
+static_assert(regrids_amrcore<GHExt>);
+static_assert(!regrids_amrcore<std::remove_reference_t<decltype(driver())> >);
+static_assert(marks_initialized<GHExt>);
+static_assert(
+    !marks_initialized<std::remove_reference_t<decltype(driver())> >);
 
 } // namespace
 } // namespace CarpetX

@@ -455,7 +455,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
         pinned_particle_tiles.at(patch);
 
     const auto &restrict patchdata = ext.patch(patch_t{patch});
-    containers.at(patch) = patchdata.amrcore.get();
+    containers.at(patch) = const_cast<CactusAmrCore *>(patchdata.amrcore.get());
     const int level = 0;
     const auto &restrict leveldata =
         patchdata.level(level_t{patchdata.patch, level});

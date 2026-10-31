@@ -62,7 +62,9 @@ TRAVERSAL_WORD = re.compile(
 DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
 DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
-GHEXT_OR_DRIVER_CALL = re.compile(f"{DOOR_WORD.pattern}|{DRIVER_CALL.pattern}")
+MUTABLE_DRIVER_CALL = re.compile(r"\bmutable_driver\s*\(\s*\)")
+WRITE_LAYER = "hierarchy"
+GHEXT_OR_DRIVER_CALL = re.compile(f"{DOOR_WORD.pattern}|{DRIVER_CALL.pattern}|{MUTABLE_DRIVER_CALL.pattern}")
 LAYER_INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<((?:' + "|".join(LAYERS) + r')/[^>]*)>)')
 SYNC_FILES = (
     layer_path("comm", "comm.hxx"),
@@ -256,6 +258,8 @@ def prototype_allowed(name: str, line: str, statement: str) -> bool:
 def door_allowed(name: str, line: str, statement: str) -> bool:
     if DOOR_WORD.search(line) and name != DOOR_FILE:
         return False
+    if MUTABLE_DRIVER_CALL.search(line) and layer_of(name) != WRITE_LAYER:
+        return False
     return not DRIVER_CALL.search(line) or layer_of(name) in HIERARCHY_LAYERS
 
 
@@ -446,7 +450,9 @@ RULES = (
         allowed=door_allowed,
         text="door: the hierarchy pointer ghext is named only in CarpetX/src/hierarchy/hierarchy.cxx; every other\n"
         f"file calls driver(), and only from {HIERARCHY_LAYERS[0]}/ or a layer above it, never from "
-        f"{dirs(UNDER_HIERARCHY, 'or')}.",
+        f"{dirs(UNDER_HIERARCHY, 'or')};\n"
+        f"driver() is const, and mutable_driver() is called only in {WRITE_LAYER}/: another layer changes the\n"
+        f"hierarchy through the operations of {WRITE_LAYER}/operations.hxx.",
         noun="hierarchy use",
         where="the door does not allow",
         clean=f"the hierarchy has one door that {dirs(UNDER_HIERARCHY, 'and')} never use",

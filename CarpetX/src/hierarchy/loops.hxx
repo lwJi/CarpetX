@@ -17,27 +17,32 @@ namespace CarpetX {
 
 void loop_coarse_to_fine(
     window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel);
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
+        &kernel);
 
 void loop_fine_to_coarse(
     window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel);
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
+        &kernel);
 
 inline void loop_serially(
     const window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel) {
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
+        &kernel) {
   loop_coarse_to_fine(window, kernel);
 }
 
 void loop_parallel(
     window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
-                             int component, const cGH *cctkGH)> &kernel);
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata,
+                             int index, int component, const cGH *cctkGH)>
+        &kernel);
 
 void loop_serially(
     window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
-                             int component, const cGH *cctkGH)> &kernel);
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata,
+                             int index, int component, const cGH *cctkGH)>
+        &kernel);
 
 bool window_is_restricted(window_t window);
 

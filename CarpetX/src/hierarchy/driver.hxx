@@ -69,6 +69,25 @@ private:
 };
 using tl_range = index_range<tl_t>;
 
+template <class T> class const_propagating_ptr {
+public:
+  const_propagating_ptr() = default;
+  const_propagating_ptr &operator=(std::unique_ptr<T> ptr) {
+    ptr_ = std::move(ptr);
+    return *this;
+  }
+
+  T *get() { return ptr_.get(); }
+  const T *get() const { return ptr_.get(); }
+  T *operator->() { return ptr_.get(); }
+  const T *operator->() const { return ptr_.get(); }
+  T &operator*() { return *ptr_; }
+  const T &operator*() const { return *ptr_; }
+
+private:
+  std::unique_ptr<T> ptr_;
+};
+
 enum class group_kind { grid_function, array, scalar };
 
 template <typename U> U &storage_entry(U &entry) { return entry; }
@@ -520,9 +539,7 @@ struct GHExt {
 
     std::array<std::array<symmetry_t, dim>, 2> symmetries;
 
-    // AMReX grid structure
-    // TODO: convert this from unique_ptr to optional
-    std::unique_ptr<CactusAmrCore> amrcore;
+    const_propagating_ptr<CactusAmrCore> amrcore;
 
     struct LevelData {
       LevelData() = delete;
@@ -885,9 +902,7 @@ private:
   friend std::ostream &operator<<(std::ostream &os, const GHExt &ext);
 };
 
-GHExt &driver();
-GHExt &create_hierarchy(GHExt::config_t config);
-void destroy_hierarchy();
+const GHExt &driver();
 void assert_hierarchy_destroyed();
 
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:
