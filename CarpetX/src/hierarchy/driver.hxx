@@ -46,12 +46,20 @@ using Loop::dim;
 
 inline constexpr int max_num_rk_stages = 4;
 
+template <class Derived>
+constexpr Derived next_index(const index_t<Derived> i) {
+  return Derived{i.index() + 1};
+}
+constexpr level_t next_index(const level_t level) {
+  return level_t{level.patch(), level.index() + 1};
+}
+
 template <class Index> struct index_range {
   struct iterator {
     Index current;
     constexpr Index operator*() const { return current; }
     constexpr iterator &operator++() {
-      current = Index{current.index() + 1};
+      current = next_index(current);
       return *this;
     }
     friend constexpr bool operator==(iterator, iterator) = default;
@@ -69,6 +77,7 @@ private:
   Index begin_, end_;
 };
 using tl_range = index_range<tl_t>;
+using level_range = index_range<level_t>;
 
 template <class T> class const_propagating_ptr {
 public:
@@ -797,6 +806,9 @@ struct GHExt {
     };
 
     int num_levels() const { return leveldata.size(); }
+    level_range level_handles() const {
+      return level_range{level_t{patch, 0}, level_t{patch, num_levels()}};
+    }
     const LevelData &level(const level_t level,
                            const std::source_location site =
                                std::source_location::current()) const {
@@ -829,6 +841,9 @@ struct GHExt {
   };
 
   int num_patches() const { return patchdata.size(); }
+  index_range<patch_t> patch_handles() const {
+    return index_range<patch_t>{patch_t{0}, patch_t{num_patches()}};
+  }
   const PatchData &patch(
       const patch_t patch,
       const std::source_location site = std::source_location::current()) const {

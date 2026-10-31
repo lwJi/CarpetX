@@ -278,7 +278,8 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
 
   struct info_t {
     where_t where;
-    int patch, level, component;
+    level_t level;
+    int component;
     vect<int, dim> I;
     vect<CCTK_REAL, dim> X;
     CCTK_REAL val;
@@ -316,8 +317,8 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
       nan_xmax[1] = fmax(nan_xmax[1], p.y);
       nan_xmax[2] = fmax(nan_xmax[2], p.z);
 
-      infos.push_back(
-          info_t{where, p.patch, p.level, p.component, p.I, p.X, gf(p.I)});
+      infos.push_back(info_t{where, level_t{patch_t{p.patch}, p.level},
+                             p.component, p.I, p.X, gf(p.I)});
     };
 
     if (where.valid_int)
@@ -347,13 +348,13 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
              double(nan_xmax[2]), where.explanation().c_str());
 
   std::sort(infos.begin(), infos.end(), [](const info_t &a, const info_t &b) {
-    if (a.level < b.level)
+    if (a.level.index() < b.level.index())
       return true;
-    if (a.level > b.level)
+    if (a.level.index() > b.level.index())
       return false;
-    if (a.patch < b.patch)
+    if (a.level.patch() < b.level.patch())
       return true;
-    if (a.patch > b.patch)
+    if (a.level.patch() > b.level.patch())
       return false;
     if (a.component < b.component)
       return true;
@@ -367,9 +368,9 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
   buf << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1);
   for (const auto &info : infos)
     buf << "\n"
-        << info.where << " level " << info.level << " patch " << info.patch
-        << " component " << info.component << " " << info.I << " " << info.X
-        << " " << info.val;
+        << info.where << " level " << info.level.index() << " patch "
+        << info.level.patch().index() << " component " << info.component << " "
+        << info.I << " " << info.X << " " << info.val;
   CCTK_WARN(CCTK_WARN_ALERT, buf.str().c_str());
 
   CCTK_VERROR("%s: Grid function \"%s\" contains nans, infinities, or poison; "

@@ -421,18 +421,17 @@ CarpetX::InterpolationSetup::InterpolationSetup(
   }
 
   std::vector<PinnedParticleTile> pinned_particle_tiles(ext.num_patches());
-  for (int patch = 0; patch < ext.num_patches(); ++patch) {
-    PinnedParticleTile &pinned_particle_tile = pinned_particle_tiles.at(patch);
+  for (const patch_t patch : ext.patch_handles()) {
+    PinnedParticleTile &pinned_particle_tile =
+        pinned_particle_tiles.at(patch.index());
     // here the two slots represents components in the structure-of-arrays (SoA)
     // layout
     pinned_particle_tile.define(0, 0);
   }
 
-  // Set particle positions
-  // TODO: parallelize this loop
   const int proc = amrex::ParallelDescriptor::MyProc();
   for (int n = 0; n < npoints; ++n) {
-    const int patch = patches.at(n);
+    const patch_t patch{patches.at(n)};
     amrex::Particle<3, 2> p;
     p.id() = Particle::NextID();
     p.cpu() = proc;
@@ -444,19 +443,19 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     p.rdata(2) = localsz[n];
     p.idata(0) = proc; // source process
     p.idata(1) = n;    // source index
-    pinned_particle_tiles.at(patch).push_back(p);
+    pinned_particle_tiles.at(patch.index()).push_back(p);
   }
 
   containers.resize(ext.num_patches());
-  for (int patch = 0; patch < ext.num_patches(); ++patch) {
+  for (const patch_t patch : ext.patch_handles()) {
     const PinnedParticleTile &pinned_particle_tile =
-        pinned_particle_tiles.at(patch);
+        pinned_particle_tiles.at(patch.index());
 
-    const auto &restrict patchdata = ext.patch(patch_t{patch});
-    containers.at(patch) = const_cast<CactusAmrCore *>(patchdata.amrcore.get());
-    const int level = 0;
-    const auto &restrict leveldata =
-        patchdata.level(level_t{patchdata.patch, level});
+    const auto &restrict patchdata = ext.patch(patch);
+    containers.at(patch.index()) =
+        const_cast<CactusAmrCore *>(patchdata.amrcore.get());
+    const level_t level{patchdata.patch, 0};
+    const auto &restrict leveldata = patchdata.level(level);
     const amrex::MFIter mfi(*leveldata.fab);
     // The mfi can be invalid if the number of processes does not evenly divide
     // the number of blocks
@@ -464,8 +463,10 @@ CarpetX::InterpolationSetup::InterpolationSetup(
       continue;
     }
 
-    ParticleTile &particle_tile = containers.at(patch).GetParticles(
-        level)[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+    ParticleTile &particle_tile =
+        containers.at(patch.index())
+            .GetParticles(level.index())[std::make_pair(mfi.index(),
+                                                        mfi.LocalTileIndex())];
 
     const auto old_np = particle_tile.numParticles();
     const auto new_np = old_np + pinned_particle_tile.numParticles();
@@ -474,10 +475,9 @@ CarpetX::InterpolationSetup::InterpolationSetup(
                          pinned_particle_tile.numParticles());
   }
 
-  // Send particles to interpolation points
   for (auto &container : containers) {
 #ifdef CCTK_DEBUG
-    const int patch = int(&container - containers.data());
+    const patch_t patch{int(&container - containers.data())};
 
     std::size_t old_nparticles = 0;
     std::set<int> oldids;
@@ -534,7 +534,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
       CCTK_VERROR(
           "We lost interpolation points on patch %d. Before redistributing: "
           "%zu particles, after redistributing: %zu particles",
-          patch, old_nparticles, new_nparticles);
+          patch.index(), old_nparticles, new_nparticles);
     }
 #endif
   }
@@ -563,11 +563,12 @@ void CarpetX::InterpolationSetup::Interpolate(
   rat64 max_level_iteration_used = -1;
   const GHExt &ext = driver();
   for (const auto &patchdata : ext.patches()) {
-    const int patch = patchdata.patch.index();
+    const patch_t patch = patchdata.patch;
     for (const auto &leveldata : patchdata.levels()) {
       const level_t level = leveldata.level;
 
-      for (amrex::ParConstIter<3, 2> pti(containers.at(patch), level.index());
+      for (amrex::ParConstIter<3, 2> pti(containers.at(patch.index()),
+                                         level.index());
            pti.isValid(); ++pti) {
         const MFPointer mfp(pti);
         const GridDesc grid(leveldata, mfp);
@@ -581,17 +582,12 @@ void CarpetX::InterpolationSetup::Interpolate(
                 ? std::max(max_level_iteration_used, leveldata.iteration)
                 : leveldata.iteration;
 
-        // Derive per-box stencil-anchor permissions. bbox[f][d] is true when
-        // the box face touches the patch's AMReX domain boundary (both physical
-        // outer boundaries and inter-patch boundaries). Interior intra-patch
-        // faces (bbox=false) unconditionally allow anchoring because AMReX
-        // guarantees their ghost zones are filled. See function comment above
-        // for the semantics of allowed_boundaries.
         vect<vect<bool, dim>, 2> patch_allowed_boundaries;
         for (int f = 0; f < 2; ++f)
           for (int d = 0; d < dim; ++d)
             patch_allowed_boundaries[f][d] =
-                grid.bbox[f][d] ? allowed_boundaries.at(patch)[f][d] : true;
+                grid.bbox[f][d] ? allowed_boundaries.at(patch.index())[f][d]
+                                : true;
 
         const int np = pti.numParticles();
         const auto &particles = pti.GetArrayOfStructs();

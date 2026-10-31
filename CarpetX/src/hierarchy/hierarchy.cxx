@@ -153,9 +153,10 @@ GHExt::PatchData::PatchData(const patch_t patch) : patch(patch) {
 #pragma omp critical
     {
       const int maxnumlevels = amrcore->maxLevel() + 1;
-      for (int level = 0; level < maxnumlevels; ++level) {
-        CCTK_VINFO("amrex::Geometry level %d:", level);
-        std::cout << amrcore->Geom(level) << "\n";
+      for (const level_t level :
+           level_range(level_t{patch, 0}, level_t{patch, maxnumlevels})) {
+        CCTK_VINFO("amrex::Geometry level %d:", level.index());
+        std::cout << amrcore->Geom(level.index()) << "\n";
       }
     }
   }
@@ -337,9 +338,8 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
               indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
               indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
               indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE));
-  const int ntls = record.num_timelevels();
-  tls.reserve(ntls);
-  for (int tl = 0; tl < ntls; ++tl)
+  tls.reserve(record.num_timelevels());
+  for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(std::make_unique<amrex::MultiFab>(
                          gba, dm, numvars, amrex::IntVect(nghostzones)),
                      numvars, why);
@@ -512,9 +512,8 @@ GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
     bbox[2 * d] = bbox[2 * d + 1] = 1;
   }
 
-  const int ntls = record.num_timelevels();
-  tls.reserve(ntls);
-  for (int tl = 0; tl < ntls; ++tl)
+  tls.reserve(record.num_timelevels());
+  for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(
         AnyTypeVector(record.var_type, record.numvars * array_size),
         record.numvars, []() { return "freeze_storage"; });

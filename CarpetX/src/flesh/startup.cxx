@@ -152,22 +152,19 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
   pp.add("amrex.the_arena_is_managed", 1);
 #endif
 
-  amrex::Vector<int> max_grid_size_x_vec(20, -1), max_grid_size_y_vec(20, -1),
-      max_grid_size_z_vec(20, -1);
-  for (int level = 0; level < 20; ++level) {
-    int size_x = max_grid_sizes_x[level];
-    int size_y = max_grid_sizes_y[level];
-    int size_z = max_grid_sizes_z[level];
+  amrex::Vector<int> max_grid_size_x_vec(max_grid_sizes_x,
+                                         max_grid_sizes_x + 20),
+      max_grid_size_y_vec(max_grid_sizes_y, max_grid_sizes_y + 20),
+      max_grid_size_z_vec(max_grid_sizes_z, max_grid_sizes_z + 20);
+  for (int &size_x : max_grid_size_x_vec)
     if (size_x == -1)
       size_x = max_grid_size_x;
+  for (int &size_y : max_grid_size_y_vec)
     if (size_y == -1)
       size_y = max_grid_size_y;
+  for (int &size_z : max_grid_size_z_vec)
     if (size_z == -1)
       size_z = max_grid_size_z;
-    max_grid_size_x_vec.at(level) = size_x;
-    max_grid_size_y_vec.at(level) = size_y;
-    max_grid_size_z_vec.at(level) = size_z;
-  }
   pp.addarr("amr.max_grid_size_x", max_grid_size_x_vec);
   pp.addarr("amr.max_grid_size_y", max_grid_size_y_vec);
   pp.addarr("amr.max_grid_size_z", max_grid_size_z_vec);
@@ -231,8 +228,9 @@ int InitGH(cGH *restrict cctkGH) {
     const int ierr = MultiPatch_GetSystemSpecification(&num_patches);
     assert(!ierr);
   }
-  for (int patch = 0; patch < num_patches; ++patch)
-    add_patch(patch_t{patch});
+  for (const patch_t patch :
+       index_range<patch_t>(patch_t{0}, patch_t{num_patches}))
+    add_patch(patch);
 
   return 0;
 }

@@ -141,17 +141,16 @@ void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
 amrex::BoxArray CactusAmrCore::RechopLevel(const level_t recovered_level,
                                            amrex::BoxArray ba) const {
   assert(recovered_level.patch() == patch);
-  const int level = recovered_level.index();
-  if (level == 0)
+  if (recovered_level.index() == 0)
     return MakeBaseGrids();
 
   amrex::BoxList bl = ba.boxList();
   while (bl.simplify())
     ;
   ba = amrex::BoxArray(std::move(bl));
-  ba.maxSize(maxGridSize(level));
+  ba.maxSize(maxGridSize(recovered_level.index()));
   if (refine_grid_layout)
-    ChopGrids(level, ba, amrex::ParallelDescriptor::NProcs());
+    ChopGrids(recovered_level.index(), ba, amrex::ParallelDescriptor::NProcs());
   return ba;
 }
 

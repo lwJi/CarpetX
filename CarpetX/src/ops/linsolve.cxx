@@ -21,7 +21,7 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
                    CCTK_REAL *restrict const res_final) {
   const bool have_res = gi_res.has_value();
   const tl_t tl{0};
-  const int vi = 0;
+  const vi_t vi{0};
 
   // Create operator
 
@@ -32,10 +32,10 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
   amrex::Vector<amrex::Geometry> geoms(patchdata.num_levels());
   amrex::Vector<amrex::BoxArray> grids(patchdata.num_levels());
   amrex::Vector<amrex::DistributionMapping> dmaps(patchdata.num_levels());
-  for (int level = 0; level < patchdata.num_levels(); ++level) {
-    geoms.at(level) = patchdata.amrcore->Geom(level);
-    grids.at(level) = patchdata.amrcore->boxArray(level);
-    dmaps.at(level) = patchdata.amrcore->DistributionMap(level);
+  for (const level_t level : patchdata.level_handles()) {
+    geoms.at(level.index()) = patchdata.amrcore->Geom(level.index());
+    grids.at(level.index()) = patchdata.amrcore->boxArray(level.index());
+    dmaps.at(level.index()) = patchdata.amrcore->DistributionMap(level.index());
   }
 
   amrex::MLNodeLaplacian mlnodelaplacian(geoms, grids, dmaps);
@@ -48,12 +48,12 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
        amrex::LinOpBCType::Dirichlet});
 
   std::vector<amrex::MultiFab> sigmas(patchdata.num_levels());
-  for (int level = 0; level < patchdata.num_levels(); ++level) {
-    auto &sigma = sigmas.at(level);
-    sigma.define(patchdata.amrcore->boxArray(level),
-                 patchdata.amrcore->DistributionMap(level), 1, 0);
+  for (const level_t level : patchdata.level_handles()) {
+    auto &sigma = sigmas.at(level.index());
+    sigma.define(patchdata.amrcore->boxArray(level.index()),
+                 patchdata.amrcore->DistributionMap(level.index()), 1, 0);
     sigma.setVal(1.0);
-    mlnodelaplacian.setSigma(level, sigma);
+    mlnodelaplacian.setSigma(level.index(), sigma);
   }
 
   mlnodelaplacian.setVerbose(10);
@@ -65,15 +65,15 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
   amrex::Vector<amrex::MultiFab *> ress(patchdata.num_levels());
   amrex::Vector<amrex::MultiFab *> sols(patchdata.num_levels());
   amrex::Vector<const amrex::MultiFab *> rhss(patchdata.num_levels());
-  for (int level = 0; level < patchdata.num_levels(); ++level) {
-    const auto &restrict leveldata = patchdata.level(level_t{patch, level});
+  for (const level_t level : patchdata.level_handles()) {
+    const auto &restrict leveldata = patchdata.level(level);
     const auto &restrict groupdata_rhs = leveldata.group(gi_rhs);
-    rhss.at(level) = groupdata_rhs.timelevel(tl).mfab.get();
+    rhss.at(level.index()) = groupdata_rhs.timelevel(tl).mfab.get();
     const auto &restrict groupdata_sol = leveldata.group(gi_sol);
-    sols.at(level) = groupdata_sol.timelevel(tl).mfab.get();
+    sols.at(level.index()) = groupdata_sol.timelevel(tl).mfab.get();
     if (have_res) {
       const auto &restrict groupdata_res = leveldata.group(*gi_res);
-      ress.at(level) = groupdata_res.timelevel(tl).mfab.get();
+      ress.at(level.index()) = groupdata_res.timelevel(tl).mfab.get();
     }
   }
 
@@ -85,9 +85,10 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
   if (have_res) {
     mlmg.compResidual(ress, sols, rhss);
     *res_initial = 0;
-    for (int level = 0; level < patchdata.num_levels(); ++level)
+    for (const level_t level : patchdata.level_handles())
       *res_initial =
-          fmax(*res_initial, ress.at(level)->norminf(vi, 0, false, true));
+          fmax(*res_initial,
+               ress.at(level.index())->norminf(vi.index(), 0, false, true));
   } else {
     *res_initial = NAN;
   }
@@ -95,16 +96,20 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
 #pragma omp critical
   {
     CCTK_VINFO("Before solving:");
-    for (int level = 0; level < patchdata.num_levels(); ++level)
-      CCTK_VINFO("norm_inf rhs[%d]: %g", level,
-                 double(rhss.at(level)->norminf(vi, 0, false, true)));
-    for (int level = 0; level < patchdata.num_levels(); ++level)
-      CCTK_VINFO("norm_inf sol[%d]: %g", level,
-                 double(sols.at(level)->norminf(vi, 0, false, true)));
+    for (const level_t level : patchdata.level_handles())
+      CCTK_VINFO(
+          "norm_inf rhs[%d]: %g", level.index(),
+          double(rhss.at(level.index())->norminf(vi.index(), 0, false, true)));
+    for (const level_t level : patchdata.level_handles())
+      CCTK_VINFO(
+          "norm_inf sol[%d]: %g", level.index(),
+          double(sols.at(level.index())->norminf(vi.index(), 0, false, true)));
     if (have_res)
-      for (int level = 0; level < patchdata.num_levels(); ++level)
-        CCTK_VINFO("norm_inf res[%d]: %g", level,
-                   double(ress.at(level)->norminf(vi, 0, false, true)));
+      for (const level_t level : patchdata.level_handles())
+        CCTK_VINFO(
+            "norm_inf res[%d]: %g", level.index(),
+            double(
+                ress.at(level.index())->norminf(vi.index(), 0, false, true)));
   }
 
   const CCTK_REAL maxerr = mlmg.solve(sols, rhss, reltol, abstol);
@@ -114,9 +119,10 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
   if (have_res) {
     mlmg.compResidual(ress, sols, rhss);
     *res_final = 0;
-    for (int level = 0; level < patchdata.num_levels(); ++level)
+    for (const level_t level : patchdata.level_handles())
       *res_final =
-          fmax(*res_final, ress.at(level)->norminf(vi, 0, false, true));
+          fmax(*res_final,
+               ress.at(level.index())->norminf(vi.index(), 0, false, true));
   } else {
     *res_final = NAN;
   }
@@ -124,16 +130,20 @@ void solve_poisson(const gi_t gi_sol, const gi_t gi_rhs,
 #pragma omp critical
   {
     CCTK_VINFO("After solving:");
-    for (int level = 0; level < patchdata.num_levels(); ++level)
-      CCTK_VINFO("norm_inf rhs[%d]: %g", level,
-                 double(rhss.at(level)->norminf(vi, 0, false, true)));
-    for (int level = 0; level < patchdata.num_levels(); ++level)
-      CCTK_VINFO("norm_inf sol[%d]: %g", level,
-                 double(sols.at(level)->norminf(vi, 0, false, true)));
+    for (const level_t level : patchdata.level_handles())
+      CCTK_VINFO(
+          "norm_inf rhs[%d]: %g", level.index(),
+          double(rhss.at(level.index())->norminf(vi.index(), 0, false, true)));
+    for (const level_t level : patchdata.level_handles())
+      CCTK_VINFO(
+          "norm_inf sol[%d]: %g", level.index(),
+          double(sols.at(level.index())->norminf(vi.index(), 0, false, true)));
     if (have_res)
-      for (int level = 0; level < patchdata.num_levels(); ++level)
-        CCTK_VINFO("norm_inf res[%d]: %g", level,
-                   double(ress.at(level)->norminf(vi, 0, false, true)));
+      for (const level_t level : patchdata.level_handles())
+        CCTK_VINFO(
+            "norm_inf res[%d]: %g", level.index(),
+            double(
+                ress.at(level.index())->norminf(vi.index(), 0, false, true)));
   }
 }
 
