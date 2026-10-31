@@ -147,7 +147,7 @@ class Validity(unittest.TestCase):
             "x.reset_all(true);\n",
         ]:
             with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/hierarchy/hierarchy.cxx", text), [])
+                self.assertEqual(reported("CarpetX/src/hierarchy/hierarchy.cxx", "  " + text), [])
 
     def test_a_longer_name_is_not_a_kernel(self):
         for text in ["check_valid_gfs(a);\n", "my_error_if_invalid(a);\n", "error_if_invalid_x(a);\n", "int error_if_invalid;\n"]:
@@ -164,9 +164,9 @@ class Validity(unittest.TestCase):
 
 class Directions(unittest.TestCase):
     FORWARDED = (
-        "int SyncGroupsByDirI(const window_t window,\n"
-        "                     const cGH *restrict cctkGH, int numgroups,\n"
-        "                     const int *groups, const int *directions);\n"
+        "  int SyncGroupsByDirI(const window_t window,\n"
+        "                       const cGH *restrict cctkGH, int numgroups,\n"
+        "                       const int *groups, const int *directions);\n"
     )
     FLESH_OVERLOAD = (
         "int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,\n"
@@ -262,6 +262,65 @@ class VarIndex(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/schedule/evolve.cxx", text, Lang.CXX), [Finding(2, "varindex", self.ADDITIONS[0])])
 
 
+class Model(unittest.TestCase):
+    MODEL = "CarpetX/src/hierarchy/driver.hxx"
+    LEAKS = [
+        "mutable std::array<std::unique_ptr<amrex::MultiFab>, dim> face_area;",
+        "mutable std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;",
+        "mutable std::atomic<bool> rk_config_read{false};",
+        "auto next = [n]() mutable { return ++n; };",
+        "#include <carpetx_rk.hxx>",
+        "# include  <carpetx_rk.hxx>",
+    ]
+
+    def test_a_mutable_or_the_integrator_header_is_reported_in_the_data_model(self):
+        for line in self.LEAKS:
+            with self.subTest(line=line):
+                self.assertEqual(reported(self.MODEL, "  " + line + "\n"), [("model", line)])
+
+    def test_a_quoted_integrator_header_is_reported_under_model_and_layer(self):
+        line = '#include "carpetx_rk.hxx"'
+        self.assertEqual(reported(self.MODEL, line + "\n"), [("model", line), ("layer", line)])
+
+    def test_another_file_may_say_either(self):
+        for line in self.LEAKS:
+            for name in [
+                "CarpetX/src/hierarchy/group_tags.hxx",
+                "CarpetX/src/hierarchy/hierarchy.cxx",
+                "CarpetX/src/comm/buffers.hxx",
+                "CarpetX/src/traversal/traversal.hxx",
+                "CarpetX/src/include/carpetx.hxx",
+                "ODESolvers/src/hierarchy/driver.hxx",
+            ]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [])
+
+    def test_a_longer_name_is_not_the_keyword_or_the_header(self):
+        text = (
+            "GHExt &mutable_driver();\n"
+            "const bool immutable = true;\n"
+            "struct mutable_t;\n"
+            "#include <carpetx.hxx>\n"
+            "#include <carpetx_rk_extra.hxx>\n"
+            "#include <ODESolvers/carpetx_rk.hxx>\n"
+            "using rk_config = carpetx_rk::config;\n"
+        )
+        self.assertEqual(reported(self.MODEL, text), [])
+
+    def test_a_comment_naming_the_keyword_is_reported_and_one_naming_the_header_is_not(self):
+        line = "// the bands are no longer mutable"
+        self.assertEqual(reported(self.MODEL, line + "\n"), [("model", line)])
+        self.assertEqual(reported(self.MODEL, "// group_tags.hxx includes <carpetx_rk.hxx>\n"), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported(self.MODEL, "X = mutable\n", Lang.MAKE), [])
+        self.assertEqual(reported("CarpetX/src/hierarchy/make.code.defn", "X = mutable\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "#include <carpetx.hxx>\n\n" + self.LEAKS[4] + "\n"
+        self.assertEqual(findings(self.MODEL, text, Lang.CXX), [Finding(3, "model", self.LEAKS[4])])
+
+
 class Window(unittest.TestCase):
     USES = [
         "struct active_levels_t;",
@@ -344,7 +403,7 @@ class Traversal(unittest.TestCase):
             "routine_scope_t routine_scope(attribute);\n",
         ]:
             with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", text), [])
+                self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", "  " + text), [])
 
     def test_only_c_and_cxx_files_are_checked(self):
         self.assertEqual(reported("CarpetX/src/make.code.defn", "X = active_levels\n", Lang.MAKE), [])
@@ -373,6 +432,35 @@ class Traversal(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/io/io.cxx", text), [])
 
+    def test_the_integrator_is_a_slot(self):
+        for line in [
+            "std::optional<rk_config_t> integrator_config;",
+            "integrator_config = config;",
+            "return integrator_config->nstages();",
+            "std::atomic<bool> integrator_sealed{false};",
+            "if (integrator_sealed) return;",
+            "integrator_sealed.store(true, std::memory_order_relaxed);",
+        ]:
+            for name in ["CarpetX/src/api/api_rk.cxx", "CarpetX/src/hierarchy/group_tags.cxx", "CarpetX/src/hierarchy/driver.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("traversal", line)])
+            for name in ["CarpetX/src/traversal/traversal.cxx", "CarpetX/src/traversal/traversal.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_the_integrator_readers_are_not_the_slot(self):
+        for text in [
+            "record_integrator(config);\n",
+            "const std::optional<rk_config_t> &config = integrator();\n",
+            "const std::optional<rk_config_t> &integrator = CarpetX::integrator();\n",
+            "return integrator && integrator->is_integrated(gi);\n",
+            "my_integrator_config = 1;\n",
+            "bool integrator_sealed_early;\n",
+        ]:
+            for name in ["CarpetX/src/api/api_rk.cxx", "CarpetX/src/hierarchy/group_tags.cxx"]:
+                with self.subTest(name=name, text=text):
+                    self.assertEqual(reported(name, text), [])
+
 
 class Index(unittest.TestCase):
     BARE = [
@@ -383,6 +471,8 @@ class Index(unittest.TestCase):
         "valid_t valid(group_t group, tl_t tl, int vi);",
         "void prolongate_ghosts(window_t window, std::span<const gi_t> groups, int tl = -1);",
         "int min_patch, max_patch;",
+        "CCTK_INT GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size);",
+        "void solve(CCTK_INT gi, CCTK_INT tl);",
     ]
 
     def test_index_reported(self):
@@ -443,10 +533,18 @@ class Index(unittest.TestCase):
             [("index", "int num_levels(int patch);")],
         )
 
-    def test_index_only_in_carpetx_headers_and_the_bound_sources(self):
-        for name in ["CarpetX/src/schedule/evolve.cxx", "CarpetX/src/ops/reduction.cxx", "CarpetX/src/hierarchy/hierarchy.cxx", "ODESolvers/src/solve.hxx", "TestCarpetXAPI/src/api_test.cxx"]:
+    def test_index_in_every_carpetx_file_and_no_other(self):
+        for layer in LAYERS:
+            for name in [layer_path(layer, "x.cxx"), layer_path(layer, "x.hxx")]:
+                with self.subTest(name=name):
+                    self.assertEqual(reported(name, "  " + self.BARE[0] + "\n"), [("index", self.BARE[0])])
+        for name in ["CarpetX/src/internal.hxx", "CarpetX/src/include/carpetx_rk.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.BARE[0] + "\n"), [("index", self.BARE[0])])
+        for name in ["ODESolvers/src/solve.hxx", "TestCarpetXAPI/src/api_test.cxx"]:
             with self.subTest(name=name):
                 self.assertEqual(reported(name, self.BARE[0] + "\n"), [])
+        self.assertEqual(reported("CarpetX/src/io/make.code.defn", "X = int level\n", Lang.MAKE), [])
 
     COUNTED = [
         "for (int gi = 0; gi < numgroups; ++gi) {",
@@ -454,36 +552,48 @@ class Index(unittest.TestCase):
         "for (int vi = 0; vi < record.numvars; ++vi)",
         "std::string make_varname(int gi, int vi, level_t level) {",
         "num_components(int patch, int level) const {",
+        "for (int level = 0; level < patchdata.num_levels(); ++level) {",
+        "for (int patch = 0; patch < ext.num_patches(); ++patch) {",
+        "CCTK_INT level = 0;",
     ]
 
-    def test_an_io_source_is_judged_like_a_header(self):
-        self.assertEqual(rules.INDEX_SOURCE_LAYERS, ("io",))
+    def test_a_source_in_every_layer_is_judged_like_a_header(self):
         for line in self.COUNTED:
-            for name in ["CarpetX/src/io/io_tsv.cxx", "CarpetX/src/io/io.cxx", "CarpetX/src/io/io_silo_checkpoint.cxx"]:
+            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/ops/linsolve.cxx", "CarpetX/src/ops/reduction.cxx", "CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_tsv.cxx", "CarpetX/src/hierarchy/loops.cxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("index", line)])
-            with self.subTest(name="ops", line=line):
-                self.assertEqual(reported("CarpetX/src/ops/reduction.cxx", "  " + line + "\n"), [])
 
-    def test_the_handles_pass_in_an_io_source(self):
+    def test_the_handles_pass_in_a_source(self):
         text = (
             "for (const GroupRecord &record : selection.records(group_kind::grid_function)) {\n"
             "  for (const vi_t vi : record.variables())\n"
             "    names.at(vi.index()) = CCTK_FullVarName(record.var(vi).index());\n"
             "}\n"
             "const level_t level = leveldata.level;\n"
+            "for (const level_t level : patchdata.level_handles()) {\n"
+            "  geoms.at(level.index()) = patchdata.amrcore->Geom(level.index());\n"
+            "}\n"
+            "for (const patch_t patch : ext.patch_handles())\n"
+            "  containers.at(patch.index());\n"
             "for (int lev = 0; lev < max_levels; ++lev) {\n"
             "}\n"
         )
-        self.assertEqual(reported("CarpetX/src/io/io.cxx", text), [])
+        for name in ["CarpetX/src/io/io.cxx", "CarpetX/src/ops/linsolve.cxx", "CarpetX/src/schedule/evolve.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, text), [])
 
     FIXED_DEFINITIONS = [
+        ("CarpetX/src/api/api.cxx", "window_t window_t::levels(const int min_level, const int max_level,\n                          const std::source_location site) {\n"),
+        ("CarpetX/src/api/api.cxx", "window_t window_t::narrow(const int min_level, const int max_level,\n                          const std::source_location site) const {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int GroupStorageIncrease(const cGH *cctkGH, int gi, const int *tls) {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int GroupStorageDecrease(const cGH *cctkGH, int gi, const int *tls) {\n"),
         ("CarpetX/src/flesh/startup.cxx", "const int *ArrayGroupSizeB(const cGH *cctkGH, int dir, int gi,\n                           const char *groupname) {\n"),
-        ("CarpetX/src/flesh/startup.cxx", "int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data);\n"),
+        ("CarpetX/src/flesh/startup.cxx", "int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {\n"),
+        ("CarpetX/src/flesh/aliased.cxx", "extern \"C\" CCTK_INT\nCarpetX_GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size,\n                               CCTK_REAL *restrict const spacing) {\n"),
+        ("CarpetX/src/flesh/aliased.cxx", "extern \"C\" CCTK_INT CarpetX_GetBoundarySizesAndTypes(\n    const void *const cctkGH_, const CCTK_INT patch, const CCTK_INT size,\n    CCTK_INT *restrict const is_physbnd) {\n"),
         ("CarpetX/src/comm/sync_restrict.cxx", "int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,\n                             const int gi) {\n"),
+        ("CarpetX/src/hierarchy/group_tags.cxx", "    const int ierr = CCTK_TraverseString(\n        var_set_string,\n        [](const int vi, const char *const optstring, void *argptr) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,\n                             const amrex::Real time, const int ngrow) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::MakeNewLevelFromScratch(\n    const int level, const amrex::Real time, const amrex::BoxArray &ba,\n    const amrex::DistributionMapping &dm) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::MakeNewLevelFromCoarse(\n    const int level, const amrex::Real time, const amrex::BoxArray &ba,\n    const amrex::DistributionMapping &dm) {\n"),
@@ -503,34 +613,29 @@ class Index(unittest.TestCase):
             with self.subTest(name=name, text=text):
                 self.assertTrue(self.bare_lines(text), "a case without a bare index int tests no exemption")
 
-    def test_a_flesh_or_amrex_fixed_definition_passes_once_its_layer_is_bound(self):
-        with mock.patch.object(rules, "INDEX_SOURCE_LAYERS", LAYERS):
-            for name, text in self.FIXED_DEFINITIONS:
-                with self.subTest(name=name, text=text):
-                    self.assertEqual(reported(name, text), [])
-                    self.assertEqual(reported(name, "  const int level = leveldata.level.index();\n"), [("index", "const int level = leveldata.level.index();")])
+    def test_a_flesh_or_amrex_fixed_definition_passes(self):
         for name, text in self.FIXED_DEFINITIONS:
-            with self.subTest(name=name, text=text, bound=False):
+            with self.subTest(name=name, text=text):
                 self.assertEqual(reported(name, text), [])
+                self.assertEqual(reported(name, "  const int level = leveldata.level.index();\n"), [("index", "const int level = leveldata.level.index();")])
 
     def test_the_exemption_ends_with_the_fixed_signature(self):
         text = "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {\n  for (int level = 0; level < 2; ++level)\n"
-        with mock.patch.object(rules, "INDEX_SOURCE_LAYERS", LAYERS):
-            self.assertEqual(reported("CarpetX/src/schedule/storage.cxx", text), [("index", "for (int level = 0; level < 2; ++level)")])
+        self.assertEqual(reported("CarpetX/src/schedule/storage.cxx", text), [("index", "for (int level = 0; level < 2; ++level)")])
+        text = "window_t window_t::levels(const int min_level, const int max_level) {\n  const int patch = 0;\n"
+        self.assertEqual(reported("CarpetX/src/api/api.cxx", text), [("index", "const int patch = 0;")])
 
     def test_a_fixed_definition_passes_only_in_its_own_file(self):
-        with mock.patch.object(rules, "INDEX_SOURCE_LAYERS", LAYERS):
-            for name, text in self.FIXED_DEFINITIONS:
-                for other in ["CarpetX/src/io/io.cxx", "CarpetX/src/api/api.cxx", "CarpetX/src/hierarchy/hierarchy.cxx"]:
-                    with self.subTest(name=name, other=other):
-                        self.assertEqual(reported(other, text), self.bare_lines(text))
+        for name, text in self.FIXED_DEFINITIONS:
+            for other in ["CarpetX/src/io/io.cxx", "CarpetX/src/ops/linsolve.cxx", "CarpetX/src/hierarchy/hierarchy.cxx"]:
+                with self.subTest(name=name, other=other):
+                    self.assertEqual(reported(other, text), self.bare_lines(text))
 
-    def test_a_source_layer_joins_by_its_tuple_entry(self):
-        line = "for (int patch = 0; patch < num_patches; ++patch)"
-        self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", line + "\n"), [])
-        with mock.patch.object(rules, "INDEX_SOURCE_LAYERS", ("io", "schedule")):
-            self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", line + "\n"), [("index", line)])
-            self.assertEqual(reported("CarpetX/src/api/api.cxx", line + "\n"), [])
+    def test_cctk_int_is_an_int(self):
+        for line in ["const CCTK_INT patch = patches.at(n);", "CCTK_INT gi;", "void f(const CCTK_INT level);"]:
+            for name in ["CarpetX/src/ops/interpolate.cxx", "CarpetX/src/ops/interp.hxx", "CarpetX/src/flesh/startup.cxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("index", line)])
 
     def test_other_ints_are_not_indices(self):
         for text in [
@@ -540,13 +645,18 @@ class Index(unittest.TestCase):
             "int index() const;\n",
             "int min_level_, max_level_;\n",
             "void f(level_t level, gi_t gi, tl_t tl, vi_t vi, patch_t patch);\n",
+            "const CCTK_INT nvars, const CCTK_INT *restrict const varinds,\n",
+            "extern \"C\" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,\n",
+            "CCTK_INT num_patches = 1;\n",
+            "MY_CCTK_INT level;\n",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", text), [])
 
     def test_line_numbers(self):
-        text = "int a;\n\n" + self.BARE[0] + "\n"
+        text = "int a;\n\n  " + self.BARE[0] + "\n"
         self.assertEqual(findings("CarpetX/src/comm/subcycling.hxx", text, Lang.CXX), [Finding(3, "index", self.BARE[0])])
+        self.assertEqual(findings("CarpetX/src/comm/subcycling.cxx", text, Lang.CXX), [Finding(3, "index", self.BARE[0])])
 
 
 class Records(unittest.TestCase):
@@ -606,7 +716,7 @@ class Records(unittest.TestCase):
             "cGroupDynamicData data;\n",
         ]:
             with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/io/io_meta.cxx", text), [])
+                self.assertEqual(reported("CarpetX/src/io/io_meta.cxx", "  " + text), [])
 
     def test_other_thorns_public_headers_and_make_files_are_not_checked(self):
         self.assertEqual(reported("ODESolvers/src/solve.cxx", self.READS[0] + "\n"), [])
@@ -793,6 +903,60 @@ class Door(unittest.TestCase):
         text = "int a;\n" + self.CALLS[0] + "\n"
         self.assertEqual(findings("CarpetX/src/util/refuse.cxx", text, Lang.CXX), [Finding(2, "door", self.CALLS[0])])
 
+    MUTABLE_CALLS = [
+        "GHExt &ext = mutable_driver();",
+        "auto &leveldata = mutable_driver().level(leveldata.level);",
+        "mutable_driver ( ).record(gi).array().rotate_timelevels();",
+        "GHExt &mutable_driver();",
+        "// mutable_driver() is the write side",
+    ]
+
+    def test_the_hierarchy_calls_mutable_driver(self):
+        for line in self.MUTABLE_CALLS:
+            for name in [
+                "CarpetX/src/hierarchy/hierarchy.cxx",
+                "CarpetX/src/hierarchy/valid.cxx",
+                "CarpetX/src/hierarchy/operations.hxx",
+                layer_path("hierarchy", "x.cxx"),
+            ]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [])
+
+    def test_mutable_driver_is_reported_outside_the_hierarchy(self):
+        for line in self.MUTABLE_CALLS:
+            for name in [layer_path(layer, "x.cxx") for layer in LAYERS if layer != "hierarchy"] + [
+                "CarpetX/src/comm/subcycling.cxx",
+                "CarpetX/src/io/checkpoint.cxx",
+                "CarpetX/src/schedule/evolve.cxx",
+                "CarpetX/src/api/api.cxx",
+                "CarpetX/src/regrid/regrid.cxx",
+                "CarpetX/src/hierarchy/sub/x.cxx",
+                "CarpetX/src/internal.hxx",
+            ]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("door", line)])
+
+    def test_another_thorn_and_the_public_headers_may_call_mutable_driver(self):
+        for name in ["ODESolvers/src/solve.cxx", "CarpetX/src/include/carpetx.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.MUTABLE_CALLS[0] + "\n"), [])
+
+    def test_a_longer_name_or_an_argument_is_not_mutable_driver(self):
+        for text in [
+            "my_mutable_driver();\n",
+            "mutable_driver_handle();\n",
+            "mutable_drivers().clear();\n",
+            "auto *door = &mutable_driver;\n",
+            "mutable_driver(level);\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/comm/subcycling.cxx", text), [])
+
+    def test_a_line_naming_both_doors_is_one_finding(self):
+        line = "assert(&driver() == &mutable_driver());"
+        self.assertEqual(reported("CarpetX/src/comm/subcycling.cxx", line + "\n"), [("door", line)])
+        self.assertEqual(reported("CarpetX/src/hierarchy/hierarchy.cxx", line + "\n"), [])
+
 
 class Layer(unittest.TestCase):
     def test_a_file_includes_its_own_layer_and_the_layers_below_it(self):
@@ -879,6 +1043,230 @@ class Layer(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/comm/sync_restrict.cxx", text, Lang.CXX), [Finding(3, "layer", '#include "schedule/schedule.hxx"')])
 
 
+class Prototype(unittest.TestCase):
+    PROTOTYPES = [
+        "void ShutdownADIOS2();",
+        "int InitGH(cGH *cctkGH);",
+        "void *SetupGH(tFleshConfig *fc, int convLevel, cGH *cctkGH);",
+        "const int *ArrayGroupSizeB(const cGH *cctkGH, int dir, const char *groupname);",
+        'extern "C" int CarpetX_Startup();',
+        "inline void advance(const GHExt &ext) ;",
+        "template <class T> void apply(const T &x);",
+        "template  <class T> void apply(const T &x);",
+        "bool operator==(const valid_t &a, const valid_t &b);",
+        "std::ostream &operator<<(std::ostream &os, valid_t v);",
+    ]
+
+    def test_a_column_0_prototype_is_reported(self):
+        for line in self.PROTOTYPES:
+            for name in [layer_path(layer, "x.cxx") for layer in LAYERS] + ["CarpetX/src/flesh/startup.cxx", "CarpetX/src/extra/x.cxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("prototype", line)])
+
+    def test_a_wrapped_prototype_is_reported_on_its_last_line(self):
+        text = "int ScheduleTraverseGH(cGH *cctkGH,\n                       const char *where);\n"
+        self.assertEqual(findings("CarpetX/src/flesh/startup.cxx", text, Lang.CXX), [Finding(2, "prototype", "const char *where);")])
+        text = (
+            "int a;\n"
+            'extern "C" CCTK_INT CarpetX_InterpGridArrays(\n'
+            "    cGH const *const cctkGH, int const N_dims,\n"
+            "    void *const output_arrays[]);\n"
+        )
+        self.assertEqual(findings("CarpetX/src/flesh/startup.cxx", text, Lang.CXX), [Finding(4, "prototype", "void *const output_arrays[]);")])
+
+    def test_what_precedes_it_on_lines_of_no_code_does_not_hide_it(self):
+        for before in [
+            "\n",
+            "\n\n",
+            "#ifdef HAVE_CAPABILITY_ADIOS2\n",
+            "#include <cctk.h>\n\n",
+            "////////////////////////////////////////////////////////////////////////////////\n\n",
+            "// the shutdown of the ADIOS2 writer\n",
+            "  // an indented comment\n",
+        ]:
+            with self.subTest(before=before):
+                text = "} // namespace\n" + before + "void ShutdownADIOS2();\n"
+                self.assertEqual(reported("CarpetX/src/flesh/startup.cxx", text), [("prototype", "void ShutdownADIOS2();")])
+
+    def test_a_static_forward_declaration_or_a_static_assert_is_not(self):
+        text = (
+            "static void restrict_level(const GHExt::PatchData::LevelData &coarse,\n"
+            "                           const GHExt::PatchData::LevelData &fine);\n"
+            "static int counter(const cGH *cctkGH);\n"
+            "static_assert(record_takes<gi_t>);\n"
+            "static_assert(\n"
+            "    !loop_parallel_takes<std::function<void(GHExt::PatchData::LevelData &)>>);\n"
+            "\n"
+            "static_assert(std::is_same_v<decltype(driver()), const GHExt &>);\n"
+        )
+        for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/flesh/compile_checks.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, text), [])
+
+    def test_an_explicit_instantiation_is_not(self):
+        text = (
+            "template void BoundaryCondition::apply_on_face<NEG, NEG, INT>();\n"
+            "template void prolongate<2>(const amrex::MultiFab &src, amrex::MultiFab &dst);\n"
+            "extern template void prolongate<3>(const amrex::MultiFab &src,\n"
+            "                                   amrex::MultiFab &dst);\n"
+        )
+        self.assertEqual(reported("CarpetX/src/comm/boundaries_impl_neg_neg_int.cxx", text), [])
+
+    def test_a_definition_is_not(self):
+        text = (
+            "void ShutdownIO() {\n"
+            "  ShutdownADIOS2();\n"
+            "  ShutdownOpenPMD();\n"
+            "}\n"
+            "void ShutdownADIOS2() {}\n"
+            "int Barrier(const cGH *restrict cctkGH) { return 0; }\n"
+            "const int *ArrayGroupSizeB(const cGH *cctkGH, int dir,\n"
+            "                           const char *groupname) {\n"
+            "  return nullptr;\n"
+            "}\n"
+        )
+        for name in ["CarpetX/src/io/io.cxx", "CarpetX/src/flesh/startup.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, text), [])
+
+    def test_an_indented_call_or_member_is_not(self):
+        text = (
+            'extern "C" int CarpetX_Shutdown() {\n'
+            "  ShutdownIO();\n"
+            '  CCTK_VINFO("Shutdown");\n'
+            "  destroy_hierarchy();\n"
+            "}\n"
+            "struct carpetx_adios2_t {\n"
+            "  void OutputADIOS2(const cGH *cctkGH);\n"
+            "private:\n"
+            "  void flush(const cGH *cctkGH);\n"
+            "protected:\n"
+            "  static void reset();\n"
+            "};\n"
+        )
+        self.assertEqual(reported("CarpetX/src/io/io_adios2.cxx", text), [])
+
+    def test_a_call_or_an_assignment_at_column_0_is_not(self):
+        for text in [
+            "refuse(site, msg);\n",
+            "amrex::Finalize(pamrex);\n",
+            "CCTK_FILEVERSION(CarpetX_flesh_startup_cxx);\n",
+            "x = f(1);\n",
+            "const GHExt &ext = driver();\n",
+            "containers.at(patch.index());\n",
+            "p->rotate_timelevels(tl);\n",
+            "yaml << YAML::LocalTag(tag);\n",
+            "return integrator && integrator->is_integrated(gi);\n",
+            "return f(x);\n",
+            "else g(x);\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/flesh/startup.cxx", text), [])
+
+    def test_a_preprocessor_or_comment_line_is_not_a_declaration(self):
+        text = "#define CHECK(x) assert(x);\n// then ShutdownADIOS2();\n#define CALL(f) \\\n  f(x);\n"
+        self.assertEqual(reported("CarpetX/src/flesh/startup.cxx", text), [])
+
+    def test_a_header_another_thorn_and_a_make_file_are_not_checked(self):
+        line = self.PROTOTYPES[0] + "\n"
+        for name in [
+            "CarpetX/src/io/io_adios2.hxx",
+            "CarpetX/src/io/io.hxx",
+            "CarpetX/src/util/typeprops.hh",
+            "CarpetX/src/internal.hxx",
+            "CarpetX/src/include/carpetx.hxx",
+            "ODESolvers/src/solve.cxx",
+            "TestCarpetXAPI/src/api_test.cxx",
+        ]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, line), [])
+        self.assertEqual(reported("CarpetX/src/io/make.code.defn", "X = f();\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n\n" + self.PROTOTYPES[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/flesh/startup.cxx", text, Lang.CXX), [Finding(3, "prototype", self.PROTOTYPES[0])])
+
+
+class Using(unittest.TestCase):
+    DIRECTIVES = [
+        "using namespace Arith;",
+        "using namespace Loop;",
+        "using namespace boundaries_detail;",
+        "using namespace CarpetX;",
+        "using  namespace\tamrex::detail;",
+        "using namespace std::literals;",
+    ]
+    HEADERS = [layer_path(layer, "x.hxx") for layer in LAYERS] + [
+        "CarpetX/src/hierarchy/driver.hxx",
+        "CarpetX/src/hierarchy/valid.hxx",
+        "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx",
+        "CarpetX/src/internal.hxx",
+        "CarpetX/src/util/typeprops.hh",
+        "CarpetX/src/extra/x.hxx",
+    ]
+    PUBLIC_HEADERS = ["CarpetX/src/include/carpetx.hxx", "CarpetX/src/include/carpetx_rk.hxx"]
+
+    def test_a_directive_in_a_private_header_is_reported(self):
+        for name in self.HEADERS:
+            for line in self.DIRECTIVES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("using", line)])
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("using", line)])
+
+    def test_a_directive_in_a_public_header_is_reported_too(self):
+        for name in self.PUBLIC_HEADERS:
+            for line in self.DIRECTIVES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("using", line)])
+
+    def test_a_directive_inside_a_function_of_a_header_is_reported(self):
+        text = "inline void f() {\n  using namespace Arith;\n  g(vect<int, dim>());\n}\n"
+        self.assertEqual(reported("CarpetX/src/comm/boundaries.hxx", text), [("using", "using namespace Arith;")])
+
+    def test_a_using_declaration_or_an_alias_is_not(self):
+        text = (
+            "using Loop::dim;\n"
+            "using Arith::pown;\n"
+            "using Arith::vect;\n"
+            "  using std::copysign, std::fabs, std::fmin;\n"
+            "  using index_t::index_t;\n"
+            "  using Fs::operator()...;\n"
+            "using rat64 = Arith::rational<std::int64_t>;\n"
+            "using level_range = index_range<level_t>;\n"
+            "namespace detail = boundaries_detail;\n"
+        )
+        for name in ["CarpetX/src/hierarchy/driver.hxx", "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx"] + self.PUBLIC_HEADERS:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, text), [])
+
+    def test_a_directive_in_a_source_is_not(self):
+        for name in ["CarpetX/src/comm/fillpatch.cxx", "CarpetX/src/ops/interpolate.cxx", "CarpetX/src/flesh/startup.cxx"]:
+            for line in self.DIRECTIVES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_a_longer_name_a_comment_or_a_string_is_not(self):
+        text = (
+            "using namespaces_t = std::vector<std::string>;\n"
+            "using namespace_t = int;\n"
+            "// using namespace Arith; would reach every includer\n"
+            '#define USING "using namespace Arith;"\n'
+            '  CCTK_VINFO("using namespace %s", name);\n'
+            "namespace CarpetX {\n"
+        )
+        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", text), [])
+
+    def test_another_thorn_and_a_make_file_are_not_checked(self):
+        for name in ["Loop/src/loop.hxx", "Arith/src/vect.hxx", "TestCarpetXAPI/src/api_test.hxx", "ODESolvers/src/hierarchy/driver.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.DIRECTIVES[0] + "\n"), [])
+        self.assertEqual(reported("CarpetX/src/hierarchy/make.code.defn", self.DIRECTIVES[0] + "\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = '#include "internal.hxx"\n\nnamespace CarpetX {\n' + self.DIRECTIVES[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/ops/reduction.hxx", text, Lang.CXX), [Finding(4, "using", self.DIRECTIVES[0])])
+
+
 class Layers(unittest.TestCase):
     def test_a_file_directly_in_a_layer_directory_is_in_that_layer(self):
         for layer in LAYERS:
@@ -923,7 +1311,7 @@ class Layers(unittest.TestCase):
         named = (
             rules.VALIDITY_FILES
             + rules.TRAVERSAL_FILES
-            + (rules.DOOR_FILE, rules.RECORD_VAR_FILE, MAKE_DEFN)
+            + (rules.DOOR_FILE, rules.RECORD_VAR_FILE, rules.MODEL_FILE, MAKE_DEFN)
             + rules.SYNC_FILES
             + tuple(rules.INDEX_FIXED)
             + rules.CODEC_FILES
@@ -1044,11 +1432,14 @@ class Report(unittest.TestCase):
             render([]),
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
             "no validity call outside valid.cxx, no directions in the sync layer, "
-            "no firstvarindex addition outside GroupRecord::var, no active_levels_t, "
+            "no firstvarindex addition outside GroupRecord::var, "
+            "no mutable or integrator include in the data model, no active_levels_t, "
             "no active_levels outside traversal.cxx, "
-            "no bare index int in a CarpetX header or io/ source, no group-table call in io/, "
+            "no bare index int in CarpetX, no group-table call in io/, "
             "no hierarchy access in a checkpoint codec, "
             "every internal include at or below its own layer, "
+            "no prototype in a CarpetX .cxx, "
+            "no using-directive in a CarpetX header, "
             "and the hierarchy has one door that util/ and traversal/ never use",
         )
 
@@ -1066,20 +1457,24 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([c, d, d]), "✗ boundary: 1 validity call outside valid.cxx, 2 directions parameters in the sync layer")
         self.assertEqual(summary([e]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var")
         self.assertEqual(summary([d, e, e]), "✗ boundary: 1 directions parameter in the sync layer, 2 firstvarindex additions outside GroupRecord::var")
+        m = ("CarpetX/src/hierarchy/driver.hxx", Finding(4, "model", "mutable std::unique_ptr<amrex::MultiFab> cell_volume;"))
+        self.assertEqual(summary([m]), "✗ boundary: 1 mutable or integrator include in the data model")
+        self.assertEqual(summary([m, e, m]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 mutable or integrator includes in the data model")
         w = ("CarpetX/src/schedule/schedule.hxx", Finding(3, "window", "struct active_levels_t;"))
         i = ("CarpetX/src/comm/subcycling.hxx", Finding(4, "index", "void EnsureRKBuffers(int patch, int level, gi_t gi);"))
         self.assertEqual(summary([w]), "✗ boundary: 1 active_levels_t use")
-        self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in a CarpetX header or io/ source")
-        self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in a CarpetX header or io/ source")
+        self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in CarpetX")
+        self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in CarpetX")
+        self.assertEqual(summary([w, m]), "✗ boundary: 1 mutable or integrator include in the data model, 1 active_levels_t use")
         t = ("CarpetX/src/schedule/evolve.cxx", Finding(9, "traversal", "active_levels = std::nullopt;"))
         self.assertEqual(summary([t]), "✗ boundary: 1 traversal use outside traversal.cxx")
-        self.assertEqual(summary([w, t, t, i]), "✗ boundary: 1 active_levels_t use, 2 traversal uses outside traversal.cxx, 1 bare index int in a CarpetX header or io/ source")
+        self.assertEqual(summary([w, t, t, i]), "✗ boundary: 1 active_levels_t use, 2 traversal uses outside traversal.cxx, 1 bare index int in CarpetX")
         r = ("CarpetX/src/io/io_tsv.cxx", Finding(6, "records", "for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {}"))
         self.assertEqual(summary([r]), "✗ boundary: 1 group-table call in io/")
-        self.assertEqual(summary([r, i, r]), "✗ boundary: 1 bare index int in a CarpetX header or io/ source, 2 group-table calls in io/")
+        self.assertEqual(summary([r, i, r]), "✗ boundary: 1 bare index int in CarpetX, 2 group-table calls in io/")
         k = ("CarpetX/src/io/io_openpmd_checkpoint.cxx", Finding(5, "codec", "for (const auto &patchdata : ghext->patches()) {"))
         self.assertEqual(summary([k]), "✗ boundary: 1 hierarchy use in a checkpoint codec")
-        self.assertEqual(summary([i, k, k]), "✗ boundary: 1 bare index int in a CarpetX header or io/ source, 2 hierarchy uses in a checkpoint codec")
+        self.assertEqual(summary([i, k, k]), "✗ boundary: 1 bare index int in CarpetX, 2 hierarchy uses in a checkpoint codec")
         self.assertEqual(summary([k, r]), "✗ boundary: 1 group-table call in io/, 1 hierarchy use in a checkpoint codec")
         g = ("CarpetX/src/schedule/evolve.cxx", Finding(12, "door", "for (auto &p : ghext->patches())"))
         self.assertEqual(summary([g]), "✗ boundary: 1 hierarchy use the door does not allow")
@@ -1087,6 +1482,12 @@ class Report(unittest.TestCase):
         y = ("CarpetX/src/comm/sync_restrict.cxx", Finding(3, "layer", '#include "schedule/schedule.hxx"'))
         self.assertEqual(summary([y]), "✗ boundary: 1 include outside the layer order")
         self.assertEqual(summary([g, y, y, k]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 includes outside the layer order, 1 hierarchy use the door does not allow")
+        p = ("CarpetX/src/flesh/startup.cxx", Finding(36, "prototype", "int InitGH(cGH *cctkGH);"))
+        self.assertEqual(summary([p]), "✗ boundary: 1 prototype in a CarpetX .cxx")
+        self.assertEqual(summary([g, p, y, p]), "✗ boundary: 1 include outside the layer order, 2 prototypes in a CarpetX .cxx, 1 hierarchy use the door does not allow")
+        u = ("CarpetX/src/hierarchy/driver.hxx", Finding(43, "using", "using namespace Arith;"))
+        self.assertEqual(summary([u]), "✗ boundary: 1 using-directive in a CarpetX header")
+        self.assertEqual(summary([g, u, p, u]), "✗ boundary: 1 prototype in a CarpetX .cxx, 2 using-directives in a CarpetX header, 1 hierarchy use the door does not allow")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
@@ -1126,7 +1527,7 @@ COUNTED_DENIAL = [
     f"CarpetX/src/io/io_tsv.cxx:5   index      {COUNTED_LOOP}",
     f"CarpetX/src/io/io_tsv.cxx:5   records    {COUNTED_LOOP}",
 ]
-COUNTED_SUMMARY = "✗ boundary: 1 bare index int in a CarpetX header or io/ source, 1 group-table call in io/"
+COUNTED_SUMMARY = "✗ boundary: 1 bare index int in CarpetX, 1 group-table call in io/"
 UPWARD_PLANT = ('#include "hierarchy/driver.hxx"\n', '#include "hierarchy/driver.hxx"\n#include "schedule/schedule.hxx"\n')
 UPWARD_DENIAL = 'CarpetX/src/comm/sync_restrict.cxx:3   layer      #include "schedule/schedule.hxx"'
 BARE_PLANT = ("namespace CarpetX {\n", '#include "driver.hxx"\n\nnamespace CarpetX {\n')
@@ -1307,17 +1708,19 @@ class Doc(unittest.TestCase):
         self.assertEqual([line.split("[")[0].strip() for line in nodoor], list(reversed(rules.UNDER_HIERARCHY)))
 
     def test_a_stack_node_names_the_rules_at_home_in_its_layer(self):
-        self.assertEqual(doc.node("io", (), rules=True), '  io["io/ index, records, codec"]')
-        self.assertEqual(doc.node("hierarchy", (), rules=True), '  hierarchy["hierarchy/ validity, varindex"]')
+        self.assertEqual(doc.node("io", (), rules=True), '  io["io/ records, codec"]')
+        self.assertEqual(doc.node("hierarchy", (), rules=True), '  hierarchy["hierarchy/ validity, varindex, model"]')
+        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "varindex", "model"])
         self.assertEqual(doc.node("flesh", ("regrid", "flesh"), rules=True), '  flesh["flesh/ no header"]')
         self.assertEqual(doc.node("ops", ("regrid", "flesh"), rules=True), '  ops["ops/"]')
         self.assertEqual(doc.node("io", ()), '  io["io/"]')
-        self.assertEqual(doc.rules_of("io"), ["index", "records", "codec"])
+        self.assertEqual(doc.rules_of("io"), ["records", "codec"])
         self.assertEqual(doc.rules_of("ops"), [])
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "directions", "varindex", "traversal", "index", "records", "codec"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "directions", "varindex", "model", "traversal", "records", "codec"])
+        self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.CODEC_FILES + rules.SYNC_FILES), ("io", "comm"))
         with self.assertRaises(AssertionError):
@@ -1331,6 +1734,10 @@ class Doc(unittest.TestCase):
                     self.assertTrue(doc.declares_and_defines(PROJECT, low, high, name))
                     self.assertIn(f'  {low} -. "', doc.stack())
         self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "io", "CactusAmrCore"))
+        self.assertIn(("hierarchy", "comm"), [(low, high) for low, high, names in doc.LINK_TIME if "make_level_buffers" in names])
+        self.assertTrue(doc.declares_and_defines(PROJECT, "hierarchy", "comm", "make_level_buffers"))
+        self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "regrid", "make_level_buffers"))
+        self.assertIn('  hierarchy -. "apply_boundary_conditions, get_interpolator, make_level_buffers" .-> comm', doc.stack())
 
     def test_the_includes_are_read_from_the_tree_above_the_base(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1372,7 +1779,7 @@ class Doc(unittest.TestCase):
                 self.assertIn('ops["ops/ no header"]', drawn)
                 self.assertIn('comm["comm/', drawn)
                 self.assertNotIn('comm["comm/ no header"]', drawn)
-            self.assertIn('    io["io/ index, records, codec"]', doc.stack(root))
+            self.assertIn('    io["io/ records, codec"]', doc.stack(root))
             for name in ("Core", "Est", "tags_of"):
                 with self.subTest(name=name):
                     self.assertTrue(doc.declares_and_defines(root, "hierarchy", "regrid", name))

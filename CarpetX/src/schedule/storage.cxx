@@ -1,5 +1,6 @@
 #include "schedule/schedule.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/operations.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -20,8 +21,7 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
   assert(n_groups >= 0);
   assert(groups);
   assert(requested_tls);
-  GHExt &ext = driver();
-  assert(int(ext.active_timelevels.size()) == CCTK_NumGroups());
+  const GHExt &ext = driver();
 
   for (int n = 0; n < n_groups; ++n) {
     if (groups[n] < 0 or groups[n] >= CCTK_NumGroups()) {
@@ -51,7 +51,7 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
     if (ntls > declared_tls)
       ntls = declared_tls;
 
-    const int previous = ext.active_timelevels.at(gid);
+    const int previous = ext.active_timelevels(gi);
     if (status)
       status[n] = previous;
 
@@ -60,18 +60,9 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
       continue;
     }
 
-    if (!ext.storage_frozen) {
-      ext.active_timelevels.at(gid) = ntls;
-    } else if (ntls != previous) {
-      CCTK_VWARN(CCTK_WARN_ALERT,
-                 "Attempting to %s storage for group '%s' from %d to %d "
-                 "timelevels after the STORAGE registry has been frozen; "
-                 "ignoring",
-                 inc ? "increase" : "decrease", CCTK_FullGroupName(gid),
-                 previous, ntls);
-    }
+    record_storage(gi, ntls);
 
-    const int current = ext.active_timelevels.at(gid);
+    const int current = ext.active_timelevels(gi);
     min_num_timelevels = std::min(min_num_timelevels, current);
   }
   if (min_num_timelevels == INT_MAX)

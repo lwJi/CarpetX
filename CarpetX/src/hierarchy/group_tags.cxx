@@ -1,6 +1,7 @@
 #include "hierarchy/group_tags.hxx"
 
 #include "hierarchy/driver.hxx"
+#include "traversal/traversal.hxx"
 
 #include <cctk_Parameters.h>
 #include <util_Table.h>
@@ -188,19 +189,19 @@ std::array<std::array<boundary_t, dim>, 2> get_group_boundaries(const gi_t gi) {
                                            const int dir, const int face,
                                            const boundary_t boundary) {
     struct arg_t {
-      const int gi;
+      const gi_t gi;
       const std::array<std::array<bool, dim>, 2> &is_symmetry;
       std::array<std::array<boundary_t, dim>, 2> &boundaries;
       const int dir, face;
       const boundary_t boundary;
-    } arg{gi.index(), is_symmetry, boundaries, dir, face, boundary};
+    } arg{gi, is_symmetry, boundaries, dir, face, boundary};
     const int ierr = CCTK_TraverseString(
         var_set_string,
         [](const int vi, const char *const optstring, void *argptr) {
           auto &arg = *static_cast<arg_t *>(argptr);
           if (arg.is_symmetry[arg.face][arg.dir])
             return;
-          if (CCTK_GroupIndexFromVarI(vi) == arg.gi)
+          if (gi_t{CCTK_GroupIndexFromVarI(vi)} == arg.gi)
             arg.boundaries[arg.face][arg.dir] = arg.boundary;
         },
         &arg, CCTK_GROUP);
@@ -387,17 +388,17 @@ std::optional<std::array<gi_t, dim> > get_group_fluxes(const gi_t gi) {
 
 bool group_is_integrated(const gi_t gi) {
   assert(gi.index() >= 0 && gi.index() < CCTK_NumGroups());
-  const std::optional<rk_config_t> &integrator = driver().rk();
+  const std::optional<rk_config_t> &integrator = CarpetX::integrator();
   return integrator && integrator->is_integrated(gi);
 }
 
 int num_rk_stages() {
-  const std::optional<rk_config_t> &integrator = driver().rk();
+  const std::optional<rk_config_t> &integrator = CarpetX::integrator();
   return integrator ? integrator->nstages() : max_num_rk_stages;
 }
 
 rk_dense_output_t registered_dense_output() {
-  const std::optional<rk_config_t> &integrator = driver().rk();
+  const std::optional<rk_config_t> &integrator = CarpetX::integrator();
   return integrator ? integrator->dense_output : rk_dense_output_t::none;
 }
 
@@ -410,7 +411,7 @@ bool group_has_flux_register(const gi_t gi) {
 void warn_inert_flux_tags() {
   DECLARE_CCTK_PARAMETERS;
   const GHExt &ext = driver();
-  const std::optional<rk_config_t> &integrator = ext.rk();
+  const std::optional<rk_config_t> &integrator = CarpetX::integrator();
   if (max_num_levels <= 1)
     return;
   if (CCTK_MyProc(nullptr) != 0)
@@ -523,10 +524,10 @@ std::vector<CCTK_REAL> get_group_robin_values(const gi_t gi) {
   return robin_values;
 }
 
-std::string get_group_prolongation_type(const int gi) {
+std::string get_group_prolongation_type(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
-  assert(gi >= 0);
-  const int tags = CCTK_GroupTagsTableI(gi);
+  assert(gi.index() >= 0);
+  const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   std::vector<char> group_prolongation_type_buf(1000);
   const int iret = Util_TableGetString(tags, group_prolongation_type_buf.size(),
@@ -539,10 +540,10 @@ std::string get_group_prolongation_type(const int gi) {
   return group_prolongation_type;
 }
 
-int get_group_prolongation_order(const int gi) {
+int get_group_prolongation_order(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
-  assert(gi >= 0);
-  const int tags = CCTK_GroupTagsTableI(gi);
+  assert(gi.index() >= 0);
+  const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   CCTK_INT group_prolongation_order;
   int iret =
@@ -562,9 +563,9 @@ get_interpolator(const GHExt::PatchData::LevelData::GroupData &groupdata) {
   DECLARE_CCTK_PARAMETERS;
 
   const std::string group_prolongation_type =
-      get_group_prolongation_type(groupdata.record.groupindex.index());
+      get_group_prolongation_type(groupdata.record.groupindex);
   const int group_prolongation_order =
-      get_group_prolongation_order(groupdata.record.groupindex.index());
+      get_group_prolongation_order(groupdata.record.groupindex);
   const std::array<int, dim> &group_indextype = groupdata.indextype;
 
   return get_interpolator(group_prolongation_type, group_prolongation_order,

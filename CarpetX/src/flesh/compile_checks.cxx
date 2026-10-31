@@ -1,6 +1,7 @@
 #include "io/checkpoint.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
+#include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
 #include "comm/comm.hxx"
 #include "hierarchy/valid.hxx"
@@ -12,6 +13,7 @@
 #include <span>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace CarpetX {
 namespace {
@@ -62,8 +64,9 @@ concept accumulate_fluxes_takes = requires(Args... args) {
   AccumulateFluxes(args...);
 };
 
-template <class... Args> concept rk_source_band_takes = requires(Args... args) {
-  rk_source_band(args...);
+template <class... Args>
+concept checkpoint_bands_takes = requires(Args... args) {
+  checkpoint_bands(args...);
 };
 
 template <class... Args>
@@ -101,32 +104,34 @@ concept array_timelevel_takes =
 };
 
 template <class... Args>
-concept sync_by_dir_takes =
-    requires(window_t window, const cGH *cctkGH, Args... args) {
-  SyncGroupsByDirI(window, cctkGH, args...);
+concept sync_by_dir_takes = requires(Args... args) {
+  SyncGroupsByDirI(args...);
 };
 
 template <class... Args>
-concept ghost_only_takes =
-    requires(window_t window, const cGH *cctkGH, std::span<const gi_t> groups,
-             Args... args) {
-  SyncGroupsByDirIGhostOnly(window, cctkGH, groups, args...);
+concept ghost_only_takes = requires(Args... args) {
+  SyncGroupsByDirIGhostOnly(args...);
 };
 
 template <class... Args>
-concept restrict_takes = requires(const cGH *cctkGH, Args... args) {
-  Restrict(cctkGH, args...);
+concept restrict_takes = requires(Args... args) {
+  Restrict(args...);
 };
 
 template <class... Args>
-concept restrict_no_poison_takes = requires(const cGH *cctkGH, Args... args) {
-  RestrictNoPoison(cctkGH, args...);
+concept restrict_no_poison_takes = requires(Args... args) {
+  RestrictNoPoison(args...);
 };
 
 template <class... Args>
-concept reflux_takes = requires(const cGH *cctkGH, Args... args) {
-  Reflux(cctkGH, args...);
+concept reflux_takes = requires(Args... args) {
+  Reflux(args...);
 };
+
+using comm_groups_entry_t = void(window_t, std::span<const gi_t>);
+using comm_timelevels_entry_t = void(window_t, std::span<const gi_t>,
+                                     timelevels_t);
+using flesh_sync_overload_t = int(const cGH *, int, const int *, const int *);
 
 template <class... Args>
 concept window_is_restricted_takes = requires(Args... args) {
@@ -175,6 +180,56 @@ concept grid_ptr_takes =
   grid.ptr(vars, vi);
 };
 
+template <class Ext>
+concept assigns_use_subcycling = requires(Ext & ext) {
+  ext.use_subcycling = true;
+};
+
+template <class Ext>
+concept assigns_do_reflux = requires(Ext & ext) {
+  ext.do_reflux = true;
+};
+
+template <class Ext>
+concept assigns_active_timelevels = requires(Ext & ext, gi_t gi) {
+  ext.active_timelevels(gi) = 0;
+};
+
+template <class Ext>
+concept assigns_active_timelevels_field = requires(Ext & ext) {
+  ext.active_timelevels_.at(0) = 0;
+};
+
+template <class Ext>
+concept assigns_storage_frozen = requires(Ext & ext) {
+  ext.storage_frozen = true;
+};
+
+template <class Core>
+concept assigns_cactus_is_initialized = requires(Core & core) {
+  core.cactus_is_initialized = true;
+};
+
+template <class Core>
+concept assigns_level_modified = requires(Core & core) {
+  core.level_modified.at(0) = true;
+};
+
+template <class Core>
+concept marks_level_modified = requires(Core & core, level_t level) {
+  core.mark_level_modified(level);
+};
+
+template <class Ext>
+concept regrids_amrcore = requires(Ext & ext, patch_t patch) {
+  ext.patch(patch).amrcore->regrid(0, 0.0);
+};
+
+template <class Ext>
+concept marks_amrcore_initialized = requires(Ext & ext, patch_t patch) {
+  ext.patch(patch).amrcore->mark_initialized();
+};
+
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
 
@@ -202,13 +257,17 @@ static_assert(!ensure_rk_buffers_takes<int, int, gi_t>);
 static_assert(accumulate_fluxes_takes<level_t, int, CCTK_REAL>);
 static_assert(!accumulate_fluxes_takes<int, int, int, CCTK_REAL>);
 
-static_assert(rk_source_band_takes<level_t, gi_t, band_kind>);
-static_assert(!rk_source_band_takes<int, int, gi_t, band_kind>);
+static_assert(checkpoint_bands_takes<level_t, gi_t>);
+static_assert(!checkpoint_bands_takes<int, int, gi_t>);
+static_assert(!checkpoint_bands_takes<level_t, int>);
 
 static_assert(finer_behind_takes<level_t>);
 static_assert(!finer_behind_takes<int, int>);
 
-static_assert(loop_parallel_takes<std::function<void(
+static_assert(
+    loop_parallel_takes<std::function<void(const GHExt::PatchData::LevelData &,
+                                           int, int, const cGH *)> >);
+static_assert(!loop_parallel_takes<std::function<void(
                   GHExt::PatchData::LevelData &, int, int, const cGH *)> >);
 static_assert(!loop_parallel_takes<
               std::function<void(int, int, int, int, const cGH *)> >);
@@ -216,6 +275,8 @@ static_assert(
     !loop_parallel_takes<std::function<void(level_t, int, int, const cGH *)> >);
 
 static_assert(loop_fine_to_coarse_takes<
+              std::function<void(const GHExt::PatchData::LevelData &)> >);
+static_assert(!loop_fine_to_coarse_takes<
               std::function<void(GHExt::PatchData::LevelData &)> >);
 static_assert(!loop_fine_to_coarse_takes<std::function<void(level_t)> >);
 
@@ -230,24 +291,50 @@ static_assert(array_timelevel_takes<tl_t>);
 static_assert(!array_timelevel_takes<gi_t>);
 static_assert(!array_timelevel_takes<int>);
 
-static_assert(sync_by_dir_takes<std::span<const gi_t> >);
-static_assert(!sync_by_dir_takes<int, const int *, const int *>);
+static_assert(sync_by_dir_takes<window_t, std::span<const gi_t> >);
+static_assert(
+    !sync_by_dir_takes<window_t, const cGH *, std::span<const gi_t> >);
+static_assert(!sync_by_dir_takes<const cGH *, int, const int *, const int *>);
 
 static_assert(restrict_takes<window_t, std::span<const gi_t> >);
+static_assert(!restrict_takes<const cGH *, window_t, std::span<const gi_t> >);
 static_assert(!restrict_takes<int, int, std::span<const gi_t> >);
 static_assert(restrict_no_poison_takes<window_t, std::span<const gi_t> >);
+static_assert(
+    !restrict_no_poison_takes<const cGH *, window_t, std::span<const gi_t> >);
 static_assert(!restrict_no_poison_takes<int, int, std::span<const gi_t> >);
 static_assert(reflux_takes<window_t>);
+static_assert(!reflux_takes<const cGH *, window_t>);
 static_assert(!reflux_takes<int, int>);
 static_assert(window_is_restricted_takes<window_t>);
 static_assert(!window_is_restricted_takes<int, int>);
 static_assert(require_takes<window_t>);
 static_assert(!require_takes<level_t>);
 
-static_assert(ghost_only_takes<timelevels_t>);
-static_assert(!ghost_only_takes<>);
-static_assert(!ghost_only_takes<tl_t>);
-static_assert(!ghost_only_takes<int>);
+static_assert(ghost_only_takes<window_t, std::span<const gi_t>, timelevels_t>);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t> >);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, tl_t>);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, int>);
+static_assert(!ghost_only_takes<window_t, const cGH *, std::span<const gi_t>,
+                                timelevels_t>);
+
+static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
+static_assert(
+    std::is_same_v<decltype(ProlongateAfterRestriction), void(window_t)>);
+static_assert(std::is_same_v<decltype(RestrictNoPoison), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirI), comm_groups_entry_t>);
+static_assert(
+    std::is_same_v<decltype(SyncGroupsByDirISubcycling), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroups), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnly),
+                             comm_timelevels_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnlyAligned),
+                             comm_timelevels_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirIGhostOnly),
+                             comm_timelevels_entry_t>);
+static_assert(std::is_same_v<decltype(Reflux), void(window_t)>);
+static_assert(
+    std::is_same_v<decltype(SyncGroupsOnActiveLevels), flesh_sync_overload_t>);
 
 static_assert(write_spec_names<gi_t, tl_t>);
 static_assert(!write_spec_names<tl_t, gi_t>);
@@ -307,6 +394,52 @@ static_assert(
     std::is_same_v<decltype(*std::declval<tl_range>().begin()), tl_t>);
 static_assert(tl_range{tl_t{0}, tl_t{2}}.contains(tl_t{1}));
 static_assert(!tl_range{tl_t{0}, tl_t{2}}.contains(tl_t{2}));
+
+static_assert(std::is_same_v<decltype(std::declval<const GHExt::PatchData &>()
+                                          .level_handles()),
+                             level_range>);
+static_assert(
+    std::is_same_v<decltype(*std::declval<level_range>().begin()), level_t>);
+static_assert(next_index(level_t{patch_t{0}, 0}) == level_t{patch_t{0}, 1});
+static_assert(level_range{level_t{patch_t{1}, 0}, level_t{patch_t{1}, 2}}
+                  .contains(level_t{patch_t{1}, 1}));
+static_assert(!level_range{level_t{patch_t{1}, 0}, level_t{patch_t{1}, 2}}
+                   .contains(level_t{patch_t{0}, 1}));
+static_assert(std::is_same_v<
+              decltype(std::declval<const GHExt &>().patch_handles()),
+              index_range<patch_t> >);
+static_assert(next_index(patch_t{0}) == patch_t{1});
+
+static_assert(std::is_same_v<decltype(GHExt::use_subcycling), const bool>);
+static_assert(std::is_same_v<decltype(GHExt::do_reflux), const bool>);
+static_assert(!assigns_use_subcycling<GHExt>);
+static_assert(!assigns_do_reflux<GHExt>);
+static_assert(!std::is_default_constructible_v<GHExt>);
+
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().active_timelevels(
+                       std::declval<gi_t>())),
+                   int>);
+static_assert(!assigns_active_timelevels<GHExt>);
+static_assert(!assigns_active_timelevels_field<GHExt>);
+static_assert(!assigns_storage_frozen<GHExt>);
+
+static_assert(std::is_same_v<
+              decltype(std::declval<const CactusAmrCore &>().modified_levels()),
+              const std::vector<bool> &>);
+static_assert(std::is_same_v<
+              decltype(std::declval<const CactusAmrCore &>().is_initialized()),
+              bool>);
+static_assert(!assigns_cactus_is_initialized<CactusAmrCore>);
+static_assert(!assigns_level_modified<CactusAmrCore>);
+static_assert(!marks_level_modified<CactusAmrCore>);
+
+static_assert(std::is_same_v<decltype(driver()), const GHExt &>);
+static_assert(regrids_amrcore<GHExt>);
+static_assert(!regrids_amrcore<std::remove_reference_t<decltype(driver())> >);
+static_assert(marks_amrcore_initialized<GHExt>);
+static_assert(
+    !marks_amrcore_initialized<std::remove_reference_t<decltype(driver())> >);
 
 } // namespace
 } // namespace CarpetX

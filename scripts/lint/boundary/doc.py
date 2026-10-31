@@ -11,7 +11,7 @@ MAP = "agent_docs/carpetx-internals.md"
 WRITES = "python3 scripts/lint doc --write rewrites this"
 LINK_TIME = (
     ("hierarchy", "regrid", ("CactusAmrCore",)),
-    ("hierarchy", "comm", ("apply_boundary_conditions", "get_interpolator")),
+    ("hierarchy", "comm", ("apply_boundary_conditions", "get_interpolator", "make_level_buffers")),
 )
 BASE_LAYERS = below("hierarchy")
 DEFINITION = r"\b(?:[\w:]+::)?{name}(?:::~?\w+)?\s*\([^;{{}}]*\)[^;{{}}]*\{{"

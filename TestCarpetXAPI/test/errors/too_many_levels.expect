@@ -1,0 +1,1 @@
+CarpetX::max_num_levels is 21, but CarpetX::max_grid_sizes_x, max_grid_sizes_y and max_grid_sizes_z have 20 entries

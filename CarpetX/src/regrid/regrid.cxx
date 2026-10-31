@@ -1,5 +1,6 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/operations.hxx"
 #include "comm/fillpatch.hxx"
 #include <loop_device.hxx>
 
@@ -11,6 +12,9 @@
 #include <sstream>
 
 namespace CarpetX {
+
+using Loop::GF3D1;
+using Loop::where_t;
 
 CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox *rb,
                              int max_level_in,
@@ -30,12 +34,30 @@ CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox &rb,
 
 CactusAmrCore::~CactusAmrCore() {}
 
+void CactusAmrCore::mark_initialized() { cactus_is_initialized = true; }
+
+bool CactusAmrCore::is_initialized() const { return cactus_is_initialized; }
+
+void CactusAmrCore::reset_level_modified(const int num_levels) {
+  assert(num_levels >= 0);
+  level_modified.assign(num_levels, false);
+}
+
+const std::vector<bool> &CactusAmrCore::modified_levels() const {
+  return level_modified;
+}
+
+void CactusAmrCore::mark_level_modified(const level_t level) {
+  assert(level.patch() == patch);
+  level_modified.at(level.index()) = true;
+}
+
 void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
                              const amrex::Real time, const int ngrow) {
   DECLARE_CCTK_PARAMETERS;
   const level_t level{patch, lev};
 
-  if (!cactus_is_initialized)
+  if (!is_initialized())
     return;
 
   if (verbose)
@@ -107,11 +129,11 @@ void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
 #pragma omp critical
     CCTK_VINFO("SetupLevel patch %d level %d", patch.index(), lev);
 
-  driver().patch(patch).add_level(level, ba, dm, why);
+  add_level(level, ba, dm, why);
 
   if (lev >= int(level_modified.size()))
     level_modified.resize(lev + 1, true);
-  level_modified.at(lev) = true;
+  mark_level_modified(level);
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 
   if (verbose)
@@ -122,17 +144,16 @@ void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
 amrex::BoxArray CactusAmrCore::RechopLevel(const level_t recovered_level,
                                            amrex::BoxArray ba) const {
   assert(recovered_level.patch() == patch);
-  const int level = recovered_level.index();
-  if (level == 0)
+  if (recovered_level.index() == 0)
     return MakeBaseGrids();
 
   amrex::BoxList bl = ba.boxList();
   while (bl.simplify())
     ;
   ba = amrex::BoxArray(std::move(bl));
-  ba.maxSize(maxGridSize(level));
+  ba.maxSize(maxGridSize(recovered_level.index()));
   if (refine_grid_layout)
-    ChopGrids(level, ba, amrex::ParallelDescriptor::NProcs());
+    ChopGrids(recovered_level.index(), ba, amrex::ParallelDescriptor::NProcs());
   return ba;
 }
 
@@ -209,10 +230,10 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 
   SetupLevel(level, ba, dm, []() { return "MakeNewLevelFromCoarse"; });
 
-  auto &patchdata = driver().patch(patch);
-  auto &leveldata = patchdata.level(level);
+  const auto &patchdata = driver().patch(patch);
+  const auto &leveldata = patchdata.level(level);
   const level_t coarse = level.parent();
-  auto &coarseleveldata = patchdata.level(coarse);
+  const auto &coarseleveldata = patchdata.level(coarse);
   const window_t fine_levels = window_t::one_level(level);
   const window_t coarse_levels = window_t::one_level(coarse);
 
@@ -295,11 +316,11 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
 #pragma omp critical
     CCTK_VINFO("RemakeLevel patch %d level %d", patch.index(), lev);
 
-  auto &patchdata = driver().patch(patch);
-  auto &leveldata = patchdata.level(level);
+  const auto &patchdata = driver().patch(patch);
+  const auto &leveldata = patchdata.level(level);
   assert(lev > 0);
   const level_t coarse = level.parent();
-  auto &coarseleveldata = patchdata.level(coarse);
+  const auto &coarseleveldata = patchdata.level(coarse);
   const window_t fine_levels = window_t::one_level(level);
   const window_t coarse_levels = window_t::one_level(coarse);
 
@@ -342,25 +363,19 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
     }
   }
 
-  const amrex::IntVect nghostzones = {
-      ghost_size >= 0 ? ghost_size : ghost_size_x,
-      ghost_size >= 0 ? ghost_size : ghost_size_y,
-      ghost_size >= 0 ? ghost_size : ghost_size_z};
-  leveldata.fab = std::make_unique<amrex::FabArrayBase>(ba, dm, 1, nghostzones);
   assert(ba.ixType() == amrex::IndexType(amrex::IndexType::CELL,
                                          amrex::IndexType::CELL,
                                          amrex::IndexType::CELL));
 
   assert(leveldata.iteration == coarseleveldata.iteration);
 
-  GHExt::PatchData::LevelData oldleveldata = patchdata.replace_level(
-      level, GHExt::PatchData::LevelData(level, ba, dm,
-                                         []() { return "RemakeLevel"; }));
+  const GHExt::PatchData::LevelData oldleveldata =
+      remake_level(level, ba, dm, []() { return "RemakeLevel"; });
 
-  for (auto &groupdata : leveldata.groups()) {
+  for (const auto &groupdata : leveldata.groups()) {
     const gi_t gi = groupdata.record.groupindex;
-    auto &oldgroupdata = oldleveldata.group(gi);
-    auto &coarsegroupdata = coarseleveldata.group(gi);
+    const auto &oldgroupdata = oldleveldata.group(gi);
+    const auto &coarsegroupdata = coarseleveldata.group(gi);
     assert(&coarsegroupdata.record == &groupdata.record);
     amrex::Interpolater *const interpolator = groupdata.interpolator;
 
@@ -396,7 +411,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
     }
   }
 
-  level_modified.at(lev) = true;
+  mark_level_modified(level);
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 
   if (verbose)
@@ -411,7 +426,7 @@ void CactusAmrCore::ClearLevel(const int lev) {
   if (verbose)
 #pragma omp critical
     CCTK_VINFO("ClearLevel patch %d level %d", patch.index(), lev);
-  driver().patch(patch).erase_levels_from(level);
+  erase_levels_from(level);
 
   level_modified.resize(lev);
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);

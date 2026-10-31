@@ -32,6 +32,9 @@ static inline int omp_get_thread_num() { return 0; }
 
 namespace CarpetX {
 
+using Arith::pown;
+using Arith::vect;
+
 namespace {
 // TODO: Move this function to loop.hxx
 template <typename F>

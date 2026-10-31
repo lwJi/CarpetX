@@ -1,5 +1,6 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/operations.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/valid.hxx"
 #include "util/var_type.hxx"
@@ -23,6 +24,9 @@
 #include <vector>
 
 namespace CarpetX {
+
+using Arith::vect;
+using Loop::where_t;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -277,7 +281,8 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
 
   struct info_t {
     where_t where;
-    int patch, level, component;
+    level_t level;
+    int component;
     vect<int, dim> I;
     vect<CCTK_REAL, dim> X;
     CCTK_REAL val;
@@ -315,8 +320,8 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
       nan_xmax[1] = fmax(nan_xmax[1], p.y);
       nan_xmax[2] = fmax(nan_xmax[2], p.z);
 
-      infos.push_back(
-          info_t{where, p.patch, p.level, p.component, p.I, p.X, gf(p.I)});
+      infos.push_back(info_t{where, level_t{patch_t{p.patch}, p.level},
+                             p.component, p.I, p.X, gf(p.I)});
     };
 
     if (where.valid_int)
@@ -346,13 +351,13 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
              double(nan_xmax[2]), where.explanation().c_str());
 
   std::sort(infos.begin(), infos.end(), [](const info_t &a, const info_t &b) {
-    if (a.level < b.level)
+    if (a.level.index() < b.level.index())
       return true;
-    if (a.level > b.level)
+    if (a.level.index() > b.level.index())
       return false;
-    if (a.patch < b.patch)
+    if (a.level.patch() < b.level.patch())
       return true;
-    if (a.patch > b.patch)
+    if (a.level.patch() > b.level.patch())
       return false;
     if (a.component < b.component)
       return true;
@@ -366,9 +371,9 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
   buf << std::setprecision(std::numeric_limits<CCTK_REAL>::digits10 + 1);
   for (const auto &info : infos)
     buf << "\n"
-        << info.where << " level " << info.level << " patch " << info.patch
-        << " component " << info.component << " " << info.I << " " << info.X
-        << " " << info.val;
+        << info.where << " level " << info.level.index() << " patch "
+        << info.level.patch().index() << " component " << info.component << " "
+        << info.I << " " << info.X << " " << info.val;
   CCTK_WARN(CCTK_WARN_ALERT, buf.str().c_str());
 
   CCTK_VERROR("%s: Grid function \"%s\" contains nans, infinities, or poison; "
@@ -434,7 +439,7 @@ void poison_invalid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_arrays || !where.valid_int)
     return;
-  poison_ga_interior(driver().record(gi).array(), vi, tl);
+  poison_ga_interior(mutable_driver().record(gi).array(), vi, tl);
 }
 
 void check_valid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
@@ -488,9 +493,11 @@ write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
   const auto not_filled =
       event_reason(this->spec.event, " not filled", iteration);
   const std::vector<vi_t> vis = variables_of(this->spec.gi, this->spec.vi);
-  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
-    GroupData::timelevel_t &timelevel =
-        leveldata.group(this->spec.gi).timelevel(this->spec.tl);
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
+    GroupData::timelevel_t &timelevel = mutable_driver()
+                                            .level(leveldata.level)
+                                            .group(this->spec.gi)
+                                            .timelevel(this->spec.tl);
     ++timelevel.open_writes;
     for (const vi_t vi : vis)
       timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
@@ -536,9 +543,11 @@ write_scope_t::~write_scope_t() {
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
   for (const vi_t vi : vis)
     check_valid_gf(window, spec.gi, vi, spec.tl, spec.fills, msg);
-  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
-    GroupData::timelevel_t &timelevel =
-        leveldata.group(spec.gi).timelevel(spec.tl);
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
+    GroupData::timelevel_t &timelevel = mutable_driver()
+                                            .level(leveldata.level)
+                                            .group(spec.gi)
+                                            .timelevel(spec.tl);
     for (const vi_t vi : vis)
       timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);
     --timelevel.open_writes;
@@ -548,7 +557,7 @@ write_scope_t::~write_scope_t() {
 void require(const window_t window, require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
-  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     const GroupData &groupdata = leveldata.group(spec.gi);
     for (const vi_t vi : vis)
       error_if_invalid(groupdata, vi, spec.tl, spec.where, msg, spec.hint);
@@ -560,7 +569,7 @@ void require(const window_t window, require_spec_t spec) {
 void warn(const window_t window, require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
-  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     const GroupData &groupdata = leveldata.group(spec.gi);
     for (const vi_t vi : vis)
       warn_if_invalid(groupdata, vi, spec.tl, spec.where, msg);
@@ -573,7 +582,7 @@ array_write_scope_t::array_write_scope_t(write_spec_t spec, const int iteration)
   const auto not_filled =
       event_reason(this->spec.event, " not filled", iteration);
   ArrayGroupData::timelevel_t &timelevel =
-      driver().record(this->spec.gi).array().timelevel(this->spec.tl);
+      mutable_driver().record(this->spec.gi).array().timelevel(this->spec.tl);
   for (const vi_t vi : variables_of(this->spec.gi, this->spec.vi)) {
     timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
     poison_invalid_ga(this->spec.gi, vi, this->spec.tl, destroys);
@@ -607,7 +616,7 @@ array_write_scope_t::~array_write_scope_t() {
   const auto msg = event_reason(spec.event, "", iteration);
   const auto filled = event_reason(spec.event, " filled", iteration);
   ArrayGroupData::timelevel_t &timelevel =
-      driver().record(spec.gi).array().timelevel(spec.tl);
+      mutable_driver().record(spec.gi).array().timelevel(spec.tl);
   for (const vi_t vi : variables_of(spec.gi, spec.vi)) {
     check_valid_ga(spec.gi, vi, spec.tl, spec.fills, msg);
     timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);

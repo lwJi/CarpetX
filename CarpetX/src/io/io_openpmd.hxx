@@ -8,6 +8,7 @@
 namespace CarpetX {
 
 void OutputOpenPMD(const cGH *cctkGH);
+void ShutdownOpenPMD();
 
 } // namespace CarpetX
 

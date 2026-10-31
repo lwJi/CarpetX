@@ -32,6 +32,9 @@ static inline int omp_in_parallel() { return 0; }
 
 namespace CarpetX {
 
+using Arith::vect;
+using Loop::GridDescBase;
+
 extern "C" CCTK_INT
 CarpetX_GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size,
                                CCTK_REAL *restrict const physical_min,

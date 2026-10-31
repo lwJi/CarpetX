@@ -1,8 +1,10 @@
 #include "schedule/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/operations.hxx"
 #include "hierarchy/valid.hxx"
 #include "comm/comm.hxx"
+#include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
 #include "io/io.hxx"
 #include "traversal/traversal.hxx"
@@ -35,19 +37,19 @@ level_t WidenMinLevel(level_t level, const rat64 target_iteration) {
 }
 
 namespace {
-window_t ClockGroupBelow(const int max_level) {
-  const level_t finest = window_t::levels(0, max_level).finest();
+window_t ClockGroupBelow(const window_t window) {
+  const level_t finest = window.finest();
   const level_t coarsest =
       WidenMinLevel(finest, driver().level(finest).iteration);
-  return window_t::levels(coarsest.index(), max_level);
+  return window.narrow(coarsest.index(), finest.index() + 1);
 }
 
 std::vector<window_t> ClockGroups() {
   const GHExt &ext = driver();
   std::vector<window_t> groups;
-  for (int max_level = ext.num_levels(); max_level > 0;
-       max_level = groups.back().level_bounds().min)
-    groups.push_back(ClockGroupBelow(max_level));
+  for (window_t below = all_levels(); below.level_bounds().max > 0;
+       below = below.narrow(0, groups.back().level_bounds().min))
+    groups.push_back(ClockGroupBelow(below));
   std::reverse(groups.begin(), groups.end());
   assert((ext.use_subcycling || groups.size() <= 1) &&
          "without subcycling every level shares one clock");
@@ -57,7 +59,7 @@ std::vector<window_t> ClockGroups() {
 
 window_t FinestClockGroup() {
   const GHExt &ext = driver();
-  const window_t group = ClockGroupBelow(ext.num_levels());
+  const window_t group = ClockGroupBelow(all_levels());
   assert((ext.use_subcycling || group.level_bounds().min == 0) &&
          "without subcycling the end-of-step window holds every level");
   return group;
@@ -142,19 +144,18 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
                                const checkpoint_record_t &record) {
   const int checkpoint_iteration = cctkGH->cctk_iteration;
 
-  GHExt &ext = driver();
+  const GHExt &ext = driver();
   const int iteration_ratio = 1 << (ext.num_levels() - 1);
   bool have_last_step_iterations = true;
-  for (auto &patchdata : ext.patches()) {
-    for (auto &leveldata : patchdata.levels()) {
+  for (const auto &patchdata : ext.patches()) {
+    for (const auto &leveldata : patchdata.levels()) {
       const level_record_t &recovered = record.level_record(leveldata.level);
-      if (recovered.iteration)
-        leveldata.iteration = *recovered.iteration;
-      else
-        leveldata.iteration = rat64(checkpoint_iteration) / iteration_ratio;
-      if (recovered.last_step_iteration)
-        leveldata.last_step_iteration = *recovered.last_step_iteration;
-      else
+      restore_level_clock(leveldata.level,
+                          recovered.iteration
+                              ? *recovered.iteration
+                              : rat64(checkpoint_iteration) / iteration_ratio,
+                          recovered.last_step_iteration);
+      if (!recovered.last_step_iteration)
         have_last_step_iterations = false;
     }
   }
@@ -177,11 +178,12 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
       const auto [min_level, max_level] = group.level_bounds();
       const int last_step_iteration =
           LastStepIteration(group.finest(), checkpoint_iteration);
-      for (auto &patchdata : ext.patches())
-        for (auto &leveldata : patchdata.levels())
+      for (const auto &patchdata : ext.patches())
+        for (const auto &leveldata : patchdata.levels())
           if (leveldata.level.index() >= min_level &&
               leveldata.level.index() < max_level)
-            leveldata.last_step_iteration = last_step_iteration;
+            restore_level_clock(leveldata.level, leveldata.iteration,
+                                last_step_iteration);
     }
     if (num_groups >= 2 && CCTK_MyProc(nullptr) == 0)
       CCTK_VWARN(CCTK_WARN_ALERT,
@@ -237,7 +239,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
     CCTK_Traverse(cctkGH, "CCTK_RECOVER_VARIABLES");
   }
 
-  GHExt &ext = driver();
+  const GHExt &ext = driver();
   for (const auto &patchdata : ext.patches())
     for (const auto &leveldata : patchdata.levels())
       assert(leveldata.iteration == 0 &&
@@ -245,8 +247,8 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
 
   RestoreLevelClocks(cctkGH, record);
 
-  for (auto &patchdata : ext.patches())
-    patchdata.amrcore->cactus_is_initialized = true;
+  for (const auto &patchdata : ext.patches())
+    mark_initialized(patchdata.patch);
 
   SetDeltaTime(cctkGH);
 }
@@ -268,24 +270,23 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
     assert(leveldata.last_step_iteration == cctkGH->cctk_iteration);
   });
 
-  const int min_level = window.level_bounds().min;
   if (!window_is_restricted(window)) {
     if (verbose)
 #pragma omp critical
       CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
                  "at the current time",
-                 cctkGH->cctk_iteration, min_level);
+                 cctkGH->cctk_iteration, window.coarsest().index());
   } else if (!restrict_during_sync) {
     CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
     if (reflux)
-      Reflux(cctkGH, window);
+      Reflux(window);
     assert(do_restrict);
     const std::vector<gi_t> groups = collect_restrictable_groups();
     if (ext.use_subcycling)
-      RestrictNoPoison(cctkGH, window, groups);
+      RestrictNoPoison(window, groups);
     else
-      Restrict(cctkGH, window, groups);
-    ProlongateAfterRestriction(window, cctkGH);
+      Restrict(window, groups);
+    ProlongateAfterRestriction(window);
     CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
   }
 }
@@ -424,7 +425,7 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
 
   update_cctkGHs(cctkGH);
 
-  GHExt &ext = driver();
+  const GHExt &ext = driver();
   const int num_groups = CCTK_NumGroups();
   const bool presync_only = CCTK_EQUALS(presync_mode, "presync-only");
   std::vector<gi_t> presync_groups;
@@ -436,27 +437,7 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
       continue;
 
     if (group.kind == group_kind::grid_function) {
-      loop_serially(window, [&](auto &restrict leveldata) {
-        auto &restrict groupdata = leveldata.group(gi);
-        const int ntls = groupdata.num_timelevels();
-        assert(ntls == ntls0);
-        if (ntls > 1) {
-          groupdata.rotate_timelevels();
-          for (auto &restrict local_cctkGH_ptr : leveldata.local_cctkGHs) {
-            cGH *const local_cctkGH = local_cctkGH_ptr.get();
-            const int component = local_cctkGH->cctk_component;
-            const GridPtrDesc1 grid1(leveldata, groupdata, component);
-            for (const tl_t tl : groupdata.record.timelevels()) {
-              const amrex::Array4<CCTK_REAL> vars =
-                  groupdata.timelevel(tl).mfab->array(component);
-              for (const vi_t vi : groupdata.record.variables())
-                local_cctkGH
-                    ->data[groupdata.record.var(vi).index()][tl.index()] =
-                    grid1.ptr(vars, vi);
-            }
-          }
-        }
-      });
+      rotate_timelevels(window, gi);
       if (ntls0 > 1) {
         if (group.do_evolve) {
           invalidate(window, {.gi = gi,
@@ -500,7 +481,7 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
       }
     } else {
       if (ntls0 > 1) {
-        ext.record(gi).array().rotate_timelevels();
+        rotate_array_timelevels(gi);
         invalidate_array({.gi = gi,
                           .tl = tl_t{0},
                           .where = make_valid_int(),
@@ -509,7 +490,7 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
     }
   }
   if (!presync_groups.empty()) {
-    SyncGroupsByDirI(window, cctkGH, presync_groups);
+    SyncGroupsByDirI(window, presync_groups);
   }
 }
 

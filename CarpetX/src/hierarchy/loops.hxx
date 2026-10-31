@@ -14,31 +14,35 @@
 #include <ostream>
 
 namespace CarpetX {
-using namespace Loop;
 
 void loop_coarse_to_fine(
     window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel);
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
+        &kernel);
 
 void loop_fine_to_coarse(
     window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel);
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
+        &kernel);
 
 inline void loop_serially(
     const window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel) {
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
+        &kernel) {
   loop_coarse_to_fine(window, kernel);
 }
 
 void loop_parallel(
     window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
-                             int component, const cGH *cctkGH)> &kernel);
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata,
+                             int index, int component, const cGH *cctkGH)>
+        &kernel);
 
 void loop_serially(
     window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
-                             int component, const cGH *cctkGH)> &kernel);
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata,
+                             int index, int component, const cGH *cctkGH)>
+        &kernel);
 
 bool window_is_restricted(window_t window);
 
@@ -83,13 +87,13 @@ struct MFPointer {
   }
 };
 
-struct GridDesc : GridDescBase {
+struct GridDesc : Loop::GridDescBase {
 
   GridDesc() = delete;
   GridDesc(const GHExt::PatchData::LevelData &leveldata, const MFPointer &mfp);
   GridDesc(const GHExt::PatchData::LevelData &leveldata,
            const int global_component);
-  GridDesc(const cGH *cctkGH) : GridDescBase(cctkGH) {}
+  GridDesc(const cGH *cctkGH) : Loop::GridDescBase(cctkGH) {}
 };
 
 struct GridPtrDesc : GridDesc {
@@ -129,12 +133,12 @@ struct GridPtrDesc1 : GridDesc {
   }
 
   template <typename T>
-  GF3D1<T> gf3d(const amrex::Array4<T> &vars, const vi_t vi) const {
-    return GF3D1<T>(ptr(vars, vi), gimin, gimax, gash);
+  Loop::GF3D1<T> gf3d(const amrex::Array4<T> &vars, const vi_t vi) const {
+    return Loop::GF3D1<T>(ptr(vars, vi), gimin, gimax, gash);
   }
 
   friend std::ostream &operator<<(std::ostream &os, const GridPtrDesc1 &p) {
-    os << "GridPtrDesc1{" << (const GridDescBase &)p << ", "
+    os << "GridPtrDesc1{" << (const Loop::GridDescBase &)p << ", "
        << "cactus_offset:"
        << "{" << p.cactus_offset.x << "," << p.cactus_offset.y << ","
        << p.cactus_offset.z << "}, "

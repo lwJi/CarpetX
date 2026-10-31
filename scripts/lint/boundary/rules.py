@@ -56,11 +56,15 @@ VALIDITY_WORD = re.compile(
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
-TRAVERSAL_WORD = re.compile(r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b")
+TRAVERSAL_WORD = re.compile(
+    r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration|integrator_config|integrator_sealed)\b"
+)
 DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
 DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
-GHEXT_OR_DRIVER_CALL = re.compile(f"{DOOR_WORD.pattern}|{DRIVER_CALL.pattern}")
+MUTABLE_DRIVER_CALL = re.compile(r"\bmutable_driver\s*\(\s*\)")
+WRITE_LAYER = "hierarchy"
+GHEXT_OR_DRIVER_CALL = re.compile(f"{DOOR_WORD.pattern}|{DRIVER_CALL.pattern}|{MUTABLE_DRIVER_CALL.pattern}")
 LAYER_INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<((?:' + "|".join(LAYERS) + r')/[^>]*)>)')
 SYNC_FILES = (
     layer_path("comm", "comm.hxx"),
@@ -71,16 +75,20 @@ FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
 VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\([^()]*\))*\))\s*\+")
 RECORD_VAR_FILE = layer_path("hierarchy", "driver.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
+MODEL_FILE = layer_path("hierarchy", "driver.hxx")
+MODEL_WORD = re.compile(r'\bmutable\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]')
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
-INDEX_PARAM = re.compile(r"\bint\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch)\b")
-INDEX_SOURCE_LAYERS = ("io",)
+INDEX_PARAM = re.compile(r"\b(?:int|CCTK_INT)\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch)\b")
 STORAGE_OVERLOADS = ("QueryGroupStorageB", "GroupStorageIncrease", "GroupStorageDecrease")
 AMREX_CALLBACKS = ("ErrorEst", "MakeNewLevelFromScratch", "MakeNewLevelFromCoarse", "RemakeLevel", "ClearLevel")
 INDEX_FIXED = {
     PUBLIC_DIR + "carpetx.hxx": ("level_t", "window_t", "levels", "narrow"),
     layer_path("schedule", "schedule.hxx"): STORAGE_OVERLOADS,
     layer_path("schedule", "storage.cxx"): STORAGE_OVERLOADS,
+    layer_path("api", "api.cxx"): ("levels", "narrow"),
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
+    layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
+    layer_path("hierarchy", "group_tags.cxx"): ("CCTK_TraverseString",),
     layer_path("comm", "comm.hxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("comm", "sync_restrict.cxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("hierarchy", "driver.hxx"): AMREX_CALLBACKS,
@@ -107,6 +115,17 @@ CODEC_FILES = (
 CODEC_WORD = re.compile(
     r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]hierarchy/driver\.hxx[">]'
 )
+PROTOTYPE_END = re.compile(r"\)\s*;\s*$")
+NOT_A_DECLARATION = re.compile(r"\s*(?:$|#|//|(?:public|protected|private)\s*:(?!:))")
+DECLARATION_START = re.compile(r"[A-Za-z_]")
+FILE_LOCAL_DECLARATION = re.compile(r"(?:static_assert|static)\b|(?:extern\s+)?template\s+(?![\s<])")
+EXTERN_C = re.compile(r'\bextern\s+"C"')
+OPERATOR_NAME = re.compile(r"\boperator\s*[^\s\w(]*")
+NOT_A_DECLARATOR = re.compile(r"[^\w\s:<>,*&]|<<")
+DECLARED_WORD = re.compile(r"[A-Za-z_]\w*(?:\s*::\s*[A-Za-z_]\w*)*")
+STATEMENT_KEYWORDS = ("return", "throw", "else", "do", "case", "new", "delete", "co_return", "co_yield", "co_await")
+HEADER_SUFFIXES = (".h", ".hh", ".hpp", ".hxx")
+USING_DIRECTIVE = re.compile(r"^\s*using\s+namespace\b")
 STATEMENT_END = re.compile(r"[;{}]")
 RULE_WIDTH = 104
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
@@ -161,12 +180,16 @@ def carpetx_cxx(name: str, lang: Lang) -> bool:
     return lang is Lang.CXX and name.startswith(PRIVATE_DIR)
 
 
+def carpetx_source(name: str, lang: Lang) -> bool:
+    return carpetx_cxx(name, lang) and name.endswith(".cxx")
+
+
 def carpetx_header(name: str, lang: Lang) -> bool:
-    return carpetx_cxx(name, lang) and name.endswith(".hxx")
+    return carpetx_cxx(name, lang) and name.endswith(HEADER_SUFFIXES)
 
 
-def index_files(name: str, lang: Lang) -> bool:
-    return carpetx_header(name, lang) or (carpetx_cxx(name, lang) and layer_of(name) in INDEX_SOURCE_LAYERS)
+def model_files(name: str, lang: Lang) -> bool:
+    return lang is Lang.CXX and name == MODEL_FILE
 
 
 def records_files(name: str, lang: Lang) -> bool:
@@ -214,8 +237,29 @@ def layer_allowed(name: str, line: str, statement: str) -> bool:
     return len(parts) > 1 and ".." not in parts and layer is not None and parts[0] in below(layer)
 
 
+def declaration_head(statement: str) -> str:
+    lines = statement.split("\n")
+    while lines and NOT_A_DECLARATION.match(lines[0]):
+        lines.pop(0)
+    return "\n".join(lines)
+
+
+def names_a_function(head: str) -> bool:
+    before, paren, _ = head.partition("(")
+    before = OPERATOR_NAME.sub("operator", EXTERN_C.sub("", before))
+    words = DECLARED_WORD.findall(before)
+    return bool(paren) and not NOT_A_DECLARATOR.search(before) and len(words) >= 2 and words[0] not in STATEMENT_KEYWORDS
+
+
+def prototype_allowed(name: str, line: str, statement: str) -> bool:
+    head = declaration_head(statement)
+    return not (DECLARATION_START.match(head) and names_a_function(head) and not FILE_LOCAL_DECLARATION.match(head))
+
+
 def door_allowed(name: str, line: str, statement: str) -> bool:
     if DOOR_WORD.search(line) and name != DOOR_FILE:
+        return False
+    if MUTABLE_DRIVER_CALL.search(line) and layer_of(name) != WRITE_LAYER:
         return False
     return not DRIVER_CALL.search(line) or layer_of(name) in HIERARCHY_LAYERS
 
@@ -279,6 +323,23 @@ RULES = (
         home=layers_of((RECORD_VAR_FILE,)),
     ),
     Rule(
+        "model",
+        files=model_files,
+        word=MODEL_WORD,
+        allowed=never,
+        text=textwrap.fill(
+            f"model: the data model, {MODEL_FILE}, has no mutable member and does not include "
+            "<carpetx_rk.hxx>, so that a const hierarchy writes nothing but grid data behind its pointers; what "
+            "comm/ builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer "
+            "to a type it only forward-declares, and the integrator record is a slot in traversal/.",
+            width=RULE_WIDTH,
+        ),
+        noun="mutable or integrator include",
+        where="in the data model",
+        clean="no mutable or integrator include in the data model",
+        home=layers_of((MODEL_FILE,)),
+    ),
+    Rule(
         "window",
         files=carpetx_cxx,
         word=WINDOW_WORD,
@@ -295,10 +356,11 @@ RULES = (
         word=TRAVERSAL_WORD,
         allowed=in_files(TRAVERSAL_FILES),
         text="traversal: a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine,\n"
-        "recover_iteration) is named only in CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver\n"
-        "phase opens a scope, parameter recovery calls record_recovered_iteration() once, and a reader calls\n"
-        "scheduled_window(), scheduled_tail_bin(), in_recovery_traversal(), scheduled_routine() or\n"
-        "recovered_iteration().",
+        "recover_iteration, and the integrator's integrator_config and integrator_sealed) is named only in\n"
+        "CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, parameter recovery\n"
+        "calls record_recovered_iteration() once, register_integrator calls record_integrator() once, and a\n"
+        "reader calls scheduled_window(), scheduled_tail_bin(), in_recovery_traversal(), scheduled_routine(),\n"
+        "recovered_iteration() or integrator(), whose first call seals the integrator.",
         noun="traversal use",
         where="outside traversal.cxx",
         clean="no active_levels outside traversal.cxx",
@@ -306,20 +368,20 @@ RULES = (
     ),
     Rule(
         "index",
-        files=index_files,
+        files=carpetx_cxx,
         word=INDEX_PARAM,
         allowed=index_allowed,
         text=textwrap.fill(
-            f"index: a CarpetX header or a source in {dirs(INDEX_SOURCE_LAYERS, 'or')} names a group, variable, "
-            "time level, patch or level by its type (gi_t, vi_t, tl_t, patch_t, level_t, window_t), never a bare int, "
-            "except in the signatures the flesh and AMReX fix, the level_t and window_t constructors, and "
-            "window_t::levels and narrow.",
+            "index: every CarpetX source and header names a group, variable, time level, patch or level by its type "
+            "(gi_t, vi_t, tl_t, patch_t, level_t, window_t), never a bare int or CCTK_INT, except in the signatures "
+            "the flesh and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow; a loop "
+            "over a patch's levels walks level_handles(), one over the patches patch_handles(), and .index() unwraps "
+            "a handle where it meets AMReX or the flesh.",
             width=RULE_WIDTH,
         ),
         noun="bare index int",
-        where=f"in a CarpetX header or {dirs(INDEX_SOURCE_LAYERS, 'or')} source",
-        clean=f"no bare index int in a CarpetX header or {dirs(INDEX_SOURCE_LAYERS, 'or')} source",
-        home=INDEX_SOURCE_LAYERS,
+        where="in CarpetX",
+        clean="no bare index int in CarpetX",
     ),
     Rule(
         "records",
@@ -364,13 +426,47 @@ RULES = (
         clean="every internal include at or below its own layer",
     ),
     Rule(
+        "prototype",
+        files=carpetx_source,
+        word=PROTOTYPE_END,
+        allowed=prototype_allowed,
+        text=textwrap.fill(
+            "prototype: a CarpetX .cxx declares no function it does not define, since a prototype reaches past the "
+            "header that the layer rule judges; a declaration at column 0 that ends in ); is one. A function "
+            "another file defines is declared in a header of that file's layer and included, one this file defines "
+            "is defined above its first use, and a forward declaration only this file needs is static.",
+            width=RULE_WIDTH,
+        ),
+        noun="prototype",
+        where="in a CarpetX .cxx",
+        clean="no prototype in a CarpetX .cxx",
+    ),
+    Rule(
+        "using",
+        files=carpetx_header,
+        word=USING_DIRECTIVE,
+        allowed=never,
+        text=textwrap.fill(
+            "using: a CarpetX header adds no using namespace, since every file that includes it, and every layer "
+            "above its own, would then see that whole namespace; a header spells what it takes from Arith, Loop or "
+            "another namespace qualified, or declares a name it uses throughout, as driver.hxx declares using "
+            "Loop::dim;, and a .cxx may say using namespace for its own body.",
+            width=RULE_WIDTH,
+        ),
+        noun="using-directive",
+        where="in a CarpetX header",
+        clean="no using-directive in a CarpetX header",
+    ),
+    Rule(
         "door",
         files=private_cxx,
         word=GHEXT_OR_DRIVER_CALL,
         allowed=door_allowed,
         text="door: the hierarchy pointer ghext is named only in CarpetX/src/hierarchy/hierarchy.cxx; every other\n"
         f"file calls driver(), and only from {HIERARCHY_LAYERS[0]}/ or a layer above it, never from "
-        f"{dirs(UNDER_HIERARCHY, 'or')}.",
+        f"{dirs(UNDER_HIERARCHY, 'or')};\n"
+        f"driver() is const, and mutable_driver() is called only in {WRITE_LAYER}/: another layer changes the\n"
+        f"hierarchy through the operations of {WRITE_LAYER}/operations.hxx.",
         noun="hierarchy use",
         where="the door does not allow",
         clean=f"the hierarchy has one door that {dirs(UNDER_HIERARCHY, 'and')} never use",

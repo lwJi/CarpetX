@@ -7,7 +7,11 @@
 
 #include <cctk.h>
 
+#include <AMReX_MultiFab.H>
+
 #include <span>
+#include <string>
+#include <vector>
 
 namespace CarpetX {
 
@@ -25,11 +29,12 @@ void FillRKBoundary(level_t level, std::span<const gi_t> var_groups, tl_t tl,
 
 void RecoverRKBoundary(window_t window, const cGH *cctkGH);
 
-void EnsureFluxGeometry(level_t level);
+struct checkpoint_band_t {
+  std::string tag;
+  amrex::MultiFab *band;
+};
 
-void AccumulateFluxes(level_t level, int stage, CCTK_REAL weight);
-
-void Reflux(const cGH *cctkGH, window_t window);
+std::vector<checkpoint_band_t> checkpoint_bands(level_t level, gi_t gi);
 
 } // namespace CarpetX
 

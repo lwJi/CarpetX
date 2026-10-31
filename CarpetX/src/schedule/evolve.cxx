@@ -1,8 +1,10 @@
 #include "schedule/schedule.hxx"
 #include "schedule/clocks.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/grid_sizes.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/operations.hxx"
 #include "io/io.hxx"
 #include <loop.hxx>
 #include "traversal/traversal.hxx"
@@ -106,15 +108,15 @@ int Initialise(tFleshConfig *config) {
   // Initialise schedule
   CCTKi_ScheduleGHInit(cctkGH);
 
-  GHExt &ext = driver();
-  ext.freeze_storage();
+  const GHExt &ext = driver();
+  freeze_storage();
 
   // Initialise all grid extensions
   CCTKi_InitGHExtensions(cctkGH);
 
   setup_cctkGH(cctkGH);
   enter_global_mode(cctkGH);
-  ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
+  set_global_cctkGH(cctkGH);
 
   for (const auto &patchdata : ext.patches())
     assert(patchdata.num_levels() == 0);
@@ -127,23 +129,8 @@ int Initialise(tFleshConfig *config) {
   }
 
   CCTK_VINFO("Setting initial values for max_grid_size values for all levels");
-  for (const auto &patchdata : ext.patches()) {
-    amrex::Vector<amrex::IntVect> max_grid_sizes_vec(20);
-    for (int level = 0; level < 20; ++level) {
-      int size_x = max_grid_sizes_x[level];
-      if (size_x == -1)
-        size_x = max_grid_size_x;
-      int size_y = max_grid_sizes_y[level];
-      if (size_y == -1)
-        size_y = max_grid_size_y;
-      int size_z = max_grid_sizes_z[level];
-      if (size_z == -1)
-        size_z = max_grid_size_z;
-      const amrex::IntVect max_grid_size_vec{size_x, size_y, size_z};
-      max_grid_sizes_vec.at(level) = max_grid_size_vec;
-    }
-    patchdata.amrcore->SetMaxGridSize(max_grid_sizes_vec);
-  }
+  for (const auto &patchdata : ext.patches())
+    set_max_grid_size(patchdata.patch, per_level_max_grid_sizes());
 
   if (config->recovered) {
     // Recovery runs its own sequence and skips the fresh-start tail below
@@ -161,7 +148,7 @@ int Initialise(tFleshConfig *config) {
 
       const CCTK_REAL time = 0; // dummy time
       for (const auto &patchdata : ext.patches())
-        patchdata.amrcore->MakeNewGrids(time);
+        make_new_grids(patchdata.patch, time);
 
       SetDeltaTime(cctkGH);
 #pragma omp critical
@@ -209,16 +196,16 @@ int Initialise(tFleshConfig *config) {
       }
     }
 
-    for (auto &patchdata : ext.patches())
-      patchdata.amrcore->cactus_is_initialized = true;
+    for (const auto &patchdata : ext.patches())
+      mark_initialized(patchdata.patch);
 
     for (;;) {
-      const int level = ext.num_levels() - 1;
+      const level_t level = all_levels().finest();
 #pragma omp critical
-      CCTK_VINFO("Initializing level %d...", level);
+      CCTK_VINFO("Initializing level %d...", level.index());
 
       for (const auto &patchdata : ext.patches())
-        assert(patchdata.amrcore->finestLevel() <= level);
+        assert(patchdata.amrcore->finestLevel() <= level.index());
 
       {
         const traversal_scope_t scope(all_levels());
@@ -238,10 +225,8 @@ int Initialise(tFleshConfig *config) {
         for (const auto &patchdata : ext.patches()) {
 
           const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
-          patchdata.amrcore->level_modified.clear();
-          patchdata.amrcore->level_modified.resize(old_numlevels, false);
           const CCTK_REAL time = 0; // dummy time
-          patchdata.amrcore->regrid(0, time);
+          regrid(level_t{patchdata.patch, 0}, time);
 
           const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
           const int max_numlevels = patchdata.amrcore->maxLevel() + 1;
@@ -257,20 +242,23 @@ int Initialise(tFleshConfig *config) {
             for (const auto &leveldata : patchdata.levels()) {
               const int sz = leveldata.fab->size();
               const double pts = leveldata.fab->boxArray().d_numPts();
-              const int level = leveldata.level.index();
-              if (level == 0) {
+              const level_t level = leveldata.level;
+              if (level.index() == 0) {
                 CCTK_VINFO(
-                    "  level %d: %d boxes, %.0f cells (%.4g%%)", level, sz, pts,
-                    100 * pts / (ldexp(CCTK_REAL(1), dim * level) * pts0));
+                    "  level %d: %d boxes, %.0f cells (%.4g%%)", level.index(),
+                    sz, pts,
+                    100 * pts /
+                        (ldexp(CCTK_REAL(1), dim * level.index()) * pts0));
               } else {
                 const double ptsc = patchdata.level(leveldata.level.parent())
                                         .fab->boxArray()
                                         .d_numPts();
-                CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%, %.0f%%)",
-                           level, sz, pts,
-                           100 * pts /
-                               (ldexp(CCTK_REAL(1), dim * level) * pts0),
-                           100 * pts / (ldexp(CCTK_REAL(1), dim) * ptsc));
+                CCTK_VINFO(
+                    "  level %d: %d boxes, %.0f cells (%.4g%%, %.0f%%)",
+                    level.index(), sz, pts,
+                    100 * pts /
+                        (ldexp(CCTK_REAL(1), dim * level.index()) * pts0),
+                    100 * pts / (ldexp(CCTK_REAL(1), dim) * ptsc));
               }
             }
           } // omp critical
@@ -279,9 +267,10 @@ int Initialise(tFleshConfig *config) {
         int min_modified_level = INT_MAX;
         int max_modified_level = 0;
         for (const auto &patchdata : ext.patches()) {
-          for (int lev = 0; lev < int(patchdata.amrcore->level_modified.size());
-               ++lev) {
-            if (patchdata.amrcore->level_modified.at(lev)) {
+          const std::vector<bool> &modified =
+              patchdata.amrcore->modified_levels();
+          for (int lev = 0; lev < int(modified.size()); ++lev) {
+            if (modified.at(lev)) {
               using std::max, std::min;
               min_modified_level = min(min_modified_level, lev);
               max_modified_level = max(max_modified_level, lev + 1);
@@ -380,41 +369,18 @@ int Evolve(tFleshConfig *config) {
 
       for (const auto &patchdata : ext.patches()) {
 
-        int min_active_level = -1;
-        for (int level = patchdata.num_levels() - 1; level >= 0; --level) {
-          if (patchdata.level(level_t{patchdata.patch, level}).iteration !=
-              iteration) {
-            break;
-          }
-          min_active_level = level;
-        }
-        assert(min_active_level != -1);
+        const level_t finest{patchdata.patch, patchdata.num_levels() - 1};
+        assert(patchdata.level(finest).iteration == iteration);
+        const level_t min_active_level = WidenMinLevel(finest, iteration);
 
         const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
-        patchdata.amrcore->level_modified.clear();
-        patchdata.amrcore->level_modified.resize(old_numlevels, false);
         const CCTK_REAL time = 0; // dummy time
 
-        // Set the value of max_grid_size before regridding
         CCTK_VINFO(
             "Setting max_grid_size values for all levels before regridding");
-        amrex::Vector<amrex::IntVect> max_grid_sizes_vec(20);
-        for (int level = 0; level < 20; ++level) {
-          int size_x = max_grid_sizes_x[level];
-          if (size_x == -1)
-            size_x = max_grid_size_x;
-          int size_y = max_grid_sizes_y[level];
-          if (size_y == -1)
-            size_y = max_grid_size_y;
-          int size_z = max_grid_sizes_z[level];
-          if (size_z == -1)
-            size_z = max_grid_size_z;
-          const amrex::IntVect max_grid_size_vec{size_x, size_y, size_z};
-          max_grid_sizes_vec.at(level) = max_grid_size_vec;
-        }
-        patchdata.amrcore->SetMaxGridSize(max_grid_sizes_vec);
+        set_max_grid_size(patchdata.patch, per_level_max_grid_sizes());
 
-        patchdata.amrcore->regrid(min_active_level, time);
+        regrid(min_active_level, time);
 
         const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
         const int max_numlevels = patchdata.amrcore->maxLevel() + 1;
@@ -430,18 +396,20 @@ int Evolve(tFleshConfig *config) {
           for (const auto &leveldata : patchdata.levels()) {
             const int sz = leveldata.fab->size();
             const double pts = leveldata.fab->boxArray().d_numPts();
-            const int level = leveldata.level.index();
-            if (level == 0) {
-              CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%)", level, sz,
-                         pts,
-                         100 * pts / (ldexp(CCTK_REAL(1), dim * level) * pts0));
+            const level_t level = leveldata.level;
+            if (level.index() == 0) {
+              CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%)",
+                         level.index(), sz, pts,
+                         100 * pts /
+                             (ldexp(CCTK_REAL(1), dim * level.index()) * pts0));
             } else {
               const double ptsc = patchdata.level(leveldata.level.parent())
                                       .fab->boxArray()
                                       .d_numPts();
               CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%, %.0f%%)",
-                         level, sz, pts,
-                         100 * pts / (ldexp(CCTK_REAL(1), dim * level) * pts0),
+                         level.index(), sz, pts,
+                         100 * pts /
+                             (ldexp(CCTK_REAL(1), dim * level.index()) * pts0),
                          100 * pts / (ldexp(CCTK_REAL(1), dim) * ptsc));
             }
           }
@@ -451,9 +419,10 @@ int Evolve(tFleshConfig *config) {
       int min_modified_level = INT_MAX;
       int max_modified_level = 0;
       for (const auto &patchdata : ext.patches()) {
-        for (int lev = 0; lev < int(patchdata.amrcore->level_modified.size());
-             ++lev) {
-          if (patchdata.amrcore->level_modified.at(lev)) {
+        const std::vector<bool> &modified =
+            patchdata.amrcore->modified_levels();
+        for (int lev = 0; lev < int(modified.size()); ++lev) {
+          if (modified.at(lev)) {
             using std::max, std::min;
             min_modified_level = min(min_modified_level, lev);
             max_modified_level = max(max_modified_level, lev + 1);
@@ -484,16 +453,17 @@ int Evolve(tFleshConfig *config) {
 
     cctkGH->cctk_iteration += 1;
 
-    for (int min_level = 0, max_level; min_level < ext.num_levels();
-         min_level = max_level) {
-      max_level = min_level;
-      while (++max_level < ext.num_levels()) {
+    for (window_t::bounds_t levels{0, 0}; levels.min < ext.num_levels();
+         levels.min = levels.max) {
+      levels.max = levels.min;
+      while (++levels.max < ext.num_levels()) {
         bool level_is_subcycling_level = false;
-        for (const auto &patchdata : ext.patches())
-          if (max_level < patchdata.num_levels())
+        for (const auto &patchdata : ext.patches()) {
+          const level_t level{patchdata.patch, levels.max};
+          if (patchdata.level_handles().contains(level))
             level_is_subcycling_level |=
-                patchdata.level(level_t{patchdata.patch, max_level})
-                    .is_subcycling_level;
+                patchdata.level(level).is_subcycling_level;
+        }
         if (level_is_subcycling_level)
           break;
       }
@@ -501,9 +471,9 @@ int Evolve(tFleshConfig *config) {
       rat64 level_iteration = -1;
       rat64 level_delta_iteration = -1;
       for (const auto &patchdata : ext.patches()) {
-        if (min_level < patchdata.num_levels()) {
-          const auto &leveldata =
-              patchdata.level(level_t{patchdata.patch, min_level});
+        const level_t level{patchdata.patch, levels.min};
+        if (patchdata.level_handles().contains(level)) {
+          const auto &leveldata = patchdata.level(level);
           level_iteration = leveldata.iteration;
           level_delta_iteration = leveldata.delta_iteration;
           break;
@@ -516,13 +486,13 @@ int Evolve(tFleshConfig *config) {
       if (level_iteration > iteration)
         continue;
 
-      const window_t window = window_t::levels(min_level, max_level);
+      const window_t window = window_t::levels(levels.min, levels.max);
       {
         const traversal_scope_t scope(window);
 
         level_iteration += level_delta_iteration;
-        loop_serially(window, [&](auto &restrict leveldata) {
-          leveldata.iteration += leveldata.delta_iteration;
+        advance_clocks(window);
+        loop_serially(window, [&](const auto &leveldata) {
           assert(level_iteration == leveldata.iteration);
           assert(level_delta_iteration == leveldata.delta_iteration);
         });
@@ -538,11 +508,10 @@ int Evolve(tFleshConfig *config) {
       }
 
       const window_t widened = window_t::levels(
-          WidenMinLevel(window.coarsest(), level_iteration).index(), max_level);
-      loop_serially(widened, [&](auto &restrict leveldata) {
-        leveldata.last_step_iteration = cctkGH->cctk_iteration;
-      });
-    } // for min_level, max_level
+          WidenMinLevel(window.coarsest(), level_iteration).index(),
+          levels.max);
+      stamp_last_step(widened, cctkGH->cctk_iteration);
+    }
 
     {
       const window_t window = FinestClockGroup();
@@ -551,9 +520,7 @@ int Evolve(tFleshConfig *config) {
       TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
       TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
 
-      loop_serially(window, [&](auto &restrict leveldata) {
-        leveldata.last_finalized_iteration = cctkGH->cctk_iteration;
-      });
+      stamp_last_finalized(window, cctkGH->cctk_iteration);
 
       TraverseTailBin(cctkGH, "CCTK_CHECKPOINT");
       const double output_start_time = gettime();

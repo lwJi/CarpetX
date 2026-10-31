@@ -1,5 +1,6 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
+#include "hierarchy/operations.hxx"
 
 #include "hierarchy/loops.hxx"
 #include <carpetx.hxx>
@@ -19,7 +20,6 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <iomanip>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -34,20 +34,20 @@ namespace {
 std::unique_ptr<GHExt> ghext;
 } // namespace
 
-GHExt &driver() {
+GHExt &mutable_driver() {
   if (!ghext)
     CCTK_ERROR("The CarpetX grid hierarchy does not exist: the public API is "
                "available between the driver's SetupGH and its Shutdown");
   return *ghext;
 }
 
-GHExt &create_hierarchy() {
+const GHExt &driver() { return mutable_driver(); }
+
+GHExt &create_hierarchy(const bool use_subcycling, const bool do_reflux) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
-  ghext = std::make_unique<GHExt>();
-  ghext->active_timelevels.assign(CCTK_NumGroups(), 0);
-  ghext->storage_frozen = false;
+  ghext = std::make_unique<GHExt>(use_subcycling, do_reflux);
   return *ghext;
 }
 
@@ -59,6 +59,10 @@ void destroy_hierarchy() {
 }
 
 void assert_hierarchy_destroyed() { assert(!ghext); }
+
+GHExt::GHExt(const bool use_subcycling, const bool do_reflux)
+    : use_subcycling(use_subcycling), do_reflux(do_reflux),
+      active_timelevels_(CCTK_NumGroups(), 0) {}
 
 GHExt::PatchData &GHExt::add_patch(const patch_t patch) {
   assert(patch.index() == num_patches());
@@ -148,9 +152,10 @@ GHExt::PatchData::PatchData(const patch_t patch) : patch(patch) {
 #pragma omp critical
     {
       const int maxnumlevels = amrcore->maxLevel() + 1;
-      for (int level = 0; level < maxnumlevels; ++level) {
-        CCTK_VINFO("amrex::Geometry level %d:", level);
-        std::cout << amrcore->Geom(level) << "\n";
+      for (const level_t level :
+           level_range(level_t{patch, 0}, level_t{patch, maxnumlevels})) {
+        CCTK_VINFO("amrex::Geometry level %d:", level.index());
+        std::cout << amrcore->Geom(level.index()) << "\n";
       }
     }
   }
@@ -182,10 +187,10 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
                                        const amrex::BoxArray &ba,
                                        const amrex::DistributionMapping &dm,
                                        const std::function<std::string()> &why)
-    : level(level) {
+    : level(level), buffers(make_level_buffers()) {
   DECLARE_CCTK_PARAMETERS;
 
-  GHExt &ext = driver();
+  GHExt &ext = mutable_driver();
   const int timereffact = ext.use_subcycling ? 2 : 1;
   if (level.index() == 0) {
     // We are creating the coarsest level
@@ -332,9 +337,8 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
               indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
               indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
               indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE));
-  const int ntls = record.num_timelevels();
-  tls.reserve(ntls);
-  for (int tl = 0; tl < ntls; ++tl)
+  tls.reserve(record.num_timelevels());
+  for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(std::make_unique<amrex::MultiFab>(
                          gba, dm, numvars, amrex::IntVect(nghostzones)),
                      numvars, why);
@@ -347,66 +351,9 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
           ext.patch(level.patch()).amrcore->refRatio(level.parent().index());
       freg = std::make_unique<amrex::FluxRegister>(gba, dm, ratio,
                                                    level.index(), numvars);
-      // FluxRegister::define leaves the FabSets uninitialized. Zero them so
-      // that a register that is never fed (e.g. ODESolvers::method =
-      // "constant") is a no-op in Reflux and serializes as zeros at a
-      // mid-cycle checkpoint.
       freg->setVal(0);
-      freg_scratch = std::make_unique<amrex::FluxRegister>(
-          gba, dm, ratio, level.index(), numvars);
     }
   }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-std::string subcycling_band_tag(const band_kind kind, const int stage) {
-  std::ostringstream buf;
-  switch (kind) {
-  case band_kind::ks_source:
-    assert(stage >= 0 && stage < max_num_rk_stages);
-    buf << "kss_s" << std::setw(2) << std::setfill('0') << stage;
-    break;
-  case band_kind::old_source:
-    buf << "olds";
-    break;
-  case band_kind::flux_register:
-    assert(stage >= 0 && stage < 2 * dim);
-    buf << "freg_" << "xyz"[stage / 2] << (stage % 2 ? "hi" : "lo");
-    break;
-  default:
-    assert(0);
-  }
-  return buf.str();
-}
-
-amrex::MultiFab *rk_source_band(const level_t level, const gi_t gi,
-                                const band_kind kind, const int stage) {
-  assert(level.index() >= 0);
-  const std::optional<level_t> child = level.child();
-  if (!child)
-    return nullptr;
-  const auto &childleveldata = driver().level(*child);
-  const auto &groupdata = childleveldata.group(gi);
-  switch (kind) {
-  case band_kind::ks_source:
-    assert(stage >= 0 && stage < max_num_rk_stages);
-    return groupdata.ks_source_band[stage].get();
-  case band_kind::old_source:
-    return groupdata.old_source_band.get();
-  case band_kind::flux_register: {
-    assert(stage >= 0 && stage < 2 * dim);
-    if (!groupdata.freg)
-      return nullptr;
-    const int dir = stage / 2;
-    const amrex::Orientation::Side side =
-        stage % 2 ? amrex::Orientation::high : amrex::Orientation::low;
-    return &(*groupdata.freg)[amrex::Orientation(dir, side)].multiFab();
-  }
-  default:
-    assert(0);
-  }
-  return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -507,9 +454,8 @@ GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
     bbox[2 * d] = bbox[2 * d + 1] = 1;
   }
 
-  const int ntls = record.num_timelevels();
-  tls.reserve(ntls);
-  for (int tl = 0; tl < ntls; ++tl)
+  tls.reserve(record.num_timelevels());
+  for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(
         AnyTypeVector(record.var_type, record.numvars * array_size),
         record.numvars, []() { return "freeze_storage"; });
@@ -518,6 +464,23 @@ GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
 void GHExt::GlobalData::ArrayGroupData::rotate_timelevels() {
   assert(record.num_timelevels() > 1);
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
+}
+
+void GHExt::record_storage(const gi_t gi, const int timelevels) {
+  assert(timelevels >= 0 &&
+         timelevels <= CCTK_DeclaredTimeLevelsGI(gi.index()));
+  int &active = active_timelevels_.at(gi.index());
+  if (!storage_frozen) {
+    active = timelevels;
+    return;
+  }
+  if (timelevels != active)
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Attempting to %s storage for group '%s' from %d to %d "
+               "timelevels after the STORAGE registry has been frozen; "
+               "ignoring",
+               timelevels > active ? "increase" : "decrease",
+               CCTK_FullGroupName(gi.index()), active, timelevels);
 }
 
 void GHExt::freeze_storage() {
@@ -530,10 +493,10 @@ void GHExt::freeze_storage() {
   assert(!storage_frozen);
   assert(group_records.empty());
   const int numgroups = CCTK_NumGroups();
-  assert(int(active_timelevels.size()) == numgroups);
+  assert(int(active_timelevels_.size()) == numgroups);
   group_records.reserve(numgroups);
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups}))
-    group_records.emplace_back(gi, active_timelevels.at(gi.index()));
+    group_records.emplace_back(gi, active_timelevels_.at(gi.index()));
   storage_frozen = true;
 
   for (const GroupRecord &group : records()) {
@@ -554,6 +517,171 @@ GHExt::record_of(const var_t var, const std::source_location site) const {
     refuse(site, "variable index %d does not exist: there are %d variables",
            var.index(), CCTK_NumVars());
   return record(gi, site);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+const GHExt::PatchData &add_patch(const patch_t patch) {
+  return mutable_driver().add_patch(patch);
+}
+
+const GHExt::PatchData::LevelData &
+add_level(const level_t level, const amrex::BoxArray &ba,
+          const amrex::DistributionMapping &dm,
+          const std::function<std::string()> &why) {
+  return mutable_driver().patch(level.patch()).add_level(level, ba, dm, why);
+}
+
+GHExt::PatchData::LevelData
+remake_level(const level_t level, const amrex::BoxArray &ba,
+             const amrex::DistributionMapping &dm,
+             const std::function<std::string()> &why) {
+  GHExt::PatchData::LevelData fresh(level, ba, dm, why);
+  return mutable_driver()
+      .patch(level.patch())
+      .replace_level(level, std::move(fresh));
+}
+
+void erase_levels_from(const level_t level) {
+  mutable_driver().patch(level.patch()).erase_levels_from(level);
+}
+
+void set_max_grid_size(const patch_t patch,
+                       const amrex::Vector<amrex::IntVect> &max_grid_sizes) {
+  mutable_driver().patch(patch).amrcore->SetMaxGridSize(max_grid_sizes);
+}
+
+void make_new_grids(const patch_t patch, const CCTK_REAL time) {
+  mutable_driver().patch(patch).amrcore->MakeNewGrids(time);
+}
+
+void mark_initialized(const patch_t patch) {
+  mutable_driver().patch(patch).amrcore->mark_initialized();
+}
+
+void regrid(const level_t base_level, const CCTK_REAL time) {
+  CactusAmrCore &amrcore = *mutable_driver().patch(base_level.patch()).amrcore;
+  amrcore.reset_level_modified(amrcore.finestLevel() + 1);
+  amrcore.regrid(base_level.index(), time);
+}
+
+void set_finest_level(const level_t finest_level) {
+  mutable_driver()
+      .patch(finest_level.patch())
+      .amrcore->SetFinestLevel(finest_level.index());
+}
+
+void recover_level(const level_t level, amrex::BoxArray ba, const bool rechop) {
+  CactusAmrCore &amrcore = *mutable_driver().patch(level.patch()).amrcore;
+  const int lev = level.index();
+  if (lev > 0) {
+    amrex::Geometry geom = amrcore.Geom(lev - 1);
+    geom.refine({2, 2, 2});
+    amrcore.SetGeometry(lev, geom);
+  }
+  if (rechop)
+    ba = amrcore.RechopLevel(level, ba);
+  amrcore.SetBoxArray(lev, ba);
+  const amrex::DistributionMapping dm(ba);
+  amrcore.SetDistributionMap(lev, dm);
+  amrcore.make_level(level, ba, dm, "Recovering");
+}
+
+void record_storage(const gi_t gi, const int timelevels) {
+  mutable_driver().record_storage(gi, timelevels);
+}
+
+void freeze_storage() { mutable_driver().freeze_storage(); }
+
+void set_global_cctkGH(const cGH *const cctkGH) {
+  GHExt &ext = mutable_driver();
+  assert(!ext.global_cctkGH);
+  ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
+}
+
+void *array_data(const gi_t gi, const tl_t tl) {
+  return mutable_driver().record(gi).array().timelevel(tl).data.data_at(0);
+}
+
+std::size_t acquire_scratch(const group_t group,
+                            const std::source_location site) {
+  auto &groupdata = mutable_driver().group(group, site);
+  auto &pool = groupdata.scratch_pool;
+  std::size_t slot = 0;
+  while (slot < pool.size() && pool.at(slot).in_use)
+    ++slot;
+  if (slot == pool.size()) {
+    const amrex::MultiFab &mfab0 = *groupdata.timelevel(tl_t{0}).mfab;
+    pool.push_back({std::make_unique<amrex::MultiFab>(
+                        mfab0.boxArray(), mfab0.DistributionMap(),
+                        mfab0.nComp(), mfab0.nGrowVect()),
+                    false});
+  }
+  pool.at(slot).in_use = true;
+  return slot;
+}
+
+void release_scratch(const group_t group, const std::size_t slot) {
+  auto &pool = mutable_driver().group(group).scratch_pool;
+  assert(slot < pool.size() && pool.at(slot).in_use);
+  pool.at(slot).in_use = false;
+}
+
+void advance_clocks(const window_t window) {
+  loop_serially(window, [](const GHExt::PatchData::LevelData &leveldata) {
+    auto &clock = mutable_driver().level(leveldata.level);
+    clock.iteration += clock.delta_iteration;
+  });
+}
+
+void stamp_last_step(const window_t window, const int iteration) {
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
+    mutable_driver().level(leveldata.level).last_step_iteration = iteration;
+  });
+}
+
+void stamp_last_finalized(const window_t window, const int iteration) {
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
+    mutable_driver().level(leveldata.level).last_finalized_iteration =
+        iteration;
+  });
+}
+
+void restore_level_clock(const level_t level, const rat64 iteration,
+                         const std::optional<int> last_step_iteration) {
+  auto &leveldata = mutable_driver().level(level);
+  leveldata.iteration = iteration;
+  if (last_step_iteration)
+    leveldata.last_step_iteration = *last_step_iteration;
+}
+
+void rotate_timelevels(const window_t window, const gi_t gi) {
+  const int ntls0 = driver().record(gi).num_timelevels();
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
+    auto &restrict groupdata =
+        mutable_driver().level(leveldata.level).group(gi);
+    const int ntls = groupdata.num_timelevels();
+    assert(ntls == ntls0);
+    if (ntls > 1) {
+      groupdata.rotate_timelevels();
+      for (auto &restrict local_cctkGH_ptr : leveldata.local_cctkGHs) {
+        cGH *const local_cctkGH = local_cctkGH_ptr.get();
+        const int component = local_cctkGH->cctk_component;
+        const GridPtrDesc1 grid1(leveldata, groupdata, component);
+        for (const tl_t tl : groupdata.record.timelevels()) {
+          const amrex::Array4<CCTK_REAL> vars =
+              groupdata.timelevel(tl).mfab->array(component);
+          for (const vi_t vi : groupdata.record.variables())
+            local_cctkGH->data[groupdata.record.var(vi).index()][tl.index()] =
+                grid1.ptr(vars, vi);
+        }
+      }
+    }
+  });
+}
+
+void rotate_array_timelevels(const gi_t gi) {
+  mutable_driver().record(gi).array().rotate_timelevels();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
