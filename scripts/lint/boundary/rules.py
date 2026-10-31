@@ -75,6 +75,8 @@ FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
 VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\([^()]*\))*\))\s*\+")
 RECORD_VAR_FILE = layer_path("hierarchy", "driver.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
+MODEL_FILE = layer_path("hierarchy", "driver.hxx")
+MODEL_WORD = re.compile(r'\bmutable\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]')
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
 INDEX_PARAM = re.compile(r"\b(?:int|CCTK_INT)\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch)\b")
 STORAGE_OVERLOADS = ("QueryGroupStorageB", "GroupStorageIncrease", "GroupStorageDecrease")
@@ -178,6 +180,10 @@ def carpetx_cxx(name: str, lang: Lang) -> bool:
 
 def carpetx_source(name: str, lang: Lang) -> bool:
     return carpetx_cxx(name, lang) and name.endswith(".cxx")
+
+
+def model_files(name: str, lang: Lang) -> bool:
+    return lang is Lang.CXX and name == MODEL_FILE
 
 
 def records_files(name: str, lang: Lang) -> bool:
@@ -309,6 +315,23 @@ RULES = (
         where="outside GroupRecord::var",
         clean="no firstvarindex addition outside GroupRecord::var",
         home=layers_of((RECORD_VAR_FILE,)),
+    ),
+    Rule(
+        "model",
+        files=model_files,
+        word=MODEL_WORD,
+        allowed=never,
+        text=textwrap.fill(
+            f"model: the data model, {MODEL_FILE}, has no mutable member and does not include "
+            "<carpetx_rk.hxx>, so that a const hierarchy writes nothing but grid data behind its pointers; what "
+            "comm/ builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer "
+            "to a type it only forward-declares, and the integrator record is a slot in traversal/.",
+            width=RULE_WIDTH,
+        ),
+        noun="mutable or integrator include",
+        where="in the data model",
+        clean="no mutable or integrator include in the data model",
+        home=layers_of((MODEL_FILE,)),
     ),
     Rule(
         "window",

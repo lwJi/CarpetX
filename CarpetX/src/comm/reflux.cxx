@@ -3,6 +3,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/valid.hxx"
+#include "comm/buffers.hxx"
 #include "comm/level_pairs.hxx"
 #include <carpetx.hxx>
 
@@ -36,16 +37,17 @@ static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
 void EnsureFluxGeometry(const level_t level) {
   const auto &patchdata = driver().patch(level.patch());
   const auto &leveldata = patchdata.level(level);
+  level_buffers_t &buffers = buffers_of(leveldata);
 
   [[maybe_unused]] const auto have_all_or_none = [&]() {
-    const bool have = bool(leveldata.cell_volume);
+    const bool have = bool(buffers.cell_volume);
     bool good = true;
     for (int d = 0; d < dim; ++d)
-      good = good && bool(leveldata.face_area[d]) == have;
+      good = good && bool(buffers.face_area[d]) == have;
     return good;
   };
   assert(have_all_or_none());
-  if (leveldata.cell_volume)
+  if (buffers.cell_volume)
     return;
 
   const amrex::Geometry &geom = patchdata.amrcore->Geom(level.index());
@@ -55,11 +57,11 @@ void EnsureFluxGeometry(const level_t level) {
   assert(ba.ixType().cellCentered());
 
   for (int d = 0; d < dim; ++d) {
-    leveldata.face_area[d] = std::make_unique<amrex::MultiFab>();
-    geom.GetFaceArea(*leveldata.face_area[d], ba, dm, d, 0);
+    buffers.face_area[d] = std::make_unique<amrex::MultiFab>();
+    geom.GetFaceArea(*buffers.face_area[d], ba, dm, d, 0);
   }
-  leveldata.cell_volume = std::make_unique<amrex::MultiFab>();
-  geom.GetVolume(*leveldata.cell_volume, ba, dm, 0);
+  buffers.cell_volume = std::make_unique<amrex::MultiFab>();
+  geom.GetVolume(*buffers.cell_volume, ba, dm, 0);
 
   assert(have_all_or_none());
 }
@@ -105,9 +107,16 @@ void AccumulateFluxes(const level_t level, const int stage,
     }
 
     if (child_freg) {
-      amrex::FluxRegister *const child_scratch =
-          childleveldata->group(gi).freg_scratch.get();
-      assert(child_scratch);
+      std::unique_ptr<amrex::FluxRegister> &child_scratch =
+          buffers_of(*childleveldata, gi).freg_scratch;
+      if (!child_scratch) {
+        const amrex::MultiFab &child_state =
+            *childleveldata->group(gi).timelevel(tl).mfab;
+        child_scratch = std::make_unique<amrex::FluxRegister>(
+            child_state.boxArray(), child_state.DistributionMap(),
+            child_freg->refRatio(), child_freg->fineLevel(),
+            child_freg->nComp());
+      }
       if (stage == 1)
         child_freg->setVal(0);
       const int numvars = groupdata.record.numvars;
@@ -146,7 +155,7 @@ void AccumulateFluxes(const level_t level, const int stage,
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
             *leveldata.group(groupdata.fluxes->at(d)).timelevel(tl).mfab;
-        const amrex::MultiFab &area = *leveldata.face_area[d];
+        const amrex::MultiFab &area = *buffers_of(leveldata).face_area[d];
         assert(area.ixType() == flux.ixType());
         assert(area.DistributionMap() == flux.DistributionMap());
         own_freg->FineAdd(flux, area, d, 0, 0, groupdata.record.numvars,
@@ -200,7 +209,7 @@ static void reflux_level(const cGH *cctkGH, const level_t level) {
                                   .keeps = make_valid_all(),
                                   .event = "Reflux"});
     amrex::MultiFab &state = *groupdata.timelevel(tl).mfab;
-    const amrex::MultiFab &volume = *leveldata.cell_volume;
+    const amrex::MultiFab &volume = *buffers_of(leveldata).cell_volume;
     assert(volume.ixType() == state.ixType());
     assert(volume.DistributionMap() == state.DistributionMap());
     finegroupdata.freg->Reflux(state, volume, 1.0, 0, 0,

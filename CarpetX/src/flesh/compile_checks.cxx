@@ -64,8 +64,9 @@ concept accumulate_fluxes_takes = requires(Args... args) {
   AccumulateFluxes(args...);
 };
 
-template <class... Args> concept rk_source_band_takes = requires(Args... args) {
-  rk_source_band(args...);
+template <class... Args>
+concept checkpoint_bands_takes = requires(Args... args) {
+  checkpoint_bands(args...);
 };
 
 template <class... Args>
@@ -254,8 +255,9 @@ static_assert(!ensure_rk_buffers_takes<int, int, gi_t>);
 static_assert(accumulate_fluxes_takes<level_t, int, CCTK_REAL>);
 static_assert(!accumulate_fluxes_takes<int, int, int, CCTK_REAL>);
 
-static_assert(rk_source_band_takes<level_t, gi_t, band_kind>);
-static_assert(!rk_source_band_takes<int, int, gi_t, band_kind>);
+static_assert(checkpoint_bands_takes<level_t, gi_t>);
+static_assert(!checkpoint_bands_takes<int, int, gi_t>);
+static_assert(!checkpoint_bands_takes<level_t, int>);
 
 static_assert(finer_behind_takes<level_t>);
 static_assert(!finer_behind_takes<int, int>);
