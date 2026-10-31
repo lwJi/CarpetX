@@ -4,6 +4,7 @@
 #include "hierarchy/operations.hxx"
 #include "hierarchy/valid.hxx"
 #include "io/selection.hxx"
+#include "comm/subcycling.hxx"
 #include "util/refuse.hxx"
 
 #include <CactusBase/IOUtil/src/ioutil_CheckpointRecovery.h>
@@ -263,26 +264,14 @@ void build_buffers(checkpoint_record_t &record,
 
         if (!bands)
           continue;
-        const auto add_band = [&](amrex::MultiFab *const band,
-                                  const band_kind kind, const int stage) {
-          if (!band || band->empty())
-            return;
+        for (const auto &[tag, band] : checkpoint_bands(level, gi)) {
           assert(band->nGrowVect() == 0);
-          record.buffers.push_back(
-              {.id = {.group = group.groupname,
-                      .vars = vars,
-                      .level = level,
-                      .which = subcycling_band_tag(kind, stage)},
-               .data = grid_buffer_t{band}});
-        };
-        for (int s = 0; s < max_num_rk_stages; ++s)
-          add_band(rk_source_band(level, gi, band_kind::ks_source, s),
-                   band_kind::ks_source, s);
-        add_band(rk_source_band(level, gi, band_kind::old_source),
-                 band_kind::old_source, -1);
-        for (int f = 0; f < 2 * dim; ++f)
-          add_band(rk_source_band(level, gi, band_kind::flux_register, f),
-                   band_kind::flux_register, f);
+          record.buffers.push_back({.id = {.group = group.groupname,
+                                           .vars = vars,
+                                           .level = level,
+                                           .which = tag},
+                                    .data = grid_buffer_t{band}});
+        }
       }
     }
   }
