@@ -338,7 +338,7 @@ void invalidate(const window_t window, const std::span<const gi_t> groups,
 void sync(const window_t window, const std::span<const gi_t> groups) {
   const operation_scope_t op("CarpetX::sync");
   require_operable(window, groups);
-  SyncGroups(window, driver().get_global_cctkGH(), groups);
+  SyncGroups(window, groups);
 }
 
 namespace {
@@ -348,7 +348,7 @@ void sync_ghosts_only_timelevels(const window_t window,
                                  const timelevels_t tls) {
   const operation_scope_t op("CarpetX::sync_ghosts_only");
   require_operable(window, groups);
-  SyncGroupsByDirIGhostOnly(window, driver().get_global_cctkGH(), groups, tls);
+  SyncGroupsByDirIGhostOnly(window, groups, tls);
 }
 
 void prolongate_ghosts_timelevels(const window_t window,
@@ -356,8 +356,7 @@ void prolongate_ghosts_timelevels(const window_t window,
                                   const timelevels_t tls) {
   const operation_scope_t op("CarpetX::prolongate_ghosts");
   require_operable(window, groups);
-  SyncGroupsByDirIProlongateOnly(window, driver().get_global_cctkGH(), groups,
-                                 tls);
+  SyncGroupsByDirIProlongateOnly(window, groups, tls);
 }
 
 void prolongate_aligned_timelevels(const window_t window,
@@ -365,8 +364,7 @@ void prolongate_aligned_timelevels(const window_t window,
                                    const timelevels_t tls) {
   const operation_scope_t op("CarpetX::prolongate_aligned");
   require_operable(window, groups);
-  SyncGroupsByDirIProlongateOnlyAligned(window, driver().get_global_cctkGH(),
-                                        groups, tls);
+  SyncGroupsByDirIProlongateOnlyAligned(window, groups, tls);
 }
 
 } // namespace
@@ -405,7 +403,7 @@ void restrict_no_poison(const window_t window,
                         const std::span<const gi_t> groups) {
   const operation_scope_t op("CarpetX::restrict_no_poison");
   require_operable(window, groups);
-  RestrictNoPoison(driver().get_global_cctkGH(), window, groups);
+  RestrictNoPoison(window, groups);
 }
 
 } // namespace CarpetX

@@ -32,35 +32,30 @@ private:
   std::optional<tl_t> tl_;
 };
 
-void Restrict(const cGH *cctkGH, window_t window, std::span<const gi_t> groups);
-void ProlongateAfterRestriction(window_t window, const cGH *cctkGH);
+void Restrict(window_t window, std::span<const gi_t> groups);
+void ProlongateAfterRestriction(window_t window);
 
-void RestrictNoPoison(const cGH *cctkGH, window_t window,
-                      std::span<const gi_t> groups);
+void RestrictNoPoison(window_t window, std::span<const gi_t> groups);
 
-int SyncGroupsByDirI(window_t window, const cGH *restrict cctkGH,
-                     std::span<const gi_t> groups);
+void SyncGroupsByDirI(window_t window, std::span<const gi_t> groups);
 
-int SyncGroupsByDirISubcycling(window_t window, const cGH *restrict cctkGH,
-                               std::span<const gi_t> groups);
+void SyncGroupsByDirISubcycling(window_t window, std::span<const gi_t> groups);
 
-int SyncGroups(window_t window, const cGH *restrict cctkGH,
-               std::span<const gi_t> groups);
+void SyncGroups(window_t window, std::span<const gi_t> groups);
 
 int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,
                              const int *groups, const int *directions);
 
-int SyncGroupsByDirIProlongateOnly(window_t window, const cGH *restrict cctkGH,
-                                   std::span<const gi_t> groups,
-                                   timelevels_t tls);
+void SyncGroupsByDirIProlongateOnly(window_t window,
+                                    std::span<const gi_t> groups,
+                                    timelevels_t tls);
 
-int SyncGroupsByDirIProlongateOnlyAligned(window_t window,
-                                          const cGH *restrict cctkGH,
-                                          std::span<const gi_t> groups,
-                                          timelevels_t tls);
+void SyncGroupsByDirIProlongateOnlyAligned(window_t window,
+                                           std::span<const gi_t> groups,
+                                           timelevels_t tls);
 
-int SyncGroupsByDirIGhostOnly(window_t window, const cGH *restrict cctkGH,
-                              std::span<const gi_t> groups, timelevels_t tls);
+void SyncGroupsByDirIGhostOnly(window_t window, std::span<const gi_t> groups,
+                               timelevels_t tls);
 
 } // namespace CarpetX
 

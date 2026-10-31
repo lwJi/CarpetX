@@ -419,13 +419,13 @@ void rk_step_t::state_updated() {
       if (entry.level.index() == 0)
         continue;
       const std::vector<gi_t> &states = entry.groups.states;
-      SyncGroupsByDirIGhostOnly(window_t::one_level(entry.level), cctkGH,
-                                states, timelevels_t::one(rk_tl));
+      SyncGroupsByDirIGhostOnly(window_t::one_level(entry.level), states,
+                                timelevels_t::one(rk_tl));
       fill_refinement_boundary(cctkGH, entry.level, states, stage, nstages,
                                event);
     }
   } else if (stage == p->nstages) {
-    Reflux(cctkGH, p->window);
+    Reflux(p->window);
   }
   synchronize();
 }
@@ -472,12 +472,11 @@ void RecoverRKBoundary(const window_t window, const cGH *const cctkGH) {
   for (const rk_pair_t &pair : integrator->integrated)
     states.push_back(pair.state);
   std::sort(states.begin(), states.end());
-  SyncGroupsByDirIGhostOnly(window, ext.get_global_cctkGH(), states,
-                            timelevels_t::one(rk_tl));
+  SyncGroupsByDirIGhostOnly(window, states, timelevels_t::one(rk_tl));
   const bool restricted = window_is_restricted(window);
   if (restricted)
-    SyncGroupsByDirIProlongateOnlyAligned(window, ext.get_global_cctkGH(),
-                                          states, timelevels_t::one(rk_tl));
+    SyncGroupsByDirIProlongateOnlyAligned(window, states,
+                                          timelevels_t::one(rk_tl));
 
   for (const rk_level_t &entry : levels) {
     if (entry.level.index() == 0)

@@ -13,7 +13,7 @@ void EnsureFluxGeometry(level_t level);
 
 void AccumulateFluxes(level_t level, int stage, CCTK_REAL weight);
 
-void Reflux(const cGH *cctkGH, window_t window);
+void Reflux(window_t window);
 
 } // namespace CarpetX
 
