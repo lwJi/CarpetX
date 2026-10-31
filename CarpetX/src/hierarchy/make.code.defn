@@ -1,5 +1,6 @@
 SRCS =							\
 	grid.cxx					\
+	grid_sizes.cxx					\
 	group_tags.cxx					\
 	hierarchy.cxx					\
 	loops.cxx					\
