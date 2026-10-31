@@ -56,7 +56,9 @@ VALIDITY_WORD = re.compile(
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
-TRAVERSAL_WORD = re.compile(r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b")
+TRAVERSAL_WORD = re.compile(
+    r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration|integrator_config|integrator_frozen)\b"
+)
 DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
 DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
@@ -295,10 +297,12 @@ RULES = (
         word=TRAVERSAL_WORD,
         allowed=in_files(TRAVERSAL_FILES),
         text="traversal: a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine,\n"
-        "recover_iteration) is named only in CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver\n"
-        "phase opens a scope, parameter recovery calls record_recovered_iteration() once, and a reader calls\n"
-        "scheduled_window(), scheduled_tail_bin(), in_recovery_traversal(), scheduled_routine() or\n"
-        "recovered_iteration().",
+        "recover_iteration, and the integrator's integrator_config and integrator_frozen) is named only in\n"
+        "CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, parameter recovery\n"
+        "calls record_recovered_iteration() once, register_integrator calls record_integrator() once, the\n"
+        "scheduler calls freeze_integrator() once after WRAGH, and a reader calls scheduled_window(),\n"
+        "scheduled_tail_bin(), in_recovery_traversal(), scheduled_routine(), recovered_iteration() or\n"
+        "integrator(), which refuses until the record is frozen.",
         noun="traversal use",
         where="outside traversal.cxx",
         clean="no active_levels outside traversal.cxx",

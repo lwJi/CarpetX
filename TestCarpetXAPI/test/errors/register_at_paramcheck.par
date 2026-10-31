@@ -1,0 +1,40 @@
+ActiveThorns = "
+    CarpetX
+    IOUtil
+    TestCarpetXAPI
+"
+
+Cactus::cctk_show_schedule = no
+Cactus::presync_mode = "mixed-error"
+Cactus::cctk_itlast = 0
+
+CarpetX::verbose = no
+CarpetX::poison_undefined_values = yes
+
+CarpetX::xmin = -1
+CarpetX::ymin = -1
+CarpetX::zmin = -1
+CarpetX::xmax = +1
+CarpetX::ymax = +1
+CarpetX::zmax = +1
+
+CarpetX::periodic = yes
+
+CarpetX::ncells_x = 16
+CarpetX::ncells_y = 16
+CarpetX::ncells_z = 16
+
+CarpetX::max_grid_size_x = 8
+CarpetX::max_grid_size_y = 8
+CarpetX::max_grid_size_z = 8
+
+CarpetX::max_num_levels = 1
+CarpetX::ghost_size = 2
+
+TestCarpetXAPI::mode = "register-at-paramcheck"
+
+IO::out_dir = $parfile
+IO::parfile_write = no
+
+CarpetX::out_metadata = no
+CarpetX::out_performance = no

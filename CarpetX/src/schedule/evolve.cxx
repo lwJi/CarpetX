@@ -121,6 +121,7 @@ int Initialise(tFleshConfig *config) {
   {
     const traversal_scope_t scope(window_t::levels(0, 0));
     CCTK_Traverse(cctkGH, "CCTK_WRAGH");
+    freeze_integrator();
     CCTK_Traverse(cctkGH, "CCTK_PARAMCHECK");
     CCTKi_FinaliseParamWarn();
     warn_inert_flux_tags();

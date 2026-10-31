@@ -12,6 +12,12 @@ SCHEDULE TestCarpetXAPI_Register AT wragh
   OPTIONS: global
 } "Register a time integrator through CarpetX::register_integrator as TestCarpetXAPI::mode says"
 
+SCHEDULE TestCarpetXAPI_ParamCheck AT paramcheck
+{
+  LANG: C
+  OPTIONS: global
+} "Register a time integrator after the driver has frozen its integrator record when TestCarpetXAPI::mode says so"
+
 SCHEDULE TestCarpetXAPI_Fill AT initial
 {
   LANG: C

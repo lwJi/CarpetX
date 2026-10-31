@@ -12,6 +12,8 @@ const char *tail_bin = nullptr;
 bool recovery_traversal = false;
 const cFunctionData *last_routine = nullptr;
 std::optional<int> recover_iteration;
+std::optional<rk_config_t> integrator_config;
+bool integrator_frozen = false;
 } // namespace
 
 traversal_scope_t::traversal_scope_t(const window_t window,
@@ -67,6 +69,28 @@ void record_recovered_iteration(const int iteration,
   recover_iteration = iteration;
 }
 
+void record_integrator(const rk_config_t &config,
+                       const std::source_location site) {
+  if (integrator_frozen)
+    refuse(site, "the driver froze its integrator record after the WRAGH "
+                 "traversal; schedule the registration AT WRAGH");
+  if (integrator_config)
+    refuse(site,
+           "a time integrator is already registered (%d RK stages, %d "
+           "integrated groups); an integrator registers exactly once, AT "
+           "WRAGH",
+           integrator_config->nstages(),
+           int(integrator_config->integrated.size()));
+  integrator_config = config;
+}
+
+void freeze_integrator(const std::source_location site) {
+  if (integrator_frozen)
+    refuse(site, "the integrator record is already frozen: the driver freezes "
+                 "it once, after its WRAGH traversal");
+  integrator_frozen = true;
+}
+
 window_t scheduled_window(const char *const caller,
                           const std::source_location site) {
   if (!active_levels)
@@ -81,5 +105,12 @@ bool in_recovery_traversal() { return recovery_traversal; }
 const cFunctionData *scheduled_routine() { return last_routine; }
 
 int recovered_iteration() { return recover_iteration.value_or(-1); }
+
+const std::optional<rk_config_t> &integrator(const std::source_location site) {
+  if (!integrator_frozen)
+    refuse(site, "the integrator record is read before the driver froze it; "
+                 "a reader runs after the WRAGH traversal");
+  return integrator_config;
+}
 
 } // namespace CarpetX
