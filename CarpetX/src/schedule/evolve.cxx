@@ -3,6 +3,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/operations.hxx"
 #include "io/io.hxx"
 #include <loop.hxx>
 #include "traversal/traversal.hxx"
@@ -106,15 +107,15 @@ int Initialise(tFleshConfig *config) {
   // Initialise schedule
   CCTKi_ScheduleGHInit(cctkGH);
 
-  GHExt &ext = driver();
-  ext.freeze_storage();
+  const GHExt &ext = driver();
+  freeze_storage();
 
   // Initialise all grid extensions
   CCTKi_InitGHExtensions(cctkGH);
 
   setup_cctkGH(cctkGH);
   enter_global_mode(cctkGH);
-  ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
+  set_global_cctkGH(cctkGH);
 
   for (const auto &patchdata : ext.patches())
     assert(patchdata.num_levels() == 0);
@@ -142,7 +143,7 @@ int Initialise(tFleshConfig *config) {
       const amrex::IntVect max_grid_size_vec{size_x, size_y, size_z};
       max_grid_sizes_vec.at(level) = max_grid_size_vec;
     }
-    patchdata.amrcore->SetMaxGridSize(max_grid_sizes_vec);
+    set_max_grid_size(patchdata.patch, max_grid_sizes_vec);
   }
 
   if (config->recovered) {
@@ -161,7 +162,7 @@ int Initialise(tFleshConfig *config) {
 
       const CCTK_REAL time = 0; // dummy time
       for (const auto &patchdata : ext.patches())
-        patchdata.amrcore->MakeNewGrids(time);
+        make_new_grids(patchdata.patch, time);
 
       SetDeltaTime(cctkGH);
 #pragma omp critical
@@ -210,7 +211,7 @@ int Initialise(tFleshConfig *config) {
     }
 
     for (const auto &patchdata : ext.patches())
-      patchdata.amrcore->mark_initialized();
+      mark_initialized(patchdata.patch);
 
     for (;;) {
       const int level = ext.num_levels() - 1;
@@ -238,9 +239,8 @@ int Initialise(tFleshConfig *config) {
         for (const auto &patchdata : ext.patches()) {
 
           const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
-          patchdata.amrcore->reset_level_modified(old_numlevels);
           const CCTK_REAL time = 0; // dummy time
-          patchdata.amrcore->regrid(0, time);
+          regrid(level_t{patchdata.patch, 0}, time);
 
           const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
           const int max_numlevels = patchdata.amrcore->maxLevel() + 1;
@@ -391,10 +391,8 @@ int Evolve(tFleshConfig *config) {
         assert(min_active_level != -1);
 
         const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
-        patchdata.amrcore->reset_level_modified(old_numlevels);
         const CCTK_REAL time = 0; // dummy time
 
-        // Set the value of max_grid_size before regridding
         CCTK_VINFO(
             "Setting max_grid_size values for all levels before regridding");
         amrex::Vector<amrex::IntVect> max_grid_sizes_vec(20);
@@ -411,9 +409,9 @@ int Evolve(tFleshConfig *config) {
           const amrex::IntVect max_grid_size_vec{size_x, size_y, size_z};
           max_grid_sizes_vec.at(level) = max_grid_size_vec;
         }
-        patchdata.amrcore->SetMaxGridSize(max_grid_sizes_vec);
+        set_max_grid_size(patchdata.patch, max_grid_sizes_vec);
 
-        patchdata.amrcore->regrid(min_active_level, time);
+        regrid(level_t{patchdata.patch, min_active_level}, time);
 
         const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
         const int max_numlevels = patchdata.amrcore->maxLevel() + 1;
@@ -521,8 +519,8 @@ int Evolve(tFleshConfig *config) {
         const traversal_scope_t scope(window);
 
         level_iteration += level_delta_iteration;
-        loop_serially(window, [&](auto &restrict leveldata) {
-          leveldata.iteration += leveldata.delta_iteration;
+        advance_clocks(window);
+        loop_serially(window, [&](const auto &leveldata) {
           assert(level_iteration == leveldata.iteration);
           assert(level_delta_iteration == leveldata.delta_iteration);
         });
@@ -539,9 +537,7 @@ int Evolve(tFleshConfig *config) {
 
       const window_t widened = window_t::levels(
           WidenMinLevel(window.coarsest(), level_iteration).index(), max_level);
-      loop_serially(widened, [&](auto &restrict leveldata) {
-        leveldata.last_step_iteration = cctkGH->cctk_iteration;
-      });
+      stamp_last_step(widened, cctkGH->cctk_iteration);
     } // for min_level, max_level
 
     {
@@ -551,9 +547,7 @@ int Evolve(tFleshConfig *config) {
       TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
       TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
 
-      loop_serially(window, [&](auto &restrict leveldata) {
-        leveldata.last_finalized_iteration = cctkGH->cctk_iteration;
-      });
+      stamp_last_finalized(window, cctkGH->cctk_iteration);
 
       TraverseTailBin(cctkGH, "CCTK_CHECKPOINT");
       const double output_start_time = gettime();

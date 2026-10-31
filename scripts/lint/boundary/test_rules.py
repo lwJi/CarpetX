@@ -822,6 +822,60 @@ class Door(unittest.TestCase):
         text = "int a;\n" + self.CALLS[0] + "\n"
         self.assertEqual(findings("CarpetX/src/util/refuse.cxx", text, Lang.CXX), [Finding(2, "door", self.CALLS[0])])
 
+    MUTABLE_CALLS = [
+        "GHExt &ext = mutable_driver();",
+        "auto &leveldata = mutable_driver().level(leveldata.level);",
+        "mutable_driver ( ).record(gi).array().rotate_timelevels();",
+        "GHExt &mutable_driver();",
+        "// mutable_driver() is the write side",
+    ]
+
+    def test_the_hierarchy_calls_mutable_driver(self):
+        for line in self.MUTABLE_CALLS:
+            for name in [
+                "CarpetX/src/hierarchy/hierarchy.cxx",
+                "CarpetX/src/hierarchy/valid.cxx",
+                "CarpetX/src/hierarchy/operations.hxx",
+                layer_path("hierarchy", "x.cxx"),
+            ]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_mutable_driver_is_reported_outside_the_hierarchy(self):
+        for line in self.MUTABLE_CALLS:
+            for name in [layer_path(layer, "x.cxx") for layer in LAYERS if layer != "hierarchy"] + [
+                "CarpetX/src/comm/subcycling.cxx",
+                "CarpetX/src/io/checkpoint.cxx",
+                "CarpetX/src/schedule/evolve.cxx",
+                "CarpetX/src/api/api.cxx",
+                "CarpetX/src/regrid/regrid.cxx",
+                "CarpetX/src/hierarchy/sub/x.cxx",
+                "CarpetX/src/internal.hxx",
+            ]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("door", line)])
+
+    def test_another_thorn_and_the_public_headers_may_call_mutable_driver(self):
+        for name in ["ODESolvers/src/solve.cxx", "CarpetX/src/include/carpetx.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.MUTABLE_CALLS[0] + "\n"), [])
+
+    def test_a_longer_name_or_an_argument_is_not_mutable_driver(self):
+        for text in [
+            "my_mutable_driver();\n",
+            "mutable_driver_handle();\n",
+            "mutable_drivers().clear();\n",
+            "auto *door = &mutable_driver;\n",
+            "mutable_driver(level);\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/comm/subcycling.cxx", text), [])
+
+    def test_a_line_naming_both_doors_is_one_finding(self):
+        line = "assert(&driver() == &mutable_driver());"
+        self.assertEqual(reported("CarpetX/src/comm/subcycling.cxx", line + "\n"), [("door", line)])
+        self.assertEqual(reported("CarpetX/src/hierarchy/hierarchy.cxx", line + "\n"), [])
+
 
 class Layer(unittest.TestCase):
     def test_a_file_includes_its_own_layer_and_the_layers_below_it(self):

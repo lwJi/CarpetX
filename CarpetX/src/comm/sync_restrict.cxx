@@ -1076,7 +1076,7 @@ static void restrict_level(const cGH *cctkGH, const level_t level,
   const std::optional<level_t> fine = level.child();
   if (!fine)
     return;
-  GHExt &ext = driver();
+  const GHExt &ext = driver();
   auto &leveldata = ext.level(level);
   const auto &fineleveldata = ext.level(*fine);
   const window_t coarse_level = window_t::one_level(level);

@@ -374,7 +374,7 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
                     const CCTK_REAL dtc) {
   if (level.index() == 0)
     return;
-  GHExt &ext = driver();
+  const GHExt &ext = driver();
   if (!ext.use_subcycling)
     return;
 
@@ -396,7 +396,7 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
   task_manager tasks3;
 
   for (const gi_t gi : var_groups) {
-    GroupData &groupdata = leveldata.group(gi);
+    const GroupData &groupdata = leveldata.group(gi);
     const GroupData &coarsegroupdata = coarseleveldata.group(gi);
     assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
     // Only integrated groups have bands, and only for them does the
