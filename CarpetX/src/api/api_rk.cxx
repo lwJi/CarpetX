@@ -6,6 +6,7 @@
 #include "schedule/schedule.hxx"
 #include "hierarchy/loops.hxx"
 #include "comm/comm.hxx"
+#include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
 #include "hierarchy/valid.hxx"
 #include "traversal/traversal.hxx"
