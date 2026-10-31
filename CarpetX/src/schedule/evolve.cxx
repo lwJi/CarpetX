@@ -1,6 +1,7 @@
 #include "schedule/schedule.hxx"
 #include "schedule/clocks.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/grid_sizes.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
@@ -128,24 +129,8 @@ int Initialise(tFleshConfig *config) {
   }
 
   CCTK_VINFO("Setting initial values for max_grid_size values for all levels");
-  for (const auto &patchdata : ext.patches()) {
-    amrex::Vector<amrex::IntVect> max_grid_sizes_vec(20);
-    for (const level_t level : level_range(level_t{patchdata.patch, 0},
-                                           level_t{patchdata.patch, 20})) {
-      int size_x = max_grid_sizes_x[level.index()];
-      if (size_x == -1)
-        size_x = max_grid_size_x;
-      int size_y = max_grid_sizes_y[level.index()];
-      if (size_y == -1)
-        size_y = max_grid_size_y;
-      int size_z = max_grid_sizes_z[level.index()];
-      if (size_z == -1)
-        size_z = max_grid_size_z;
-      const amrex::IntVect max_grid_size_vec{size_x, size_y, size_z};
-      max_grid_sizes_vec.at(level.index()) = max_grid_size_vec;
-    }
-    set_max_grid_size(patchdata.patch, max_grid_sizes_vec);
-  }
+  for (const auto &patchdata : ext.patches())
+    set_max_grid_size(patchdata.patch, per_level_max_grid_sizes());
 
   if (config->recovered) {
     // Recovery runs its own sequence and skips the fresh-start tail below
@@ -393,22 +378,7 @@ int Evolve(tFleshConfig *config) {
 
         CCTK_VINFO(
             "Setting max_grid_size values for all levels before regridding");
-        amrex::Vector<amrex::IntVect> max_grid_sizes_vec(20);
-        for (const level_t level : level_range(level_t{patchdata.patch, 0},
-                                               level_t{patchdata.patch, 20})) {
-          int size_x = max_grid_sizes_x[level.index()];
-          if (size_x == -1)
-            size_x = max_grid_size_x;
-          int size_y = max_grid_sizes_y[level.index()];
-          if (size_y == -1)
-            size_y = max_grid_size_y;
-          int size_z = max_grid_sizes_z[level.index()];
-          if (size_z == -1)
-            size_z = max_grid_size_z;
-          const amrex::IntVect max_grid_size_vec{size_x, size_y, size_z};
-          max_grid_sizes_vec.at(level.index()) = max_grid_size_vec;
-        }
-        set_max_grid_size(patchdata.patch, max_grid_sizes_vec);
+        set_max_grid_size(patchdata.patch, per_level_max_grid_sizes());
 
         regrid(min_active_level, time);
 

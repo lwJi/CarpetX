@@ -1,4 +1,5 @@
 #include "hierarchy/driver.hxx"
+#include "hierarchy/grid_sizes.hxx"
 #include "hierarchy/operations.hxx"
 #include "schedule/schedule.hxx"
 #include "comm/comm.hxx"
@@ -152,19 +153,13 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
   pp.add("amrex.the_arena_is_managed", 1);
 #endif
 
-  amrex::Vector<int> max_grid_size_x_vec(max_grid_sizes_x,
-                                         max_grid_sizes_x + 20),
-      max_grid_size_y_vec(max_grid_sizes_y, max_grid_sizes_y + 20),
-      max_grid_size_z_vec(max_grid_sizes_z, max_grid_sizes_z + 20);
-  for (int &size_x : max_grid_size_x_vec)
-    if (size_x == -1)
-      size_x = max_grid_size_x;
-  for (int &size_y : max_grid_size_y_vec)
-    if (size_y == -1)
-      size_y = max_grid_size_y;
-  for (int &size_z : max_grid_size_z_vec)
-    if (size_z == -1)
-      size_z = max_grid_size_z;
+  amrex::Vector<int> max_grid_size_x_vec, max_grid_size_y_vec,
+      max_grid_size_z_vec;
+  for (const amrex::IntVect &sizes : per_level_max_grid_sizes()) {
+    max_grid_size_x_vec.push_back(sizes[0]);
+    max_grid_size_y_vec.push_back(sizes[1]);
+    max_grid_size_z_vec.push_back(sizes[2]);
+  }
   pp.addarr("amr.max_grid_size_x", max_grid_size_x_vec);
   pp.addarr("amr.max_grid_size_y", max_grid_size_y_vec);
   pp.addarr("amr.max_grid_size_z", max_grid_size_z_vec);
