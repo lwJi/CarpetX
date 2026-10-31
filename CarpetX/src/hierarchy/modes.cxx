@@ -15,6 +15,8 @@
 
 namespace CarpetX {
 
+using Loop::undefined;
+
 cGH *copy_cctkGH(const cGH *restrict const sourceGH) {
   cGH *restrict const cctkGH = new cGH;
 

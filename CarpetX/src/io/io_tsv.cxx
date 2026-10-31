@@ -30,6 +30,8 @@
 
 namespace CarpetX {
 
+using Arith::vect;
+
 enum out_fileinfo_t {
   fileinfo_none = 0x0,
   fileinfo_create_date = 0x1,

@@ -16,7 +16,6 @@
 #include <ostream>
 
 namespace CarpetX {
-using namespace Arith;
 
 template <typename T, int D> struct combine {
   using value_type = typename reduction<T, D>::tuple_type;

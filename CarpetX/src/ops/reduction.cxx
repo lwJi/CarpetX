@@ -19,6 +19,8 @@
 
 namespace CarpetX {
 
+using Arith::vect;
+
 template <typename T, int D> MPI_Datatype reduction_mpi_datatype() {
   static MPI_Datatype datatype = MPI_DATATYPE_NULL;
   if (datatype == MPI_DATATYPE_NULL) {

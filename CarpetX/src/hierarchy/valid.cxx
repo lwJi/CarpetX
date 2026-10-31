@@ -25,6 +25,9 @@
 
 namespace CarpetX {
 
+using Arith::vect;
+using Loop::where_t;
+
 ////////////////////////////////////////////////////////////////////////////////
 
 std::string valid_t::explanation() const {

@@ -1187,6 +1187,86 @@ class Prototype(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/flesh/startup.cxx", text, Lang.CXX), [Finding(3, "prototype", self.PROTOTYPES[0])])
 
 
+class Using(unittest.TestCase):
+    DIRECTIVES = [
+        "using namespace Arith;",
+        "using namespace Loop;",
+        "using namespace boundaries_detail;",
+        "using namespace CarpetX;",
+        "using  namespace\tamrex::detail;",
+        "using namespace std::literals;",
+    ]
+    HEADERS = [layer_path(layer, "x.hxx") for layer in LAYERS] + [
+        "CarpetX/src/hierarchy/driver.hxx",
+        "CarpetX/src/hierarchy/valid.hxx",
+        "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx",
+        "CarpetX/src/internal.hxx",
+        "CarpetX/src/util/typeprops.hh",
+        "CarpetX/src/extra/x.hxx",
+    ]
+    PUBLIC_HEADERS = ["CarpetX/src/include/carpetx.hxx", "CarpetX/src/include/carpetx_rk.hxx"]
+
+    def test_a_directive_in_a_private_header_is_reported(self):
+        for name in self.HEADERS:
+            for line in self.DIRECTIVES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("using", line)])
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("using", line)])
+
+    def test_a_directive_in_a_public_header_is_reported_too(self):
+        for name in self.PUBLIC_HEADERS:
+            for line in self.DIRECTIVES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("using", line)])
+
+    def test_a_directive_inside_a_function_of_a_header_is_reported(self):
+        text = "inline void f() {\n  using namespace Arith;\n  g(vect<int, dim>());\n}\n"
+        self.assertEqual(reported("CarpetX/src/comm/boundaries.hxx", text), [("using", "using namespace Arith;")])
+
+    def test_a_using_declaration_or_an_alias_is_not(self):
+        text = (
+            "using Loop::dim;\n"
+            "using Arith::pown;\n"
+            "using Arith::vect;\n"
+            "  using std::copysign, std::fabs, std::fmin;\n"
+            "  using index_t::index_t;\n"
+            "  using Fs::operator()...;\n"
+            "using rat64 = Arith::rational<std::int64_t>;\n"
+            "using level_range = index_range<level_t>;\n"
+            "namespace detail = boundaries_detail;\n"
+        )
+        for name in ["CarpetX/src/hierarchy/driver.hxx", "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx"] + self.PUBLIC_HEADERS:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, text), [])
+
+    def test_a_directive_in_a_source_is_not(self):
+        for name in ["CarpetX/src/comm/fillpatch.cxx", "CarpetX/src/ops/interpolate.cxx", "CarpetX/src/flesh/startup.cxx"]:
+            for line in self.DIRECTIVES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_a_longer_name_a_comment_or_a_string_is_not(self):
+        text = (
+            "using namespaces_t = std::vector<std::string>;\n"
+            "using namespace_t = int;\n"
+            "// using namespace Arith; would reach every includer\n"
+            '#define USING "using namespace Arith;"\n'
+            '  CCTK_VINFO("using namespace %s", name);\n'
+            "namespace CarpetX {\n"
+        )
+        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", text), [])
+
+    def test_another_thorn_and_a_make_file_are_not_checked(self):
+        for name in ["Loop/src/loop.hxx", "Arith/src/vect.hxx", "TestCarpetXAPI/src/api_test.hxx", "ODESolvers/src/hierarchy/driver.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.DIRECTIVES[0] + "\n"), [])
+        self.assertEqual(reported("CarpetX/src/hierarchy/make.code.defn", self.DIRECTIVES[0] + "\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = '#include "internal.hxx"\n\nnamespace CarpetX {\n' + self.DIRECTIVES[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/ops/reduction.hxx", text, Lang.CXX), [Finding(4, "using", self.DIRECTIVES[0])])
+
+
 class Layers(unittest.TestCase):
     def test_a_file_directly_in_a_layer_directory_is_in_that_layer(self):
         for layer in LAYERS:
@@ -1359,6 +1439,7 @@ class Report(unittest.TestCase):
             "no hierarchy access in a checkpoint codec, "
             "every internal include at or below its own layer, "
             "no prototype in a CarpetX .cxx, "
+            "no using-directive in a CarpetX header, "
             "and the hierarchy has one door that util/ and traversal/ never use",
         )
 
@@ -1404,6 +1485,9 @@ class Report(unittest.TestCase):
         p = ("CarpetX/src/flesh/startup.cxx", Finding(36, "prototype", "int InitGH(cGH *cctkGH);"))
         self.assertEqual(summary([p]), "✗ boundary: 1 prototype in a CarpetX .cxx")
         self.assertEqual(summary([g, p, y, p]), "✗ boundary: 1 include outside the layer order, 2 prototypes in a CarpetX .cxx, 1 hierarchy use the door does not allow")
+        u = ("CarpetX/src/hierarchy/driver.hxx", Finding(43, "using", "using namespace Arith;"))
+        self.assertEqual(summary([u]), "✗ boundary: 1 using-directive in a CarpetX header")
+        self.assertEqual(summary([g, u, p, u]), "✗ boundary: 1 prototype in a CarpetX .cxx, 2 using-directives in a CarpetX header, 1 hierarchy use the door does not allow")
 
     def test_the_report_shape(self):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))

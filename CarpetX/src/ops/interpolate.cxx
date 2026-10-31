@@ -25,6 +25,8 @@
 
 namespace CarpetX {
 using Arith::pown;
+using Arith::vect;
+using Loop::GridDescBase;
 
 namespace {
 

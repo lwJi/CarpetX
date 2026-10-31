@@ -13,6 +13,9 @@
 
 namespace CarpetX {
 
+using Loop::GF3D1;
+using Loop::where_t;
+
 CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox *rb,
                              int max_level_in,
                              const amrex::Vector<int> &n_cell_in, int coord,

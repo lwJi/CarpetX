@@ -40,7 +40,6 @@
 #include <vector>
 
 namespace CarpetX {
-using namespace Arith;
 
 using Loop::dim;
 
