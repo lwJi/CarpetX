@@ -23,7 +23,7 @@ void StoreRKStage(level_t level, std::span<const gi_t> var_groups,
 void FillRKBoundary(level_t level, std::span<const gi_t> var_groups, tl_t tl,
                     int stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
-void RecoverRKBoundary(window_t window, const cGH *cctkGH);
+void RecoverRKBoundary(window_t window);
 
 } // namespace CarpetX
 

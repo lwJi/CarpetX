@@ -102,32 +102,33 @@ concept array_timelevel_takes =
 };
 
 template <class... Args>
-concept sync_by_dir_takes =
-    requires(window_t window, const cGH *cctkGH, Args... args) {
-  SyncGroupsByDirI(window, cctkGH, args...);
+concept sync_by_dir_takes = requires(Args... args) {
+  SyncGroupsByDirI(args...);
 };
 
 template <class... Args>
-concept ghost_only_takes =
-    requires(window_t window, const cGH *cctkGH, std::span<const gi_t> groups,
-             Args... args) {
-  SyncGroupsByDirIGhostOnly(window, cctkGH, groups, args...);
+concept ghost_only_takes = requires(Args... args) {
+  SyncGroupsByDirIGhostOnly(args...);
 };
 
 template <class... Args>
-concept restrict_takes = requires(const cGH *cctkGH, Args... args) {
-  Restrict(cctkGH, args...);
+concept restrict_takes = requires(Args... args) {
+  Restrict(args...);
 };
 
 template <class... Args>
-concept restrict_no_poison_takes = requires(const cGH *cctkGH, Args... args) {
-  RestrictNoPoison(cctkGH, args...);
+concept restrict_no_poison_takes = requires(Args... args) {
+  RestrictNoPoison(args...);
 };
 
 template <class... Args>
-concept reflux_takes = requires(const cGH *cctkGH, Args... args) {
-  Reflux(cctkGH, args...);
+concept reflux_takes = requires(Args... args) {
+  Reflux(args...);
 };
+
+using comm_groups_entry_t = void(window_t, std::span<const gi_t>);
+using comm_timelevels_entry_t = void(window_t, std::span<const gi_t>,
+                                     timelevels_t);
 
 template <class... Args>
 concept window_is_restricted_takes = requires(Args... args) {
@@ -231,8 +232,7 @@ static_assert(array_timelevel_takes<tl_t>);
 static_assert(!array_timelevel_takes<gi_t>);
 static_assert(!array_timelevel_takes<int>);
 
-static_assert(sync_by_dir_takes<std::span<const gi_t> >);
-static_assert(!sync_by_dir_takes<int, const int *, const int *>);
+static_assert(sync_by_dir_takes<window_t, std::span<const gi_t> >);
 
 static_assert(restrict_takes<window_t, std::span<const gi_t> >);
 static_assert(!restrict_takes<int, int, std::span<const gi_t> >);
@@ -245,10 +245,27 @@ static_assert(!window_is_restricted_takes<int, int>);
 static_assert(require_takes<window_t>);
 static_assert(!require_takes<level_t>);
 
-static_assert(ghost_only_takes<timelevels_t>);
-static_assert(!ghost_only_takes<>);
-static_assert(!ghost_only_takes<tl_t>);
-static_assert(!ghost_only_takes<int>);
+static_assert(ghost_only_takes<window_t, std::span<const gi_t>, timelevels_t>);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t> >);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, tl_t>);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, int>);
+
+static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
+static_assert(
+    std::is_same_v<decltype(ProlongateAfterRestriction), void(window_t)>);
+static_assert(std::is_same_v<decltype(RestrictNoPoison), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirI), comm_groups_entry_t>);
+static_assert(
+    std::is_same_v<decltype(SyncGroupsByDirISubcycling), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroups), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnly),
+                             comm_timelevels_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnlyAligned),
+                             comm_timelevels_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirIGhostOnly),
+                             comm_timelevels_entry_t>);
+static_assert(std::is_same_v<decltype(Reflux), void(window_t)>);
+static_assert(std::is_same_v<decltype(RecoverRKBoundary), void(window_t)>);
 
 static_assert(write_spec_names<gi_t, tl_t>);
 static_assert(!write_spec_names<tl_t, gi_t>);

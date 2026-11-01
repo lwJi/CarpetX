@@ -156,7 +156,7 @@ void AccumulateFluxes(const level_t level, const int stage,
   }
 }
 
-static void reflux_level(const cGH *cctkGH, const level_t level) {
+static void reflux_level(const level_t level) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("Reflux");
@@ -183,7 +183,7 @@ static void reflux_level(const cGH *cctkGH, const level_t level) {
       CCTK_VINFO("Reflux: applying the flux register of levels (%d, %d) to "
                  "%s at iteration %d",
                  level.index(), fine->index(),
-                 groupdata.record.groupname.c_str(), cctkGH->cctk_iteration);
+                 groupdata.record.groupname.c_str(), current_iteration());
 
     require(coarse_level,
             {.gi = gi,
@@ -208,11 +208,10 @@ static void reflux_level(const cGH *cctkGH, const level_t level) {
   }
 }
 
-void Reflux(const cGH *cctkGH, const window_t window) {
+void Reflux(const window_t window) {
   if (!driver().do_reflux)
     return;
-  loop_pairs_fine_to_coarse(
-      window, [&](const level_t level) { reflux_level(cctkGH, level); });
+  loop_pairs_fine_to_coarse(window, reflux_level);
 }
 
 } // namespace CarpetX

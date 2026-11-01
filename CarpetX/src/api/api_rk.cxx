@@ -284,20 +284,20 @@ bool aligned_with_parent(const level_t level) {
          driver().level(level.parent()).iteration;
 }
 
-void fill_refinement_boundary(const cGH *const cctkGH, const level_t level,
+void fill_refinement_boundary(const level_t level,
                               const std::span<const gi_t> states,
                               const int stage, const int nstages,
                               const std::string &event) {
-  assert(driver().use_subcycling);
+  const GHExt &ext = driver();
+  assert(ext.use_subcycling);
   assert(level.index() > 0);
   assert(stage >= 1 && stage <= nstages);
-  const GHExt::PatchData::LevelData &leveldata = driver().level(level);
-  const GHExt::PatchData::LevelData &parentdata =
-      driver().level(level.parent());
+  const GHExt::PatchData::LevelData &leveldata = ext.level(level);
+  const GHExt::PatchData::LevelData &parentdata = ext.level(level.parent());
   const CCTK_REAL substep_start =
       aligned_with_parent(level) ? rk_substep_ratio : 0;
-  const CCTK_REAL dtc =
-      cctkGH->cctk_delta_time * CCTK_REAL(parentdata.delta_iteration);
+  const CCTK_REAL dtc = ext.get_global_cctkGH()->cctk_delta_time *
+                        CCTK_REAL(parentdata.delta_iteration);
   assert(std::isfinite(dtc) && dtc > 0);
   const bool end_of_substep = stage == nstages;
   const window_t window = window_t::one_level(level);
@@ -409,7 +409,6 @@ void rk_step_t::state_updated() {
                 describe(p->window).c_str(), p->update_count + 1, p->nstages);
   const int stage = ++p->update_count;
   require_operable(p->window, p->states);
-  const cGH *const cctkGH = driver().get_global_cctkGH();
   if (driver().use_subcycling) {
     require_serial_context();
     const int nstages = p->nstages;
@@ -420,13 +419,12 @@ void rk_step_t::state_updated() {
       if (entry.level.index() == 0)
         continue;
       const std::vector<gi_t> &states = entry.groups.states;
-      SyncGroupsByDirIGhostOnly(window_t::one_level(entry.level), cctkGH,
-                                states, timelevels_t::one(rk_tl));
-      fill_refinement_boundary(cctkGH, entry.level, states, stage, nstages,
-                               event);
+      SyncGroupsByDirIGhostOnly(window_t::one_level(entry.level), states,
+                                timelevels_t::one(rk_tl));
+      fill_refinement_boundary(entry.level, states, stage, nstages, event);
     }
   } else if (stage == p->nstages) {
-    Reflux(cctkGH, p->window);
+    Reflux(p->window);
   }
   synchronize();
 }
@@ -441,7 +439,7 @@ rk_step_t::~rk_step_t() {
                 describe(p->window).c_str(), p->update_count, p->nstages);
 }
 
-void RecoverRKBoundary(const window_t window, const cGH *const cctkGH) {
+void RecoverRKBoundary(const window_t window) {
   DECLARE_CCTK_PARAMETERS;
   const GHExt &ext = driver();
   if (!ext.use_subcycling)
@@ -473,12 +471,11 @@ void RecoverRKBoundary(const window_t window, const cGH *const cctkGH) {
   for (const rk_pair_t &pair : integrator->integrated)
     states.push_back(pair.state);
   std::sort(states.begin(), states.end());
-  SyncGroupsByDirIGhostOnly(window, ext.get_global_cctkGH(), states,
-                            timelevels_t::one(rk_tl));
+  SyncGroupsByDirIGhostOnly(window, states, timelevels_t::one(rk_tl));
   const bool restricted = window_is_restricted(window);
   if (restricted)
-    SyncGroupsByDirIProlongateOnlyAligned(window, ext.get_global_cctkGH(),
-                                          states, timelevels_t::one(rk_tl));
+    SyncGroupsByDirIProlongateOnlyAligned(window, states,
+                                          timelevels_t::one(rk_tl));
 
   for (const rk_level_t &entry : levels) {
     if (entry.level.index() == 0)
@@ -493,7 +490,7 @@ void RecoverRKBoundary(const window_t window, const cGH *const cctkGH) {
                   aligned ? "aligned with" : "lagging");
     if (restricted && aligned)
       continue;
-    fill_refinement_boundary(cctkGH, entry.level, entry.groups.states,
+    fill_refinement_boundary(entry.level, entry.groups.states,
                              integrator->nstages(), integrator->nstages(),
                              "CarpetX::RecoverRKBoundary after recovery");
   }

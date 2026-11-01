@@ -77,8 +77,7 @@ static std::vector<gi_t> sync_filter_groups(const std::span<const gi_t> groups0)
   return groups;
 }
 
-static void sync_multipatch_boundaries(const cGH *cctkGH,
-                                       const std::vector<gi_t> &groups) {
+static void sync_multipatch_boundaries(const std::vector<gi_t> &groups) {
   const GHExt &ext = driver();
   static const bool have_multipatch_boundaries =
       CCTK_IsFunctionAliased("MultiPatch_Interpolate");
@@ -90,7 +89,8 @@ static void sync_multipatch_boundaries(const cGH *cctkGH,
       for (const vi_t vi : group.variables())
         cactusvarinds.push_back(group.var(vi).index());
     }
-    MultiPatch_Interpolate(cctkGH, cactusvarinds.size(), cactusvarinds.data());
+    MultiPatch_Interpolate(ext.get_global_cctkGH(), cactusvarinds.size(),
+                           cactusvarinds.data());
   } else {
     assert(ext.num_patches() == 1);
   }
@@ -219,31 +219,27 @@ static std::vector<gi_t> sync_restrict_groups(const std::vector<gi_t> &groups) {
   return restrict_groups;
 }
 
-static void restrict_level(const cGH *cctkGH, level_t level,
-                           std::span<const gi_t> groups, valid_t coarse_keeps);
+static void restrict_level(level_t level, std::span<const gi_t> groups,
+                           valid_t coarse_keeps);
 
 // =======================================================================
 // Sync entry points
 // =======================================================================
 
-static int SyncGroupsByDirIProlongateOnly_impl(
-    const window_t window, const cGH *restrict cctkGH,
-    const std::span<const gi_t> groups0,
+static void SyncGroupsByDirIProlongateOnly_impl(
+    const window_t window, const std::span<const gi_t> groups0,
     const bool prolongate_on_same_iteration, const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
 
-  assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
+  const GHExt &ext = driver();
 
   mark_sync_active marked;
 
   static Timer timer("Sync");
   Interval interval(timer);
 
-  assert(cctkGH);
-
   sync_log_groups("SyncGroupsProlongateOnly", groups0);
 
-  const GHExt &ext = driver();
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   const auto prolongates_into =
@@ -332,30 +328,25 @@ static int SyncGroupsByDirIProlongateOnly_impl(
   tasks3.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_boundaries(cctkGH, groups);
+  sync_multipatch_boundaries(groups);
   scopes.clear();
 
   assert(sync_active);
-
-  return int(groups0.size());
 }
 
-int SyncGroupsByDirI(const window_t window, const cGH *restrict cctkGH,
-                     const std::span<const gi_t> groups0) {
+void SyncGroupsByDirI(const window_t window,
+                      const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
-  assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
+  const GHExt &ext = driver();
 
   mark_sync_active marked;
 
   static Timer timer("Sync");
   Interval interval(timer);
 
-  assert(cctkGH);
-
   sync_log_groups("SyncGroups", groups0);
 
-  const GHExt &ext = driver();
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   if (CCTK_EQUALS(presync_mode, "presync-only")) {
@@ -383,18 +374,17 @@ int SyncGroupsByDirI(const window_t window, const cGH *restrict cctkGH,
       groups = new_groups;
     });
     if (groups.size() == 0) {
-      return 0;
+      return;
     }
   }
 
   if (restrict_during_sync) {
     const std::vector<gi_t> restrict_groups = sync_restrict_groups(groups);
-    loop_fine_to_coarse(window,
-                        [&](const GHExt::PatchData::LevelData &leveldata) {
-                          assert(do_restrict || !leveldata.level.child());
-                          restrict_level(cctkGH, leveldata.level,
-                                         restrict_groups, make_valid_int());
-                        });
+    loop_fine_to_coarse(
+        window, [&](const GHExt::PatchData::LevelData &leveldata) {
+          assert(do_restrict || !leveldata.level.child());
+          restrict_level(leveldata.level, restrict_groups, make_valid_int());
+        });
   }
 
   std::vector<write_scope_t> scopes;
@@ -485,16 +475,13 @@ int SyncGroupsByDirI(const window_t window, const cGH *restrict cctkGH,
   tasks3.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_boundaries(cctkGH, groups);
+  sync_multipatch_boundaries(groups);
   scopes.clear();
 
   assert(sync_active);
-
-  return int(groups0.size());
 }
 
 static void error_if_sync_in_tail(const window_t window,
-                                  const cGH *restrict const cctkGH,
                                   const std::span<const gi_t> groups0) {
   const char *const bin = scheduled_tail_bin();
   if (!bin || groups0.empty())
@@ -522,7 +509,7 @@ static void error_if_sync_in_tail(const window_t window,
       "invalid.",
       func ? func->thorn : "(unknown thorn)",
       func ? func->routine : "(unknown routine)", bin, groupnames.str().c_str(),
-      cctkGH->cctk_iteration, min_level, max_level, min_level, min_level - 1);
+      current_iteration(), min_level, max_level, min_level, min_level - 1);
 }
 
 static bool
@@ -532,25 +519,21 @@ integrator_owns_coarse_fine_ghosts(const GHExt::PatchData::LevelData &leveldata,
          leveldata.iteration > 0;
 }
 
-int SyncGroupsByDirISubcycling(const window_t window,
-                               const cGH *restrict cctkGH,
-                               const std::span<const gi_t> groups0) {
+void SyncGroupsByDirISubcycling(const window_t window,
+                                const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
-  assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
+  const GHExt &ext = driver();
 
-  error_if_sync_in_tail(window, cctkGH, groups0);
+  error_if_sync_in_tail(window, groups0);
 
   mark_sync_active marked;
 
   static Timer timer("Sync");
   Interval interval(timer);
 
-  assert(cctkGH);
-
   sync_log_groups("SyncGroupsBySubcycling", groups0);
 
-  const GHExt &ext = driver();
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   const char *const prolongation_label =
@@ -723,18 +706,17 @@ int SyncGroupsByDirISubcycling(const window_t window,
                       "valid already.\n";
              }});
 
-  sync_multipatch_boundaries(cctkGH, groups);
+  sync_multipatch_boundaries(groups);
   scopes.clear();
 
   assert(sync_active);
-
-  return int(groups0.size());
 }
 
-int SyncGroups(const window_t window, const cGH *restrict const cctkGH,
-               const std::span<const gi_t> groups) {
-  return (driver().use_subcycling ? SyncGroupsByDirISubcycling
-                                  : SyncGroupsByDirI)(window, cctkGH, groups);
+void SyncGroups(const window_t window, const std::span<const gi_t> groups) {
+  if (driver().use_subcycling)
+    SyncGroupsByDirISubcycling(window, groups);
+  else
+    SyncGroupsByDirI(window, groups);
 }
 
 namespace {
@@ -749,43 +731,38 @@ std::string sync_caller() {
 int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,
                              const int numgroups, const int *const groups,
                              const int *const directions) {
+  assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
   const std::vector<gi_t> gis(groups, groups + numgroups);
-  return SyncGroups(scheduled_window(sync_caller().c_str()), cctkGH, gis);
+  SyncGroups(scheduled_window(sync_caller().c_str()), gis);
+  return numgroups;
 }
 
-int SyncGroupsByDirIProlongateOnly(const window_t window,
-                                   const cGH *restrict cctkGH,
-                                   const std::span<const gi_t> groups0,
-                                   const timelevels_t tls) {
-  return SyncGroupsByDirIProlongateOnly_impl(window, cctkGH, groups0, false,
-                                             tls);
+void SyncGroupsByDirIProlongateOnly(const window_t window,
+                                    const std::span<const gi_t> groups0,
+                                    const timelevels_t tls) {
+  SyncGroupsByDirIProlongateOnly_impl(window, groups0, false, tls);
 }
 
-int SyncGroupsByDirIProlongateOnlyAligned(const window_t window,
-                                          const cGH *restrict cctkGH,
-                                          const std::span<const gi_t> groups0,
-                                          const timelevels_t tls) {
-  return SyncGroupsByDirIProlongateOnly_impl(window, cctkGH, groups0, true,
-                                             tls);
+void SyncGroupsByDirIProlongateOnlyAligned(const window_t window,
+                                           const std::span<const gi_t> groups0,
+                                           const timelevels_t tls) {
+  SyncGroupsByDirIProlongateOnly_impl(window, groups0, true, tls);
 }
 
-int SyncGroupsByDirIGhostOnly(const window_t window, const cGH *restrict cctkGH,
-                              const std::span<const gi_t> groups0,
-                              const timelevels_t tls) {
+void SyncGroupsByDirIGhostOnly(const window_t window,
+                               const std::span<const gi_t> groups0,
+                               const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
 
-  assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
+  const GHExt &ext = driver();
 
   mark_sync_active marked;
 
   static Timer timer("Sync");
   Interval interval(timer);
 
-  assert(cctkGH);
-
   sync_log_groups("SyncGroupsGhostOnly", groups0);
 
-  const GHExt &ext = driver();
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   // We need to loop over groups, patches, and levels in a definite
@@ -816,20 +793,18 @@ int SyncGroupsByDirIGhostOnly(const window_t window, const cGH *restrict cctkGH,
   tasks2.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_boundaries(cctkGH, groups);
+  sync_multipatch_boundaries(groups);
 
   assert(sync_active);
-
-  return int(groups0.size());
 }
 
-void ProlongateAfterRestriction(const window_t window, const cGH *cctkGH) {
+void ProlongateAfterRestriction(const window_t window) {
   const std::vector<gi_t> groups = reprolongate_groups();
-  SyncGroupsByDirIProlongateOnly_impl(window, cctkGH, groups, true,
+  SyncGroupsByDirIProlongateOnly_impl(window, groups, true,
                                       timelevels_t::all_but_oldest());
 }
 
-static void restrict_level(const cGH *cctkGH, const level_t level,
+static void restrict_level(const level_t level,
                            const std::span<const gi_t> groups,
                            const valid_t coarse_keeps) {
   static Timer timer("Restrict");
@@ -911,21 +886,20 @@ static void restrict_level(const cGH *cctkGH, const level_t level,
   } // for gi
 }
 
-void Restrict(const cGH *cctkGH, const window_t window,
-              const std::span<const gi_t> groups) {
+void Restrict(const window_t window, const std::span<const gi_t> groups) {
   if (groups.empty())
     return;
   loop_pairs_fine_to_coarse(window, [&](const level_t level) {
-    restrict_level(cctkGH, level, groups, make_valid_int());
+    restrict_level(level, groups, make_valid_int());
   });
 }
 
-void RestrictNoPoison(const cGH *cctkGH, const window_t window,
+void RestrictNoPoison(const window_t window,
                       const std::span<const gi_t> groups) {
   if (groups.empty())
     return;
   loop_pairs_fine_to_coarse(window, [&](const level_t level) {
-    restrict_level(cctkGH, level, groups, make_valid_all());
+    restrict_level(level, groups, make_valid_all());
   });
 }
 

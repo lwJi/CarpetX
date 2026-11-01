@@ -459,11 +459,6 @@ void check_valid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int current_iteration() {
-  const cGH *const cctkGH = driver().get_global_cctkGH();
-  return cctkGH ? cctkGH->cctk_iteration : 0;
-}
-
 std::function<std::string()> event_reason(const std::string &event,
                                           const char *const what,
                                           const int iteration) {
@@ -482,6 +477,11 @@ std::vector<vi_t> variables_of(const gi_t gi, const std::optional<vi_t> vi) {
 }
 
 } // namespace
+
+int current_iteration() {
+  const cGH *const cctkGH = driver().get_global_cctkGH();
+  return cctkGH ? cctkGH->cctk_iteration : 0;
+}
 
 write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
                              const int iteration)

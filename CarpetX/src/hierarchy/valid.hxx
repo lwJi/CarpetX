@@ -187,6 +187,8 @@ void invalidate(window_t window, invalidate_spec_t spec);
 void require(window_t window, require_spec_t spec);
 void warn(window_t window, require_spec_t spec);
 
+int current_iteration();
+
 class array_write_scope_t;
 [[nodiscard]] array_write_scope_t open_array_write(write_spec_t spec);
 
