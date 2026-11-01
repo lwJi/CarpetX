@@ -447,10 +447,10 @@ int Evolve(tFleshConfig *config) {
 
     cctkGH->cctk_iteration += 1;
 
-    for (window_t::bounds_t levels{0, 0}; levels.min < ext.num_levels();
+    for (window_t::bounds_t levels{0, 0}; ext.num_levels() > levels.min;
          levels.min = levels.max) {
       levels.max = levels.min;
-      while (++levels.max < ext.num_levels()) {
+      while (ext.num_levels() > ++levels.max) {
         bool level_is_subcycling_level = false;
         for (const auto &patchdata : ext.patches()) {
           const level_t level{patchdata.patch, levels.max};
