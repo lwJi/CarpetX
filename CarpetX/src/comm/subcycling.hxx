@@ -25,12 +25,6 @@ void FillRKBoundary(level_t level, std::span<const gi_t> var_groups, tl_t tl,
 
 void RecoverRKBoundary(window_t window, const cGH *cctkGH);
 
-void EnsureFluxGeometry(level_t level);
-
-void AccumulateFluxes(level_t level, int stage, CCTK_REAL weight);
-
-void Reflux(const cGH *cctkGH, window_t window);
-
 } // namespace CarpetX
 
 #endif

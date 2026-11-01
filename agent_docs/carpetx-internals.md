@@ -45,11 +45,11 @@ flowchart TB
   flesh -- "schedule.hxx" --> schedule
   flesh -- "checkpoint.hxx, io.hxx" --> io
   flesh -- "interp.hxx, linsolve.hxx" --> ops
-  flesh -- "comm.hxx, subcycling.hxx" --> comm
+  flesh -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   api -- "schedule.hxx" --> schedule
-  api -- "comm.hxx, subcycling.hxx" --> comm
+  api -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   schedule -- "io.hxx" --> io
-  schedule -- "comm.hxx, subcycling.hxx" --> comm
+  schedule -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
   regrid -- "fillpatch.hxx" --> comm
@@ -103,7 +103,7 @@ The data model and the hierarchy's views of itself: `GHExt` and what it holds, t
 
 ### `comm/`
 
-Moving data between ranks, between levels, and into ghost and boundary zones: sync and restrict, fill-patch, the boundary conditions, the prolongation operators and the subcycling machinery. When to communicate is not decided here: `comm/` does what `schedule/` (a SYNC clause, the end-of-step restrict and reflux) and `api/` (the public communication operations) ask of it. The sync entry points take a window and a list of `gi_t`; only the flesh's SYNC overload receives the flesh's directions array, and discards it. A new prolongation operator is a change to this layer alone: its operator map declared in `prolongate_3d_rf2.hxx`, its instantiations in a new `prolongate_3d_rf2_impl_<name>.cxx`, and its name in `get_interpolator`.
+Moving data between ranks, between levels, and into ghost and boundary zones: sync and restrict, reflux, fill-patch, the boundary conditions, the prolongation operators and the subcycling machinery. When to communicate is not decided here: `comm/` does what `schedule/` (a SYNC clause, the end-of-step restrict and reflux) and `api/` (the public communication operations) ask of it. The sync entry points take a window and a list of `gi_t`; only the flesh's SYNC overload receives the flesh's directions array, and discards it. A new prolongation operator is a change to this layer alone: its operator map declared in `prolongate_3d_rf2.hxx`, its instantiations in a new `prolongate_3d_rf2_impl_<name>.cxx`, and its name in `get_interpolator`.
 
 ### `regrid/`
 
