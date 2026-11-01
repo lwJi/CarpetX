@@ -18,6 +18,7 @@ void RecoverGH(const cGH *cctkGH, const checkpoint_record_t &record);
 void InputGH(const cGH *cctkGH);
 
 int OutputGH(const cGH *cctkGH);
+void ShutdownIO();
 
 void Checkpoint(const cGH *cctkGH);
 bool CheckWalltimeTrigger(int runtime);

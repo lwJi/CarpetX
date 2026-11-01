@@ -484,6 +484,11 @@ int OutputGH(const cGH *restrict cctkGH) {
   return 0;
 }
 
+void ShutdownIO() {
+  ShutdownADIOS2();
+  ShutdownOpenPMD();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void Checkpoint(const cGH *const restrict cctkGH) {

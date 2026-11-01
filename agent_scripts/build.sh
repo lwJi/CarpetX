@@ -22,6 +22,8 @@ if (
     -t "$thornlist"
 ) > "$log" 2>&1; then
   echo "✓ build $CACTUSX/exe/cactus_carpetx"
+  repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  python3 "$repo/scripts/lint" symbols "$CACTUSX/configs/carpetx/build/CarpetX"
 else
   echo "--- first error lines ---"
   grep -n -m 12 -E 'error:|Error|\*\*\*' "$log" || echo "(no obvious error lines)"
