@@ -745,6 +745,7 @@ class Door(unittest.TestCase):
             "int ghext_handle = -1;\n",
             "struct GHExtension;\n",
             "const GHExt &ext = driver();\n",
+            "const int *counts = CountGroups(ngroups);\n",
         ]:
             for name in ["CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io.cxx", "CarpetX/src/hierarchy/driver.hxx"]:
                 with self.subTest(name=name, text=text):
@@ -917,18 +918,10 @@ class Prototype(unittest.TestCase):
         "const int *ArrayGroupSizeB(const cGH *cctkGH, int dir, const char *groupname);",
         'extern "C" int CarpetX_Startup();',
         "inline void advance(const GHExt &ext) ;",
-        "template <class T> void apply(const T &x);",
-        "template  <class T> void apply(const T &x);",
         "bool operator==(const valid_t &a, const valid_t &b);",
         "std::ostream &operator<<(std::ostream &os, valid_t v);",
         "int Barrier(const cGH *cctkGH) noexcept;",
         "void Finalize() noexcept ;",
-        "template <> void apply<std::string>();",
-        "std::function<std::string()> make_callback();",
-        "std::function<std::string(void (*)())> make_callback();",
-        "template <int N> std::integral_constant<bool, (N > 0)> flag();",
-        "template <int N> std::integral_constant<bool, N < 0> flag();",
-        "std::vector<int>f();",
     ]
 
     def test_a_column_0_prototype_is_reported(self):
@@ -936,6 +929,25 @@ class Prototype(unittest.TestCase):
             for name in [layer_path(layer, "x.cxx") for layer in LAYERS] + ["CarpetX/src/flesh/startup.cxx", "CarpetX/src/extra/x.cxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, line + "\n"), [("prototype", line)])
+
+    def test_a_head_with_a_template_argument_list_is_left_to_the_symbols_subcommand(self):
+        for line in [
+            "template <class T> void apply(const T &x);",
+            "template <> void apply<std::string>();",
+            "template <class... Args> void forward(Args... args);",
+            "std::vector<int> names();",
+            "std::vector<int>f();",
+            "std::function<std::string()> make_callback();",
+            "std::function<std::string(void (*)())> make_callback();",
+            "template <int N> std::integral_constant<bool, (N > 0)> flag();",
+            "template <int N> std::integral_constant<bool, N < 0> flag();",
+            "std::function<void()> callback = make_callback();",
+            "std::vector<int> table(3);",
+            "std::function<void(int)> cb(f);",
+            "std::optional<carpetx_adios2_t> carpetx_adios2_t::self(std::nullopt);",
+        ]:
+            with self.subTest(line=line):
+                self.assertEqual(reported("CarpetX/src/flesh/startup.cxx", line + "\n"), [])
 
     def test_a_wrapped_prototype_is_reported_on_its_last_line(self):
         text = "int ScheduleTraverseGH(cGH *cctkGH,\n                       const char *where);\n"
@@ -967,6 +979,10 @@ class Prototype(unittest.TestCase):
             "static void restrict_level(const GHExt::PatchData::LevelData &coarse,\n"
             "                           const GHExt::PatchData::LevelData &fine);\n"
             "static int counter(const cGH *cctkGH);\n"
+            "template <class T> static void apply(const T &x);\n"
+            "template <class T>\n"
+            "static T convert(const GHExt &ext);\n"
+            "inline static void reset(int n);\n"
             "static_assert(record_takes<gi_t>);\n"
             "static_assert(\n"
             "    !loop_parallel_takes<std::function<void(GHExt::PatchData::LevelData &)>>);\n"
@@ -989,9 +1005,7 @@ class Prototype(unittest.TestCase):
     def test_a_namespace_scope_object_initialised_with_parentheses_is_and_the_rule_says_how_to_write_it(self):
         for line in [
             "const std::regex re(\"^[a-z]+$\");",
-            "std::vector<int> table(3);",
-            "std::function<void(int)> cb(f);",
-            "std::optional<carpetx_adios2_t> carpetx_adios2_t::self(std::nullopt);",
+            "amrex::ParmParse parms(\"amrex\");",
         ]:
             with self.subTest(line=line):
                 self.assertEqual(reported("CarpetX/src/io/io_adios2.cxx", line + "\n"), [("prototype", line)])

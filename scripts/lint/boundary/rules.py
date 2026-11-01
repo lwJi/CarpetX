@@ -112,10 +112,11 @@ CODEC_WORD = re.compile(
 PROTOTYPE_END = re.compile(r"\)\s*(?:noexcept\s*)?;\s*$")
 NOT_A_DECLARATION = re.compile(r"\s*(?:$|#|//|(?:public|protected|private)\s*:(?!:))")
 DECLARATION_START = re.compile(r"[A-Za-z_]")
-FILE_LOCAL_DECLARATION = re.compile(r"(?:static_assert|static)\b|(?:extern\s+)?template\s+(?![\s<])")
+FILE_LOCAL_DECLARATION = re.compile(r"static_assert\b|(?:extern\s+)?template\s+(?![\s<])")
+STATIC_WORD = re.compile(r"\bstatic\b")
 EXTERN_C = re.compile(r'\bextern\s+"C"')
 OPERATOR_NAME = re.compile(r"\boperator\s*[^\s\w(]*")
-NOT_A_DECLARATOR = re.compile(r"[^\w\s:<>,*&]|<<")
+NOT_A_DECLARATOR = re.compile(r"[^\w\s:*&]")
 DECLARED_WORD = re.compile(r"[A-Za-z_]\w*(?:\s*::\s*[A-Za-z_]\w*)*")
 STATEMENT_KEYWORDS = ("return", "throw", "else", "do", "case", "new", "delete", "co_return", "co_yield", "co_await")
 STATEMENT_END = re.compile(r"[;{}]")
@@ -241,9 +242,13 @@ def names_a_function(head: str) -> bool:
     return bool(paren) and not NOT_A_DECLARATOR.search(before) and len(words) >= 2 and words[0] not in STATEMENT_KEYWORDS
 
 
+def file_local(head: str) -> bool:
+    return bool(FILE_LOCAL_DECLARATION.match(head)) or bool(STATIC_WORD.search(head.partition("(")[0]))
+
+
 def prototype_allowed(name: str, line: str, statement: str) -> bool:
     head = declaration_head(statement)
-    return not (DECLARATION_START.match(head) and names_a_function(head) and not FILE_LOCAL_DECLARATION.match(head))
+    return not (DECLARATION_START.match(head) and names_a_function(head) and not file_local(head))
 
 
 def door_allowed(name: str, line: str, statement: str) -> bool:
@@ -404,7 +409,9 @@ RULES = (
         allowed=prototype_allowed,
         text=textwrap.fill(
             "prototype: a CarpetX .cxx declares no function it does not define, since a prototype reaches past the "
-            "header that the layer rule judges; a declaration at column 0 that ends in ); is one. A function "
+            "header that the layer rule judges; a declaration at column 0 that ends in ); and names a plain type and "
+            "function is one, and the symbols subcommand judges the rest, templates included, over the build's "
+            "objects. A function "
             "another file defines is declared in a header of that file's layer and included, one this file defines "
             "is defined above its first use, and a forward declaration only this file needs is static. A "
             "namespace-scope object is initialised with = or braces, never with (), which reads as a prototype.",
