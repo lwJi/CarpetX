@@ -77,8 +77,7 @@ static std::vector<gi_t> sync_filter_groups(const std::span<const gi_t> groups0)
   return groups;
 }
 
-static void sync_multipatch_boundaries(const cGH *cctkGH,
-                                       const std::vector<gi_t> &groups) {
+static void sync_multipatch_boundaries(const std::vector<gi_t> &groups) {
   const GHExt &ext = driver();
   static const bool have_multipatch_boundaries =
       CCTK_IsFunctionAliased("MultiPatch_Interpolate");
@@ -90,7 +89,8 @@ static void sync_multipatch_boundaries(const cGH *cctkGH,
       for (const vi_t vi : group.variables())
         cactusvarinds.push_back(group.var(vi).index());
     }
-    MultiPatch_Interpolate(cctkGH, cactusvarinds.size(), cactusvarinds.data());
+    MultiPatch_Interpolate(ext.get_global_cctkGH(), cactusvarinds.size(),
+                           cactusvarinds.data());
   } else {
     assert(ext.num_patches() == 1);
   }
@@ -232,14 +232,11 @@ static void SyncGroupsByDirIProlongateOnly_impl(
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
-  const cGH *const cctkGH = ext.get_global_cctkGH();
 
   mark_sync_active marked;
 
   static Timer timer("Sync");
   Interval interval(timer);
-
-  assert(cctkGH);
 
   sync_log_groups("SyncGroupsProlongateOnly", groups0);
 
@@ -331,7 +328,7 @@ static void SyncGroupsByDirIProlongateOnly_impl(
   tasks3.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_boundaries(cctkGH, groups);
+  sync_multipatch_boundaries(groups);
   scopes.clear();
 
   assert(sync_active);
@@ -342,14 +339,11 @@ void SyncGroupsByDirI(const window_t window,
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
-  const cGH *const cctkGH = ext.get_global_cctkGH();
 
   mark_sync_active marked;
 
   static Timer timer("Sync");
   Interval interval(timer);
-
-  assert(cctkGH);
 
   sync_log_groups("SyncGroups", groups0);
 
@@ -481,14 +475,13 @@ void SyncGroupsByDirI(const window_t window,
   tasks3.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_boundaries(cctkGH, groups);
+  sync_multipatch_boundaries(groups);
   scopes.clear();
 
   assert(sync_active);
 }
 
 static void error_if_sync_in_tail(const window_t window,
-                                  const cGH *restrict const cctkGH,
                                   const std::span<const gi_t> groups0) {
   const char *const bin = scheduled_tail_bin();
   if (!bin || groups0.empty())
@@ -516,7 +509,7 @@ static void error_if_sync_in_tail(const window_t window,
       "invalid.",
       func ? func->thorn : "(unknown thorn)",
       func ? func->routine : "(unknown routine)", bin, groupnames.str().c_str(),
-      cctkGH->cctk_iteration, min_level, max_level, min_level, min_level - 1);
+      current_iteration(), min_level, max_level, min_level, min_level - 1);
 }
 
 static bool
@@ -531,16 +524,13 @@ void SyncGroupsByDirISubcycling(const window_t window,
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
-  const cGH *const cctkGH = ext.get_global_cctkGH();
 
-  error_if_sync_in_tail(window, cctkGH, groups0);
+  error_if_sync_in_tail(window, groups0);
 
   mark_sync_active marked;
 
   static Timer timer("Sync");
   Interval interval(timer);
-
-  assert(cctkGH);
 
   sync_log_groups("SyncGroupsBySubcycling", groups0);
 
@@ -716,7 +706,7 @@ void SyncGroupsByDirISubcycling(const window_t window,
                       "valid already.\n";
              }});
 
-  sync_multipatch_boundaries(cctkGH, groups);
+  sync_multipatch_boundaries(groups);
   scopes.clear();
 
   assert(sync_active);
@@ -765,14 +755,11 @@ void SyncGroupsByDirIGhostOnly(const window_t window,
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
-  const cGH *const cctkGH = ext.get_global_cctkGH();
 
   mark_sync_active marked;
 
   static Timer timer("Sync");
   Interval interval(timer);
-
-  assert(cctkGH);
 
   sync_log_groups("SyncGroupsGhostOnly", groups0);
 
@@ -806,7 +793,7 @@ void SyncGroupsByDirIGhostOnly(const window_t window,
   tasks2.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_boundaries(cctkGH, groups);
+  sync_multipatch_boundaries(groups);
 
   assert(sync_active);
 }

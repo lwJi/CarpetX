@@ -129,7 +129,6 @@ concept reflux_takes = requires(Args... args) {
 using comm_groups_entry_t = void(window_t, std::span<const gi_t>);
 using comm_timelevels_entry_t = void(window_t, std::span<const gi_t>,
                                      timelevels_t);
-using flesh_sync_overload_t = int(const cGH *, int, const int *, const int *);
 
 template <class... Args>
 concept window_is_restricted_takes = requires(Args... args) {
@@ -234,19 +233,12 @@ static_assert(!array_timelevel_takes<gi_t>);
 static_assert(!array_timelevel_takes<int>);
 
 static_assert(sync_by_dir_takes<window_t, std::span<const gi_t> >);
-static_assert(
-    !sync_by_dir_takes<window_t, const cGH *, std::span<const gi_t> >);
-static_assert(!sync_by_dir_takes<const cGH *, int, const int *, const int *>);
 
 static_assert(restrict_takes<window_t, std::span<const gi_t> >);
-static_assert(!restrict_takes<const cGH *, window_t, std::span<const gi_t> >);
 static_assert(!restrict_takes<int, int, std::span<const gi_t> >);
 static_assert(restrict_no_poison_takes<window_t, std::span<const gi_t> >);
-static_assert(
-    !restrict_no_poison_takes<const cGH *, window_t, std::span<const gi_t> >);
 static_assert(!restrict_no_poison_takes<int, int, std::span<const gi_t> >);
 static_assert(reflux_takes<window_t>);
-static_assert(!reflux_takes<const cGH *, window_t>);
 static_assert(!reflux_takes<int, int>);
 static_assert(window_is_restricted_takes<window_t>);
 static_assert(!window_is_restricted_takes<int, int>);
@@ -257,8 +249,6 @@ static_assert(ghost_only_takes<window_t, std::span<const gi_t>, timelevels_t>);
 static_assert(!ghost_only_takes<window_t, std::span<const gi_t> >);
 static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, tl_t>);
 static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, int>);
-static_assert(!ghost_only_takes<window_t, const cGH *, std::span<const gi_t>,
-                                timelevels_t>);
 
 static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
 static_assert(
@@ -275,8 +265,7 @@ static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnlyAligned),
 static_assert(std::is_same_v<decltype(SyncGroupsByDirIGhostOnly),
                              comm_timelevels_entry_t>);
 static_assert(std::is_same_v<decltype(Reflux), void(window_t)>);
-static_assert(
-    std::is_same_v<decltype(SyncGroupsOnActiveLevels), flesh_sync_overload_t>);
+static_assert(std::is_same_v<decltype(RecoverRKBoundary), void(window_t)>);
 
 static_assert(write_spec_names<gi_t, tl_t>);
 static_assert(!write_spec_names<tl_t, gi_t>);

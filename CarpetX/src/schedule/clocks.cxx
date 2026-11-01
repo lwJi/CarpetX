@@ -309,7 +309,7 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
                min_level, max_level, cctkGH->cctk_iteration,
                double(cctkGH->cctk_time), cctkGH->cctk_timefac);
 
-    RecoverRKBoundary(group, cctkGH);
+    RecoverRKBoundary(group);
     CCTK_Traverse(cctkGH, "CCTK_POST_RECOVER_VARIABLES");
   }
 

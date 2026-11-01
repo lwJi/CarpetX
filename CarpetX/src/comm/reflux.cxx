@@ -165,8 +165,7 @@ static void reflux_level(const level_t level) {
   const std::optional<level_t> fine = level.child();
   if (!fine)
     return;
-  const GHExt &ext = driver();
-  const auto &patchdata = ext.patch(level.patch());
+  const auto &patchdata = driver().patch(level.patch());
   const auto &leveldata = patchdata.level(level);
   const auto &fineleveldata = patchdata.level(*fine);
   const amrex::Geometry &geom = patchdata.amrcore->Geom(level.index());
@@ -184,8 +183,7 @@ static void reflux_level(const level_t level) {
       CCTK_VINFO("Reflux: applying the flux register of levels (%d, %d) to "
                  "%s at iteration %d",
                  level.index(), fine->index(),
-                 groupdata.record.groupname.c_str(),
-                 ext.get_global_cctkGH()->cctk_iteration);
+                 groupdata.record.groupname.c_str(), current_iteration());
 
     require(coarse_level,
             {.gi = gi,
