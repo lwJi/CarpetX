@@ -921,6 +921,14 @@ class Prototype(unittest.TestCase):
         "template  <class T> void apply(const T &x);",
         "bool operator==(const valid_t &a, const valid_t &b);",
         "std::ostream &operator<<(std::ostream &os, valid_t v);",
+        "int Barrier(const cGH *cctkGH) noexcept;",
+        "void Finalize() noexcept ;",
+        "template <> void apply<std::string>();",
+        "std::function<std::string()> make_callback();",
+        "std::function<std::string(void (*)())> make_callback();",
+        "template <int N> std::integral_constant<bool, (N > 0)> flag();",
+        "template <int N> std::integral_constant<bool, N < 0> flag();",
+        "std::vector<int>f();",
     ]
 
     def test_a_column_0_prototype_is_reported(self):
@@ -977,6 +985,17 @@ class Prototype(unittest.TestCase):
             "                                   amrex::MultiFab &dst);\n"
         )
         self.assertEqual(reported("CarpetX/src/comm/boundaries_impl_neg_neg_int.cxx", text), [])
+
+    def test_a_namespace_scope_object_initialised_with_parentheses_is_and_the_rule_says_how_to_write_it(self):
+        for line in [
+            "const std::regex re(\"^[a-z]+$\");",
+            "std::vector<int> table(3);",
+            "std::function<void(int)> cb(f);",
+            "std::optional<carpetx_adios2_t> carpetx_adios2_t::self(std::nullopt);",
+        ]:
+            with self.subTest(line=line):
+                self.assertEqual(reported("CarpetX/src/io/io_adios2.cxx", line + "\n"), [("prototype", line)])
+        self.assertIn("A namespace-scope object is initialised with = or braces, never with (), which reads as a prototype.", " ".join(RULE.split()))
 
     def test_a_definition_is_not(self):
         text = (

@@ -109,7 +109,7 @@ CODEC_FILES = (
 CODEC_WORD = re.compile(
     r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]hierarchy/driver\.hxx[">]'
 )
-PROTOTYPE_END = re.compile(r"\)\s*;\s*$")
+PROTOTYPE_END = re.compile(r"\)\s*(?:noexcept\s*)?;\s*$")
 NOT_A_DECLARATION = re.compile(r"\s*(?:$|#|//|(?:public|protected|private)\s*:(?!:))")
 DECLARATION_START = re.compile(r"[A-Za-z_]")
 FILE_LOCAL_DECLARATION = re.compile(r"(?:static_assert|static)\b|(?:extern\s+)?template\s+(?![\s<])")
@@ -406,7 +406,8 @@ RULES = (
             "prototype: a CarpetX .cxx declares no function it does not define, since a prototype reaches past the "
             "header that the layer rule judges; a declaration at column 0 that ends in ); is one. A function "
             "another file defines is declared in a header of that file's layer and included, one this file defines "
-            "is defined above its first use, and a forward declaration only this file needs is static.",
+            "is defined above its first use, and a forward declaration only this file needs is static. A "
+            "namespace-scope object is initialised with = or braces, never with (), which reads as a prototype.",
             width=RULE_WIDTH,
         ),
         noun="prototype",
