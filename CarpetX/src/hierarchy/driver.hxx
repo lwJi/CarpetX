@@ -139,16 +139,14 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 
 class CactusAmrCore final : public amrex::AmrCore {
   patch_t patch;
-  bool cactus_is_initialized = false;
   std::vector<bool> level_modified;
 
   void mark_level_modified(level_t level);
 
 public:
-  void mark_initialized();
-  bool is_initialized() const;
-  void reset_level_modified(int num_levels);
-  const std::vector<bool> &modified_levels() const;
+  virtual void regrid(int lbase, amrex::Real time,
+                      bool initial = false) override;
+  std::optional<window_t::bounds_t> modified_levels() const;
 
   CactusAmrCore(patch_t patch, const amrex::RealBox *rb, int max_level_in,
                 const amrex::Vector<int> &n_cell_in, int coord = -1,
@@ -187,7 +185,11 @@ public:
 
 struct GHExt {
 
-  GHExt(bool use_subcycling, bool do_reflux);
+  struct config_t {
+    bool use_subcycling;
+    bool do_reflux;
+  };
+  explicit GHExt(config_t config);
   GHExt(const GHExt &) = delete;
   GHExt(GHExt &&) = delete;
   GHExt &operator=(const GHExt &) = delete;
@@ -473,7 +475,7 @@ struct GHExt {
   const GroupRecord &record(
       const gi_t gi,
       const std::source_location site = std::source_location::current()) const {
-    if (!storage_frozen)
+    if (!storage_frozen())
       refuse(site, "CarpetX group %d has no record yet: storage is not frozen",
              gi.index());
     if (gi.index() < 0 || gi.index() >= int(group_records.size()))
@@ -496,10 +498,12 @@ struct GHExt {
         group_records.begin(), group_records.end(), record_filter{kind});
   }
   void record_storage(gi_t gi, int timelevels);
-  int active_timelevels(const gi_t gi) const {
-    return active_timelevels_.at(gi.index());
-  }
+  int active_timelevels(gi_t gi) const;
+  bool storage_frozen() const { return !pending_timelevels_; }
   void freeze_storage();
+
+  void mark_initialized();
+  bool is_initialized() const { return initialized_; }
 
   struct PatchData {
     PatchData() = delete;
@@ -872,8 +876,8 @@ struct GHExt {
   }
 
 private:
-  std::vector<int> active_timelevels_;
-  bool storage_frozen = false;
+  std::optional<std::vector<int>> pending_timelevels_;
+  bool initialized_ = false;
   std::vector<GroupRecord> group_records;
   std::vector<PatchData> patchdata;
 
@@ -882,7 +886,7 @@ private:
 };
 
 GHExt &driver();
-GHExt &create_hierarchy(bool use_subcycling, bool do_reflux);
+GHExt &create_hierarchy(GHExt::config_t config);
 void destroy_hierarchy();
 void assert_hierarchy_destroyed();
 

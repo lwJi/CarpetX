@@ -8,6 +8,7 @@
 #include <AMReX_TagBox.H>
 
 #include <cstddef>
+#include <optional>
 #include <sstream>
 
 namespace CarpetX {
@@ -33,17 +34,23 @@ CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox &rb,
 
 CactusAmrCore::~CactusAmrCore() {}
 
-void CactusAmrCore::mark_initialized() { cactus_is_initialized = true; }
-
-bool CactusAmrCore::is_initialized() const { return cactus_is_initialized; }
-
-void CactusAmrCore::reset_level_modified(const int num_levels) {
-  assert(num_levels >= 0);
-  level_modified.assign(num_levels, false);
+void CactusAmrCore::regrid(const int lbase, const amrex::Real time,
+                           const bool initial) {
+  level_modified.assign(finestLevel() + 1, false);
+  amrex::AmrCore::regrid(lbase, time, initial);
 }
 
-const std::vector<bool> &CactusAmrCore::modified_levels() const {
-  return level_modified;
+std::optional<window_t::bounds_t> CactusAmrCore::modified_levels() const {
+  std::optional<window_t::bounds_t> bounds;
+  for (int lev = 0; lev < int(level_modified.size()); ++lev) {
+    if (!level_modified.at(lev))
+      continue;
+    if (!bounds)
+      bounds = window_t::bounds_t{lev, lev + 1};
+    else
+      bounds->max = lev + 1;
+  }
+  return bounds;
 }
 
 void CactusAmrCore::mark_level_modified(const level_t level) {
@@ -56,7 +63,7 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
   DECLARE_CCTK_PARAMETERS;
   const level_t level{patch, lev};
 
-  if (!is_initialized())
+  if (!driver().is_initialized())
     return;
 
   if (verbose)

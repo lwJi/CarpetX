@@ -194,18 +194,28 @@ concept assigns_active_timelevels = requires(Ext & ext, gi_t gi) {
 };
 
 template <class Ext>
-concept assigns_active_timelevels_field = requires(Ext & ext) {
-  ext.active_timelevels_.at(0) = 0;
+concept assigns_pending_timelevels = requires(Ext & ext) {
+  ext.pending_timelevels_->at(0) = 0;
 };
 
 template <class Ext>
 concept assigns_storage_frozen = requires(Ext & ext) {
-  ext.storage_frozen = true;
+  ext.storage_frozen() = true;
 };
 
-template <class Core>
-concept assigns_cactus_is_initialized = requires(Core & core) {
-  core.cactus_is_initialized = true;
+template <class Ext>
+concept assigns_initialized = requires(Ext & ext) {
+  ext.initialized_ = true;
+};
+
+template <class Ext>
+concept assigns_is_initialized = requires(Ext & ext) {
+  ext.is_initialized() = true;
+};
+
+template <class... Args>
+concept create_hierarchy_takes = requires(Args... args) {
+  create_hierarchy(args...);
 };
 
 template <class Core>
@@ -216,6 +226,11 @@ concept assigns_level_modified = requires(Core & core) {
 template <class Core>
 concept marks_level_modified = requires(Core & core, level_t level) {
   core.mark_level_modified(level);
+};
+
+template <class Core>
+concept resets_level_modified = requires(Core & core, int num_levels) {
+  core.reset_level_modified(num_levels);
 };
 
 static_assert(record_takes<gi_t>);
@@ -372,24 +387,37 @@ static_assert(std::is_same_v<decltype(GHExt::do_reflux), const bool>);
 static_assert(!assigns_use_subcycling<GHExt>);
 static_assert(!assigns_do_reflux<GHExt>);
 static_assert(!std::is_default_constructible_v<GHExt>);
+static_assert(std::is_constructible_v<GHExt, GHExt::config_t>);
+static_assert(!std::is_convertible_v<GHExt::config_t, GHExt>);
+static_assert(!std::is_constructible_v<GHExt, bool, bool>);
+static_assert(create_hierarchy_takes<GHExt::config_t>);
+static_assert(!create_hierarchy_takes<bool, bool>);
 
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().active_timelevels(
                        std::declval<gi_t>())),
                    int>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().storage_frozen()),
+                   bool>);
 static_assert(!assigns_active_timelevels<GHExt>);
-static_assert(!assigns_active_timelevels_field<GHExt>);
+static_assert(!assigns_pending_timelevels<GHExt>);
 static_assert(!assigns_storage_frozen<GHExt>);
+
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().is_initialized()),
+                   bool>);
+static_assert(!assigns_initialized<GHExt>);
+static_assert(!assigns_is_initialized<GHExt>);
 
 static_assert(std::is_same_v<
               decltype(std::declval<const CactusAmrCore &>().modified_levels()),
-              const std::vector<bool> &>);
-static_assert(std::is_same_v<
-              decltype(std::declval<const CactusAmrCore &>().is_initialized()),
-              bool>);
-static_assert(!assigns_cactus_is_initialized<CactusAmrCore>);
+              std::optional<window_t::bounds_t>>);
+static_assert(std::is_same_v<decltype(&CactusAmrCore::regrid),
+                             void (CactusAmrCore::*)(int, amrex::Real, bool)>);
 static_assert(!assigns_level_modified<CactusAmrCore>);
 static_assert(!marks_level_modified<CactusAmrCore>);
+static_assert(!resets_level_modified<CactusAmrCore>);
 
 } // namespace
 } // namespace CarpetX

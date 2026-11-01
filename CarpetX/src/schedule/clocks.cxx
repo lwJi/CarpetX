@@ -246,8 +246,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
 
   RestoreLevelClocks(cctkGH, record);
 
-  for (const auto &patchdata : ext.patches())
-    patchdata.amrcore->mark_initialized();
+  driver().mark_initialized();
 
   SetDeltaTime(cctkGH);
 }
