@@ -439,7 +439,7 @@ static_assert(!resets_level_modified<CactusAmrCore>);
 static_assert(std::is_same_v<decltype(driver()), const GHExt &>);
 static_assert(regrids_amrcore<GHExt>);
 static_assert(!regrids_amrcore<std::remove_reference_t<decltype(driver())> >);
-static_assert(marks_initialized<GHExt>);
+static_assert(!marks_initialized<GHExt>);
 static_assert(
     !marks_initialized<std::remove_reference_t<decltype(driver())> >);
 static_assert(!opens_mutable_door<GHExt>);

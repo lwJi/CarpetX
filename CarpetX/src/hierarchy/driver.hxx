@@ -516,12 +516,9 @@ struct GHExt {
                          record_filter>(
         group_records.begin(), group_records.end(), record_filter{kind});
   }
-  void record_storage(gi_t gi, int timelevels);
   int active_timelevels(gi_t gi) const;
   bool storage_frozen() const { return !pending_timelevels_; }
-  void freeze_storage();
 
-  void mark_initialized();
   bool is_initialized() const { return initialized_; }
 
   struct PatchData {
@@ -818,15 +815,16 @@ struct GHExt {
     std::span<const LevelData> levels() const { return leveldata; }
     std::span<LevelData> levels() { return leveldata; }
 
+  private:
+    std::vector<LevelData> leveldata;
+
     LevelData &add_level(level_t level, const amrex::BoxArray &ba,
                          const amrex::DistributionMapping &dm,
                          const std::function<std::string()> &why);
     LevelData replace_level(level_t level, LevelData &&fresh);
     void erase_levels_from(level_t level);
 
-  private:
-    std::vector<LevelData> leveldata;
-
+    friend struct hierarchy_writer;
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const PatchData &patchdata);
   };
@@ -870,8 +868,6 @@ struct GHExt {
   std::span<const PatchData> patches() const { return patchdata; }
   std::span<PatchData> patches() { return patchdata; }
 
-  PatchData &add_patch(patch_t patch);
-
   const bool use_subcycling;
 
   const bool do_reflux;
@@ -899,6 +895,10 @@ private:
   std::vector<PatchData> patchdata;
 
   static GHExt &mutable_instance();
+  PatchData &add_patch(patch_t patch);
+  void record_storage(gi_t gi, int timelevels);
+  void freeze_storage();
+  void mark_initialized();
 
   friend struct hierarchy_writer;
   friend class write_scope_t;
