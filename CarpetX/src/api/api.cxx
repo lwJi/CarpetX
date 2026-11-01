@@ -3,6 +3,7 @@
 #include "api/api.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/operations.hxx"
 #include "comm/comm.hxx"
 #include "traversal/traversal.hxx"
 
@@ -61,7 +62,7 @@ void require_operable(const window_t window,
                       const std::span<const gi_t> groups) {
   for (const gi_t gi : groups)
     driver().record(gi);
-  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     for (const gi_t gi : groups)
       if (driver().record(gi).has_storage())
         require_no_open_write(leveldata.group(gi));
@@ -248,7 +249,7 @@ struct scratch_t::impl {
 
 namespace {
 
-GHExt::PatchData::LevelData::GroupData::scratch_slot_t &
+const GHExt::PatchData::LevelData::GroupData::scratch_slot_t &
 resolve_scratch(const group_t group, const std::size_t slot) {
   auto &pool = driver().group(group).scratch_pool;
   if (slot >= pool.size() || !pool.at(slot).in_use)
@@ -286,24 +287,13 @@ scratch_t::~scratch_t() {
   if (!p)
     return;
   const operation_scope_t op("CarpetX::scratch_t::~scratch_t");
-  resolve_scratch(p->group, p->slot).in_use = false;
+  resolve_scratch(p->group, p->slot);
+  hierarchy_writer::release_scratch(p->group, p->slot);
 }
 
 scratch_t scratch(const group_t group) {
   const operation_scope_t op("CarpetX::scratch");
-  auto &groupdata = driver().group(group);
-  auto &pool = groupdata.scratch_pool;
-  std::size_t slot = 0;
-  while (slot < pool.size() && pool.at(slot).in_use)
-    ++slot;
-  if (slot == pool.size()) {
-    const amrex::MultiFab &mfab0 = *groupdata.timelevel(tl_t{0}).mfab;
-    pool.push_back({std::make_unique<amrex::MultiFab>(
-                        mfab0.boxArray(), mfab0.DistributionMap(),
-                        mfab0.nComp(), mfab0.nGrowVect()),
-                    false});
-  }
-  pool.at(slot).in_use = true;
+  const std::size_t slot = hierarchy_writer::acquire_scratch(group);
   return scratch_t(
       std::unique_ptr<scratch_t::impl>(new scratch_t::impl{group, slot}));
 }
@@ -334,7 +324,7 @@ void invalidate(const window_t window, const std::span<const gi_t> groups,
   require_operable(window, groups);
   const std::string event = event_name(why);
   for (const gi_t gi : groups) {
-    loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
+    loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
       leveldata.group(gi).timelevel(tl);
     });
     invalidate(window,

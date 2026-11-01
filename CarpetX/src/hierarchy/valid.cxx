@@ -1,5 +1,6 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/operations.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/valid.hxx"
 #include "util/var_type.hxx"
@@ -432,12 +433,12 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const vi_t vi,
   });
 }
 
-void poison_invalid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
+void poison_invalid_ga(ArrayGroupData &arraydata, const vi_t vi, const tl_t tl,
                        const valid_t where) {
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_arrays || !where.valid_int)
     return;
-  poison_ga_interior(driver().record(gi).array(), vi, tl);
+  poison_ga_interior(arraydata, vi, tl);
 }
 
 void check_valid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
@@ -491,9 +492,11 @@ write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
   const auto not_filled =
       event_reason(this->spec.event, " not filled", iteration);
   const std::vector<vi_t> vis = variables_of(this->spec.gi, this->spec.vi);
-  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
-    GroupData::timelevel_t &timelevel =
-        leveldata.group(this->spec.gi).timelevel(this->spec.tl);
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
+    GroupData::timelevel_t &timelevel = GHExt::mutable_instance()
+                                            .level(leveldata.level)
+                                            .group(this->spec.gi)
+                                            .timelevel(this->spec.tl);
     ++timelevel.open_writes;
     for (const vi_t vi : vis)
       timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
@@ -539,9 +542,11 @@ write_scope_t::~write_scope_t() {
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
   for (const vi_t vi : vis)
     check_valid_gf(window, spec.gi, vi, spec.tl, spec.fills, msg);
-  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
-    GroupData::timelevel_t &timelevel =
-        leveldata.group(spec.gi).timelevel(spec.tl);
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
+    GroupData::timelevel_t &timelevel = GHExt::mutable_instance()
+                                            .level(leveldata.level)
+                                            .group(spec.gi)
+                                            .timelevel(spec.tl);
     for (const vi_t vi : vis)
       timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);
     --timelevel.open_writes;
@@ -551,7 +556,7 @@ write_scope_t::~write_scope_t() {
 void require(const window_t window, require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
-  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     const GroupData &groupdata = leveldata.group(spec.gi);
     for (const vi_t vi : vis)
       error_if_invalid(groupdata, vi, spec.tl, spec.where, msg, spec.hint);
@@ -563,7 +568,7 @@ void require(const window_t window, require_spec_t spec) {
 void warn(const window_t window, require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
-  loop_serially(window, [&](GHExt::PatchData::LevelData &leveldata) {
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     const GroupData &groupdata = leveldata.group(spec.gi);
     for (const vi_t vi : vis)
       warn_if_invalid(groupdata, vi, spec.tl, spec.where, msg);
@@ -575,11 +580,12 @@ array_write_scope_t::array_write_scope_t(write_spec_t spec, const int iteration)
   const valid_t destroys = ~this->spec.keeps;
   const auto not_filled =
       event_reason(this->spec.event, " not filled", iteration);
-  ArrayGroupData::timelevel_t &timelevel =
-      driver().record(this->spec.gi).array().timelevel(this->spec.tl);
+  ArrayGroupData &arraydata =
+      GHExt::mutable_instance().record(this->spec.gi).array();
+  ArrayGroupData::timelevel_t &timelevel = arraydata.timelevel(this->spec.tl);
   for (const vi_t vi : variables_of(this->spec.gi, this->spec.vi)) {
     timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
-    poison_invalid_ga(this->spec.gi, vi, this->spec.tl, destroys);
+    poison_invalid_ga(arraydata, vi, this->spec.tl, destroys);
   }
 }
 
@@ -610,7 +616,7 @@ array_write_scope_t::~array_write_scope_t() {
   const auto msg = event_reason(spec.event, "", iteration);
   const auto filled = event_reason(spec.event, " filled", iteration);
   ArrayGroupData::timelevel_t &timelevel =
-      driver().record(spec.gi).array().timelevel(spec.tl);
+      GHExt::mutable_instance().record(spec.gi).array().timelevel(spec.tl);
   for (const vi_t vi : variables_of(spec.gi, spec.vi)) {
     check_valid_ga(spec.gi, vi, spec.tl, spec.fills, msg);
     timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);

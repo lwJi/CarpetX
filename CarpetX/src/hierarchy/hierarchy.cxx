@@ -1,5 +1,6 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
+#include "hierarchy/operations.hxx"
 
 #include "hierarchy/loops.hxx"
 #include <carpetx.hxx>
@@ -32,14 +33,18 @@ namespace CarpetX {
 
 namespace {
 std::unique_ptr<GHExt> ghext;
-} // namespace
 
-GHExt &driver() {
+GHExt &existing_hierarchy() {
   if (!ghext)
     CCTK_ERROR("The CarpetX grid hierarchy does not exist: the public API is "
                "available between the driver's SetupGH and its Shutdown");
   return *ghext;
 }
+} // namespace
+
+GHExt &GHExt::mutable_instance() { return existing_hierarchy(); }
+
+const GHExt &driver() { return existing_hierarchy(); }
 
 GHExt &create_hierarchy(const GHExt::config_t config) {
   if (ghext)
@@ -192,7 +197,7 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
     : level(level) {
   DECLARE_CCTK_PARAMETERS;
 
-  GHExt &ext = driver();
+  GHExt &ext = GHExt::mutable_instance();
   const int timereffact = ext.use_subcycling ? 2 : 1;
   if (level.index() == 0) {
     // We are creating the coarsest level
@@ -584,6 +589,188 @@ GHExt::record_of(const var_t var, const std::source_location site) const {
     refuse(site, "variable index %d does not exist: there are %d variables",
            var.index(), CCTK_NumVars());
   return record(gi, site);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+const GHExt::PatchData &hierarchy_writer::add_patch(const patch_t patch) {
+  return GHExt::mutable_instance().add_patch(patch);
+}
+
+const GHExt::PatchData::LevelData &
+hierarchy_writer::add_level(const level_t level, const amrex::BoxArray &ba,
+                            const amrex::DistributionMapping &dm,
+                            const std::function<std::string()> &why) {
+  return GHExt::mutable_instance()
+      .patch(level.patch())
+      .add_level(level, ba, dm, why);
+}
+
+GHExt::PatchData::LevelData
+hierarchy_writer::remake_level(const level_t level, const amrex::BoxArray &ba,
+                               const amrex::DistributionMapping &dm,
+                               const std::function<std::string()> &why) {
+  GHExt::PatchData::LevelData fresh(level, ba, dm, why);
+  return GHExt::mutable_instance()
+      .patch(level.patch())
+      .replace_level(level, std::move(fresh));
+}
+
+void hierarchy_writer::erase_levels_from(const level_t level) {
+  GHExt::mutable_instance().patch(level.patch()).erase_levels_from(level);
+}
+
+void hierarchy_writer::set_max_grid_size(
+    const patch_t patch, const amrex::Vector<amrex::IntVect> &max_grid_sizes) {
+  GHExt::mutable_instance().patch(patch).amrcore->SetMaxGridSize(
+      max_grid_sizes);
+}
+
+void hierarchy_writer::make_new_grids(const patch_t patch,
+                                      const CCTK_REAL time) {
+  GHExt::mutable_instance().patch(patch).amrcore->MakeNewGrids(time);
+}
+
+void hierarchy_writer::mark_initialized() {
+  GHExt::mutable_instance().mark_initialized();
+}
+
+void hierarchy_writer::regrid(const level_t base_level, const CCTK_REAL time) {
+  GHExt::mutable_instance()
+      .patch(base_level.patch())
+      .amrcore->regrid(base_level.index(), time);
+}
+
+void hierarchy_writer::set_finest_level(const level_t finest_level) {
+  GHExt::mutable_instance()
+      .patch(finest_level.patch())
+      .amrcore->SetFinestLevel(finest_level.index());
+}
+
+void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
+                                     const bool rechop) {
+  CactusAmrCore &amrcore =
+      *GHExt::mutable_instance().patch(level.patch()).amrcore;
+  const int lev = level.index();
+  if (lev > 0) {
+    amrex::Geometry geom = amrcore.Geom(lev - 1);
+    geom.refine({2, 2, 2});
+    amrcore.SetGeometry(lev, geom);
+  }
+  if (rechop)
+    ba = amrcore.RechopLevel(level, ba);
+  amrcore.SetBoxArray(lev, ba);
+  const amrex::DistributionMapping dm(ba);
+  amrcore.SetDistributionMap(lev, dm);
+  amrcore.make_level(level, ba, dm, "Recovering");
+}
+
+void hierarchy_writer::record_storage(const gi_t gi, const int timelevels) {
+  GHExt::mutable_instance().record_storage(gi, timelevels);
+}
+
+void hierarchy_writer::freeze_storage() {
+  GHExt::mutable_instance().freeze_storage();
+}
+
+void hierarchy_writer::set_global_cctkGH(const cGH *const cctkGH) {
+  GHExt &ext = GHExt::mutable_instance();
+  assert(!ext.global_cctkGH);
+  ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
+}
+
+void *hierarchy_writer::array_data(const gi_t gi, const tl_t tl) {
+  return GHExt::mutable_instance()
+      .record(gi)
+      .array()
+      .timelevel(tl)
+      .data.data_at(0);
+}
+
+std::size_t hierarchy_writer::acquire_scratch(const group_t group,
+                                              const std::source_location site) {
+  auto &groupdata = GHExt::mutable_instance().group(group, site);
+  auto &pool = groupdata.scratch_pool;
+  std::size_t slot = 0;
+  while (slot < pool.size() && pool.at(slot).in_use)
+    ++slot;
+  if (slot == pool.size()) {
+    const amrex::MultiFab &mfab0 = *groupdata.timelevel(tl_t{0}).mfab;
+    pool.push_back({std::make_unique<amrex::MultiFab>(
+                        mfab0.boxArray(), mfab0.DistributionMap(),
+                        mfab0.nComp(), mfab0.nGrowVect()),
+                    false});
+  }
+  pool.at(slot).in_use = true;
+  return slot;
+}
+
+void hierarchy_writer::release_scratch(const group_t group,
+                                       const std::size_t slot) {
+  auto &pool = GHExt::mutable_instance().group(group).scratch_pool;
+  assert(slot < pool.size() && pool.at(slot).in_use);
+  pool.at(slot).in_use = false;
+}
+
+void hierarchy_writer::advance_clocks(const window_t window) {
+  loop_serially(window, [](const GHExt::PatchData::LevelData &leveldata) {
+    auto &clock = GHExt::mutable_instance().level(leveldata.level);
+    clock.iteration += clock.delta_iteration;
+  });
+}
+
+void hierarchy_writer::stamp_last_step(const window_t window,
+                                       const int iteration) {
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
+    GHExt::mutable_instance().level(leveldata.level).last_step_iteration =
+        iteration;
+  });
+}
+
+void hierarchy_writer::stamp_last_finalized(const window_t window,
+                                            const int iteration) {
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
+    GHExt::mutable_instance().level(leveldata.level).last_finalized_iteration =
+        iteration;
+  });
+}
+
+void hierarchy_writer::restore_level_clock(
+    const level_t level, const rat64 iteration,
+    const std::optional<int> last_step_iteration) {
+  auto &leveldata = GHExt::mutable_instance().level(level);
+  leveldata.iteration = iteration;
+  if (last_step_iteration)
+    leveldata.last_step_iteration = *last_step_iteration;
+}
+
+void hierarchy_writer::rotate_timelevels(const window_t window, const gi_t gi) {
+  const int ntls0 = driver().record(gi).num_timelevels();
+  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
+    auto &restrict groupdata =
+        GHExt::mutable_instance().level(leveldata.level).group(gi);
+    const int ntls = groupdata.num_timelevels();
+    assert(ntls == ntls0);
+    if (ntls > 1) {
+      groupdata.rotate_timelevels();
+      for (auto &restrict local_cctkGH_ptr : leveldata.local_cctkGHs) {
+        cGH *const local_cctkGH = local_cctkGH_ptr.get();
+        const int component = local_cctkGH->cctk_component;
+        const GridPtrDesc1 grid1(leveldata, groupdata, component);
+        for (const tl_t tl : groupdata.record.timelevels()) {
+          const amrex::Array4<CCTK_REAL> vars =
+              groupdata.timelevel(tl).mfab->array(component);
+          for (const vi_t vi : groupdata.record.variables())
+            local_cctkGH->data[groupdata.record.var(vi).index()][tl.index()] =
+                grid1.ptr(vars, vi);
+        }
+      }
+    }
+  });
+}
+
+void hierarchy_writer::rotate_array_timelevels(const gi_t gi) {
+  GHExt::mutable_instance().record(gi).array().rotate_timelevels();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

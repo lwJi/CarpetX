@@ -69,6 +69,25 @@ private:
 };
 using tl_range = index_range<tl_t>;
 
+template <class T> class const_propagating_ptr {
+public:
+  const_propagating_ptr() = default;
+  const_propagating_ptr &operator=(std::unique_ptr<T> ptr) {
+    ptr_ = std::move(ptr);
+    return *this;
+  }
+
+  T *get() { return ptr_.get(); }
+  const T *get() const { return ptr_.get(); }
+  T *operator->() { return ptr_.get(); }
+  const T *operator->() const { return ptr_.get(); }
+  T &operator*() { return *ptr_; }
+  const T &operator*() const { return *ptr_; }
+
+private:
+  std::unique_ptr<T> ptr_;
+};
+
 enum class group_kind { grid_function, array, scalar };
 
 template <typename U> U &storage_entry(U &entry) { return entry; }
@@ -497,12 +516,9 @@ struct GHExt {
                          record_filter>(
         group_records.begin(), group_records.end(), record_filter{kind});
   }
-  void record_storage(gi_t gi, int timelevels);
   int active_timelevels(gi_t gi) const;
   bool storage_frozen() const { return !pending_timelevels_; }
-  void freeze_storage();
 
-  void mark_initialized();
   bool is_initialized() const { return initialized_; }
 
   struct PatchData {
@@ -520,9 +536,7 @@ struct GHExt {
 
     std::array<std::array<symmetry_t, dim>, 2> symmetries;
 
-    // AMReX grid structure
-    // TODO: convert this from unique_ptr to optional
-    std::unique_ptr<CactusAmrCore> amrcore;
+    const_propagating_ptr<CactusAmrCore> amrcore;
 
     struct LevelData {
       LevelData() = delete;
@@ -801,15 +815,16 @@ struct GHExt {
     std::span<const LevelData> levels() const { return leveldata; }
     std::span<LevelData> levels() { return leveldata; }
 
+  private:
+    std::vector<LevelData> leveldata;
+
     LevelData &add_level(level_t level, const amrex::BoxArray &ba,
                          const amrex::DistributionMapping &dm,
                          const std::function<std::string()> &why);
     LevelData replace_level(level_t level, LevelData &&fresh);
     void erase_levels_from(level_t level);
 
-  private:
-    std::vector<LevelData> leveldata;
-
+    friend struct hierarchy_writer;
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const PatchData &patchdata);
   };
@@ -853,8 +868,6 @@ struct GHExt {
   std::span<const PatchData> patches() const { return patchdata; }
   std::span<PatchData> patches() { return patchdata; }
 
-  PatchData &add_patch(patch_t patch);
-
   const bool use_subcycling;
 
   const bool do_reflux;
@@ -881,13 +894,21 @@ private:
   std::vector<GroupRecord> group_records;
   std::vector<PatchData> patchdata;
 
+  static GHExt &mutable_instance();
+  PatchData &add_patch(patch_t patch);
+  void record_storage(gi_t gi, int timelevels);
+  void freeze_storage();
+  void mark_initialized();
+
+  friend struct hierarchy_writer;
+  friend class write_scope_t;
+  friend class array_write_scope_t;
+
   friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ext);
   friend std::ostream &operator<<(std::ostream &os, const GHExt &ext);
 };
 
-GHExt &driver();
-GHExt &create_hierarchy(GHExt::config_t config);
-void destroy_hierarchy();
+const GHExt &driver();
 void assert_hierarchy_destroyed();
 
 // Subcycling source-band kinds serialized at unsynchronized checkpoints:

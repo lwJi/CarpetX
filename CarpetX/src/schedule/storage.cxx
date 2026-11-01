@@ -1,5 +1,6 @@
 #include "schedule/schedule.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/operations.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -20,7 +21,7 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
   assert(n_groups >= 0);
   assert(groups);
   assert(requested_tls);
-  GHExt &ext = driver();
+  const GHExt &ext = driver();
 
   for (int n = 0; n < n_groups; ++n) {
     if (groups[n] < 0 or groups[n] >= CCTK_NumGroups()) {
@@ -59,7 +60,7 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
       continue;
     }
 
-    ext.record_storage(gi, ntls);
+    hierarchy_writer::record_storage(gi, ntls);
 
     const int current = ext.active_timelevels(gi);
     min_num_timelevels = std::min(min_num_timelevels, current);

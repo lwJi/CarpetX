@@ -202,8 +202,9 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   const mode_t mode = decode_mode(attribute);
   switch (mode) {
   case mode_t::local:
-    loop_parallel(window, [&](GHExt::PatchData::LevelData &leveldata, int index,
-                              int component, const cGH *local_cctkGH) {
+    loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
+                              int index, int component,
+                              const cGH *local_cctkGH) {
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
       CCTK_CallFunction(function, attribute, const_cast<cGH *>(local_cctkGH));
     });

@@ -47,14 +47,15 @@ static void assert_consistent_iterations(const window_t window) {
 
 void loop_coarse_to_fine(
     const window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel) {
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
+        &kernel) {
   assert(omp_get_num_threads() == 1);
   assert_consistent_iterations(window);
   const auto levels = window.level_bounds();
   const auto patches = window.patch_bounds();
   for (int level = levels.min; level < levels.max; ++level) {
     for (int patch = patches.min; patch < patches.max; ++patch) {
-      auto &patchdata = driver().patch(patch_t{patch});
+      const auto &patchdata = driver().patch(patch_t{patch});
       if (level < patchdata.num_levels())
         kernel(patchdata.level(level_t{patchdata.patch, level}));
     }
@@ -63,14 +64,15 @@ void loop_coarse_to_fine(
 
 void loop_fine_to_coarse(
     const window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata)> &kernel) {
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
+        &kernel) {
   assert(omp_get_num_threads() == 1);
   assert_consistent_iterations(window);
   const auto levels = window.level_bounds();
   const auto patches = window.patch_bounds();
   for (int level = levels.max - 1; level >= levels.min; --level) {
     for (int patch = patches.min; patch < patches.max; ++patch) {
-      auto &patchdata = driver().patch(patch_t{patch});
+      const auto &patchdata = driver().patch(patch_t{patch});
       if (level < patchdata.num_levels())
         kernel(patchdata.level(level_t{patchdata.patch, level}));
     }
@@ -79,8 +81,9 @@ void loop_fine_to_coarse(
 
 void loop_parallel(
     const window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
-                             int component, const cGH *cctkGH)> &kernel) {
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata,
+                             int index, int component, const cGH *cctkGH)>
+        &kernel) {
   assert(omp_get_num_threads() == 1);
   task_manager tasks;
 
@@ -102,8 +105,9 @@ void loop_parallel(
 
 void loop_serially(
     const window_t window,
-    const std::function<void(GHExt::PatchData::LevelData &leveldata, int index,
-                             int component, const cGH *cctkGH)> &kernel) {
+    const std::function<void(const GHExt::PatchData::LevelData &leveldata,
+                             int index, int component, const cGH *cctkGH)>
+        &kernel) {
   loop_coarse_to_fine(window, [&](auto &restrict leveldata) {
     int component = 0;
     const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync().EnableTiling();
@@ -124,7 +128,7 @@ void synchronize() {
 }
 
 void update_cctkGHs(cGH *restrict const cctkGH) {
-  GHExt &ext = driver();
+  const GHExt &ext = driver();
   update_cctkGH(ext.global_cctkGH.get(), cctkGH);
   for (auto &restrict level_cctkGH : ext.level_cctkGHs) {
     update_cctkGH(level_cctkGH.get(), cctkGH);

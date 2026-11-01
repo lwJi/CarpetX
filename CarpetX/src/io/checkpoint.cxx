@@ -1,6 +1,7 @@
 #include "io/checkpoint.hxx"
 
 #include "hierarchy/driver.hxx"
+#include "hierarchy/operations.hxx"
 #include "hierarchy/valid.hxx"
 #include "io/selection.hxx"
 #include "util/refuse.hxx"
@@ -236,13 +237,13 @@ bool finer_level_is_behind(const checkpoint_record_t &record,
 void build_buffers(checkpoint_record_t &record,
                    const group_selection_t &selection,
                    const record_purpose purpose, const codec_limits_t &limits) {
-  GHExt &ext = driver();
-  for (auto &patchdata : ext.patches()) {
-    for (auto &leveldata : patchdata.levels()) {
+  const GHExt &ext = driver();
+  for (const auto &patchdata : ext.patches()) {
+    for (const auto &leveldata : patchdata.levels()) {
       const level_t level = leveldata.level;
       const bool bands = purpose == record_purpose::checkpoint &&
                          finer_level_is_behind(record, level);
-      for (auto &groupdata : leveldata.groups()) {
+      for (const auto &groupdata : leveldata.groups()) {
         const GHExt::GroupRecord &group = groupdata.record;
         const gi_t gi = group.groupindex;
         if (!selection.contains(gi))
@@ -291,17 +292,18 @@ void build_buffers(checkpoint_record_t &record,
   for (const GHExt::GroupRecord &group : selection.records()) {
     if (group.kind == group_kind::grid_function)
       continue;
-    GHExt::GlobalData::ArrayGroupData &arraydata =
+    const GHExt::GlobalData::ArrayGroupData &arraydata =
         ext.record(group.groupindex).array();
     assert(!has_ghosts(arraydata.nghostzones));
-    GHExt::GlobalData::AnyTypeVector &data = arraydata.timelevel(tl_t{0}).data;
+    const GHExt::GlobalData::AnyTypeVector &data =
+        arraydata.timelevel(tl_t{0}).data;
     record.buffers.push_back(
         {.id = {.group = group.groupname,
                 .vars = variable_names(group),
                 .level = std::nullopt,
                 .which = tl_t{0}},
          .data = array_buffer_t{
-             .data = data.data_at(0),
+             .data = hierarchy_writer::array_data(group.groupindex, tl_t{0}),
              .vartype = data.type(),
              .shape = {arraydata.gsh[0], arraydata.gsh[1], arraydata.gsh[2]}}});
   }
@@ -346,7 +348,7 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
   DECLARE_CCTK_PARAMETERS;
 
   const int npatches = record.num_patches();
-  GHExt &ext = driver();
+  const GHExt &ext = driver();
   if (npatches != ext.num_patches())
     refuse(site,
            "Wrong number of patches: Expected %d, found %d in the checkpoint "
@@ -356,33 +358,20 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
   cctkGH->cctk_iteration = record.iteration;
   cctkGH->cctk_time = record.time;
 
-  for (auto &patchdata : ext.patches()) {
+  for (const auto &patchdata : ext.patches()) {
     const int nlevels = record.num_levels(patchdata.patch);
     assert(nlevels > 0);
-    CactusAmrCore &amrcore = *patchdata.amrcore;
-    amrcore.SetFinestLevel(nlevels - 1);
+    hierarchy_writer::set_finest_level(level_t{patchdata.patch, nlevels - 1});
 
     for (int lev = 0; lev < nlevels; ++lev) {
       const level_t level{patchdata.patch, lev};
-
-      if (lev > 0) {
-        amrex::Geometry geom = amrcore.Geom(lev - 1);
-        geom.refine({2, 2, 2});
-        amrcore.SetGeometry(lev, geom);
-      }
-
       level_record_t &levelrecord = record.level_record(level);
       const std::vector<amrex::Box> &boxes = levelrecord.boxes;
-      amrex::BoxArray ba(amrex::BoxList(
-          amrex::Vector<amrex::Box>(boxes.begin(), boxes.end())));
-      if (rechop_on_recovery)
-        ba = amrcore.RechopLevel(level, ba);
-      amrcore.SetBoxArray(lev, ba);
-
-      const amrex::DistributionMapping dm(ba);
-      amrcore.SetDistributionMap(lev, dm);
-
-      amrcore.make_level(level, ba, dm, "Recovering");
+      hierarchy_writer::recover_level(
+          level,
+          amrex::BoxArray(amrex::BoxList(
+              amrex::Vector<amrex::Box>(boxes.begin(), boxes.end()))),
+          rechop_on_recovery);
       snapshot_geometry(levelrecord, level);
     }
   }

@@ -1,5 +1,6 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/grid_sizes.hxx"
+#include "hierarchy/operations.hxx"
 #include "schedule/schedule.hxx"
 #include "comm/comm.hxx"
 #include "ops/interp.hxx"
@@ -116,15 +117,14 @@ int InitGH(cGH *restrict cctkGH) {
 
   assert(cctkGH);
 
-  GHExt &ext = driver();
-  assert(ext.num_patches() == 0);
+  assert(driver().num_patches() == 0);
   CCTK_INT num_patches = 1;
   if (CCTK_IsFunctionAliased("MultiPatch_GetSystemSpecification")) {
     const int ierr = MultiPatch_GetSystemSpecification(&num_patches);
     assert(!ierr);
   }
   for (int patch = 0; patch < num_patches; ++patch)
-    ext.add_patch(patch_t{patch});
+    hierarchy_writer::add_patch(patch_t{patch});
 
   return 0;
 }
