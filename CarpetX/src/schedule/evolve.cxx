@@ -362,7 +362,6 @@ int Evolve(tFleshConfig *config) {
     const double start_time = gettime();
 
     rat64 iteration = ext.patches().front().levels().front().iteration;
-    using std::min;
     for (const auto &patchdata : ext.patches())
       for (const auto &leveldata : patchdata.levels())
         iteration = min(iteration, leveldata.iteration);
