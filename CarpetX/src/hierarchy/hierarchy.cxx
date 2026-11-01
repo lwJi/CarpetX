@@ -41,13 +41,11 @@ GHExt &driver() {
   return *ghext;
 }
 
-GHExt &create_hierarchy() {
+GHExt &create_hierarchy(const GHExt::config_t config) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
-  ghext = std::make_unique<GHExt>();
-  ghext->active_timelevels.assign(CCTK_NumGroups(), 0);
-  ghext->storage_frozen = false;
+  ghext = std::make_unique<GHExt>(config);
   return *ghext;
 }
 
@@ -59,6 +57,15 @@ void destroy_hierarchy() {
 }
 
 void assert_hierarchy_destroyed() { assert(!ghext); }
+
+GHExt::GHExt(const config_t config)
+    : use_subcycling(config.use_subcycling), do_reflux(config.do_reflux),
+      pending_timelevels_(std::in_place, CCTK_NumGroups(), 0) {}
+
+void GHExt::mark_initialized() {
+  assert(!initialized_);
+  initialized_ = true;
+}
 
 GHExt::PatchData &GHExt::add_patch(const patch_t patch) {
   assert(patch.index() == num_patches());
@@ -520,6 +527,29 @@ void GHExt::GlobalData::ArrayGroupData::rotate_timelevels() {
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
 }
 
+int GHExt::active_timelevels(const gi_t gi) const {
+  if (pending_timelevels_)
+    return pending_timelevels_->at(gi.index());
+  return record(gi).num_timelevels();
+}
+
+void GHExt::record_storage(const gi_t gi, const int timelevels) {
+  assert(timelevels >= 0 &&
+         timelevels <= CCTK_DeclaredTimeLevelsGI(gi.index()));
+  if (pending_timelevels_) {
+    pending_timelevels_->at(gi.index()) = timelevels;
+    return;
+  }
+  const int active = record(gi).num_timelevels();
+  if (timelevels != active)
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Attempting to %s storage for group '%s' from %d to %d "
+               "timelevels after the STORAGE registry has been frozen; "
+               "ignoring",
+               timelevels > active ? "increase" : "decrease",
+               CCTK_FullGroupName(gi.index()), active, timelevels);
+}
+
 void GHExt::freeze_storage() {
   DECLARE_CCTK_PARAMETERS;
 
@@ -527,14 +557,14 @@ void GHExt::freeze_storage() {
 #pragma omp critical
     CCTK_VINFO("freeze_storage");
 
-  assert(!storage_frozen);
+  assert(pending_timelevels_);
   assert(group_records.empty());
   const int numgroups = CCTK_NumGroups();
-  assert(int(active_timelevels.size()) == numgroups);
+  assert(int(pending_timelevels_->size()) == numgroups);
   group_records.reserve(numgroups);
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups}))
-    group_records.emplace_back(gi, active_timelevels.at(gi.index()));
-  storage_frozen = true;
+    group_records.emplace_back(gi, pending_timelevels_->at(gi.index()));
+  pending_timelevels_.reset();
 
   for (const GroupRecord &group : records()) {
     if (group.kind == group_kind::grid_function)

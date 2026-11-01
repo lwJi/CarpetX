@@ -8,6 +8,7 @@
 #include <AMReX_TagBox.H>
 
 #include <cstddef>
+#include <optional>
 #include <sstream>
 
 namespace CarpetX {
@@ -33,12 +34,36 @@ CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox &rb,
 
 CactusAmrCore::~CactusAmrCore() {}
 
+void CactusAmrCore::regrid(const int lbase, const amrex::Real time,
+                           const bool initial) {
+  level_modified.assign(finestLevel() + 1, false);
+  amrex::AmrCore::regrid(lbase, time, initial);
+}
+
+std::optional<window_t::bounds_t> CactusAmrCore::modified_levels() const {
+  std::optional<window_t::bounds_t> bounds;
+  for (int lev = 0; lev < int(level_modified.size()); ++lev) {
+    if (!level_modified.at(lev))
+      continue;
+    if (!bounds)
+      bounds = window_t::bounds_t{lev, lev + 1};
+    else
+      bounds->max = lev + 1;
+  }
+  return bounds;
+}
+
+void CactusAmrCore::mark_level_modified(const level_t level) {
+  assert(level.patch() == patch);
+  level_modified.at(level.index()) = true;
+}
+
 void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
                              const amrex::Real time, const int ngrow) {
   DECLARE_CCTK_PARAMETERS;
   const level_t level{patch, lev};
 
-  if (!cactus_is_initialized)
+  if (!driver().is_initialized())
     return;
 
   if (verbose)
@@ -114,7 +139,7 @@ void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
 
   if (lev >= int(level_modified.size()))
     level_modified.resize(lev + 1, true);
-  level_modified.at(lev) = true;
+  mark_level_modified(level);
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 
   if (verbose)
@@ -399,7 +424,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
     }
   }
 
-  level_modified.at(lev) = true;
+  mark_level_modified(level);
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 
   if (verbose)

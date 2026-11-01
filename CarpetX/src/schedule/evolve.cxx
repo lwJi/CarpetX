@@ -67,6 +67,23 @@ double gettime() {
   gettimeofday(&tv, nullptr);
   return tv.tv_sec + tv.tv_usec / 1.0e+6;
 }
+
+std::optional<window_t::bounds_t> modified_levels(const GHExt &ext) {
+  std::optional<window_t::bounds_t> bounds;
+  for (const auto &patchdata : ext.patches()) {
+    const auto patch_bounds = patchdata.amrcore->modified_levels();
+    if (!patch_bounds)
+      continue;
+    if (!bounds) {
+      bounds = patch_bounds;
+      continue;
+    }
+    using std::max, std::min;
+    bounds->min = min(bounds->min, patch_bounds->min);
+    bounds->max = max(bounds->max, patch_bounds->max);
+  }
+  return bounds;
+}
 } // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -196,8 +213,7 @@ int Initialise(tFleshConfig *config) {
       }
     }
 
-    for (auto &patchdata : ext.patches())
-      patchdata.amrcore->cactus_is_initialized = true;
+    ext.mark_initialized();
 
     for (;;) {
       const int level = ext.num_levels() - 1;
@@ -225,8 +241,6 @@ int Initialise(tFleshConfig *config) {
         for (const auto &patchdata : ext.patches()) {
 
           const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
-          patchdata.amrcore->level_modified.clear();
-          patchdata.amrcore->level_modified.resize(old_numlevels, false);
           const CCTK_REAL time = 0; // dummy time
           patchdata.amrcore->regrid(0, time);
 
@@ -263,19 +277,8 @@ int Initialise(tFleshConfig *config) {
           } // omp critical
         } // for patchdata
 
-        int min_modified_level = INT_MAX;
-        int max_modified_level = 0;
-        for (const auto &patchdata : ext.patches()) {
-          for (int lev = 0; lev < int(patchdata.amrcore->level_modified.size());
-               ++lev) {
-            if (patchdata.amrcore->level_modified.at(lev)) {
-              using std::max, std::min;
-              min_modified_level = min(min_modified_level, lev);
-              max_modified_level = max(max_modified_level, lev + 1);
-            }
-          }
-        }
-        did_modify_any_level = min_modified_level < max_modified_level;
+        const auto modified = modified_levels(ext);
+        did_modify_any_level = modified.has_value();
 
         if (did_modify_any_level) {
           SetDeltaTime(cctkGH);
@@ -285,7 +288,7 @@ int Initialise(tFleshConfig *config) {
                      double(cctkGH->cctk_delta_time));
 
           const traversal_scope_t scope(
-              window_t::levels(min_modified_level, max_modified_level));
+              window_t::levels(modified->min, modified->max));
           CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
           CCTK_Traverse(cctkGH, "CCTK_POSTREGRID");
         }
@@ -378,8 +381,6 @@ int Evolve(tFleshConfig *config) {
         assert(min_active_level != -1);
 
         const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
-        patchdata.amrcore->level_modified.clear();
-        patchdata.amrcore->level_modified.resize(old_numlevels, false);
         const CCTK_REAL time = 0; // dummy time
 
         CCTK_VINFO(
@@ -420,19 +421,8 @@ int Evolve(tFleshConfig *config) {
         } // omp critical
       } // for patchdata
 
-      int min_modified_level = INT_MAX;
-      int max_modified_level = 0;
-      for (const auto &patchdata : ext.patches()) {
-        for (int lev = 0; lev < int(patchdata.amrcore->level_modified.size());
-             ++lev) {
-          if (patchdata.amrcore->level_modified.at(lev)) {
-            using std::max, std::min;
-            min_modified_level = min(min_modified_level, lev);
-            max_modified_level = max(max_modified_level, lev + 1);
-          }
-        }
-      }
-      const bool did_modify_any_level = min_modified_level < max_modified_level;
+      const auto modified = modified_levels(ext);
+      const bool did_modify_any_level = modified.has_value();
 
       if (did_modify_any_level) {
         SetDeltaTime(cctkGH);
@@ -442,7 +432,7 @@ int Evolve(tFleshConfig *config) {
                    double(cctkGH->cctk_delta_time));
 
         const traversal_scope_t scope(
-            window_t::levels(min_modified_level, max_modified_level));
+            window_t::levels(modified->min, modified->max));
         CCTK_Traverse(cctkGH, "CCTK_BASEGRID");
         CCTK_Traverse(cctkGH, "CCTK_POSTREGRID");
       }

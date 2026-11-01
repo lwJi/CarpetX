@@ -139,10 +139,14 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 
 class CactusAmrCore final : public amrex::AmrCore {
   patch_t patch;
+  std::vector<bool> level_modified;
+
+  void mark_level_modified(level_t level);
 
 public:
-  bool cactus_is_initialized = false;
-  std::vector<bool> level_modified;
+  virtual void regrid(int lbase, amrex::Real time,
+                      bool initial = false) override;
+  std::optional<window_t::bounds_t> modified_levels() const;
 
   CactusAmrCore(patch_t patch, const amrex::RealBox *rb, int max_level_in,
                 const amrex::Vector<int> &n_cell_in, int coord = -1,
@@ -181,7 +185,11 @@ public:
 
 struct GHExt {
 
-  GHExt() = default;
+  struct config_t {
+    bool use_subcycling;
+    bool do_reflux;
+  };
+  explicit GHExt(config_t config);
   GHExt(const GHExt &) = delete;
   GHExt(GHExt &&) = delete;
   GHExt &operator=(const GHExt &) = delete;
@@ -467,7 +475,7 @@ struct GHExt {
   const GroupRecord &record(
       const gi_t gi,
       const std::source_location site = std::source_location::current()) const {
-    if (!storage_frozen)
+    if (!storage_frozen())
       refuse(site, "CarpetX group %d has no record yet: storage is not frozen",
              gi.index());
     if (gi.index() < 0 || gi.index() >= int(group_records.size()))
@@ -489,7 +497,13 @@ struct GHExt {
                          record_filter>(
         group_records.begin(), group_records.end(), record_filter{kind});
   }
+  void record_storage(gi_t gi, int timelevels);
+  int active_timelevels(gi_t gi) const;
+  bool storage_frozen() const { return !pending_timelevels_; }
   void freeze_storage();
+
+  void mark_initialized();
+  bool is_initialized() const { return initialized_; }
 
   struct PatchData {
     PatchData() = delete;
@@ -841,15 +855,9 @@ struct GHExt {
 
   PatchData &add_patch(patch_t patch);
 
-  // Number of active timelevels per group, populated from schedule.ccl STORAGE
-  // statements during CCTKi_ScheduleGHInit. Indexed by group index; 0 means no
-  // storage. Frozen between schedule init and the first allocation pass.
-  std::vector<int> active_timelevels; // [group index]
-  bool storage_frozen = false;
+  const bool use_subcycling;
 
-  bool use_subcycling = false;
-
-  bool do_reflux = false;
+  const bool do_reflux;
 
   int num_levels(const patch_t patch) const {
     return this->patch(patch).num_levels();
@@ -868,6 +876,8 @@ struct GHExt {
   }
 
 private:
+  std::optional<std::vector<int>> pending_timelevels_;
+  bool initialized_ = false;
   std::vector<GroupRecord> group_records;
   std::vector<PatchData> patchdata;
 
@@ -876,7 +886,7 @@ private:
 };
 
 GHExt &driver();
-GHExt &create_hierarchy();
+GHExt &create_hierarchy(GHExt::config_t config);
 void destroy_hierarchy();
 void assert_hierarchy_destroyed();
 
