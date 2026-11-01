@@ -119,6 +119,11 @@ jobs:
       - name: Build Cactus
         run: /bin/bash $GITHUB_WORKSPACE/scripts/build.sh
 
+      # The objects know what each file imports, whatever syntax declared it; the
+      # text checks of the Lint workflow cannot see that
+      - name: Check the layer order at the symbol level
+        run: python3 $GITHUB_WORKSPACE/scripts/lint symbols "$GITHUB_WORKSPACE/../workspace/Cactus/configs/sim/build/CarpetX"
+
       # Also after a failed build, so that the next run starts from what did
       # compile, and before the tests, so that a run cancelled during them still
       # keeps its objects

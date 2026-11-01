@@ -14,7 +14,8 @@ How the checks are run:
   runs `check --since` from the PR's base on every PR and on every push to dev. What a merge brings in
   from another branch is not judged, only the merge's own resolution. `check --since origin/dev` shows
   what all of them would report; the rules are in agent_docs/code-comments.md,
-  agent_docs/carpetx-public-api.md and agent_docs/carpetx-internals.md.
+  agent_docs/carpetx-public-api.md and agent_docs/carpetx-internals.md. `symbols` needs a build: the CI
+  workflow runs it after every build and agent_scripts/build.sh after a successful one.
 """
 HOOKS = {"hook-edit": "hook_edit", "hook-stop": "hook_stop"}
 
@@ -66,6 +67,19 @@ def run_doc(write: bool) -> int:
     return EXIT_CLEAN
 
 
+def run_symbols(objdir: str) -> int:
+    from boundary.symbols import RULE, SymbolsError, check
+
+    try:
+        report, clean = check(objdir)
+    except SymbolsError as e:
+        print(f"lint symbols: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    sys.stdout.reconfigure(errors="backslashreplace")
+    print(report)
+    return EXIT_CLEAN if clean else EXIT_FOUND
+
+
 def run_hook(name: str) -> int:
     try:
         import hooks
@@ -115,6 +129,15 @@ def main(argv: list[str] | None = None) -> int:
         metavar="CHECK",
         help="run only this check, one of " + ", ".join(names) + " (repeatable; default: every check)",
     )
+    from boundary.symbols import RULE as symbols_rule
+
+    symbols = commands.add_parser(
+        "symbols",
+        help="judge the layer order over the objects a build made, whatever syntax declared each import",
+        description=symbols_rule,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    symbols.add_argument("objdir", metavar="OBJDIR", help="the build directory holding one subdirectory of .cxx.o per layer, such as configs/sim/build/CarpetX")
     doc = commands.add_parser("doc", help="print the generated blocks of agent_docs/carpetx-internals.md: the stack and the includes")
     doc.add_argument("--write", action="store_true", help="rewrite them in agent_docs/carpetx-internals.md instead")
     commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a finding")
@@ -124,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_hook(HOOKS[args.command])
     if args.command == "doc":
         return run_doc(args.write)
+    if args.command == "symbols":
+        return run_symbols(args.objdir)
     if args.since is not None and args.paths:
         parser.error("--since takes no PATH: it judges every thorn file the tree changed since its merge base with REV")
     if args.only:
