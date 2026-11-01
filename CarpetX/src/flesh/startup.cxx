@@ -124,7 +124,7 @@ int InitGH(cGH *restrict cctkGH) {
     assert(!ierr);
   }
   for (int patch = 0; patch < num_patches; ++patch)
-    add_patch(patch_t{patch});
+    hierarchy_writer::add_patch(patch_t{patch});
 
   return 0;
 }

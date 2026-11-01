@@ -303,7 +303,7 @@ void build_buffers(checkpoint_record_t &record,
                 .level = std::nullopt,
                 .which = tl_t{0}},
          .data = array_buffer_t{
-             .data = array_data(group.groupindex, tl_t{0}),
+             .data = hierarchy_writer::array_data(group.groupindex, tl_t{0}),
              .vartype = data.type(),
              .shape = {arraydata.gsh[0], arraydata.gsh[1], arraydata.gsh[2]}}});
   }
@@ -361,16 +361,17 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
   for (const auto &patchdata : ext.patches()) {
     const int nlevels = record.num_levels(patchdata.patch);
     assert(nlevels > 0);
-    set_finest_level(level_t{patchdata.patch, nlevels - 1});
+    hierarchy_writer::set_finest_level(level_t{patchdata.patch, nlevels - 1});
 
     for (int lev = 0; lev < nlevels; ++lev) {
       const level_t level{patchdata.patch, lev};
       level_record_t &levelrecord = record.level_record(level);
       const std::vector<amrex::Box> &boxes = levelrecord.boxes;
-      recover_level(level,
-                    amrex::BoxArray(amrex::BoxList(
-                        amrex::Vector<amrex::Box>(boxes.begin(), boxes.end()))),
-                    rechop_on_recovery);
+      hierarchy_writer::recover_level(
+          level,
+          amrex::BoxArray(amrex::BoxList(
+              amrex::Vector<amrex::Box>(boxes.begin(), boxes.end()))),
+          rechop_on_recovery);
       snapshot_geometry(levelrecord, level);
     }
   }

@@ -150,11 +150,11 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
   for (const auto &patchdata : ext.patches()) {
     for (const auto &leveldata : patchdata.levels()) {
       const level_record_t &recovered = record.level_record(leveldata.level);
-      restore_level_clock(leveldata.level,
-                          recovered.iteration
-                              ? *recovered.iteration
+      hierarchy_writer::restore_level_clock(
+          leveldata.level,
+          recovered.iteration ? *recovered.iteration
                               : rat64(checkpoint_iteration) / iteration_ratio,
-                          recovered.last_step_iteration);
+          recovered.last_step_iteration);
       if (!recovered.last_step_iteration)
         have_last_step_iterations = false;
     }
@@ -182,8 +182,8 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
         for (const auto &leveldata : patchdata.levels())
           if (leveldata.level.index() >= min_level &&
               leveldata.level.index() < max_level)
-            restore_level_clock(leveldata.level, leveldata.iteration,
-                                last_step_iteration);
+            hierarchy_writer::restore_level_clock(
+                leveldata.level, leveldata.iteration, last_step_iteration);
     }
     if (num_groups >= 2 && CCTK_MyProc(nullptr) == 0)
       CCTK_VWARN(CCTK_WARN_ALERT,
@@ -247,7 +247,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
 
   RestoreLevelClocks(cctkGH, record);
 
-  mark_initialized();
+  hierarchy_writer::mark_initialized();
 
   SetDeltaTime(cctkGH);
 }
@@ -437,7 +437,7 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
       continue;
 
     if (group.kind == group_kind::grid_function) {
-      rotate_timelevels(window, gi);
+      hierarchy_writer::rotate_timelevels(window, gi);
       if (ntls0 > 1) {
         if (group.do_evolve) {
           invalidate(window, {.gi = gi,
@@ -481,7 +481,7 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
       }
     } else {
       if (ntls0 > 1) {
-        rotate_array_timelevels(gi);
+        hierarchy_writer::rotate_array_timelevels(gi);
         invalidate_array({.gi = gi,
                           .tl = tl_t{0},
                           .where = make_valid_int(),

@@ -126,14 +126,14 @@ int Initialise(tFleshConfig *config) {
   CCTKi_ScheduleGHInit(cctkGH);
 
   const GHExt &ext = driver();
-  freeze_storage();
+  hierarchy_writer::freeze_storage();
 
   // Initialise all grid extensions
   CCTKi_InitGHExtensions(cctkGH);
 
   setup_cctkGH(cctkGH);
   enter_global_mode(cctkGH);
-  set_global_cctkGH(cctkGH);
+  hierarchy_writer::set_global_cctkGH(cctkGH);
 
   for (const auto &patchdata : ext.patches())
     assert(patchdata.num_levels() == 0);
@@ -148,7 +148,8 @@ int Initialise(tFleshConfig *config) {
 
   CCTK_VINFO("Setting initial values for max_grid_size values for all levels");
   for (const auto &patchdata : ext.patches())
-    set_max_grid_size(patchdata.patch, per_level_max_grid_sizes());
+    hierarchy_writer::set_max_grid_size(patchdata.patch,
+                                        per_level_max_grid_sizes());
 
   if (config->recovered) {
     // Recovery runs its own sequence and skips the fresh-start tail below
@@ -166,7 +167,7 @@ int Initialise(tFleshConfig *config) {
 
       const CCTK_REAL time = 0; // dummy time
       for (const auto &patchdata : ext.patches())
-        make_new_grids(patchdata.patch, time);
+        hierarchy_writer::make_new_grids(patchdata.patch, time);
 
       SetDeltaTime(cctkGH);
 #pragma omp critical
@@ -214,7 +215,7 @@ int Initialise(tFleshConfig *config) {
       }
     }
 
-    mark_initialized();
+    hierarchy_writer::mark_initialized();
 
     for (;;) {
       const int level = ext.num_levels() - 1;
@@ -243,7 +244,7 @@ int Initialise(tFleshConfig *config) {
 
           const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
           const CCTK_REAL time = 0; // dummy time
-          regrid(level_t{patchdata.patch, 0}, time);
+          hierarchy_writer::regrid(level_t{patchdata.patch, 0}, time);
 
           const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
           const int max_numlevels = patchdata.amrcore->maxLevel() + 1;
@@ -386,9 +387,11 @@ int Evolve(tFleshConfig *config) {
 
         CCTK_VINFO(
             "Setting max_grid_size values for all levels before regridding");
-        set_max_grid_size(patchdata.patch, per_level_max_grid_sizes());
+        hierarchy_writer::set_max_grid_size(patchdata.patch,
+                                            per_level_max_grid_sizes());
 
-        regrid(level_t{patchdata.patch, min_active_level}, time);
+        hierarchy_writer::regrid(level_t{patchdata.patch, min_active_level},
+                                 time);
 
         const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
         const int max_numlevels = patchdata.amrcore->maxLevel() + 1;
@@ -484,7 +487,7 @@ int Evolve(tFleshConfig *config) {
         const traversal_scope_t scope(window);
 
         level_iteration += level_delta_iteration;
-        advance_clocks(window);
+        hierarchy_writer::advance_clocks(window);
         loop_serially(window, [&](const auto &leveldata) {
           assert(level_iteration == leveldata.iteration);
           assert(level_delta_iteration == leveldata.delta_iteration);
@@ -502,7 +505,7 @@ int Evolve(tFleshConfig *config) {
 
       const window_t widened = window_t::levels(
           WidenMinLevel(window.coarsest(), level_iteration).index(), max_level);
-      stamp_last_step(widened, cctkGH->cctk_iteration);
+      hierarchy_writer::stamp_last_step(widened, cctkGH->cctk_iteration);
     } // for min_level, max_level
 
     {
@@ -512,7 +515,7 @@ int Evolve(tFleshConfig *config) {
       TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
       TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
 
-      stamp_last_finalized(window, cctkGH->cctk_iteration);
+      hierarchy_writer::stamp_last_finalized(window, cctkGH->cctk_iteration);
 
       TraverseTailBin(cctkGH, "CCTK_CHECKPOINT");
       const double output_start_time = gettime();

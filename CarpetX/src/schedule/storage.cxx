@@ -60,7 +60,7 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
       continue;
     }
 
-    record_storage(gi, ntls);
+    hierarchy_writer::record_storage(gi, ntls);
 
     const int current = ext.active_timelevels(gi);
     min_num_timelevels = std::min(min_num_timelevels, current);

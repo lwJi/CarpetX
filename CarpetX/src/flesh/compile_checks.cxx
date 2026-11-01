@@ -242,6 +242,9 @@ concept regrids_amrcore = requires(Ext & ext, patch_t patch) {
 template <class Ext>
 concept marks_initialized = requires(Ext & ext) { ext.mark_initialized(); };
 
+template <class Ext>
+concept opens_mutable_door = requires { Ext::mutable_instance(); };
+
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
 
@@ -439,6 +442,7 @@ static_assert(!regrids_amrcore<std::remove_reference_t<decltype(driver())> >);
 static_assert(marks_initialized<GHExt>);
 static_assert(
     !marks_initialized<std::remove_reference_t<decltype(driver())> >);
+static_assert(!opens_mutable_door<GHExt>);
 
 } // namespace
 } // namespace CarpetX

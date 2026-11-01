@@ -898,6 +898,12 @@ private:
   std::vector<GroupRecord> group_records;
   std::vector<PatchData> patchdata;
 
+  static GHExt &mutable_instance();
+
+  friend struct hierarchy_writer;
+  friend class write_scope_t;
+  friend class array_write_scope_t;
+
   friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ext);
   friend std::ostream &operator<<(std::ostream &os, const GHExt &ext);
 };

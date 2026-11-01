@@ -136,7 +136,7 @@ void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
 #pragma omp critical
     CCTK_VINFO("SetupLevel patch %d level %d", patch.index(), lev);
 
-  add_level(level, ba, dm, why);
+  hierarchy_writer::add_level(level, ba, dm, why);
 
   if (lev >= int(level_modified.size()))
     level_modified.resize(lev + 1, true);
@@ -378,7 +378,8 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   assert(leveldata.iteration == coarseleveldata.iteration);
 
   const GHExt::PatchData::LevelData oldleveldata =
-      remake_level(level, ba, dm, []() { return "RemakeLevel"; });
+      hierarchy_writer::remake_level(level, ba, dm,
+                                     []() { return "RemakeLevel"; });
 
   for (const auto &groupdata : leveldata.groups()) {
     const gi_t gi = groupdata.record.groupindex;
@@ -434,7 +435,7 @@ void CactusAmrCore::ClearLevel(const int lev) {
   if (verbose)
 #pragma omp critical
     CCTK_VINFO("ClearLevel patch %d level %d", patch.index(), lev);
-  erase_levels_from(level);
+  hierarchy_writer::erase_levels_from(level);
 
   level_modified.resize(lev);
   carpetx_epoch.fetch_add(1, std::memory_order_relaxed);

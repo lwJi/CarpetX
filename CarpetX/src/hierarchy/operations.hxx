@@ -22,47 +22,48 @@
 
 namespace CarpetX {
 
-GHExt &mutable_driver();
-
 GHExt &create_hierarchy(GHExt::config_t config);
 void destroy_hierarchy();
 
-const GHExt::PatchData &add_patch(patch_t patch);
-const GHExt::PatchData::LevelData &
-add_level(level_t level, const amrex::BoxArray &ba,
-          const amrex::DistributionMapping &dm,
-          const std::function<std::string()> &why);
-GHExt::PatchData::LevelData
-remake_level(level_t level, const amrex::BoxArray &ba,
-             const amrex::DistributionMapping &dm,
-             const std::function<std::string()> &why);
-void erase_levels_from(level_t level);
+struct hierarchy_writer {
+  static const GHExt::PatchData &add_patch(patch_t patch);
+  static const GHExt::PatchData::LevelData &
+  add_level(level_t level, const amrex::BoxArray &ba,
+            const amrex::DistributionMapping &dm,
+            const std::function<std::string()> &why);
+  static GHExt::PatchData::LevelData
+  remake_level(level_t level, const amrex::BoxArray &ba,
+               const amrex::DistributionMapping &dm,
+               const std::function<std::string()> &why);
+  static void erase_levels_from(level_t level);
 
-void set_max_grid_size(patch_t patch,
-                       const amrex::Vector<amrex::IntVect> &max_grid_sizes);
-void make_new_grids(patch_t patch, CCTK_REAL time);
-void mark_initialized();
-void regrid(level_t base_level, CCTK_REAL time);
-void set_finest_level(level_t finest_level);
-void recover_level(level_t level, amrex::BoxArray ba, bool rechop);
+  static void
+  set_max_grid_size(patch_t patch,
+                    const amrex::Vector<amrex::IntVect> &max_grid_sizes);
+  static void make_new_grids(patch_t patch, CCTK_REAL time);
+  static void mark_initialized();
+  static void regrid(level_t base_level, CCTK_REAL time);
+  static void set_finest_level(level_t finest_level);
+  static void recover_level(level_t level, amrex::BoxArray ba, bool rechop);
 
-void record_storage(gi_t gi, int timelevels);
-void freeze_storage();
-void set_global_cctkGH(const cGH *cctkGH);
-void *array_data(gi_t gi, tl_t tl);
+  static void record_storage(gi_t gi, int timelevels);
+  static void freeze_storage();
+  static void set_global_cctkGH(const cGH *cctkGH);
+  static void *array_data(gi_t gi, tl_t tl);
 
-std::size_t
-acquire_scratch(group_t group,
-                std::source_location site = std::source_location::current());
-void release_scratch(group_t group, std::size_t slot);
+  static std::size_t
+  acquire_scratch(group_t group,
+                  std::source_location site = std::source_location::current());
+  static void release_scratch(group_t group, std::size_t slot);
 
-void advance_clocks(window_t window);
-void stamp_last_step(window_t window, int iteration);
-void stamp_last_finalized(window_t window, int iteration);
-void restore_level_clock(level_t level, rat64 iteration,
-                         std::optional<int> last_step_iteration);
-void rotate_timelevels(window_t window, gi_t gi);
-void rotate_array_timelevels(gi_t gi);
+  static void advance_clocks(window_t window);
+  static void stamp_last_step(window_t window, int iteration);
+  static void stamp_last_finalized(window_t window, int iteration);
+  static void restore_level_clock(level_t level, rat64 iteration,
+                                  std::optional<int> last_step_iteration);
+  static void rotate_timelevels(window_t window, gi_t gi);
+  static void rotate_array_timelevels(gi_t gi);
+};
 
 } // namespace CarpetX
 
