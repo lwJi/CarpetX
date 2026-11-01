@@ -25,24 +25,6 @@ namespace CarpetX {
 
 YAML::Emitter &operator<<(YAML::Emitter &yaml, valid_t v);
 
-} // namespace CarpetX
-namespace std {
-using namespace CarpetX;
-template <> struct equal_to<valid_t> {
-  constexpr bool operator()(const valid_t &x, const valid_t &y) const {
-    return std::make_tuple(x.valid_int, x.valid_outer, x.valid_ghosts) ==
-           std::make_tuple(y.valid_int, y.valid_outer, y.valid_ghosts);
-  }
-};
-template <> struct less<valid_t> {
-  constexpr bool operator()(const valid_t &x, const valid_t &y) const {
-    return std::make_tuple(x.valid_int, x.valid_outer, x.valid_ghosts) <
-           std::make_tuple(y.valid_int, y.valid_outer, y.valid_ghosts);
-  }
-};
-} // namespace std
-namespace CarpetX {
-
 class why_valid_t {
   valid_t valid;
   std::function<std::string()> why_int, why_outer, why_ghosts;

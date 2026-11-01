@@ -224,7 +224,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
         if (CCTK_EQUALS(out_mode, "proc"))
           return nprocs;
         if (CCTK_EQUALS(out_mode, "np"))
-          return div_ceil(nprocs, out_proc_every);
+          return Arith::div_ceil(nprocs, out_proc_every);
         if (CCTK_EQUALS(out_mode, "onefile"))
           return 1;
         refuse(std::source_location::current(),

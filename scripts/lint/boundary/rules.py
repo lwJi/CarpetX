@@ -119,6 +119,8 @@ OPERATOR_NAME = re.compile(r"\boperator\s*[^\s\w(]*")
 NOT_A_DECLARATOR = re.compile(r"[^\w\s:*&]")
 DECLARED_WORD = re.compile(r"[A-Za-z_]\w*(?:\s*::\s*[A-Za-z_]\w*)*")
 STATEMENT_KEYWORDS = ("return", "throw", "else", "do", "case", "new", "delete", "co_return", "co_yield", "co_await")
+HEADER_SUFFIXES = (".h", ".hh", ".hpp", ".hxx")
+USING_DIRECTIVE = re.compile(r"^\s*using\s+namespace\b")
 STATEMENT_END = re.compile(r"[;{}]")
 RULE_WIDTH = 104
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
@@ -174,7 +176,7 @@ def carpetx_cxx(name: str, lang: Lang) -> bool:
 
 
 def carpetx_header(name: str, lang: Lang) -> bool:
-    return carpetx_cxx(name, lang) and name.endswith(".hxx")
+    return carpetx_cxx(name, lang) and name.endswith(HEADER_SUFFIXES)
 
 
 def index_files(name: str, lang: Lang) -> bool:
@@ -420,6 +422,22 @@ RULES = (
         noun="prototype",
         where="in a CarpetX .cxx",
         clean="no prototype in a CarpetX .cxx",
+    ),
+    Rule(
+        "using",
+        files=carpetx_header,
+        word=USING_DIRECTIVE,
+        allowed=never,
+        text=textwrap.fill(
+            "using: a CarpetX header adds no using namespace, since every file that includes it, and every layer "
+            "above its own, would then see that whole namespace; a header spells what it takes from Arith, Loop or "
+            "another namespace qualified, or declares a name it uses throughout, as driver.hxx declares using "
+            "Loop::dim;, and a .cxx may say using namespace for its own body.",
+            width=RULE_WIDTH,
+        ),
+        noun="using-directive",
+        where="in a CarpetX header",
+        clean="no using-directive in a CarpetX header",
     ),
     Rule(
         "door",

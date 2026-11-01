@@ -28,7 +28,6 @@ loop_region(const F &f, const Arith::vect<int, dim> &imin,
 }
 
 } // namespace boundaries_detail
-using namespace boundaries_detail;
 
 ////////////////////////////////////////////////////////////////////////////////
 
