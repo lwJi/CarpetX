@@ -166,30 +166,10 @@ void enter_global_mode(cGH *restrict cctkGH) {
   cctkGH->cctk_nghostzones[1] = ghost_size >= 0 ? ghost_size : ghost_size_y;
   cctkGH->cctk_nghostzones[2] = ghost_size >= 0 ? ghost_size : ghost_size_z;
 
-  for (const auto &group : driver().records()) {
-    if (group.kind == group_kind::grid_function)
-      continue;
-    const auto &restrict arraygroupdata = group.array();
-    for (const tl_t tl : group.timelevels()) {
-      const auto &restrict vars = arraygroupdata.timelevel(tl).data;
-      for (const vi_t vi : group.variables())
-        cctkGH->data[group.var(vi).index()][tl.index()] = const_cast<void *>(
-            vars.data_at(vi.index() * arraygroupdata.array_size));
-    }
-  }
-
   assert(in_global_mode(cctkGH));
 }
 void leave_global_mode(cGH *restrict cctkGH) {
   assert(in_global_mode(cctkGH));
-
-  for (const auto &group : driver().records()) {
-    if (group.kind == group_kind::grid_function)
-      continue;
-    for (const tl_t tl : group.timelevels())
-      for (const vi_t vi : group.variables())
-        cctkGH->data[group.var(vi).index()][tl.index()] = nullptr;
-  }
 
   for (int d = 0; d < dim; ++d)
     cctkGH->cctk_nghostzones[d] = undefined;

@@ -1,7 +1,29 @@
-STORAGE: storaged_gf[2] storaged_arr[2]
+STORAGE: storaged_gf[2] storaged_arr[2] storaged_arr3[3]
 
 SCHEDULE TestStorageKeyword_Probe AT PostInitial
 {
   LANG: C
   OPTIONS: global
 } "Verify STORAGE registry matches schedule.ccl"
+
+SCHEDULE TestStorageKeyword_Seed AT initial
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: storaged_arr storaged_arr_p
+  WRITES: storaged_arr3 storaged_arr3_p storaged_arr3_p_p
+} "Fill every time level of the array groups"
+
+SCHEDULE TestStorageKeyword_Write IN CCTK_EVOL
+{
+  LANG: C
+  OPTIONS: global
+  WRITES: storaged_arr storaged_arr3
+  READS: storaged_arr_p storaged_arr3_p storaged_arr3_p_p
+} "Write the iteration into time level 0 and check the older time levels"
+
+SCHEDULE TestStorageKeyword_Read IN CCTK_EVOL AFTER TestStorageKeyword_Write
+{
+  LANG: C
+  READS: storaged_arr_p storaged_arr3_p storaged_arr3_p_p
+} "Check the older time levels through a local cGH"

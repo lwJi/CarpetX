@@ -1,3 +1,4 @@
+#include "hierarchy/binding.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/operations.hxx"
@@ -619,9 +620,13 @@ void hierarchy_writer::freeze_storage() {
   GHExt::mutable_instance().freeze_storage();
 }
 
-void hierarchy_writer::set_global_cctkGH(const cGH *const cctkGH) {
+void hierarchy_writer::adopt_flesh_cctkGH(cGH *const cctkGH) {
   GHExt &ext = GHExt::mutable_instance();
+  assert(cctkGH);
+  assert(!ext.flesh_cctkGH);
   assert(!ext.global_cctkGH);
+  ext.flesh_cctkGH = cctkGH;
+  cctkGH_binding::bind_arrays(cctkGH);
   ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
 }
 
@@ -716,7 +721,7 @@ void hierarchy_writer::rotate_timelevels(const window_t window, const gi_t gi) {
 }
 
 void hierarchy_writer::rotate_array_timelevels(const gi_t gi) {
-  GHExt::mutable_instance().record(gi).array().rotate_timelevels();
+  cctkGH_binding::rotate(gi);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
