@@ -211,6 +211,10 @@ public:
   virtual void ClearLevel(int level) override;
 };
 
+struct level_buffers_t;
+using level_buffers_ptr =
+    std::unique_ptr<level_buffers_t, void (*)(level_buffers_t *)>;
+
 struct GHExt {
 
   struct config_t {
@@ -556,7 +560,8 @@ struct GHExt {
 
       LevelData(level_t level, const amrex::BoxArray &ba,
                 const amrex::DistributionMapping &dm,
-                const std::function<std::string()> &why);
+                const std::function<std::string()> &why,
+                level_buffers_ptr buffers);
 
       level_t level;
 
@@ -587,26 +592,7 @@ struct GHExt {
       // and its distribution over all processes, but holds no data.
       std::unique_ptr<amrex::FabArrayBase> fab;
 
-      // Cached flux geometry of this level for the flux-register (reflux)
-      // path, built by amrex::Geometry::GetFaceArea and GetVolume:
-      // face_area[d] is a one-component, zero-ghost MultiFab on this
-      // level's BoxArray converted to the d-face centring (the centring of
-      // the flux group in direction d), holding the constant face area
-      // prod_{j != d} dx_j; cell_volume is its cell-centred counterpart
-      // holding dx_0 dx_1 dx_2. All four share the level's
-      // DistributionMapping with every GroupData MultiFab, so that the
-      // (mflx, area, ...) and (mf, volume, ...) overloads of
-      // amrex::FluxRegister can index them with the flux's or the state's
-      // MFIter. EnsureFluxGeometry builds them together, lazily, on the
-      // first AccumulateFluxes or Reflux that finds a register on this
-      // level, so that neither call allocates a CarpetX-side MultiFab in
-      // steady state. Constant per level: CarpetX levels are Cartesian, and
-      // the layout only changes when a regrid remakes or clears the level,
-      // which destroys this LevelData and the cache with it; there is no
-      // other invalidation. Null on levels that never see a register; pure
-      // geometry, never checkpointed and not valid-tracked.
-      mutable std::array<std::unique_ptr<amrex::MultiFab>, dim> face_area;
-      mutable std::unique_ptr<amrex::MultiFab> cell_volume;
+      level_buffers_ptr buffers;
 
       cctkGHptr patch_cctkGH;
       std::vector<cctkGHptr> local_cctkGHs; // [component]
@@ -691,56 +677,7 @@ struct GHExt {
         // Apply outer (physical) boundary conditions to a MultiFab
         void apply_boundary_conditions(amrex::MultiFab &mfab) const;
 
-        // The RK buffers of the subcycling boundary fill (FillRKBoundary) into
-        // this group on this (refined) level. All of them are owned by this
-        // level and have the geometry of one FPinfo, that of this level's
-        // MultiFab of the group for the group's interpolator and ghost width.
-        // EnsureRKBuffers allocates them together, lazily, at the parent's
-        // first StoreRKOldState after this level was made (or in the recovery
-        // pre-pass). They die with this LevelData when a regrid remakes or
-        // clears the level; there is no other invalidation. Null on level 0,
-        // for groups that are not integrated, and where the coarse-fine
-        // footprint is empty.
-
-        // Coarse-fine source bands holding the parent level's subcycling RK
-        // stage derivatives (zero-ghost, numvars comps) on the coarse cells
-        // under this level's cf-ghost footprint: FPinfo::ba_crse_patch on
-        // FPinfo::dm_patch, i.e. in the parent's index space and with exactly
-        // the layout of rk_crse_patch below. Indexed by RK stage; filled by
-        // StoreRKStage on the parent and read by FillRKBoundary on this level,
-        // which evaluates the dense-output polynomial on them and prolongates
-        // the resulting coarse state. Data with history: they hold the
-        // parent's in-progress step for both of this level's substeps, and are
-        // serialized at mid-cycle checkpoints under the parent level's name
-        // (see rk_source_band).
-        mutable std::array<std::unique_ptr<amrex::MultiFab>, max_num_rk_stages>
-            ks_source_band;
-
-        // Coarse-fine source band holding the parent's subcycling old state
-        // u(t_n), a single snapshot (not RK-stage indexed) with the geometry
-        // and lifecycle of the ks bands above. Filled from the parent's
-        // var(tl) by StoreRKOldState at solve start; the u(t_n) base of the
-        // dense output.
-        mutable std::unique_ptr<amrex::MultiFab> old_source_band;
-
-        // Persistent work buffers of the fill: the dense output is evaluated
-        // from the bands straight into rk_crse_patch (FPinfo::ba_crse_patch on
-        // FPinfo::dm_patch, the layout of the bands), which is then
-        // interpolated into rk_fine_patch (FPinfo::ba_fine_patch on the same
-        // dm_patch). Zero ghosts, numvars comps. Pure scratch, fully
-        // overwritten before each read: never checkpointed and not
-        // valid-tracked.
-        mutable std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;
-
         std::unique_ptr<amrex::FluxRegister> freg;
-        // Coarse-side staging for AccumulateFluxes: the parent's raw flux is
-        // parallel-copied here, scaled, and added into freg. Allocated
-        // together with freg and with the same arguments, so each face FabSet
-        // has freg's BoxArray, DistributionMapping and component count.
-        // Contents are meaningless between calls (zeroed before each use);
-        // not checkpointed (not a freg_* band) and not valid-tracked; rebuilt
-        // with freg when the level is remade on regrid.
-        std::unique_ptr<amrex::FluxRegister> freg_scratch;
         std::optional<std::array<gi_t, dim> > fluxes;
 
         struct scratch_slot_t {
@@ -832,7 +769,8 @@ struct GHExt {
 
     LevelData &add_level(level_t level, const amrex::BoxArray &ba,
                          const amrex::DistributionMapping &dm,
-                         const std::function<std::string()> &why);
+                         const std::function<std::string()> &why,
+                         level_buffers_ptr buffers);
     LevelData replace_level(level_t level, LevelData &&fresh);
     void erase_levels_from(level_t level);
 
@@ -925,23 +863,6 @@ private:
 
 const GHExt &driver();
 void assert_hierarchy_destroyed();
-
-// Subcycling source-band kinds serialized at unsynchronized checkpoints:
-// ks_source is the RK stages 0..max_num_rk_stages-1, old_source the u(t_n)
-// snapshot, flux_register the six face FabSets of the child's flux register
-// (GroupData::freg), each a zero-ghost MultiFab in the parent's index space
-// holding the partially accumulated flux mismatch of the pair (level,
-// level+1). For flux_register `stage` is the face index 0..5, namely
-// 2*dir + (high ? 1 : 0).
-enum class band_kind { ks_source, old_source, flux_register };
-
-// Token identifying a source band in checkpoint names: "kss_s00".."kss_s03"
-// for ks_source, "olds" for old_source, "freg_xlo".."freg_zhi" for
-// flux_register. Shared by both IO backends.
-std::string subcycling_band_tag(band_kind kind, int stage = -1);
-
-amrex::MultiFab *rk_source_band(level_t level, gi_t gi, band_kind kind,
-                                int stage = -1);
 
 // Monotonically increasing counter. Incremented whenever the AMR grid
 // hierarchy is invalidated (regridding, recovery). Starts at 0.
