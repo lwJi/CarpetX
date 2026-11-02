@@ -447,25 +447,11 @@ int Evolve(tFleshConfig *config) {
 
     cctkGH->cctk_iteration += 1;
 
-    for (window_t::bounds_t levels{0, 0}; ext.num_levels() > levels.min;
-         levels.min = levels.max) {
-      levels.max = levels.min;
-      while (ext.num_levels() > ++levels.max) {
-        bool level_is_subcycling_level = false;
-        for (const auto &patchdata : ext.patches()) {
-          const level_t level{patchdata.patch, levels.max};
-          if (patchdata.level_handles().contains(level))
-            level_is_subcycling_level |=
-                patchdata.level(level).is_subcycling_level;
-        }
-        if (level_is_subcycling_level)
-          break;
-      }
-
+    for (const window_t window : StepGroups()) {
       rat64 level_iteration = -1;
       rat64 level_delta_iteration = -1;
       for (const auto &patchdata : ext.patches()) {
-        const level_t level{patchdata.patch, levels.min};
+        const level_t level{patchdata.patch, window.level_bounds().min};
         if (patchdata.level_handles().contains(level)) {
           const auto &leveldata = patchdata.level(level);
           level_iteration = leveldata.iteration;
@@ -480,7 +466,6 @@ int Evolve(tFleshConfig *config) {
       if (level_iteration > iteration)
         continue;
 
-      const window_t window = window_t::levels(levels.min, levels.max);
       {
         const traversal_scope_t scope(window);
 
@@ -503,7 +488,7 @@ int Evolve(tFleshConfig *config) {
 
       const window_t widened = window_t::levels(
           WidenMinLevel(window.coarsest(), level_iteration).index(),
-          levels.max);
+          window.level_bounds().max);
       hierarchy_writer::stamp_last_step(widened, cctkGH->cctk_iteration);
     }
 

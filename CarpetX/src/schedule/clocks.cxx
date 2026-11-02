@@ -113,6 +113,28 @@ CCTK_REAL get_finest_mindx() {
   return mindx;
 }
 
+std::vector<window_t> StepGroups() {
+  const GHExt &ext = driver();
+  const auto starts_a_group = [&](const int level_index) {
+    for (const auto &patchdata : ext.patches()) {
+      const level_t level{patchdata.patch, level_index};
+      if (patchdata.level_handles().contains(level) &&
+          patchdata.level(level).is_subcycling_level)
+        return true;
+    }
+    return false;
+  };
+  std::vector<window_t> groups;
+  int first = 0;
+  for (int level_index = 1; level_index <= ext.num_levels(); ++level_index) {
+    if (level_index == ext.num_levels() || starts_a_group(level_index)) {
+      groups.push_back(window_t::levels(first, level_index));
+      first = level_index;
+    }
+  }
+  return groups;
+}
+
 void SetDeltaTime(cGH *restrict const cctkGH) {
   DECLARE_CCTK_PARAMETERS;
   if (CCTK_EQUALS(timestep_choice, "timestep")) {
