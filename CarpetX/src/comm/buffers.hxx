@@ -11,6 +11,7 @@
 
 #include <array>
 #include <memory>
+#include <source_location>
 #include <vector>
 
 namespace CarpetX {
@@ -33,8 +34,9 @@ level_buffers_ptr make_level_buffers();
 
 level_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata);
 
-group_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata,
-                            gi_t gi);
+group_buffers_t &
+buffers_of(const GHExt::PatchData::LevelData &leveldata, gi_t gi,
+           std::source_location site = std::source_location::current());
 
 } // namespace CarpetX
 

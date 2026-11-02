@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <memory>
+#include <source_location>
 
 namespace CarpetX {
 
@@ -23,7 +24,8 @@ level_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata) {
 }
 
 group_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata,
-                            const gi_t gi) {
+                            const gi_t gi, const std::source_location site) {
+  leveldata.group(gi, site);
   return buffers_of(leveldata).groups.at(gi.index());
 }
 
