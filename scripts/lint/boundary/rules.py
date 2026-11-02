@@ -55,6 +55,8 @@ VALIDITY_WORD = re.compile(
     r"(\b(error_if_invalid|warn_if_invalid|poison_invalid_g[fa]|check_valid_g[fa])"
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
+BINDING_FILES = (layer_path("hierarchy", "binding.cxx"),)
+BINDING_WORD = re.compile(r"(\.|->)\s*data\s*\[[^\]]*\]\s*\[[^\]]*\]\s*=(?!=)")
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
     r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration|integrator_config|integrator_frozen)\b"
@@ -298,6 +300,18 @@ RULES = (
         where="outside valid.cxx",
         clean="no validity call outside valid.cxx",
         home=layers_of(VALIDITY_FILES),
+    ),
+    Rule(
+        "binding",
+        files=private_cxx,
+        word=BINDING_WORD,
+        allowed=in_files(BINDING_FILES),
+        text="binding: a cGH data[var][tl] entry is assigned only in CarpetX/src/hierarchy/binding.cxx;\n"
+        "every other site calls cctkGH_binding.",
+        noun="pointer-table write",
+        where="outside binding.cxx",
+        clean="no pointer-table write outside binding.cxx",
+        home=layers_of(BINDING_FILES),
     ),
     Rule(
         "directions",
