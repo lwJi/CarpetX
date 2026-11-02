@@ -30,11 +30,12 @@ struct hierarchy_writer {
   static const GHExt::PatchData::LevelData &
   add_level(level_t level, const amrex::BoxArray &ba,
             const amrex::DistributionMapping &dm,
-            const std::function<std::string()> &why);
+            const std::function<std::string()> &why, level_buffers_ptr buffers);
   static GHExt::PatchData::LevelData
   remake_level(level_t level, const amrex::BoxArray &ba,
                const amrex::DistributionMapping &dm,
-               const std::function<std::string()> &why);
+               const std::function<std::string()> &why,
+               level_buffers_ptr buffers);
   static void erase_levels_from(level_t level);
 
   static void

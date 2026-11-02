@@ -20,7 +20,6 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <iomanip>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -172,9 +171,10 @@ GHExt::PatchData::PatchData(const patch_t patch) : patch(patch) {
 GHExt::PatchData::LevelData &
 GHExt::PatchData::add_level(const level_t level, const amrex::BoxArray &ba,
                             const amrex::DistributionMapping &dm,
-                            const std::function<std::string()> &why) {
+                            const std::function<std::string()> &why,
+                            level_buffers_ptr buffers) {
   assert(level.patch() == patch && level.index() == num_levels());
-  return leveldata.emplace_back(level, ba, dm, why);
+  return leveldata.emplace_back(level, ba, dm, why, std::move(buffers));
 }
 
 GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
@@ -194,8 +194,10 @@ void GHExt::PatchData::erase_levels_from(const level_t level) {
 GHExt::PatchData::LevelData::LevelData(const level_t level,
                                        const amrex::BoxArray &ba,
                                        const amrex::DistributionMapping &dm,
-                                       const std::function<std::string()> &why)
-    : level(level) {
+                                       const std::function<std::string()> &why,
+                                       level_buffers_ptr buffers)
+    : level(level), buffers(std::move(buffers)) {
+  assert(this->buffers);
   DECLARE_CCTK_PARAMETERS;
 
   GHExt &ext = GHExt::mutable_instance();
@@ -359,66 +361,9 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
           ext.patch(level.patch()).amrcore->refRatio(level.parent().index());
       freg = std::make_unique<amrex::FluxRegister>(gba, dm, ratio,
                                                    level.index(), numvars);
-      // FluxRegister::define leaves the FabSets uninitialized. Zero them so
-      // that a register that is never fed (e.g. ODESolvers::method =
-      // "constant") is a no-op in Reflux and serializes as zeros at a
-      // mid-cycle checkpoint.
       freg->setVal(0);
-      freg_scratch = std::make_unique<amrex::FluxRegister>(
-          gba, dm, ratio, level.index(), numvars);
     }
   }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-std::string subcycling_band_tag(const band_kind kind, const int stage) {
-  std::ostringstream buf;
-  switch (kind) {
-  case band_kind::ks_source:
-    assert(stage >= 0 && stage < max_num_rk_stages);
-    buf << "kss_s" << std::setw(2) << std::setfill('0') << stage;
-    break;
-  case band_kind::old_source:
-    buf << "olds";
-    break;
-  case band_kind::flux_register:
-    assert(stage >= 0 && stage < 2 * dim);
-    buf << "freg_" << "xyz"[stage / 2] << (stage % 2 ? "hi" : "lo");
-    break;
-  default:
-    assert(0);
-  }
-  return buf.str();
-}
-
-amrex::MultiFab *rk_source_band(const level_t level, const gi_t gi,
-                                const band_kind kind, const int stage) {
-  assert(level.index() >= 0);
-  const std::optional<level_t> child = level.child();
-  if (!child)
-    return nullptr;
-  const auto &childleveldata = driver().level(*child);
-  const auto &groupdata = childleveldata.group(gi);
-  switch (kind) {
-  case band_kind::ks_source:
-    assert(stage >= 0 && stage < max_num_rk_stages);
-    return groupdata.ks_source_band[stage].get();
-  case band_kind::old_source:
-    return groupdata.old_source_band.get();
-  case band_kind::flux_register: {
-    assert(stage >= 0 && stage < 2 * dim);
-    if (!groupdata.freg)
-      return nullptr;
-    const int dir = stage / 2;
-    const amrex::Orientation::Side side =
-        stage % 2 ? amrex::Orientation::high : amrex::Orientation::low;
-    return &(*groupdata.freg)[amrex::Orientation(dir, side)].multiFab();
-  }
-  default:
-    assert(0);
-  }
-  return nullptr;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -599,17 +544,19 @@ const GHExt::PatchData &hierarchy_writer::add_patch(const patch_t patch) {
 const GHExt::PatchData::LevelData &
 hierarchy_writer::add_level(const level_t level, const amrex::BoxArray &ba,
                             const amrex::DistributionMapping &dm,
-                            const std::function<std::string()> &why) {
+                            const std::function<std::string()> &why,
+                            level_buffers_ptr buffers) {
   return GHExt::mutable_instance()
       .patch(level.patch())
-      .add_level(level, ba, dm, why);
+      .add_level(level, ba, dm, why, std::move(buffers));
 }
 
 GHExt::PatchData::LevelData
 hierarchy_writer::remake_level(const level_t level, const amrex::BoxArray &ba,
                                const amrex::DistributionMapping &dm,
-                               const std::function<std::string()> &why) {
-  GHExt::PatchData::LevelData fresh(level, ba, dm, why);
+                               const std::function<std::string()> &why,
+                               level_buffers_ptr buffers) {
+  GHExt::PatchData::LevelData fresh(level, ba, dm, why, std::move(buffers));
   return GHExt::mutable_instance()
       .patch(level.patch())
       .replace_level(level, std::move(fresh));
