@@ -441,10 +441,12 @@ struct GHExt {
         return const_cast<timelevel_t &>(
             std::as_const(*this).timelevel(tl, site));
       }
-      void rotate_timelevels();
 
     private:
       std::vector<timelevel_t> tls;
+      void rotate_timelevels();
+
+      friend struct cctkGH_binding;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const ArrayGroupData &arraygroupdata);
@@ -655,7 +657,6 @@ struct GHExt {
               std::as_const(*this).timelevel(tl, site));
         }
         int num_timelevels() const { return tls.size(); }
-        void rotate_timelevels();
         int open_write_count() const {
           int count = 0;
           for (const timelevel_t &tl : tls)
@@ -689,7 +690,9 @@ struct GHExt {
 
       private:
         std::vector<timelevel_t> tls;
+        void rotate_timelevels();
 
+        friend struct cctkGH_binding;
         friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                          const GroupData &groupdata);
       };

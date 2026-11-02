@@ -246,6 +246,9 @@ concept marks_initialized = requires(Ext & ext) { ext.mark_initialized(); };
 template <class Ext>
 concept opens_mutable_door = requires { Ext::mutable_instance(); };
 
+template <class Group>
+concept rotates = requires(Group & group) { group.rotate_timelevels(); };
+
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
 
@@ -460,6 +463,9 @@ static_assert(!marks_initialized<GHExt>);
 static_assert(
     !marks_initialized<std::remove_reference_t<decltype(driver())> >);
 static_assert(!opens_mutable_door<GHExt>);
+
+static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
+static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);
 
 } // namespace
 } // namespace CarpetX

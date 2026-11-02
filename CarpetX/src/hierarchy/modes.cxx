@@ -268,17 +268,6 @@ void enter_local_mode(cGH *restrict cctkGH,
     for (int f = 0; f < 2; ++f)
       cctkGH->cctk_bbox[2 * d + f] = grid.bbox[f][d];
 
-  for (const auto &groupdata : leveldata.groups()) {
-    const GridPtrDesc1 grid1(leveldata, groupdata, mfp);
-    for (const tl_t tl : groupdata.record.timelevels()) {
-      const amrex::Array4<CCTK_REAL> vars =
-          groupdata.timelevel(tl).mfab->array(mfp.index());
-      for (const vi_t vi : groupdata.record.variables())
-        cctkGH->data[groupdata.record.var(vi).index()][tl.index()] =
-            grid1.ptr(vars, vi);
-    }
-  }
-
   for (int d = 0; d < dim; ++d) {
     assert(cctkGH->cctk_gsh[d] >= 0);
 
@@ -321,10 +310,6 @@ void leave_local_mode(cGH *restrict cctkGH,
   for (int d = 0; d < dim; ++d)
     for (int f = 0; f < 2; ++f)
       cctkGH->cctk_bbox[2 * d + f] = undefined;
-  for (const auto &groupdata : leveldata.groups())
-    for (const tl_t tl : groupdata.record.timelevels())
-      for (const vi_t vi : groupdata.record.variables())
-        cctkGH->data[groupdata.record.var(vi).index()][tl.index()] = nullptr;
   assert(in_patch_mode(cctkGH));
 }
 
