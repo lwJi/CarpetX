@@ -74,15 +74,17 @@ VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\
 RECORD_VAR_FILE = layer_path("hierarchy", "driver.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
-INDEX_PARAM = re.compile(r"\bint\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch)\b")
-INDEX_SOURCE_LAYERS = ("io",)
+INDEX_PARAM = re.compile(r"\b(?:int|CCTK_INT)\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch)\b")
 STORAGE_OVERLOADS = ("QueryGroupStorageB", "GroupStorageIncrease", "GroupStorageDecrease")
 AMREX_CALLBACKS = ("ErrorEst", "MakeNewLevelFromScratch", "MakeNewLevelFromCoarse", "RemakeLevel", "ClearLevel")
 INDEX_FIXED = {
     PUBLIC_DIR + "carpetx.hxx": ("level_t", "window_t", "levels", "narrow"),
     layer_path("schedule", "schedule.hxx"): STORAGE_OVERLOADS,
     layer_path("schedule", "storage.cxx"): STORAGE_OVERLOADS,
+    layer_path("api", "api.cxx"): ("levels", "narrow"),
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
+    layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
+    layer_path("hierarchy", "group_tags.cxx"): ("CCTK_TraverseString",),
     layer_path("comm", "comm.hxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("comm", "sync_restrict.cxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("hierarchy", "driver.hxx"): AMREX_CALLBACKS,
@@ -175,14 +177,12 @@ def carpetx_cxx(name: str, lang: Lang) -> bool:
     return lang is Lang.CXX and name.startswith(PRIVATE_DIR)
 
 
-def carpetx_header(name: str, lang: Lang) -> bool:
-    return carpetx_cxx(name, lang) and name.endswith(HEADER_SUFFIXES)
-
-
-def index_files(name: str, lang: Lang) -> bool:
-    return carpetx_header(name, lang) or (carpetx_cxx(name, lang) and layer_of(name) in INDEX_SOURCE_LAYERS)
 def carpetx_source(name: str, lang: Lang) -> bool:
     return carpetx_cxx(name, lang) and name.endswith(".cxx")
+
+
+def carpetx_header(name: str, lang: Lang) -> bool:
+    return carpetx_cxx(name, lang) and name.endswith(HEADER_SUFFIXES)
 
 
 def records_files(name: str, lang: Lang) -> bool:
@@ -347,20 +347,20 @@ RULES = (
     ),
     Rule(
         "index",
-        files=index_files,
+        files=carpetx_cxx,
         word=INDEX_PARAM,
         allowed=index_allowed,
         text=textwrap.fill(
-            f"index: a CarpetX header or a source in {dirs(INDEX_SOURCE_LAYERS, 'or')} names a group, variable, "
-            "time level, patch or level by its type (gi_t, vi_t, tl_t, patch_t, level_t, window_t), never a bare int, "
-            "except in the signatures the flesh and AMReX fix, the level_t and window_t constructors, and "
-            "window_t::levels and narrow.",
+            "index: every CarpetX source and header names a group, variable, time level, patch or level by its type "
+            "(gi_t, vi_t, tl_t, patch_t, level_t, window_t), never a bare int or CCTK_INT, except in the signatures "
+            "the flesh and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow; a loop "
+            "over a patch's levels walks level_handles(), one over the patches patch_handles(), and .index() unwraps "
+            "a handle where it meets AMReX or the flesh.",
             width=RULE_WIDTH,
         ),
         noun="bare index int",
-        where=f"in a CarpetX header or {dirs(INDEX_SOURCE_LAYERS, 'or')} source",
-        clean=f"no bare index int in a CarpetX header or {dirs(INDEX_SOURCE_LAYERS, 'or')} source",
-        home=INDEX_SOURCE_LAYERS,
+        where="in CarpetX",
+        clean="no bare index int in CarpetX",
     ),
     Rule(
         "records",

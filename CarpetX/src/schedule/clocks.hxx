@@ -7,10 +7,13 @@
 
 #include <cctk.h>
 
+#include <vector>
+
 namespace CarpetX {
 
 level_t WidenMinLevel(level_t level, rat64 target_iteration);
 window_t FinestClockGroup();
+std::vector<window_t> StepGroups();
 
 void SetDeltaTime(cGH *restrict cctkGH);
 void SetStepTime(cGH *restrict cctkGH, level_t level, rat64 clock);

@@ -47,9 +47,9 @@ cGH *copy_cctkGH(const cGH *restrict const sourceGH) {
 
   const int numvars = CCTK_NumVars();
   cctkGH->data = new void **[numvars];
-  for (int vi = 0; vi < numvars; ++vi)
-    cctkGH->data[vi] =
-        copy_array(sourceGH->data[vi], CCTK_DeclaredTimeLevelsVI(vi));
+  for (const var_t var : index_range<var_t>(var_t{0}, var_t{numvars}))
+    cctkGH->data[var.index()] = copy_array(
+        sourceGH->data[var.index()], CCTK_DeclaredTimeLevelsVI(var.index()));
 
   return cctkGH;
 }
@@ -72,8 +72,8 @@ void delete_cctkGH(cGH *cctkGH) {
   delete[] cctkGH->cctk_levoffdenom;
   delete[] cctkGH->cctk_nghostzones;
   const int numvars = CCTK_NumVars();
-  for (int vi = 0; vi < numvars; ++vi)
-    delete[] cctkGH->data[vi];
+  for (const var_t var : index_range<var_t>(var_t{0}, var_t{numvars}))
+    delete[] cctkGH->data[var.index()];
   delete[] cctkGH->data;
 #ifdef CCTK_DEBUG
   memset(cctkGH, 0, sizeof *cctkGH);

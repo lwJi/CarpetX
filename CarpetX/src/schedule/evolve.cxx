@@ -218,12 +218,12 @@ int Initialise(tFleshConfig *config) {
     hierarchy_writer::mark_initialized();
 
     for (;;) {
-      const int level = ext.num_levels() - 1;
+      const level_t level = all_levels().finest();
 #pragma omp critical
-      CCTK_VINFO("Initializing level %d...", level);
+      CCTK_VINFO("Initializing level %d...", level.index());
 
       for (const auto &patchdata : ext.patches())
-        assert(patchdata.amrcore->finestLevel() <= level);
+        assert(patchdata.amrcore->finestLevel() <= level.index());
 
       {
         const traversal_scope_t scope(all_levels());
@@ -260,20 +260,23 @@ int Initialise(tFleshConfig *config) {
             for (const auto &leveldata : patchdata.levels()) {
               const int sz = leveldata.fab->size();
               const double pts = leveldata.fab->boxArray().d_numPts();
-              const int level = leveldata.level.index();
-              if (level == 0) {
+              const level_t level = leveldata.level;
+              if (level.index() == 0) {
                 CCTK_VINFO(
-                    "  level %d: %d boxes, %.0f cells (%.4g%%)", level, sz, pts,
-                    100 * pts / (ldexp(CCTK_REAL(1), dim * level) * pts0));
+                    "  level %d: %d boxes, %.0f cells (%.4g%%)", level.index(),
+                    sz, pts,
+                    100 * pts /
+                        (ldexp(CCTK_REAL(1), dim * level.index()) * pts0));
               } else {
                 const double ptsc = patchdata.level(leveldata.level.parent())
                                         .fab->boxArray()
                                         .d_numPts();
-                CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%, %.0f%%)",
-                           level, sz, pts,
-                           100 * pts /
-                               (ldexp(CCTK_REAL(1), dim * level) * pts0),
-                           100 * pts / (ldexp(CCTK_REAL(1), dim) * ptsc));
+                CCTK_VINFO(
+                    "  level %d: %d boxes, %.0f cells (%.4g%%, %.0f%%)",
+                    level.index(), sz, pts,
+                    100 * pts /
+                        (ldexp(CCTK_REAL(1), dim * level.index()) * pts0),
+                    100 * pts / (ldexp(CCTK_REAL(1), dim) * ptsc));
               }
             }
           } // omp critical
@@ -359,7 +362,6 @@ int Evolve(tFleshConfig *config) {
     const double start_time = gettime();
 
     rat64 iteration = ext.patches().front().levels().front().iteration;
-    using std::min;
     for (const auto &patchdata : ext.patches())
       for (const auto &leveldata : patchdata.levels())
         iteration = min(iteration, leveldata.iteration);
@@ -372,15 +374,9 @@ int Evolve(tFleshConfig *config) {
 
       for (const auto &patchdata : ext.patches()) {
 
-        int min_active_level = -1;
-        for (int level = patchdata.num_levels() - 1; level >= 0; --level) {
-          if (patchdata.level(level_t{patchdata.patch, level}).iteration !=
-              iteration) {
-            break;
-          }
-          min_active_level = level;
-        }
-        assert(min_active_level != -1);
+        const level_t finest{patchdata.patch, patchdata.num_levels() - 1};
+        assert(patchdata.level(finest).iteration == iteration);
+        const level_t min_active_level = WidenMinLevel(finest, iteration);
 
         const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
         const CCTK_REAL time = 0; // dummy time
@@ -390,8 +386,7 @@ int Evolve(tFleshConfig *config) {
         hierarchy_writer::set_max_grid_size(patchdata.patch,
                                             per_level_max_grid_sizes());
 
-        hierarchy_writer::regrid(level_t{patchdata.patch, min_active_level},
-                                 time);
+        hierarchy_writer::regrid(min_active_level, time);
 
         const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
         const int max_numlevels = patchdata.amrcore->maxLevel() + 1;
@@ -407,18 +402,20 @@ int Evolve(tFleshConfig *config) {
           for (const auto &leveldata : patchdata.levels()) {
             const int sz = leveldata.fab->size();
             const double pts = leveldata.fab->boxArray().d_numPts();
-            const int level = leveldata.level.index();
-            if (level == 0) {
-              CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%)", level, sz,
-                         pts,
-                         100 * pts / (ldexp(CCTK_REAL(1), dim * level) * pts0));
+            const level_t level = leveldata.level;
+            if (level.index() == 0) {
+              CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%)",
+                         level.index(), sz, pts,
+                         100 * pts /
+                             (ldexp(CCTK_REAL(1), dim * level.index()) * pts0));
             } else {
               const double ptsc = patchdata.level(leveldata.level.parent())
                                       .fab->boxArray()
                                       .d_numPts();
               CCTK_VINFO("  level %d: %d boxes, %.0f cells (%.4g%%, %.0f%%)",
-                         level, sz, pts,
-                         100 * pts / (ldexp(CCTK_REAL(1), dim * level) * pts0),
+                         level.index(), sz, pts,
+                         100 * pts /
+                             (ldexp(CCTK_REAL(1), dim * level.index()) * pts0),
                          100 * pts / (ldexp(CCTK_REAL(1), dim) * ptsc));
             }
           }
@@ -450,39 +447,15 @@ int Evolve(tFleshConfig *config) {
 
     cctkGH->cctk_iteration += 1;
 
-    for (int min_level = 0, max_level; min_level < ext.num_levels();
-         min_level = max_level) {
-      max_level = min_level;
-      while (++max_level < ext.num_levels()) {
-        bool level_is_subcycling_level = false;
-        for (const auto &patchdata : ext.patches())
-          if (max_level < patchdata.num_levels())
-            level_is_subcycling_level |=
-                patchdata.level(level_t{patchdata.patch, max_level})
-                    .is_subcycling_level;
-        if (level_is_subcycling_level)
-          break;
-      }
-
-      rat64 level_iteration = -1;
-      rat64 level_delta_iteration = -1;
-      for (const auto &patchdata : ext.patches()) {
-        if (min_level < patchdata.num_levels()) {
-          const auto &leveldata =
-              patchdata.level(level_t{patchdata.patch, min_level});
-          level_iteration = leveldata.iteration;
-          level_delta_iteration = leveldata.delta_iteration;
-          break;
-        }
-      }
-      assert(level_iteration != -1);
-      assert(level_delta_iteration != -1);
+    for (const window_t window : StepGroups()) {
+      const auto &coarsest = ext.level(window.coarsest());
+      rat64 level_iteration = coarsest.iteration;
+      const rat64 level_delta_iteration = coarsest.delta_iteration;
       // Skip those evolved coarse levels while evolving the fine levels to
       // catch up
       if (level_iteration > iteration)
         continue;
 
-      const window_t window = window_t::levels(min_level, max_level);
       {
         const traversal_scope_t scope(window);
 
@@ -504,9 +477,10 @@ int Evolve(tFleshConfig *config) {
       }
 
       const window_t widened = window_t::levels(
-          WidenMinLevel(window.coarsest(), level_iteration).index(), max_level);
+          WidenMinLevel(window.coarsest(), level_iteration).index(),
+          window.level_bounds().max);
       hierarchy_writer::stamp_last_step(widened, cctkGH->cctk_iteration);
-    } // for min_level, max_level
+    }
 
     {
       const window_t window = FinestClockGroup();

@@ -37,19 +37,19 @@ level_t WidenMinLevel(level_t level, const rat64 target_iteration) {
 }
 
 namespace {
-window_t ClockGroupBelow(const int max_level) {
-  const level_t finest = window_t::levels(0, max_level).finest();
+window_t ClockGroupBelow(const window_t window) {
+  const level_t finest = window.finest();
   const level_t coarsest =
       WidenMinLevel(finest, driver().level(finest).iteration);
-  return window_t::levels(coarsest.index(), max_level);
+  return window.narrow(coarsest.index(), finest.index() + 1);
 }
 
 std::vector<window_t> ClockGroups() {
   const GHExt &ext = driver();
   std::vector<window_t> groups;
-  for (int max_level = ext.num_levels(); max_level > 0;
-       max_level = groups.back().level_bounds().min)
-    groups.push_back(ClockGroupBelow(max_level));
+  for (window_t below = all_levels(); below.level_bounds().max > 0;
+       below = below.narrow(0, groups.back().level_bounds().min))
+    groups.push_back(ClockGroupBelow(below));
   std::reverse(groups.begin(), groups.end());
   assert((ext.use_subcycling || groups.size() <= 1) &&
          "without subcycling every level shares one clock");
@@ -59,7 +59,7 @@ std::vector<window_t> ClockGroups() {
 
 window_t FinestClockGroup() {
   const GHExt &ext = driver();
-  const window_t group = ClockGroupBelow(ext.num_levels());
+  const window_t group = ClockGroupBelow(all_levels());
   assert((ext.use_subcycling || group.level_bounds().min == 0) &&
          "without subcycling the end-of-step window holds every level");
   return group;
@@ -111,6 +111,28 @@ CCTK_REAL get_finest_mindx() {
     mindx = fmin(mindx, mindx1);
   }
   return mindx;
+}
+
+std::vector<window_t> StepGroups() {
+  const GHExt &ext = driver();
+  const auto starts_a_group = [&](const int level_index) {
+    for (const auto &patchdata : ext.patches()) {
+      const level_t level{patchdata.patch, level_index};
+      if (patchdata.level_handles().contains(level) &&
+          patchdata.level(level).is_subcycling_level)
+        return true;
+    }
+    return false;
+  };
+  std::vector<window_t> groups;
+  int first = 0;
+  for (int level_index = 1; level_index <= ext.num_levels(); ++level_index) {
+    if (level_index == ext.num_levels() || starts_a_group(level_index)) {
+      groups.push_back(window_t::levels(first, level_index));
+      first = level_index;
+    }
+  }
+  return groups;
 }
 
 void SetDeltaTime(cGH *restrict const cctkGH) {
@@ -269,13 +291,12 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
     assert(leveldata.last_step_iteration == cctkGH->cctk_iteration);
   });
 
-  const int min_level = window.level_bounds().min;
   if (!window_is_restricted(window)) {
     if (verbose)
 #pragma omp critical
       CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
                  "at the current time",
-                 cctkGH->cctk_iteration, min_level);
+                 cctkGH->cctk_iteration, window.coarsest().index());
   } else if (!restrict_during_sync) {
     CCTK_Traverse(cctkGH, "CarpetX_PreRestrict");
     if (reflux)
