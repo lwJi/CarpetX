@@ -448,19 +448,9 @@ int Evolve(tFleshConfig *config) {
     cctkGH->cctk_iteration += 1;
 
     for (const window_t window : StepGroups()) {
-      rat64 level_iteration = -1;
-      rat64 level_delta_iteration = -1;
-      for (const auto &patchdata : ext.patches()) {
-        const level_t level{patchdata.patch, window.level_bounds().min};
-        if (patchdata.level_handles().contains(level)) {
-          const auto &leveldata = patchdata.level(level);
-          level_iteration = leveldata.iteration;
-          level_delta_iteration = leveldata.delta_iteration;
-          break;
-        }
-      }
-      assert(level_iteration != -1);
-      assert(level_delta_iteration != -1);
+      const auto &coarsest = ext.level(window.coarsest());
+      rat64 level_iteration = coarsest.iteration;
+      const rat64 level_delta_iteration = coarsest.delta_iteration;
       // Skip those evolved coarse levels while evolving the fine levels to
       // catch up
       if (level_iteration > iteration)
