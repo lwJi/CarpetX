@@ -127,6 +127,11 @@ DECLARED_WORD = re.compile(r"[A-Za-z_]\w*(?:\s*::\s*[A-Za-z_]\w*)*")
 STATEMENT_KEYWORDS = ("return", "throw", "else", "do", "case", "new", "delete", "co_return", "co_yield", "co_await")
 HEADER_SUFFIXES = (".h", ".hh", ".hpp", ".hxx")
 USING_DIRECTIVE = re.compile(r"^\s*using\s+namespace\b")
+GUARD_PREFIX = "CARPETX_CARPETX_"
+GUARD_MACRO = re.compile(r"^\s*#\s*(?:ifndef|define)\s+(" + GUARD_PREFIX + r"\w+)")
+INCLUDE_LINE = re.compile(r"^\s*#\s*include\b")
+GUARD_WORD = re.compile(f"{GUARD_MACRO.pattern}|{INCLUDE_LINE.pattern}")
+ENTRY_LAYER = "flesh"
 STATEMENT_END = re.compile(r"[;{}]")
 RULE_WIDTH = 104
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
@@ -259,6 +264,22 @@ def file_local(head: str) -> bool:
 def prototype_allowed(name: str, line: str, statement: str) -> bool:
     head = declaration_head(statement)
     return not (DECLARATION_START.match(head) and names_a_function(head) and not file_local(head))
+
+
+def guard_of(name: str) -> str:
+    assert name.startswith(PRIVATE_DIR), name
+    return "CARPETX_" + re.sub(r"[/.]", "_", "CarpetX/" + name[len(PRIVATE_DIR) :]).upper()
+
+
+def guard_allowed(name: str, line: str, statement: str) -> bool:
+    m = GUARD_MACRO.match(line)
+    if m:
+        return m.group(1) == guard_of(name)
+    return not is_private(name) or ROOT_HEADER in statement or guard_of(name) not in statement
+
+
+def entry_allowed(name: str, line: str, statement: str) -> bool:
+    return layer_of(name) == ENTRY_LAYER
 
 
 def door_allowed(name: str, line: str, statement: str) -> bool:
@@ -475,6 +496,38 @@ RULES = (
         noun="using-directive",
         where="in a CarpetX header",
         clean="no using-directive in a CarpetX header",
+    ),
+    Rule(
+        "guard",
+        files=carpetx_header,
+        word=GUARD_WORD,
+        allowed=guard_allowed,
+        text=textwrap.fill(
+            f"guard: a CarpetX header opens with the guard that spells its path, {GUARD_PREFIX}<LAYER>_<NAME>_HXX, "
+            f"so that a copied header cannot hide behind the guard of its original, and a private one includes {ROOT_HEADER} "
+            "before any other header.",
+            width=RULE_WIDTH,
+        ),
+        noun="header opening",
+        where="out of order",
+        clean="every header opens with its own guard and internal.hxx",
+    ),
+    Rule(
+        "entry",
+        files=private_cxx,
+        word=EXTERN_C,
+        allowed=entry_allowed,
+        text=textwrap.fill(
+            f'entry: every extern "C" definition of CarpetX is in {ENTRY_LAYER}/, one file per way the flesh calls in: '
+            "a PROVIDES FUNCTION in aliased.cxx, a scheduled function in scheduled.cxx, and an overload above its "
+            "registration in CarpetX_Startup in startup.cxx; a compile-time check of another layer's signature is in "
+            "compile_checks.cxx, which sits at the top so that it may include any header.",
+            width=RULE_WIDTH,
+        ),
+        noun="extern C entry",
+        where=f"outside {ENTRY_LAYER}/",
+        clean=f"no extern C entry outside {ENTRY_LAYER}/",
+        home=(ENTRY_LAYER,),
     ),
     Rule(
         "door",
