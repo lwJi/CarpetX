@@ -121,23 +121,8 @@ void synchronize() {
 }
 
 void update_cctkGHs(cGH *restrict const cctkGH) {
-  const GHExt &ext = driver();
-  update_cctkGH(ext.global_cctkGH.get(), cctkGH);
-  for (auto &restrict level_cctkGH : ext.level_cctkGHs) {
-    update_cctkGH(level_cctkGH.get(), cctkGH);
-  }
-  for (auto &patch : ext.patches()) {
-    for (auto &restrict level : patch.levels()) {
-      update_cctkGH(level.patch_cctkGH.get(), cctkGH);
-    }
-  }
-  for (auto &patch : ext.patches()) {
-    for (auto &restrict level : patch.levels()) {
-      for (auto &restrict local_cctkGH : level.local_cctkGHs) {
-        update_cctkGH(local_cctkGH.get(), cctkGH);
-      }
-    }
-  }
+  driver().for_each_cctkGH(
+      [&](cGH *const copy) { update_cctkGH(copy, cctkGH); });
 }
 
 } // namespace CarpetX

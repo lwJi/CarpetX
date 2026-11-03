@@ -241,6 +241,7 @@ struct GHExt {
     cGH *get() const { return cctkGH; }
   };
 
+  cGH *flesh_cctkGH = nullptr;
   cctkGHptr global_cctkGH;
   std::vector<cctkGHptr> level_cctkGHs; // [reflevel]
 
@@ -440,10 +441,12 @@ struct GHExt {
         return const_cast<timelevel_t &>(
             std::as_const(*this).timelevel(tl, site));
       }
-      void rotate_timelevels();
 
     private:
       std::vector<timelevel_t> tls;
+      void rotate_timelevels();
+
+      friend struct cctkGH_binding;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const ArrayGroupData &arraygroupdata);
@@ -654,7 +657,6 @@ struct GHExt {
               std::as_const(*this).timelevel(tl, site));
         }
         int num_timelevels() const { return tls.size(); }
-        void rotate_timelevels();
         int open_write_count() const {
           int count = 0;
           for (const timelevel_t &tl : tls)
@@ -688,7 +690,9 @@ struct GHExt {
 
       private:
         std::vector<timelevel_t> tls;
+        void rotate_timelevels();
 
+        friend struct cctkGH_binding;
         friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                          const GroupData &groupdata);
       };
@@ -841,6 +845,19 @@ struct GHExt {
     return level_cctkGHs.at(level.index()).get();
   }
 
+  template <typename F> void for_each_cctkGH(F &&f) const {
+    f(global_cctkGH.get());
+    for (const auto &level_cctkGH : level_cctkGHs)
+      f(level_cctkGH.get());
+    for (const auto &patch : patches())
+      for (const auto &level : patch.levels())
+        f(level.get_patch_cctkGH());
+    for (const auto &patch : patches())
+      for (const auto &level : patch.levels())
+        for (const auto &local_cctkGH : level.local_cctkGHs)
+          f(local_cctkGH.get());
+  }
+
 private:
   std::optional<std::vector<int>> pending_timelevels_;
   bool initialized_ = false;
@@ -854,6 +871,7 @@ private:
   void mark_initialized();
 
   friend struct hierarchy_writer;
+  friend struct cctkGH_binding;
   friend class write_scope_t;
   friend class array_write_scope_t;
 

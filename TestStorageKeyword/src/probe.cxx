@@ -11,6 +11,7 @@ extern "C" void TestStorageKeyword_Probe(CCTK_ARGUMENTS) {
       {"TestStorageKeyword::unstoraged_gf", 0},
       {"TestStorageKeyword::storaged_arr", 2},
       {"TestStorageKeyword::unstoraged_arr", 0},
+      {"TestStorageKeyword::storaged_arr3", 3},
   };
   for (const auto &spec : specs) {
     const int gi = CCTK_GroupIndex(spec.name);

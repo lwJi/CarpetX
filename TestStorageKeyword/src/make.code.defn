@@ -1,3 +1,3 @@
-SRCS = probe.cxx
+SRCS = probe.cxx rotate.cxx
 
 SUBDIRS =

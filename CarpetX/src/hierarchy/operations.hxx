@@ -49,7 +49,7 @@ struct hierarchy_writer {
 
   static void record_storage(gi_t gi, int timelevels);
   static void freeze_storage();
-  static void set_global_cctkGH(const cGH *cctkGH);
+  static void adopt_flesh_cctkGH(cGH *cctkGH);
   static void *array_data(gi_t gi, tl_t tl);
 
   static std::size_t

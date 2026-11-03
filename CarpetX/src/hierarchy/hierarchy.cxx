@@ -1,3 +1,4 @@
+#include "hierarchy/binding.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/operations.hxx"
@@ -57,6 +58,7 @@ void destroy_hierarchy() {
   if (!ghext)
     CCTK_ERROR("The CarpetX grid hierarchy does not exist: Shutdown destroys "
                "the hierarchy that SetupGH created");
+  cctkGH_binding::unbind_arrays(ghext->flesh_cctkGH);
   ghext = nullptr;
 }
 
@@ -277,8 +279,10 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
          ++mfi, ++component) {
       const MFPointer mfp(mfi);
       enter_local_mode(cctkGH, leveldata, mfp);
+      cctkGH_binding::bind_local(cctkGH, leveldata, mfp);
       assert(int(local_cctkGHs.size()) == component);
       local_cctkGHs.emplace_back(copy_cctkGH(cctkGH));
+      cctkGH_binding::unbind_local(cctkGH, leveldata, mfp);
       leave_local_mode(cctkGH, leveldata, mfp);
     }
     leave_patch_mode(cctkGH, leveldata);
@@ -619,9 +623,13 @@ void hierarchy_writer::freeze_storage() {
   GHExt::mutable_instance().freeze_storage();
 }
 
-void hierarchy_writer::set_global_cctkGH(const cGH *const cctkGH) {
+void hierarchy_writer::adopt_flesh_cctkGH(cGH *const cctkGH) {
   GHExt &ext = GHExt::mutable_instance();
+  assert(cctkGH);
+  assert(!ext.flesh_cctkGH);
   assert(!ext.global_cctkGH);
+  ext.flesh_cctkGH = cctkGH;
+  cctkGH_binding::bind_arrays(cctkGH);
   ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
 }
 
@@ -691,32 +699,11 @@ void hierarchy_writer::restore_level_clock(
 }
 
 void hierarchy_writer::rotate_timelevels(const window_t window, const gi_t gi) {
-  const int ntls0 = driver().record(gi).num_timelevels();
-  loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    auto &restrict groupdata =
-        GHExt::mutable_instance().level(leveldata.level).group(gi);
-    const int ntls = groupdata.num_timelevels();
-    assert(ntls == ntls0);
-    if (ntls > 1) {
-      groupdata.rotate_timelevels();
-      for (auto &restrict local_cctkGH_ptr : leveldata.local_cctkGHs) {
-        cGH *const local_cctkGH = local_cctkGH_ptr.get();
-        const int component = local_cctkGH->cctk_component;
-        const GridPtrDesc1 grid1(leveldata, groupdata, component);
-        for (const tl_t tl : groupdata.record.timelevels()) {
-          const amrex::Array4<CCTK_REAL> vars =
-              groupdata.timelevel(tl).mfab->array(component);
-          for (const vi_t vi : groupdata.record.variables())
-            local_cctkGH->data[groupdata.record.var(vi).index()][tl.index()] =
-                grid1.ptr(vars, vi);
-        }
-      }
-    }
-  });
+  cctkGH_binding::rotate(window, gi);
 }
 
 void hierarchy_writer::rotate_array_timelevels(const gi_t gi) {
-  GHExt::mutable_instance().record(gi).array().rotate_timelevels();
+  cctkGH_binding::rotate(gi);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

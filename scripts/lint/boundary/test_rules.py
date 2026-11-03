@@ -162,6 +162,41 @@ class Validity(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/hierarchy/hierarchy.cxx", text, Lang.CXX), [Finding(4, "validity", "why.set_all(valid_t(), r);")])
 
 
+class Binding(unittest.TestCase):
+    WRITES = [
+        "cctkGH->data[group.var(vi).index()][tl.index()] = const_cast<void *>(p);",
+        "local_cctkGH->data[groupdata.record.var(vi).index()][tl.index()] = grid1.ptr(vars, vi);",
+        "cctkGH->data[v][tl] = nullptr;",
+        "copy.data[v][tl]= p;",
+    ]
+    NOT_WRITES = [
+        "assert(cctkGH->data[v][tl] == p);",
+        "assert(copy->data[group.var(vi).index()][tl.index()] == p);",
+        "cctkGH->data[v] = copy_array(sourceGH->data[v], CCTK_DeclaredTimeLevelsVI(v));",
+        "double data[3][3] = {};",
+    ]
+
+    def test_writes_are_reported_outside_binding(self):
+        for line in self.WRITES:
+            for name in ["CarpetX/src/hierarchy/modes.cxx", "CarpetX/src/hierarchy/hierarchy.cxx", "CarpetX/src/schedule/clocks.cxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("binding", line)])
+
+    def test_binding_defines_them(self):
+        for line in self.WRITES:
+            with self.subTest(line=line):
+                self.assertEqual(reported("CarpetX/src/hierarchy/binding.cxx", line + "\n"), [])
+
+    def test_comparisons_and_row_copies_pass(self):
+        for line in self.NOT_WRITES:
+            for name in ["CarpetX/src/hierarchy/modes.cxx", "CarpetX/src/io/io_silo_checkpoint.cxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [])
+
+    def test_another_thorn_may_write_a_table(self):
+        self.assertEqual(reported("TestCarpetXAPI/src/api.cxx", self.WRITES[2] + "\n"), [])
+
+
 class Directions(unittest.TestCase):
     FORWARDED = (
         "  int SyncGroupsByDirI(const window_t window,\n"
@@ -229,8 +264,9 @@ class VarIndex(unittest.TestCase):
         for line in self.ADDITIONS:
             for name in ["CarpetX/src/hierarchy/valid.cxx", "CarpetX/src/io/io_silo.cxx", "CarpetX/src/hierarchy/driver.hxx", "CarpetX/src/include/carpetx.hxx"]:
                 with self.subTest(name=name, line=line):
+                    binding = [("binding", line)] if rules.is_private(name) and rules.BINDING_WORD.search(line) else []
                     records = [("records", line)] if layer_of(name) in rules.RECORDS_LAYERS and "CCTK_FirstVarIndexI" in line else []
-                    self.assertEqual(reported(name, "  " + line + "\n"), [("varindex", line)] + records)
+                    self.assertEqual(reported(name, "  " + line + "\n"), binding + [("varindex", line)] + records)
 
     def test_varindex_allowed_in_record_var(self):
         self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", self.RECORD_VAR), [])
@@ -259,7 +295,10 @@ class VarIndex(unittest.TestCase):
 
     def test_line_numbers(self):
         text = "int a;\n" + self.ADDITIONS[0] + "\n"
-        self.assertEqual(findings("CarpetX/src/schedule/evolve.cxx", text, Lang.CXX), [Finding(2, "varindex", self.ADDITIONS[0])])
+        self.assertEqual(
+            findings("CarpetX/src/schedule/evolve.cxx", text, Lang.CXX),
+            [Finding(2, "binding", self.ADDITIONS[0]), Finding(2, "varindex", self.ADDITIONS[0])],
+        )
 
 
 class Model(unittest.TestCase):
@@ -1411,7 +1450,8 @@ class Report(unittest.TestCase):
         self.assertEqual(
             render([]),
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
-            "no validity call outside valid.cxx, no directions in the sync layer, "
+            "no validity call outside valid.cxx, no pointer-table write outside binding.cxx, "
+            "no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, "
             "no mutable or integrator include in the data model, no active_levels_t, "
             "no active_levels outside traversal.cxx, "
@@ -1689,8 +1729,8 @@ class Doc(unittest.TestCase):
 
     def test_a_stack_node_names_the_rules_at_home_in_its_layer(self):
         self.assertEqual(doc.node("io", (), rules=True), '  io["io/ records, codec"]')
-        self.assertEqual(doc.node("hierarchy", (), rules=True), '  hierarchy["hierarchy/ validity, varindex, model"]')
-        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "varindex", "model"])
+        self.assertEqual(doc.node("hierarchy", (), rules=True), '  hierarchy["hierarchy/ validity, binding, varindex, model"]')
+        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "varindex", "model"])
         self.assertEqual(doc.node("flesh", ("regrid", "flesh"), rules=True), '  flesh["flesh/ no header"]')
         self.assertEqual(doc.node("ops", ("regrid", "flesh"), rules=True), '  ops["ops/"]')
         self.assertEqual(doc.node("io", ()), '  io["io/"]')
@@ -1699,9 +1739,10 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "directions", "varindex", "model", "traversal", "records", "codec"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "model", "traversal", "records", "codec"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
+        self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.CODEC_FILES + rules.SYNC_FILES), ("io", "comm"))
         with self.assertRaises(AssertionError):
             rules.layers_of((rules.MAKE_DEFN,))

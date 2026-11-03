@@ -133,7 +133,7 @@ int Initialise(tFleshConfig *config) {
 
   setup_cctkGH(cctkGH);
   enter_global_mode(cctkGH);
-  hierarchy_writer::set_global_cctkGH(cctkGH);
+  hierarchy_writer::adopt_flesh_cctkGH(cctkGH);
 
   for (const auto &patchdata : ext.patches())
     assert(patchdata.num_levels() == 0);
