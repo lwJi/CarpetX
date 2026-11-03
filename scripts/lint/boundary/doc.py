@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable
 
-from .rules import AMREX_CALLBACKS, EXTERN_C, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, RULES, UNDER_HIERARCHY, below, layer_path
+from .rules import AMREX_CALLBACKS, EXTERN_C, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, RULES, UNDER_HIERARCHY, below, layer_path
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
@@ -172,22 +172,41 @@ def who_decides(root: str = PROJECT) -> str:
     return legend(lines, DECIDES_LEGEND)
 
 
-REGIONS: tuple[tuple[str, Callable[[], str]], ...] = (("the stack", stack), ("the includes", include_graph), ("who decides", who_decides))
+OWNS_HEADING = "## What each layer owns"
+OWNS_INTRO = "New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides."
+
+
+def owns() -> str:
+    assert tuple(OWNS) == LAYERS, tuple(OWNS)
+    rows = [f"- `{layer}/`: {OWNS[layer]}" for layer in reversed(LAYERS)]
+    return "\n".join([OWNS_HEADING, "", OWNS_INTRO, ""] + rows) + "\n"
 
 
 def block(name: str) -> re.Pattern:
-    return re.compile(r"^```mermaid\n" + re.escape(mark(name)) + r"\n.*?^```$", re.MULTILINE | re.DOTALL)
+    return re.compile(r"^```mermaid\n" + re.escape(mark(name)) + r"\n.*?^```$\n", re.MULTILINE | re.DOTALL)
+
+
+def fenced(draw: Callable[[], str]) -> Callable[[], str]:
+    return lambda: "```mermaid\n" + draw() + "```\n"
+
+
+REGIONS: tuple[tuple[str, re.Pattern, Callable[[], str]], ...] = (
+    ("the stack", block("the stack"), fenced(stack)),
+    ("the includes", block("the includes"), fenced(include_graph)),
+    ("who decides", block("who decides"), fenced(who_decides)),
+    ("what each layer owns", re.compile("^" + re.escape(OWNS_HEADING) + r"\n.*?(?=^## |\Z)", re.MULTILINE | re.DOTALL), owns),
+)
 
 
 def render() -> str:
-    return "\n".join(draw() for _, draw in REGIONS)
+    return "\n".join(draw() for _, _, draw in REGIONS)
 
 
 def rewrite(text: str) -> str:
-    for name, draw in REGIONS:
-        text, n = block(name).subn(lambda m: "```mermaid\n" + draw() + "```", text)
+    for name, region, draw in REGIONS:
+        text, n = region.subn(lambda m: draw(), text)
         if n != 1:
-            raise ValueError(f"{MAP} holds {n} mermaid blocks opening with {mark(name)!r}, not one")
+            raise ValueError(f"{MAP} holds {n} regions for {name}, not one")
     return text
 
 

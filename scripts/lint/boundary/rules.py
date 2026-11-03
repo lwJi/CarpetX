@@ -14,6 +14,18 @@ PRIVATE_DIR = "CarpetX/src/"
 PUBLIC_DIR = "CarpetX/src/include/"
 MAKE_DEFN = "CarpetX/src/make.code.defn"
 LAYERS = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+OWNS = {
+    "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
+    "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
+    "hierarchy": "the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of `hierarchy_writer`.",
+    "comm": "moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.",
+    "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
+    "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
+    "io": "output, checkpoint, recovery and the file reader's input. When to do each is decided by the flesh's bins and by `schedule/`.",
+    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through. How a level is stored, synced or written is decided below it, and its header declares only what `flesh/` registers and `api/` hands to the flesh.",
+    "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work.",
+    "flesh": 'every `extern "C"`. It owns no data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
+}
 HIERARCHY_LAYERS = LAYERS[LAYERS.index("hierarchy") :]
 UNDER_HIERARCHY = LAYERS[: LAYERS.index("hierarchy")]
 ROOT_HEADER = "internal.hxx"

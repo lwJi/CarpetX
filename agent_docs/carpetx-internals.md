@@ -143,3 +143,18 @@ The flesh edge: every `extern "C"` definition in CarpetX, in one file per way th
 ## The check
 
 `python3 scripts/lint check --only boundary` runs the rules the stack's nodes name, with `layer`, `door`, `window`, `varindex`, `marker`, `index`, `prototype`, `using` and `guard` in every layer; `python3 scripts/lint check --help` prints what each holds, `scripts/lint/boundary/rules.py` defines them, and `agent_docs/carpetx-public-api.md` says what `include` and `marker` keep out of the other thorns. The `boundary` check is one of the two checks of `scripts/lint`, beside `no-comments`, and `python3 scripts/lint --help` says how the hooks and the `Lint` workflow run them. A text check sees only how a file names what it uses, so `python3 scripts/lint symbols <build dir>` judges the layer order once more over the objects a build made: an object imports a CarpetX symbol only from its own layer or a lower one, whatever declared it. The `CI` workflow runs it after every build and `agent_scripts/build.sh` after a successful one; a reach the code still has is listed in `ACCEPTED` in `scripts/lint/boundary/symbols.py`, reported as accepted, and the list only shrinks.
+
+## What each layer owns
+
+New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides.
+
+- `flesh/`: every `extern "C"`. It owns no data: an entry converts the flesh's arguments and calls the layer that does the work.
+- `api/`: the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work.
+- `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through. How a level is stored, synced or written is decided below it, and its header declares only what `flesh/` registers and `api/` hands to the flesh.
+- `io/`: output, checkpoint, recovery and the file reader's input. When to do each is decided by the flesh's bins and by `schedule/`.
+- `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
+- `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
+- `comm/`: moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.
+- `hierarchy/`: the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of `hierarchy_writer`.
+- `traversal/`: the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.
+- `util/`: leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.

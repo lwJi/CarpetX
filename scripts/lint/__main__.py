@@ -138,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     symbols.add_argument("objdir", metavar="OBJDIR", help="the build directory holding one subdirectory of .cxx.o per layer, such as configs/sim/build/CarpetX")
-    doc = commands.add_parser("doc", help="print the generated blocks of agent_docs/carpetx-internals.md: the stack, the includes and who decides")
+    doc = commands.add_parser("doc", help="print the generated regions of agent_docs/carpetx-internals.md: the stack, the includes, who decides, and what each layer owns")
     doc.add_argument("--write", action="store_true", help="rewrite them in agent_docs/carpetx-internals.md instead")
     commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a finding")
     commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a finding")

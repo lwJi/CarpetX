@@ -1917,21 +1917,41 @@ class Doc(unittest.TestCase):
         stale_stack = "```mermaid\n" + doc.mark("the stack") + "\nflowchart TB\n  stale\n```\n"
         stale_includes = "```mermaid\n" + doc.mark("the includes") + "\n  stale\n```\n"
         stale_decides = "```mermaid\n" + doc.mark("who decides") + "\n```\n"
+        stale_owns = doc.OWNS_HEADING + "\n\nstale\n- stale\n"
         other = "```mermaid\nflowchart LR\n  a --> b\n```\n"
-        text = "# map\n\n" + other + "\n" + stale_stack + "\nprose\n\n" + stale_includes + "\n" + stale_decides + "\ntail\n"
+        text = "# map\n\n" + other + "\n" + stale_stack + "\nprose\n\n" + stale_includes + "\n" + stale_decides + "\n" + stale_owns + "\n## tail\n\ntail\n"
         expected = (
-            "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose\n\n```mermaid\n" + doc.include_graph() + "```\n\n```mermaid\n" + doc.who_decides() + "```\n\ntail\n"
+            "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose\n\n```mermaid\n" + doc.include_graph() + "```\n\n```mermaid\n" + doc.who_decides() + "```\n\n" + doc.owns() + "## tail\n\ntail\n"
         )
         self.assertEqual(doc.rewrite(text), expected)
         self.assertEqual(doc.rewrite(expected), expected)
+        self.assertEqual(doc.rewrite(text.replace("\n## tail\n\ntail\n", "")), expected.replace("## tail\n\ntail\n", ""))
         for name, broken in [
             ("no blocks", other),
             ("the stack twice", text + stale_stack),
             ("no includes", text.replace(stale_includes, "")),
             ("no who decides", text.replace(stale_decides, "")),
+            ("no owns", text.replace(stale_owns, "")),
         ]:
             with self.subTest(name=name), self.assertRaises(ValueError):
                 doc.rewrite(broken)
+
+    def test_each_layer_owns_one_row_whose_names_are_live(self):
+        self.assertEqual(tuple(rules.OWNS), LAYERS, "a new layer is a row of OWNS in scripts/lint/boundary/rules.py: what it owns and what it never decides")
+        lines = doc.owns().splitlines()
+        self.assertEqual(lines[:4], [doc.OWNS_HEADING, "", doc.OWNS_INTRO, ""])
+        self.assertEqual([line.split(":")[0] for line in lines[4:]], [f"- `{layer}/`" for layer in reversed(LAYERS)])
+        words = set()
+        for layer in LAYERS:
+            for path in doc.sources(PROJECT, layer):
+                words.update(re.findall(r"[A-Za-z_]\w+", doc.read(path)))
+        for layer, row in rules.OWNS.items():
+            for name in re.findall(r"`([^`]+)`", row):
+                with self.subTest(layer=layer, name=name):
+                    if name.endswith("/"):
+                        self.assertIn(name[:-1], LAYERS)
+                    else:
+                        self.assertTrue(any(word in words for word in re.findall(r"[A-Za-z_]\w+", name)), f"{name} is not in CarpetX/src")
 
     def test_every_block_ends_with_its_legend(self):
         for drawn, texts in ((doc.stack(), doc.STACK_LEGEND), (doc.include_graph(), doc.INCLUDES_LEGEND), (doc.who_decides(), doc.DECIDES_LEGEND)):
