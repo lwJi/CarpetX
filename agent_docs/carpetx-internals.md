@@ -2,7 +2,7 @@
 
 This is the map of `CarpetX/src/` for code that goes into CarpetX itself. A client thorn sees none of it: it reaches CarpetX only through `<carpetx.hxx>` and `<carpetx_rk.hxx>`, described in `agent_docs/carpetx-public-api.md`.
 
-`CarpetX/src/` is ten directories, one per layer, and a file is in the layer of its directory. It includes `internal.hxx`, the public headers, and the headers of its own layer or a lower one, never a higher one, each spelled with its layer: `#include "hierarchy/driver.hxx"`, never `"driver.hxx"` or `"../hierarchy/driver.hxx"`. The two blocks below that open with a `%%` line are written by `python3 scripts/lint doc --write` from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py` and the `#include` lines of the tree, and `scripts/lint/boundary/test_rules.py` fails when they differ from what it writes; the third block is drawn by hand.
+`CarpetX/src/` is ten directories, one per layer, and a file is in the layer of its directory. It includes `internal.hxx`, the public headers, and the headers of its own layer or a lower one, never a higher one, each spelled with its layer: `#include "hierarchy/driver.hxx"`, never `"driver.hxx"` or `"../hierarchy/driver.hxx"`. The three blocks below that open with a `%%` line are written by `python3 scripts/lint doc --write` from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `#include` lines of the tree and the registrations in `flesh/startup.cxx`, and `scripts/lint/boundary/test_rules.py` fails when they differ from what it writes; each block ends with its legend.
 
 ## The stack
 
@@ -26,9 +26,12 @@ flowchart TB
   flesh --> api --> schedule --> io --> ops --> regrid --> comm --> hierarchy --> traversal --> util
   hierarchy -. "CactusAmrCore" .-> regrid
   hierarchy -. "apply_boundary_conditions, get_interpolator" .-> comm
+%% a solid edge is may include: a layer includes the layer below it and, through it, every layer further down, which the layer rule holds
+%% the two boxes are the door rule: driver() is called in the upper box, never in the lower
+%% a dashed edge is a declaration whose body is in the higher layer, the one way a call reaches up, at link time
+%% a node names its layer, then the rules whose home is in it, and no header where nothing can include it
 ```
 
-A solid edge is "may include": a layer includes the layer below it and, through it, every layer further down, which the `layer` rule holds. The two boxes are the `door` rule: `driver()` is called in the upper box, never in the lower. A dashed edge is a declaration whose body is in the higher layer, the one way a call reaches up, at link time. A node names its layer, then the rules of "The check" whose home is in it. `regrid/` and `flesh/` have no header, so nothing includes them and `ops/` in fact includes `comm/` and below.
 
 ## The includes
 
@@ -53,13 +56,16 @@ flowchart TB
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
   regrid -- "buffers.hxx, fillpatch.hxx" --> comm
+%% what each layer includes today, read from its #include lines, with the headers on the edges
+%% util/, traversal/ and hierarchy/ are not drawn: every layer reads them
+%% an edge missing here is a coupling CarpetX does not have
 ```
 
-What each layer includes today, read from its `#include` lines, with the headers on the edges. `util/`, `traversal/` and `hierarchy/` are not drawn: every layer reads them. An edge missing here is a coupling CarpetX does not have, which is what to weigh before adding an include.
 
 ## Who decides
 
 ```mermaid
+%% python3 scripts/lint doc --write rewrites this block: who decides
 flowchart LR
   cactus["Cactus flesh"]
   amrex["AMReX"]
@@ -67,19 +73,24 @@ flowchart LR
   api["api/"]
   schedule["schedule/"]
   io["io/"]
-  comm["comm/"]
+  ops["ops/"]
   regrid["regrid/"]
-  cactus -- "extern C entries" --> flesh
-  cactus -- "Initialise, Evolve, Shutdown, STORAGE, CallFunction" --> schedule
-  cactus -- "CCTK_OutputGH" --> io
-  cactus -- "SYNC" --> comm
-  flesh -- "ScheduleTraverseGH and CallScheduleGroup hand it CallFunction" --> cactus
-  api -- "run_schedule_group_at hands it CallFunction" --> cactus
-  schedule -- "regrid" --> amrex
-  amrex -- "ErrorEst, MakeNewLevel, RemakeLevel, ClearLevel" --> regrid
+  comm["comm/"]
+  hierarchy["hierarchy/"]
+  cactus -- "extern C in aliased.cxx, scheduled.cxx, startup.cxx" --> flesh
+  cactus -- "SetupGH, InitGH, ScheduleTraverseGH, MyProc, nProcs, Exit, Abort, Barrier, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData" --> flesh
+  cactus -- "Initialise, Evolve, Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB" --> schedule
+  cactus -- "OutputGH" --> io
+  cactus -- "InterpLocalUniform" --> ops
+  cactus -- "SyncGroupsOnActiveLevels" --> comm
+  flesh -- "CCTK_ScheduleTraverse with CallFunction" --> cactus
+  api -- "CCTK_ScheduleTraverse with CallFunction" --> cactus
+  hierarchy -- "regrid" --> amrex
+  amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
+%% an edge from an outsider is a function the layer defines and the outsider calls: the registrations of CarpetX/src/flesh/startup.cxx, the extern C entries, and the AMReX callbacks of CactusAmrCore
+%% an edge to an outsider is a call that comes back through an edge from it, so the outsider decides when the lower layer works
+%% a call from a layer to a higher one goes through an outsider or, at link time, through a dashed edge of the stack
 ```
-
-The two graphs above point down. The calls that go up pass through an outsider, and that is where a layer high in the stack, the flesh or AMReX decides when a lower layer works. The flesh calls the overloads that `CarpetX_Startup` registered, so its edges land in the layers that define them. AMReX calls the callbacks in `regrid/` when `schedule/` asks it to regrid, and the recovery operations that `io/` calls in `hierarchy/` land there too, through the dashed edge of the stack. `flesh/` and `api/` hand `CallFunction` to the flesh's traversal, which calls it for every routine.
 
 ## Placing code
 

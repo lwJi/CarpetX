@@ -1792,7 +1792,7 @@ class Doc(unittest.TestCase):
                 [line.split("[")[0].strip() for line in graph[2:9]],
                 [layer for layer in reversed(LAYERS) if layer not in doc.BASE_LAYERS],
             )
-            self.assertEqual(graph[9:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops'])
+            self.assertEqual(graph[9 : -len(doc.INCLUDES_LEGEND)], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops'])
             self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("hierarchy", "io", "comm")))
             for drawn in (doc.stack(root), doc.include_graph(root)):
                 self.assertIn('ops["ops/ no header"]', drawn)
@@ -1809,14 +1809,100 @@ class Doc(unittest.TestCase):
     def test_rewrite_replaces_only_the_marked_blocks(self):
         stale_stack = "```mermaid\n" + doc.mark("the stack") + "\nflowchart TB\n  stale\n```\n"
         stale_includes = "```mermaid\n" + doc.mark("the includes") + "\n  stale\n```\n"
+        stale_decides = "```mermaid\n" + doc.mark("who decides") + "\n```\n"
         other = "```mermaid\nflowchart LR\n  a --> b\n```\n"
-        text = "# map\n\n" + other + "\n" + stale_stack + "\nprose\n\n" + stale_includes + "\ntail\n"
-        expected = "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose\n\n```mermaid\n" + doc.include_graph() + "```\n\ntail\n"
+        text = "# map\n\n" + other + "\n" + stale_stack + "\nprose\n\n" + stale_includes + "\n" + stale_decides + "\ntail\n"
+        expected = (
+            "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose\n\n```mermaid\n" + doc.include_graph() + "```\n\n```mermaid\n" + doc.who_decides() + "```\n\ntail\n"
+        )
         self.assertEqual(doc.rewrite(text), expected)
         self.assertEqual(doc.rewrite(expected), expected)
-        for name, broken in [("no blocks", other), ("the stack twice", text + stale_stack), ("no includes", text.replace(stale_includes, ""))]:
+        for name, broken in [
+            ("no blocks", other),
+            ("the stack twice", text + stale_stack),
+            ("no includes", text.replace(stale_includes, "")),
+            ("no who decides", text.replace(stale_decides, "")),
+        ]:
             with self.subTest(name=name), self.assertRaises(ValueError):
                 doc.rewrite(broken)
+
+    def test_every_block_ends_with_its_legend(self):
+        for drawn, texts in ((doc.stack(), doc.STACK_LEGEND), (doc.include_graph(), doc.INCLUDES_LEGEND), (doc.who_decides(), doc.DECIDES_LEGEND)):
+            lines = drawn.splitlines()
+            self.assertEqual(lines[-len(texts) :], [f"%% {text}" for text in texts])
+            for line in lines:
+                self.assertNotRegex(re.sub(r'"[^"]*"', "", line), r"[;\\]|::|[^\x00-\x7f]")
+        self.assertIn("%% util/, traversal/ and hierarchy/ are not drawn: every layer reads them", doc.include_graph())
+
+    def test_who_decides_reads_the_registrations_and_the_callbacks(self):
+        lines = doc.who_decides().splitlines()
+        self.assertEqual(lines[:4], [doc.mark("who decides"), "flowchart LR", '  cactus["Cactus flesh"]', '  amrex["AMReX"]'])
+        self.assertEqual(
+            doc.registrations(),
+            "SetupGH InitGH ScheduleTraverseGH Initialise Evolve Shutdown OutputGH MyProc nProcs Exit Abort Barrier EnableGroupStorage "
+            "DisableGroupStorage GroupStorageIncrease GroupStorageDecrease QueryGroupStorageB SyncGroupsOnActiveLevels CarpetX_InterpGridArrays "
+            "ArrayGroupSizeB GroupDynamicData InterpLocalUniform".split(),
+        )
+        for edge in (
+            '  cactus -- "extern C in aliased.cxx, scheduled.cxx, startup.cxx" --> flesh',
+            '  cactus -- "Initialise, Evolve, Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB" --> schedule',
+            '  cactus -- "OutputGH" --> io',
+            '  cactus -- "InterpLocalUniform" --> ops',
+            '  cactus -- "SyncGroupsOnActiveLevels" --> comm',
+            '  flesh -- "CCTK_ScheduleTraverse with CallFunction" --> cactus',
+            '  api -- "CCTK_ScheduleTraverse with CallFunction" --> cactus',
+            '  hierarchy -- "regrid" --> amrex',
+            '  amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
+        ):
+            with self.subTest(edge=edge):
+                self.assertIn(edge, lines)
+        self.assertNotIn("traversal", "".join(lines))
+        self.assertEqual(doc.defining_layer(PROJECT, "OutputGH"), "io")
+        self.assertEqual(doc.defining_layer(PROJECT, "ErrorEst"), "regrid")
+
+    def test_who_decides_lands_each_name_in_the_one_layer_that_defines_it(self):
+        with tempfile.TemporaryDirectory() as root:
+            src = os.path.join(root, "CarpetX", "src")
+            for layer in LAYERS:
+                os.makedirs(os.path.join(src, layer))
+            files = {
+                "flesh/startup.cxx": 'extern "C" int CarpetX_Startup() {\n  CCTK_OverloadEvolve(Evolve);\n  CCTK_RegisterGHExtensionSetupGH(ghext_handle,\n      SetupGH);\n'
+                '  CCTK_InterpRegisterOpLocalUniform(Interp, "CarpetX", CCTK_THORNSTRING);\n  CCTK_RegisterGHExtension("CarpetX");\n}\nvoid *SetupGH(tFleshConfig *fc) {\n  return 0;\n}\n'
+                "int ScheduleTraverseGH(cGH *cctkGH, const char *where) {\n  return CCTK_ScheduleTraverse(where, cctkGH, CallFunction);\n}\n",
+                "flesh/compile_checks.cxx": "concept regrids = requires(Ext &ext) { ext.amrcore->regrid(0, 0.0); };\nint x = CCTK_ScheduleTraverse(a, b, Other);\n",
+                "schedule/evolve.cxx": "int Evolve(tFleshConfig *config) {\n  return 0;\n}\n",
+                "ops/interpolate.cxx": "int Interp(int n) {\n  return n;\n}\n",
+                "regrid/regrid.cxx": "void CactusAmrCore::ErrorEst(const int lev) {\n}\nvoid CactusAmrCore::MakeNewLevelFromScratch(int lev) {\n}\n"
+                "void CactusAmrCore::MakeNewLevelFromCoarse(int lev) {\n}\nvoid CactusAmrCore::RemakeLevel(int lev) {\n}\nvoid CactusAmrCore::ClearLevel(int lev) {\n}\n",
+                "hierarchy/hierarchy.cxx": "void hierarchy_writer::regrid(level_t base) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
+                "api/api_rk.cxx": "void run_schedule_group_at(const cGH *cctkGH) {\n  CCTK_ScheduleTraverse(group, cctkGH, CallFunction);\n}\n",
+            }
+            for name, text in files.items():
+                with open(os.path.join(src, name), "w") as f:
+                    f.write(text)
+            self.assertEqual(doc.registrations(root), ["Evolve", "SetupGH", "Interp"])
+            self.assertEqual(doc.extern_c_files(root), ["startup.cxx"])
+            lines = doc.who_decides(root).splitlines()
+            self.assertEqual(
+                [line for line in lines if " -- " in line],
+                [
+                    '  cactus -- "extern C in startup.cxx" --> flesh',
+                    '  cactus -- "SetupGH" --> flesh',
+                    '  cactus -- "Evolve" --> schedule',
+                    '  cactus -- "Interp" --> ops',
+                    '  flesh -- "CCTK_ScheduleTraverse with CallFunction" --> cactus',
+                    '  api -- "CCTK_ScheduleTraverse with CallFunction" --> cactus',
+                    '  hierarchy -- "regrid" --> amrex',
+                    '  amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
+                ],
+            )
+            self.assertEqual([line.split("[")[0].strip() for line in lines[4:10]], ["flesh", "api", "schedule", "ops", "regrid", "hierarchy"])
+            with open(os.path.join(src, "io/io.cxx"), "w") as f:
+                f.write("int Evolve(int twice) {\n  return twice;\n}\n")
+            with self.assertRaises(ValueError):
+                doc.who_decides(root)
+            with self.assertRaises(ValueError):
+                doc.defining_layer(root, "Nowhere")
 
 if __name__ == "__main__":
     unittest.main()
