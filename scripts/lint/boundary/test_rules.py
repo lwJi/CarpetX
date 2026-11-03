@@ -1821,11 +1821,11 @@ class Doc(unittest.TestCase):
     def test_the_map_is_what_doc_writes(self):
         with open(os.path.join(PROJECT, doc.MAP)) as f:
             text = f.read()
-        self.assertEqual(doc.rewrite(text), text, "run python3 scripts/lint doc --write")
+        self.assertEqual(doc.render(), text, "run python3 scripts/lint doc --write")
 
     def test_the_stack_is_the_layers_top_down_with_the_door_line(self):
         lines = doc.stack().splitlines()
-        self.assertEqual(lines[:2], [doc.mark("the stack"), "flowchart TB"])
+        self.assertEqual(lines[0], "flowchart TB")
         self.assertIn("  " + " --> ".join(reversed(LAYERS)), lines)
         door = lines[lines.index('  subgraph door["driver() allowed"]') + 1 : lines.index("  end")]
         self.assertEqual([line.split("[")[0].strip() for line in door], list(reversed(HIERARCHY_LAYERS)))
@@ -1894,12 +1894,12 @@ class Doc(unittest.TestCase):
                 ],
             )
             graph = doc.include_graph(root).splitlines()
-            self.assertEqual(graph[:2], [doc.mark("the includes"), "flowchart TB"])
+            self.assertEqual(graph[0], "flowchart TB")
             self.assertEqual(
-                [line.split("[")[0].strip() for line in graph[2:9]],
+                [line.split("[")[0].strip() for line in graph[1:8]],
                 [layer for layer in reversed(LAYERS) if layer not in doc.BASE_LAYERS],
             )
-            self.assertEqual(graph[9 : -len(doc.INCLUDES_LEGEND)], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops'])
+            self.assertEqual(graph[8 : -len(doc.INCLUDES_LEGEND)], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops'])
             self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("hierarchy", "io", "comm")))
             for drawn in (doc.stack(root), doc.include_graph(root)):
                 self.assertIn('ops["ops/ no header"]', drawn)
@@ -1913,28 +1913,23 @@ class Doc(unittest.TestCase):
             self.assertFalse(doc.declares_and_defines(root, "io", "regrid", "Core"))
             self.assertFalse(doc.declares_and_defines(root, "regrid", "io", "Core"))
 
-    def test_rewrite_replaces_only_the_marked_blocks(self):
-        stale_stack = "```mermaid\n" + doc.mark("the stack") + "\nflowchart TB\n  stale\n```\n"
-        stale_includes = "```mermaid\n" + doc.mark("the includes") + "\n  stale\n```\n"
-        stale_decides = "```mermaid\n" + doc.mark("who decides") + "\n```\n"
-        stale_owns = doc.OWNS_HEADING + "\n\nstale\n- stale\n"
-        other = "```mermaid\nflowchart LR\n  a --> b\n```\n"
-        text = "# map\n\n" + other + "\n" + stale_stack + "\nprose\n\n" + stale_includes + "\n" + stale_decides + "\n" + stale_owns + "\n## tail\n\ntail\n"
-        expected = (
-            "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose\n\n```mermaid\n" + doc.include_graph() + "```\n\n```mermaid\n" + doc.who_decides() + "```\n\n" + doc.owns() + "## tail\n\ntail\n"
-        )
-        self.assertEqual(doc.rewrite(text), expected)
-        self.assertEqual(doc.rewrite(expected), expected)
-        self.assertEqual(doc.rewrite(text.replace("\n## tail\n\ntail\n", "")), expected.replace("## tail\n\ntail\n", ""))
-        for name, broken in [
-            ("no blocks", other),
-            ("the stack twice", text + stale_stack),
-            ("no includes", text.replace(stale_includes, "")),
-            ("no who decides", text.replace(stale_decides, "")),
-            ("no owns", text.replace(stale_owns, "")),
-        ]:
-            with self.subTest(name=name), self.assertRaises(ValueError):
-                doc.rewrite(broken)
+    def test_render_is_the_whole_map(self):
+        text = doc.render()
+        self.assertTrue(text.startswith(doc.TITLE + "\n\n" + doc.PREAMBLE + "\n\n## The stack\n\n```mermaid\n" + doc.stack()))
+        self.assertTrue(text.endswith("```\n\n" + doc.owns()))
+        for title, draw in doc.SECTIONS:
+            with self.subTest(title=title):
+                self.assertIn(f"\n## {title}\n\n```mermaid\n" + draw(PROJECT) + "```\n", text)
+        self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), ["## The stack", "## The includes", "## Who decides", doc.OWNS_HEADING])
+        self.assertEqual(text.count("```"), 6)
+        for name in re.findall(r"`([^`\n]+)`", doc.PREAMBLE):
+            with self.subTest(name=name):
+                if name.startswith("python3 "):
+                    self.assertIn(name.split()[2], ("doc", "check"))
+                elif name.startswith("`#include"):
+                    pass
+                elif "/" in name or name.endswith(".md"):
+                    self.assertTrue(os.path.exists(os.path.join(PROJECT, name.rstrip("/"))), name)
 
     def test_each_layer_owns_one_row_whose_names_are_live(self):
         self.assertEqual(tuple(rules.OWNS), LAYERS, "a new layer is a row of OWNS in scripts/lint/boundary/rules.py: what it owns and what it never decides")
@@ -1963,7 +1958,7 @@ class Doc(unittest.TestCase):
 
     def test_who_decides_reads_the_registrations_and_the_callbacks(self):
         lines = doc.who_decides().splitlines()
-        self.assertEqual(lines[:4], [doc.mark("who decides"), "flowchart LR", '  cactus["Cactus flesh"]', '  amrex["AMReX"]'])
+        self.assertEqual(lines[:3], ["flowchart LR", '  cactus["Cactus flesh"]', '  amrex["AMReX"]'])
         self.assertEqual(
             doc.registrations(),
             "SetupGH InitGH ScheduleTraverseGH Initialise Evolve Shutdown OutputGH MyProc nProcs Exit Abort Barrier EnableGroupStorage "
@@ -2023,7 +2018,7 @@ class Doc(unittest.TestCase):
                     '  amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
                 ],
             )
-            self.assertEqual([line.split("[")[0].strip() for line in lines[4:10]], ["flesh", "api", "schedule", "ops", "regrid", "hierarchy"])
+            self.assertEqual([line.split("[")[0].strip() for line in lines[3:9]], ["flesh", "api", "schedule", "ops", "regrid", "hierarchy"])
             with open(os.path.join(src, "io/io.cxx"), "w") as f:
                 f.write("int Evolve(int twice) {\n  return twice;\n}\n")
             with self.assertRaises(ValueError):

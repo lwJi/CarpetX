@@ -8,7 +8,6 @@ from .rules import AMREX_CALLBACKS, EXTERN_C, HIERARCHY_LAYERS, LAYER_INCLUDE, L
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
-WRITES = "python3 scripts/lint doc --write rewrites this"
 LINK_TIME = (
     ("hierarchy", "regrid", ("CactusAmrCore",)),
     ("hierarchy", "comm", ("apply_boundary_conditions", "get_interpolator")),
@@ -38,10 +37,6 @@ DECIDES_LEGEND = (
     "an edge to an outsider is a call that comes back through an edge from it, so the outsider decides when the lower layer works",
     "a call from a layer to a higher one goes through an outsider or, at link time, through a dashed edge of the stack",
 )
-
-
-def mark(name: str) -> str:
-    return f"%% {WRITES} block: {name}"
 
 
 def legend(lines: list[str], texts: tuple[str, ...]) -> str:
@@ -78,7 +73,7 @@ def node(layer: str, no_header: tuple[str, ...], indent: str = "  ", rules: bool
 
 def stack(root: str = PROJECT) -> str:
     no_header = headerless(root)
-    lines = [mark("the stack"), "flowchart TB", '  subgraph door["driver() allowed"]']
+    lines = ["flowchart TB", '  subgraph door["driver() allowed"]']
     lines.extend(node(layer, no_header, "    ", rules=True) for layer in reversed(HIERARCHY_LAYERS))
     lines.extend(["  end", '  subgraph nodoor["no driver()"]'])
     lines.extend(node(layer, no_header, "    ", rules=True) for layer in reversed(UNDER_HIERARCHY))
@@ -107,7 +102,7 @@ def includes(root: str = PROJECT) -> dict[tuple[str, str], tuple[str, ...]]:
 
 def include_graph(root: str = PROJECT) -> str:
     no_header = headerless(root)
-    lines = [mark("the includes"), "flowchart TB"]
+    lines = ["flowchart TB"]
     lines.extend(node(layer, no_header) for layer in reversed(LAYERS) if layer not in BASE_LAYERS)
     for (source, target), headers in includes(root).items():
         lines.append(f'  {source} -- "{", ".join(headers)}" --> {target}')
@@ -153,7 +148,7 @@ def who_decides(root: str = PROJECT) -> str:
     to_cactus = call_sites(root, TRAVERSAL)
     to_amrex = call_sites(root, AMREX_REENTRY)
     drawn = set(from_cactus) | set(from_amrex) | set(to_cactus) | set(to_amrex) | {"flesh"}
-    lines = [mark("who decides"), "flowchart LR"]
+    lines = ["flowchart LR"]
     lines.extend(f'  {name}["{label}"]' for name, label in OUTSIDERS)
     lines.extend(node(layer, ()) for layer in reversed(LAYERS) if layer in drawn)
     lines.append(f'  cactus -- "extern C in {", ".join(extern_c_files(root))}" --> flesh')
@@ -182,32 +177,23 @@ def owns() -> str:
     return "\n".join([OWNS_HEADING, "", OWNS_INTRO, ""] + rows) + "\n"
 
 
-def block(name: str) -> re.Pattern:
-    return re.compile(r"^```mermaid\n" + re.escape(mark(name)) + r"\n.*?^```$\n", re.MULTILINE | re.DOTALL)
-
-
-def fenced(draw: Callable[[], str]) -> Callable[[], str]:
-    return lambda: "```mermaid\n" + draw() + "```\n"
-
-
-REGIONS: tuple[tuple[str, re.Pattern, Callable[[], str]], ...] = (
-    ("the stack", block("the stack"), fenced(stack)),
-    ("the includes", block("the includes"), fenced(include_graph)),
-    ("who decides", block("who decides"), fenced(who_decides)),
-    ("what each layer owns", re.compile("^" + re.escape(OWNS_HEADING) + r"\n.*?(?=^## |\Z)", re.MULTILINE | re.DOTALL), owns),
+TITLE = "# CarpetX's internals"
+PREAMBLE = (
+    "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, "
+    f"the `#include` lines of `CarpetX/src/` and the registrations in `{STARTUP}`; `scripts/lint/boundary/test_rules.py` fails when "
+    "the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX "
+    "only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule "
+    "named below holds."
 )
+SECTIONS: tuple[tuple[str, Callable[[str], str]], ...] = (("The stack", stack), ("The includes", include_graph), ("Who decides", who_decides))
 
 
-def render() -> str:
-    return "\n".join(draw() for _, _, draw in REGIONS)
-
-
-def rewrite(text: str) -> str:
-    for name, region, draw in REGIONS:
-        text, n = region.subn(lambda m: draw(), text)
-        if n != 1:
-            raise ValueError(f"{MAP} holds {n} regions for {name}, not one")
-    return text
+def render(root: str = PROJECT) -> str:
+    parts = [TITLE, "", PREAMBLE, ""]
+    for title, draw in SECTIONS:
+        parts.extend([f"## {title}", "", "```mermaid", draw(root).rstrip("\n"), "```", ""])
+    parts.append(owns())
+    return "\n".join(parts)
 
 
 def declares_and_defines(root: str, low: str, high: str, name: str) -> bool:

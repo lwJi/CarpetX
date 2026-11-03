@@ -13,9 +13,10 @@ How the checks are run:
   Stop and SubagentStop hooks; both judge the branch from its merge base with dev. The Lint workflow
   runs `check --since` from the PR's base on every PR and on every push to dev. What a merge brings in
   from another branch is not judged, only the merge's own resolution. `check --since origin/dev` shows
-  what all of them would report; the rules are in agent_docs/code-comments.md,
-  agent_docs/carpetx-public-api.md and agent_docs/carpetx-internals.md. `symbols` needs a build: the CI
-  workflow runs it after every build and agent_scripts/build.sh after a successful one.
+  what all of them would report; the rules are in agent_docs/code-comments.md and
+  agent_docs/carpetx-public-api.md, and `check --help` prints every boundary rule. `doc --write` writes
+  agent_docs/carpetx-internals.md, the map of CarpetX/src. `symbols` needs a build: the CI workflow runs it
+  after every build and agent_scripts/build.sh after a successful one.
 """
 HOOKS = {"hook-edit": "hook_edit", "hook-stop": "hook_stop"}
 
@@ -46,23 +47,25 @@ def run_check(checks, paths: list[str], since: str | None = None) -> int:
 
 
 def run_doc(write: bool) -> int:
-    from boundary.doc import MAP, render, rewrite
+    from boundary.doc import MAP, render
     from files import PROJECT
 
-    if not write:
-        print(render(), end="")
-        return EXIT_CLEAN
-    path = os.path.join(PROJECT, MAP)
     try:
-        with open(path) as f:
-            text = f.read()
-        new = rewrite(text)
+        new = render()
+        if not write:
+            print(new, end="")
+            return EXIT_CLEAN
+        path = os.path.join(PROJECT, MAP)
+        text = None
+        if os.path.isfile(path):
+            with open(path) as f:
+                text = f.read()
+        if new != text:
+            with open(path, "w") as f:
+                f.write(new)
     except (OSError, ValueError) as e:
         print(f"lint doc: {e}", file=sys.stderr)
         return EXIT_ERROR
-    if new != text:
-        with open(path, "w") as f:
-            f.write(new)
     print(f"{'rewrote' if new != text else 'unchanged'} {MAP}")
     return EXIT_CLEAN
 
@@ -138,8 +141,8 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     symbols.add_argument("objdir", metavar="OBJDIR", help="the build directory holding one subdirectory of .cxx.o per layer, such as configs/sim/build/CarpetX")
-    doc = commands.add_parser("doc", help="print the generated regions of agent_docs/carpetx-internals.md: the stack, the includes, who decides, and what each layer owns")
-    doc.add_argument("--write", action="store_true", help="rewrite them in agent_docs/carpetx-internals.md instead")
+    doc = commands.add_parser("doc", help="print agent_docs/carpetx-internals.md as --write writes it: the stack, the includes, who decides, and what each layer owns")
+    doc.add_argument("--write", action="store_true", help="write agent_docs/carpetx-internals.md instead")
     commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a finding or that touches the generated map")
     commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a finding")
     args = parser.parse_args(argv)
