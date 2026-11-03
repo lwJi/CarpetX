@@ -6,6 +6,4 @@ CarpetX is arranged so that AI coding agents and humans can work in it safely an
 - Abstraction: a new semantic level at which one can be exact, not a way to be vague. A thing a layer cannot name exactly is not named there.
 - Architecture: the layout makes it obvious where new code belongs.
 - Boundaries: a component has a defined interface, with few cross-cutting dependencies.
-- Types: an invariant is encoded in the type system, so that misuse fails at compile time rather than at runtime.
-- The easy path is the correct one: a change that copies an existing pattern is right.
-- A class of bugs is made impossible by code, not by convention or review, so that it never has to be thought about again.
+- Types: a class of bugs is made impossible by code, not by convention or review; an invariant is encoded in the type system, so that misuse fails at compile time and is never thought about again.
