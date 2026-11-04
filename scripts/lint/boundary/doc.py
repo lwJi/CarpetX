@@ -58,7 +58,7 @@ STEPS = {
     "4": "the entry asks the flesh to walk the bin with CallFunction",
     "5": "the flesh calls CallFunction for each routine",
     "6": "CallFunction runs the routine",
-    "7": f"the routine may call the public headers, whose bodies are in {PUBLIC_LAYER}/ but for those the table names",
+    "7": f"the routine may call the public headers, whose bodies are in `{PUBLIC_LAYER}/` but for those the table names",
 }
 REGRID_TEXT = "a regrid: the driver asks the hierarchy, the hierarchy asks AMReX, and AMReX calls back into the layer that defines its callbacks"
 LOOP = (
@@ -76,24 +76,28 @@ LOOP = (
 )
 assert {row[0] for row in LOOP} | {"7"} == set(STEPS) | {REGRID}, LOOP
 STACK_LEGEND = (
-    "a layer sits above every layer it may include, which the layer rule holds, and a solid edge is an include it has today, read from its #include lines, with the headers on it",
+    "a layer sits above every layer it may include, which the layer rule holds, and a solid edge is an include it has today, read from its `#include` lines, with the headers on it",
     "where no solid edge joins a layer to the one below it, the order is the rule's, not a coupling of the code",
-    "the two boxes are the door rule: driver() is called in the upper box, never in the lower",
-    "a dashed edge is an import the build makes upward, a row of ACCEPTED in scripts/lint/boundary/symbols.py that the symbols check holds to the objects: a declaration whose body is in the higher layer, the one way a call reaches up, at link time, and a class stands for its members",
+    "the two boxes are the door rule: `driver()` is called in the upper box, never in the lower",
+    "a dashed edge is an import the build makes upward, a row of `ACCEPTED` in `scripts/lint/boundary/symbols.py` that the symbols check holds to the objects: a declaration whose body is in the higher layer, the one way a call reaches up, at link time, and a class stands for its members",
     "a node names its layer, and no header where nothing can include it",
 )
-BASE_DIRS = f"{', '.join(f'{layer}/' for layer in BASE_LAYERS[:-1])} or {BASE_LAYERS[-1]}/"
+BASE_DIRS = f"{', '.join(f'`{layer}/`' for layer in BASE_LAYERS[:-1])} or `{BASE_LAYERS[-1]}/`"
+OUTSIDERS_BOX = "outsiders"
 LOOP_LEGEND = (
     "the numbered edges are one pass of the schedule: " + ", ".join(f"{what} ({step})" for step, what in STEPS.items()),
     "the unnumbered edges are " + REGRID_TEXT,
-    "a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX, or at link time through a dashed edge of the stack",
+    f"the box holds the {OUTSIDERS_BOX}, none of them a layer: a layer reaches a higher one only through one of them, or at link time through a dashed edge of the stack",
     "the table below lists every entry an outsider calls",
 )
 
 
-def legend(lines: list[str], texts: tuple[str, ...]) -> str:
-    lines.extend(f"%% {text}" for text in texts)
-    return "\n".join(lines) + "\n"
+def legend(texts: tuple[str, ...]) -> str:
+    return "\n".join(f"- {text[0].upper()}{text[1:]}." for text in texts) + "\n"
+
+
+def loop_legend(root: str = PROJECT) -> tuple[str, ...]:
+    return LOOP_LEGEND
 
 
 def rules_of(layer: str) -> list[str]:
@@ -157,7 +161,7 @@ def stack_legend(root: str = PROJECT) -> tuple[str, ...]:
     undrawn = f"an edge into {BASE_DIRS} is not drawn"
     shared = shared_base(root)
     if shared:
-        undrawn += f": every layer above hierarchy/ reads {', '.join(shared)}"
+        undrawn += f": every layer above `hierarchy/` reads {', '.join(f'`{header}`' for header in shared)}"
     return STACK_LEGEND + (undrawn,)
 
 
@@ -173,7 +177,7 @@ def stack(root: str = PROJECT) -> str:
     for low, high, names in LINK_TIME:
         assert LAYERS.index(low) < LAYERS.index(high), (low, high)
         lines.append(f'  {low} -. "{", ".join(names)}" .-> {high}')
-    return legend(lines, stack_legend(root))
+    return "\n".join(lines) + "\n"
 
 
 def defined(text: str, name: str) -> bool:
@@ -302,11 +306,12 @@ def the_loop(root: str = PROJECT) -> str:
         if step == REGRID:
             edges[(step, source, target)] = edges.get((step, source, target), ()) + names
     drawn = {end for _, source, target in edges for end in (source, target)}
-    lines = ["flowchart LR"]
-    lines.extend(f'  {name}["{label}"]' for name, label in OUTSIDERS if name in drawn)
+    lines = ["flowchart LR", f'  subgraph {OUTSIDERS_BOX}["{OUTSIDERS_BOX}"]']
+    lines.extend(f'    {name}["{label}"]' for name, label in OUTSIDERS if name in drawn)
+    lines.append("  end")
     lines.extend(node(layer, ()) for layer in reversed(LAYERS) if layer in drawn)
     lines.extend(f'  {source} -- "{step + " " if step != REGRID else ""}{", ".join(names)}" --> {target}' for (step, source, target), names in edges.items())
-    return legend(lines, LOOP_LEGEND)
+    return "\n".join(lines) + "\n"
 
 
 ENTRIES_HEADING = "## Who the outsiders call"
@@ -344,13 +349,13 @@ PREAMBLE = (
     "only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule "
     "named below holds."
 )
-SECTIONS: tuple[tuple[str, Callable[[str], str]], ...] = (("The stack", stack), ("The loop", the_loop))
+SECTIONS: tuple[tuple[str, Callable[[str], str], Callable[[str], tuple[str, ...]]], ...] = (("The stack", stack, stack_legend), ("The loop", the_loop, loop_legend))
 
 
 def render(root: str = PROJECT) -> str:
     parts = [TITLE, "", PREAMBLE, ""]
-    for title, draw in SECTIONS:
-        parts.extend([f"## {title}", "", "```mermaid", draw(root).rstrip("\n"), "```", ""])
+    for title, draw, texts in SECTIONS:
+        parts.extend([f"## {title}", "", "```mermaid", draw(root).rstrip("\n"), "```", "", legend(texts(root)).rstrip("\n"), ""])
     parts.append(entries(root))
     parts.append(owns())
     return "\n".join(parts)

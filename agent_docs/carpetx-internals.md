@@ -40,21 +40,24 @@ flowchart TB
   ops -. "level_t, variable, window_t" .-> api
   io -. "window_t" .-> api
   schedule -. "all_levels, level_t, RecoverRKBoundary, variable, window_t" .-> api
-%% a layer sits above every layer it may include, which the layer rule holds, and a solid edge is an include it has today, read from its #include lines, with the headers on it
-%% where no solid edge joins a layer to the one below it, the order is the rule's, not a coupling of the code
-%% the two boxes are the door rule: driver() is called in the upper box, never in the lower
-%% a dashed edge is an import the build makes upward, a row of ACCEPTED in scripts/lint/boundary/symbols.py that the symbols check holds to the objects: a declaration whose body is in the higher layer, the one way a call reaches up, at link time, and a class stands for its members
-%% a node names its layer, and no header where nothing can include it
-%% an edge into util/, traversal/ or hierarchy/ is not drawn: every layer above hierarchy/ reads hierarchy/driver.hxx
 ```
+
+- A layer sits above every layer it may include, which the layer rule holds, and a solid edge is an include it has today, read from its `#include` lines, with the headers on it.
+- Where no solid edge joins a layer to the one below it, the order is the rule's, not a coupling of the code.
+- The two boxes are the door rule: `driver()` is called in the upper box, never in the lower.
+- A dashed edge is an import the build makes upward, a row of `ACCEPTED` in `scripts/lint/boundary/symbols.py` that the symbols check holds to the objects: a declaration whose body is in the higher layer, the one way a call reaches up, at link time, and a class stands for its members.
+- A node names its layer, and no header where nothing can include it.
+- An edge into `util/`, `traversal/` or `hierarchy/` is not drawn: every layer above `hierarchy/` reads `hierarchy/driver.hxx`.
 
 ## The loop
 
 ```mermaid
 flowchart LR
-  cactus["Cactus flesh"]
-  amrex["AMReX"]
-  thorn["a thorn's routine"]
+  subgraph outsiders["outsiders"]
+    cactus["Cactus flesh"]
+    amrex["AMReX"]
+    thorn["a thorn's routine"]
+  end
   flesh["flesh/"]
   api["api/"]
   schedule["schedule/"]
@@ -78,11 +81,12 @@ flowchart LR
   schedule -- "hierarchy_writer::regrid" --> hierarchy
   hierarchy -- "amrcore->regrid" --> amrex
   amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
-%% the numbered edges are one pass of the schedule: the flesh starts the driver (1), the driver names a bin or asks for output (2), the flesh hands it to the driver's entry (3), the entry asks the flesh to walk the bin with CallFunction (4), the flesh calls CallFunction for each routine (5), CallFunction runs the routine (6), the routine may call the public headers, whose bodies are in api/ but for those the table names (7)
-%% the unnumbered edges are a regrid: the driver asks the hierarchy, the hierarchy asks AMReX, and AMReX calls back into the layer that defines its callbacks
-%% a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX, or at link time through a dashed edge of the stack
-%% the table below lists every entry an outsider calls
 ```
+
+- The numbered edges are one pass of the schedule: the flesh starts the driver (1), the driver names a bin or asks for output (2), the flesh hands it to the driver's entry (3), the entry asks the flesh to walk the bin with CallFunction (4), the flesh calls CallFunction for each routine (5), CallFunction runs the routine (6), the routine may call the public headers, whose bodies are in `api/` but for those the table names (7).
+- The unnumbered edges are a regrid: the driver asks the hierarchy, the hierarchy asks AMReX, and AMReX calls back into the layer that defines its callbacks.
+- The box holds the outsiders, none of them a layer: a layer reaches a higher one only through one of them, or at link time through a dashed edge of the stack.
+- The table below lists every entry an outsider calls.
 
 ## Who the outsiders call
 

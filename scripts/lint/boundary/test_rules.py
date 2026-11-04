@@ -1974,7 +1974,8 @@ class Doc(unittest.TestCase):
             self.assertEqual(graph[chain + 1 : chain + 5], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops'])
             self.assertTrue(graph[chain + 5].startswith('  hierarchy -. "'))
             self.assertEqual(doc.shared_base(root), ())
-            self.assertEqual(graph[-1], f"%% an edge into {doc.BASE_DIRS} is not drawn")
+            self.assertEqual(doc.stack_legend(root)[-1], f"an edge into {doc.BASE_DIRS} is not drawn")
+            self.assertNotIn("%%", drawn)
             self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("hierarchy", "io", "comm")))
             self.assertIn('ops["ops/ no header"]', drawn)
             self.assertIn('comm["comm/', drawn)
@@ -1984,7 +1985,7 @@ class Doc(unittest.TestCase):
                 with open(os.path.join(src, layer, "z.cxx"), "w") as f:
                     f.write('#include "hierarchy/driver.hxx"\n#include "util/refuse.hxx"\n' if layer == "io" else '#include "hierarchy/driver.hxx"\n')
             self.assertEqual(doc.shared_base(root), ("hierarchy/driver.hxx",))
-            self.assertEqual(doc.stack(root).splitlines()[-1], f"%% an edge into {doc.BASE_DIRS} is not drawn: every layer above hierarchy/ reads hierarchy/driver.hxx")
+            self.assertEqual(doc.stack_legend(root)[-1], f"an edge into {doc.BASE_DIRS} is not drawn: every layer above `hierarchy/` reads `hierarchy/driver.hxx`")
             for name in ("Core", "Est", "tags_of"):
                 with self.subTest(name=name):
                     self.assertTrue(doc.declares_and_defines(root, "hierarchy", "regrid", name))
@@ -1996,10 +1997,10 @@ class Doc(unittest.TestCase):
     def test_render_is_the_whole_map(self):
         text = doc.render()
         self.assertTrue(text.startswith(doc.TITLE + "\n\n" + doc.PREAMBLE + "\n\n## The stack\n\n```mermaid\n" + doc.stack()))
-        self.assertTrue(text.endswith("```\n\n" + doc.entries() + "\n" + doc.owns()))
-        for title, draw in doc.SECTIONS:
+        self.assertTrue(text.endswith("```\n\n" + doc.legend(doc.LOOP_LEGEND) + "\n" + doc.entries() + "\n" + doc.owns()))
+        for title, draw, texts in doc.SECTIONS:
             with self.subTest(title=title):
-                self.assertIn(f"\n## {title}\n\n```mermaid\n" + draw(PROJECT) + "```\n", text)
+                self.assertIn(f"\n## {title}\n\n```mermaid\n" + draw(PROJECT) + "```\n\n" + doc.legend(texts(PROJECT)) + "\n", text)
         self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), ["## The stack", "## The loop", doc.ENTRIES_HEADING, doc.OWNS_HEADING])
         self.assertEqual(text.count("```"), 4)
         for name in re.findall(r"`([^`\n]+)`", doc.PREAMBLE):
@@ -2028,21 +2029,33 @@ class Doc(unittest.TestCase):
                     else:
                         self.assertTrue(any(word in words for word in re.findall(r"[A-Za-z_]\w+", name)), f"{name} is not in CarpetX/src")
 
-    def test_every_block_ends_with_its_legend(self):
-        for drawn, texts in ((doc.stack(), doc.stack_legend()), (doc.the_loop(), doc.LOOP_LEGEND)):
+    def test_every_block_is_followed_by_its_legend_as_prose(self):
+        for drawn, texts in ((doc.stack(), doc.stack_legend()), (doc.the_loop(), doc.loop_legend())):
             lines = drawn.splitlines()
-            self.assertEqual(lines[-len(texts) :], [f"%% {text}" for text in texts])
+            self.assertNotIn("%%", drawn)
             for line in lines:
                 self.assertNotRegex(re.sub(r'"[^"]*"', "", line), r"[;\\]|::|[^\x00-\x7f]")
-        self.assertEqual(doc.stack_legend(), doc.STACK_LEGEND + ("an edge into util/, traversal/ or hierarchy/ is not drawn: every layer above hierarchy/ reads hierarchy/driver.hxx",))
+            bullets = doc.legend(texts).splitlines()
+            self.assertEqual(len(bullets), len(texts))
+            for bullet, text in zip(bullets, texts):
+                with self.subTest(text=text):
+                    self.assertEqual(bullet, f"- {text[0].upper()}{text[1:]}.")
+                    self.assertTrue(text[0].islower(), text)
+                    self.assertFalse(text.endswith("."), text)
+        self.assertEqual(doc.legend(("a word", "two `words`")), "- A word.\n- Two `words`.\n")
+        self.assertEqual(doc.stack_legend(), doc.STACK_LEGEND + ("an edge into `util/`, `traversal/` or `hierarchy/` is not drawn: every layer above `hierarchy/` reads `hierarchy/driver.hxx`",))
+        self.assertEqual(doc.loop_legend(), doc.LOOP_LEGEND)
+        self.assertIn(f"the box holds the {doc.OUTSIDERS_BOX}", doc.LOOP_LEGEND[2])
         for layer in rules.HIERARCHY_LAYERS[1:]:
             with self.subTest(layer=layer):
                 self.assertIn(("hierarchy", "driver.hxx"), doc.layer_includes(PROJECT, layer))
 
     def test_the_loop_draws_every_step_between_the_nodes_it_names(self):
         lines = doc.the_loop().splitlines()
-        self.assertEqual(lines[:4], ["flowchart LR", '  cactus["Cactus flesh"]', '  amrex["AMReX"]', '  thorn["a thorn\'s routine"]'])
-        nodes = [line.split("[")[0].strip() for line in lines if "[" in line]
+        self.assertEqual(lines[:6], ["flowchart LR", f'  subgraph {doc.OUTSIDERS_BOX}["{doc.OUTSIDERS_BOX}"]', '    cactus["Cactus flesh"]', '    amrex["AMReX"]', '    thorn["a thorn\'s routine"]', "  end"])
+        self.assertEqual(lines.count("  end"), 1)
+        nodes = [line.split("[")[0].strip() for line in lines if "[" in line and not line.startswith("  subgraph")]
+        self.assertEqual(nodes[:3], [name for name, _ in doc.OUTSIDERS])
         self.assertEqual(nodes[3:], [layer for layer in reversed(LAYERS) if layer in nodes])
         edges = [re.fullmatch(r'  (\w+) -- "([^"]*)" --> (\w+)', line) for line in lines if " -- " in line]
         self.assertTrue(all(edges), lines)
@@ -2132,7 +2145,8 @@ class Doc(unittest.TestCase):
                     '  amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
                 ],
             )
-            self.assertEqual([line.split("[")[0].strip() for line in lines[4:12]], ["flesh", "api", "schedule", "io", "ops", "regrid", "hierarchy", "util"])
+            self.assertEqual(lines[1:6], [f'  subgraph {doc.OUTSIDERS_BOX}["{doc.OUTSIDERS_BOX}"]', '    cactus["Cactus flesh"]', '    amrex["AMReX"]', '    thorn["a thorn\'s routine"]', "  end"])
+            self.assertEqual([line.split("[")[0].strip() for line in lines[6:14]], ["flesh", "api", "schedule", "io", "ops", "regrid", "hierarchy", "util"])
             self.assertEqual(
                 doc.entries(root).splitlines()[6:],
                 [
