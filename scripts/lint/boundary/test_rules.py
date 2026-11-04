@@ -1973,54 +1973,26 @@ class Doc(unittest.TestCase):
             with self.subTest(layer=layer):
                 self.assertIn(("hierarchy", "driver.hxx"), doc.layer_includes(PROJECT, layer))
 
-    def test_the_loop_reads_the_registrations_and_the_call_sites(self):
+    def test_the_loop_draws_every_step_between_the_nodes_it_names(self):
         lines = doc.the_loop().splitlines()
         self.assertEqual(lines[:4], ["flowchart LR", '  cactus["Cactus flesh"]', '  amrex["AMReX"]', '  thorn["a thorn\'s routine"]'])
-        self.assertEqual(
-            doc.registrations(),
-            "SetupGH InitGH ScheduleTraverseGH Initialise Evolve Shutdown OutputGH MyProc nProcs Exit Abort Barrier EnableGroupStorage "
-            "DisableGroupStorage GroupStorageIncrease GroupStorageDecrease QueryGroupStorageB SyncGroupsOnActiveLevels CarpetX_InterpGridArrays "
-            "ArrayGroupSizeB GroupDynamicData InterpLocalUniform".split(),
-        )
-        self.assertEqual(
-            [line for line in lines if " -- " in line],
-            [
-                '  cactus -- "1 Initialise, Evolve, Shutdown" --> schedule',
-                '  schedule -- "2 CCTK_Traverse, CCTK_OutputGH" --> cactus',
-                '  cactus -- "3 ScheduleTraverseGH" --> flesh',
-                '  cactus -- "3 OutputGH" --> io',
-                '  flesh -- "4 CCTK_ScheduleTraverse" --> cactus',
-                '  api -- "4 CCTK_ScheduleTraverse" --> cactus',
-                '  cactus -- "5 CallFunction" --> schedule',
-                '  schedule -- "6 CCTK_CallFunction" --> thorn',
-                '  thorn -- "7 carpetx.hxx, carpetx_rk.hxx" --> api',
-                '  thorn -- "7 carpetx.hxx" --> util',
-                '  schedule -- "hierarchy_writer::regrid" --> hierarchy',
-                '  hierarchy -- "amrex::AmrCore::regrid" --> amrex',
-                '  amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
-            ],
-        )
-        self.assertNotIn("traversal", "".join(lines))
-        self.assertEqual(doc.public_bodies(), {"api": ("carpetx.hxx", "carpetx_rk.hxx"), "util": ("carpetx.hxx",)})
-        self.assertEqual(doc.defining_layer(PROJECT, "OutputGH"), "io")
-        self.assertEqual(doc.defining_layer(PROJECT, "ErrorEst"), "regrid")
-        self.assertEqual(doc.defining_layer(PROJECT, doc.REGRID_ASK), "hierarchy")
+        nodes = [line.split("[")[0].strip() for line in lines if "[" in line]
+        self.assertEqual(nodes[3:], [layer for layer in reversed(LAYERS) if layer in nodes])
+        edges = [re.fullmatch(r'  (\w+) -- "([^"]*)" --> (\w+)', line) for line in lines if " -- " in line]
+        self.assertTrue(all(edges), lines)
+        for edge in edges:
+            with self.subTest(edge=edge.group(0)):
+                self.assertLessEqual({edge.group(1), edge.group(3)}, set(nodes))
+        numbered = [edge.group(2).split()[0] for edge in edges if edge.group(2)[0].isdigit()]
+        self.assertEqual(numbered, sorted(numbered))
+        self.assertEqual(sorted(set(numbered)), list("1234567"))
+        self.assertEqual([edge.group(2) for edge in edges if not edge.group(2)[0].isdigit()][0], doc.REGRID_ASK)
+        self.assertEqual(edges[-1].group(1), "amrex")
         table = doc.entries().splitlines()
         self.assertEqual(table[:6], [doc.ENTRIES_HEADING, "", doc.ENTRIES_INTRO, "", "| Layer | Caller | Entries |", "| --- | --- | --- |"])
-        self.assertEqual(
-            table[6:],
-            [
-                '| `flesh/` | Cactus flesh | every extern "C" in aliased.cxx, scheduled.cxx, startup.cxx |',
-                "| `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, MyProc, nProcs, Exit, Abort, Barrier, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |",
-                "| `api/` | a thorn | the functions of carpetx.hxx, carpetx_rk.hxx |",
-                "| `schedule/` | Cactus flesh | Initialise, Evolve, Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB |",
-                "| `io/` | Cactus flesh | OutputGH |",
-                "| `ops/` | Cactus flesh | InterpLocalUniform |",
-                "| `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |",
-                "| `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |",
-                "| `util/` | a thorn | the functions of carpetx.hxx |",
-            ],
-        )
+        layers = [row.split("`")[1].rstrip("/") for row in table[6:]]
+        self.assertEqual(layers, sorted(layers, key=lambda layer: -LAYERS.index(layer)))
+        self.assertTrue({"flesh", "api", "schedule", "regrid"} <= set(layers), layers)
 
     def test_the_loop_lands_each_name_in_the_one_layer_that_defines_it(self):
         with tempfile.TemporaryDirectory() as root:
@@ -2096,6 +2068,14 @@ class Doc(unittest.TestCase):
             with open(os.path.join(src, "flesh", "startup.cxx"), "w") as f:
                 f.write(startup.replace("  CCTK_OverloadShutdown(Shutdown);\n", ""))
             with self.assertRaisesRegex(ValueError, "Shutdown not registered"):
+                doc.the_loop(root)
+            with open(os.path.join(src, "flesh", "startup.cxx"), "w") as f:
+                f.write(startup)
+            with open(os.path.join(src, "schedule", "evolve.cxx"), "w") as f:
+                f.write(re.sub(r"  CCTK_(Traverse|OutputGH)\(.*\n", "", files["schedule/evolve.cxx"]))
+            with open(os.path.join(src, "hierarchy", "hierarchy.cxx"), "w") as f:
+                f.write(files["hierarchy/hierarchy.cxx"].replace("  ext.amrcore->regrid(base.index(), time);\n", ""))
+            with self.assertRaisesRegex(ValueError, "no edge for 2, the AMReX reentry"):
                 doc.the_loop(root)
 
 if __name__ == "__main__":

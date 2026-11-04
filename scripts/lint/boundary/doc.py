@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable
 
-from .rules import AMREX_CALLBACKS, EXTERN_C, HIERARCHY_LAYERS, INCLUDE_LINE, LAYER_INCLUDE, LAYERS, OWNS, RULES, UNDER_HIERARCHY, below, layer_path
+from .rules import AMREX_CALLBACKS, EXTERN_C, HIERARCHY_LAYERS, INCLUDE_LINE, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, RULES, UNDER_HIERARCHY, below, layer_path
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
@@ -189,17 +189,22 @@ def the_loop(root: str = PROJECT) -> str:
     traversals = top_down(call_sites(root, TRAVERSAL))
     handlers = tuple(dict.fromkeys(name for _, names in traversals for name in names))
     asked = landing(root, (REGRID_ASK,))
-    edges: list[tuple[str, str, str]] = []
-    edges += [("cactus", f"1 {', '.join(names)}", layer) for layer, names in top_down(landing(root, LIFECYCLE))]
-    edges += [(layer, f"2 {', '.join(names)}", "cactus") for layer, names in top_down(call_sites(root, STEP_CALL))]
-    edges += [("cactus", f"3 {', '.join(names)}", layer) for layer, names in top_down(landing(root, STEP_ENTRIES))]
-    edges += [(layer, "4 CCTK_ScheduleTraverse", "cactus") for layer, _ in traversals]
-    edges += [("cactus", f"5 {', '.join(names)}", layer) for layer, names in top_down(landing(root, handlers))]
-    edges += [(layer, f"6 {', '.join(names)}", "thorn") for layer, names in top_down(call_sites(root, CALL_FUNCTION))]
-    edges += [("thorn", f"7 {', '.join(headers)}", layer) for layer, headers in top_down(public_bodies(root))]
-    edges += [(layer, REGRID_ASK, target) for target in asked for layer, _ in top_down(call_sites(root, REGRID_ASK_CALL)) if layer != target]
-    edges += [(layer, ", ".join(f"amrex::AmrCore::{name}" for name in names), "amrex") for layer, names in top_down(call_sites(root, AMREX_REENTRY))]
-    edges += [("amrex", ", ".join(names), layer) for layer, names in top_down(landing(root, AMREX_CALLBACKS))]
+    steps: dict[str, list[tuple[str, str, str]]] = {
+        "1": [("cactus", f"1 {', '.join(names)}", layer) for layer, names in top_down(landing(root, LIFECYCLE))],
+        "2": [(layer, f"2 {', '.join(names)}", "cactus") for layer, names in top_down(call_sites(root, STEP_CALL))],
+        "3": [("cactus", f"3 {', '.join(names)}", layer) for layer, names in top_down(landing(root, STEP_ENTRIES))],
+        "4": [(layer, "4 CCTK_ScheduleTraverse", "cactus") for layer, _ in traversals],
+        "5": [("cactus", f"5 {', '.join(names)}", layer) for layer, names in top_down(landing(root, handlers))],
+        "6": [(layer, f"6 {', '.join(names)}", "thorn") for layer, names in top_down(call_sites(root, CALL_FUNCTION))],
+        "7": [("thorn", f"7 {', '.join(headers)}", layer) for layer, headers in top_down(public_bodies(root))],
+        "the regrid ask": [(layer, REGRID_ASK, target) for target in asked for layer, _ in top_down(call_sites(root, REGRID_ASK_CALL)) if layer != target],
+        "the AMReX reentry": [(layer, ", ".join(f"amrex::AmrCore::{name}" for name in names), "amrex") for layer, names in top_down(call_sites(root, AMREX_REENTRY))],
+        "the AMReX callbacks": [("amrex", ", ".join(names), layer) for layer, names in top_down(landing(root, AMREX_CALLBACKS))],
+    }
+    empty = [step for step, found in steps.items() if not found]
+    if empty:
+        raise ValueError(f"the loop has no edge for {', '.join(empty)}: no call site or body in {os.path.join(root, PRIVATE_DIR)}")
+    edges = [edge for found in steps.values() for edge in found]
     drawn = {end for source, _, target in edges for end in (source, target)}
     lines = ["flowchart LR"]
     lines.extend(f'  {name}["{label}"]' for name, label in OUTSIDERS if name in drawn)
