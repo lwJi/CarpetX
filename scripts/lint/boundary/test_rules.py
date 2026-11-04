@@ -13,7 +13,7 @@ import hooks
 from files import PROJECT, Lang
 from run import check_since
 
-from . import check, doc, rules
+from . import check, doc, rules, symbols
 from .rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, RULE, Finding, below, findings, layer_of, layer_path, new_findings, render, summary
 
 ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
@@ -1924,7 +1924,21 @@ class Doc(unittest.TestCase):
                     self.assertIn(f'  {low} -. "', doc.stack())
         self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "io", "CactusAmrCore"))
         self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "comm", "make_level_buffers"))
-        self.assertIn('  hierarchy -. "apply_boundary_conditions, get_interpolator" .-> comm', doc.stack())
+        self.assertIn('  hierarchy -. "get_interpolator" .-> comm', doc.stack())
+        self.assertIn('  schedule -. "all_levels, level_t, RecoverRKBoundary, variable, window_t" .-> api', doc.stack())
+        self.assertNotIn("apply_boundary_conditions", doc.stack())
+
+    def test_the_dashed_edges_are_the_rows_of_accepted(self):
+        rows = {(low, high, doc.link_name(prefix)) for low, high, prefix in symbols.ACCEPTED}
+        drawn = {(low, high, name) for low, high, names in doc.LINK_TIME for name in names}
+        self.assertEqual(drawn, rows)
+        edges = [(low, high) for low, high, _ in doc.LINK_TIME]
+        self.assertEqual(edges, sorted(set(edges), key=lambda edge: (LAYERS.index(edge[0]), LAYERS.index(edge[1]))))
+        self.assertEqual(doc.stack().count(" -. "), len(doc.LINK_TIME))
+        self.assertEqual(doc.link_name("CarpetX::level_t::"), "level_t")
+        self.assertEqual(doc.link_name("CarpetX::all_levels("), "all_levels")
+        with self.assertRaises(AssertionError):
+            doc.link_name("std::string")
 
     def test_the_includes_are_read_from_the_tree_above_the_base(self):
         with tempfile.TemporaryDirectory() as root:
@@ -1975,7 +1989,8 @@ class Doc(unittest.TestCase):
                 with self.subTest(name=name):
                     self.assertTrue(doc.declares_and_defines(root, "hierarchy", "regrid", name))
                     self.assertFalse(doc.declares_and_defines(root, "hierarchy", "io", name))
-            self.assertFalse(doc.declares_and_defines(root, "io", "regrid", "Core"))
+            self.assertTrue(doc.declares_and_defines(root, "io", "regrid", "Core"))
+            self.assertFalse(doc.declares_and_defines(root, "util", "regrid", "Core"))
             self.assertFalse(doc.declares_and_defines(root, "regrid", "io", "Core"))
 
     def test_render_is_the_whole_map(self):

@@ -16,19 +16,29 @@ OBJECT_SUFFIX = ".cxx.o"
 NAMESPACE = "7CarpetX"
 STRONG = frozenset("TDBRSG")
 ACCEPTED = (
-    ("api", "CarpetX::level_t::"),
-    ("api", "CarpetX::window_t::"),
-    ("api", "CarpetX::all_levels("),
-    ("api", "CarpetX::variable("),
-    ("api", "CarpetX::RecoverRKBoundary("),
-    ("regrid", "CarpetX::CactusAmrCore::"),
-    ("comm", "CarpetX::get_interpolator("),
+    ("hierarchy", "comm", "CarpetX::get_interpolator("),
+    ("hierarchy", "regrid", "CarpetX::CactusAmrCore::"),
+    ("hierarchy", "api", "CarpetX::level_t::"),
+    ("comm", "api", "CarpetX::level_t::"),
+    ("comm", "api", "CarpetX::window_t::"),
+    ("regrid", "api", "CarpetX::level_t::"),
+    ("regrid", "api", "CarpetX::window_t::"),
+    ("ops", "api", "CarpetX::level_t::"),
+    ("ops", "api", "CarpetX::variable("),
+    ("ops", "api", "CarpetX::window_t::"),
+    ("io", "api", "CarpetX::window_t::"),
+    ("schedule", "api", "CarpetX::all_levels("),
+    ("schedule", "api", "CarpetX::level_t::"),
+    ("schedule", "api", "CarpetX::RecoverRKBoundary("),
+    ("schedule", "api", "CarpetX::variable("),
+    ("schedule", "api", "CarpetX::window_t::"),
 )
 RULE = (
     "symbols: an object the build made from a CarpetX .cxx imports a symbol of namespace CarpetX only from an\n"
     "object of its own layer or a lower one, whatever declared it: a header, a prototype, a block-scope\n"
-    "declaration or an extern. A reach listed in ACCEPTED in scripts/lint/boundary/symbols.py is reported as\n"
-    "accepted until the bodies move down; the list only shrinks."
+    "declaration or an extern. A reach listed in ACCEPTED in scripts/lint/boundary/symbols.py, a row naming the\n"
+    "importing layer, the layer of the body and the symbol's prefix, is reported as accepted until the bodies\n"
+    "move down; the list only shrinks, and the map draws each row as a dashed edge of its stack."
 )
 
 Demangle = Callable[[Iterable[str]], dict[str, str]]
@@ -109,7 +119,7 @@ def reaches(layers: dict[str, str], defined: dict[str, str], imports: dict[str, 
 
 
 def accepted(reach: Reach, readable: str) -> bool:
-    return any(reach.to == layer and readable.startswith(prefix) for layer, prefix in ACCEPTED)
+    return any(reach.layer == low and reach.to == high and readable.startswith(prefix) for low, high, prefix in ACCEPTED)
 
 
 def demangle(names: Iterable[str]) -> dict[str, str]:

@@ -95,26 +95,31 @@ class Reaches(unittest.TestCase):
 
 
 class Accepted(unittest.TestCase):
-    def test_the_listed_bodies_are_accepted_only_from_their_layer(self):
-        reach = Reach("io/io.cxx.o", "io", "api", PARENT)
+    def test_a_listed_body_is_accepted_only_between_the_layers_of_its_row(self):
+        reach = Reach("comm/reflux.cxx.o", "comm", "api", PARENT)
         self.assertTrue(accepted(reach, "CarpetX::level_t::parent(std::source_location) const"))
-        self.assertFalse(accepted(Reach("io/io.cxx.o", "io", "schedule", PARENT), "CarpetX::level_t::parent()"))
+        self.assertFalse(accepted(Reach("comm/reflux.cxx.o", "comm", "schedule", PARENT), "CarpetX::level_t::parent()"))
+        self.assertFalse(accepted(Reach("io/io.cxx.o", "io", "api", PARENT), "CarpetX::level_t::parent()"))
         self.assertFalse(accepted(reach, "CarpetX::level_tx::parent()"))
         self.assertFalse(accepted(Reach("io/io.cxx.o", "io", "api", SHUTDOWN), "CarpetX::ShutdownIO()"))
 
-    def test_every_entry_names_a_layer(self):
+    def test_every_row_reaches_up_from_one_layer_to_another(self):
         from boundary.rules import LAYERS
 
-        for layer, prefix in ACCEPTED:
-            with self.subTest(prefix=prefix):
-                self.assertIn(layer, LAYERS)
+        for low, high, prefix in ACCEPTED:
+            with self.subTest(low=low, high=high, prefix=prefix):
+                self.assertIn(low, LAYERS)
+                self.assertIn(high, LAYERS)
+                self.assertLess(LAYERS.index(low), LAYERS.index(high))
                 self.assertTrue(prefix.startswith("CarpetX::"))
+        self.assertEqual(len(set(ACCEPTED)), len(ACCEPTED))
 
     def test_split(self):
         up = Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "io", SHUTDOWN)
-        ok = Reach("io/io.cxx.o", "io", "api", PARENT)
+        ok = Reach("comm/reflux.cxx.o", "comm", "api", PARENT)
         readable = {SHUTDOWN: "CarpetX::ShutdownIO()", PARENT: "CarpetX::level_t::parent() const"}
         self.assertEqual(split([up, ok], readable), ([up], [ok]))
+        self.assertEqual(split([Reach("io/io.cxx.o", "io", "api", PARENT)], readable), ([Reach("io/io.cxx.o", "io", "api", PARENT)], []))
 
 
 class Objects(unittest.TestCase):

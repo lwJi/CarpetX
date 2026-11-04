@@ -5,13 +5,28 @@ import re
 from typing import Callable
 
 from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PROTOTYPE_END, PUBLIC_DIR, RULES, UNDER_HIERARCHY, below, declaration_head, declared_function, file_local, layer_of, layer_path, statements
+from .symbols import ACCEPTED
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
-LINK_TIME = (
-    ("hierarchy", "regrid", ("CactusAmrCore",)),
-    ("hierarchy", "comm", ("apply_boundary_conditions", "get_interpolator")),
-)
+SYMBOL_NAMESPACE = "CarpetX::"
+
+
+def link_name(prefix: str) -> str:
+    assert prefix.startswith(SYMBOL_NAMESPACE), prefix
+    return prefix[len(SYMBOL_NAMESPACE) :].rstrip("(:")
+
+
+def link_time() -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+    edges: dict[tuple[str, str], dict[str, None]] = {}
+    for low, high, prefix in ACCEPTED:
+        assert LAYERS.index(low) < LAYERS.index(high), (low, high)
+        edges.setdefault((low, high), {})[link_name(prefix)] = None
+    order = sorted(edges, key=lambda edge: (LAYERS.index(edge[0]), LAYERS.index(edge[1])))
+    return tuple((low, high, tuple(sorted(edges[(low, high)], key=str.lower))) for low, high in order)
+
+
+LINK_TIME = link_time()
 BASE_LAYERS = below("hierarchy")
 DEFINITION = r"(?m)^[^;{{}}()\n]*\b(?:[\w:]+::)?{name}(?:::~?\w+)?\s*\([^;{{}}]*\)[^;{{}}]*\{{"
 OUTSIDERS = (("cactus", "Cactus flesh"), ("amrex", "AMReX"), ("thorn", "a thorn's routine"))
@@ -64,7 +79,7 @@ STACK_LEGEND = (
     "a layer sits above every layer it may include, which the layer rule holds, and a solid edge is an include it has today, read from its #include lines, with the headers on it",
     "where no solid edge joins a layer to the one below it, the order is the rule's, not a coupling of the code",
     "the two boxes are the door rule: driver() is called in the upper box, never in the lower",
-    "a dashed edge is a declaration whose body is in the higher layer, the one way a call reaches up, at link time",
+    "a dashed edge is an import the build makes upward, a row of ACCEPTED in scripts/lint/boundary/symbols.py that the symbols check holds to the objects: a declaration whose body is in the higher layer, the one way a call reaches up, at link time, and a class stands for its members",
     "a node names its layer, and no header where nothing can include it",
 )
 BASE_DIRS = f"{', '.join(f'{layer}/' for layer in BASE_LAYERS[:-1])} or {BASE_LAYERS[-1]}/"
@@ -323,7 +338,7 @@ def owns() -> str:
 
 TITLE = "# CarpetX's internals"
 PREAMBLE = (
-    "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, "
+    "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `ACCEPTED` rows of `scripts/lint/boundary/symbols.py`, "
     f"the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `{STARTUP}`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when "
     "the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX "
     "only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule "
@@ -342,12 +357,15 @@ def render(root: str = PROJECT) -> str:
 
 
 def declares_and_defines(root: str, low: str, high: str, name: str) -> bool:
-    def found(layer: str, suffix: str, shape: re.Pattern) -> bool:
-        for path in sources(root, layer):
-            if path.endswith(suffix):
+    def found(paths: list[str], shape: re.Pattern) -> bool:
+        for path in paths:
+            if os.path.exists(path):
                 with open(path) as f:
                     if shape.search(f.read()):
                         return True
         return False
 
-    return found(low, ".hxx", re.compile(rf"\b{name}\b")) and found(high, ".cxx", re.compile(DEFINITION.format(name=name)))
+    headers = [path for layer in below(low) for path in sources(root, layer) if path.endswith(".hxx")]
+    headers += [os.path.join(root, header) for header in PUBLIC_HEADERS]
+    bodies = [path for path in sources(root, high) if path.endswith(".cxx")]
+    return found(headers, re.compile(rf"\b{name}\b")) and found(bodies, re.compile(DEFINITION.format(name=name)))

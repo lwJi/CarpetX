@@ -9,7 +9,7 @@ from checks import CHECKS
 from files import PROJECT, covered, merge_base, read_text, repo_name, simulate_edit
 from run import check_edit, check_since, has_findings, render_change
 
-GENERATED = f"{MAP} is written by python3 scripts/lint doc --write from scripts/lint/boundary/rules.py and doc.py: change those and run it."
+GENERATED = f"{MAP} is written by python3 scripts/lint doc --write from scripts/lint/boundary/rules.py, doc.py and symbols.py: change those and run it."
 
 
 def emit(out, message: dict) -> None:
