@@ -67,7 +67,7 @@ flowchart LR
   schedule -- "6 CCTK_CallFunction" --> thorn
   thorn -- "7 carpetx.hxx, carpetx_rk.hxx" --> api
   thorn -- "7 reduce" --> ops
-  thorn -- "7 synchronize, valid_t" --> hierarchy
+  thorn -- "7 synchronize, valid_t, operator<<" --> hierarchy
   thorn -- "7 Timer" --> util
   schedule -- "hierarchy_writer::regrid" --> hierarchy
   hierarchy -- "amrcore->regrid" --> amrex
@@ -93,7 +93,7 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 | `ops/` | a thorn | reduce |
 | `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |
 | `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |
-| `hierarchy/` | a thorn | synchronize, valid_t |
+| `hierarchy/` | a thorn | synchronize, valid_t, operator<< |
 | `util/` | a thorn | Timer |
 
 ## What each layer owns

@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable
 
-from .rules import AMREX_CALLBACKS, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PUBLIC_DIR, RULES, UNDER_HIERARCHY, below, layer_of, layer_path
+from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PROTOTYPE_END, PUBLIC_DIR, RULES, UNDER_HIERARCHY, below, declaration_head, declared_function, file_local, layer_of, layer_path, statements
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
@@ -14,7 +14,6 @@ LINK_TIME = (
 )
 BASE_LAYERS = below("hierarchy")
 DEFINITION = r"(?m)^[^;{{}}()\n]*\b(?:[\w:]+::)?{name}(?:::~?\w+)?\s*\([^;{{}}]*\)[^;{{}}]*\{{"
-PROTOTYPE = re.compile(r"^(?!\s)(?!(?:template|using|typedef|friend|static_assert)\b)[^=;{}()#/]*?\b(\w+)\s*\([^;{}]*\)\s*(?:const\s*)?;[ \t]*$", re.M)
 OUTSIDERS = (("cactus", "Cactus flesh"), ("amrex", "AMReX"), ("thorn", "a thorn's routine"))
 STARTUP = layer_path("flesh", "startup.cxx")
 REGISTRATION = re.compile(r"\bCCTK_(?:Overload\w+|RegisterGHExtension\w+|InterpRegisterOpLocalUniform)\s*\(\s*(?:ghext_handle\s*,\s*)?(\w+)")
@@ -32,6 +31,7 @@ PUBLIC_LAYER = "api"
 PUBLIC_BODIES = (
     (layer_path("hierarchy", "loops.cxx"), ("synchronize",)),
     (layer_path("hierarchy", "valid.cxx"), ("valid_t",)),
+    (layer_path("hierarchy", "group_tags.cxx"), ("operator<<",)),
     (layer_path("ops", "reduction.cxx"), ("reduce",)),
     (layer_path("util", "timer.cxx"), ("Timer",)),
 )
@@ -162,7 +162,7 @@ def stack(root: str = PROJECT) -> str:
 
 
 def defined(text: str, name: str) -> bool:
-    return re.search(DEFINITION.format(name=name), text) is not None
+    return re.search(DEFINITION.format(name=re.escape(name)), text) is not None
 
 
 def called(text: str, name: str) -> bool:
@@ -212,15 +212,27 @@ def registered(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
 
 
 def prototypes(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
-    return {header: tuple(dict.fromkeys(PROTOTYPE.findall(read(os.path.join(root, header))))) for header in PUBLIC_HEADERS}
+    found: dict[str, tuple[str, ...]] = {}
+    for header in PUBLIC_HEADERS:
+        names: dict[str, None] = {}
+        for number, line, statement in statements(read(os.path.join(root, header))):
+            head = declaration_head(statement)
+            if PROTOTYPE_END.search(line) and DECLARATION_START.match(head) and not file_local(head):
+                name = declared_function(head, in_header=True)
+                if name is None:
+                    raise ValueError(f"{header}:{number} declares something the map cannot name: {line.strip()}")
+                names[name] = None
+        found[header] = tuple(names)
+    return found
 
 
 def public_bodies(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
     declared = "\n".join(read(os.path.join(root, header)) for header in PUBLIC_HEADERS)
+    prototyped = {name for names in prototypes(root).values() for name in names}
     for file, names in PUBLIC_BODIES:
         text = read(os.path.join(root, file))
         for name in names:
-            if not re.search(rf"\b{name}\b", declared):
+            if name not in prototyped and not re.search(rf"\b{re.escape(name)}\b", declared):
                 raise ValueError(f"{name} is in a row of PUBLIC_BODIES in scripts/lint/boundary/doc.py but in no public header")
             if not defined(text, name):
                 raise ValueError(f"{name} not defined in {file}, where its row of PUBLIC_BODIES in scripts/lint/boundary/doc.py says it is")

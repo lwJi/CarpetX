@@ -1273,6 +1273,38 @@ class Guard(unittest.TestCase):
         self.assertEqual(reported("T/src/buffers.hxx", text), [])
 
 
+class DeclaredFunction(unittest.TestCase):
+    def test_names_the_function_a_head_declares(self):
+        for head, name in [
+            ("int ScheduleTraverseGH(cGH *cctkGH, const char *where);", "ScheduleTraverseGH"),
+            ('extern "C" int CarpetX_Startup();', "CarpetX_Startup"),
+            ("const amrex::Geometry &geometry(level_t level);", "geometry"),
+            ("std::ostream &operator<<(std::ostream &os, symmetry_t symmetry);", "operator<<"),
+            ("bool operator == (const valid_t &a, const valid_t &b);", "operator=="),
+            ("void CactusAmrCore::ErrorEst(int lev);", "CactusAmrCore::ErrorEst"),
+        ]:
+            with self.subTest(head=head):
+                self.assertEqual(rules.declared_function(head), name)
+                self.assertEqual(rules.declared_function(head, in_header=True), name)
+
+    def test_a_template_argument_list_is_read_only_in_a_header(self):
+        for head, name in [
+            ("reduction<CCTK_REAL, Loop::dim> reduce(gi_t gi, vi_t vi, tl_t tl);", "reduce"),
+            ("std::array<std::array<symmetry_t, Loop::dim>, 2> symmetries(level_t level);", "symmetries"),
+            ("std::vector<int> table(3);", "table"),
+        ]:
+            with self.subTest(head=head):
+                self.assertIsNone(rules.declared_function(head))
+                self.assertEqual(rules.declared_function(head, in_header=True), name)
+
+    def test_what_is_not_a_function_declaration_has_no_name(self):
+        for head in ["int a;", "return f(x);", "void (*handler)(int);", "x = f(1);", "f(1);", "std::function<void(int)> cb(f);"]:
+            with self.subTest(head=head):
+                self.assertIsNone(rules.declared_function(head))
+                self.assertFalse(rules.names_a_function(head))
+        self.assertIsNone(rules.declared_function("void (*handler)(int);", in_header=True))
+
+
 class Entry(unittest.TestCase):
     ENTRIES = ['extern "C" int CarpetX_Startup() {', 'extern "C" void CarpetX_Checkpoint(CCTK_ARGUMENTS) {', 'extern "C" {']
 
@@ -2037,16 +2069,18 @@ class Doc(unittest.TestCase):
                 layer_path("hierarchy", "hierarchy.cxx"): "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
                 layer_path("hierarchy", "loops.cxx"): "void synchronize() {\n}\n",
                 layer_path("hierarchy", "valid.cxx"): 'std::string valid_t::explanation() const {\n  return "";\n}\n',
+                layer_path("hierarchy", "group_tags.cxx"): 'std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry) {\n  return os << "none";\n}\n',
                 layer_path("ops", "reduction.cxx"): "reduction<CCTK_REAL, dim> reduce(const gi_t gi) {\n  return {};\n}\n",
                 layer_path("util", "timer.cxx"): "Timer::Timer(const std::string &name)\n    : name(name) {\n}\n",
                 layer_path("api", "api.cxx"): "int num_patches() {\n  return 0;\n}\nvoid register_integrator(const rk_config_t &config) {\n}\n",
                 layer_path("api", "api_rk.cxx"): "void run_schedule_group_at(const cGH *cctkGH) {\n  CCTK_ScheduleTraverse(group, cctkGH, CallFunction);\n}\n",
                 doc.PUBLIC_HEADERS[0]: "int num_patches();\nvoid synchronize();\nreduction<CCTK_REAL, Loop::dim> reduce(gi_t gi);\nstruct valid_t {\n  std::string explanation() const;\n};\n"
-                "class Timer {\n  Timer(const std::string &name);\n};\nstd::ostream &operator<<(std::ostream &os, valid_t v);\nvoid prolongate(window_t window,\n                std::span<const gi_t> groups);\n",
+                "class Timer {\n  Timer(const std::string &name);\n};\nstd::ostream &operator<<(std::ostream &os, symmetry_t symmetry);\nvoid prolongate(window_t window,\n                std::span<const gi_t> groups);\n"
+                "std::array<std::array<symmetry_t, Loop::dim>, 2> symmetries(level_t level);\nstatic_assert(sizeof(int) == 4);\n",
                 doc.PUBLIC_HEADERS[1]: "void register_integrator(const rk_config_t &config);\n",
             }
         )
-        files[layer_path("api", "api.cxx")] += "void prolongate(window_t window, std::span<const gi_t> groups) {\n}\n"
+        files[layer_path("api", "api.cxx")] += "void prolongate(window_t window, std::span<const gi_t> groups) {\n}\nstd::array<std::array<symmetry_t, dim>, 2> symmetries(const level_t level) {\n  return {};\n}\n"
         with tempfile.TemporaryDirectory() as root:
             for layer in LAYERS:
                 os.makedirs(os.path.join(root, "CarpetX", "src", layer))
@@ -2060,8 +2094,8 @@ class Doc(unittest.TestCase):
             write({})
             self.assertEqual(doc.registrations(root), [name for _, names in doc.REGISTERED for name in names])
             self.assertEqual(doc.extern_c_files(root), ["startup.cxx"])
-            self.assertEqual(doc.prototypes(root), {doc.PUBLIC_HEADERS[0]: ("num_patches", "synchronize", "reduce", "prolongate"), doc.PUBLIC_HEADERS[1]: ("register_integrator",)})
-            self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "register_integrator"), "hierarchy": ("synchronize", "valid_t"), "ops": ("reduce",), "util": ("Timer",)})
+            self.assertEqual(doc.prototypes(root), {doc.PUBLIC_HEADERS[0]: ("num_patches", "synchronize", "reduce", "operator<<", "prolongate", "symmetries"), doc.PUBLIC_HEADERS[1]: ("register_integrator",)})
+            self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "symmetries", "register_integrator"), "hierarchy": ("synchronize", "valid_t", "operator<<"), "ops": ("reduce",), "util": ("Timer",)})
             lines = doc.the_loop(root).splitlines()
             self.assertEqual(
                 [line for line in lines if " -- " in line],
@@ -2076,7 +2110,7 @@ class Doc(unittest.TestCase):
                     '  schedule -- "6 CCTK_CallFunction" --> thorn',
                     '  thorn -- "7 carpetx.hxx, carpetx_rk.hxx" --> api',
                     '  thorn -- "7 reduce" --> ops',
-                    '  thorn -- "7 synchronize, valid_t" --> hierarchy',
+                    '  thorn -- "7 synchronize, valid_t, operator<<" --> hierarchy',
                     '  thorn -- "7 Timer" --> util',
                     '  schedule -- "hierarchy_writer::regrid" --> hierarchy',
                     '  hierarchy -- "amrcore->regrid" --> amrex',
@@ -2096,7 +2130,7 @@ class Doc(unittest.TestCase):
                     "| `ops/` | a thorn | reduce |",
                     "| `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |",
                     "| `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |",
-                    "| `hierarchy/` | a thorn | synchronize, valid_t |",
+                    "| `hierarchy/` | a thorn | synchronize, valid_t, operator<< |",
                     "| `util/` | a thorn | Timer |",
                 ],
             )
@@ -2113,6 +2147,8 @@ class Doc(unittest.TestCase):
                 ("hierarchy_writer::regrid not called in schedule/, where the loop's step regrid starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  hierarchy_writer::regrid(level, time);\n", "")}, doc.the_loop),
                 ("amrcore->regrid not called in CarpetX/src/hierarchy/hierarchy.cxx, where the loop's step regrid starts", {layer_path("hierarchy", "hierarchy.cxx"): "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n}\n"}, doc.the_loop),
                 ("nowhere declared in a public header but defined in no api/ file and in no row of PUBLIC_BODIES", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "int nowhere();\n"}, doc.entries),
+                ("CarpetX/src/include/carpetx_rk.hxx:2 declares something the map cannot name: void (*handler)(int);", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "void (*handler)(int);\n"}, doc.entries),
+                ("operator<< not defined in CarpetX/src/hierarchy/group_tags.cxx, where its row of PUBLIC_BODIES", {layer_path("hierarchy", "group_tags.cxx"): "int tags() {\n  return 0;\n}\n"}, doc.the_loop),
                 ("reduce not defined in CarpetX/src/ops/reduction.cxx, where its row of PUBLIC_BODIES", {layer_path("ops", "reduction.cxx"): "int reduced() {\n  return 0;\n}\n"}, doc.the_loop),
             ]:
                 with self.subTest(message=message):

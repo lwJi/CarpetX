@@ -4,7 +4,7 @@ import re
 import textwrap
 from collections import Counter
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Iterator, Optional
 
 from checks import excerpt, plural
 from files import Lang, lang_of
@@ -134,6 +134,7 @@ FILE_LOCAL_DECLARATION = re.compile(r"static_assert\b|(?:extern\s+)?template\s+(
 STATIC_WORD = re.compile(r"\bstatic\b")
 EXTERN_C = re.compile(r'\bextern\s+"C"')
 OPERATOR_NAME = re.compile(r"\boperator\s*[^\s\w(]*")
+TEMPLATE_ARGS = re.compile(r"<[^<>]*>")
 NOT_A_DECLARATOR = re.compile(r"[^\w\s:*&]")
 DECLARED_WORD = re.compile(r"[A-Za-z_]\w*(?:\s*::\s*[A-Za-z_]\w*)*")
 STATEMENT_KEYWORDS = ("return", "throw", "else", "do", "case", "new", "delete", "co_return", "co_yield", "co_await")
@@ -264,11 +265,23 @@ def declaration_head(statement: str) -> str:
     return "\n".join(lines)
 
 
-def names_a_function(head: str) -> bool:
+def declared_function(head: str, in_header: bool = False) -> Optional[str]:
     before, paren, _ = head.partition("(")
-    before = OPERATOR_NAME.sub("operator", EXTERN_C.sub("", before))
+    if not paren:
+        return None
+    before = EXTERN_C.sub("", before)
+    operator = OPERATOR_NAME.search(before)
+    before = OPERATOR_NAME.sub("operator", before)
+    while in_header and TEMPLATE_ARGS.search(before):
+        before = TEMPLATE_ARGS.sub("", before)
     words = DECLARED_WORD.findall(before)
-    return bool(paren) and not NOT_A_DECLARATOR.search(before) and len(words) >= 2 and words[0] not in STATEMENT_KEYWORDS
+    if NOT_A_DECLARATOR.search(before) or len(words) < 2 or words[0] in STATEMENT_KEYWORDS:
+        return None
+    return re.sub(r"\s+", "", operator.group(0)) if operator else words[-1]
+
+
+def names_a_function(head: str) -> bool:
+    return declared_function(head) is not None
 
 
 def file_local(head: str) -> bool:
@@ -577,18 +590,23 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
     rules = [rule for rule in RULES if rule.files(name, lang)]
     found = []
     whole = sorted((number, rule.name) for rule in rules if rule.whole for number in rule.whole(name, text))
-    statement = ""
-    for number, line in enumerate(text.splitlines(), 1):
-        statement += line + "\n"
+    for number, line, statement in statements(text):
         found.extend(Finding(number, rule, line.strip()) for at, rule in whole if at == number)
         found.extend(
             Finding(number, rule.name, line.strip())
             for rule in rules
             if rule.word.search(line) and not rule.allowed(name, line, statement)
         )
+    return found
+
+
+def statements(text: str) -> Iterator[tuple[int, str, str]]:
+    statement = ""
+    for number, line in enumerate(text.splitlines(), 1):
+        statement += line + "\n"
+        yield number, line, statement
         if STATEMENT_END.search(line):
             statement = ""
-    return found
 
 
 def new_findings(before: list[Finding], after: list[Finding]) -> list[Finding]:
