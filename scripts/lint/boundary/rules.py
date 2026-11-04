@@ -142,6 +142,7 @@ USING_DIRECTIVE = re.compile(r"^\s*using\s+namespace\b")
 GUARD_PREFIX = "CARPETX_CARPETX_"
 GUARD_MACRO = re.compile(r"^\s*#\s*(?:ifndef|define)\s+(" + GUARD_PREFIX + r"\w+)")
 INCLUDE_LINE = re.compile(r"^\s*#\s*include\b")
+DIRECTIVE = re.compile(r"^\s*#")
 GUARD_WORD = re.compile(f"{GUARD_MACRO.pattern}|{INCLUDE_LINE.pattern}")
 ENTRY_LAYER = "flesh"
 STATEMENT_END = re.compile(r"[;{}]")
@@ -170,6 +171,7 @@ class Rule:
     where: str
     clean: str
     home: tuple[str, ...] = ()
+    whole: Optional[Callable[[str, str], list[int]]] = None
 
     def phrase(self, noun: str) -> str:
         return f"{noun} {self.where}" if self.where else noun
@@ -281,6 +283,17 @@ def prototype_allowed(name: str, line: str, statement: str) -> bool:
 def guard_of(name: str) -> str:
     assert name.startswith(PRIVATE_DIR), name
     return "CARPETX_" + re.sub(r"[/.]", "_", "CarpetX/" + name[len(PRIVATE_DIR) :]).upper()
+
+
+def guard_opening(name: str, text: str) -> list[int]:
+    for number, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        m = GUARD_MACRO.match(line)
+        if not DIRECTIVE.match(line) or INCLUDE_LINE.match(line) or (m is not None and m.group(1) != guard_of(name)):
+            return []
+        return [] if re.fullmatch(rf"\s*#\s*ifndef\s+{guard_of(name)}\s*", line) else [number]
+    return []
 
 
 def guard_allowed(name: str, line: str, statement: str) -> bool:
@@ -516,13 +529,14 @@ RULES = (
         allowed=guard_allowed,
         text=textwrap.fill(
             f"guard: a CarpetX header opens with the guard that spells its path, {GUARD_PREFIX}<LAYER>_<NAME>_HXX, "
-            f"so that a copied header cannot hide behind the guard of its original, and a private one includes {ROOT_HEADER} "
-            "before any other header.",
+            "on its first line, so that a copied header cannot hide behind the guard of its original, and a private one "
+            f"includes {ROOT_HEADER} before any other header.",
             width=RULE_WIDTH,
         ),
         noun="header opening",
         where="out of order",
         clean="every header opens with its own guard and internal.hxx",
+        whole=guard_opening,
     ),
     Rule(
         "entry",
@@ -562,9 +576,11 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
         return []
     rules = [rule for rule in RULES if rule.files(name, lang)]
     found = []
+    whole = sorted((number, rule.name) for rule in rules if rule.whole for number in rule.whole(name, text))
     statement = ""
     for number, line in enumerate(text.splitlines(), 1):
         statement += line + "\n"
+        found.extend(Finding(number, rule, line.strip()) for at, rule in whole if at == number)
         found.extend(
             Finding(number, rule.name, line.strip())
             for rule in rules

@@ -24,6 +24,10 @@ def reported(name, text, lang=Lang.CXX):
     return [(f.rule, f.text) for f in findings(name, text, lang)]
 
 
+def guarded(name, text):
+    return f"#ifndef {rules.guard_of(name)}\n#define {rules.guard_of(name)}\n\n" + text
+
+
 def since_findings(root, base):
     [(_, found)] = check_since(root, base, [check.CHECK])
     return [(name, f) for name, verdict in found for f in verdict]
@@ -84,8 +88,8 @@ class Markers(unittest.TestCase):
                 self.assertEqual(reported(name, "SRCS = a.cxx\n" + self.EXPORT + "\n", Lang.MAKE), [("marker", self.EXPORT)])
 
     def test_a_private_header_guards_on_it(self):
-        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", GUARD), [])
-        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", "  # ifndef  CARPETX_INTERNAL  \n#endif\n"), [])
+        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", guarded("CarpetX/src/hierarchy/driver.hxx", GUARD)), [])
+        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", guarded("CarpetX/src/hierarchy/driver.hxx", "  # ifndef  CARPETX_INTERNAL  \n#endif\n")), [])
 
     def test_any_other_use_inside_carpetx_src_is_reported(self):
         for text in ["#define CARPETX_INTERNAL\n", "#ifdef CARPETX_INTERNAL\n", "#if !defined(CARPETX_INTERNAL)\n", "#ifndef CARPETX_INTERNAL // x\n"]:
@@ -93,7 +97,7 @@ class Markers(unittest.TestCase):
                 self.assertEqual(reported("CarpetX/src/hierarchy/hierarchy.cxx", text), [("marker", text.strip())])
 
     def test_the_public_headers_never_name_it(self):
-        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", GUARD), [("marker", "#ifndef CARPETX_INTERNAL")])
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", guarded("CarpetX/src/include/carpetx.hxx", GUARD)), [("marker", "#ifndef CARPETX_INTERNAL")])
 
     def test_another_thorns_make_code_defn_cannot_set_it(self):
         self.assertEqual(reported("T/src/make.code.defn", "CPPFLAGS += -DCARPETX_INTERNAL\n", Lang.MAKE), [("marker", "CPPFLAGS += -DCARPETX_INTERNAL")])
@@ -1243,6 +1247,22 @@ class Guard(unittest.TestCase):
         self.assertEqual(reported("CarpetX/src/comm/buffers.hxx", text), [])
         self.assertEqual(reported("CarpetX/src/internal.hxx", "#ifndef CARPETX_CARPETX_INTERNAL_HXX\n#define CARPETX_CARPETX_INTERNAL_HXX\n\n#ifndef CARPETX_INTERNAL\n#error x\n#endif\n\n#endif\n"), [])
 
+    def test_a_header_whose_first_line_is_not_its_own_ifndef_is_reported_there(self):
+        for text, reports in [
+            ('#ifndef CARPETX_ARITH_X_HXX\n#define CARPETX_ARITH_X_HXX\n#include <array>\nint a;\n#endif\n', [("guard", "#ifndef CARPETX_ARITH_X_HXX")]),
+            ("#include <array>\nint a;\n", []),
+            ("\n\n#pragma once\n#include <array>\n", [("guard", "#pragma once")]),
+            ("#define CARPETX_CARPETX_COMM_BUFFERS_HXX\n", [("guard", "#define CARPETX_CARPETX_COMM_BUFFERS_HXX")]),
+            ("int a;\n", []),
+            ("\n" + self.TOP + '#include "internal.hxx"\n', []),
+            ("", []),
+            ("\n\n", []),
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/comm/buffers.hxx", text), reports)
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", "#ifndef CARPETX_HXX\n#define CARPETX_HXX\n"), [("guard", "#ifndef CARPETX_HXX")])
+        self.assertEqual(findings("CarpetX/src/comm/buffers.hxx", "\n#if 1\n#include <vector>\n#endif\n", Lang.CXX), [Finding(2, "guard", "#if 1")])
+
     def test_a_public_header_includes_no_internal_hxx(self):
         text = "#ifndef CARPETX_CARPETX_INCLUDE_CARPETX_HXX\n#define CARPETX_CARPETX_INCLUDE_CARPETX_HXX\n\n#include <defs.hxx>\n#include <cctk.h>\n"
         self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", text), [])
@@ -1506,7 +1526,7 @@ class Since(unittest.TestCase):
             base = git(root, "rev-parse", "HEAD").strip()
             write(root, "T/src/a.cxx", '#include "../../CarpetX/src/driver.hxx"\n#include "../../CarpetX/src/schedule.hxx"\n')
             write(root, "T/src/b.cxx", "#define CARPETX_INTERNAL\n")
-            write(root, "CarpetX/src/io/io.hxx", GUARD + "int a;\n")
+            write(root, "CarpetX/src/io/io.hxx", guarded("CarpetX/src/io/io.hxx", GUARD + "int a;\n"))
             write(root, "notes.md", '#include "../../CarpetX/src/driver.hxx"\n')
             self.assertEqual(
                 since_findings(root, base),
