@@ -7,7 +7,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
-from checks import plural
+from checks import plural, wrap
 from files import PROJECT
 
 from .rules import LAYERS, below
@@ -33,12 +33,12 @@ ACCEPTED = (
     ("schedule", "api", "CarpetX::variable("),
     ("schedule", "api", "CarpetX::window_t::"),
 )
-RULE = (
-    "symbols: an object the build made from a CarpetX .cxx imports a symbol of namespace CarpetX only from an\n"
-    "object of its own layer or a lower one, whatever declared it: a header, a prototype, a block-scope\n"
-    "declaration or an extern. A reach listed in ACCEPTED in scripts/lint/boundary/symbols.py, a row naming the\n"
-    "importing layer, the layer of the body and the symbol's prefix, is reported as accepted until the bodies\n"
-    "move down; the list only shrinks, and the map draws each row as a dashed edge of its stack."
+RULE = wrap(
+    "symbols: an object the build made from a CarpetX .cxx imports a symbol of namespace CarpetX only from an "
+    "object of its own layer or a lower one, whatever declared it: a header, a prototype, a block-scope declaration "
+    "or an extern. A reach listed in ACCEPTED in scripts/lint/boundary/symbols.py, a row naming the importing "
+    "layer, the layer of the body and the symbol's prefix, is reported as accepted until the bodies move down; the "
+    "list only shrinks, and the map draws each row as a dashed edge of its stack."
 )
 
 Demangle = Callable[[Iterable[str]], dict[str, str]]

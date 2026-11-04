@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import textwrap
 import traceback
 
 EXIT_CLEAN, EXIT_FOUND, EXIT_ERROR = 0, 1, 2
@@ -116,7 +117,8 @@ def main(argv: list[str] | None = None) -> int:
     check = commands.add_parser(
         "check",
         help="list every comment line outside the allow-list and every line a boundary rule reports",
-        description="\n\n".join(check.rule for check in checks),
+        description="List every comment line outside the allow-list and every line a boundary rule reports.",
+        epilog="What each check holds:\n\n" + "\n\n".join(f"{c.name}:\n{textwrap.indent(c.rule, '  ')}" for c in checks),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     check.add_argument("paths", nargs="*", metavar="PATH", help="files or directories to check (default: the whole tree)")

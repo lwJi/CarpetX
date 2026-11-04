@@ -578,6 +578,24 @@ class Cli(Project):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(reports(result), ["✓ boundary"])
 
+    def test_check_help_puts_the_rules_after_the_options_under_each_check(self):
+        result = self.run_tool(["check", "--help"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.split("\n")
+        only = next(i for i, line in enumerate(lines) if line.startswith("  --only CHECK"))
+        heading = lines.index("What each check holds:")
+        self.assertLess(only, heading)
+        self.assertEqual(
+            [line for line in lines[heading:] if line and not line.startswith(" ")],
+            ["What each check holds:", "no-comments:", "boundary:"],
+        )
+        rules = [line for line in lines[lines.index("boundary:") + 1 :] if line]
+        self.assertTrue(all(line.startswith("  ") for line in rules), rules)
+        from boundary.rules import RULES
+
+        self.assertEqual([line.split(":")[0].strip() for line in rules if not line.startswith("    ")][1:], [rule.name for rule in RULES])
+        self.assertLessEqual(max(len(line) for line in lines), 102)
+
     def test_check_of_a_missing_path_exits_2(self):
         self.assertEqual(self.run_tool(["check", os.path.join(self.root, "nope")]).returncode, 2)
 

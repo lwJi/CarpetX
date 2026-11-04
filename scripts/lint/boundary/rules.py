@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import re
-import textwrap
 from collections import Counter
 from dataclasses import dataclass
 from typing import Callable, Iterator, Optional
 
-from checks import excerpt, plural
+from checks import excerpt, plural, wrap
 from files import Lang, lang_of
 
 MARKER = "CARPETX_INTERNAL"
@@ -147,7 +146,6 @@ DIRECTIVE = re.compile(r"^\s*#")
 GUARD_WORD = re.compile(f"{GUARD_MACRO.pattern}|{INCLUDE_LINE.pattern}")
 ENTRY_LAYER = "flesh"
 STATEMENT_END = re.compile(r"[;{}]")
-RULE_WIDTH = 104
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
 
 Files = Callable[[str, Lang], bool]
@@ -179,6 +177,9 @@ class Rule:
 
     def count(self, n: int) -> str:
         return self.phrase(plural(n, self.noun))
+
+    def paragraph(self) -> str:
+        return wrap(f"{self.name}: {self.text}")
 
 
 def is_private(name: str) -> bool:
@@ -332,7 +333,7 @@ RULES = (
         files=public_cxx,
         word=INCLUDE_INTO_SRC,
         allowed=never,
-        text="include: an #include whose path reaches into CarpetX/src; include <carpetx.hxx> instead.",
+        text="an #include whose path reaches into CarpetX/src; include <carpetx.hxx> instead.",
         noun="private include",
         where="",
         clean="no private CarpetX includes",
@@ -342,8 +343,8 @@ RULES = (
         files=checked,
         word=MARKER_WORD,
         allowed=marker_allowed,
-        text="marker: CARPETX_INTERNAL belongs only in CarpetX/src/make.code.defn and in the\n"
-        "#ifndef CARPETX_INTERNAL guard of a private CarpetX header.",
+        text="CARPETX_INTERNAL belongs only in CarpetX/src/make.code.defn and in the #ifndef CARPETX_INTERNAL guard of "
+        "a private CarpetX header.",
         noun="stray marker",
         where="",
         clean="no stray CARPETX_INTERNAL",
@@ -353,8 +354,8 @@ RULES = (
         files=private_cxx,
         word=VALIDITY_WORD,
         allowed=in_files(VALIDITY_FILES),
-        text="validity: a validity kernel or a why_valid_t setter is named only in CarpetX/src/hierarchy/valid.cxx\n"
-        "and valid.hxx; every other site opens a write scope or calls require or invalidate.",
+        text="a validity kernel or a why_valid_t setter is named only in CarpetX/src/hierarchy/valid.cxx and "
+        "valid.hxx; every other site opens a write scope or calls require or invalidate.",
         noun="validity call",
         where="outside valid.cxx",
         clean="no validity call outside valid.cxx",
@@ -365,8 +366,8 @@ RULES = (
         files=private_cxx,
         word=BINDING_WORD,
         allowed=in_files(BINDING_FILES),
-        text="binding: a cGH data[var][tl] entry is assigned only in CarpetX/src/hierarchy/binding.cxx;\n"
-        "every other site calls cctkGH_binding.",
+        text="a cGH data[var][tl] entry is assigned only in CarpetX/src/hierarchy/binding.cxx; every other site calls "
+        "cctkGH_binding.",
         noun="pointer-table write",
         where="outside binding.cxx",
         clean="no pointer-table write outside binding.cxx",
@@ -377,8 +378,8 @@ RULES = (
         files=in_files(SYNC_FILES),
         word=DIRECTIONS_WORD,
         allowed=directions_allowed,
-        text="directions: the sync layer takes a window and a list of gi_t; only the flesh-facing\n"
-        "SyncGroupsOnActiveLevels receives the flesh's directions array, and discards it.",
+        text="the sync layer takes a window and a list of gi_t; only the flesh-facing SyncGroupsOnActiveLevels "
+        "receives the flesh's directions array, and discards it.",
         noun="directions parameter",
         where="in the sync layer",
         clean="no directions in the sync layer",
@@ -389,8 +390,8 @@ RULES = (
         files=carpetx_cxx,
         word=VARINDEX_WORD,
         allowed=varindex_allowed,
-        text="varindex: a flesh variable index is made from a group-relative one only by GroupRecord::var;\n"
-        "call record.var(vi) instead of adding to firstvarindex or CCTK_FirstVarIndexI(gi).",
+        text="a flesh variable index is made from a group-relative one only by GroupRecord::var; call record.var(vi) "
+        "instead of adding to firstvarindex or CCTK_FirstVarIndexI(gi).",
         noun="firstvarindex addition",
         where="outside GroupRecord::var",
         clean="no firstvarindex addition outside GroupRecord::var",
@@ -401,13 +402,10 @@ RULES = (
         files=model_files,
         word=MODEL_WORD,
         allowed=never,
-        text=textwrap.fill(
-            f"model: the data model, {MODEL_FILE}, has no mutable member and does not include "
-            "<carpetx_rk.hxx>, so that a const hierarchy writes nothing but grid data behind its pointers; what "
-            "comm/ builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer "
-            "to a type it only forward-declares, and the integrator record is a slot in traversal/.",
-            width=RULE_WIDTH,
-        ),
+        text=f"the data model, {MODEL_FILE}, has no mutable member and does not include <carpetx_rk.hxx>, so that a "
+        "const hierarchy writes nothing but grid data behind its pointers; what comm/ builds on a level lives in "
+        "comm/'s level_buffers_t, which LevelData holds through one pointer to a type it only forward-declares, and "
+        "the integrator record is a slot in traversal/.",
         noun="mutable or integrator include",
         where="in the data model",
         clean="no mutable or integrator include in the data model",
@@ -418,8 +416,8 @@ RULES = (
         files=carpetx_cxx,
         word=WINDOW_WORD,
         allowed=never,
-        text='window: window_t is the one "which levels" type; active_levels_t is gone, and a window is\n'
-        "built only by active_window(), all_levels(), window_t::one_level, window_t::levels and narrow.",
+        text='window_t is the one "which levels" type; active_levels_t is gone, and a window is built only by '
+        "active_window(), all_levels(), window_t::one_level, window_t::levels and narrow.",
         noun="active_levels_t use",
         where="",
         clean="no active_levels_t",
@@ -429,13 +427,12 @@ RULES = (
         files=private_cxx,
         word=TRAVERSAL_WORD,
         allowed=in_files(TRAVERSAL_FILES),
-        text="traversal: a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine,\n"
-        "recover_iteration, and the integrator's integrator_config and integrator_frozen) is named only in\n"
-        "CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, parameter recovery\n"
-        "calls record_recovered_iteration() once, register_integrator calls record_integrator() once, the\n"
-        "scheduler calls freeze_integrator() once after WRAGH, and a reader calls scheduled_window(),\n"
-        "scheduled_tail_bin(), in_recovery_traversal(), scheduled_routine(), recovered_iteration() or\n"
-        "integrator(), which refuses until the record is frozen.",
+        text="a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine, recover_iteration, and the "
+        "integrator's integrator_config and integrator_frozen) is named only in CarpetX/src/traversal/traversal.cxx "
+        "and traversal.hxx; a driver phase opens a scope, parameter recovery calls record_recovered_iteration() "
+        "once, register_integrator calls record_integrator() once, the scheduler calls freeze_integrator() once "
+        "after WRAGH, and a reader calls scheduled_window(), scheduled_tail_bin(), in_recovery_traversal(), "
+        "scheduled_routine(), recovered_iteration() or integrator(), which refuses until the record is frozen.",
         noun="traversal use",
         where="outside traversal.cxx",
         clean="no active_levels outside traversal.cxx",
@@ -446,14 +443,11 @@ RULES = (
         files=carpetx_cxx,
         word=INDEX_PARAM,
         allowed=index_allowed,
-        text=textwrap.fill(
-            "index: every CarpetX source and header names a group, variable, time level, patch or level by its type "
-            "(gi_t, vi_t, tl_t, patch_t, level_t, window_t), never a bare int or CCTK_INT, except in the signatures "
-            "the flesh and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow; a loop "
-            "over a patch's levels walks level_handles(), one over the patches patch_handles(), and .index() unwraps "
-            "a handle where it meets AMReX or the flesh.",
-            width=RULE_WIDTH,
-        ),
+        text="every CarpetX source and header names a group, variable, time level, patch or level by its type (gi_t, "
+        "vi_t, tl_t, patch_t, level_t, window_t), never a bare int or CCTK_INT, except in the signatures the flesh "
+        "and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow; a loop over a "
+        "patch's levels walks level_handles(), one over the patches patch_handles(), and .index() unwraps a handle "
+        "where it meets AMReX or the flesh.",
         noun="bare index int",
         where="in CarpetX",
         clean="no bare index int in CarpetX",
@@ -463,12 +457,9 @@ RULES = (
         files=records_files,
         word=RECORDS_WORD,
         allowed=never,
-        text=textwrap.fill(
-            f"records: the flesh's group table (CCTK_{', '.join(RECORDS_CALLS)}) is read by hierarchy/, which "
-            "builds the records from it, and by flesh/, where its ints arrive, never by "
-            f"{dirs(RECORDS_LAYERS, 'or')}; a file there asks driver().record(gi), record_of(var) or records().",
-            width=RULE_WIDTH,
-        ),
+        text=f"the flesh's group table (CCTK_{', '.join(RECORDS_CALLS)}) is read by hierarchy/, which builds the "
+        "records from it, and by flesh/, where its ints arrive, never by "
+        f"{dirs(RECORDS_LAYERS, 'or')}; a file there asks driver().record(gi), record_of(var) or records().",
         noun="group-table call",
         where=f"in {dirs(RECORDS_LAYERS, 'or')}",
         clean=f"no group-table call in {dirs(RECORDS_LAYERS, 'or')}",
@@ -479,8 +470,8 @@ RULES = (
         files=codec_cxx,
         word=CODEC_WORD,
         allowed=never,
-        text="codec: a checkpoint codec (io_*_checkpoint.cxx and its io_*_names.hxx) sees only the checkpoint\n"
-        "record and its own library: no ghext->, driver(), GHExt, LevelData, GroupData or hierarchy/driver.hxx.",
+        text="a checkpoint codec (io_*_checkpoint.cxx and its io_*_names.hxx) sees only the checkpoint record and its "
+        "own library: no ghext->, driver(), GHExt, LevelData, GroupData or hierarchy/driver.hxx.",
         noun="hierarchy use",
         where="in a checkpoint codec",
         clean="no hierarchy access in a checkpoint codec",
@@ -491,11 +482,8 @@ RULES = (
         files=private_cxx,
         word=LAYER_INCLUDE,
         allowed=layer_allowed,
-        text=textwrap.fill(
-            "layer: a private CarpetX file includes internal.hxx and the headers of its own layer or a lower one, "
-            f'each as "<layer>/<name>.hxx"; the layers, lowest first, are {", ".join(LAYERS)}.',
-            width=RULE_WIDTH,
-        ),
+        text="a private CarpetX file includes internal.hxx and the headers of its own layer or a lower one, each as "
+        f'"<layer>/<name>.hxx"; the layers, lowest first, are {", ".join(LAYERS)}.',
         noun="include",
         where="outside the layer order",
         clean="every internal include at or below its own layer",
@@ -505,16 +493,12 @@ RULES = (
         files=carpetx_source,
         word=PROTOTYPE_END,
         allowed=prototype_allowed,
-        text=textwrap.fill(
-            "prototype: a CarpetX .cxx declares no function it does not define, since a prototype reaches past the "
-            "header that the layer rule judges; a declaration at column 0 that ends in ); and names a plain type and "
-            "function is one, and the symbols subcommand judges the rest, templates included, over the build's "
-            "objects. A function "
-            "another file defines is declared in a header of that file's layer and included, one this file defines "
-            "is defined above its first use, and a forward declaration only this file needs is static. A "
-            "namespace-scope object is initialised with = or braces, never with (), which reads as a prototype.",
-            width=RULE_WIDTH,
-        ),
+        text="a CarpetX .cxx declares no function it does not define, since a prototype reaches past the header that "
+        "the layer rule judges; a declaration at column 0 that ends in ); and names a plain type and function is "
+        "one, and the symbols subcommand judges the rest, templates included, over the build's objects. A function "
+        "another file defines is declared in a header of that file's layer and included, one this file defines is "
+        "defined above its first use, and a forward declaration only this file needs is static. A namespace-scope "
+        "object is initialised with = or braces, never with (), which reads as a prototype.",
         noun="prototype",
         where="in a CarpetX .cxx",
         clean="no prototype in a CarpetX .cxx",
@@ -524,13 +508,10 @@ RULES = (
         files=carpetx_header,
         word=USING_DIRECTIVE,
         allowed=never,
-        text=textwrap.fill(
-            "using: a CarpetX header adds no using namespace, since every file that includes it, and every layer "
-            "above its own, would then see that whole namespace; a header spells what it takes from Arith, Loop or "
-            "another namespace qualified, or declares a name it uses throughout, as driver.hxx declares using "
-            "Loop::dim;, and a .cxx may say using namespace for its own body.",
-            width=RULE_WIDTH,
-        ),
+        text="a CarpetX header adds no using namespace, since every file that includes it, and every layer above its "
+        "own, would then see that whole namespace; a header spells what it takes from Arith, Loop or another "
+        "namespace qualified, or declares a name it uses throughout, as driver.hxx declares using Loop::dim;, and a "
+        ".cxx may say using namespace for its own body.",
         noun="using-directive",
         where="in a CarpetX header",
         clean="no using-directive in a CarpetX header",
@@ -540,12 +521,9 @@ RULES = (
         files=carpetx_header,
         word=GUARD_WORD,
         allowed=guard_allowed,
-        text=textwrap.fill(
-            f"guard: a CarpetX header opens with the guard that spells its path, {GUARD_PREFIX}<LAYER>_<NAME>_HXX, "
-            "on its first line, so that a copied header cannot hide behind the guard of its original, and a private one "
-            f"includes {ROOT_HEADER} before any other header.",
-            width=RULE_WIDTH,
-        ),
+        text=f"a CarpetX header opens with the guard that spells its path, {GUARD_PREFIX}<LAYER>_<NAME>_HXX, on its "
+        "first line, so that a copied header cannot hide behind the guard of its original, and a private one "
+        f"includes {ROOT_HEADER} before any other header.",
         noun="header opening",
         where="out of order",
         clean="every header opens with its own guard and internal.hxx",
@@ -556,13 +534,10 @@ RULES = (
         files=private_cxx,
         word=EXTERN_C,
         allowed=entry_allowed,
-        text=textwrap.fill(
-            f'entry: every extern "C" definition of CarpetX is in {ENTRY_LAYER}/, one file per way the flesh calls in: '
-            "a PROVIDES FUNCTION in aliased.cxx, a scheduled function in scheduled.cxx, and an overload above its "
-            "registration in CarpetX_Startup in startup.cxx; a compile-time check of another layer's signature is in "
-            "compile_checks.cxx, which sits at the top so that it may include any header.",
-            width=RULE_WIDTH,
-        ),
+        text=f'every extern "C" definition of CarpetX is in {ENTRY_LAYER}/, one file per way the flesh calls in: a '
+        "PROVIDES FUNCTION in aliased.cxx, a scheduled function in scheduled.cxx, and an overload above its "
+        "registration in CarpetX_Startup in startup.cxx; a compile-time check of another layer's signature is in "
+        "compile_checks.cxx, which sits at the top so that it may include any header.",
         noun="extern C entry",
         where=f"outside {ENTRY_LAYER}/",
         clean=f"no extern C entry outside {ENTRY_LAYER}/",
@@ -573,15 +548,15 @@ RULES = (
         files=private_cxx,
         word=GHEXT_OR_DRIVER_CALL,
         allowed=door_allowed,
-        text="door: the hierarchy pointer ghext is named only in CarpetX/src/hierarchy/hierarchy.cxx; every other\n"
-        f"file calls driver(), and only from {HIERARCHY_LAYERS[0]}/ or a layer above it, never from "
+        text="the hierarchy pointer ghext is named only in CarpetX/src/hierarchy/hierarchy.cxx; every other file "
+        f"calls driver(), and only from {HIERARCHY_LAYERS[0]}/ or a layer above it, never from "
         f"{dirs(UNDER_HIERARCHY, 'or')}.",
         noun="hierarchy use",
         where="the door does not allow",
         clean=f"the hierarchy has one door that {dirs(UNDER_HIERARCHY, 'and')} never use",
     ),
 )
-RULE = "\n".join([PREAMBLE] + [rule.text for rule in RULES])
+RULE = "\n".join([wrap(PREAMBLE)] + [rule.paragraph() for rule in RULES])
 
 
 def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
