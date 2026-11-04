@@ -1,6 +1,6 @@
 # CarpetX's internals
 
-`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `CarpetX/src/flesh/startup.cxx`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule named below holds.
+`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `ACCEPTED` rows of `scripts/lint/boundary/symbols.py`, the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `CarpetX/src/flesh/startup.cxx`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule named below holds.
 
 ## The stack
 
@@ -32,12 +32,18 @@ flowchart TB
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
   regrid -- "buffers.hxx, fillpatch.hxx" --> comm
+  hierarchy -. "get_interpolator" .-> comm
   hierarchy -. "CactusAmrCore" .-> regrid
-  hierarchy -. "apply_boundary_conditions, get_interpolator" .-> comm
+  hierarchy -. "level_t" .-> api
+  comm -. "level_t, window_t" .-> api
+  regrid -. "level_t, window_t" .-> api
+  ops -. "level_t, variable, window_t" .-> api
+  io -. "window_t" .-> api
+  schedule -. "all_levels, level_t, RecoverRKBoundary, variable, window_t" .-> api
 %% a layer sits above every layer it may include, which the layer rule holds, and a solid edge is an include it has today, read from its #include lines, with the headers on it
 %% where no solid edge joins a layer to the one below it, the order is the rule's, not a coupling of the code
 %% the two boxes are the door rule: driver() is called in the upper box, never in the lower
-%% a dashed edge is a declaration whose body is in the higher layer, the one way a call reaches up, at link time
+%% a dashed edge is an import the build makes upward, a row of ACCEPTED in scripts/lint/boundary/symbols.py that the symbols check holds to the objects: a declaration whose body is in the higher layer, the one way a call reaches up, at link time, and a class stands for its members
 %% a node names its layer, and no header where nothing can include it
 %% an edge into util/, traversal/ or hierarchy/ is not drawn: every layer above hierarchy/ reads hierarchy/driver.hxx
 ```
