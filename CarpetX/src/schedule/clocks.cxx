@@ -355,9 +355,10 @@ void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
              cctkGH->cctk_iteration, double(cctkGH->cctk_time),
              double(cctkGH->cctk_delta_time));
 
-  const traversal_scope_t scope(FinestClockGroup());
-
-  CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
+  {
+    const traversal_scope_t scope(FinestClockGroup());
+    CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
+  }
   if (out_initial_data)
     CCTK_OutputGH(cctkGH);
 }

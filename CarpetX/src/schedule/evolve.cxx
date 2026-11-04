@@ -306,16 +306,16 @@ int Initialise(tFleshConfig *config) {
 #pragma omp critical
   CCTK_VINFO("Initialized %d levels", ext.num_levels());
 
-  const window_t window = FinestClockGroup();
-  const traversal_scope_t scope(window);
-  FinalizeWindow(window, cctkGH, false);
+  {
+    const window_t window = FinestClockGroup();
+    assert(window == all_levels());
+    const traversal_scope_t scope(window);
+    FinalizeWindow(window, cctkGH, false);
 
-  // Checkpoint, analysis, output. The end-of-step bins are marked as in
-  // Evolve; their window here holds every level, so a sync in them is legal
-  // also under subcycling.
-  TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
-  CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
-  TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
+    TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
+    CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
+    TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
+  }
   if (out_initial_data) {
     CCTK_OutputGH(cctkGH);
   }
@@ -490,8 +490,14 @@ int Evolve(tFleshConfig *config) {
       TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
 
       hierarchy_writer::stamp_last_finalized(window, cctkGH->cctk_iteration);
+    }
 
+    {
+      const traversal_scope_t scope(FinestClockGroup());
       TraverseTailBin(cctkGH, "CCTK_CHECKPOINT");
+    }
+
+    {
       const double output_start_time = gettime();
       CCTK_OutputGH(cctkGH);
       const double output_finish_time = gettime();
