@@ -1,26 +1,28 @@
 # CarpetX's internals
 
-`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `ACCEPTED` rows of `scripts/lint/boundary/symbols.py`, the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `CarpetX/src/flesh/startup.cxx`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule named below holds.
+`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `ACCEPTED` rows of `scripts/lint/boundary/symbols.py`, the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `CarpetX/src/flesh/startup.cxx`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule named below holds. The list under each picture is its key.
 
 ## The stack
 
 ```mermaid
 flowchart TB
   subgraph door["driver() allowed"]
-    flesh["flesh/ no header"]
-    api["api/"]
-    schedule["schedule/"]
-    io["io/"]
-    ops["ops/"]
-    regrid["regrid/ no header"]
-    comm["comm/"]
+    subgraph above["above hierarchy/"]
+      flesh["flesh/ no header"]
+      api["api/"]
+      schedule["schedule/"]
+      io["io/"]
+      ops["ops/"]
+      regrid["regrid/ no header"]
+      comm["comm/"]
+    end
     hierarchy["hierarchy/"]
   end
   subgraph nodoor["no driver()"]
     traversal["traversal/"]
     util["util/"]
   end
-  flesh ~~~ api ~~~ schedule ~~~ io ~~~ ops ~~~ regrid ~~~ comm ~~~ hierarchy ~~~ traversal ~~~ util
+  include["include/"]
   flesh -- "schedule.hxx" --> schedule
   flesh -- "checkpoint.hxx, io.hxx" --> io
   flesh -- "interp.hxx, linsolve.hxx" --> ops
@@ -32,57 +34,79 @@ flowchart TB
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
   regrid -- "buffers.hxx, fillpatch.hxx" --> comm
-  hierarchy -. "get_interpolator" .-> comm
-  hierarchy -. "CactusAmrCore" .-> regrid
-  hierarchy -. "level_t" .-> api
-  comm -. "level_t, window_t" .-> api
-  regrid -. "level_t, window_t" .-> api
-  ops -. "level_t, variable, window_t" .-> api
-  io -. "window_t" .-> api
-  schedule -. "all_levels, level_t, RecoverRKBoundary, variable, window_t" .-> api
-%% a layer sits above every layer it may include, which the layer rule holds, and a solid edge is an include it has today, read from its #include lines, with the headers on it
-%% where no solid edge joins a layer to the one below it, the order is the rule's, not a coupling of the code
-%% the two boxes are the door rule: driver() is called in the upper box, never in the lower
-%% a dashed edge is an import the build makes upward, a row of ACCEPTED in scripts/lint/boundary/symbols.py that the symbols check holds to the objects: a declaration whose body is in the higher layer, the one way a call reaches up, at link time, and a class stands for its members
-%% a node names its layer, and no header where nothing can include it
-%% an edge into util/, traversal/ or hierarchy/ is not drawn: every layer above hierarchy/ reads hierarchy/driver.hxx
+  traversal -- "refuse.hxx" --> util
+  above -- "driver.hxx, grid_sizes.hxx, group_tags.hxx, loops.hxx, operations.hxx, valid.hxx" --> hierarchy
+  door -- "traversal.hxx" --> traversal
+  door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
+  door -- "carpetx.hxx, carpetx_rk.hxx" --> include
+  nodoor -- "carpetx.hxx, carpetx_rk.hxx" --> include
+  comm -. "get_interpolator" .- hierarchy
+  regrid -. "CactusAmrCore" .- hierarchy
+  api -. "level_t" .- hierarchy
+  api -. "level_t, window_t" .- comm
+  api -. "level_t, window_t" .- regrid
+  api -. "level_t, variable, window_t" .- ops
+  api -. "window_t" .- io
+  api -. "all_levels, level_t, RecoverRKBoundary, variable, window_t" .- schedule
 ```
 
-## The loop
+- the layer rule holds the order util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/ from the bottom: a file includes only its own layer or a lower one
+- a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes
+- an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above hierarchy/, is there for the arrow into hierarchy/
+- the outer boxes are the door rule: driver() is called in the upper box, never in the lower
+- include/ is the public headers, carpetx.hxx, carpetx_rk.hxx, not a layer: a thorn reads nothing else of CarpetX, and agent_docs/carpetx-public-api.md describes them
+- a dashed line is an import the build makes upward, a row of ACCEPTED in scripts/lint/boundary/symbols.py that the symbols check holds to the objects: the lower end declares, the upper end holds the body, the one way a call reaches up, at link time, and a class stands for its members
+- a node names its layer, and no header where nothing can include it
+
+## One pass of the schedule
 
 ```mermaid
 flowchart LR
   cactus["Cactus flesh"]
-  amrex["AMReX"]
   thorn["a thorn's routine"]
   flesh["flesh/"]
   api["api/"]
   schedule["schedule/"]
   io["io/"]
   ops["ops/"]
-  regrid["regrid/"]
+  comm["comm/"]
   hierarchy["hierarchy/"]
   util["util/"]
   cactus -- "1 Initialise, Evolve, Shutdown" --> schedule
   schedule -- "2 CCTK_Traverse, CCTK_OutputGH" --> cactus
   cactus -- "3 ScheduleTraverseGH" --> flesh
-  cactus -- "3 OutputGH" --> io
-  flesh -- "4 CCTK_ScheduleTraverse" --> cactus
-  api -- "4 CCTK_ScheduleTraverse" --> cactus
-  cactus -- "5 CallFunction" --> schedule
-  schedule -- "6 CCTK_CallFunction" --> thorn
-  thorn -- "7 carpetx.hxx, carpetx_rk.hxx" --> api
-  thorn -- "7 reduce" --> ops
-  thorn -- "7 synchronize, valid_t, operator<<" --> hierarchy
-  thorn -- "7 Timer" --> util
-  schedule -- "hierarchy_writer::regrid" --> hierarchy
-  hierarchy -- "amrcore->regrid" --> amrex
-  amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
-%% the numbered edges are one pass of the schedule: the flesh starts the driver (1), the driver names a bin or asks for output (2), the flesh hands it to the driver's entry (3), the entry asks the flesh to walk the bin with CallFunction (4), the flesh calls CallFunction for each routine (5), CallFunction runs the routine (6), the routine may call the public headers, whose bodies are in api/ but for those the table names (7)
-%% the unnumbered edges are a regrid: the driver asks the hierarchy, the hierarchy asks AMReX, and AMReX calls back into the layer that defines its callbacks
-%% a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX, or at link time through a dashed edge of the stack
-%% the table below lists every entry an outsider calls
+  cactus -- "4 OutputGH" --> io
+  flesh -- "5 CCTK_ScheduleTraverse" --> cactus
+  cactus -- "6 CallFunction" --> schedule
+  schedule -- "7 CCTK_CallFunction" --> thorn
+  thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api
+  thorn -- "8 reduce" --> ops
+  thorn -- "8 synchronize, valid_t, operator<<" --> hierarchy
+  thorn -- "8 Timer" --> util
+  api -- "9 CCTK_ScheduleTraverse" --> cactus
+  cactus -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB" --> schedule
+  cactus -- "10 InterpLocalUniform" --> ops
+  cactus -- "10 SyncGroupsOnActiveLevels" --> comm
 ```
+
+- the numbered arrows are one pass of the schedule: the flesh starts the driver (1), the driver names a bin or asks for output (2), the flesh hands a bin to the driver's entry (3), the flesh hands output to io/ (4), the entry asks the flesh to walk the bin with CallFunction (5), the flesh calls CallFunction for each routine (6), CallFunction runs the routine (7), the routine may call the public headers, whose bodies are in api/ but for those the table names (8), api/ may ask the flesh to walk a schedule group, back to 6 (9), what a routine asks of the flesh, the flesh hands to the layer that owns the work (10)
+- a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX, or at link time through a dashed line of the stack
+
+## One regrid
+
+```mermaid
+flowchart LR
+  amrex["AMReX"]
+  schedule["schedule/"]
+  regrid["regrid/"]
+  hierarchy["hierarchy/"]
+  schedule -- "1 hierarchy_writer::regrid" --> hierarchy
+  hierarchy -- "2 amrcore->regrid" --> amrex
+  amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
+```
+
+- the numbered arrows are one regrid: the driver asks the hierarchy (1), the hierarchy asks AMReX (2), AMReX calls back into the layer that defines its callbacks (3)
+- the table below lists every entry an outsider calls
 
 ## Who the outsiders call
 
