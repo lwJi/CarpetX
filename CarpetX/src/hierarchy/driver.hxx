@@ -676,9 +676,6 @@ struct GHExt {
         std::vector<CCTK_REAL> robin_values;
         amrex::Vector<amrex::BCRec> bcrecs;
 
-        // Apply outer (physical) boundary conditions to a MultiFab
-        void apply_boundary_conditions(amrex::MultiFab &mfab) const;
-
         std::unique_ptr<amrex::FluxRegister> freg;
         std::optional<std::array<gi_t, dim> > fluxes;
 

@@ -1,4 +1,5 @@
 #include "comm/fillpatch.hxx"
+#include "comm/boundaries.hxx"
 
 #include <utility>
 
@@ -34,7 +35,7 @@ void FillPatch_Sync(task_manager &tasks2,
                            geom.periodicity());
   tasks2.submit_serially([&groupdata, &mfab]() {
     mfab.FillBoundary_finish();
-    groupdata.apply_boundary_conditions(mfab);
+    apply_boundary_conditions(groupdata, mfab);
   });
 }
 
@@ -73,11 +74,10 @@ void FillPatch_Prolongate(
     // There is no coarser level for our boundaries, i.e. there is no
     // prolongation.
 
-    // Early-exit cleanup (only when do_sync)
     if (do_sync) {
       tasks2.submit_serially([&groupdata, &mfab]() {
         mfab.FillBoundary_finish();
-        groupdata.apply_boundary_conditions(mfab);
+        apply_boundary_conditions(groupdata, mfab);
       });
     }
     return;
@@ -173,7 +173,7 @@ void Prolongate_Start(
   assert(crse_patch.DistributionMap() == fine_patch.DistributionMap());
   assert(crse_patch.size() == fine_patch.size());
 
-  coarsegroupdata.apply_boundary_conditions(crse_patch);
+  apply_boundary_conditions(coarsegroupdata, crse_patch);
 
   // Interpolate coarse buffer into fine buffer (in space, local)
   FillPatchInterp(fine_patch, 0, crse_patch, 0, ncomps,
@@ -192,8 +192,7 @@ void Prolongate_Finish(const GHExt::PatchData::LevelData::GroupData &groupdata,
   // Finish copying fine buffer into destination
   mfab.ParallelCopy_finish();
 
-  // Apply symmetry and boundary conditions
-  groupdata.apply_boundary_conditions(mfab);
+  apply_boundary_conditions(groupdata, mfab);
 }
 
 void FillPatch_NewLevel(
@@ -232,12 +231,12 @@ void FillPatch_NewLevel(
 
   cmfab_g.ParallelCopy(cmfab, 0, 0, ncomps, cgeom.periodicity());
 
-  coarsegroupdata.apply_boundary_conditions(cmfab_g);
+  apply_boundary_conditions(coarsegroupdata, cmfab_g);
 
   FillPatchInterp(mfab, 0, cmfab_g, 0, ncomps, nghosts, cgeom, fgeom, fdomain_g,
                   ratio, mapper, bcrecs, 0);
 
-  groupdata.apply_boundary_conditions(mfab);
+  apply_boundary_conditions(groupdata, mfab);
 }
 
 void FillPatch_RemakeLevel(
@@ -263,7 +262,7 @@ void FillPatch_RemakeLevel(
     mfab_crse_patch.ParallelCopy(
         cmfab, 0, 0, ncomps, IntVect{0} /* don't use coarse ghosts */,
         mfab_crse_patch.nGrowVect(), cgeom.periodicity());
-    coarsegroupdata.apply_boundary_conditions(mfab_crse_patch);
+    apply_boundary_conditions(coarsegroupdata, mfab_crse_patch);
 
     MultiFab mfab_fine_patch = make_mf_fine_patch<MultiFab>(fpc, ncomps);
 
@@ -281,7 +280,7 @@ void FillPatch_RemakeLevel(
 
   mfab.ParallelCopy(fmfab, 0, 0, ncomps, IntVect{0} /* don't use old ghosts */,
                     nghosts, fgeom.periodicity());
-  groupdata.apply_boundary_conditions(mfab);
+  apply_boundary_conditions(groupdata, mfab);
 }
 
 } // namespace CarpetX
