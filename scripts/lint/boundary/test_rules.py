@@ -1303,11 +1303,10 @@ class Tree(unittest.TestCase):
     def test_each_overload_the_flesh_defines_is_above_its_registration(self):
         text = doc.read(os.path.join(PROJECT, doc.STARTUP))
         registration = re.search(doc.DEFINITION.format(name="CarpetX_Startup"), text).start()
-        for name in doc.registrations():
-            if doc.defining_layer(PROJECT, name) == "flesh":
-                with self.subTest(name=name):
-                    definition = re.search(doc.DEFINITION.format(name=name), text)
-                    self.assertTrue(definition and definition.start() < registration, f"{name} is registered in CarpetX_Startup, so it is defined above it in flesh/startup.cxx")
+        for name in dict(doc.REGISTERED)[doc.STARTUP]:
+            with self.subTest(name=name):
+                definition = re.search(doc.DEFINITION.format(name=name), text)
+                self.assertTrue(definition and definition.start() < registration, f"{name} is registered in CarpetX_Startup, so it is defined above it in flesh/startup.cxx")
 
 
 class Using(unittest.TestCase):
@@ -1986,7 +1985,7 @@ class Doc(unittest.TestCase):
         numbered = [edge.group(2).split()[0] for edge in edges if edge.group(2)[0].isdigit()]
         self.assertEqual(numbered, sorted(numbered))
         self.assertEqual(sorted(set(numbered)), list("1234567"))
-        self.assertEqual([edge.group(2) for edge in edges if not edge.group(2)[0].isdigit()][0], doc.REGRID_ASK)
+        self.assertEqual([edge.group(2) for edge in edges if not edge.group(2)[0].isdigit()][0], next(", ".join(row[3]) for row in doc.LOOP if row[0] == doc.REGRID))
         self.assertEqual(edges[-1].group(1), "amrex")
         table = doc.entries().splitlines()
         self.assertEqual(table[:6], [doc.ENTRIES_HEADING, "", doc.ENTRIES_INTRO, "", "| Layer | Caller | Entries |", "| --- | --- | --- |"])
@@ -1994,38 +1993,55 @@ class Doc(unittest.TestCase):
         self.assertEqual(layers, sorted(layers, key=lambda layer: -LAYERS.index(layer)))
         self.assertTrue({"flesh", "api", "schedule", "regrid"} <= set(layers), layers)
 
-    def test_the_loop_lands_each_name_in_the_one_layer_that_defines_it(self):
-        with tempfile.TemporaryDirectory() as root:
-            src = os.path.join(root, "CarpetX", "src")
-            for layer in LAYERS:
-                os.makedirs(os.path.join(src, layer))
-            startup = (
-                'extern "C" int CarpetX_Startup() {\n  CCTK_OverloadInitialise(Initialise);\n  CCTK_OverloadEvolve(Evolve);\n  CCTK_OverloadShutdown(Shutdown);\n'
-                "  CCTK_RegisterGHExtensionSetupGH(ghext_handle,\n      SetupGH);\n  CCTK_RegisterGHExtensionScheduleTraverseGH(ghext_handle, ScheduleTraverseGH);\n"
-                '  CCTK_OverloadOutputGH(OutputGH);\n  CCTK_InterpRegisterOpLocalUniform(Interp, "CarpetX", CCTK_THORNSTRING);\n  CCTK_RegisterGHExtension("CarpetX");\n}\n'
-                "void *SetupGH(tFleshConfig *fc) {\n  return 0;\n}\n"
-                "int ScheduleTraverseGH(cGH *cctkGH, const char *where) {\n  return CCTK_ScheduleTraverse(where, cctkGH, CallFunction);\n}\n"
-            )
-            files = {
-                "flesh/startup.cxx": startup,
-                "flesh/compile_checks.cxx": "concept regrids = requires(Ext &ext) { ext.amrcore->regrid(0, 0.0); };\nint x = CCTK_ScheduleTraverse(a, b, Other);\nint y = CCTK_CallFunction(f, a, g);\n",
-                "schedule/evolve.cxx": "int Initialise(tFleshConfig *config) {\n  CCTK_Traverse(cctkGH, \"CCTK_INITIAL\");\n  return 0;\n}\nint Evolve(tFleshConfig *config) {\n"
-                "  hierarchy_writer::regrid(level, time);\n  CCTK_Traverse(cctkGH, \"CCTK_EVOL\");\n  CCTK_OutputGH(cctkGH);\n  return 0;\n}\nint Shutdown(tFleshConfig *config) {\n  return 0;\n}\n",
-                "schedule/callfunction.cxx": "int CallFunction(void *function, cFunctionData *attribute, void *data) {\n  return CCTK_CallFunction(function, attribute, cctkGH);\n}\n",
-                "io/io.cxx": '#include "internal.hxx"\n#include <carpetx.hxx>\nint OutputGH(const cGH *cctkGH) {\n  if (Evolve(0)) {\n    return 1;\n  }\n  while (CallFunction(0, 0, 0) == 0) {\n  }\n  return 0;\n}\n',
-                "ops/interpolate.cxx": "int Interp(int n) {\n  return n;\n}\n",
-                "regrid/regrid.cxx": "void CactusAmrCore::ErrorEst(const int lev) {\n}\nvoid CactusAmrCore::MakeNewLevelFromScratch(int lev) {\n}\n"
-                "void CactusAmrCore::MakeNewLevelFromCoarse(int lev) {\n}\nvoid CactusAmrCore::RemakeLevel(int lev) {\n}\nvoid CactusAmrCore::ClearLevel(int lev) {\n}\n",
-                "hierarchy/hierarchy.cxx": "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
-                "api/api.cxx": "#include <carpetx.hxx>\n",
-                "api/api_rk.cxx": "#include <carpetx_rk.hxx>\nvoid run_schedule_group_at(const cGH *cctkGH) {\n  CCTK_ScheduleTraverse(group, cctkGH, CallFunction);\n}\n",
+    def test_every_row_of_the_loop_and_the_tables_is_held_to_the_tree(self):
+        def define(name):
+            return f"int {name}(int a) {{\n  return a;\n}}\n"
+
+        files = {file: "".join(define(name) for name in names) for file, names in doc.REGISTERED}
+        files[doc.STARTUP] = files[doc.STARTUP].replace(define("ScheduleTraverseGH"), "")
+        files[doc.STARTUP] += (
+            "int ScheduleTraverseGH(cGH *cctkGH,\n                       const char *where) {\n  return CCTK_ScheduleTraverse(where, cctkGH, CallFunction);\n}\n"
+            'extern "C" int CarpetX_Startup() {\n' + "".join(f"  CCTK_Overload{name}({name});\n" for _, names in doc.REGISTERED for name in names) + "}\n"
+        )
+        files[layer_path("schedule", "evolve.cxx")] = (
+            "int Initialise(tFleshConfig *config) {\n  CCTK_Traverse(cctkGH, \"CCTK_INITIAL\");\n  return 0;\n}\nint Evolve(tFleshConfig *config) {\n"
+            "  hierarchy_writer::regrid(level, time);\n  CCTK_Traverse(cctkGH, \"CCTK_EVOL\");\n  CCTK_OutputGH(cctkGH);\n  return 0;\n}\nint Shutdown(tFleshConfig *config) {\n  return 0;\n}\n"
+        )
+        files.update(
+            {
+                layer_path("flesh", "compile_checks.cxx"): "int x = CCTK_ScheduleTraverse(a, b, Other);\nint y = CCTK_CallFunction(f, a, g);\n",
+                layer_path("schedule", "callfunction.cxx"): "int CallFunction(void *function, cFunctionData *attribute, void *data) {\n  return CCTK_CallFunction(function, attribute, cctkGH);\n}\n",
+                layer_path("io", "io.cxx"): '#include "internal.hxx"\n#include <carpetx.hxx>\nint OutputGH(const cGH *cctkGH) {\n  if (Evolve(0)) {\n    return 1;\n  }\n  return 0;\n}\n',
+                layer_path("regrid", "regrid.cxx"): "void CactusAmrCore::ErrorEst(const int lev,\n                             amrex::TagBoxArray &tags) {\n}\n"
+                + "".join(f"void CactusAmrCore::{name}(int lev) {{\n}}\n" for name in doc.AMREX_CALLBACKS[1:]),
+                layer_path("hierarchy", "hierarchy.cxx"): "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
+                layer_path("hierarchy", "loops.cxx"): "void synchronize() {\n}\n",
+                layer_path("hierarchy", "valid.cxx"): 'std::string valid_t::explanation() const {\n  return "";\n}\n',
+                layer_path("ops", "reduction.cxx"): "reduction<CCTK_REAL, dim> reduce(const gi_t gi) {\n  return {};\n}\n",
+                layer_path("util", "timer.cxx"): "Timer::Timer(const std::string &name)\n    : name(name) {\n}\n",
+                layer_path("api", "api.cxx"): "int num_patches() {\n  return 0;\n}\nvoid register_integrator(const rk_config_t &config) {\n}\n",
+                layer_path("api", "api_rk.cxx"): "void run_schedule_group_at(const cGH *cctkGH) {\n  CCTK_ScheduleTraverse(group, cctkGH, CallFunction);\n}\n",
+                doc.PUBLIC_HEADERS[0]: "int num_patches();\nvoid synchronize();\nreduction<CCTK_REAL, Loop::dim> reduce(gi_t gi);\nstruct valid_t {\n  std::string explanation() const;\n};\n"
+                "class Timer {\n  Timer(const std::string &name);\n};\nstd::ostream &operator<<(std::ostream &os, valid_t v);\nvoid prolongate(window_t window,\n                std::span<const gi_t> groups);\n",
+                doc.PUBLIC_HEADERS[1]: "void register_integrator(const rk_config_t &config);\n",
             }
-            for name, text in files.items():
-                with open(os.path.join(src, name), "w") as f:
-                    f.write(text)
-            self.assertEqual(doc.registrations(root), ["Initialise", "Evolve", "Shutdown", "SetupGH", "ScheduleTraverseGH", "OutputGH", "Interp"])
+        )
+        files[layer_path("api", "api.cxx")] += "void prolongate(window_t window, std::span<const gi_t> groups) {\n}\n"
+        with tempfile.TemporaryDirectory() as root:
+            for layer in LAYERS:
+                os.makedirs(os.path.join(root, "CarpetX", "src", layer))
+            os.makedirs(os.path.join(root, rules.PUBLIC_DIR))
+
+            def write(changes):
+                for name, text in {**files, **changes}.items():
+                    with open(os.path.join(root, name), "w") as f:
+                        f.write(text)
+
+            write({})
+            self.assertEqual(doc.registrations(root), [name for _, names in doc.REGISTERED for name in names])
             self.assertEqual(doc.extern_c_files(root), ["startup.cxx"])
-            self.assertEqual(doc.public_bodies(root), {"api": ("carpetx.hxx", "carpetx_rk.hxx")})
+            self.assertEqual(doc.prototypes(root), {doc.PUBLIC_HEADERS[0]: ("num_patches", "synchronize", "reduce", "prolongate"), doc.PUBLIC_HEADERS[1]: ("register_integrator",)})
+            self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "register_integrator"), "hierarchy": ("synchronize", "valid_t"), "ops": ("reduce",), "util": ("Timer",)})
             lines = doc.the_loop(root).splitlines()
             self.assertEqual(
                 [line for line in lines if " -- " in line],
@@ -2039,44 +2055,56 @@ class Doc(unittest.TestCase):
                     '  cactus -- "5 CallFunction" --> schedule',
                     '  schedule -- "6 CCTK_CallFunction" --> thorn',
                     '  thorn -- "7 carpetx.hxx, carpetx_rk.hxx" --> api',
+                    '  thorn -- "7 reduce" --> ops',
+                    '  thorn -- "7 synchronize, valid_t" --> hierarchy',
+                    '  thorn -- "7 Timer" --> util',
                     '  schedule -- "hierarchy_writer::regrid" --> hierarchy',
-                    '  hierarchy -- "amrex::AmrCore::regrid" --> amrex',
+                    '  hierarchy -- "amrcore->regrid" --> amrex',
                     '  amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
                 ],
             )
-            self.assertEqual([line.split("[")[0].strip() for line in lines[4:10]], ["flesh", "api", "schedule", "io", "regrid", "hierarchy"])
+            self.assertEqual([line.split("[")[0].strip() for line in lines[4:12]], ["flesh", "api", "schedule", "io", "ops", "regrid", "hierarchy", "util"])
             self.assertEqual(
                 doc.entries(root).splitlines()[6:],
                 [
                     '| `flesh/` | Cactus flesh | every extern "C" in startup.cxx |',
-                    "| `flesh/` | Cactus flesh | SetupGH, ScheduleTraverseGH |",
-                    "| `api/` | a thorn | the bodies of carpetx.hxx, carpetx_rk.hxx in api/ |",
-                    "| `schedule/` | Cactus flesh | Initialise, Evolve, Shutdown |",
+                    "| `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, MyProc, nProcs, Exit, Abort, Barrier, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |",
+                    "| `api/` | a thorn | every function of carpetx.hxx, carpetx_rk.hxx not named in a row below |",
+                    "| `schedule/` | Cactus flesh | Initialise, Evolve, Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB |",
                     "| `io/` | Cactus flesh | OutputGH |",
-                    "| `ops/` | Cactus flesh | Interp |",
+                    "| `ops/` | Cactus flesh | InterpLocalUniform |",
+                    "| `ops/` | a thorn | reduce |",
                     "| `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |",
+                    "| `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |",
+                    "| `hierarchy/` | a thorn | synchronize, valid_t |",
+                    "| `util/` | a thorn | Timer |",
                 ],
             )
-            twice = os.path.join(src, "io", "twice.cxx")
-            with open(twice, "w") as f:
-                f.write("int Evolve(int twice) {\n  return twice;\n}\n")
-            with self.assertRaises(ValueError):
+            startup = files[doc.STARTUP]
+            evolve = files[layer_path("schedule", "evolve.cxx")]
+            io_cxx = files[layer_path("io", "io.cxx")]
+            for message, changes, draw in [
+                ("Foo registered in CarpetX/src/flesh/startup.cxx but in no row of REGISTERED", {doc.STARTUP: startup.replace("  CCTK_OverloadSetupGH(SetupGH);\n", "  CCTK_OverloadSetupGH(SetupGH);\n  CCTK_OverloadFoo(Foo);\n")}, doc.entries),
+                ("Shutdown in a row of REGISTERED in scripts/lint/boundary/doc.py but not registered", {doc.STARTUP: startup.replace("  CCTK_OverloadShutdown(Shutdown);\n", "")}, doc.entries),
+                ("OutputGH not defined in CarpetX/src/io/io.cxx, where its row", {layer_path("io", "io.cxx"): "int f() {\n  if (OutputGH(0)) {\n  }\n  return 0;\n}\n"}, doc.entries),
+                ("OutputGH not defined in CarpetX/src/io/io.cxx, where the loop's step 3 lands", {layer_path("io", "io.cxx"): io_cxx.replace("int OutputGH(const cGH *cctkGH) {", "int Output(const cGH *cctkGH) {")}, doc.the_loop),
+                ("CCTK_Traverse not called in CarpetX/src/schedule/evolve.cxx, where the loop's step 2 starts", {layer_path("schedule", "evolve.cxx"): re.sub(r"  CCTK_Traverse\(.*\n", "", evolve)}, doc.the_loop),
+                ("CCTK_ScheduleTraverse not called in CarpetX/src/flesh/startup.cxx, where the loop's step 4 starts", {doc.STARTUP: startup.replace("CCTK_ScheduleTraverse(where, cctkGH, CallFunction)", "0")}, doc.the_loop),
+                ("hierarchy_writer::regrid not called in schedule/, where the loop's step regrid starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  hierarchy_writer::regrid(level, time);\n", "")}, doc.the_loop),
+                ("amrcore->regrid not called in CarpetX/src/hierarchy/hierarchy.cxx, where the loop's step regrid starts", {layer_path("hierarchy", "hierarchy.cxx"): "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n}\n"}, doc.the_loop),
+                ("nowhere declared in a public header but defined in no api/ file and in no row of PUBLIC_BODIES", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "int nowhere();\n"}, doc.entries),
+                ("reduce not defined in CarpetX/src/ops/reduction.cxx, where its row of PUBLIC_BODIES", {layer_path("ops", "reduction.cxx"): "int reduced() {\n  return 0;\n}\n"}, doc.the_loop),
+            ]:
+                with self.subTest(message=message):
+                    write(changes)
+                    with self.assertRaisesRegex(ValueError, re.escape(message)):
+                        draw(root)
+            write({})
+            with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("util", "timer.cxx"), ("Nowhere",)),)), self.assertRaisesRegex(ValueError, "Nowhere is in a row of PUBLIC_BODIES"):
                 doc.the_loop(root)
-            with self.assertRaises(ValueError):
-                doc.defining_layer(root, "Nowhere")
-            os.remove(twice)
-            with open(os.path.join(src, "flesh", "startup.cxx"), "w") as f:
-                f.write(startup.replace("  CCTK_OverloadShutdown(Shutdown);\n", ""))
-            with self.assertRaisesRegex(ValueError, "Shutdown not registered"):
-                doc.the_loop(root)
-            with open(os.path.join(src, "flesh", "startup.cxx"), "w") as f:
-                f.write(startup)
-            with open(os.path.join(src, "schedule", "evolve.cxx"), "w") as f:
-                f.write(re.sub(r"  CCTK_(Traverse|OutputGH)\(.*\n", "", files["schedule/evolve.cxx"]))
-            with open(os.path.join(src, "hierarchy", "hierarchy.cxx"), "w") as f:
-                f.write(files["hierarchy/hierarchy.cxx"].replace("  ext.amrcore->regrid(base.index(), time);\n", ""))
-            with self.assertRaisesRegex(ValueError, "no edge for 2, the AMReX reentry"):
-                doc.the_loop(root)
+            with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("api", "api.cxx"), ("num_patches",)),)), self.assertRaisesRegex(ValueError, "in api/, at or above api/"):
+                doc.entries(root)
+            self.assertEqual(doc.render(root).count("```"), 4)
 
 if __name__ == "__main__":
     unittest.main()

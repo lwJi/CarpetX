@@ -1,6 +1,6 @@
 # CarpetX's internals
 
-`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `#include` lines and call sites of `CarpetX/src/` and the registrations in `CarpetX/src/flesh/startup.cxx`; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule named below holds.
+`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `CarpetX/src/flesh/startup.cxx`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule named below holds.
 
 ## The stack
 
@@ -53,6 +53,7 @@ flowchart LR
   api["api/"]
   schedule["schedule/"]
   io["io/"]
+  ops["ops/"]
   regrid["regrid/"]
   hierarchy["hierarchy/"]
   util["util/"]
@@ -65,11 +66,13 @@ flowchart LR
   cactus -- "5 CallFunction" --> schedule
   schedule -- "6 CCTK_CallFunction" --> thorn
   thorn -- "7 carpetx.hxx, carpetx_rk.hxx" --> api
-  thorn -- "7 carpetx.hxx" --> util
+  thorn -- "7 reduce" --> ops
+  thorn -- "7 synchronize, valid_t" --> hierarchy
+  thorn -- "7 Timer" --> util
   schedule -- "hierarchy_writer::regrid" --> hierarchy
-  hierarchy -- "amrex::AmrCore::regrid" --> amrex
+  hierarchy -- "amrcore->regrid" --> amrex
   amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
-%% the numbered edges are one pass of the schedule: the flesh starts the driver (1), the driver names a bin or asks for output (2), the flesh hands it to the driver's entry (3), which asks the flesh to walk the bin (4) through CallFunction (5), which runs each routine (6), which may call the public headers (7), whose bodies are the .cxx files that include them first
+%% the numbered edges are one pass of the schedule: the flesh starts the driver (1), the driver names a bin or asks for output (2), the flesh hands it to the driver's entry (3), the entry asks the flesh to walk the bin with CallFunction (4), the flesh calls CallFunction for each routine (5), CallFunction runs the routine (6), the routine may call the public headers, whose bodies are in api/ but for those the table names (7)
 %% the unnumbered edges are a regrid: the driver asks the hierarchy, the hierarchy asks AMReX, and AMReX calls back into the layer that defines its callbacks
 %% a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX, or at link time through a dashed edge of the stack
 %% the table below lists every entry an outsider calls
@@ -83,13 +86,15 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 | --- | --- | --- |
 | `flesh/` | Cactus flesh | every extern "C" in aliased.cxx, scheduled.cxx, startup.cxx |
 | `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, MyProc, nProcs, Exit, Abort, Barrier, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |
-| `api/` | a thorn | the bodies of carpetx.hxx, carpetx_rk.hxx in api/ |
+| `api/` | a thorn | every function of carpetx.hxx, carpetx_rk.hxx not named in a row below |
 | `schedule/` | Cactus flesh | Initialise, Evolve, Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB |
 | `io/` | Cactus flesh | OutputGH |
 | `ops/` | Cactus flesh | InterpLocalUniform |
+| `ops/` | a thorn | reduce |
 | `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |
 | `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |
-| `util/` | a thorn | the bodies of carpetx.hxx in util/ |
+| `hierarchy/` | a thorn | synchronize, valid_t |
+| `util/` | a thorn | Timer |
 
 ## What each layer owns
 

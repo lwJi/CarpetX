@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable
 
-from .rules import AMREX_CALLBACKS, EXTERN_C, HIERARCHY_LAYERS, INCLUDE_LINE, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, RULES, UNDER_HIERARCHY, below, layer_path
+from .rules import AMREX_CALLBACKS, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PUBLIC_DIR, RULES, UNDER_HIERARCHY, below, layer_of, layer_path
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
@@ -14,20 +14,52 @@ LINK_TIME = (
 )
 BASE_LAYERS = below("hierarchy")
 DEFINITION = r"(?m)^[^;{{}}()\n]*\b(?:[\w:]+::)?{name}(?:::~?\w+)?\s*\([^;{{}}]*\)[^;{{}}]*\{{"
+PROTOTYPE = re.compile(r"^(?!\s)(?!(?:template|using|typedef|friend|static_assert)\b)[^=;{}()#/]*?\b(\w+)\s*\([^;{}]*\)\s*(?:const\s*)?;[ \t]*$", re.M)
 OUTSIDERS = (("cactus", "Cactus flesh"), ("amrex", "AMReX"), ("thorn", "a thorn's routine"))
-LIFECYCLE = ("Initialise", "Evolve", "Shutdown")
-STEP_CALL = re.compile(r"\b(CCTK_Traverse|CCTK_OutputGH)\s*\(")
-STEP_ENTRIES = ("ScheduleTraverseGH", "OutputGH")
-CALL_FUNCTION = re.compile(r"\b(CCTK_CallFunction)\s*\(")
-PUBLIC_INCLUDE = re.compile(r"^\s*#\s*include\s*<(carpetx\w*\.hxx)>")
-REGRID_ASK = "hierarchy_writer::regrid"
-REGRID_ASK_CALL = re.compile(r"\b(" + REGRID_ASK + r")\s*\(")
 STARTUP = layer_path("flesh", "startup.cxx")
-NOT_A_CALL = (layer_path("flesh", "compile_checks.cxx"),)
 REGISTRATION = re.compile(r"\bCCTK_(?:Overload\w+|RegisterGHExtension\w+|InterpRegisterOpLocalUniform)\s*\(\s*(?:ghext_handle\s*,\s*)?(\w+)")
-TRAVERSAL = re.compile(r"\bCCTK_ScheduleTraverse\s*\(\s*\w+\s*,\s*\w+\s*,\s*(\w+)\s*\)")
-AMREX_REENTRIES = ("regrid",)
-AMREX_REENTRY = re.compile(r"\bamrcore->(" + "|".join(AMREX_REENTRIES) + r")\s*\(")
+REGISTERED = (
+    (STARTUP, ("SetupGH", "InitGH", "ScheduleTraverseGH", "MyProc", "nProcs", "Exit", "Abort", "Barrier", "CarpetX_InterpGridArrays", "ArrayGroupSizeB", "GroupDynamicData")),
+    (layer_path("schedule", "evolve.cxx"), ("Initialise", "Evolve", "Shutdown")),
+    (layer_path("schedule", "storage.cxx"), ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease", "QueryGroupStorageB")),
+    (layer_path("io", "io.cxx"), ("OutputGH",)),
+    (layer_path("ops", "interpolate.cxx"), ("InterpLocalUniform",)),
+    (layer_path("comm", "sync_restrict.cxx"), (FLESH_SYNC_OVERLOAD,)),
+)
+CALLBACKS = (layer_path("regrid", "regrid.cxx"), AMREX_CALLBACKS)
+PUBLIC_HEADERS = (PUBLIC_DIR + "carpetx.hxx", PUBLIC_DIR + "carpetx_rk.hxx")
+PUBLIC_LAYER = "api"
+PUBLIC_BODIES = (
+    (layer_path("hierarchy", "loops.cxx"), ("synchronize",)),
+    (layer_path("hierarchy", "valid.cxx"), ("valid_t",)),
+    (layer_path("ops", "reduction.cxx"), ("reduce",)),
+    (layer_path("util", "timer.cxx"), ("Timer",)),
+)
+REGRID = "regrid"
+STEPS = {
+    "1": "the flesh starts the driver",
+    "2": "the driver names a bin or asks for output",
+    "3": "the flesh hands it to the driver's entry",
+    "4": "the entry asks the flesh to walk the bin with CallFunction",
+    "5": "the flesh calls CallFunction for each routine",
+    "6": "CallFunction runs the routine",
+    "7": f"the routine may call the public headers, whose bodies are in {PUBLIC_LAYER}/ but for those the table names",
+}
+REGRID_TEXT = "a regrid: the driver asks the hierarchy, the hierarchy asks AMReX, and AMReX calls back into the layer that defines its callbacks"
+LOOP = (
+    ("1", "cactus", "schedule", ("Initialise", "Evolve", "Shutdown"), layer_path("schedule", "evolve.cxx")),
+    ("2", "schedule", "cactus", ("CCTK_Traverse", "CCTK_OutputGH"), layer_path("schedule", "evolve.cxx")),
+    ("3", "cactus", "flesh", ("ScheduleTraverseGH",), STARTUP),
+    ("3", "cactus", "io", ("OutputGH",), layer_path("io", "io.cxx")),
+    ("4", "flesh", "cactus", ("CCTK_ScheduleTraverse",), STARTUP),
+    ("4", "api", "cactus", ("CCTK_ScheduleTraverse",), layer_path("api", "api_rk.cxx")),
+    ("5", "cactus", "schedule", ("CallFunction",), layer_path("schedule", "callfunction.cxx")),
+    ("6", "schedule", "thorn", ("CCTK_CallFunction",), layer_path("schedule", "callfunction.cxx")),
+    (REGRID, "schedule", "hierarchy", ("hierarchy_writer::regrid",), layer_path("hierarchy", "hierarchy.cxx")),
+    (REGRID, "hierarchy", "amrex", ("amrcore->regrid",), layer_path("hierarchy", "hierarchy.cxx")),
+    (REGRID, "amrex", layer_of(CALLBACKS[0]), CALLBACKS[1], CALLBACKS[0]),
+)
+assert {row[0] for row in LOOP} | {"7"} == set(STEPS) | {REGRID}, LOOP
 STACK_LEGEND = (
     "a layer sits above every layer it may include, which the layer rule holds, and a solid edge is an include it has today, read from its #include lines, with the headers on it",
     "where no solid edge joins a layer to the one below it, the order is the rule's, not a coupling of the code",
@@ -37,8 +69,8 @@ STACK_LEGEND = (
 )
 BASE_DIRS = f"{', '.join(f'{layer}/' for layer in BASE_LAYERS[:-1])} or {BASE_LAYERS[-1]}/"
 LOOP_LEGEND = (
-    "the numbered edges are one pass of the schedule: the flesh starts the driver (1), the driver names a bin or asks for output (2), the flesh hands it to the driver's entry (3), which asks the flesh to walk the bin (4) through CallFunction (5), which runs each routine (6), which may call the public headers (7), whose bodies are the .cxx files that include them first",
-    "the unnumbered edges are a regrid: the driver asks the hierarchy, the hierarchy asks AMReX, and AMReX calls back into the layer that defines its callbacks",
+    "the numbered edges are one pass of the schedule: " + ", ".join(f"{what} ({step})" for step, what in STEPS.items()),
+    "the unnumbered edges are " + REGRID_TEXT,
     "a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX, or at link time through a dashed edge of the stack",
     "the table below lists every entry an outsider calls",
 )
@@ -129,12 +161,16 @@ def stack(root: str = PROJECT) -> str:
     return legend(lines, stack_legend(root))
 
 
-def defining_layer(root: str, name: str) -> str:
-    shape = re.compile(DEFINITION.format(name=name))
-    found = sorted({layer for layer in LAYERS for path in sources(root, layer) if path.endswith(".cxx") and shape.search(read(path))})
-    if len(found) != 1:
-        raise ValueError(f"{name} is defined in {', '.join(found) or 'no layer'}, not in one layer")
-    return found[0]
+def defined(text: str, name: str) -> bool:
+    return re.search(DEFINITION.format(name=name), text) is not None
+
+
+def called(text: str, name: str) -> bool:
+    return re.search(r"(?<!\w)" + re.escape(name) + r"\s*\(", text) is not None
+
+
+def layer_calls(root: str, layer: str, name: str) -> bool:
+    return any(called(read(path), name) for path in sources(root, layer) if path.endswith(".cxx"))
 
 
 def registrations(root: str = PROJECT) -> list[str]:
@@ -145,71 +181,104 @@ def extern_c_files(root: str = PROJECT) -> list[str]:
     return [os.path.basename(path) for path in sources(root, "flesh") if path.endswith(".cxx") and EXTERN_C.search(read(path))]
 
 
-def call_sites(root: str, pattern: re.Pattern) -> dict[str, list[str]]:
-    sites: dict[str, list[str]] = {}
-    for layer in LAYERS:
-        for path in sources(root, layer):
-            if path.endswith(".cxx") and os.path.relpath(path, root) not in NOT_A_CALL:
-                for name in pattern.findall(read(path)):
-                    sites.setdefault(layer, []).append(name)
-    return {layer: list(dict.fromkeys(names)) for layer, names in sites.items()}
-
-
-def landing(root: str, names: tuple[str, ...]) -> dict[str, list[str]]:
-    lands: dict[str, list[str]] = {}
-    for name in names:
-        lands.setdefault(defining_layer(root, name), []).append(name)
-    return lands
-
-
-def top_down(found: dict[str, list[str]] | dict[str, tuple[str, ...]]) -> list[tuple[str, list[str] | tuple[str, ...]]]:
+def top_down(found: dict[str, tuple[str, ...]]) -> list[tuple[str, tuple[str, ...]]]:
     return sorted(found.items(), key=lambda item: -LAYERS.index(item[0]))
 
 
+def by_layer(rows: tuple[tuple[str, tuple[str, ...]], ...]) -> dict[str, tuple[str, ...]]:
+    found: dict[str, tuple[str, ...]] = {}
+    for file, names in rows:
+        layer = layer_of(file)
+        assert layer is not None, file
+        found[layer] = found.get(layer, ()) + names
+    return found
+
+
+def registered(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
+    found = registrations(root)
+    claimed = [name for _, names in REGISTERED for name in names]
+    unlisted = [name for name in found if name not in claimed]
+    if unlisted:
+        raise ValueError(f"{', '.join(unlisted)} registered in {STARTUP} but in no row of REGISTERED in scripts/lint/boundary/doc.py")
+    stale = [name for name in claimed if name not in found]
+    if stale:
+        raise ValueError(f"{', '.join(stale)} in a row of REGISTERED in scripts/lint/boundary/doc.py but not registered in {STARTUP}")
+    for file, names in REGISTERED + (CALLBACKS,):
+        text = read(os.path.join(root, file))
+        missing = [name for name in names if not defined(text, name)]
+        if missing:
+            raise ValueError(f"{', '.join(missing)} not defined in {file}, where its row in scripts/lint/boundary/doc.py says it is")
+    return by_layer(REGISTERED)
+
+
+def prototypes(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
+    return {header: tuple(dict.fromkeys(PROTOTYPE.findall(read(os.path.join(root, header))))) for header in PUBLIC_HEADERS}
+
+
 def public_bodies(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
-    bodies: dict[str, set[str]] = {}
-    for layer in LAYERS:
-        for path in sources(root, layer):
-            if not path.endswith(".cxx"):
-                continue
-            for line in read(path).splitlines():
-                if INCLUDE_LINE.match(line):
-                    m = PUBLIC_INCLUDE.match(line)
-                    if m:
-                        bodies.setdefault(layer, set()).add(m.group(1))
-                    break
-    return {layer: tuple(sorted(headers)) for layer, headers in bodies.items()}
+    declared = "\n".join(read(os.path.join(root, header)) for header in PUBLIC_HEADERS)
+    for file, names in PUBLIC_BODIES:
+        text = read(os.path.join(root, file))
+        for name in names:
+            if not re.search(rf"\b{name}\b", declared):
+                raise ValueError(f"{name} is in a row of PUBLIC_BODIES in scripts/lint/boundary/doc.py but in no public header")
+            if not defined(text, name):
+                raise ValueError(f"{name} not defined in {file}, where its row of PUBLIC_BODIES in scripts/lint/boundary/doc.py says it is")
+    strays = by_layer(PUBLIC_BODIES)
+    above = [layer for layer in strays if LAYERS.index(layer) >= LAYERS.index(PUBLIC_LAYER)]
+    if above:
+        raise ValueError(f"a body of a public header in {', '.join(f'{layer}/' for layer in above)}, at or above {PUBLIC_LAYER}/")
+    named = {name for names in strays.values() for name in names}
+    bodies = [read(path) for path in sources(root, PUBLIC_LAYER) if path.endswith(".cxx")]
+    rest = tuple(name for names in prototypes(root).values() for name in names if name not in named)
+    missing = [name for name in rest if not any(defined(text, name) for text in bodies)]
+    if missing:
+        raise ValueError(f"{', '.join(missing)} declared in a public header but defined in no {PUBLIC_LAYER}/ file and in no row of PUBLIC_BODIES in scripts/lint/boundary/doc.py")
+    return {PUBLIC_LAYER: rest, **strays}
+
+
+def public_headers(root: str, names: tuple[str, ...]) -> list[str]:
+    return [os.path.basename(header) for header, declared in prototypes(root).items() if any(name in declared for name in names)]
+
+
+def hold(root: str, row: tuple[str, str, str, tuple[str, ...], str]) -> None:
+    step, source, target, names, file = row
+    text = read(os.path.join(root, file))
+    if target in LAYERS:
+        if layer_of(file) != target:
+            raise ValueError(f"{file} is not in {target}/, where the loop's step {step} lands")
+        missing = [name for name in names if not defined(text, name)]
+        if missing:
+            raise ValueError(f"{', '.join(missing)} not defined in {file}, where the loop's step {step} lands")
+        if source in LAYERS:
+            missing = [name for name in names if not layer_calls(root, source, name)]
+            if missing:
+                raise ValueError(f"{', '.join(missing)} not called in {source}/, where the loop's step {step} starts")
+    else:
+        if layer_of(file) != source:
+            raise ValueError(f"{file} is not in {source}/, where the loop's step {step} starts")
+        missing = [name for name in names if not called(text, name)]
+        if missing:
+            raise ValueError(f"{', '.join(missing)} not called in {file}, where the loop's step {step} starts")
 
 
 def the_loop(root: str = PROJECT) -> str:
-    registered = registrations(root)
-    missing = [name for name in LIFECYCLE + STEP_ENTRIES if name not in registered]
-    if missing:
-        raise ValueError(f"{', '.join(missing)} not registered in {STARTUP}")
-    traversals = top_down(call_sites(root, TRAVERSAL))
-    handlers = tuple(dict.fromkeys(name for _, names in traversals for name in names))
-    asked = landing(root, (REGRID_ASK,))
-    steps: dict[str, list[tuple[str, str, str]]] = {
-        "1": [("cactus", f"1 {', '.join(names)}", layer) for layer, names in top_down(landing(root, LIFECYCLE))],
-        "2": [(layer, f"2 {', '.join(names)}", "cactus") for layer, names in top_down(call_sites(root, STEP_CALL))],
-        "3": [("cactus", f"3 {', '.join(names)}", layer) for layer, names in top_down(landing(root, STEP_ENTRIES))],
-        "4": [(layer, "4 CCTK_ScheduleTraverse", "cactus") for layer, _ in traversals],
-        "5": [("cactus", f"5 {', '.join(names)}", layer) for layer, names in top_down(landing(root, handlers))],
-        "6": [(layer, f"6 {', '.join(names)}", "thorn") for layer, names in top_down(call_sites(root, CALL_FUNCTION))],
-        "7": [("thorn", f"7 {', '.join(headers)}", layer) for layer, headers in top_down(public_bodies(root))],
-        "the regrid ask": [(layer, REGRID_ASK, target) for target in asked for layer, _ in top_down(call_sites(root, REGRID_ASK_CALL)) if layer != target],
-        "the AMReX reentry": [(layer, ", ".join(f"amrex::AmrCore::{name}" for name in names), "amrex") for layer, names in top_down(call_sites(root, AMREX_REENTRY))],
-        "the AMReX callbacks": [("amrex", ", ".join(names), layer) for layer, names in top_down(landing(root, AMREX_CALLBACKS))],
-    }
-    empty = [step for step, found in steps.items() if not found]
-    if empty:
-        raise ValueError(f"the loop has no edge for {', '.join(empty)}: no call site or body in {os.path.join(root, PRIVATE_DIR)}")
-    edges = [edge for found in steps.values() for edge in found]
-    drawn = {end for source, _, target in edges for end in (source, target)}
+    for row in LOOP:
+        hold(root, row)
+    edges: dict[tuple[str, str, str], tuple[str, ...]] = {}
+    for step, source, target, names, _ in LOOP:
+        if step != REGRID:
+            edges[(step, source, target)] = edges.get((step, source, target), ()) + names
+    for layer, names in top_down(public_bodies(root)):
+        edges[("7", "thorn", layer)] = tuple(public_headers(root, names)) if layer == PUBLIC_LAYER else names
+    for step, source, target, names, _ in LOOP:
+        if step == REGRID:
+            edges[(step, source, target)] = edges.get((step, source, target), ()) + names
+    drawn = {end for _, source, target in edges for end in (source, target)}
     lines = ["flowchart LR"]
     lines.extend(f'  {name}["{label}"]' for name, label in OUTSIDERS if name in drawn)
     lines.extend(node(layer, ()) for layer in reversed(LAYERS) if layer in drawn)
-    lines.extend(f'  {source} -- "{label}" --> {target}' for source, label, target in edges)
+    lines.extend(f'  {source} -- "{step + " " if step != REGRID else ""}{", ".join(names)}" --> {target}' for (step, source, target), names in edges.items())
     return legend(lines, LOOP_LEGEND)
 
 
@@ -219,9 +288,11 @@ ENTRIES_INTRO = "An outsider decides when a layer works: it calls one of these e
 
 def entries(root: str = PROJECT) -> str:
     rows: list[tuple[str, str, str]] = [("flesh", "Cactus flesh", f'every extern "C" in {", ".join(extern_c_files(root))}')]
-    rows += [(layer, "Cactus flesh", ", ".join(names)) for layer, names in top_down(landing(root, tuple(registrations(root))))]
-    rows += [(layer, "a thorn", f"the bodies of {', '.join(headers)} in {layer}/") for layer, headers in top_down(public_bodies(root))]
-    rows += [(layer, "AMReX", ", ".join(names)) for layer, names in top_down(landing(root, AMREX_CALLBACKS))]
+    rows += [(layer, "Cactus flesh", ", ".join(names)) for layer, names in registered(root).items()]
+    bodies = public_bodies(root)
+    rows.append((PUBLIC_LAYER, "a thorn", f"every function of {', '.join(public_headers(root, bodies[PUBLIC_LAYER]))} not named in a row below"))
+    rows += [(layer, "a thorn", ", ".join(names)) for layer, names in bodies.items() if layer != PUBLIC_LAYER]
+    rows.append((layer_of(CALLBACKS[0]), "AMReX", ", ".join(CALLBACKS[1])))
     rows.sort(key=lambda row: -LAYERS.index(row[0]))
     lines = [ENTRIES_HEADING, "", ENTRIES_INTRO, "", "| Layer | Caller | Entries |", "| --- | --- | --- |"]
     lines.extend(f"| `{layer}/` | {caller} | {what} |" for layer, caller, what in rows)
@@ -241,7 +312,7 @@ def owns() -> str:
 TITLE = "# CarpetX's internals"
 PREAMBLE = (
     "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, "
-    f"the `#include` lines and call sites of `CarpetX/src/` and the registrations in `{STARTUP}`; `scripts/lint/boundary/test_rules.py` fails when "
+    f"the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `{STARTUP}`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when "
     "the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX "
     "only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule "
     "named below holds."
