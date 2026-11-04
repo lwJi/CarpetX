@@ -2012,7 +2012,7 @@ class Doc(unittest.TestCase):
                 "schedule/evolve.cxx": "int Initialise(tFleshConfig *config) {\n  CCTK_Traverse(cctkGH, \"CCTK_INITIAL\");\n  return 0;\n}\nint Evolve(tFleshConfig *config) {\n"
                 "  hierarchy_writer::regrid(level, time);\n  CCTK_Traverse(cctkGH, \"CCTK_EVOL\");\n  CCTK_OutputGH(cctkGH);\n  return 0;\n}\nint Shutdown(tFleshConfig *config) {\n  return 0;\n}\n",
                 "schedule/callfunction.cxx": "int CallFunction(void *function, cFunctionData *attribute, void *data) {\n  return CCTK_CallFunction(function, attribute, cctkGH);\n}\n",
-                "io/io.cxx": '#include "internal.hxx"\n#include <carpetx.hxx>\nint OutputGH(const cGH *cctkGH) {\n  return 0;\n}\n',
+                "io/io.cxx": '#include "internal.hxx"\n#include <carpetx.hxx>\nint OutputGH(const cGH *cctkGH) {\n  if (Evolve(0)) {\n    return 1;\n  }\n  while (CallFunction(0, 0, 0) == 0) {\n  }\n  return 0;\n}\n',
                 "ops/interpolate.cxx": "int Interp(int n) {\n  return n;\n}\n",
                 "regrid/regrid.cxx": "void CactusAmrCore::ErrorEst(const int lev) {\n}\nvoid CactusAmrCore::MakeNewLevelFromScratch(int lev) {\n}\n"
                 "void CactusAmrCore::MakeNewLevelFromCoarse(int lev) {\n}\nvoid CactusAmrCore::RemakeLevel(int lev) {\n}\nvoid CactusAmrCore::ClearLevel(int lev) {\n}\n",

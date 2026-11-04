@@ -13,7 +13,7 @@ LINK_TIME = (
     ("hierarchy", "comm", ("apply_boundary_conditions", "get_interpolator")),
 )
 BASE_LAYERS = below("hierarchy")
-DEFINITION = r"\b(?:[\w:]+::)?{name}(?:::~?\w+)?\s*\([^;{{}}]*\)[^;{{}}]*\{{"
+DEFINITION = r"(?m)^[^;{{}}()\n]*\b(?:[\w:]+::)?{name}(?:::~?\w+)?\s*\([^;{{}}]*\)[^;{{}}]*\{{"
 OUTSIDERS = (("cactus", "Cactus flesh"), ("amrex", "AMReX"), ("thorn", "a thorn's routine"))
 LIFECYCLE = ("Initialise", "Evolve", "Shutdown")
 STEP_CALL = re.compile(r"\b(CCTK_Traverse|CCTK_OutputGH)\s*\(")
