@@ -165,6 +165,13 @@ class HookEdit(Project):
             output = self.edit("Thorn/src/a.cxx", "int a = 1;\n", "int a = 1; // why\n")
         self.assertEqual(self.skipped(output), "lint check skipped: RuntimeError: lexer crash")
 
+    def test_the_generated_map_is_refused_whatever_the_edit(self):
+        for output in (self.edit("agent_docs/carpetx-internals.md", "", "# map\n"), self.write("agent_docs/carpetx-internals.md", "# map\n")):
+            self.assertEqual(self.denied(output), [hooks.GENERATED])
+        self.assertEqual(self.write("agent_docs/other.md", "# other\n"), "")
+        with tempfile.TemporaryDirectory() as other:
+            self.assertEqual(self.edit(None, "", "# map\n", path=os.path.join(other, "agent_docs", "carpetx-internals.md")), "")
+
     def test_files_that_are_not_covered_pass_untouched(self):
         self.assertEqual(self.edit("Thorn/README", "not covered\n", "// still not covered\n"), "")
         self.assertEqual(self.write("Other/src/b.cxx", "int b; // no interface.ccl\n"), "")

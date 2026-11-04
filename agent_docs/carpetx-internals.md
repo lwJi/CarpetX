@@ -1,47 +1,26 @@
 # CarpetX's internals
 
-This is the map of `CarpetX/src/` for code that goes into CarpetX itself. A client thorn sees none of it: it reaches CarpetX only through `<carpetx.hxx>` and `<carpetx_rk.hxx>`, described in `agent_docs/carpetx-public-api.md`.
-
-`CarpetX/src/` is ten directories, one per layer, and a file is in the layer of its directory. It includes `internal.hxx`, the public headers, and the headers of its own layer or a lower one, never a higher one, each spelled with its layer: `#include "hierarchy/driver.hxx"`, never `"driver.hxx"` or `"../hierarchy/driver.hxx"`. The two blocks below that open with a `%%` line are written by `python3 scripts/lint doc --write` from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py` and the `#include` lines of the tree, and `scripts/lint/boundary/test_rules.py` fails when they differ from what it writes; the third block is drawn by hand.
+`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `CarpetX/src/flesh/startup.cxx`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule named below holds.
 
 ## The stack
 
 ```mermaid
-%% python3 scripts/lint doc --write rewrites this block: the stack
 flowchart TB
   subgraph door["driver() allowed"]
     flesh["flesh/ no header"]
     api["api/"]
     schedule["schedule/"]
-    io["io/ records, codec"]
+    io["io/"]
     ops["ops/"]
     regrid["regrid/ no header"]
-    comm["comm/ directions"]
-    hierarchy["hierarchy/ validity, binding, varindex, model"]
+    comm["comm/"]
+    hierarchy["hierarchy/"]
   end
   subgraph nodoor["no driver()"]
-    traversal["traversal/ traversal"]
+    traversal["traversal/"]
     util["util/"]
   end
-  flesh --> api --> schedule --> io --> ops --> regrid --> comm --> hierarchy --> traversal --> util
-  hierarchy -. "CactusAmrCore" .-> regrid
-  hierarchy -. "apply_boundary_conditions, get_interpolator" .-> comm
-```
-
-A solid edge is "may include": a layer includes the layer below it and, through it, every layer further down, which the `layer` rule holds. The two boxes are the `door` rule: `driver()` is called in the upper box, never in the lower. A dashed edge is a declaration whose body is in the higher layer, the one way a call reaches up, at link time. A node names its layer, then the rules of "The check" whose home is in it. `regrid/` and `flesh/` have no header, so nothing includes them and `ops/` in fact includes `comm/` and below.
-
-## The includes
-
-```mermaid
-%% python3 scripts/lint doc --write rewrites this block: the includes
-flowchart TB
-  flesh["flesh/ no header"]
-  api["api/"]
-  schedule["schedule/"]
-  io["io/"]
-  ops["ops/"]
-  regrid["regrid/ no header"]
-  comm["comm/"]
+  flesh ~~~ api ~~~ schedule ~~~ io ~~~ ops ~~~ regrid ~~~ comm ~~~ hierarchy ~~~ traversal ~~~ util
   flesh -- "schedule.hxx" --> schedule
   flesh -- "checkpoint.hxx, io.hxx" --> io
   flesh -- "interp.hxx, linsolve.hxx" --> ops
@@ -53,82 +32,81 @@ flowchart TB
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
   regrid -- "buffers.hxx, fillpatch.hxx" --> comm
+  hierarchy -. "CactusAmrCore" .-> regrid
+  hierarchy -. "apply_boundary_conditions, get_interpolator" .-> comm
+%% a layer sits above every layer it may include, which the layer rule holds, and a solid edge is an include it has today, read from its #include lines, with the headers on it
+%% where no solid edge joins a layer to the one below it, the order is the rule's, not a coupling of the code
+%% the two boxes are the door rule: driver() is called in the upper box, never in the lower
+%% a dashed edge is a declaration whose body is in the higher layer, the one way a call reaches up, at link time
+%% a node names its layer, and no header where nothing can include it
+%% an edge into util/, traversal/ or hierarchy/ is not drawn: every layer above hierarchy/ reads hierarchy/driver.hxx
 ```
 
-What each layer includes today, read from its `#include` lines, with the headers on the edges. `util/`, `traversal/` and `hierarchy/` are not drawn: every layer reads them. An edge missing here is a coupling CarpetX does not have, which is what to weigh before adding an include.
-
-## Who decides
+## The loop
 
 ```mermaid
 flowchart LR
   cactus["Cactus flesh"]
   amrex["AMReX"]
+  thorn["a thorn's routine"]
   flesh["flesh/"]
   api["api/"]
   schedule["schedule/"]
   io["io/"]
-  comm["comm/"]
+  ops["ops/"]
   regrid["regrid/"]
-  cactus -- "extern C entries" --> flesh
-  cactus -- "Initialise, Evolve, Shutdown, STORAGE, CallFunction" --> schedule
-  cactus -- "CCTK_OutputGH" --> io
-  cactus -- "SYNC" --> comm
-  flesh -- "ScheduleTraverseGH and CallScheduleGroup hand it CallFunction" --> cactus
-  api -- "run_schedule_group_at hands it CallFunction" --> cactus
-  schedule -- "regrid" --> amrex
-  amrex -- "ErrorEst, MakeNewLevel, RemakeLevel, ClearLevel" --> regrid
+  hierarchy["hierarchy/"]
+  util["util/"]
+  cactus -- "1 Initialise, Evolve, Shutdown" --> schedule
+  schedule -- "2 CCTK_Traverse, CCTK_OutputGH" --> cactus
+  cactus -- "3 ScheduleTraverseGH" --> flesh
+  cactus -- "3 OutputGH" --> io
+  flesh -- "4 CCTK_ScheduleTraverse" --> cactus
+  api -- "4 CCTK_ScheduleTraverse" --> cactus
+  cactus -- "5 CallFunction" --> schedule
+  schedule -- "6 CCTK_CallFunction" --> thorn
+  thorn -- "7 carpetx.hxx, carpetx_rk.hxx" --> api
+  thorn -- "7 reduce" --> ops
+  thorn -- "7 synchronize, valid_t, operator<<" --> hierarchy
+  thorn -- "7 Timer" --> util
+  schedule -- "hierarchy_writer::regrid" --> hierarchy
+  hierarchy -- "amrcore->regrid" --> amrex
+  amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
+%% the numbered edges are one pass of the schedule: the flesh starts the driver (1), the driver names a bin or asks for output (2), the flesh hands it to the driver's entry (3), the entry asks the flesh to walk the bin with CallFunction (4), the flesh calls CallFunction for each routine (5), CallFunction runs the routine (6), the routine may call the public headers, whose bodies are in api/ but for those the table names (7)
+%% the unnumbered edges are a regrid: the driver asks the hierarchy, the hierarchy asks AMReX, and AMReX calls back into the layer that defines its callbacks
+%% a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX, or at link time through a dashed edge of the stack
+%% the table below lists every entry an outsider calls
 ```
 
-The two graphs above point down. The calls that go up pass through an outsider, and that is where a layer high in the stack, the flesh or AMReX decides when a lower layer works. The flesh calls the overloads that `CarpetX_Startup` registered, so its edges land in the layers that define them. AMReX calls the callbacks in `regrid/` when `schedule/` asks it to regrid, and the recovery operations that `io/` calls in `hierarchy/` land there too, through the dashed edge of the stack. `flesh/` and `api/` hand `CallFunction` to the flesh's traversal, which calls it for every routine.
+## Who the outsiders call
 
-## Placing code
+An outsider decides when a layer works: it calls one of these entries. Each row is a layer, who calls into it, and what they call.
 
-Put new code in the layer that owns what it works on; code that needs a header from a higher layer belongs in that layer or above it. When a value that a low layer reads is owned too high, the value moves down: the iteration a run recovered at is read by `comm/` to word one error, so it is a slot in `traversal/`, written once by `flesh/`, not a variable in `io/`, which reads the checkpoint. A lower layer may declare a function whose body needs a higher one; the higher layer defines it, the include stays downward, and the call reaches up only at link time, as the dashed edges of the stack show. `CactusAmrCore` is declared in `hierarchy/` because each `PatchData` owns one, and `regrid/` writes its callbacks; `apply_boundary_conditions` and `get_interpolator` are declared in `hierarchy/` because a group's data and tags select them, and `comm/` defines them beside the operators they use.
+| Layer | Caller | Entries |
+| --- | --- | --- |
+| `flesh/` | Cactus flesh | every extern "C" in aliased.cxx, scheduled.cxx, startup.cxx |
+| `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, MyProc, nProcs, Exit, Abort, Barrier, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |
+| `api/` | a thorn | every function of carpetx.hxx, carpetx_rk.hxx not named in a row below |
+| `schedule/` | Cactus flesh | Initialise, Evolve, Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB |
+| `io/` | Cactus flesh | OutputGH |
+| `ops/` | Cactus flesh | InterpLocalUniform |
+| `ops/` | a thorn | reduce |
+| `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |
+| `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |
+| `hierarchy/` | a thorn | synchronize, valid_t, operator<< |
+| `util/` | a thorn | Timer |
 
-A new `.cxx` is a word of its layer's `make.code.defn` `SRCS`; the build stops on a `.cxx` it would not compile, and such a file is deleted, not kept. A new header includes `internal.hxx` first, and its guard spells its path: `CARPETX_CARPETX_HIERARCHY_DRIVER_HXX`. A function that other layers call is declared in a header of its layer; one that only its own layer calls, in a header named after the file that defines it; one that only its own file calls stays `static` or in an anonymous namespace. A new layer is an entry of `SUBDIRS` in the root `make.code.defn` and of `LAYERS` in `scripts/lint/boundary/rules.py`, at the same place in both; `python3 scripts/lint doc --write` then redraws the stack and the includes.
+## What each layer owns
 
-## The layers
+New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides, then names the rules whose home is in it.
 
-### `util/`
-
-Leaves that know nothing of the grid: `refuse` and the operation scope it reports under, the task manager, the timer, the MPI types, the logo, `typeprops` and `var_type`. A consumer that needs the C++ type behind a `var_type` passes `visit` a generic lambda, so that adding a value to the enum breaks that one switch and nothing else. A helper that both a low and a high layer want goes here only if it needs nothing above it; code that names the hierarchy, a level, a window or the scheduler does not belong here.
-
-### `traversal/`
-
-The scheduler's run-phase state, kept off the hierarchy: the active window, the tail bin, the recovery traversal, the routine being called, the iteration the run recovered at and the time integrator a thorn registered, six slots with one writer and one reader each. The window, tail-bin and recovery scopes refuse to nest; the routine scope leaves its routine set after the call, so that the flesh's SYNC after a routine can still name it. `schedule/` opens every scope, `flesh/` records the recovered iteration once, before the hierarchy exists, and `api/` records the integrator once, `AT WRAGH`, after `register_integrator` has checked it against the hierarchy. `schedule/` freezes the integrator record when its `WRAGH` traversal ends, as it freezes storage before the extensions initialise: a registration after the freeze and a read before it are both refused, so every reader sees the final record and no read writes anything; `hierarchy/` reads it to decide whether a group is integrated, which is why the record sits below the grid and not in `api/`. A fact about the run's phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a new slot here; a fact about the grid belongs in `hierarchy/`.
-
-### `hierarchy/`
-
-The data model and the hierarchy's views of itself: `GHExt` and what it holds, the one pointer to it behind the door `driver()`, the group records, the group tags, the YAML emitters, the validity bookkeeping, the grid descriptors and cGH modes, the cGH pointer tables, and the loops over a window. The pointer tables are owned by `cctkGH_binding` in `binding.cxx`, the only file that assigns a `data[var][tl]` entry of any cGH, which the `binding` rule holds: it binds the arrays into the flesh cGH at startup and nulls them at shutdown, brackets each local copy with its grid functions, and is the only friend of either ring's private `rotate_timelevels`, so a rotation cannot skip its rebind: a grid-function rotation rebinds the local copies of each level in the window, and an array rotation rebinds the flesh cGH and every copy `GHExt::for_each_cctkGH` visits. A `GroupRecord` decodes the flesh's variable type once, when storage freezes, refusing a group whose type CarpetX does not store, so a consumer calls `visit` on the record's `var_type` instead of asking the flesh. A new field of `LevelData` or `GroupData` is declared in `driver.hxx`, initialised by its constructor, and written by its YAML emitter if the metadata output should show it. What `comm/` builds on a level for its own use, scratch that no checkpoint carries, is not such a field: `LevelData` holds it through one pointer, `buffers`, to `comm/`'s `level_buffers_t`, a type `driver.hxx` only forward-declares, so grid-layer code that names a band does not compile and every writer sits in `comm/` behind `buffers_of`; `regrid/` hands `add_level` and `remake_level` a slot from `comm/`'s `make_level_buffers`, so `hierarchy/` imports nothing of `comm/` for it, and it dies with the level. What a checkpoint carries stays a field, the flux register `freg` among it, although `comm/` fills it through the const side as it fills any grid data; the register's staging `freg_scratch`, scratch of `AccumulateFluxes` alone, is in the slot. The slot does not propagate const: `buffers_of` takes a `const LevelData &` and returns the buffers writable, the same write through a const hierarchy that the `mutable` members allowed, now confined to one layer instead of marked in the model. The `model` rule keeps `mutable` and `<carpetx_rk.hxx>` out of `driver.hxx`; it sees the keyword, not the write, so a new thing `comm/` writes on a level is a member of the slot, not another pointer in the model. Every layer names a group, variable, time level, patch or level by its handle type, which the `index` rule holds: a loop over a patch's levels walks `level_handles()` and one over the patches `patch_handles()`, `index_range`s like a record's `timelevels()`, and `.index()` unwraps a handle only where it meets AMReX or the flesh; the only bare `int` left is in a signature the flesh or AMReX fixes, which `INDEX_FIXED` lists per file, and in a window's bounds, which `window_t::levels`, `narrow` and `window_t::bounds_t` carry as ints. `driver()` returns `const GHExt &`: a function that reaches the hierarchy more than once binds `const GHExt &ext = driver();` once and its lambdas capture `ext`, the loops over a window hand each kernel a `const LevelData &`, and a patch's `CactusAmrCore` is const through a const `PatchData`. A change to the hierarchy that another layer needs is a static member of `hierarchy_writer`, declared in `hierarchy/operations.hxx` and defined in `hierarchy/` through `GHExt::mutable_instance()`, a private member whose only friends are `hierarchy_writer`, `cctkGH_binding` and the two write scopes of `valid.hxx`, so the compiler refuses the mutable reference in every other place; a file that changes the hierarchy includes that header, and a new kind of change is a new member there. Grid data behind a `MultiFab` pointer is written through the const side, which is how every layer fills a level. Moving data between levels, ranks or into ghost zones belongs to `comm/`, the bodies of the AMReX callbacks to `regrid/`, and the clocks and schedule bins to `schedule/`.
-
-### `comm/`
-
-Moving data between ranks, between levels, and into ghost and boundary zones: sync and restrict, reflux, fill-patch, the boundary conditions, the prolongation operators and the subcycling machinery. What the layer builds on a level for that is its own, in the level's slot, `level_buffers_t` in `comm/buffers.hxx`: per group the subcycling RK bands, the fill buffers and the flux staging, and per level the flux geometry, each null until `EnsureRKBuffers`, `EnsureFluxGeometry` or `AccumulateFluxes` allocates it through `buffers_of`, and gone when a regrid remakes or clears the level. A new buffer of that kind is a member there, not a field of `GroupData`; `io/` checkpoints the bands through `checkpoint_bands`, which hands them over under the tags the files carry. When to communicate is not decided here: `comm/` does what `schedule/` (a SYNC clause, the end-of-step restrict and reflux) and `api/` (the public communication operations) ask of it. The sync and restrict entry points take a window and a list of `gi_t`, and `Reflux` and `RecoverRKBoundary` a window; none takes a `cGH` or returns a code, which `flesh/compile_checks.cxx` pins by each function's exact type. A message that names the iteration takes it from `current_iteration()` in `hierarchy/valid.hxx`, the function that also stamps the write scopes, and the one `cGH` a body touches is the global one that `sync_multipatch_boundaries` reads through `driver()` to hand to the `MultiPatch_Interpolate` alias. Only the flesh's SYNC overload, `SyncGroupsOnActiveLevels`, keeps the flesh's shape, which its registration in `flesh/startup.cxx` fixes: it receives the flesh's `cGH`, asserts that it is in global or level mode, and discards the directions array. A new prolongation operator is a change to this layer alone: its operator map declared in `prolongate_3d_rf2.hxx`, its instantiations in a new `prolongate_3d_rf2_impl_<name>.cxx`, and its name in `get_interpolator`.
-
-### `regrid/`
-
-The bodies of the AMReX callbacks of `CactusAmrCore`, the class `hierarchy/` declares and constructs one of per patch. It is where the callbacks are written, not a home for data-model code: what a level holds and how it is constructed belongs to `hierarchy/`, and `regrid/` tags cells for refinement and fills new and remade levels through `comm/`'s fill-patch. It has no header, and nothing includes it.
-
-### `ops/`
-
-Operations on grid data that other thorns ask for: interpolation, reductions, which the norm output uses too, and the Poisson solver. Their flesh entry points are in `flesh/`, which converts the flesh's arguments and calls in here.
-
-### `io/`
-
-Output, checkpoint and recovery, and the file reader's input. A writer or a checkpoint works on a `group_selection_t`, built from a parameter string or from a predicate over the records, so a group without storage is never selected and no writer filters storage itself. A group's facts come from its record, never from the flesh's group table, which the `records` rule holds; another layer joins that rule by appending itself to `RECORDS_LAYERS` in `scripts/lint/boundary/rules.py` and converting what the rule then reports. The two checkpoint codecs translate between a `checkpoint_record_t` and a file and see nothing else, which the `codec` rule holds. When to output, checkpoint or recover is decided by the flesh's bins and by `schedule/`, which calls in here; `io/` does not include `schedule/`.
-
-### `schedule/`
-
-The driver's own loop: `Initialise`, `Evolve` and `Shutdown`, the clocks and the time step, the recovery sequence, the end-of-step restrict and reflux, the decoding of a routine's READS, WRITES and INVALIDATES clauses, `CallFunction`, which every scheduled routine runs through, and the STORAGE overloads. Its header declares only what `flesh/` registers and `api/` hands to the flesh's traversal. How a level is stored, synced or written is not decided here: the scheduler calls `hierarchy/`, `comm/` and `io/`.
-
-### `api/`
-
-The bodies of `carpetx.hxx` and `carpetx_rk.hxx`. A public operation names itself with `operation_scope_t`, so that its refusals say which call failed, checks its arguments, and calls the layer that owns the work; a new one is declared in `include/` and defined here. The layer sits above `schedule/` because `run_schedule_group_at` hands `CallFunction` to the flesh's traversal, as `flesh/` does.
-
-### `flesh/`
-
-The flesh edge: every `extern "C"` definition in CarpetX, in one file per way the flesh calls in. A new `PROVIDES FUNCTION` goes in `aliased.cxx`, a new scheduled function in `scheduled.cxx`, a new overload's registration in `CarpetX_Startup` in `startup.cxx`, with its definition above that function, and a compile-time check of a signature from another layer in `compile_checks.cxx`, which sits at the top so that it may include any of them. The layer owns none of the driver's data: an entry converts the flesh's arguments to CarpetX's types and calls the layer that does the work, and `SetupGH` and `CarpetX_Shutdown` create and destroy the hierarchy through `hierarchy/`. It has no header, and nothing includes it.
-
-## The check
-
-`python3 scripts/lint check --only boundary` runs the rules the stack's nodes name, with `layer`, `door`, `window`, `varindex`, `marker`, `index`, `prototype` and `using` in every layer; `python3 scripts/lint check --help` prints what each holds, `scripts/lint/boundary/rules.py` defines them, and `agent_docs/carpetx-public-api.md` says what `include` and `marker` keep out of the other thorns. The `boundary` check is one of the two checks of `scripts/lint`, beside `no-comments`, and `python3 scripts/lint --help` says how the hooks and the `Lint` workflow run them. A text check sees only how a file names what it uses, so `python3 scripts/lint symbols <build dir>` judges the layer order once more over the objects a build made: an object imports a CarpetX symbol only from its own layer or a lower one, whatever declared it. The `CI` workflow runs it after every build and `agent_scripts/build.sh` after a successful one; a reach the code still has is listed in `ACCEPTED` in `scripts/lint/boundary/symbols.py`, reported as accepted, and the list only shrinks.
+- `flesh/`: every `extern "C"`. It owns no data: an entry converts the flesh's arguments and calls the layer that does the work. Rules at home here: entry.
+- `api/`: the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work.
+- `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through. How a level is stored, synced or written is decided below it, and its header declares only what `flesh/` registers and `api/` hands to the flesh.
+- `io/`: output, checkpoint, recovery and the file reader's input. When to do each is decided by the flesh's bins and by `schedule/`. Rules at home here: records, codec.
+- `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
+- `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
+- `comm/`: moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions.
+- `hierarchy/`: the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of `hierarchy_writer`. Rules at home here: validity, binding, varindex, model.
+- `traversal/`: the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not. Rules at home here: traversal.
+- `util/`: leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.

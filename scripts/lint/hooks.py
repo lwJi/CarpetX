@@ -4,9 +4,12 @@ import json
 import os
 import sys
 
+from boundary.doc import MAP
 from checks import CHECKS
 from files import PROJECT, covered, merge_base, read_text, repo_name, simulate_edit
 from run import check_edit, check_since, has_findings, render_change
+
+GENERATED = f"{MAP} is written by python3 scripts/lint doc --write from scripts/lint/boundary/rules.py and doc.py: change those and run it."
 
 
 def emit(out, message: dict) -> None:
@@ -27,6 +30,8 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
         tool_input = payload["tool_input"]
         path = os.path.join(payload.get("cwd") or os.getcwd(), tool_input["file_path"])
         name = repo_name(path, root)
+        if name == MAP:
+            return deny(out, GENERATED)
         lang = covered(name, root) if name is not None else None
         if lang is None:
             return 0
@@ -40,6 +45,10 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
         reason = render_change(found, edit=True)
     except Exception as e:
         return skipped(out, e)
+    return deny(out, reason)
+
+
+def deny(out, reason: str) -> int:
     emit(
         out,
         {

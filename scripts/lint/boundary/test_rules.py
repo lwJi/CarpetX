@@ -24,6 +24,10 @@ def reported(name, text, lang=Lang.CXX):
     return [(f.rule, f.text) for f in findings(name, text, lang)]
 
 
+def guarded(name, text):
+    return f"#ifndef {rules.guard_of(name)}\n#define {rules.guard_of(name)}\n\n" + text
+
+
 def since_findings(root, base):
     [(_, found)] = check_since(root, base, [check.CHECK])
     return [(name, f) for name, verdict in found for f in verdict]
@@ -84,8 +88,8 @@ class Markers(unittest.TestCase):
                 self.assertEqual(reported(name, "SRCS = a.cxx\n" + self.EXPORT + "\n", Lang.MAKE), [("marker", self.EXPORT)])
 
     def test_a_private_header_guards_on_it(self):
-        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", GUARD), [])
-        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", "  # ifndef  CARPETX_INTERNAL  \n#endif\n"), [])
+        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", guarded("CarpetX/src/hierarchy/driver.hxx", GUARD)), [])
+        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", guarded("CarpetX/src/hierarchy/driver.hxx", "  # ifndef  CARPETX_INTERNAL  \n#endif\n")), [])
 
     def test_any_other_use_inside_carpetx_src_is_reported(self):
         for text in ["#define CARPETX_INTERNAL\n", "#ifdef CARPETX_INTERNAL\n", "#if !defined(CARPETX_INTERNAL)\n", "#ifndef CARPETX_INTERNAL // x\n"]:
@@ -93,7 +97,7 @@ class Markers(unittest.TestCase):
                 self.assertEqual(reported("CarpetX/src/hierarchy/hierarchy.cxx", text), [("marker", text.strip())])
 
     def test_the_public_headers_never_name_it(self):
-        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", GUARD), [("marker", "#ifndef CARPETX_INTERNAL")])
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", guarded("CarpetX/src/include/carpetx.hxx", GUARD)), [("marker", "#ifndef CARPETX_INTERNAL")])
 
     def test_another_thorns_make_code_defn_cannot_set_it(self):
         self.assertEqual(reported("T/src/make.code.defn", "CPPFLAGS += -DCARPETX_INTERNAL\n", Lang.MAKE), [("marker", "CPPFLAGS += -DCARPETX_INTERNAL")])
@@ -669,7 +673,7 @@ class Index(unittest.TestCase):
         for name, text in self.FIXED_DEFINITIONS:
             for other in ["CarpetX/src/io/io.cxx", "CarpetX/src/ops/linsolve.cxx", "CarpetX/src/hierarchy/hierarchy.cxx"]:
                 with self.subTest(name=name, other=other):
-                    self.assertEqual(reported(other, text), self.bare_lines(text))
+                    self.assertEqual([f for f in reported(other, text) if f[0] == "index"], self.bare_lines(text))
 
     def test_cctk_int_is_an_int(self):
         for line in ["const CCTK_INT patch = patches.at(n);", "CCTK_INT gi;", "void f(const CCTK_INT level);"]:
@@ -691,7 +695,7 @@ class Index(unittest.TestCase):
             "MY_CCTK_INT level;\n",
         ]:
             with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", text), [])
+                self.assertEqual([f for f in reported("CarpetX/src/hierarchy/driver.hxx", text) if f[0] == "index"], [])
 
     def test_line_numbers(self):
         text = "int a;\n\n  " + self.BARE[0] + "\n"
@@ -1048,7 +1052,8 @@ class Prototype(unittest.TestCase):
         for line in self.PROTOTYPES:
             for name in [layer_path(layer, "x.cxx") for layer in LAYERS] + ["CarpetX/src/flesh/startup.cxx", "CarpetX/src/extra/x.cxx"]:
                 with self.subTest(name=name, line=line):
-                    self.assertEqual(reported(name, line + "\n"), [("prototype", line)])
+                    entry = [("entry", line)] if 'extern "C"' in line and layer_of(name) != "flesh" else []
+                    self.assertEqual(reported(name, line + "\n"), [("prototype", line)] + entry)
 
     def test_a_head_with_a_template_argument_list_is_left_to_the_symbols_subcommand(self):
         for line in [
@@ -1163,7 +1168,7 @@ class Prototype(unittest.TestCase):
             "  static void reset();\n"
             "};\n"
         )
-        self.assertEqual(reported("CarpetX/src/io/io_adios2.cxx", text), [])
+        self.assertEqual([f for f in reported("CarpetX/src/io/io_adios2.cxx", text) if f[0] == "prototype"], [])
 
     def test_a_call_or_an_assignment_at_column_0_is_not(self):
         for text in [
@@ -1204,6 +1209,156 @@ class Prototype(unittest.TestCase):
     def test_line_numbers(self):
         text = "int a;\n\n" + self.PROTOTYPES[0] + "\n"
         self.assertEqual(findings("CarpetX/src/flesh/startup.cxx", text, Lang.CXX), [Finding(3, "prototype", self.PROTOTYPES[0])])
+
+
+class Guard(unittest.TestCase):
+    TOP = "#ifndef CARPETX_CARPETX_COMM_BUFFERS_HXX\n#define CARPETX_CARPETX_COMM_BUFFERS_HXX\n\n"
+
+    def test_the_guard_spells_the_path(self):
+        for name, guard in [
+            ("CarpetX/src/comm/buffers.hxx", "CARPETX_CARPETX_COMM_BUFFERS_HXX"),
+            ("CarpetX/src/hierarchy/driver.hxx", "CARPETX_CARPETX_HIERARCHY_DRIVER_HXX"),
+            ("CarpetX/src/internal.hxx", "CARPETX_CARPETX_INTERNAL_HXX"),
+            ("CarpetX/src/include/carpetx_rk.hxx", "CARPETX_CARPETX_INCLUDE_CARPETX_RK_HXX"),
+            ("CarpetX/src/comm/prolongate_3d_rf2_impl.hxx", "CARPETX_CARPETX_COMM_PROLONGATE_3D_RF2_IMPL_HXX"),
+        ]:
+            with self.subTest(name=name):
+                self.assertEqual(rules.guard_of(name), guard)
+
+    def test_a_header_opening_with_its_own_guard_and_internal_hxx_is_clean(self):
+        text = self.TOP + '#include "internal.hxx"\n\n#include "hierarchy/driver.hxx"\n#include <carpetx.hxx>\n\n#include <array>\n'
+        self.assertEqual(reported("CarpetX/src/comm/buffers.hxx", text), [])
+
+    def test_a_copied_guard_is_reported_on_both_lines(self):
+        text = self.TOP + '#include "internal.hxx"\n'
+        self.assertEqual(
+            reported("CarpetX/src/comm/fill.hxx", text),
+            [("guard", "#ifndef CARPETX_CARPETX_COMM_BUFFERS_HXX"), ("guard", "#define CARPETX_CARPETX_COMM_BUFFERS_HXX")],
+        )
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", "#ifndef CARPETX_CARPETX_INCLUDE_CARPETX_RK_HXX\n"), [("guard", "#ifndef CARPETX_CARPETX_INCLUDE_CARPETX_RK_HXX")])
+
+    def test_an_include_before_internal_hxx_is_reported(self):
+        text = self.TOP + '#include <carpetx.hxx>\n#include "internal.hxx"\n#include "hierarchy/driver.hxx"\n'
+        self.assertEqual(reported("CarpetX/src/comm/buffers.hxx", text), [("guard", "#include <carpetx.hxx>")])
+        self.assertEqual(reported("CarpetX/src/comm/buffers.hxx", self.TOP + '#include "hierarchy/driver.hxx"\n'), [("guard", '#include "hierarchy/driver.hxx"')])
+
+    def test_an_include_past_the_opening_and_a_later_ifndef_are_not_judged(self):
+        text = self.TOP + '#include "internal.hxx"\n\nint a;\n\n#include <array>\n#ifndef __CUDACC__\nint b;\n#endif\n'
+        self.assertEqual(reported("CarpetX/src/comm/buffers.hxx", text), [])
+        self.assertEqual(reported("CarpetX/src/internal.hxx", "#ifndef CARPETX_CARPETX_INTERNAL_HXX\n#define CARPETX_CARPETX_INTERNAL_HXX\n\n#ifndef CARPETX_INTERNAL\n#error x\n#endif\n\n#endif\n"), [])
+
+    def test_a_header_whose_first_line_is_not_its_own_ifndef_is_reported_there(self):
+        for text, reports in [
+            ('#ifndef CARPETX_ARITH_X_HXX\n#define CARPETX_ARITH_X_HXX\n#include <array>\nint a;\n#endif\n', [("guard", "#ifndef CARPETX_ARITH_X_HXX")]),
+            ("#include <array>\nint a;\n", []),
+            ("\n\n#pragma once\n#include <array>\n", [("guard", "#pragma once")]),
+            ("#define CARPETX_CARPETX_COMM_BUFFERS_HXX\n", [("guard", "#define CARPETX_CARPETX_COMM_BUFFERS_HXX")]),
+            ("int a;\n", []),
+            ("\n" + self.TOP + '#include "internal.hxx"\n', []),
+            ("", []),
+            ("\n\n", []),
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/comm/buffers.hxx", text), reports)
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", "#ifndef CARPETX_HXX\n#define CARPETX_HXX\n"), [("guard", "#ifndef CARPETX_HXX")])
+        self.assertEqual(findings("CarpetX/src/comm/buffers.hxx", "\n#if 1\n#include <vector>\n#endif\n", Lang.CXX), [Finding(2, "guard", "#if 1")])
+
+    def test_a_public_header_includes_no_internal_hxx(self):
+        text = "#ifndef CARPETX_CARPETX_INCLUDE_CARPETX_HXX\n#define CARPETX_CARPETX_INCLUDE_CARPETX_HXX\n\n#include <defs.hxx>\n#include <cctk.h>\n"
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", text), [])
+
+    def test_sources_and_other_thorns_are_not_judged(self):
+        text = "#ifndef CARPETX_CARPETX_COMM_BUFFERS_HXX\n#include <array>\n"
+        self.assertEqual(reported("CarpetX/src/comm/buffers.cxx", text), [])
+        self.assertEqual(reported("T/src/buffers.hxx", text), [])
+
+
+class DeclaredFunction(unittest.TestCase):
+    def test_names_the_function_a_head_declares(self):
+        for head, name in [
+            ("int ScheduleTraverseGH(cGH *cctkGH, const char *where);", "ScheduleTraverseGH"),
+            ('extern "C" int CarpetX_Startup();', "CarpetX_Startup"),
+            ("const amrex::Geometry &geometry(level_t level);", "geometry"),
+            ("std::ostream &operator<<(std::ostream &os, symmetry_t symmetry);", "operator<<"),
+            ("bool operator == (const valid_t &a, const valid_t &b);", "operator=="),
+            ("void CactusAmrCore::ErrorEst(int lev);", "CactusAmrCore::ErrorEst"),
+        ]:
+            with self.subTest(head=head):
+                self.assertEqual(rules.declared_function(head), name)
+                self.assertEqual(rules.declared_function(head, in_header=True), name)
+
+    def test_a_template_argument_list_is_read_only_in_a_header(self):
+        for head, name in [
+            ("reduction<CCTK_REAL, Loop::dim> reduce(gi_t gi, vi_t vi, tl_t tl);", "reduce"),
+            ("std::array<std::array<symmetry_t, Loop::dim>, 2> symmetries(level_t level);", "symmetries"),
+            ("std::vector<int> table(3);", "table"),
+        ]:
+            with self.subTest(head=head):
+                self.assertIsNone(rules.declared_function(head))
+                self.assertEqual(rules.declared_function(head, in_header=True), name)
+
+    def test_what_is_not_a_function_declaration_has_no_name(self):
+        for head in ["int a;", "return f(x);", "void (*handler)(int);", "x = f(1);", "f(1);", "std::function<void(int)> cb(f);"]:
+            with self.subTest(head=head):
+                self.assertIsNone(rules.declared_function(head))
+                self.assertFalse(rules.names_a_function(head))
+        self.assertIsNone(rules.declared_function("void (*handler)(int);", in_header=True))
+
+
+class Entry(unittest.TestCase):
+    ENTRIES = ['extern "C" int CarpetX_Startup() {', 'extern "C" void CarpetX_Checkpoint(CCTK_ARGUMENTS) {', 'extern "C" {']
+
+    def test_an_extern_c_outside_flesh_is_reported(self):
+        for layer in LAYERS:
+            for line in self.ENTRIES:
+                with self.subTest(layer=layer, line=line):
+                    found = [("entry", line)] if layer != "flesh" else []
+                    self.assertEqual(reported(layer_path(layer, "x.cxx"), line + "\n"), found)
+                    self.assertEqual(reported(layer_path(layer, "x.hxx"), line + "\n"), [("entry", line)] if layer != "flesh" else [])
+
+    def test_the_flesh_files_and_other_thorns_are_clean(self):
+        for name in ["CarpetX/src/flesh/aliased.cxx", "CarpetX/src/flesh/scheduled.cxx", "CarpetX/src/flesh/startup.cxx", "T/src/a.cxx", "CarpetX/src/include/carpetx.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.ENTRIES[0] + "\n"), [])
+
+    def test_a_c_string_is_not_an_entry(self):
+        self.assertEqual(reported("CarpetX/src/io/io.cxx", 'const char *lang = "C";\nextern int x;\n'), [])
+
+
+class Tree(unittest.TestCase):
+    SUBDIRS = re.compile(r"^SUBDIRS\s*=\s*(.*)$", re.MULTILINE)
+    PROVIDES = re.compile(r"^\s*PROVIDES\s+FUNCTION\s+\w+\s+WITH\s+(\w+)", re.MULTILINE | re.IGNORECASE)
+    SCHEDULED = re.compile(r"^\s*SCHEDULE\s+(?!GROUP\b)(\w+)", re.MULTILINE | re.IGNORECASE)
+    STARTUP_SCHEDULED = ("CarpetX_Startup", "CarpetX_Shutdown")
+
+    def defined_in(self, name, path):
+        return re.search(doc.DEFINITION.format(name=name), doc.read(os.path.join(PROJECT, path)))
+
+    def test_a_new_layer_is_in_subdirs_and_layers_at_the_same_place(self):
+        text = doc.read(os.path.join(PROJECT, MAKE_DEFN))
+        self.assertEqual(
+            tuple(self.SUBDIRS.search(text).group(1).split()),
+            LAYERS,
+            f"a new layer is an entry of SUBDIRS in {MAKE_DEFN} and of LAYERS in scripts/lint/boundary/rules.py, at the same place in both; python3 scripts/lint doc --write then redraws the map",
+        )
+        self.assertEqual(sorted(os.listdir(os.path.join(PROJECT, "CarpetX", "src"))), sorted(LAYERS + ("include", "internal.hxx", "make.code.defn")))
+
+    def test_each_ccl_entry_is_defined_in_the_flesh_file_for_its_kind(self):
+        for name in self.PROVIDES.findall(doc.read(os.path.join(PROJECT, "CarpetX/interface.ccl"))):
+            with self.subTest(aliased=name):
+                self.assertTrue(self.defined_in(name, layer_path("flesh", "aliased.cxx")), f"{name} is a PROVIDES FUNCTION of CarpetX/interface.ccl, so it is defined in flesh/aliased.cxx")
+        for name in self.SCHEDULED.findall(doc.read(os.path.join(PROJECT, "CarpetX/schedule.ccl"))):
+            home = "startup.cxx" if name in self.STARTUP_SCHEDULED else "scheduled.cxx"
+            with self.subTest(scheduled=name):
+                self.assertTrue(self.defined_in(name, layer_path("flesh", home)), f"{name} is scheduled in CarpetX/schedule.ccl, so it is defined in flesh/{home}")
+
+    def test_each_overload_the_flesh_defines_is_above_its_registration(self):
+        text = doc.read(os.path.join(PROJECT, doc.STARTUP))
+        registration = re.search(doc.DEFINITION.format(name="CarpetX_Startup"), text).start()
+        for name in dict(doc.REGISTERED)[doc.STARTUP]:
+            with self.subTest(name=name):
+                definition = re.search(doc.DEFINITION.format(name=name), text)
+                self.assertTrue(definition and definition.start() < registration, f"{name} is registered in CarpetX_Startup, so it is defined above it in flesh/startup.cxx")
 
 
 class Using(unittest.TestCase):
@@ -1403,7 +1558,7 @@ class Since(unittest.TestCase):
             base = git(root, "rev-parse", "HEAD").strip()
             write(root, "T/src/a.cxx", '#include "../../CarpetX/src/driver.hxx"\n#include "../../CarpetX/src/schedule.hxx"\n')
             write(root, "T/src/b.cxx", "#define CARPETX_INTERNAL\n")
-            write(root, "CarpetX/src/io/io.hxx", GUARD + "int a;\n")
+            write(root, "CarpetX/src/io/io.hxx", guarded("CarpetX/src/io/io.hxx", GUARD + "int a;\n"))
             write(root, "notes.md", '#include "../../CarpetX/src/driver.hxx"\n')
             self.assertEqual(
                 since_findings(root, base),
@@ -1460,6 +1615,8 @@ class Report(unittest.TestCase):
             "every internal include at or below its own layer, "
             "no prototype in a CarpetX .cxx, "
             "no using-directive in a CarpetX header, "
+            "every header opens with its own guard and internal.hxx, "
+            "no extern C entry outside flesh/, "
             "and the hierarchy has one door that util/ and traversal/ never use",
         )
 
@@ -1715,31 +1872,42 @@ class Doc(unittest.TestCase):
     def test_the_map_is_what_doc_writes(self):
         with open(os.path.join(PROJECT, doc.MAP)) as f:
             text = f.read()
-        self.assertEqual(doc.rewrite(text), text, "run python3 scripts/lint doc --write")
+        self.assertEqual(doc.render(), text, "run python3 scripts/lint doc --write")
 
     def test_the_stack_is_the_layers_top_down_with_the_door_line(self):
         lines = doc.stack().splitlines()
-        self.assertEqual(lines[:2], [doc.mark("the stack"), "flowchart TB"])
-        self.assertIn("  " + " --> ".join(reversed(LAYERS)), lines)
+        self.assertEqual(lines[0], "flowchart TB")
+        self.assertIn("  " + " ~~~ ".join(reversed(LAYERS)), lines)
+        self.assertNotIn(" --> ".join(reversed(LAYERS)), doc.stack())
+        for (source, target), headers in doc.includes().items():
+            with self.subTest(source=source, target=target):
+                self.assertLess(LAYERS.index(target), LAYERS.index(source))
+                self.assertIn(f'  {source} -- "{", ".join(headers)}" --> {target}', lines)
         door = lines[lines.index('  subgraph door["driver() allowed"]') + 1 : lines.index("  end")]
         self.assertEqual([line.split("[")[0].strip() for line in door], list(reversed(HIERARCHY_LAYERS)))
         nodoor = lines[lines.index('  subgraph nodoor["no driver()"]') + 1 :]
         nodoor = nodoor[: nodoor.index("  end")]
         self.assertEqual([line.split("[")[0].strip() for line in nodoor], list(reversed(rules.UNDER_HIERARCHY)))
 
-    def test_a_stack_node_names_the_rules_at_home_in_its_layer(self):
-        self.assertEqual(doc.node("io", (), rules=True), '  io["io/ records, codec"]')
-        self.assertEqual(doc.node("hierarchy", (), rules=True), '  hierarchy["hierarchy/ validity, binding, varindex, model"]')
+    def test_an_owns_row_names_the_rules_at_home_in_its_layer(self):
+        rows = {line.split(":")[0]: line for line in doc.owns().splitlines()[4:]}
+        self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
+        self.assertTrue(rows["- `hierarchy/`"].endswith(" Rules at home here: validity, binding, varindex, model."))
+        self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry."))
+        self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
+        self.assertNotIn("Rules at home here", rows["- `ops/`"])
         self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "varindex", "model"])
-        self.assertEqual(doc.node("flesh", ("regrid", "flesh"), rules=True), '  flesh["flesh/ no header"]')
-        self.assertEqual(doc.node("ops", ("regrid", "flesh"), rules=True), '  ops["ops/"]')
+        self.assertEqual(doc.node("flesh", ("regrid", "flesh")), '  flesh["flesh/ no header"]')
+        self.assertEqual(doc.node("regrid", ("regrid", "flesh")), '  regrid["regrid/ no header"]')
+        self.assertEqual(doc.node("ops", ("regrid", "flesh")), '  ops["ops/"]')
         self.assertEqual(doc.node("io", ()), '  io["io/"]')
+        self.assertNotIn("codec", doc.stack())
         self.assertEqual(doc.rules_of("io"), ["records", "codec"])
         self.assertEqual(doc.rules_of("ops"), [])
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "model", "traversal", "records", "codec"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "model", "traversal", "records", "codec", "entry"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
@@ -1786,19 +1954,23 @@ class Doc(unittest.TestCase):
                     (("io", "ops"), ("reduction.hxx",)),
                 ],
             )
-            graph = doc.include_graph(root).splitlines()
-            self.assertEqual(graph[:2], [doc.mark("the includes"), "flowchart TB"])
-            self.assertEqual(
-                [line.split("[")[0].strip() for line in graph[2:9]],
-                [layer for layer in reversed(LAYERS) if layer not in doc.BASE_LAYERS],
-            )
-            self.assertEqual(graph[9:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops'])
+            drawn = doc.stack(root)
+            graph = drawn.splitlines()
+            chain = graph.index("  " + " ~~~ ".join(reversed(LAYERS)))
+            self.assertEqual(graph[chain + 1 : chain + 5], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops'])
+            self.assertTrue(graph[chain + 5].startswith('  hierarchy -. "'))
+            self.assertEqual(doc.shared_base(root), ())
+            self.assertEqual(graph[-1], f"%% an edge into {doc.BASE_DIRS} is not drawn")
             self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("hierarchy", "io", "comm")))
-            for drawn in (doc.stack(root), doc.include_graph(root)):
-                self.assertIn('ops["ops/ no header"]', drawn)
-                self.assertIn('comm["comm/', drawn)
-                self.assertNotIn('comm["comm/ no header"]', drawn)
-            self.assertIn('    io["io/ records, codec"]', doc.stack(root))
+            self.assertIn('ops["ops/ no header"]', drawn)
+            self.assertIn('comm["comm/', drawn)
+            self.assertNotIn('comm["comm/ no header"]', drawn)
+            self.assertIn('    io["io/"]', drawn)
+            for layer in rules.HIERARCHY_LAYERS[1:]:
+                with open(os.path.join(src, layer, "z.cxx"), "w") as f:
+                    f.write('#include "hierarchy/driver.hxx"\n#include "util/refuse.hxx"\n' if layer == "io" else '#include "hierarchy/driver.hxx"\n')
+            self.assertEqual(doc.shared_base(root), ("hierarchy/driver.hxx",))
+            self.assertEqual(doc.stack(root).splitlines()[-1], f"%% an edge into {doc.BASE_DIRS} is not drawn: every layer above hierarchy/ reads hierarchy/driver.hxx")
             for name in ("Core", "Est", "tags_of"):
                 with self.subTest(name=name):
                     self.assertTrue(doc.declares_and_defines(root, "hierarchy", "regrid", name))
@@ -1806,17 +1978,189 @@ class Doc(unittest.TestCase):
             self.assertFalse(doc.declares_and_defines(root, "io", "regrid", "Core"))
             self.assertFalse(doc.declares_and_defines(root, "regrid", "io", "Core"))
 
-    def test_rewrite_replaces_only_the_marked_blocks(self):
-        stale_stack = "```mermaid\n" + doc.mark("the stack") + "\nflowchart TB\n  stale\n```\n"
-        stale_includes = "```mermaid\n" + doc.mark("the includes") + "\n  stale\n```\n"
-        other = "```mermaid\nflowchart LR\n  a --> b\n```\n"
-        text = "# map\n\n" + other + "\n" + stale_stack + "\nprose\n\n" + stale_includes + "\ntail\n"
-        expected = "# map\n\n" + other + "\n```mermaid\n" + doc.stack() + "```\n\nprose\n\n```mermaid\n" + doc.include_graph() + "```\n\ntail\n"
-        self.assertEqual(doc.rewrite(text), expected)
-        self.assertEqual(doc.rewrite(expected), expected)
-        for name, broken in [("no blocks", other), ("the stack twice", text + stale_stack), ("no includes", text.replace(stale_includes, ""))]:
-            with self.subTest(name=name), self.assertRaises(ValueError):
-                doc.rewrite(broken)
+    def test_render_is_the_whole_map(self):
+        text = doc.render()
+        self.assertTrue(text.startswith(doc.TITLE + "\n\n" + doc.PREAMBLE + "\n\n## The stack\n\n```mermaid\n" + doc.stack()))
+        self.assertTrue(text.endswith("```\n\n" + doc.entries() + "\n" + doc.owns()))
+        for title, draw in doc.SECTIONS:
+            with self.subTest(title=title):
+                self.assertIn(f"\n## {title}\n\n```mermaid\n" + draw(PROJECT) + "```\n", text)
+        self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), ["## The stack", "## The loop", doc.ENTRIES_HEADING, doc.OWNS_HEADING])
+        self.assertEqual(text.count("```"), 4)
+        for name in re.findall(r"`([^`\n]+)`", doc.PREAMBLE):
+            with self.subTest(name=name):
+                if name.startswith("python3 "):
+                    self.assertIn(name.split()[2], ("doc", "check"))
+                elif name.startswith("`#include"):
+                    pass
+                elif "/" in name or name.endswith(".md"):
+                    self.assertTrue(os.path.exists(os.path.join(PROJECT, name.rstrip("/"))), name)
+
+    def test_each_layer_owns_one_row_whose_names_are_live(self):
+        self.assertEqual(tuple(rules.OWNS), LAYERS, "a new layer is a row of OWNS in scripts/lint/boundary/rules.py: what it owns and what it never decides")
+        lines = doc.owns().splitlines()
+        self.assertEqual(lines[:4], [doc.OWNS_HEADING, "", doc.OWNS_INTRO, ""])
+        self.assertEqual([line.split(":")[0] for line in lines[4:]], [f"- `{layer}/`" for layer in reversed(LAYERS)])
+        words = set()
+        for layer in LAYERS:
+            for path in doc.sources(PROJECT, layer):
+                words.update(re.findall(r"[A-Za-z_]\w+", doc.read(path)))
+        for layer, row in rules.OWNS.items():
+            for name in re.findall(r"`([^`]+)`", row):
+                with self.subTest(layer=layer, name=name):
+                    if name.endswith("/"):
+                        self.assertIn(name[:-1], LAYERS)
+                    else:
+                        self.assertTrue(any(word in words for word in re.findall(r"[A-Za-z_]\w+", name)), f"{name} is not in CarpetX/src")
+
+    def test_every_block_ends_with_its_legend(self):
+        for drawn, texts in ((doc.stack(), doc.stack_legend()), (doc.the_loop(), doc.LOOP_LEGEND)):
+            lines = drawn.splitlines()
+            self.assertEqual(lines[-len(texts) :], [f"%% {text}" for text in texts])
+            for line in lines:
+                self.assertNotRegex(re.sub(r'"[^"]*"', "", line), r"[;\\]|::|[^\x00-\x7f]")
+        self.assertEqual(doc.stack_legend(), doc.STACK_LEGEND + ("an edge into util/, traversal/ or hierarchy/ is not drawn: every layer above hierarchy/ reads hierarchy/driver.hxx",))
+        for layer in rules.HIERARCHY_LAYERS[1:]:
+            with self.subTest(layer=layer):
+                self.assertIn(("hierarchy", "driver.hxx"), doc.layer_includes(PROJECT, layer))
+
+    def test_the_loop_draws_every_step_between_the_nodes_it_names(self):
+        lines = doc.the_loop().splitlines()
+        self.assertEqual(lines[:4], ["flowchart LR", '  cactus["Cactus flesh"]', '  amrex["AMReX"]', '  thorn["a thorn\'s routine"]'])
+        nodes = [line.split("[")[0].strip() for line in lines if "[" in line]
+        self.assertEqual(nodes[3:], [layer for layer in reversed(LAYERS) if layer in nodes])
+        edges = [re.fullmatch(r'  (\w+) -- "([^"]*)" --> (\w+)', line) for line in lines if " -- " in line]
+        self.assertTrue(all(edges), lines)
+        for edge in edges:
+            with self.subTest(edge=edge.group(0)):
+                self.assertLessEqual({edge.group(1), edge.group(3)}, set(nodes))
+        numbered = [edge.group(2).split()[0] for edge in edges if edge.group(2)[0].isdigit()]
+        self.assertEqual(numbered, sorted(numbered))
+        self.assertEqual(sorted(set(numbered)), list("1234567"))
+        self.assertEqual([edge.group(2) for edge in edges if not edge.group(2)[0].isdigit()][0], next(", ".join(row[3]) for row in doc.LOOP if row[0] == doc.REGRID))
+        self.assertEqual(edges[-1].group(1), "amrex")
+        table = doc.entries().splitlines()
+        self.assertEqual(table[:6], [doc.ENTRIES_HEADING, "", doc.ENTRIES_INTRO, "", "| Layer | Caller | Entries |", "| --- | --- | --- |"])
+        layers = [row.split("`")[1].rstrip("/") for row in table[6:]]
+        self.assertEqual(layers, sorted(layers, key=lambda layer: -LAYERS.index(layer)))
+        self.assertTrue({"flesh", "api", "schedule", "regrid"} <= set(layers), layers)
+
+    def test_every_row_of_the_loop_and_the_tables_is_held_to_the_tree(self):
+        def define(name):
+            return f"int {name}(int a) {{\n  return a;\n}}\n"
+
+        files = {file: "".join(define(name) for name in names) for file, names in doc.REGISTERED}
+        files[doc.STARTUP] = files[doc.STARTUP].replace(define("ScheduleTraverseGH"), "")
+        files[doc.STARTUP] += (
+            "int ScheduleTraverseGH(cGH *cctkGH,\n                       const char *where) {\n  return CCTK_ScheduleTraverse(where, cctkGH, CallFunction);\n}\n"
+            'extern "C" int CarpetX_Startup() {\n' + "".join(f"  CCTK_Overload{name}({name});\n" for _, names in doc.REGISTERED for name in names) + "}\n"
+        )
+        files[layer_path("schedule", "evolve.cxx")] = (
+            "int Initialise(tFleshConfig *config) {\n  CCTK_Traverse(cctkGH, \"CCTK_INITIAL\");\n  return 0;\n}\nint Evolve(tFleshConfig *config) {\n"
+            "  hierarchy_writer::regrid(level, time);\n  CCTK_Traverse(cctkGH, \"CCTK_EVOL\");\n  CCTK_OutputGH(cctkGH);\n  return 0;\n}\nint Shutdown(tFleshConfig *config) {\n  return 0;\n}\n"
+        )
+        files.update(
+            {
+                layer_path("flesh", "compile_checks.cxx"): "int x = CCTK_ScheduleTraverse(a, b, Other);\nint y = CCTK_CallFunction(f, a, g);\n",
+                layer_path("schedule", "callfunction.cxx"): "int CallFunction(void *function, cFunctionData *attribute, void *data) {\n  return CCTK_CallFunction(function, attribute, cctkGH);\n}\n",
+                layer_path("io", "io.cxx"): '#include "internal.hxx"\n#include <carpetx.hxx>\nint OutputGH(const cGH *cctkGH) {\n  if (Evolve(0)) {\n    return 1;\n  }\n  return 0;\n}\n',
+                layer_path("regrid", "regrid.cxx"): "void CactusAmrCore::ErrorEst(const int lev,\n                             amrex::TagBoxArray &tags) {\n}\n"
+                + "".join(f"void CactusAmrCore::{name}(int lev) {{\n}}\n" for name in doc.AMREX_CALLBACKS[1:]),
+                layer_path("hierarchy", "hierarchy.cxx"): "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
+                layer_path("hierarchy", "loops.cxx"): "void synchronize() {\n}\n",
+                layer_path("hierarchy", "valid.cxx"): 'std::string valid_t::explanation() const {\n  return "";\n}\n',
+                layer_path("hierarchy", "group_tags.cxx"): 'std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry) {\n  return os << "none";\n}\n',
+                layer_path("ops", "reduction.cxx"): "reduction<CCTK_REAL, dim> reduce(const gi_t gi) {\n  return {};\n}\n",
+                layer_path("util", "timer.cxx"): "Timer::Timer(const std::string &name)\n    : name(name) {\n}\n",
+                layer_path("api", "api.cxx"): "int num_patches() {\n  return 0;\n}\nvoid register_integrator(const rk_config_t &config) {\n}\n",
+                layer_path("api", "api_rk.cxx"): "void run_schedule_group_at(const cGH *cctkGH) {\n  CCTK_ScheduleTraverse(group, cctkGH, CallFunction);\n}\n",
+                doc.PUBLIC_HEADERS[0]: "int num_patches();\nvoid synchronize();\nreduction<CCTK_REAL, Loop::dim> reduce(gi_t gi);\nstruct valid_t {\n  std::string explanation() const;\n};\n"
+                "class Timer {\n  Timer(const std::string &name);\n};\nstd::ostream &operator<<(std::ostream &os, symmetry_t symmetry);\nvoid prolongate(window_t window,\n                std::span<const gi_t> groups);\n"
+                "std::array<std::array<symmetry_t, Loop::dim>, 2> symmetries(level_t level);\nstatic_assert(sizeof(int) == 4);\n",
+                doc.PUBLIC_HEADERS[1]: "void register_integrator(const rk_config_t &config);\n",
+            }
+        )
+        files[layer_path("api", "api.cxx")] += "void prolongate(window_t window, std::span<const gi_t> groups) {\n}\nstd::array<std::array<symmetry_t, dim>, 2> symmetries(const level_t level) {\n  return {};\n}\n"
+        with tempfile.TemporaryDirectory() as root:
+            for layer in LAYERS:
+                os.makedirs(os.path.join(root, "CarpetX", "src", layer))
+            os.makedirs(os.path.join(root, rules.PUBLIC_DIR))
+
+            def write(changes):
+                for name, text in {**files, **changes}.items():
+                    with open(os.path.join(root, name), "w") as f:
+                        f.write(text)
+
+            write({})
+            self.assertEqual(doc.registrations(root), [name for _, names in doc.REGISTERED for name in names])
+            self.assertEqual(doc.extern_c_files(root), ["startup.cxx"])
+            self.assertEqual(doc.prototypes(root), {doc.PUBLIC_HEADERS[0]: ("num_patches", "synchronize", "reduce", "operator<<", "prolongate", "symmetries"), doc.PUBLIC_HEADERS[1]: ("register_integrator",)})
+            self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "symmetries", "register_integrator"), "hierarchy": ("synchronize", "valid_t", "operator<<"), "ops": ("reduce",), "util": ("Timer",)})
+            lines = doc.the_loop(root).splitlines()
+            self.assertEqual(
+                [line for line in lines if " -- " in line],
+                [
+                    '  cactus -- "1 Initialise, Evolve, Shutdown" --> schedule',
+                    '  schedule -- "2 CCTK_Traverse, CCTK_OutputGH" --> cactus',
+                    '  cactus -- "3 ScheduleTraverseGH" --> flesh',
+                    '  cactus -- "3 OutputGH" --> io',
+                    '  flesh -- "4 CCTK_ScheduleTraverse" --> cactus',
+                    '  api -- "4 CCTK_ScheduleTraverse" --> cactus',
+                    '  cactus -- "5 CallFunction" --> schedule',
+                    '  schedule -- "6 CCTK_CallFunction" --> thorn',
+                    '  thorn -- "7 carpetx.hxx, carpetx_rk.hxx" --> api',
+                    '  thorn -- "7 reduce" --> ops',
+                    '  thorn -- "7 synchronize, valid_t, operator<<" --> hierarchy',
+                    '  thorn -- "7 Timer" --> util',
+                    '  schedule -- "hierarchy_writer::regrid" --> hierarchy',
+                    '  hierarchy -- "amrcore->regrid" --> amrex',
+                    '  amrex -- "ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
+                ],
+            )
+            self.assertEqual([line.split("[")[0].strip() for line in lines[4:12]], ["flesh", "api", "schedule", "io", "ops", "regrid", "hierarchy", "util"])
+            self.assertEqual(
+                doc.entries(root).splitlines()[6:],
+                [
+                    '| `flesh/` | Cactus flesh | every extern "C" in startup.cxx |',
+                    "| `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, MyProc, nProcs, Exit, Abort, Barrier, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |",
+                    "| `api/` | a thorn | every function of carpetx.hxx, carpetx_rk.hxx not named in a row below |",
+                    "| `schedule/` | Cactus flesh | Initialise, Evolve, Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB |",
+                    "| `io/` | Cactus flesh | OutputGH |",
+                    "| `ops/` | Cactus flesh | InterpLocalUniform |",
+                    "| `ops/` | a thorn | reduce |",
+                    "| `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |",
+                    "| `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |",
+                    "| `hierarchy/` | a thorn | synchronize, valid_t, operator<< |",
+                    "| `util/` | a thorn | Timer |",
+                ],
+            )
+            startup = files[doc.STARTUP]
+            evolve = files[layer_path("schedule", "evolve.cxx")]
+            io_cxx = files[layer_path("io", "io.cxx")]
+            for message, changes, draw in [
+                ("Foo registered in CarpetX/src/flesh/startup.cxx but in no row of REGISTERED", {doc.STARTUP: startup.replace("  CCTK_OverloadSetupGH(SetupGH);\n", "  CCTK_OverloadSetupGH(SetupGH);\n  CCTK_OverloadFoo(Foo);\n")}, doc.entries),
+                ("Shutdown in a row of REGISTERED in scripts/lint/boundary/doc.py but not registered", {doc.STARTUP: startup.replace("  CCTK_OverloadShutdown(Shutdown);\n", "")}, doc.entries),
+                ("OutputGH not defined in CarpetX/src/io/io.cxx, where its row", {layer_path("io", "io.cxx"): "int f() {\n  if (OutputGH(0)) {\n  }\n  return 0;\n}\n"}, doc.entries),
+                ("OutputGH not defined in CarpetX/src/io/io.cxx, where the loop's step 3 lands", {layer_path("io", "io.cxx"): io_cxx.replace("int OutputGH(const cGH *cctkGH) {", "int Output(const cGH *cctkGH) {")}, doc.the_loop),
+                ("CCTK_Traverse not called in CarpetX/src/schedule/evolve.cxx, where the loop's step 2 starts", {layer_path("schedule", "evolve.cxx"): re.sub(r"  CCTK_Traverse\(.*\n", "", evolve)}, doc.the_loop),
+                ("CCTK_ScheduleTraverse not called in CarpetX/src/flesh/startup.cxx, where the loop's step 4 starts", {doc.STARTUP: startup.replace("CCTK_ScheduleTraverse(where, cctkGH, CallFunction)", "0")}, doc.the_loop),
+                ("hierarchy_writer::regrid not called in schedule/, where the loop's step regrid starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  hierarchy_writer::regrid(level, time);\n", "")}, doc.the_loop),
+                ("amrcore->regrid not called in CarpetX/src/hierarchy/hierarchy.cxx, where the loop's step regrid starts", {layer_path("hierarchy", "hierarchy.cxx"): "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n}\n"}, doc.the_loop),
+                ("nowhere declared in a public header but defined in no api/ file and in no row of PUBLIC_BODIES", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "int nowhere();\n"}, doc.entries),
+                ("CarpetX/src/include/carpetx_rk.hxx:2 declares something the map cannot name: void (*handler)(int);", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "void (*handler)(int);\n"}, doc.entries),
+                ("operator<< not defined in CarpetX/src/hierarchy/group_tags.cxx, where its row of PUBLIC_BODIES", {layer_path("hierarchy", "group_tags.cxx"): "int tags() {\n  return 0;\n}\n"}, doc.the_loop),
+                ("reduce not defined in CarpetX/src/ops/reduction.cxx, where its row of PUBLIC_BODIES", {layer_path("ops", "reduction.cxx"): "int reduced() {\n  return 0;\n}\n"}, doc.the_loop),
+            ]:
+                with self.subTest(message=message):
+                    write(changes)
+                    with self.assertRaisesRegex(ValueError, re.escape(message)):
+                        draw(root)
+            write({})
+            with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("util", "timer.cxx"), ("Nowhere",)),)), self.assertRaisesRegex(ValueError, "Nowhere is in a row of PUBLIC_BODIES"):
+                doc.the_loop(root)
+            with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("api", "api.cxx"), ("num_patches",)),)), self.assertRaisesRegex(ValueError, "in api/, at or above api/"):
+                doc.entries(root)
+            self.assertEqual(doc.render(root).count("```"), 4)
 
 if __name__ == "__main__":
     unittest.main()

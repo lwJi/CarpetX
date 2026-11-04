@@ -4,7 +4,7 @@ import re
 import textwrap
 from collections import Counter
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Iterator, Optional
 
 from checks import excerpt, plural
 from files import Lang, lang_of
@@ -14,6 +14,18 @@ PRIVATE_DIR = "CarpetX/src/"
 PUBLIC_DIR = "CarpetX/src/include/"
 MAKE_DEFN = "CarpetX/src/make.code.defn"
 LAYERS = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+OWNS = {
+    "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
+    "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
+    "hierarchy": "the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of `hierarchy_writer`.",
+    "comm": "moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.",
+    "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
+    "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
+    "io": "output, checkpoint, recovery and the file reader's input. When to do each is decided by the flesh's bins and by `schedule/`.",
+    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through. How a level is stored, synced or written is decided below it, and its header declares only what `flesh/` registers and `api/` hands to the flesh.",
+    "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work.",
+    "flesh": 'every `extern "C"`. It owns no data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
+}
 HIERARCHY_LAYERS = LAYERS[LAYERS.index("hierarchy") :]
 UNDER_HIERARCHY = LAYERS[: LAYERS.index("hierarchy")]
 ROOT_HEADER = "internal.hxx"
@@ -122,11 +134,18 @@ FILE_LOCAL_DECLARATION = re.compile(r"static_assert\b|(?:extern\s+)?template\s+(
 STATIC_WORD = re.compile(r"\bstatic\b")
 EXTERN_C = re.compile(r'\bextern\s+"C"')
 OPERATOR_NAME = re.compile(r"\boperator\s*[^\s\w(]*")
+TEMPLATE_ARGS = re.compile(r"<[^<>]*>")
 NOT_A_DECLARATOR = re.compile(r"[^\w\s:*&]")
 DECLARED_WORD = re.compile(r"[A-Za-z_]\w*(?:\s*::\s*[A-Za-z_]\w*)*")
 STATEMENT_KEYWORDS = ("return", "throw", "else", "do", "case", "new", "delete", "co_return", "co_yield", "co_await")
 HEADER_SUFFIXES = (".h", ".hh", ".hpp", ".hxx")
 USING_DIRECTIVE = re.compile(r"^\s*using\s+namespace\b")
+GUARD_PREFIX = "CARPETX_CARPETX_"
+GUARD_MACRO = re.compile(r"^\s*#\s*(?:ifndef|define)\s+(" + GUARD_PREFIX + r"\w+)")
+INCLUDE_LINE = re.compile(r"^\s*#\s*include\b")
+DIRECTIVE = re.compile(r"^\s*#")
+GUARD_WORD = re.compile(f"{GUARD_MACRO.pattern}|{INCLUDE_LINE.pattern}")
+ENTRY_LAYER = "flesh"
 STATEMENT_END = re.compile(r"[;{}]")
 RULE_WIDTH = 104
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
@@ -153,6 +172,7 @@ class Rule:
     where: str
     clean: str
     home: tuple[str, ...] = ()
+    whole: Optional[Callable[[str, str], list[int]]] = None
 
     def phrase(self, noun: str) -> str:
         return f"{noun} {self.where}" if self.where else noun
@@ -245,11 +265,23 @@ def declaration_head(statement: str) -> str:
     return "\n".join(lines)
 
 
-def names_a_function(head: str) -> bool:
+def declared_function(head: str, in_header: bool = False) -> Optional[str]:
     before, paren, _ = head.partition("(")
-    before = OPERATOR_NAME.sub("operator", EXTERN_C.sub("", before))
+    if not paren:
+        return None
+    before = EXTERN_C.sub("", before)
+    operator = OPERATOR_NAME.search(before)
+    before = OPERATOR_NAME.sub("operator", before)
+    while in_header and TEMPLATE_ARGS.search(before):
+        before = TEMPLATE_ARGS.sub("", before)
     words = DECLARED_WORD.findall(before)
-    return bool(paren) and not NOT_A_DECLARATOR.search(before) and len(words) >= 2 and words[0] not in STATEMENT_KEYWORDS
+    if NOT_A_DECLARATOR.search(before) or len(words) < 2 or words[0] in STATEMENT_KEYWORDS:
+        return None
+    return re.sub(r"\s+", "", operator.group(0)) if operator else words[-1]
+
+
+def names_a_function(head: str) -> bool:
+    return declared_function(head) is not None
 
 
 def file_local(head: str) -> bool:
@@ -259,6 +291,33 @@ def file_local(head: str) -> bool:
 def prototype_allowed(name: str, line: str, statement: str) -> bool:
     head = declaration_head(statement)
     return not (DECLARATION_START.match(head) and names_a_function(head) and not file_local(head))
+
+
+def guard_of(name: str) -> str:
+    assert name.startswith(PRIVATE_DIR), name
+    return "CARPETX_" + re.sub(r"[/.]", "_", "CarpetX/" + name[len(PRIVATE_DIR) :]).upper()
+
+
+def guard_opening(name: str, text: str) -> list[int]:
+    for number, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        m = GUARD_MACRO.match(line)
+        if not DIRECTIVE.match(line) or INCLUDE_LINE.match(line) or (m is not None and m.group(1) != guard_of(name)):
+            return []
+        return [] if re.fullmatch(rf"\s*#\s*ifndef\s+{guard_of(name)}\s*", line) else [number]
+    return []
+
+
+def guard_allowed(name: str, line: str, statement: str) -> bool:
+    m = GUARD_MACRO.match(line)
+    if m:
+        return m.group(1) == guard_of(name)
+    return not is_private(name) or ROOT_HEADER in statement or guard_of(name) not in statement
+
+
+def entry_allowed(name: str, line: str, statement: str) -> bool:
+    return layer_of(name) == ENTRY_LAYER
 
 
 def door_allowed(name: str, line: str, statement: str) -> bool:
@@ -477,6 +536,39 @@ RULES = (
         clean="no using-directive in a CarpetX header",
     ),
     Rule(
+        "guard",
+        files=carpetx_header,
+        word=GUARD_WORD,
+        allowed=guard_allowed,
+        text=textwrap.fill(
+            f"guard: a CarpetX header opens with the guard that spells its path, {GUARD_PREFIX}<LAYER>_<NAME>_HXX, "
+            "on its first line, so that a copied header cannot hide behind the guard of its original, and a private one "
+            f"includes {ROOT_HEADER} before any other header.",
+            width=RULE_WIDTH,
+        ),
+        noun="header opening",
+        where="out of order",
+        clean="every header opens with its own guard and internal.hxx",
+        whole=guard_opening,
+    ),
+    Rule(
+        "entry",
+        files=private_cxx,
+        word=EXTERN_C,
+        allowed=entry_allowed,
+        text=textwrap.fill(
+            f'entry: every extern "C" definition of CarpetX is in {ENTRY_LAYER}/, one file per way the flesh calls in: '
+            "a PROVIDES FUNCTION in aliased.cxx, a scheduled function in scheduled.cxx, and an overload above its "
+            "registration in CarpetX_Startup in startup.cxx; a compile-time check of another layer's signature is in "
+            "compile_checks.cxx, which sits at the top so that it may include any header.",
+            width=RULE_WIDTH,
+        ),
+        noun="extern C entry",
+        where=f"outside {ENTRY_LAYER}/",
+        clean=f"no extern C entry outside {ENTRY_LAYER}/",
+        home=(ENTRY_LAYER,),
+    ),
+    Rule(
         "door",
         files=private_cxx,
         word=GHEXT_OR_DRIVER_CALL,
@@ -497,17 +589,24 @@ def findings(name: str, text: str, lang: Optional[Lang]) -> list[Finding]:
         return []
     rules = [rule for rule in RULES if rule.files(name, lang)]
     found = []
-    statement = ""
-    for number, line in enumerate(text.splitlines(), 1):
-        statement += line + "\n"
+    whole = sorted((number, rule.name) for rule in rules if rule.whole for number in rule.whole(name, text))
+    for number, line, statement in statements(text):
+        found.extend(Finding(number, rule, line.strip()) for at, rule in whole if at == number)
         found.extend(
             Finding(number, rule.name, line.strip())
             for rule in rules
             if rule.word.search(line) and not rule.allowed(name, line, statement)
         )
+    return found
+
+
+def statements(text: str) -> Iterator[tuple[int, str, str]]:
+    statement = ""
+    for number, line in enumerate(text.splitlines(), 1):
+        statement += line + "\n"
+        yield number, line, statement
         if STATEMENT_END.search(line):
             statement = ""
-    return found
 
 
 def new_findings(before: list[Finding], after: list[Finding]) -> list[Finding]:
