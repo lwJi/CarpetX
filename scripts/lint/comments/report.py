@@ -1,18 +1,23 @@
 from __future__ import annotations
 
-from checks import excerpt, plural
+from checks import excerpt, plural, wrap
 
 from .judge import Verdict
 from .rules import Unit
 
-RULE = (
-    "Comments in thorn files can only be deleted (see agent_docs/code-comments.md).\n"
-    "Put what is still true in code (assert, name, CCTK_VERROR) or in the commit message."
+RULE = wrap(
+    "Comments in thorn files can only be deleted (see agent_docs/code-comments.md). Put what is still true in code "
+    "(assert, name, CCTK_VERROR) or in the commit message."
 )
-CHANGE_RULE = (
-    "new: a comment line the change adds; take it out.\n"
-    "touched: the change edits the code under this comment or deletes some of its lines; delete the whole comment.\n"
-    + RULE
+CHANGE_RULE = "\n".join(
+    [
+        wrap("new: a comment line the change adds; take it out."),
+        wrap(
+            "touched: the change edits the code under this comment or deletes some of its lines; delete the whole "
+            "comment."
+        ),
+        RULE,
+    ]
 )
 REDO = "Redo the edit so that it adds none of the new lines and deletes each touched comment whole."
 

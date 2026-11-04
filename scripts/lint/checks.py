@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import textwrap
 from dataclasses import dataclass
 from typing import Callable
 
 from files import Lang
 
 EXCERPT_WIDTH = 72
+RULE_WIDTH = 100
+RULE_INDENT = "  "
 
 Covers = Callable[[str, Lang], bool]
 Found = Callable[[str, str, Lang], list]
@@ -40,3 +43,9 @@ def plural(count: int, noun: str) -> str:
 
 def excerpt(text: str) -> str:
     return text[:EXCERPT_WIDTH] + ("…" if len(text) > EXCERPT_WIDTH else "")
+
+
+def wrap(text: str) -> str:
+    return textwrap.fill(
+        text, width=RULE_WIDTH, subsequent_indent=RULE_INDENT, break_long_words=False, break_on_hyphens=False
+    )
