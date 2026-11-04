@@ -2050,7 +2050,7 @@ class Doc(unittest.TestCase):
                 [
                     '| `flesh/` | Cactus flesh | every extern "C" in startup.cxx |',
                     "| `flesh/` | Cactus flesh | SetupGH, ScheduleTraverseGH |",
-                    "| `api/` | a thorn | the functions of carpetx.hxx, carpetx_rk.hxx |",
+                    "| `api/` | a thorn | the bodies of carpetx.hxx, carpetx_rk.hxx in api/ |",
                     "| `schedule/` | Cactus flesh | Initialise, Evolve, Shutdown |",
                     "| `io/` | Cactus flesh | OutputGH |",
                     "| `ops/` | Cactus flesh | Interp |",

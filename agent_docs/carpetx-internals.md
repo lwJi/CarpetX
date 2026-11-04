@@ -83,13 +83,13 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 | --- | --- | --- |
 | `flesh/` | Cactus flesh | every extern "C" in aliased.cxx, scheduled.cxx, startup.cxx |
 | `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, MyProc, nProcs, Exit, Abort, Barrier, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |
-| `api/` | a thorn | the functions of carpetx.hxx, carpetx_rk.hxx |
+| `api/` | a thorn | the bodies of carpetx.hxx, carpetx_rk.hxx in api/ |
 | `schedule/` | Cactus flesh | Initialise, Evolve, Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB |
 | `io/` | Cactus flesh | OutputGH |
 | `ops/` | Cactus flesh | InterpLocalUniform |
 | `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |
 | `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |
-| `util/` | a thorn | the functions of carpetx.hxx |
+| `util/` | a thorn | the bodies of carpetx.hxx in util/ |
 
 ## What each layer owns
 
