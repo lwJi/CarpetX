@@ -74,6 +74,10 @@ struct BoundaryCondition {
                               const Arith::vect<int, dim> &bmax) const;
 };
 
+void apply_boundary_conditions(
+    const GHExt::PatchData::LevelData::GroupData &groupdata,
+    amrex::MultiFab &mfab);
+
 } // namespace CarpetX
 
 #endif

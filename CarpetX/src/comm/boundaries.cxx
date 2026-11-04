@@ -99,15 +99,17 @@ void BoundaryCondition::apply() const {
   apply_on_face<POS, POS, POS>();
 }
 
-void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
-    amrex::MultiFab &mfab) const {
+void apply_boundary_conditions(
+    const GHExt::PatchData::LevelData::GroupData &groupdata,
+    amrex::MultiFab &mfab) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("apply_boundary_conditions");
   Interval interval(timer);
 
-  const amrex::Geometry &geom =
-      driver().patch(level.patch()).amrcore->Geom(level.index());
+  const amrex::Geometry &geom = driver()
+                                    .patch(groupdata.level.patch())
+                                    .amrcore->Geom(groupdata.level.index());
 
   if (geom.isAllPeriodic())
     return;
@@ -123,7 +125,7 @@ void GHExt::PatchData::LevelData::GroupData::apply_boundary_conditions(
   for (amrex::MFIter mfi(mfab, mfitinfo); mfi.isValid(); ++mfi) {
     amrex::FArrayBox &dest = mfab[mfi];
     if (!gdomain.contains(dest.box()))
-      BoundaryCondition(*this, dest).apply();
+      BoundaryCondition(groupdata, dest).apply();
   }
 }
 
