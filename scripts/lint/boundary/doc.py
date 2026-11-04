@@ -27,7 +27,9 @@ def link_time() -> tuple[tuple[str, str, tuple[str, ...]], ...]:
 
 
 LINK_TIME = link_time()
-BASE_LAYERS = below("hierarchy")
+HUB = HIERARCHY_LAYERS[0]
+ABOVE = HIERARCHY_LAYERS[1:]
+PUBLIC = "include"
 DEFINITION = r"(?m)^[^;{{}}()\n]*\b(?:[\w:]+::)?{name}(?:::~?\w+)?\s*\([^;{{}}]*\)[^;{{}}]*\{{"
 OUTSIDERS = (("cactus", "Cactus flesh"), ("amrex", "AMReX"), ("thorn", "a thorn's routine"))
 STARTUP = layer_path("flesh", "startup.cxx")
@@ -42,6 +44,7 @@ REGISTERED = (
 )
 CALLBACKS = (layer_path("regrid", "regrid.cxx"), AMREX_CALLBACKS)
 PUBLIC_HEADERS = (PUBLIC_DIR + "carpetx.hxx", PUBLIC_DIR + "carpetx_rk.hxx")
+PUBLIC_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"](' + "|".join(re.escape(os.path.basename(header)) for header in PUBLIC_HEADERS) + r')[>"]')
 PUBLIC_LAYER = "api"
 PUBLIC_BODIES = (
     (layer_path("hierarchy", "loops.cxx"), ("synchronize",)),
@@ -50,50 +53,60 @@ PUBLIC_BODIES = (
     (layer_path("ops", "reduction.cxx"), ("reduce",)),
     (layer_path("util", "timer.cxx"), ("Timer",)),
 )
-REGRID = "regrid"
+BODIES = "8"
+HANDED = "10"
 STEPS = {
     "1": "the flesh starts the driver",
     "2": "the driver names a bin or asks for output",
-    "3": "the flesh hands it to the driver's entry",
-    "4": "the entry asks the flesh to walk the bin with CallFunction",
-    "5": "the flesh calls CallFunction for each routine",
-    "6": "CallFunction runs the routine",
-    "7": f"the routine may call the public headers, whose bodies are in {PUBLIC_LAYER}/ but for those the table names",
+    "3": "the flesh hands a bin to the driver's entry",
+    "4": "the flesh hands output to io/",
+    "5": "the entry asks the flesh to walk the bin with CallFunction",
+    "6": "the flesh calls CallFunction for each routine",
+    "7": "CallFunction runs the routine",
+    BODIES: f"the routine may call the public headers, whose bodies are in {PUBLIC_LAYER}/ but for those the table names",
+    "9": f"{PUBLIC_LAYER}/ may ask the flesh to walk a schedule group, back to 6",
+    HANDED: "what a routine asks of the flesh, the flesh hands to the layer that owns the work",
 }
-REGRID_TEXT = "a regrid: the driver asks the hierarchy, the hierarchy asks AMReX, and AMReX calls back into the layer that defines its callbacks"
-LOOP = (
+PASS = (
     ("1", "cactus", "schedule", ("Initialise", "Evolve", "Shutdown"), layer_path("schedule", "evolve.cxx")),
     ("2", "schedule", "cactus", ("CCTK_Traverse", "CCTK_OutputGH"), layer_path("schedule", "evolve.cxx")),
     ("3", "cactus", "flesh", ("ScheduleTraverseGH",), STARTUP),
-    ("3", "cactus", "io", ("OutputGH",), layer_path("io", "io.cxx")),
-    ("4", "flesh", "cactus", ("CCTK_ScheduleTraverse",), STARTUP),
-    ("4", "api", "cactus", ("CCTK_ScheduleTraverse",), layer_path("api", "api_rk.cxx")),
-    ("5", "cactus", "schedule", ("CallFunction",), layer_path("schedule", "callfunction.cxx")),
-    ("6", "schedule", "thorn", ("CCTK_CallFunction",), layer_path("schedule", "callfunction.cxx")),
-    (REGRID, "schedule", "hierarchy", ("hierarchy_writer::regrid",), layer_path("hierarchy", "hierarchy.cxx")),
-    (REGRID, "hierarchy", "amrex", ("amrcore->regrid",), layer_path("hierarchy", "hierarchy.cxx")),
-    (REGRID, "amrex", layer_of(CALLBACKS[0]), CALLBACKS[1], CALLBACKS[0]),
+    ("4", "cactus", "io", ("OutputGH",), layer_path("io", "io.cxx")),
+    ("5", "flesh", "cactus", ("CCTK_ScheduleTraverse",), STARTUP),
+    ("6", "cactus", "schedule", ("CallFunction",), layer_path("schedule", "callfunction.cxx")),
+    ("7", "schedule", "thorn", ("CCTK_CallFunction",), layer_path("schedule", "callfunction.cxx")),
+    ("9", "api", "cactus", ("CCTK_ScheduleTraverse",), layer_path("api", "api_rk.cxx")),
 )
-assert {row[0] for row in LOOP} | {"7"} == set(STEPS) | {REGRID}, LOOP
+assert {row[0] for row in PASS} | {BODIES, HANDED} == set(STEPS), PASS
+REGRID_STEPS = {
+    "1": "the driver asks the hierarchy",
+    "2": "the hierarchy asks AMReX",
+    "3": "AMReX calls back into the layer that defines its callbacks",
+}
+REGRID = (
+    ("1", "schedule", "hierarchy", ("hierarchy_writer::regrid",), layer_path("hierarchy", "hierarchy.cxx")),
+    ("2", "hierarchy", "amrex", ("amrcore->regrid",), layer_path("hierarchy", "hierarchy.cxx")),
+    ("3", "amrex", layer_of(CALLBACKS[0]), CALLBACKS[1], CALLBACKS[0]),
+)
+assert {row[0] for row in REGRID} == set(REGRID_STEPS), REGRID
+BOXES = (("above", f"above {HUB}/"), ("door", "driver() allowed"), ("nodoor", "no driver()"))
 STACK_LEGEND = (
-    "a layer sits above every layer it may include, which the layer rule holds, and a solid edge is an include it has today, read from its #include lines, with the headers on it",
-    "where no solid edge joins a layer to the one below it, the order is the rule's, not a coupling of the code",
-    "the two boxes are the door rule: driver() is called in the upper box, never in the lower",
-    "a dashed edge is an import the build makes upward, a row of ACCEPTED in scripts/lint/boundary/symbols.py that the symbols check holds to the objects: a declaration whose body is in the higher layer, the one way a call reaches up, at link time, and a class stands for its members",
+    f"the layer rule holds the order {', '.join(f'{layer}/' for layer in LAYERS)} from the bottom: a file includes only its own layer or a lower one",
+    "a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes",
+    f"an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above {HUB}/, is there for the arrow into {HUB}/",
+    "the outer boxes are the door rule: driver() is called in the upper box, never in the lower",
+    f"{PUBLIC}/ is the public headers, {', '.join(os.path.basename(header) for header in PUBLIC_HEADERS)}, not a layer: a thorn reads nothing else of CarpetX, and agent_docs/carpetx-public-api.md describes them",
+    "a dashed line is an import the build makes upward, a row of ACCEPTED in scripts/lint/boundary/symbols.py that the symbols check holds to the objects: the lower end declares, the upper end holds the body, the one way a call reaches up, at link time, and a class stands for its members",
     "a node names its layer, and no header where nothing can include it",
 )
-BASE_DIRS = f"{', '.join(f'{layer}/' for layer in BASE_LAYERS[:-1])} or {BASE_LAYERS[-1]}/"
-LOOP_LEGEND = (
-    "the numbered edges are one pass of the schedule: " + ", ".join(f"{what} ({step})" for step, what in STEPS.items()),
-    "the unnumbered edges are " + REGRID_TEXT,
-    "a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX, or at link time through a dashed edge of the stack",
+PASS_LEGEND = (
+    "the numbered arrows are one pass of the schedule: " + ", ".join(f"{what} ({step})" for step, what in STEPS.items()),
+    "a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX, or at link time through a dashed line of the stack",
+)
+REGRID_LEGEND = (
+    "the numbered arrows are one regrid: " + ", ".join(f"{what} ({step})" for step, what in REGRID_STEPS.items()),
     "the table below lists every entry an outsider calls",
 )
-
-
-def legend(lines: list[str], texts: tuple[str, ...]) -> str:
-    lines.extend(f"%% {text}" for text in texts)
-    return "\n".join(lines) + "\n"
 
 
 def rules_of(layer: str) -> list[str]:
@@ -135,45 +148,77 @@ def layer_includes(root: str, layer: str) -> set[tuple[str, str]]:
     return found
 
 
-def includes(root: str = PROJECT) -> dict[tuple[str, str], tuple[str, ...]]:
-    edges: dict[tuple[str, str], set[str]] = {}
+def public_includes(root: str, layer: str) -> set[str]:
+    found: set[str] = set()
+    for path in sources(root, layer):
+        with open(path) as f:
+            for line in f:
+                m = PUBLIC_INCLUDE.match(line)
+                if m:
+                    found.add(m.group(1))
+    return found
+
+
+def group_of(layer: str) -> str | None:
+    return "above" if layer in ABOVE else "nodoor" if layer in UNDER_HIERARCHY else None
+
+
+def box_of(reader: str, target: str) -> str:
+    if reader in UNDER_HIERARCHY:
+        return "nodoor"
+    return "above" if target == HUB else "door"
+
+
+def reads(root: str) -> dict[tuple[str, str], set[str]]:
+    found: dict[tuple[str, str], set[str]] = {}
     for layer in LAYERS:
         for target, header in layer_includes(root, layer):
-            if target not in BASE_LAYERS:
-                edges.setdefault((layer, target), set()).add(header)
-    order = {layer: -i for i, layer in enumerate(LAYERS)}
-    return {edge: tuple(sorted(edges[edge])) for edge in sorted(edges, key=lambda e: (order[e[0]], order[e[1]]))}
+            assert LAYERS.index(target) < LAYERS.index(layer), (layer, target)
+            found.setdefault((layer, target), set()).add(header)
+        for header in public_includes(root, layer):
+            found.setdefault((layer, PUBLIC), set()).add(header)
+    return found
 
 
-def shared_base(root: str = PROJECT) -> tuple[str, ...]:
-    shared: set[tuple[str, str]] | None = None
-    for layer in HIERARCHY_LAYERS[1:]:
-        base = {edge for edge in layer_includes(root, layer) if edge[0] in BASE_LAYERS}
-        shared = base if shared is None else shared & base
-    return tuple(f"{target}/{header}" for target, header in sorted(shared or ()))
+def is_pair(reader: str, target: str) -> bool:
+    return target != PUBLIC and group_of(reader) is not None and group_of(reader) == group_of(target)
 
 
-def stack_legend(root: str = PROJECT) -> tuple[str, ...]:
-    undrawn = f"an edge into {BASE_DIRS} is not drawn"
-    shared = shared_base(root)
-    if shared:
-        undrawn += f": every layer above hierarchy/ reads {', '.join(shared)}"
-    return STACK_LEGEND + (undrawn,)
+def top_down_order(layer: str) -> int:
+    return -LAYERS.index(layer)
+
+
+def includes(root: str = PROJECT) -> dict[tuple[str, str], tuple[str, ...]]:
+    edges = {edge: headers for edge, headers in reads(root).items() if is_pair(*edge)}
+    return {edge: tuple(sorted(edges[edge])) for edge in sorted(edges, key=lambda e: (top_down_order(e[0]), top_down_order(e[1])))}
+
+
+def floor(root: str = PROJECT) -> dict[tuple[str, str], tuple[str, ...]]:
+    edges: dict[tuple[str, str], set[str]] = {}
+    for (reader, target), headers in reads(root).items():
+        if not is_pair(reader, target):
+            edges.setdefault((box_of(reader, target), target), set()).update(headers)
+    boxes = [box for box, _ in BOXES]
+    targets = list(reversed(LAYERS)) + [PUBLIC]
+    return {edge: tuple(sorted(edges[edge])) for edge in sorted(edges, key=lambda e: (boxes.index(e[0]), targets.index(e[1])))}
 
 
 def stack(root: str = PROJECT) -> str:
     no_header = headerless(root)
-    lines = ["flowchart TB", '  subgraph door["driver() allowed"]']
-    lines.extend(node(layer, no_header, "    ") for layer in reversed(HIERARCHY_LAYERS))
-    lines.extend(["  end", '  subgraph nodoor["no driver()"]'])
+    titles = dict(BOXES)
+    lines = ["flowchart TB", f'  subgraph door["{titles["door"]}"]', f'    subgraph above["{titles["above"]}"]']
+    lines.extend(node(layer, no_header, "      ") for layer in reversed(ABOVE))
+    lines.extend(["    end", node(HUB, no_header, "    "), "  end", f'  subgraph nodoor["{titles["nodoor"]}"]'])
     lines.extend(node(layer, no_header, "    ") for layer in reversed(UNDER_HIERARCHY))
-    lines.extend(["  end", "  " + " ~~~ ".join(reversed(LAYERS))])
+    lines.extend(["  end", f'  {PUBLIC}["{PUBLIC}/"]'])
     for (source, target), headers in includes(root).items():
         lines.append(f'  {source} -- "{", ".join(headers)}" --> {target}')
+    for (box, target), headers in floor(root).items():
+        lines.append(f'  {box} -- "{", ".join(headers)}" --> {target}')
     for low, high, names in LINK_TIME:
         assert LAYERS.index(low) < LAYERS.index(high), (low, high)
-        lines.append(f'  {low} -. "{", ".join(names)}" .-> {high}')
-    return legend(lines, stack_legend(root))
+        lines.append(f'  {high} -. "{", ".join(names)}" .- {low}')
+    return "\n".join(lines) + "\n"
 
 
 def defined(text: str, name: str) -> bool:
@@ -197,7 +242,7 @@ def extern_c_files(root: str = PROJECT) -> list[str]:
 
 
 def top_down(found: dict[str, tuple[str, ...]]) -> list[tuple[str, tuple[str, ...]]]:
-    return sorted(found.items(), key=lambda item: -LAYERS.index(item[0]))
+    return sorted(found.items(), key=lambda item: top_down_order(item[0]))
 
 
 def by_layer(rows: tuple[tuple[str, tuple[str, ...]], ...]) -> dict[str, tuple[str, ...]]:
@@ -273,40 +318,60 @@ def hold(root: str, row: tuple[str, str, str, tuple[str, ...], str]) -> None:
     text = read(os.path.join(root, file))
     if target in LAYERS:
         if layer_of(file) != target:
-            raise ValueError(f"{file} is not in {target}/, where the loop's step {step} lands")
+            raise ValueError(f"{file} is not in {target}/, where step {step} lands")
         missing = [name for name in names if not defined(text, name)]
         if missing:
-            raise ValueError(f"{', '.join(missing)} not defined in {file}, where the loop's step {step} lands")
+            raise ValueError(f"{', '.join(missing)} not defined in {file}, where step {step} lands")
         if source in LAYERS:
             missing = [name for name in names if not layer_calls(root, source, name)]
             if missing:
-                raise ValueError(f"{', '.join(missing)} not called in {source}/, where the loop's step {step} starts")
+                raise ValueError(f"{', '.join(missing)} not called in {source}/, where step {step} starts")
     else:
         if layer_of(file) != source:
-            raise ValueError(f"{file} is not in {source}/, where the loop's step {step} starts")
+            raise ValueError(f"{file} is not in {source}/, where step {step} starts")
         missing = [name for name in names if not called(text, name)]
         if missing:
-            raise ValueError(f"{', '.join(missing)} not called in {file}, where the loop's step {step} starts")
+            raise ValueError(f"{', '.join(missing)} not called in {file}, where step {step} starts")
 
 
-def the_loop(root: str = PROJECT) -> str:
-    for row in LOOP:
-        hold(root, row)
-    edges: dict[tuple[str, str, str], tuple[str, ...]] = {}
-    for step, source, target, names, _ in LOOP:
-        if step != REGRID:
-            edges[(step, source, target)] = edges.get((step, source, target), ()) + names
-    for layer, names in top_down(public_bodies(root)):
-        edges[("7", "thorn", layer)] = tuple(public_headers(root, names)) if layer == PUBLIC_LAYER else names
-    for step, source, target, names, _ in LOOP:
-        if step == REGRID:
-            edges[(step, source, target)] = edges.get((step, source, target), ()) + names
+def handed(root: str = PROJECT) -> list[tuple[str, tuple[str, ...]]]:
+    drawn = {name for _, _, _, names, _ in PASS for name in names}
+    found: dict[str, tuple[str, ...]] = {}
+    for file, names in REGISTERED:
+        layer = layer_of(file)
+        assert layer is not None, file
+        rest = tuple(name for name in names if name not in drawn)
+        if layer != "flesh" and rest:
+            found[layer] = found.get(layer, ()) + rest
+    return top_down(found)
+
+
+def draw(edges: dict[tuple[str, str, str], tuple[str, ...]]) -> str:
     drawn = {end for _, source, target in edges for end in (source, target)}
     lines = ["flowchart LR"]
     lines.extend(f'  {name}["{label}"]' for name, label in OUTSIDERS if name in drawn)
     lines.extend(node(layer, ()) for layer in reversed(LAYERS) if layer in drawn)
-    lines.extend(f'  {source} -- "{step + " " if step != REGRID else ""}{", ".join(names)}" --> {target}' for (step, source, target), names in edges.items())
-    return legend(lines, LOOP_LEGEND)
+    lines.extend(f'  {source} -- "{step} {", ".join(names)}" --> {target}' for (step, source, target), names in edges.items())
+    return "\n".join(lines) + "\n"
+
+
+def the_pass(root: str = PROJECT) -> str:
+    for row in PASS:
+        hold(root, row)
+    edges: dict[tuple[str, str, str], tuple[str, ...]] = {}
+    for layer, names in top_down(public_bodies(root)):
+        edges[(BODIES, "thorn", layer)] = tuple(public_headers(root, names)) if layer == PUBLIC_LAYER else names
+    for layer, names in handed(root):
+        edges[(HANDED, "cactus", layer)] = names
+    for step, source, target, names, _ in PASS:
+        edges[(step, source, target)] = edges.get((step, source, target), ()) + names
+    return draw(dict(sorted(edges.items(), key=lambda item: int(item[0][0]))))
+
+
+def the_regrid(root: str = PROJECT) -> str:
+    for row in REGRID:
+        hold(root, row)
+    return draw({(step, source, target): names for step, source, target, names, _ in REGRID})
 
 
 ENTRIES_HEADING = "## Who the outsiders call"
@@ -320,7 +385,7 @@ def entries(root: str = PROJECT) -> str:
     rows.append((PUBLIC_LAYER, "a thorn", f"every function of {', '.join(public_headers(root, bodies[PUBLIC_LAYER]))} not named in a row below"))
     rows += [(layer, "a thorn", ", ".join(names)) for layer, names in bodies.items() if layer != PUBLIC_LAYER]
     rows.append((layer_of(CALLBACKS[0]), "AMReX", ", ".join(CALLBACKS[1])))
-    rows.sort(key=lambda row: -LAYERS.index(row[0]))
+    rows.sort(key=lambda row: top_down_order(row[0]))
     lines = [ENTRIES_HEADING, "", ENTRIES_INTRO, "", "| Layer | Caller | Entries |", "| --- | --- | --- |"]
     lines.extend(f"| `{layer}/` | {caller} | {what} |" for layer, caller, what in rows)
     return "\n".join(lines) + "\n"
@@ -342,15 +407,23 @@ PREAMBLE = (
     f"the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `{STARTUP}`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when "
     "the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX "
     "only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule "
-    "named below holds."
+    "named below holds. The list under each picture is its key."
 )
-SECTIONS: tuple[tuple[str, Callable[[str], str]], ...] = (("The stack", stack), ("The loop", the_loop))
+SECTIONS: tuple[tuple[str, Callable[[str], str], tuple[str, ...]], ...] = (
+    ("The stack", stack, STACK_LEGEND),
+    ("One pass of the schedule", the_pass, PASS_LEGEND),
+    ("One regrid", the_regrid, REGRID_LEGEND),
+)
+
+
+def legend(texts: tuple[str, ...]) -> str:
+    return "\n".join(f"- {text}" for text in texts) + "\n"
 
 
 def render(root: str = PROJECT) -> str:
     parts = [TITLE, "", PREAMBLE, ""]
-    for title, draw in SECTIONS:
-        parts.extend([f"## {title}", "", "```mermaid", draw(root).rstrip("\n"), "```", ""])
+    for title, picture, texts in SECTIONS:
+        parts.extend([f"## {title}", "", "```mermaid", picture(root).rstrip("\n"), "```", "", legend(texts)])
     parts.append(entries(root))
     parts.append(owns())
     return "\n".join(parts)
