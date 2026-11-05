@@ -1930,8 +1930,8 @@ class Guide(unittest.TestCase):
         with mock.patch.object(guide, "SECTIONS", twice):
             with self.assertRaisesRegex(ValueError, "^write_twice is a refusal of both 'Indices and handles' and 'Data, validity and the write scope' in scripts/lint/boundary/guide.py$"):
                 guide.hold_refusals(found)
-        self.assertIn("- `write_twice`: open a second write scope on state", guide.render())
-        self.assertIn("- `too_many_levels`: CarpetX aborts the run with `CarpetX::max_num_levels is 21", guide.render())
+        self.assertIn("Refusals: `write_twice`, `write_unfilled`, ", guide.render())
+        self.assertIn("Refusals: `too_many_levels`, `output_unknown_variable`.", guide.render())
 
     def test_an_unexercised_name_is_declared_unused_and_listed_once(self):
         declared = guide.declared_names(PROJECT)
