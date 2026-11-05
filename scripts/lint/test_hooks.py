@@ -165,11 +165,9 @@ class HookEdit(Project):
             output = self.edit("Thorn/src/a.cxx", "int a = 1;\n", "int a = 1; // why\n")
         self.assertEqual(self.skipped(output), "lint check skipped: RuntimeError: lexer crash")
 
-    def test_a_generated_doc_is_refused_whatever_the_edit(self):
-        for name, reason in hooks.GENERATED.items():
-            for output in (self.edit(name, "", "# doc\n"), self.write(name, "# doc\n")):
-                self.assertEqual(self.denied(output), [reason])
-        self.assertEqual(sorted(hooks.GENERATED), ["agent_docs/carpetx-internals.md", "agent_docs/carpetx-public-api.md"])
+    def test_the_generated_map_is_refused_whatever_the_edit(self):
+        for output in (self.edit("agent_docs/carpetx-internals.md", "", "# map\n"), self.write("agent_docs/carpetx-internals.md", "# map\n")):
+            self.assertEqual(self.denied(output), [hooks.GENERATED])
         self.assertEqual(self.write("agent_docs/other.md", "# other\n"), "")
         with tempfile.TemporaryDirectory() as other:
             self.assertEqual(self.edit(None, "", "# map\n", path=os.path.join(other, "agent_docs", "carpetx-internals.md")), "")
