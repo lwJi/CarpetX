@@ -68,6 +68,13 @@ VALIDITY_WORD = re.compile(
 )
 BINDING_FILES = (layer_path("hierarchy", "binding.cxx"),)
 BINDING_WORD = re.compile(r"(\.|->)\s*data\s*\[[^\]]*\]\s*\[[^\]]*\]\s*=(?!=)")
+GHOST_ONLY_FILES = (
+    layer_path("comm", "comm.hxx"),
+    layer_path("comm", "sync_restrict.cxx"),
+    layer_path("api", "api.cxx"),
+    layer_path("flesh", "compile_checks.cxx"),
+)
+GHOST_ONLY_WORD = re.compile(r"\bSyncGroupsByDirIGhostOnly\s*\(")
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
     r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration|integrator_config|integrator_frozen)\b"
@@ -554,6 +561,19 @@ RULES = (
         noun="hierarchy use",
         where="the door does not allow",
         clean=f"the hierarchy has one door that {dirs(UNDER_HIERARCHY, 'and')} never use",
+    ),
+    Rule(
+        "ghost-only",
+        files=private_cxx,
+        word=GHOST_ONLY_WORD,
+        allowed=in_files(GHOST_ONLY_FILES),
+        text="the same-level ghost-only copy is called only by the public sync_ghosts_only in CarpetX/src/api/api.cxx; "
+        "a sync inside the driver opens a scope that says what it fills and uses the scheduled SYNC or the "
+        "prolongation.",
+        noun="driver-internal ghost-only sync",
+        where="outside api.cxx",
+        clean="no driver-internal ghost-only sync",
+        home=layers_of(GHOST_ONLY_FILES),
     ),
 )
 RULE = "\n".join([wrap(PREAMBLE)] + [rule.paragraph() for rule in RULES])
