@@ -172,52 +172,60 @@ window_t active_window();
 window_t all_levels();
 
 struct valid_t {
-  bool valid_int, valid_outer, valid_ghosts;
+  bool valid_int, valid_outer, valid_same_level, valid_coarse_fine;
   constexpr valid_t() : valid_t(false) {}
 
   explicit constexpr valid_t(bool b)
-      : valid_int(b), valid_outer(b), valid_ghosts(b) {}
+      : valid_int(b), valid_outer(b), valid_same_level(b),
+        valid_coarse_fine(b) {}
   friend constexpr valid_t operator~(const valid_t &x) {
     valid_t r;
     r.valid_int = !x.valid_int;
     r.valid_outer = !x.valid_outer;
-    r.valid_ghosts = !x.valid_ghosts;
+    r.valid_same_level = !x.valid_same_level;
+    r.valid_coarse_fine = !x.valid_coarse_fine;
     return r;
   }
   friend constexpr valid_t operator&(const valid_t &x, const valid_t &y) {
     valid_t r;
     r.valid_int = x.valid_int && y.valid_int;
     r.valid_outer = x.valid_outer && y.valid_outer;
-    r.valid_ghosts = x.valid_ghosts && y.valid_ghosts;
+    r.valid_same_level = x.valid_same_level && y.valid_same_level;
+    r.valid_coarse_fine = x.valid_coarse_fine && y.valid_coarse_fine;
     return r;
   }
   friend constexpr valid_t operator|(const valid_t &x, const valid_t &y) {
     valid_t r;
     r.valid_int = x.valid_int || y.valid_int;
     r.valid_outer = x.valid_outer || y.valid_outer;
-    r.valid_ghosts = x.valid_ghosts || y.valid_ghosts;
+    r.valid_same_level = x.valid_same_level || y.valid_same_level;
+    r.valid_coarse_fine = x.valid_coarse_fine || y.valid_coarse_fine;
     return r;
   }
   valid_t &operator&=(const valid_t &x) { return *this = *this & x; }
   valid_t &operator|=(const valid_t &x) { return *this = *this | x; }
 
   constexpr bool valid_all() const {
-    return valid_int && valid_outer && valid_ghosts;
+    return valid_int && valid_outer && valid_same_level && valid_coarse_fine;
   }
   constexpr bool valid_any() const {
-    return valid_int || valid_outer || valid_ghosts;
+    return valid_int || valid_outer || valid_same_level || valid_coarse_fine;
   }
 
   friend bool operator==(const valid_t &x, const valid_t &y) {
-    return std::make_tuple(x.valid_int, x.valid_outer, x.valid_ghosts) ==
-           std::make_tuple(y.valid_int, y.valid_outer, y.valid_ghosts);
+    return std::make_tuple(x.valid_int, x.valid_outer, x.valid_same_level,
+                           x.valid_coarse_fine) ==
+           std::make_tuple(y.valid_int, y.valid_outer, y.valid_same_level,
+                           y.valid_coarse_fine);
   }
   friend bool operator!=(const valid_t &x, const valid_t &y) {
     return !(x == y);
   }
   friend bool operator<(const valid_t &x, const valid_t &y) {
-    return std::make_tuple(x.valid_int, x.valid_outer, x.valid_ghosts) <
-           std::make_tuple(y.valid_int, y.valid_outer, y.valid_ghosts);
+    return std::make_tuple(x.valid_int, x.valid_outer, x.valid_same_level,
+                           x.valid_coarse_fine) <
+           std::make_tuple(y.valid_int, y.valid_outer, y.valid_same_level,
+                           y.valid_coarse_fine);
   }
 
   std::string explanation() const;
@@ -236,10 +244,18 @@ inline constexpr valid_t make_valid_outer() {
   valid.valid_outer = true;
   return valid;
 }
-inline constexpr valid_t make_valid_ghosts() {
+inline constexpr valid_t make_valid_same_level() {
   valid_t valid;
-  valid.valid_ghosts = true;
+  valid.valid_same_level = true;
   return valid;
+}
+inline constexpr valid_t make_valid_coarse_fine() {
+  valid_t valid;
+  valid.valid_coarse_fine = true;
+  return valid;
+}
+inline constexpr valid_t make_valid_ghosts() {
+  return make_valid_same_level() | make_valid_coarse_fine();
 }
 inline constexpr valid_t make_valid_all() { return ~valid_t(); }
 

@@ -80,7 +80,8 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
           const valid_t &need = rd.valid;
           const valid_t have =
               leveldata.group(rd.gi).timelevel(rd.tl).valid(rd.vi);
-          if (need.valid_ghosts && !have.valid_ghosts && have.valid_int)
+          if ((need & ~have & make_valid_ghosts()).valid_any() &&
+              have.valid_int)
             sync_set.insert(rd.gi);
         });
       }

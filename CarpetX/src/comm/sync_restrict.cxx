@@ -362,7 +362,8 @@ void SyncGroupsByDirI(const window_t window,
             if (need_sync)
               break;
             const valid_t have = groupdata.timelevel(tl).valid(vi);
-            if (!have.valid_ghosts || !have.valid_outer) {
+            if ((~have & (make_valid_ghosts() | make_valid_outer()))
+                    .valid_any()) {
               need_sync = true;
             }
           }

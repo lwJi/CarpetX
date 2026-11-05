@@ -11,6 +11,7 @@
 #include <cctk_Parameters.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstring>
 #include <functional>
@@ -36,14 +37,16 @@ std::string valid_t::explanation() const {
   buf << "\n"
       << "  The interior is " << valstr(valid_int) << ".\n"
       << "  The outer boundary is " << valstr(valid_outer) << ".\n"
-      << "  The ghost zones are " << valstr(valid_ghosts) << ".\n";
+      << "  The same-level ghosts are " << valstr(valid_same_level) << ".\n"
+      << "  The coarse-fine ghosts are " << valstr(valid_coarse_fine) << ".\n";
   return buf.str();
 }
 
 std::ostream &operator<<(std::ostream &os, const valid_t v) {
   auto str = [](bool v) { return v ? "VAL" : "INV"; };
   return os << "[int:" << str(v.valid_int) << ",outer:" << str(v.valid_outer)
-            << ",ghosts:" << str(v.valid_ghosts) << "]";
+            << ",same_level:" << str(v.valid_same_level)
+            << ",coarse_fine:" << str(v.valid_coarse_fine) << "]";
 }
 
 valid_t::operator std::string() const {
@@ -53,11 +56,12 @@ valid_t::operator std::string() const {
 }
 
 YAML::Emitter &operator<<(YAML::Emitter &yaml, const valid_t v) {
-  yaml << YAML::LocalTag("valid-1.0.0");
+  yaml << YAML::LocalTag("valid-2.0.0");
   yaml << YAML::Flow << YAML::BeginMap;
   yaml << YAML::Key << "int" << YAML::Value << v.valid_int;
   yaml << YAML::Key << "outer" << YAML::Value << v.valid_outer;
-  yaml << YAML::Key << "ghosts" << YAML::Value << v.valid_ghosts;
+  yaml << YAML::Key << "same_level" << YAML::Value << v.valid_same_level;
+  yaml << YAML::Key << "coarse_fine" << YAML::Value << v.valid_coarse_fine;
   yaml << YAML::EndMap;
   return yaml;
 }
@@ -70,8 +74,10 @@ std::string why_valid_t::explanation() const {
       << " because: " << why_int() << ".\n"
       << "  The outer boundary is " << valstr(valid.valid_outer)
       << " because: " << why_outer() << ".\n"
-      << "  The ghost zones are " << valstr(valid.valid_ghosts)
-      << " because: " << why_ghosts() << ".\n";
+      << "  The same-level ghosts are " << valstr(valid.valid_same_level)
+      << " because: " << why_same_level() << ".\n"
+      << "  The coarse-fine ghosts are " << valstr(valid.valid_coarse_fine)
+      << " because: " << why_coarse_fine() << ".\n";
   return buf.str();
 }
 
@@ -79,7 +85,8 @@ std::ostream &operator<<(std::ostream &os, const why_valid_t &why) {
   return os << why.valid << ","
             << "why{int:" << why.why_int() << ","
             << "outer:" << why.why_outer() << ","
-            << "ghosts:" << why.why_ghosts() << "}";
+            << "same_level:" << why.why_same_level() << ","
+            << "coarse_fine:" << why.why_coarse_fine() << "}";
 }
 
 why_valid_t::operator std::string() const {
@@ -89,13 +96,14 @@ why_valid_t::operator std::string() const {
 }
 
 YAML::Emitter &operator<<(YAML::Emitter &yaml, const why_valid_t &why) {
-  yaml << YAML::LocalTag("why_valid-1.0.0");
+  yaml << YAML::LocalTag("why_valid-2.0.0");
   yaml << YAML::BeginMap;
   yaml << YAML::Key << "valid" << YAML::Value << why.valid;
   yaml << YAML::Key << "why" << YAML::Value << YAML::BeginMap;
   yaml << YAML::Key << "int" << YAML::Value << why.why_int();
   yaml << YAML::Key << "outer" << YAML::Value << why.why_outer();
-  yaml << YAML::Key << "ghosts" << YAML::Value << why.why_ghosts();
+  yaml << YAML::Key << "same_level" << YAML::Value << why.why_same_level();
+  yaml << YAML::Key << "coarse_fine" << YAML::Value << why.why_coarse_fine();
   yaml << YAML::EndMap;
   yaml << YAML::EndMap;
   return yaml;
@@ -107,6 +115,37 @@ namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
 using ArrayGroupData = GHExt::GlobalData::ArrayGroupData;
+
+int ghost_half(const valid_t where) {
+  assert(where.valid_same_level != where.valid_coarse_fine);
+  return where.valid_same_level
+             ? GHExt::PatchData::LevelData::ghost_mask_same_level
+             : GHExt::PatchData::LevelData::ghost_mask_coarse_fine;
+}
+
+template <typename F>
+void loop_ghost_halves(const Loop::GridDescBaseDevice &grid,
+                       const GHExt::PatchData::LevelData &leveldata,
+                       const GroupData &groupdata, const int index,
+                       const valid_t where, const F &kernel) {
+  if (!where.valid_same_level && !where.valid_coarse_fine)
+    return;
+  if (where.valid_same_level && where.valid_coarse_fine) {
+    grid.loop_idx(where_t::ghosts, groupdata.indextype, groupdata.nghostzones,
+                  kernel);
+    return;
+  }
+  const int wanted = ghost_half(where);
+  const amrex::Array4<const int> mask =
+      leveldata.ghost_mask(groupdata).const_array(index);
+  const vect<int, dim> offset = grid.lbnd - grid.nghostzones;
+  grid.loop_idx(where_t::ghosts, groupdata.indextype, groupdata.nghostzones,
+                [&](const Loop::PointDesc &p) {
+                  if (mask(offset[0] + p.I[0], offset[1] + p.I[1],
+                           offset[2] + p.I[2]) == wanted)
+                    kernel(p);
+                });
+}
 
 void error_if_invalid(const GroupData &groupdata, const vi_t vi, const tl_t tl,
                       const valid_t &required,
@@ -189,9 +228,23 @@ void poison_invalid_gf(const window_t window, const gi_t gi, const vi_t vi,
       if (where.valid_outer)
         grid.loop_device_idx<where_t::boundary>(
             groupdata.indextype, groupdata.nghostzones, set_poison);
-      if (where.valid_ghosts)
+      if (where.valid_same_level && where.valid_coarse_fine) {
         grid.loop_device_idx<where_t::ghosts>(
             groupdata.indextype, groupdata.nghostzones, set_poison);
+      } else if (where.valid_same_level || where.valid_coarse_fine) {
+        const int wanted = ghost_half(where);
+        const amrex::Array4<const int> mask =
+            leveldata.ghost_mask(groupdata).const_array(index);
+        const vect<int, dim> offset = grid.lbnd - grid.nghostzones;
+        grid.loop_device_idx<where_t::ghosts>(
+            groupdata.indextype, groupdata.nghostzones,
+            [=] CCTK_DEVICE(const Loop::PointDesc &p)
+                CCTK_ATTRIBUTE_ALWAYS_INLINE {
+                  if (mask(offset[0] + p.I[0], offset[1] + p.I[1],
+                           offset[2] + p.I[2]) == wanted)
+                    set_poison(p);
+                });
+      }
     }
   });
 
@@ -259,9 +312,23 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
       if (where.valid_outer)
         grid.loop_device_idx<where_t::boundary>(
             groupdata.indextype, groupdata.nghostzones, update_poison_found);
-      if (where.valid_ghosts)
+      if (where.valid_same_level && where.valid_coarse_fine) {
         grid.loop_device_idx<where_t::ghosts>(
             groupdata.indextype, groupdata.nghostzones, update_poison_found);
+      } else if (where.valid_same_level || where.valid_coarse_fine) {
+        const int wanted = ghost_half(where);
+        const amrex::Array4<const int> mask =
+            leveldata.ghost_mask(groupdata).const_array(index);
+        const vect<int, dim> offset = grid.lbnd - grid.nghostzones;
+        grid.loop_device_idx<where_t::ghosts>(
+            groupdata.indextype, groupdata.nghostzones,
+            [=] CCTK_DEVICE(const Loop::PointDesc &p)
+                CCTK_ATTRIBUTE_ALWAYS_INLINE {
+                  if (mask(offset[0] + p.I[0], offset[1] + p.I[1],
+                           offset[2] + p.I[2]) == wanted)
+                    update_poison_found(p);
+                });
+      }
     }
   });
   synchronize();
@@ -334,11 +401,10 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
                     groupdata.nghostzones, [&](const Loop::PointDesc &p) {
                       update_nan_count(p, where_t::boundary);
                     });
-    if (where.valid_ghosts)
-      grid.loop_idx(where_t::ghosts, groupdata.indextype, groupdata.nghostzones,
-                    [&](const Loop::PointDesc &p) {
-                      update_nan_count(p, where_t::ghosts);
-                    });
+    loop_ghost_halves(grid, leveldata, groupdata, index, where,
+                      [&](const Loop::PointDesc &p) {
+                        update_nan_count(p, where_t::ghosts);
+                      });
   });
 
   const var_t var = driver().record(gi).var(vi);
@@ -694,9 +760,8 @@ checksums_t calculate_checksums(
             grid.loop_idx(where_t::boundary, groupdata.indextype,
                           groupdata.nghostzones, add_point);
 
-          if (to_check.valid_ghosts)
-            grid.loop_idx(where_t::ghosts, groupdata.indextype,
-                          groupdata.nghostzones, add_point);
+          loop_ghost_halves(grid, leveldata, groupdata, index, to_check,
+                            add_point);
 
 #pragma omp critical(CarpetX_calculate_checksums)
           checksums[tiletag] = checksum;
@@ -758,19 +823,20 @@ void check_checksums(const window_t window, const checksums_t &checksums,
             grid.loop_idx(where_t::boundary, groupdata.indextype,
                           groupdata.nghostzones, add_point);
 
-          if (did_check.valid_ghosts)
-            grid.loop_idx(where_t::ghosts, groupdata.indextype,
-                          groupdata.nghostzones, add_point);
+          loop_ghost_halves(grid, leveldata, groupdata, index, did_check,
+                            add_point);
 
           if (checksum != old_checksum)
 #pragma omp critical
             CCTK_VERROR(
                 "%s: Checksum mismatch: variable %s, tile %s, "
-                "int:%d,outer:%d,ghosts:%d, old checksum %s, new checksum %s",
+                "int:%d,outer:%d,same_level:%d,coarse_fine:%d, old checksum "
+                "%s, new checksum %s",
                 where().c_str(),
                 CCTK_FullVarName(groupdata.record.var(tiletag.vi).index()),
                 std::string(tiletag).c_str(), int(did_check.valid_int),
-                int(did_check.valid_outer), int(did_check.valid_ghosts),
+                int(did_check.valid_outer), int(did_check.valid_same_level),
+                int(did_check.valid_coarse_fine),
                 std::string(old_checksum).c_str(),
                 std::string(checksum).c_str());
         }
