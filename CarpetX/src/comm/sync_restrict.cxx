@@ -108,7 +108,7 @@ tl_range timelevels_t::range(const GHExt::GroupRecord &record,
   return tl_range{*tl_, tl_->next()};
 }
 
-static valid_t sync_fills(const window_t window, const gi_t gi) {
+static valid_t sync_outer(const window_t window, const gi_t gi) {
   std::optional<bool> covered;
   loop_serially(window, [&](auto &restrict leveldata) {
     const bool level_covered =
@@ -116,8 +116,19 @@ static valid_t sync_fills(const window_t window, const gi_t gi) {
     assert(!covered || *covered == level_covered);
     covered = level_covered;
   });
-  return make_valid_ghosts() |
-         (covered.value_or(false) ? make_valid_outer() : valid_t());
+  return covered.value_or(false) ? make_valid_outer() : valid_t();
+}
+
+static valid_t sync_fills(const window_t window, const gi_t gi) {
+  return make_valid_ghosts() | sync_outer(window, gi);
+}
+
+static valid_t same_level_fills(const window_t window, const gi_t gi) {
+  return make_valid_same_level() | sync_outer(window, gi);
+}
+
+static valid_t coarse_fine_fills(const window_t window, const gi_t gi) {
+  return make_valid_coarse_fine() | sync_outer(window, gi);
 }
 
 struct level_run_t {
@@ -261,7 +272,7 @@ static void SyncGroupsByDirIProlongateOnly_impl(
     for (const level_run_t &run : runs) {
       if (!run.value)
         continue;
-      const valid_t fills = sync_fills(run.levels, gi);
+      const valid_t fills = coarse_fine_fills(run.levels, gi);
       for (const tl_t tl : fill_tls) {
         scopes.push_back(open_write(
             run.levels, {.gi = gi,
@@ -541,12 +552,6 @@ void SyncGroupsByDirISubcycling(const window_t window,
       "SyncGroupsByDirISubcycling on coarse level before prolongation";
   const char *const sync_label = "SyncGroupsByDirISubcycling before syncing";
 
-  struct ghost_check_t {
-    window_t levels;
-    gi_t gi;
-    tl_t tl;
-  };
-  std::vector<ghost_check_t> integrated_ghosts;
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : groups) {
     const tl_range sync_tls =
@@ -556,24 +561,17 @@ void SyncGroupsByDirISubcycling(const window_t window,
           return integrator_owns_coarse_fine_ghosts(leveldata, gi);
         });
     for (const level_run_t &run : runs) {
-      const valid_t fills = sync_fills(run.levels, gi);
+      const valid_t fills = run.value ? same_level_fills(run.levels, gi)
+                                      : sync_fills(run.levels, gi);
+      const valid_t keeps = run.value ? make_valid_all()
+                                      : make_valid_int() | make_valid_outer();
       for (const tl_t tl : sync_tls) {
-        if (run.value) {
-          integrated_ghosts.push_back({run.levels, gi, tl});
-          scopes.push_back(
-              open_write(run.levels, {.gi = gi,
-                                      .tl = tl,
-                                      .fills = fills & make_valid_outer(),
-                                      .keeps = make_valid_all(),
-                                      .event = "SyncGroupsByDirISubcycling"}));
-        } else {
-          scopes.push_back(open_write(
-              run.levels, {.gi = gi,
-                           .tl = tl,
-                           .fills = fills,
-                           .keeps = make_valid_int() | make_valid_outer(),
-                           .event = "SyncGroupsByDirISubcycling"}));
-        }
+        scopes.push_back(open_write(run.levels,
+                                    {.gi = gi,
+                                     .tl = tl,
+                                     .fills = fills,
+                                     .keeps = keeps,
+                                     .event = "SyncGroupsByDirISubcycling"}));
       }
     }
   }
@@ -688,25 +686,6 @@ void SyncGroupsByDirISubcycling(const window_t window,
   tasks3.run_tasks_serially();
   synchronize();
 
-  for (const ghost_check_t &check : integrated_ghosts)
-    require(check.levels,
-            {.gi = check.gi,
-             .tl = check.tl,
-             .where = make_valid_ghosts(),
-             .event = "SyncGroupsByDirISubcycling after copying the same-level "
-                      "ghosts of an integrated group on a refined level",
-             .hint = []() {
-               return "  With CarpetX::use_subcycling = yes the RK step "
-                      "owns the coarse-fine ghosts of the groups the "
-                      "time integrator registered at iteration > 0: "
-                      "CarpetX::rk_step_t::state_updated after each RK "
-                      "stage, and the driver's refill after a recovery, "
-                      "fill and mark them before any SYNC.\n"
-                      "  The SYNC copies only the same-level ghosts of "
-                      "such a group and requires its ghosts to be marked "
-                      "valid already.\n";
-             }});
-
   sync_multipatch_boundaries(groups);
   scopes.clear();
 
@@ -766,6 +745,23 @@ void SyncGroupsByDirIGhostOnly(const window_t window,
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
+  std::vector<write_scope_t> scopes;
+  for (const gi_t gi : groups) {
+    const valid_t fills = same_level_fills(window, gi);
+    for (const tl_t tl : tls.range(ext.record(gi))) {
+      require(window, {.gi = gi,
+                       .tl = tl,
+                       .where = make_valid_int(),
+                       .event = "SyncGroupsByDirIGhostOnly before syncing"});
+      scopes.push_back(
+          open_write(window, {.gi = gi,
+                              .tl = tl,
+                              .fills = fills,
+                              .keeps = make_valid_all(),
+                              .event = "SyncGroupsByDirIGhostOnly"}));
+    }
+  }
+
   // We need to loop over groups, patches, and levels in a definite
   // order so that AMReX's communication pattern does not get
   // confused. Therefore all the loops here are serial. The only
@@ -795,6 +791,7 @@ void SyncGroupsByDirIGhostOnly(const window_t window,
   synchronize();
 
   sync_multipatch_boundaries(groups);
+  scopes.clear();
 
   assert(sync_active);
 }

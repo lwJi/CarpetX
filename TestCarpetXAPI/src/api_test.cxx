@@ -69,7 +69,8 @@ bool rk_step_mode(const char *const mode) {
 
 bool rk_registered_mode(const char *const mode) {
   return rk_step_mode(mode) || CCTK_EQUALS(mode, "rk-open-invalid-state") ||
-         CCTK_EQUALS(mode, "rhs-invalid");
+         CCTK_EQUALS(mode, "rhs-invalid") ||
+         CCTK_EQUALS(mode, "ghosts-before-sync");
 }
 
 extern "C" int TestCarpetXAPI_Startup() {
@@ -270,6 +271,42 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     CarpetX::sync(window, groups);
     CCTK_ERROR("CarpetX::sync read the interior of state on level 0 after it "
                "had been invalidated");
+  }
+
+  if (CCTK_EQUALS(mode, "ghosts-before-sync") &&
+      window.level_bounds().max > 1) {
+    const CarpetX::gi_t rhs = group("TestCarpetXAPI::state_rhs");
+    const CarpetX::window_t parent = window.narrow(0, 1);
+    const CarpetX::window_t fine = window.narrow(1, 2);
+    const CarpetX::level_t fine_level = fine.coarsest();
+    const auto fill_interiors = [&](const CarpetX::window_t levels,
+                                    const CarpetX::gi_t filled) {
+      std::vector<CarpetX::write_t> writes;
+      levels.loop_serially([&](const CarpetX::level_t level) {
+        writes.push_back(CarpetX::write(CarpetX::group_t{level, filled}, tl,
+                                        CarpetX::make_valid_int(),
+                                        "TestCarpetXAPI_Fill"));
+        fill_interior(level, writes.back().mfab());
+      });
+    };
+    fill_interiors(window, gi);
+    fill_interiors(window, rhs);
+    {
+      CarpetX::rk_step_t step = CarpetX::open_rk_step(parent);
+      for (std::size_t stage = 0; stage < rk4_weights.size(); ++stage) {
+        step.rhs_computed();
+        step.state_updated();
+      }
+    }
+    CarpetX::rk_step_t step = CarpetX::open_rk_step(fine);
+    step.rhs_computed();
+    fill_interiors(fine, gi);
+    step.state_updated();
+    CarpetX::require_valid(CarpetX::group_t{fine_level, gi}, tl,
+                           CarpetX::make_valid_ghosts(),
+                           "TestCarpetXAPI_Fill before any SYNC");
+    CCTK_ERROR("CarpetX::require_valid accepted ghosts of state on level 1 "
+               "that no SYNC has filled");
   }
 
   if (window.level_bounds().max != 1)

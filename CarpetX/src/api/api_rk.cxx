@@ -307,11 +307,12 @@ void fill_refinement_boundary(const level_t level,
     const valid_t outer = groupdata.all_faces_have_symmetries_or_boundaries()
                               ? make_valid_outer()
                               : valid_t();
-    scopes.push_back(open_write(window, {.gi = gi,
-                                         .tl = rk_tl,
-                                         .fills = make_valid_ghosts() | outer,
-                                         .keeps = make_valid_all(),
-                                         .event = event}));
+    scopes.push_back(
+        open_write(window, {.gi = gi,
+                            .tl = rk_tl,
+                            .fills = make_valid_coarse_fine() | outer,
+                            .keeps = make_valid_all(),
+                            .event = event}));
   }
   FillRKBoundary(
       level, states, rk_tl, end_of_substep ? 1 : stage + 1,
@@ -418,10 +419,8 @@ void rk_step_t::state_updated() {
     for (const rk_level_t &entry : p->levels) {
       if (entry.level.index() == 0)
         continue;
-      const std::vector<gi_t> &states = entry.groups.states;
-      SyncGroupsByDirIGhostOnly(window_t::one_level(entry.level), states,
-                                timelevels_t::one(rk_tl));
-      fill_refinement_boundary(entry.level, states, stage, nstages, event);
+      fill_refinement_boundary(entry.level, entry.groups.states, stage,
+                               nstages, event);
     }
   } else if (stage == p->nstages) {
     Reflux(p->window);

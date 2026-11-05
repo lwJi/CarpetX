@@ -87,6 +87,11 @@ SECTIONS: tuple[Section, ...] = (
                 ("api/api.cxx:write", "api/api.cxx:require_valid", "api/api.cxx:invalidate", "api/api.cxx:require_no_open_write", "hierarchy/valid.cxx:write_scope_t", "schedule/callfunction.cxx:CallFunction"),
             ),
             Row(
+                "The halo has two ghost regions with a bit each: the same-level ghosts, which another box of the level or a periodic image covers, and the coarse-fine ghosts, which no box of the level covers and only an interpolation from the parent fills. "
+                "`make_valid_ghosts()` and a schedule clause's everywhere name both.",
+                ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/hierarchy.cxx:LevelData", "hierarchy/valid.cxx:check_valid_gf"),
+            ),
+            Row(
                 "`scratch(group)` is shaped like `data(group, tl_t{0})` and comes from a per-group pool its destructor returns it to; the pool dies with its level on a regrid, after which a `scratch_t` is an error, not a dangling pointer. It has no validity bits.",
                 ("api/api.cxx:scratch", "api/api.cxx:resolve_scratch", "api/api.cxx:scratch_t"),
             ),
@@ -99,9 +104,9 @@ SECTIONS: tuple[Section, ...] = (
         (
             Row(
                 "An operation without a `tl` acts on every time level but the oldest. "
-                "`sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the ghost and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and `prolongate_ghosts` its coarse-to-fine interpolation alone; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. "
+                "`sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the same-level, coarse-fine and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and sets the same-level bit, and `prolongate_ghosts` its coarse-to-fine interpolation alone and sets the coarse-fine bit; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. "
                 "`restrict_no_poison` leaves the coarse ghost and outer regions as they were, where the scheduled restriction invalidates and poisons them. `synchronize` waits for the device.",
-                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
+                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "comm/sync_restrict.cxx:SyncGroupsByDirIGhostOnly", "comm/sync_restrict.cxx:SyncGroupsByDirIProlongateOnly_impl", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
@@ -136,11 +141,11 @@ SECTIONS: tuple[Section, ...] = (
             Row(
                 "`open_rk_step` is called once the state holds u(t_n), outside any OpenMP parallel region, and stores the old state of every registered pair with storage on each level of the window. "
                 "`rhs_computed` stores the stage band and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
-                "`state_updated` says the state holds the next stage value: under subcycling CarpetX copies the same-level ghosts of every refined level in the window, fills its refinement boundary from its own clocks, scans the ghosts, and marks the integrated groups' ghosts valid, and their outer boundary where every face has a symmetry or boundary; without subcycling the last `state_updated` applies the flux registers.",
+                "`state_updated` says the state holds the next stage value: under subcycling CarpetX fills the refinement boundary of every refined level in the window from its own clocks, scans the coarse-fine ghosts it wrote and marks them valid, and their outer boundary where every face has a symmetry or boundary; the same-level ghosts of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep. Without subcycling the last `state_updated` applies the flux registers.",
                 ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "api/api_rk.cxx:fill_refinement_boundary", "api/api_rk.cxx:rk_step_t"),
             ),
             Row(
-                "Two promises no parfile holds. Under subcycling the SYNC of an integrated group on a refined level at iteration > 0 copies only the same-level ghosts and requires the ghost bit set already, by `state_updated` or by the driver's refill after a recovery; on level 0 it fills and marks every ghost itself. "
+                "Under subcycling the SYNC of an integrated group copies the same-level ghosts and marks them on every level; on a refined level at iteration > 0 it keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote, and elsewhere it fills and marks every ghost itself. "
                 "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`; the integrator schedules nothing for it.",
                 ("comm/sync_restrict.cxx:SyncGroupsByDirISubcycling", "api/api_rk.cxx:RecoverRKBoundary"),
             ),
@@ -164,6 +169,7 @@ SECTIONS: tuple[Section, ...] = (
             "state_before_rhs",
             "rhs_after_last_stage",
             "step_closed_early",
+            "ghosts_before_sync",
         ),
     ),
 )
