@@ -116,11 +116,30 @@ namespace {
 using GroupData = GHExt::PatchData::LevelData::GroupData;
 using ArrayGroupData = GHExt::GlobalData::ArrayGroupData;
 
-int ghost_half(const valid_t where) {
-  assert(where.valid_same_level != where.valid_coarse_fine);
-  return where.valid_same_level
-             ? GHExt::PatchData::LevelData::ghost_mask_same_level
-             : GHExt::PatchData::LevelData::ghost_mask_coarse_fine;
+bool one_ghost_half(const valid_t where) {
+  return where.valid_same_level != where.valid_coarse_fine;
+}
+
+struct ghost_half_t {
+  amrex::Array4<const int> mask;
+  vect<int, dim> offset;
+  int wanted;
+  CCTK_HOST CCTK_DEVICE bool operator()(const Loop::PointDesc &p) const {
+    return mask(offset[0] + p.I[0], offset[1] + p.I[1], offset[2] + p.I[2]) ==
+           wanted;
+  }
+};
+
+ghost_half_t ghost_half(const Loop::GridDescBaseDevice &grid,
+                        const GHExt::PatchData::LevelData &leveldata,
+                        const GroupData &groupdata, const int index,
+                        const valid_t where) {
+  assert(one_ghost_half(where));
+  return {leveldata.ghost_mask(groupdata).const_array(index),
+          grid.lbnd - grid.nghostzones,
+          where.valid_same_level
+              ? GHExt::PatchData::LevelData::ghost_mask_same_level
+              : GHExt::PatchData::LevelData::ghost_mask_coarse_fine};
 }
 
 template <typename F>
@@ -130,21 +149,40 @@ void loop_ghost_halves(const Loop::GridDescBaseDevice &grid,
                        const valid_t where, const F &kernel) {
   if (!where.valid_same_level && !where.valid_coarse_fine)
     return;
-  if (where.valid_same_level && where.valid_coarse_fine) {
+  if (!one_ghost_half(where)) {
     grid.loop_idx(where_t::ghosts, groupdata.indextype, groupdata.nghostzones,
                   kernel);
     return;
   }
-  const int wanted = ghost_half(where);
-  const amrex::Array4<const int> mask =
-      leveldata.ghost_mask(groupdata).const_array(index);
-  const vect<int, dim> offset = grid.lbnd - grid.nghostzones;
+  const ghost_half_t half =
+      ghost_half(grid, leveldata, groupdata, index, where);
   grid.loop_idx(where_t::ghosts, groupdata.indextype, groupdata.nghostzones,
                 [&](const Loop::PointDesc &p) {
-                  if (mask(offset[0] + p.I[0], offset[1] + p.I[1],
-                           offset[2] + p.I[2]) == wanted)
+                  if (half(p))
                     kernel(p);
                 });
+}
+
+template <typename F>
+void loop_ghost_halves_device(const Loop::GridDescBaseDevice &grid,
+                              const GHExt::PatchData::LevelData &leveldata,
+                              const GroupData &groupdata, const int index,
+                              const valid_t where, const F &kernel) {
+  if (!where.valid_same_level && !where.valid_coarse_fine)
+    return;
+  if (!one_ghost_half(where)) {
+    grid.loop_device_idx<where_t::ghosts>(groupdata.indextype,
+                                          groupdata.nghostzones, kernel);
+    return;
+  }
+  const ghost_half_t half =
+      ghost_half(grid, leveldata, groupdata, index, where);
+  grid.loop_device_idx<where_t::ghosts>(
+      groupdata.indextype, groupdata.nghostzones,
+      [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
+        if (half(p))
+          kernel(p);
+      });
 }
 
 void error_if_invalid(const GroupData &groupdata, const vi_t vi, const tl_t tl,
@@ -228,23 +266,8 @@ void poison_invalid_gf(const window_t window, const gi_t gi, const vi_t vi,
       if (where.valid_outer)
         grid.loop_device_idx<where_t::boundary>(
             groupdata.indextype, groupdata.nghostzones, set_poison);
-      if (where.valid_same_level && where.valid_coarse_fine) {
-        grid.loop_device_idx<where_t::ghosts>(
-            groupdata.indextype, groupdata.nghostzones, set_poison);
-      } else if (where.valid_same_level || where.valid_coarse_fine) {
-        const int wanted = ghost_half(where);
-        const amrex::Array4<const int> mask =
-            leveldata.ghost_mask(groupdata).const_array(index);
-        const vect<int, dim> offset = grid.lbnd - grid.nghostzones;
-        grid.loop_device_idx<where_t::ghosts>(
-            groupdata.indextype, groupdata.nghostzones,
-            [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                  if (mask(offset[0] + p.I[0], offset[1] + p.I[1],
-                           offset[2] + p.I[2]) == wanted)
-                    set_poison(p);
-                });
-      }
+      loop_ghost_halves_device(grid, leveldata, groupdata, index, where,
+                               set_poison);
     }
   });
 
@@ -312,23 +335,8 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
       if (where.valid_outer)
         grid.loop_device_idx<where_t::boundary>(
             groupdata.indextype, groupdata.nghostzones, update_poison_found);
-      if (where.valid_same_level && where.valid_coarse_fine) {
-        grid.loop_device_idx<where_t::ghosts>(
-            groupdata.indextype, groupdata.nghostzones, update_poison_found);
-      } else if (where.valid_same_level || where.valid_coarse_fine) {
-        const int wanted = ghost_half(where);
-        const amrex::Array4<const int> mask =
-            leveldata.ghost_mask(groupdata).const_array(index);
-        const vect<int, dim> offset = grid.lbnd - grid.nghostzones;
-        grid.loop_device_idx<where_t::ghosts>(
-            groupdata.indextype, groupdata.nghostzones,
-            [=] CCTK_DEVICE(const Loop::PointDesc &p)
-                CCTK_ATTRIBUTE_ALWAYS_INLINE {
-                  if (mask(offset[0] + p.I[0], offset[1] + p.I[1],
-                           offset[2] + p.I[2]) == wanted)
-                    update_poison_found(p);
-                });
-      }
+      loop_ghost_halves_device(grid, leveldata, groupdata, index, where,
+                               update_poison_found);
     }
   });
   synchronize();
