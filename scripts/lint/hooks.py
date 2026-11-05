@@ -5,11 +5,15 @@ import os
 import sys
 
 from boundary.doc import MAP
+from boundary.guide import GUIDE
 from checks import CHECKS
 from files import PROJECT, covered, merge_base, read_text, repo_name, simulate_edit
 from run import check_edit, check_since, has_findings, render_change
 
-GENERATED = f"{MAP} is written by python3 scripts/lint doc --write from scripts/lint/boundary/rules.py, doc.py and symbols.py: change those and run it."
+GENERATED = {
+    MAP: f"{MAP} is written by python3 scripts/lint doc --write from scripts/lint/boundary/rules.py, doc.py and symbols.py: change those and run it.",
+    GUIDE: f"{GUIDE} is written by python3 scripts/lint doc --write from the rows of scripts/lint/boundary/guide.py, TestCarpetXAPI/param.ccl and TestCarpetXAPI/test/errors: change those and run it.",
+}
 
 
 def emit(out, message: dict) -> None:
@@ -30,8 +34,8 @@ def hook_edit(raw, out=None, root: str = PROJECT) -> int:
         tool_input = payload["tool_input"]
         path = os.path.join(payload.get("cwd") or os.getcwd(), tool_input["file_path"])
         name = repo_name(path, root)
-        if name == MAP:
-            return deny(out, GENERATED)
+        if name in GENERATED:
+            return deny(out, GENERATED[name])
         lang = covered(name, root) if name is not None else None
         if lang is None:
             return 0
