@@ -563,7 +563,7 @@ void SyncGroupsByDirISubcycling(const window_t window,
     for (const level_run_t &run : runs) {
       const valid_t fills = run.value ? same_level_fills(run.levels, gi)
                                       : sync_fills(run.levels, gi);
-      const valid_t keeps = run.value ? make_valid_all()
+      const valid_t keeps = run.value ? ~make_valid_same_level()
                                       : make_valid_int() | make_valid_outer();
       for (const tl_t tl : sync_tls) {
         scopes.push_back(open_write(run.levels,
@@ -757,7 +757,7 @@ void SyncGroupsByDirIGhostOnly(const window_t window,
           open_write(window, {.gi = gi,
                               .tl = tl,
                               .fills = fills,
-                              .keeps = make_valid_all(),
+                              .keeps = ~make_valid_same_level(),
                               .event = "SyncGroupsByDirIGhostOnly"}));
     }
   }

@@ -311,7 +311,7 @@ void fill_refinement_boundary(const level_t level,
         open_write(window, {.gi = gi,
                             .tl = rk_tl,
                             .fills = make_valid_coarse_fine() | outer,
-                            .keeps = make_valid_all(),
+                            .keeps = ~make_valid_coarse_fine(),
                             .event = event}));
   }
   FillRKBoundary(
