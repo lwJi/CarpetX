@@ -1,10 +1,8 @@
 # CarpetX's public API
 
-`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/public.py`, the declarations of `CarpetX/src/include/carpetx.hxx` and `CarpetX/src/include/carpetx_rk.hxx`, the modes of `TestCarpetXAPI/param.ccl` and the parfiles of `TestCarpetXAPI/test/errors/`; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. The topics name every declaration of the headers, and every member of a type where one names any; a refusal is a row of the topic that promises it, with the parfile that shows it.
+`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/public.py`, the public headers and `TestCarpetXAPI`, and the edit hook refuses an edit to it. A topic names every declaration of the headers, and every member of a type where it names any; a refusal a topic names is a parfile of `TestCarpetXAPI/test/errors/` that sets that mode of `TestCarpetXAPI/param.ccl`, with what CarpetX says in the `.expect` beside it.
 
-A thorn reaches CarpetX through two headers that `CarpetX/interface.ccl` exports from `CarpetX/src/include/`: `carpetx.hxx` for everything a general thorn needs, and `carpetx_rk.hxx` for the time integrator's contract. Every other header under `CarpetX/src/` is private, and the boundary rules `include`, `marker` and `guard` of `python3 scripts/lint check --help` hold it: a private header stops with `#error` unless `CARPETX_INTERNAL` is defined, only CarpetX's own `CarpetX/src/make.code.defn` defines it, and no `#include` outside `CarpetX/src/` reaches into it. The public headers include nothing under `CarpetX/src/`, so a client cannot reach the driver's internals transitively either; `agent_docs/carpetx-internals.md` is the map of what is behind them, and the public counterpart of a private name is the operation CarpetX performs with it.
-
-`TestCarpetXAPI` is a client of both headers: `TestCarpetXAPI/src/compile_checks.cxx` holds the `static_assert`s that pin the types, `TestCarpetXAPI/test/write_scope.par` runs its default mode, write-scope ("write the interior of state through a write scope that states interior validity, then sync; TestCarpetXAPI_Check reads state everywhere"), and every other mode is a row of the topic that refuses it. `output_unknown_variable.par` and `too_many_levels.par` under `TestCarpetXAPI/test/errors/` refuse a parameter, not a call, and run the default mode.
+A thorn reaches CarpetX through two headers that `CarpetX/interface.ccl` exports from `CarpetX/src/include/`: `carpetx.hxx` for everything a general thorn needs, and `carpetx_rk.hxx` for the time integrator's contract. Every other header under `CarpetX/src/` is private and the public headers include none of it; `agent_docs/carpetx-internals.md` is the map of what is behind them.
 
 ## What the headers declare
 
@@ -17,11 +15,7 @@ In `interface.ccl`, `USES INCLUDE HEADER: carpetx.hxx` (and `carpetx_rk.hxx` for
 
 The header is the list of calls; this file states only what a signature cannot. Every call is available between the driver's SetupGH and its Shutdown, and a bad argument is a `CCTK_VERROR`, never garbage.
 
-Refused, each with the parfile under `TestCarpetXAPI/test/errors/` that shows it:
-
-| Parfile | What the thorn does | What CarpetX says |
-| --- | --- | --- |
-| `hierarchy_absent.par` | call CarpetX::num_levels at SHUTDOWN after Driver_Shutdown, once the driver has destroyed the grid hierarchy; CarpetX aborts the run | The CarpetX grid hierarchy does not exist |
+Refused: `hierarchy_absent.par`.
 
 ## Indices and handles
 
@@ -29,13 +23,7 @@ An index is an `index_t`: `patch_t` names a patch, `gi_t` a Cactus group, `tl_t`
 
 A handle is made of indices and resolved on every call, so a stale one names a level that no longer exists and the call reports it instead of touching freed memory. `level_t{patch_t{cctk_patch}, cctk_level}` names a refinement level of a patch; it has no public fields, is read back through `patch()` and `index()`, and has no arithmetic: `level.parent()` is the next coarser level and an error on level 0, and `level.child()` is the next finer one, empty on the finest level of its patch. `group_t{level, gi}` names a grid-function group on a level (`gi` is a `gi_t`). `num_patches()` is the number of patches, and `num_levels(patch)` takes a `patch_t` and is per patch. `window_t` is a half-open range of levels on a half-open range of patches, both for traversal (`loop_serially`, `loop_coarse_to_fine`, and `loop_parallel`, whose kernel receives the component's cGH) and as the "which levels" argument of every operation. It has no public fields and is built only by `active_window()`, the window of the current traversal and an error outside one, `all_levels()`, the whole hierarchy, `window_t::one_level(level)`, `window_t::levels(min_level, max_level)` over every patch, and `window.narrow(min_level, max_level)` over the same patches as `window`. Each checks the bounds against the hierarchy when it is called, so a bad window is an error that names the line that built it, not the operation that later uses it. The two ints of `levels` and `narrow` are the bounds of a range, not levels, and `window.level_bounds()` and `window.patch_bounds()` read them back as a `window_t::bounds_t`, a `{min, max}` pair of ints. `window.coarsest()` and `window.finest()` are its lowest and highest level on its first patch, and an error on an empty window.
 
-Refused, each with the parfile under `TestCarpetXAPI/test/errors/` that shows it:
-
-| Parfile | What the thorn does | What CarpetX says |
-| --- | --- | --- |
-| `level_missing.par` | open a write scope on state through a handle naming refinement level 99 of patch 0, which does not exist; CarpetX aborts the run | CarpetX::write: CarpetX level 99 does not exist on patch 0: it has 1 levels |
-| `timelevel_missing.par` | open a write scope on state at time level 7, which it does not have; CarpetX aborts the run | CarpetX::write: time level 7 of group TESTCARPETXAPI::STATE does not exist on patch 0, refinement level 0 |
-| `window_outside_traversal.par` | call CarpetX::active_window at STARTUP, before the driver has opened any traversal; CarpetX aborts the run | CarpetX::active_window() called outside a traversal: no levels are active |
+Refused: `level_missing.par`, `timelevel_missing.par` and `window_outside_traversal.par`.
 
 ## Data, validity and the write scope
 
@@ -45,14 +33,7 @@ Refused, each with the parfile under `TestCarpetXAPI/test/errors/` that shows it
 
 `scratch(group)` is a `scratch_t`, a move-only buffer with the boxes, distribution, components and ghosts of `data(group, tl_t{0})`, drawn from a per-group pool that CarpetX keeps between calls; `mfab()` is its MultiFab. There is no init or free call; the destructor returns the buffer. The pool dies with the level on a regrid, and using a `scratch_t` after that is an error, not a dangling pointer. It has no validity bits.
 
-Refused, each with the parfile under `TestCarpetXAPI/test/errors/` that shows it:
-
-| Parfile | What the thorn does | What CarpetX says |
-| --- | --- | --- |
-| `write_twice.par` | open a second write scope on state at the same time level while the first is open; CarpetX aborts the run | CarpetX::write: time level 0 of group TESTCARPETXAPI::STATE has 1 open write scope |
-| `sync_during_write.par` | call CarpetX::sync on state while a write scope on it is open; CarpetX aborts the run | CarpetX::sync: group TESTCARPETXAPI::STATE has 1 open write scope |
-| `write_unfilled.par` | open a write scope on state that promises every region and fill only the interior; CarpetX aborts the run when the scope closes | Grid function "TESTCARPETXAPI::state" contains nans, infinities, or poison; expected valid |
-| `require_invalid.par` | require valid ghosts of state before anything has filled them; CarpetX aborts the run | Grid function "TESTCARPETXAPI::state" is invalid on patch 0, refinement level 0, time level 0 |
+Refused: `write_twice.par`, `sync_during_write.par`, `write_unfilled.par` and `require_invalid.par`.
 
 ## Communication
 
@@ -67,12 +48,7 @@ Each operation takes a window and a list of grid-function groups as a `std::span
 
 `reduce(gi, vi, tl)` is a `reduction<T, D>`, whose fields and norms are what their names say; so are `Timer` and `Interval`, `geometry(level)`, `symmetries(level)`, a `symmetry_t` per face, `numvars`, `indextype` and `nghostzones`. `rat64`, the type of `iteration(level)` and `delta_iteration(level)`, is a rational. The BoxArray and DistributionMapping of a level are those of any group's MultiFab on it, and the refinement ratio is 2 between every pair of levels. Driver parameters are read through the flesh (`SHARES: Driver` in `param.ccl`, or `CCTK_ParameterGet`), not through the headers.
 
-Refused, each with the parfile under `TestCarpetXAPI/test/errors/` that shows it:
-
-| Parfile | What the thorn does | What CarpetX says |
-| --- | --- | --- |
-| `prolongate_unwritten_parent.par` | fill state as write-scope does, and once the hierarchy has two levels call CarpetX::prolongate_ghosts on state_rhs, which nothing has written on the parent level; CarpetX aborts the run | Grid function "TESTCARPETXAPI::state_rhs" is invalid on patch 0, refinement level 0, time level 0 |
-| `sync_invalid_coarse.par` | once the hierarchy has two levels fill the interior of state on both, invalidate it on level 0, then call CarpetX::sync over both levels under CarpetX::use_subcycling without poisoning; the sync reads level 0 for its own ghosts and for the refinement boundary of level 1, and CarpetX aborts the run | SyncGroupsByDirISubcycling before syncing (iteration 0): Grid function "TESTCARPETXAPI::state" is invalid on patch 0, refinement level 0, time level 0 |
+Refused: `prolongate_unwritten_parent.par` and `sync_invalid_coarse.par`.
 
 ## The integrator's contract: `carpetx_rk.hxx`
 
@@ -84,19 +60,4 @@ Registration is once, `AT WRAGH`: `register_integrator(rk_config_t{dense_output,
 
 The step is an `rk_step_t`, `auto step = open_rk_step(window)`, opened once the state holds u(t_n) and outside any OpenMP parallel region. It stores the old state of every registered pair with storage on each level of the window and requires their interior valid. Then `rhs_computed()` and `state_updated()` alternate, `b.size()` times each, and the destructor checks that every stage ran. `rhs_computed` requires the interior of every registered right-hand side valid on every level of the window, stores the stage band, and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. `state_updated` says the state now holds the next stage value: under subcycling CarpetX copies the same-level ghosts of every refined level in the window, fills its refinement boundary from its own clocks, scans the ghosts, and marks the integrated groups' ghosts valid, and their outer boundary where every face has a symmetry or boundary; without subcycling the last `state_updated` applies the flux registers. A call out of order, a call after the last stage, and a step destroyed early are errors naming the window and the stage; no stage index is passed, so stages cannot run out of order. After a recovery the driver refills the integrated groups' refinement boundary itself before it traverses `CCTK_POST_RECOVER_VARIABLES`; the integrator schedules nothing for it.
 
-Refused, each with the parfile under `TestCarpetXAPI/test/errors/` that shows it:
-
-| Parfile | What the thorn does | What CarpetX says |
-| --- | --- | --- |
-| `register_twice.par` | register a valid integrator at WRAGH, then register it again; CarpetX aborts the second call | CarpetX::register_integrator: a time integrator is already registered |
-| `register_at_startup.par` | register a valid integrator at STARTUP, before the driver has set up its grid hierarchy; CarpetX aborts the run | The CarpetX grid hierarchy does not exist |
-| `register_at_paramcheck.par` | register a valid integrator at PARAMCHECK, after the driver has frozen its integrator record at the end of WRAGH; CarpetX aborts the run | CarpetX::register_integrator: the driver froze its integrator record after the WRAGH traversal |
-| `register_after_use.par` | register a valid integrator at CCTK_INITIAL, after the driver has frozen its integrator record; CarpetX aborts the run | CarpetX::register_integrator: the driver froze its integrator record after the WRAGH traversal |
-| `dense_output_stage_mismatch.par` | register a 2-stage integrator whose dense output is RK4; CarpetX aborts the run | the RK4 dense output belongs to a method with 4 RK stages, but the integrator registered 2 |
-| `weights_sum_mismatch.par` | register a 3-stage integrator whose weights b sum to 1.5; CarpetX aborts the run | CarpetX::register_integrator: the 3 RK stage weights b sum to 1.5, not 1 |
-| `reflux_without_weights.par` | register an integrator without weights b (an implicit method) that integrates conserved, which carries a fluxes= tag, under CarpetX::do_reflux with CarpetX::max_num_levels > 1; CarpetX aborts the run | but it registered no weights and integrates group TESTCARPETXAPI::CONSERVED, which carries a fluxes= tag |
-| `subcycling_without_dense_output.par` | register an integrator without a dense output under CarpetX::use_subcycling; CarpetX aborts the run | CarpetX::use_subcycling = yes fills the refinement boundary by dense output, but the integrator registered dense_output = none |
-| `integrated_not_checkpointed.par` | register an integrator that integrates unsaved, which is tagged checkpoint=no; CarpetX aborts the run | integrated group TESTCARPETXAPI::UNSAVED is tagged checkpoint="no" |
-| `unregistered_rk_call.par` | call CarpetX::open_rk_step at CCTK_INITIAL without having registered an integrator; CarpetX aborts the run | CarpetX::open_rk_step: no time integrator is registered |
-| `rhs_repeated.par` | open an RK step on level 0 and report the right-hand side of RK stage 1 computed twice, without state_updated in between; CarpetX aborts the run | CarpetX::rk_step_t::rhs_computed on patches [0, 1), refinement levels [0, 1), RK stage 1 of 4: the stage already has its right-hand side; expected state_updated |
-| `step_closed_early.par` | open an RK step on level 0 and close it after one of its four stages; CarpetX aborts the run | CarpetX::rk_step_t on patches [0, 1), refinement levels [0, 1) destroyed after 1 of its 4 stages |
+Refused: `register_twice.par`, `register_at_startup.par`, `register_at_paramcheck.par`, `register_after_use.par`, `dense_output_stage_mismatch.par`, `weights_sum_mismatch.par`, `reflux_without_weights.par`, `subcycling_without_dense_output.par`, `integrated_not_checkpointed.par`, `unregistered_rk_call.par`, `rhs_repeated.par` and `step_closed_early.par`.

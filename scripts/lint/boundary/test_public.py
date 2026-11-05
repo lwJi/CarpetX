@@ -220,16 +220,10 @@ class Refusals(unittest.TestCase):
             write(root, files)
             self.assertEqual(public.modes(root), ("ok", {"ok": "write and read back", "bad-one": "do one bad thing; CarpetX aborts the run", "bad-two": "do another; CarpetX aborts the run"}))
             with mock.patch.object(public, "TOPICS", (("One", ("bad-one",), ("a",)), ("Two", ("bad-two",), ("b",)))):
-                rows, parameters, problems = public.refusals(root)
-            self.assertEqual(rows, {"bad-one": ("do one bad thing; CarpetX aborts the run", "CarpetX::one: refused | and how"), "bad-two": ("do another; CarpetX aborts the run", "CarpetX::two: refused")})
-            self.assertEqual(parameters, ["parameter.par"])
-            self.assertEqual(problems, [])
-            self.assertEqual(public.table([("bad_one.par", *rows["bad-one"])]).splitlines()[2], "| `bad_one.par` | do one bad thing; CarpetX aborts the run | CarpetX::one: refused \\| and how |")
+                self.assertEqual(public.refusals(root), [])
             write(root, {f"{public.ERRORS}rogue.par": 'TestCarpetXAPI::mode = "bad-one"\n', f"{public.ERRORS}bad_two.par": 'TestCarpetXAPI::mode = "bad-one"\n', f"{public.ERRORS}bad_one.expect": "\n", f"{public.TESTS}ok.par": 'TestCarpetXAPI::mode = "bad-two"\n'})
             with mock.patch.object(public, "TOPICS", (("One", ("bad-one", "ok", "nope"), ("a",)), ("Two", ("bad-one",), ("b",)))):
-                rows, parameters, problems = public.refusals(root)
-            self.assertEqual(rows, {"bad-two": ("do another; CarpetX aborts the run", "CarpetX::two: refused")})
-            self.assertEqual(parameters, ["parameter.par"])
+                problems = public.refusals(root)
             self.assertEqual(
                 problems,
                 [
@@ -246,32 +240,30 @@ class Refusals(unittest.TestCase):
             )
             os.remove(os.path.join(root, public.ERRORS, "bad_two.par"))
             with mock.patch.object(public, "TOPICS", ()):
-                self.assertIn(f"the mode bad-two of {public.MODES} has no {public.ERRORS}bad_two.par", public.refusals(root)[2])
+                self.assertIn(f"the mode bad-two of {public.MODES} has no {public.ERRORS}bad_two.par", public.refusals(root))
             write(root, {public.MODES: "INT n \"n\"\n{\n} 1\n"})
             with self.assertRaisesRegex(ValueError, f"{public.MODES} has no KEYWORD mode"):
                 public.modes(root)
 
-    def test_the_refusals_in_the_tree_are_rows(self):
-        rows, parameters, problems = public.refusals(PROJECT)
-        self.assertEqual(problems, [])
+    def test_the_refusals_in_the_tree_have_their_parfiles(self):
+        self.assertEqual(public.refusals(PROJECT), [])
         default, modes = public.modes(PROJECT)
-        self.assertEqual(sorted(rows), sorted(mode for mode in modes if mode != default))
+        named = [public.parfile(mode) for _, topic_modes, _ in public.TOPICS for mode in topic_modes]
+        self.assertEqual(sorted(named), sorted(public.parfile(mode) for mode in modes if mode != default))
         folder = os.path.join(PROJECT, public.ERRORS)
-        self.assertEqual(sorted([public.parfile(mode) for mode in rows] + parameters), sorted(name for name in os.listdir(folder) if name.endswith(".par")))
+        self.assertLess(set(named), {name for name in os.listdir(folder) if name.endswith(".par")})
 
 
 class Render(unittest.TestCase):
     def test_the_contract_is_the_declarations_then_a_topic_each_with_its_refusals(self):
         text = public.render()
-        self.assertTrue(text.startswith(public.TITLE + "\n\n" + public.PREAMBLE + "\n\n" + "\n".join(public.INTRO) + "\n\n`TestCarpetXAPI` is a client of both headers: "))
-        self.assertIn("\n\n" + public.declares(public.declared()) + "\n## ", text)
+        self.assertTrue(text.startswith(public.TITLE + "\n\n" + public.PREAMBLE + "\n\n" + "\n".join(public.INTRO) + "\n\n" + public.declares(public.declared()) + "\n## "))
         self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), [public.DECLARES_HEADING] + [f"## {title}" for title, _, _ in public.TOPICS])
-        self.assertEqual(text.count(public.REFUSED_INTRO), sum(1 for _, modes, _ in public.TOPICS if modes))
-        rows = re.findall(r"^\| `(\w+\.par)` \|", text, re.MULTILINE)
-        self.assertEqual(sorted(rows), sorted(public.parfile(mode) for _, modes, _ in public.TOPICS for mode in modes))
-        self.assertEqual(rows, [public.parfile(mode) for _, modes, _ in public.TOPICS for mode in modes])
-        self.assertIn("`output_unknown_variable.par` and `too_many_levels.par` under `TestCarpetXAPI/test/errors/` refuse a parameter, not a call, and run the default mode.", text)
-        self.assertIn("runs its default mode, write-scope (\"write the interior of state", text)
+        refused = re.findall(rf"^{public.REFUSED}(.*)$", text, re.MULTILINE)
+        self.assertEqual(len(refused), sum(1 for _, modes, _ in public.TOPICS if modes))
+        self.assertEqual([re.findall(r"`(\w+\.par)`", line) for line in refused], [[public.parfile(mode) for mode in modes] for _, modes, _ in public.TOPICS if modes])
+        self.assertIn("\n\nRefused: `level_missing.par`, `timelevel_missing.par` and `window_outside_traversal.par`.\n\n## ", text)
+        self.assertNotIn("\n|", text)
         self.assertEqual(public.series(["a"]), "a")
         self.assertEqual(public.series(["a", "b", "c"]), "a, b and c")
         for title, _, texts in public.TOPICS:

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from .doc import API, MAP, PUBLIC_HEADERS, read
 from .doc import render as render_map
-from .rules import DECLARATION_START, PRIVATE_DIR, PUBLIC_DIR, RULES, STATEMENT_END, declaration_head, declared_function, statements
+from .rules import DECLARATION_START, PRIVATE_DIR, PUBLIC_DIR, STATEMENT_END, declaration_head, declared_function, statements
 from files import PROJECT
 
 SOURCE = "scripts/lint/boundary/public.py"
@@ -15,8 +15,6 @@ MODES = f"{CLIENT}/param.ccl"
 ERRORS = f"{CLIENT}/test/errors/"
 TESTS = f"{CLIENT}/test/"
 INTERFACE = "CarpetX/interface.ccl"
-BOUNDARY_RULES = ("include", "marker", "guard")
-assert set(BOUNDARY_RULES) <= {rule.name for rule in RULES}, BOUNDARY_RULES
 
 TYPE = re.compile(r"^(?:template\s*<[^>]*>\s*)?(struct|class|enum(?:\s+class)?)\s+(?:\[\[\w+\]\]\s*)?(\w+)\s*(?::(?!:)|[{;])")
 ALIAS = re.compile(r"^using\s+(\w+)\s*=")
@@ -131,14 +129,12 @@ def series(items: list[str]) -> str:
 
 TITLE = "# CarpetX's public API"
 PREAMBLE = (
-    f"`python3 scripts/lint doc --write` writes this file from `{SOURCE}`, the declarations of {' and '.join(f'`{header}`' for header in PUBLIC_HEADERS)}, "
-    f"the modes of `{MODES}` and the parfiles of `{ERRORS}`; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. "
-    "The topics name every declaration of the headers, and every member of a type where one names any; a refusal is a row of the topic that promises it, with the parfile that shows it."
+    f"`python3 scripts/lint doc --write` writes this file from `{SOURCE}`, the public headers and `{CLIENT}`, and the edit hook refuses an edit to it. "
+    f"A topic names every declaration of the headers, and every member of a type where it names any; a refusal a topic names is a parfile of `{ERRORS}` that sets that mode of `{MODES}`, with what CarpetX says in the `.expect` beside it."
 )
 INTRO = (
     f"A thorn reaches CarpetX through two headers that `{INTERFACE}` exports from `{PUBLIC_DIR}`: `carpetx.hxx` for everything a general thorn needs, and `carpetx_rk.hxx` for the time integrator's contract. "
-    f"Every other header under `{PRIVATE_DIR}` is private, and the boundary rules {series([f'`{rule}`' for rule in BOUNDARY_RULES])} of `python3 scripts/lint check --help` hold it: a private header stops with `#error` unless `CARPETX_INTERNAL` is defined, only CarpetX's own `CarpetX/src/make.code.defn` defines it, and no `#include` outside `{PRIVATE_DIR}` reaches into it. "
-    f"The public headers include nothing under `{PRIVATE_DIR}`, so a client cannot reach the driver's internals transitively either; `{MAP}` is the map of what is behind them, and the public counterpart of a private name is the operation CarpetX performs with it.",
+    f"Every other header under `{PRIVATE_DIR}` is private and the public headers include none of it; `{MAP}` is the map of what is behind them.",
 )
 TOPICS: tuple[Topic, ...] = (
     (
@@ -205,8 +201,7 @@ TOPICS: tuple[Topic, ...] = (
     ),
 )
 DECLARES_HEADING = "## What the headers declare"
-REFUSED_INTRO = f"Refused, each with the parfile under `{ERRORS}` that shows it:"
-REFUSED_HEADER = ("| Parfile | What the thorn does | What CarpetX says |", "| --- | --- | --- |")
+REFUSED = "Refused: "
 
 
 def words(paragraph: str) -> set[str]:
@@ -300,13 +295,12 @@ def mode_of(text: str, default: str) -> str:
     return m.group(1) if m else default
 
 
-def refusals(root: str) -> tuple[dict[str, tuple[str, str]], list[str], list[str]]:
+def refusals(root: str) -> list[str]:
     default, found = modes(root)
     problems = []
-    rows: dict[str, tuple[str, str]] = {}
     folder = os.path.join(root, ERRORS)
     parfiles = sorted(name for name in os.listdir(folder) if name.endswith(".par"))
-    for mode, description in found.items():
+    for mode in found:
         if mode == default:
             continue
         name = parfile(mode)
@@ -319,17 +313,10 @@ def refusals(root: str) -> tuple[dict[str, tuple[str, str]], list[str], list[str
         expect = path[: -len(".par")] + ".expect"
         if not os.path.isfile(expect) or not read(expect).strip():
             problems.append(f"{ERRORS}{name} has no {os.path.basename(expect)} beside it, or it is empty")
-            continue
-        rows[mode] = (description, read(expect).strip())
-    parameters = []
     for name in parfiles:
         mode = mode_of(read(os.path.join(folder, name)), default)
-        if name == parfile(mode):
-            continue
-        if mode != default:
+        if mode != default and name != parfile(mode):
             problems.append(f"{ERRORS}{name} sets {CLIENT}::mode = \"{mode}\" but is not {parfile(mode)}")
-        else:
-            parameters.append(name)
     positive = os.path.join(root, TESTS, parfile(default))
     if not os.path.isfile(positive) or mode_of(read(positive), default) != default:
         problems.append(f"{TESTS}{parfile(default)} does not run the default mode {default}")
@@ -344,17 +331,7 @@ def refusals(root: str) -> tuple[dict[str, tuple[str, str]], list[str], list[str
     for mode in found:
         if mode != default and mode not in claimed:
             problems.append(f"the mode {mode} of {MODES} is a refusal of no topic of {SOURCE}")
-    return rows, parameters, problems
-
-
-def cell(text: str) -> str:
-    return text.replace("|", "\\|")
-
-
-def table(rows: list[tuple[str, str, str]]) -> str:
-    lines = list(REFUSED_HEADER)
-    lines.extend(f"| `{name}` | {cell(what)} | {cell(says)} |" for name, what, says in rows)
-    return "\n".join(lines) + "\n"
+    return problems
 
 
 def declares(found: dict[str, Declared]) -> str:
@@ -366,26 +343,16 @@ def declares(found: dict[str, Declared]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def client(root: str, default: str, parameters: list[str]) -> str:
-    description = modes(root)[1][default]
-    text = f"`{CLIENT}` is a client of both headers: `{CLIENT}/src/compile_checks.cxx` holds the `static_assert`s that pin the types, `{TESTS}{parfile(default)}` runs its default mode, {default} (\"{description}\"), and every other mode is a row of the topic that refuses it."
-    if parameters:
-        text += f" {series([f'`{name}`' for name in parameters])} under `{ERRORS}` {'refuses' if len(parameters) == 1 else 'refuse'} a parameter, not a call, and {'runs' if len(parameters) == 1 else 'run'} the default mode."
-    return text
-
-
 def render(root: str = PROJECT) -> str:
     found = declared(root)
-    rows, parameters, problems = refusals(root)
-    problems = coverage(found) + paths(root) + boundary(root) + problems
+    problems = coverage(found) + paths(root) + boundary(root) + refusals(root)
     if problems:
         raise ValueError("\n".join(problems))
-    default = modes(root)[0]
-    parts = [TITLE, "", PREAMBLE, "", *INTRO, "", client(root, default, parameters), "", declares(found)]
+    parts = [TITLE, "", PREAMBLE, "", *INTRO, "", declares(found)]
     for title, topic_modes, texts in TOPICS:
         parts.extend([f"## {title}", "", *(text + "\n" for text in texts)])
         if topic_modes:
-            parts.extend([REFUSED_INTRO, "", table([(parfile(mode), *rows[mode]) for mode in topic_modes])])
+            parts.append(REFUSED + series([f"`{parfile(mode)}`" for mode in topic_modes]) + ".\n")
     return "\n".join(parts)
 
 
