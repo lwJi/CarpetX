@@ -16,6 +16,7 @@ ERRORS = f"{THORN}/test/errors"
 PARAM = f"{THORN}/param.ccl"
 DRIVER_PARAM = "CarpetX/param.ccl"
 MARKER_HEADER = "CarpetX/src/internal.hxx"
+DRIVER_SOURCES = "CarpetX/src"
 MODE_ROW = re.compile(r'^\s*"([\w-]+)"\s*::\s*"([^"]*)"\s*$', re.M)
 MODE_DEFAULT = re.compile(r'^\}\s*"([\w-]+)"\s*$', re.M)
 PARFILE_MODE = re.compile(rf'^\s*{THORN}::mode\s*=\s*"([\w-]+)"', re.M)
@@ -34,9 +35,15 @@ FOREIGN = ("CCTK_", "cctk", "std", "amrex", "Loop", "Array4")
 
 
 @dataclass(frozen=True)
+class Row:
+    text: str
+    held_by: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Section:
     title: str
-    text: tuple[str, ...]
+    rows: tuple[Row, ...]
     exercised_by: tuple[str, ...] = ()
     refusals: tuple[str, ...] = ()
 
@@ -44,7 +51,7 @@ class Section:
 TITLE = "# CarpetX's public API"
 PREAMBLE = (
     f"`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/guide.py`, which holds every row to the public headers, to `{SOURCES}/` and to `{ERRORS}/`; the edit hook refuses an edit here. "
-    "A row says only what a header cannot: a signature is read in the header, and a refusal in its parfile."
+    f"A row says only what a header cannot: a signature is read in the header, and a refusal in its parfile. Each paragraph ends with the functions of `{DRIVER_SOURCES}/` that hold it, and the generator fails when one is no longer defined in the file named."
 )
 BOUNDARY: tuple[str, ...] = (
     "A thorn reaches CarpetX through the two headers `CarpetX/interface.ccl` exports from `CarpetX/src/include/`: `carpetx.hxx` for a general thorn, and `carpetx_rk.hxx` for the time integrator. "
@@ -59,10 +66,13 @@ SECTIONS: tuple[Section, ...] = (
     Section(
         "Indices and handles",
         (
-            "`vi_t` is a variable's place in its group and `var_t` the flesh's variable index. "
-            "A handle is made of indices and resolved on every call, so a stale one is reported, never dereferenced. "
-            "`window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. "
-            "A window checks its bounds when it is built, so the error names the line that built it.",
+            Row(
+                "`vi_t` is a variable's place in its group and `var_t` the flesh's variable index. "
+                "A handle is made of indices and resolved on every call, so a stale one is reported, never dereferenced. "
+                "`window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. "
+                "A window checks its bounds when it is built, so the error names the line that built it.",
+                ("api/api.cxx:variable", "api/api.cxx:levels", "api/api.cxx:narrow", "api/api.cxx:coarsest", "api/api.cxx:finest", "api/api.cxx:require_window_bounds", "hierarchy/driver.hxx:level"),
+            ),
         ),
         exercised_by=("compile_checks.cxx", "TestCarpetXAPI_Fill"),
         refusals=("level_missing", "timelevel_missing", "parent_of_level_0", "window_empty", "window_out_of_bounds", "window_outside_traversal", "hierarchy_absent"),
@@ -70,10 +80,16 @@ SECTIONS: tuple[Section, ...] = (
     Section(
         "Data, validity and the write scope",
         (
-            "A write scope sets the validity of the group at `tl` to exactly `leaves_valid` when it opens and poisons the regions it does not promise, so the scope must not read them; when it closes, the promised regions are scanned for poison and NaN. "
-            "While it is open, a communication operation, `invalidate` or a scheduled function touching the group is refused. "
-            "`require_valid` also runs that scan over `where`. A validity bit is set only by a write scope or a communication operation.",
-            "`scratch(group)` is shaped like `data(group, tl_t{0})` and comes from a per-group pool its destructor returns it to; the pool dies with its level on a regrid, after which a `scratch_t` is an error, not a dangling pointer. It has no validity bits.",
+            Row(
+                "A write scope sets the validity of the group at `tl` to exactly `leaves_valid` when it opens and poisons the regions it does not promise, so the scope must not read them; when it closes, the promised regions are scanned for poison and NaN. "
+                "While it is open, a communication operation, `invalidate` or a scheduled function touching the group is refused. "
+                "`require_valid` also runs that scan over `where`. A validity bit is set only by a write scope or a communication operation.",
+                ("api/api.cxx:write", "api/api.cxx:require_valid", "api/api.cxx:invalidate", "api/api.cxx:require_no_open_write", "hierarchy/valid.cxx:write_scope_t", "schedule/callfunction.cxx:CallFunction"),
+            ),
+            Row(
+                "`scratch(group)` is shaped like `data(group, tl_t{0})` and comes from a per-group pool its destructor returns it to; the pool dies with its level on a regrid, after which a `scratch_t` is an error, not a dangling pointer. It has no validity bits.",
+                ("api/api.cxx:scratch", "api/api.cxx:resolve_scratch", "api/api.cxx:scratch_t"),
+            ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
         refusals=("write_twice", "write_unfilled", "require_invalid", "invalidate_during_write", "schedule_during_write"),
@@ -81,9 +97,12 @@ SECTIONS: tuple[Section, ...] = (
     Section(
         "Communication",
         (
-            "An operation without a `tl` acts on every time level but the oldest. "
-            "`sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the ghost and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and `prolongate_ghosts` its coarse-to-fine interpolation alone; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. "
-            "`restrict_no_poison` leaves the coarse ghost and outer regions as they were, where the scheduled restriction invalidates and poisons them. `synchronize` waits for the device.",
+            Row(
+                "An operation without a `tl` acts on every time level but the oldest. "
+                "`sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the ghost and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and `prolongate_ghosts` its coarse-to-fine interpolation alone; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. "
+                "`restrict_no_poison` leaves the coarse ghost and outer regions as they were, where the scheduled restriction invalidates and poisons them. `synchronize` waits for the device.",
+                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
+            ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
         refusals=("sync_during_write", "prolongate_unwritten_parent", "sync_invalid_coarse"),
@@ -91,8 +110,11 @@ SECTIONS: tuple[Section, ...] = (
     Section(
         "The hierarchy and the parameters",
         (
-            "The BoxArray and DistributionMapping of a level are those of any group's MultiFab on it, and the refinement ratio is 2. "
-            "Driver parameters are read through the flesh, `SHARES: Driver` or `CCTK_ParameterGet`, and CarpetX checks its own.",
+            Row(
+                "The BoxArray and DistributionMapping of a level are those of any group's MultiFab on it, and the refinement ratio is 2. "
+                "Driver parameters are read through the flesh, `SHARES: Driver` or `CCTK_ParameterGet`, and CarpetX checks its own.",
+                ("hierarchy/hierarchy.cxx:PatchData", "hierarchy/hierarchy.cxx:GroupData", "hierarchy/grid_sizes.cxx:per_level_max_grid_sizes", "io/selection.cxx:select_groups"),
+            ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
         refusals=("too_many_levels", "output_unknown_variable"),
@@ -100,16 +122,28 @@ SECTIONS: tuple[Section, ...] = (
     Section(
         "The integrator's contract: `carpetx_rk.hxx`",
         (
-            "Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step; CarpetX derives everything else, and runs without a registration until `open_rk_step`. "
-            "Registration is `AT WRAGH`, once; the record freezes when that traversal ends. "
-            "`dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. "
-            "`b` holds the final-update weight of every stage, all zero for a method that never updates the state.",
-            "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH for the traversal; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
-            "`open_rk_step` is called once the state holds u(t_n), outside any OpenMP parallel region, and stores the old state of every registered pair with storage on each level of the window. "
-            "`rhs_computed` stores the stage band and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
-            "`state_updated` says the state holds the next stage value: under subcycling CarpetX copies the same-level ghosts of every refined level in the window, fills its refinement boundary from its own clocks, scans the ghosts, and marks the integrated groups' ghosts valid, and their outer boundary where every face has a symmetry or boundary; without subcycling the last `state_updated` applies the flux registers.",
-            "Two promises no parfile holds. Under subcycling the SYNC of an integrated group on a refined level at iteration > 0 copies only the same-level ghosts and requires the ghost bit set already, by `state_updated` or by the driver's refill after a recovery; on level 0 it fills and marks every ghost itself. "
-            "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`; the integrator schedules nothing for it.",
+            Row(
+                "Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step; CarpetX derives everything else, and runs without a registration until `open_rk_step`. "
+                "Registration is `AT WRAGH`, once; the record freezes when that traversal ends. "
+                "`dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. "
+                "`b` holds the final-update weight of every stage, all zero for a method that never updates the state.",
+                ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "traversal/traversal.cxx:record_integrator", "traversal/traversal.cxx:freeze_integrator"),
+            ),
+            Row(
+                "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH for the traversal; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
+                ("api/api_rk.cxx:run_schedule_group_at",),
+            ),
+            Row(
+                "`open_rk_step` is called once the state holds u(t_n), outside any OpenMP parallel region, and stores the old state of every registered pair with storage on each level of the window. "
+                "`rhs_computed` stores the stage band and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
+                "`state_updated` says the state holds the next stage value: under subcycling CarpetX copies the same-level ghosts of every refined level in the window, fills its refinement boundary from its own clocks, scans the ghosts, and marks the integrated groups' ghosts valid, and their outer boundary where every face has a symmetry or boundary; without subcycling the last `state_updated` applies the flux registers.",
+                ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "api/api_rk.cxx:fill_refinement_boundary", "api/api_rk.cxx:rk_step_t"),
+            ),
+            Row(
+                "Two promises no parfile holds. Under subcycling the SYNC of an integrated group on a refined level at iteration > 0 copies only the same-level ghosts and requires the ghost bit set already, by `state_updated` or by the driver's refill after a recovery; on level 0 it fills and marks every ghost itself. "
+                "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`; the integrator schedules nothing for it.",
+                ("comm/sync_restrict.cxx:SyncGroupsByDirISubcycling", "api/api_rk.cxx:RecoverRKBoundary"),
+            ),
         ),
         exercised_by=("TestCarpetXAPI_Register", "TestCarpetXAPI_Fill"),
         refusals=(
@@ -196,6 +230,26 @@ def hold_exercised(root: str, section: Section, sources: dict[str, str]) -> None
             raise ValueError(f"{anchor} is defined in no file of {SOURCES}/, where a row of {section.title!r} in scripts/lint/boundary/guide.py says it is")
 
 
+def hold_bound(root: str, section: Section, row: Row) -> None:
+    if not row.held_by:
+        raise ValueError(f"a row of {section.title!r} in scripts/lint/boundary/guide.py is held by no function of {DRIVER_SOURCES}/")
+    for anchor in row.held_by:
+        file, _, name = anchor.partition(":")
+        path = os.path.join(root, DRIVER_SOURCES, file)
+        if not name or not os.path.isfile(path):
+            raise ValueError(f"{anchor} in a row of {section.title!r} in scripts/lint/boundary/guide.py is not a file of {DRIVER_SOURCES}/ and a function")
+        if not defined(read(path), name):
+            raise ValueError(f"{name} is not defined in {DRIVER_SOURCES}/{file}, where a row of {section.title!r} in scripts/lint/boundary/guide.py says it is")
+
+
+def held(row: Row) -> str:
+    files: dict[str, list[str]] = {}
+    for anchor in row.held_by:
+        file, _, name = anchor.partition(":")
+        files.setdefault(file, []).append(f"`{name}`")
+    return "Held by " + "; ".join(f"{', '.join(names)} in `{file}`" for file, names in files.items()) + "."
+
+
 def hold_unexercised(root: str, declared: set[str], sources: dict[str, str]) -> None:
     used = set.union(*(words(text) for text in sources.values()))
     unknown = [name for name in UNEXERCISED if name not in declared]
@@ -204,7 +258,7 @@ def hold_unexercised(root: str, declared: set[str], sources: dict[str, str]) -> 
     stale = [name for name in UNEXERCISED if name in used]
     if stale:
         raise ValueError(f"{', '.join(stale)} in UNEXERCISED in scripts/lint/boundary/guide.py but used in {SOURCES}/: remove it from the list")
-    mentioned = set.union(*(names_in(paragraph) for section in SECTIONS for paragraph in section.text))
+    mentioned = set.union(*(names_in(row.text) for section in SECTIONS for row in section.rows))
     missing = sorted(name for name in mentioned & declared if name not in used and name not in UNEXERCISED)
     if missing:
         raise ValueError(f"{', '.join(missing)} named in the rows of scripts/lint/boundary/guide.py but used nowhere in {SOURCES}/: add a test or list it in UNEXERCISED")
@@ -274,8 +328,9 @@ def render(root: str = PROJECT) -> str:
     for paragraph in BOUNDARY:
         hold_names(root, "the preamble", paragraph, public, bare)
     for section in SECTIONS:
-        for paragraph in section.text:
-            hold_names(root, section.title, paragraph, public, bare)
+        for row in section.rows:
+            hold_names(root, section.title, row.text, public, bare)
+            hold_bound(root, section, row)
         hold_exercised(root, section, sources)
     hold_unexercised(root, declared_names(root), sources)
     found = refusals(root)
@@ -286,7 +341,7 @@ def render(root: str = PROJECT) -> str:
     parts.extend([UNEXERCISED_INTRO + ", ".join(f"`{name}`" for name in UNEXERCISED) + ".", ""])
     for section in SECTIONS:
         parts.extend([f"## {section.title}", ""])
-        for paragraph in section.text:
-            parts.extend([paragraph, ""])
+        for row in section.rows:
+            parts.extend([f"{row.text} {held(row)}", ""])
         parts.extend(closing(section))
     return "\n".join(parts)

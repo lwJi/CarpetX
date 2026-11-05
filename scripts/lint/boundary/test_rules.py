@@ -1933,6 +1933,22 @@ class Guide(unittest.TestCase):
         self.assertIn("Refusals: `write_twice`, `write_unfilled`, ", guide.render())
         self.assertIn("Refusals: `too_many_levels`, `output_unknown_variable`.", guide.render())
 
+    def test_a_row_is_held_by_functions_defined_where_it_says(self):
+        for section in guide.SECTIONS:
+            for row in section.rows:
+                guide.hold_bound(PROJECT, section, row)
+        section = guide.SECTIONS[0]
+        with self.assertRaisesRegex(ValueError, "^a row of 'Indices and handles' in scripts/lint/boundary/guide.py is held by no function of CarpetX/src/$"):
+            guide.hold_bound(PROJECT, section, guide.Row("text", ()))
+        with self.assertRaisesRegex(ValueError, "^api/nosuch.cxx:write in a row of 'Indices and handles' in scripts/lint/boundary/guide.py is not a file of CarpetX/src/ and a function$"):
+            guide.hold_bound(PROJECT, section, guide.Row("text", ("api/nosuch.cxx:write",)))
+        with self.assertRaisesRegex(ValueError, "^api/api.cxx in a row of 'Indices and handles' in scripts/lint/boundary/guide.py is not a file of CarpetX/src/ and a function$"):
+            guide.hold_bound(PROJECT, section, guide.Row("text", ("api/api.cxx",)))
+        with self.assertRaisesRegex(ValueError, "^open_rk_step is not defined in CarpetX/src/api/api.cxx, where a row of 'Indices and handles' in scripts/lint/boundary/guide.py says it is$"):
+            guide.hold_bound(PROJECT, section, guide.Row("text", ("api/api.cxx:open_rk_step",)))
+        self.assertEqual(guide.held(guide.Row("text", ("api/api.cxx:write", "api/api.cxx:invalidate", "hierarchy/valid.cxx:write_scope_t"))), "Held by `write`, `invalidate` in `api/api.cxx`; `write_scope_t` in `hierarchy/valid.cxx`.")
+        self.assertIn("built it. Held by `variable`, `levels`, ", guide.render())
+
     def test_an_unexercised_name_is_declared_unused_and_listed_once(self):
         declared = guide.declared_names(PROJECT)
         self.assertTrue({"sync", "window_t", "rk_config_t", "Timer", "rat64", "rk_dense_output_t", "narrow", "loop_parallel", "next", "mfab", "parent", "one_level"} <= declared, declared)
