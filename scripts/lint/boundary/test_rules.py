@@ -1919,13 +1919,14 @@ class Guide(unittest.TestCase):
     def test_every_parfile_is_a_refusal_of_one_section(self):
         found = guide.refusals(PROJECT)
         guide.hold_refusals(found)
-        indices = guide.SECTIONS[1]
+        (at,) = [i for i, section in enumerate(guide.SECTIONS) if section.title == "Indices and handles"]
+        indices = guide.SECTIONS[at]
         self.assertIn("level_missing", indices.refusals)
-        fewer = (guide.SECTIONS[0], dataclasses.replace(indices, refusals=tuple(name for name in indices.refusals if name != "level_missing"))) + guide.SECTIONS[2:]
+        fewer = guide.SECTIONS[:at] + (dataclasses.replace(indices, refusals=tuple(name for name in indices.refusals if name != "level_missing")),) + guide.SECTIONS[at + 1 :]
         with mock.patch.object(guide, "SECTIONS", fewer):
             with self.assertRaisesRegex(ValueError, "^level_missing in TestCarpetXAPI/test/errors/ but a refusal of no section in scripts/lint/boundary/guide.py$"):
                 guide.hold_refusals(found)
-        twice = (guide.SECTIONS[0], dataclasses.replace(indices, refusals=indices.refusals + ("write_twice",))) + guide.SECTIONS[2:]
+        twice = guide.SECTIONS[:at] + (dataclasses.replace(indices, refusals=indices.refusals + ("write_twice",)),) + guide.SECTIONS[at + 1 :]
         with mock.patch.object(guide, "SECTIONS", twice):
             with self.assertRaisesRegex(ValueError, "^write_twice is a refusal of both 'Indices and handles' and 'Data, validity and the write scope' in scripts/lint/boundary/guide.py$"):
                 guide.hold_refusals(found)
@@ -1944,6 +1945,9 @@ class Guide(unittest.TestCase):
         first = guide.UNEXERCISED[0]
         with mock.patch.object(guide, "UNEXERCISED", guide.UNEXERCISED[1:]):
             with self.assertRaisesRegex(ValueError, f"^{first} named in the rows of scripts/lint/boundary/guide.py but used nowhere in TestCarpetXAPI/src/: add a test or list it in UNEXERCISED$"):
+                guide.hold_unexercised(PROJECT, declared, sources)
+        with mock.patch.object(guide, "UNEXERCISED", guide.UNEXERCISED + ("symmetries",)):
+            with self.assertRaisesRegex(ValueError, "^symmetries in UNEXERCISED in scripts/lint/boundary/guide.py but named in none of its rows: remove it from the list$"):
                 guide.hold_unexercised(PROJECT, declared, sources)
 
 

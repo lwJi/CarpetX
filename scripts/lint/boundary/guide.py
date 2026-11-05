@@ -43,46 +43,29 @@ class Section:
 
 TITLE = "# CarpetX's public API"
 PREAMBLE = (
-    f"`python3 scripts/lint doc --write` writes this file from the rows of `scripts/lint/boundary/guide.py`, which it holds to the public headers, to `{SOURCES}/` and to the parfiles of `{ERRORS}/` "
-    f"and their modes in `{PARAM}`: a name the rows set in code must be in a header, a parfile must be named under one section, and a refusal's text is its expect file; "
-    "`scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it."
+    f"`python3 scripts/lint doc --write` writes this file from the rows of `scripts/lint/boundary/guide.py` and holds them to the public headers, to `{SOURCES}/` and to the parfiles of `{ERRORS}/` and their modes in `{PARAM}`: "
+    "a name a row sets in code must be in a header, a parfile must be named under one section, and a refusal's text is its expect file; "
+    "`scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. "
+    "A row says only what a header cannot: a signature is read in the header, and a refusal in its parfile."
 )
 BOUNDARY: tuple[str, ...] = (
-    "A thorn reaches CarpetX through two headers that `CarpetX/interface.ccl` exports from `CarpetX/src/include/`: `carpetx.hxx` for everything a general thorn needs, and `carpetx_rk.hxx` for the time integrator's contract. "
-    "Every other header under `CarpetX/src/` is private: it includes `internal.hxx`, which stops with `#error` unless `CARPETX_INTERNAL` is defined, and only CarpetX's own `src/make.code.defn` defines it. "
-    "The public headers include nothing under `CarpetX/src/`, so a client cannot reach the driver's internals transitively either.",
-    "`python3 scripts/lint check --only boundary` holds this with two of its rules: `include` reports an `#include` outside `CarpetX/src/` whose path reaches into it, and `marker` reports a `CARPETX_INTERNAL` outside CarpetX's `src/make.code.defn` and the private headers' guard. "
-    "Its other rules hold the layers inside CarpetX; `agent_docs/carpetx-internals.md`, the map of `CarpetX/src/`, says where each is at home, `python3 scripts/lint check --help` prints what every rule holds, and `python3 scripts/lint --help` says how the hooks and the Lint workflow run the check. "
+    "A thorn reaches CarpetX through the two headers `CarpetX/interface.ccl` exports from `CarpetX/src/include/`: `carpetx.hxx` for a general thorn, and `carpetx_rk.hxx` for the time integrator. "
+    "Every other header under `CarpetX/src/` includes `internal.hxx`, which refuses a compilation that is not CarpetX's own, and the public headers include nothing under `CarpetX/src/`.",
+    "`python3 scripts/lint check --only boundary` holds this; `python3 scripts/lint check --help` prints what each of its rules holds, `python3 scripts/lint --help` says how the hooks and the Lint workflow run it, and `agent_docs/carpetx-internals.md` maps the layers inside `CarpetX/src/`. "
     "The data model behind the headers has no public form: the public counterpart of a private name is the operation CarpetX performs with it.",
-    f"`{THORN}` is a client of both headers. `{SOURCES}/compile_checks.cxx` holds the static assertions that pin the types, `{SOURCES}/api_test.cxx` exercises the calls, and `{ERRORS}/` holds a parfile for every refusal named below, each listed under its section with what the run does and the text it aborts with.",
+    f"`{THORN}` is a client of both headers: its `interface.ccl` and `configuration.ccl` are what a client declares, `{SOURCES}/compile_checks.cxx` holds the static assertions that pin the types, `{SOURCES}/api_test.cxx` exercises the calls, and `{ERRORS}/` holds a parfile for every refusal named below, each listed under its section with what the run does and the text it aborts with. "
+    "Every call is available between the driver's SetupGH and its Shutdown, and a bad argument is a `CCTK_VERROR`, never garbage.",
 )
 UNEXERCISED_INTRO = f"What this file says of a name {THORN} never uses is held by nothing but the headers. Those names are: "
-UNEXERCISED = ("Interval", "Timer", "delta_iteration", "iteration", "loop_coarse_to_fine", "loop_parallel", "num_patches", "rat64", "restrict_no_poison", "scratch", "symmetries")
+UNEXERCISED = ("restrict_no_poison", "scratch")
 SECTIONS: tuple[Section, ...] = (
-    Section(
-        "Using the headers",
-        (
-            "In `interface.ccl`, `USES INCLUDE HEADER: carpetx.hxx` (and `carpetx_rk.hxx` for an integrator); in `configuration.ccl`, `REQUIRES CarpetX`, which also provides the AMReX, Loop and Arith headers that `carpetx.hxx` includes; in C++, `#include <carpetx.hxx>` and qualify every name with `CarpetX::`. "
-            "The headers add no using-directive at any scope. `Loop::GridDescBase` is a Loop type and comes from `<loop.hxx>`, not from CarpetX.",
-            "The header is the list of calls; this file states only what a signature cannot. Every call is available between the driver's SetupGH and its Shutdown, and a bad argument is a `CCTK_VERROR`, never garbage.",
-        ),
-    ),
     Section(
         "Indices and handles",
         (
-            "An index is a type: `patch_t` names a patch, `gi_t` a Cactus group, `tl_t` a time level, `vi_t` a variable by its place in its group, and `var_t` a variable as the flesh numbers it. "
-            "Each is built explicitly from the flesh's `int`, `patch_t{cctk_patch}`, `gi_t{CCTK_GroupIndex(\"…\")}`, `tl_t{0}` or `var_t{CCTK_VarIndex(\"…\")}`, and read back only through `index()`, where a value leaves for the flesh (`CCTK_FullGroupName(gi.index())`). "
-            "An index does not convert to an `int` or from one implicitly, nor to another kind of index, and it has no arithmetic; two of a kind compare equal and order. "
-            "The one named step is `tl_t::next()`, the following time level, which is refused where it is used if the group has no such level. "
-            "`variable(var)` splits a flesh variable index into `variable_t{gi, vi}`, its group and its place there; `valid` and `reduce` take that `vi_t`.",
+            "`vi_t` is a variable's place in its group and `var_t` the flesh's variable index. "
             "A handle is made of indices and resolved on every call, so a stale one names a level that no longer exists and the call reports it instead of touching freed memory. "
-            "`level_t{patch_t{cctk_patch}, cctk_level}` names a refinement level of a patch; it has no public fields, is read back through `patch()` and `index()`, and has no arithmetic: `level.parent()` is the next coarser level and an error on level 0, and `level.child()` is the next finer one, empty on the finest level of its patch. "
-            "`group_t{level, gi}` names a grid-function group on a level (`gi` is a `gi_t`). "
-            "`window_t` is a half-open range of levels on a half-open range of patches, both for traversal (`loop_serially`, `loop_coarse_to_fine`, and `loop_parallel`, whose kernel receives the component's cGH) and as the \"which levels\" argument of every operation. "
-            "It has no public fields and is built only by `active_window()`, the window of the current traversal and an error outside one, `all_levels()`, the whole hierarchy, `window_t::one_level(level)`, `window_t::levels(min_level, max_level)` over every patch, and `window.narrow(min_level, max_level)` over the same patches as `window`. "
-            "Each checks the bounds against the hierarchy when it is called, so a bad window is an error that names the line that built it, not the operation that later uses it. "
-            "The two ints of `levels` and `narrow` are the bounds of a range, not levels, and `window.level_bounds()` and `window.patch_bounds()` read them back as `{min, max}` pairs of ints. "
-            "`window.coarsest()` and `window.finest()` are its lowest and highest level on its first patch, and an error on an empty window. `num_levels(patch)` takes a `patch_t` and is per patch.",
+            "`window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. "
+            "A window checks its bounds against the hierarchy when it is built, so a bad window is an error naming the line that built it, not the operation that later uses it.",
         ),
         exercised_by=("compile_checks.cxx", "TestCarpetXAPI_Fill"),
         refusals=("level_missing", "timelevel_missing", "parent_of_level_0", "window_empty", "window_out_of_bounds", "window_outside_traversal", "hierarchy_absent"),
@@ -90,16 +73,11 @@ SECTIONS: tuple[Section, ...] = (
     Section(
         "Data, validity and the write scope",
         (
-            "`data(group, tl)` is the `const amrex::MultiFab &` of a time level; AMReX's const overloads give `Array4<const T>`. "
-            "Writing goes through a scope: `auto w = write(group, tl, leaves_valid, \"what\"); w.mfab()`. "
-            "When it opens, every variable of the group at `tl` gets exactly `leaves_valid` as its validity, and the regions it does not promise are poisoned, so the scope must not read them. "
-            "When it is destroyed, the promised regions are scanned for poison and NaN. "
-            "While it is open, a second `write` on the same group and time level, any communication operation or `invalidate` on the group, and scheduling a function that reads, writes or syncs the group are all errors.",
-            "`valid(group, tl, vi)` reads the bits. `require_valid(group, tl, where, \"why\")` raises an error with CarpetX's explanation if any variable of the group lacks a bit of `where`, and runs the poison and NaN scan. "
-            "`invalidate(window, groups, tl, \"why\")` clears every bit of every variable at `tl`. "
-            "No thorn outside CarpetX sets a validity bit: the write scope and the communication operations are the only way a bit is set.",
-            "`scratch(group)` is a move-only buffer with the boxes, distribution, components and ghosts of `data(group, tl_t{0})`, drawn from a per-group pool that CarpetX keeps between calls. "
-            "There is no init or free call; the destructor returns the buffer. The pool dies with the level on a regrid, and using a `scratch_t` after that is an error, not a dangling pointer. It has no validity bits.",
+            "A write scope sets the validity of every variable of the group at `tl` to exactly `leaves_valid` when it opens and poisons the regions it does not promise, so the scope must not read them; when it closes, the promised regions are scanned for poison and NaN. "
+            "While it is open, another write scope on the same group and time level, a communication operation or `invalidate` on the group, and scheduling a function that reads, writes or syncs the group are refused. "
+            "`require_valid` also runs the poison and NaN scan over `where`. A validity bit is set only by a write scope or a communication operation.",
+            "`scratch(group)` is a buffer with the boxes, distribution, components and ghosts of `data(group, tl_t{0})`, drawn from a per-group pool that its destructor returns it to. "
+            "The pool dies with its level on a regrid, and a `scratch_t` used after that is an error, not a dangling pointer. It has no validity bits.",
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
         refusals=("write_twice", "write_unfilled", "require_invalid", "invalidate_during_write", "schedule_during_write"),
@@ -107,23 +85,20 @@ SECTIONS: tuple[Section, ...] = (
     Section(
         "Communication",
         (
-            "Each operation takes a window and a list of grid-function groups as a `std::span<const gi_t>`, so a `std::vector<gi_t>` or a `std::array<gi_t, N>` converts in place (a braced list does not; write `std::array{gi}` for one group), and is an error while a write scope is open on any of them.",
-            "- `sync(window, groups)` is a scheduled SYNC: every time level but the oldest, the subcycling variant when `use_subcycling`, and it sets the ghost and outer bits it fills.",
-            "- `sync_ghosts_only(window, groups)`: the same-level copy only, on every time level but the oldest; `sync_ghosts_only(window, groups, tl)` does that one time level.",
-            "- `prolongate_ghosts(window, groups)`: coarse-to-fine interpolation only, on every time level but the oldest; marks the ghost and outer bits of the levels it filled. `prolongate_ghosts(window, groups, tl)` does that one time level.",
-            "- `prolongate_aligned(window, groups)` and `prolongate_aligned(window, groups, tl)`: as `prolongate_ghosts`, but under subcycling only into levels time-aligned with their parent.",
-            "- `restrict_no_poison(window, groups)`: fine-to-coarse over every level pair in the window.",
-            "- `synchronize()` waits for the device.",
+            "An operation without a `tl` acts on every time level but the oldest; with one, on that time level alone. "
+            "`sync` is the scheduled SYNC, the subcycling variant under `use_subcycling`, and sets the ghost and outer bits it fills; `sync_ghosts_only` is its same-level copy alone, and `prolongate_ghosts` its coarse-to-fine interpolation alone, marking the ghost and outer bits of the levels it filled. "
+            "`prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only the levels time-aligned with their parent. "
+            "`restrict_no_poison` restricts fine to coarse and leaves the coarse level's ghost and outer regions as they were, where the scheduled restriction invalidates and poisons them. "
+            "`synchronize` waits for the device.",
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
         refusals=("sync_during_write", "prolongate_unwritten_parent", "sync_invalid_coarse"),
     ),
     Section(
-        "Queries, reductions and parameters",
+        "The hierarchy and the parameters",
         (
-            "`reduce(gi, vi, tl)` and `reduction<T, D>`, `Timer` and `Interval`, `rat64` (the type of `iteration(level)` and `delta_iteration(level)`), `geometry(level)`, `symmetries(level)`, `numvars`, `indextype` and `nghostzones` are what their names say. "
             "The BoxArray and DistributionMapping of a level are those of any group's MultiFab on it, and the refinement ratio is 2 between every pair of levels. "
-            "Driver parameters are read through the flesh (`SHARES: Driver` in `param.ccl`, or `CCTK_ParameterGet`), not through the headers, and CarpetX checks its own.",
+            "Driver parameters are read through the flesh, `SHARES: Driver` or `CCTK_ParameterGet`, not through the headers, and CarpetX checks its own.",
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
         refusals=("too_many_levels", "output_unknown_variable"),
@@ -131,19 +106,15 @@ SECTIONS: tuple[Section, ...] = (
     Section(
         "The integrator's contract: `carpetx_rk.hxx`",
         (
-            "Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step; CarpetX derives everything else.",
-            "Registration is once, `AT WRAGH`: `register_integrator(rk_config_t{dense_output, b, integrated})`. "
-            "The driver freezes the record when its WRAGH traversal ends, so a registration before SetupGH or after WRAGH is refused, and so is an RK operation before the freeze. "
-            "`dense_output` names the method whose dense output fills the refinement boundary under subcycling (`ssprk3`, `rk4` or `none`); it is named, not inferred from the stage count, so a 3-stage method other than SSPRK3 registers `none` and cannot run under subcycling. "
-            "`b` holds the final-update weight of every stage, so `b.size()` is the stage count; an implicit method registers an empty `b` and never feeds a flux register, and all-zero weights are allowed for a method that never updates the state. "
-            "`integrated` holds `rk_pair_t{state, rhs}` pairs of `gi_t`. CarpetX checks the record against its own parameters and refuses a bad one. A driver without a registration still runs; only `open_rk_step` needs one.",
-            "`run_schedule_group_at(cctkGH, \"G\", t, delta_time)` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH, traverses the group, and restores both. "
-            "`delta_time` is the raw `cctk_delta_time` the group sees, so pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
-            "The step is `auto step = open_rk_step(window)`, opened once the state holds u(t_n) and outside any OpenMP parallel region. It stores the old state of every registered pair with storage on each level of the window and requires their interior valid. "
-            "Then `rhs_computed()` and `state_updated()` alternate, `b.size()` times each, and the destructor checks that every stage ran. "
+            "Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step; CarpetX derives everything else. A driver without a registration still runs; only `open_rk_step` needs one.",
+            "Registration is `AT WRAGH`, once; the driver freezes the record when its WRAGH traversal ends. "
+            "`dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and a method without one registers `none` and cannot run under subcycling. "
+            "`b` holds the final-update weight of every stage; all-zero weights are allowed for a method that never updates the state.",
+            "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH, traverses the group, and restores both; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
+            "`open_rk_step` is called once the state holds u(t_n) and outside any OpenMP parallel region; it stores the old state of every registered pair with storage on each level of the window and requires their interior valid. "
+            "`rhs_computed` and `state_updated` then alternate, `b.size()` times each. "
             "`rhs_computed` requires the interior of every registered right-hand side valid on every level of the window, stores the stage band, and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
-            "`state_updated` says the state now holds the next stage value: under subcycling CarpetX copies the same-level ghosts of every refined level in the window, fills its refinement boundary from its own clocks, scans the ghosts, and marks the integrated groups' ghosts valid, and their outer boundary where every face has a symmetry or boundary; without subcycling the last `state_updated` applies the flux registers. "
-            "A call out of order, a call after the last stage, and a step destroyed early are errors naming the window and the stage; no stage index is passed, so stages cannot run out of order.",
+            "`state_updated` says the state now holds the next stage value: under subcycling CarpetX copies the same-level ghosts of every refined level in the window, fills its refinement boundary from its own clocks, scans the ghosts, and marks the integrated groups' ghosts valid, and their outer boundary where every face has a symmetry or boundary; without subcycling the last `state_updated` applies the flux registers.",
             "Two promises CarpetX makes the integrator in return, which no parfile below holds. Under subcycling the SYNC of an integrated group on a refined level at iteration > 0 copies only the same-level ghosts and requires the ghost bit set already, by `state_updated` or by the driver's refill after a recovery; finding it unset is an error, and on level 0 the SYNC fills and marks every ghost itself. "
             "After a recovery the driver refills the integrated groups' refinement boundary itself before it traverses `CCTK_POST_RECOVER_VARIABLES`; the integrator schedules nothing for it.",
         ),
@@ -169,7 +140,6 @@ SECTIONS: tuple[Section, ...] = (
         ),
     ),
 )
-
 
 def words(text: str) -> set[str]:
     return set(WORD.findall(text))
@@ -245,6 +215,9 @@ def hold_unexercised(root: str, declared: set[str], sources: dict[str, str]) -> 
     missing = sorted(name for name in mentioned & declared if name not in used and name not in UNEXERCISED)
     if missing:
         raise ValueError(f"{', '.join(missing)} named in the rows of scripts/lint/boundary/guide.py but used nowhere in {SOURCES}/: add a test or list it in UNEXERCISED")
+    silent = [name for name in UNEXERCISED if name not in mentioned]
+    if silent:
+        raise ValueError(f"{', '.join(silent)} in UNEXERCISED in scripts/lint/boundary/guide.py but named in none of its rows: remove it from the list")
     if list(UNEXERCISED) != sorted(UNEXERCISED):
         raise ValueError("UNEXERCISED in scripts/lint/boundary/guide.py is not sorted")
 
