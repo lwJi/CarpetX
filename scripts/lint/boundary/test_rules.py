@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 import os
@@ -13,7 +14,7 @@ import hooks
 from files import PROJECT, Lang
 from run import check_since
 
-from . import check, doc, rules, symbols
+from . import check, doc, guide, rules, symbols
 from .rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, RULE, Finding, below, findings, layer_of, layer_path, new_findings, render, summary
 
 ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
@@ -1866,6 +1867,104 @@ class Hooks(unittest.TestCase):
         hooks.hook_stop("[]", out, root=self.root)
         skip_message(self, out.getvalue())
         skip_message(self, self.run_stop({"stop_hook_active": False}))
+
+
+class Guide(unittest.TestCase):
+    def test_the_guide_is_what_doc_writes(self):
+        with open(os.path.join(PROJECT, guide.GUIDE)) as f:
+            text = f.read()
+        self.assertEqual(guide.render(), text, "run python3 scripts/lint doc --write")
+
+    def test_a_span_names_what_is_called_qualified_or_a_type_and_nothing_foreign(self):
+        text = '`window.narrow(min_level, max_level)`, `rk_config_t{b}`, `tl_t::next()`, `CCTK_GroupIndex("x")`, `std::array{gi}`, `Loop::GridDescBase`, `Timer`, `cctkGH->cctk_delta_time`, `Array4<const T>`, `{min, max}` and `USES INCLUDE HEADER: carpetx.hxx`'
+        self.assertEqual(guide.names_in(text), {"narrow", "rk_config_t", "tl_t", "next", "Timer"})
+
+    def test_every_name_the_rows_set_in_code_is_public_a_rule_a_parameter_or_the_marker(self):
+        public, bare = guide.public_names(PROJECT), guide.bare_names(PROJECT)
+        guide.hold_names(PROJECT, "a row", "`window.coarsest()` under `use_subcycling`, which `marker` and `CARPETX_INTERNAL` and `TestCarpetXAPI` allow", public, bare)
+        with self.assertRaisesRegex(ValueError, "^coarsest_level, nosuch_t named in the rows of 'a row' in scripts/lint/boundary/guide.py but in no public header$"):
+            guide.hold_names(PROJECT, "a row", "`window.coarsest_level()` and `nosuch_t`", public, bare)
+
+    def test_a_parfile_is_a_mode_with_an_expect_file_and_every_mode_but_the_default_has_one(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, guide.ERRORS))
+            with open(os.path.join(root, guide.PARAM), "w") as f:
+                f.write('KEYWORD mode "what"\n{\n  "fill" :: "fill state"\n  "twice" :: "write twice; CarpetX aborts the run"\n} "fill"\n')
+
+            def parfile(name, body, expect="boom"):
+                with open(os.path.join(root, guide.ERRORS, name + ".par"), "w") as f:
+                    f.write(body)
+                if expect is not None:
+                    with open(os.path.join(root, guide.ERRORS, name + ".expect"), "w") as f:
+                        f.write(expect + "\n")
+
+            parfile("twice", 'TestCarpetXAPI::mode = "twice"\n', "has 1 open write scope")
+            parfile("bad_param", "CarpetX::max_num_levels = 21\n", "max_num_levels is 21")
+            self.assertEqual(guide.refusals(root), {"twice": ("write twice; CarpetX aborts the run", "has 1 open write scope"), "bad_param": ("", "max_num_levels is 21")})
+            parfile("lonely", 'TestCarpetXAPI::mode = "twice"\n', expect=None)
+            with self.assertRaisesRegex(ValueError, "lonely.par has no lonely.expect beside it$"):
+                guide.refusals(root)
+            parfile("lonely", 'TestCarpetXAPI::mode = "twice"\n')
+            with self.assertRaisesRegex(ValueError, "twice.par and lonely.par both set TestCarpetXAPI::mode = 'twice'$"):
+                guide.refusals(root)
+            parfile("lonely", 'TestCarpetXAPI::mode = "nosuch"\n')
+            with self.assertRaisesRegex(ValueError, "lonely.par sets TestCarpetXAPI::mode = 'nosuch', which TestCarpetXAPI/param.ccl does not offer$"):
+                guide.refusals(root)
+            for suffix in (".par", ".expect"):
+                os.remove(os.path.join(root, guide.ERRORS, "lonely" + suffix))
+                os.remove(os.path.join(root, guide.ERRORS, "twice" + suffix))
+            with self.assertRaisesRegex(ValueError, "^TestCarpetXAPI/param.ccl offers TestCarpetXAPI::mode twice, which no parfile of TestCarpetXAPI/test/errors/ sets$"):
+                guide.refusals(root)
+
+    def test_every_parfile_is_a_refusal_of_one_section(self):
+        found = guide.refusals(PROJECT)
+        guide.hold_refusals(found)
+        (at,) = [i for i, section in enumerate(guide.SECTIONS) if section.title == "Indices and handles"]
+        indices = guide.SECTIONS[at]
+        self.assertIn("level_missing", indices.refusals)
+        fewer = guide.SECTIONS[:at] + (dataclasses.replace(indices, refusals=tuple(name for name in indices.refusals if name != "level_missing")),) + guide.SECTIONS[at + 1 :]
+        with mock.patch.object(guide, "SECTIONS", fewer):
+            with self.assertRaisesRegex(ValueError, "^level_missing in TestCarpetXAPI/test/errors/ but a refusal of no section in scripts/lint/boundary/guide.py$"):
+                guide.hold_refusals(found)
+        twice = guide.SECTIONS[:at] + (dataclasses.replace(indices, refusals=indices.refusals + ("write_twice",)),) + guide.SECTIONS[at + 1 :]
+        with mock.patch.object(guide, "SECTIONS", twice):
+            with self.assertRaisesRegex(ValueError, "^write_twice is a refusal of both 'Indices and handles' and 'Data, validity and the write scope' in scripts/lint/boundary/guide.py$"):
+                guide.hold_refusals(found)
+        self.assertIn("Refusals: `write_twice`, `write_unfilled`, ", guide.render())
+        self.assertIn("Refusals: `too_many_levels`, `output_unknown_variable`.", guide.render())
+
+    def test_a_row_is_held_by_functions_defined_where_it_says(self):
+        for section in guide.SECTIONS:
+            for row in section.rows:
+                guide.hold_bound(PROJECT, section, row)
+        section = guide.SECTIONS[0]
+        with self.assertRaisesRegex(ValueError, "^a row of 'Indices and handles' in scripts/lint/boundary/guide.py is held by no function of CarpetX/src/$"):
+            guide.hold_bound(PROJECT, section, guide.Row("text", ()))
+        with self.assertRaisesRegex(ValueError, "^api/nosuch.cxx:write in a row of 'Indices and handles' in scripts/lint/boundary/guide.py is not a file of CarpetX/src/ and a function$"):
+            guide.hold_bound(PROJECT, section, guide.Row("text", ("api/nosuch.cxx:write",)))
+        with self.assertRaisesRegex(ValueError, "^api/api.cxx in a row of 'Indices and handles' in scripts/lint/boundary/guide.py is not a file of CarpetX/src/ and a function$"):
+            guide.hold_bound(PROJECT, section, guide.Row("text", ("api/api.cxx",)))
+        with self.assertRaisesRegex(ValueError, "^open_rk_step is not defined in CarpetX/src/api/api.cxx, where a row of 'Indices and handles' in scripts/lint/boundary/guide.py says it is$"):
+            guide.hold_bound(PROJECT, section, guide.Row("text", ("api/api.cxx:open_rk_step",)))
+        self.assertEqual(guide.held(guide.Row("text", ("api/api.cxx:write", "api/api.cxx:invalidate", "hierarchy/valid.cxx:write_scope_t"))), "Held by `write`, `invalidate` in `api/api.cxx`; `write_scope_t` in `hierarchy/valid.cxx`.")
+        self.assertIn("built it. Held by `variable`, `levels`, ", guide.render())
+
+    def test_an_unexercised_name_is_declared_unused_and_listed_once(self):
+        declared = guide.declared_names(PROJECT)
+        self.assertTrue({"sync", "window_t", "rk_config_t", "Timer", "rat64", "rk_dense_output_t", "narrow", "loop_parallel", "next", "mfab", "parent", "one_level"} <= declared, declared)
+        self.assertFalse({"ssprk3", "leaves_valid", "delta_time", "namespace", "if", "switch", "for", "return"} & declared, declared)
+        sources = guide.test_sources(PROJECT)
+        guide.hold_unexercised(PROJECT, declared, sources)
+        with mock.patch.object(guide, "UNEXERCISED", guide.UNEXERCISED + ("sync",)):
+            with self.assertRaisesRegex(ValueError, "^sync in UNEXERCISED in scripts/lint/boundary/guide.py but used in TestCarpetXAPI/src/: remove it from the list$"):
+                guide.hold_unexercised(PROJECT, declared, sources)
+        first = guide.UNEXERCISED[0]
+        with mock.patch.object(guide, "UNEXERCISED", guide.UNEXERCISED[1:]):
+            with self.assertRaisesRegex(ValueError, f"^{first} named in the rows of scripts/lint/boundary/guide.py but used nowhere in TestCarpetXAPI/src/: add a test or list it in UNEXERCISED$"):
+                guide.hold_unexercised(PROJECT, declared, sources)
+        with mock.patch.object(guide, "UNEXERCISED", guide.UNEXERCISED + ("symmetries",)):
+            with self.assertRaisesRegex(ValueError, "^symmetries in UNEXERCISED in scripts/lint/boundary/guide.py but named in none of its rows: remove it from the list$"):
+                guide.hold_unexercised(PROJECT, declared, sources)
 
 
 class Doc(unittest.TestCase):
