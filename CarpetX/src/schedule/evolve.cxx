@@ -306,16 +306,14 @@ int Initialise(tFleshConfig *config) {
 #pragma omp critical
   CCTK_VINFO("Initialized %d levels", ext.num_levels());
 
+  assert(FinestClockGroup() == all_levels());
+  FinalizeWindow(cctkGH, false);
+  TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
   {
-    const window_t window = FinestClockGroup();
-    assert(window == all_levels());
-    const traversal_scope_t scope(window);
-    FinalizeWindow(window, cctkGH, false);
-
-    TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
+    const traversal_scope_t scope(FinestClockGroup());
     CCTK_Traverse(cctkGH, "CCTK_CPINITIAL");
-    TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
   }
+  TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
   if (out_initial_data) {
     CCTK_OutputGH(cctkGH);
   }
@@ -482,20 +480,11 @@ int Evolve(tFleshConfig *config) {
       hierarchy_writer::stamp_last_step(widened, cctkGH->cctk_iteration);
     }
 
-    {
-      const window_t window = FinestClockGroup();
-      const traversal_scope_t scope(window);
-      FinalizeWindow(window, cctkGH, ext.use_subcycling);
-      TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
-      TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
-
-      hierarchy_writer::stamp_last_finalized(window, cctkGH->cctk_iteration);
-    }
-
-    {
-      const traversal_scope_t scope(FinestClockGroup());
-      TraverseTailBin(cctkGH, "CCTK_CHECKPOINT");
-    }
+    const window_t finalized = FinalizeWindow(cctkGH, ext.use_subcycling);
+    TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
+    TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
+    hierarchy_writer::stamp_last_finalized(finalized, cctkGH->cctk_iteration);
+    TraverseTailBin(cctkGH, "CCTK_CHECKPOINT");
 
     {
       const double output_start_time = gettime();
@@ -594,10 +583,7 @@ int Shutdown(tFleshConfig *config) {
 #pragma omp critical
   CCTK_VINFO("Shutting down...");
 
-  {
-    const traversal_scope_t scope(FinestClockGroup());
-    TraverseTailBin(cctkGH, "CCTK_TERMINATE");
-  }
+  TraverseTailBin(cctkGH, "CCTK_TERMINATE");
   {
     const traversal_scope_t scope(window_t::levels(0, 0));
     CCTK_Traverse(cctkGH, "CCTK_SHUTDOWN");

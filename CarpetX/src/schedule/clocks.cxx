@@ -275,15 +275,16 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
 }
 
 void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
-  const tail_bin_scope_t scope(bin);
+  const traversal_scope_t window_scope(FinestClockGroup());
+  const tail_bin_scope_t bin_scope(bin);
   CCTK_Traverse(cctkGH, bin);
 }
 
-void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
-                    const bool reflux) {
+window_t FinalizeWindow(cGH *restrict const cctkGH, const bool reflux) {
   DECLARE_CCTK_PARAMETERS;
 
-  assert(FinestClockGroup() == window);
+  const window_t window = FinestClockGroup();
+  const traversal_scope_t scope(window);
   const GHExt &ext = driver();
   const auto &finest = ext.level(window.finest());
   SetStepTime(cctkGH, finest.level, finest.iteration);
@@ -310,6 +311,7 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
     ProlongateAfterRestriction(window);
     CCTK_Traverse(cctkGH, "CCTK_POSTRESTRICT");
   }
+  return window;
 }
 
 static void RecomputePerClockGroup(cGH *restrict const cctkGH) {

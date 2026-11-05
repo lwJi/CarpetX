@@ -21,7 +21,7 @@ void SetStepTime(cGH *restrict cctkGH, level_t level, rat64 clock);
 void RecoverFromCheckpoint(cGH *restrict cctkGH);
 
 void TraverseTailBin(cGH *restrict cctkGH, const char *bin);
-void FinalizeWindow(window_t window, cGH *restrict cctkGH, bool reflux);
+window_t FinalizeWindow(cGH *restrict cctkGH, bool reflux);
 
 bool EvolutionIsDone(cGH *restrict cctkGH);
 void CycleTimelevels(window_t window, cGH *restrict cctkGH);
