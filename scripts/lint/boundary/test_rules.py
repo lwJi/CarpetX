@@ -13,7 +13,7 @@ import hooks
 from files import PROJECT, Lang
 from run import check_since
 
-from . import check, doc, rules, symbols
+from . import check, doc, public, rules, symbols
 from .rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, RULE, Finding, below, findings, layer_of, layer_path, new_findings, render, summary
 
 ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
@@ -1873,6 +1873,11 @@ class Doc(unittest.TestCase):
         with open(os.path.join(PROJECT, doc.MAP)) as f:
             text = f.read()
         self.assertEqual(doc.render(), text, "run python3 scripts/lint doc --write")
+
+    def test_the_contract_is_what_doc_writes(self):
+        with open(os.path.join(PROJECT, doc.API)) as f:
+            text = f.read()
+        self.assertEqual(public.render(), text, "run python3 scripts/lint doc --write")
 
     def test_the_stack_is_two_boxes_over_a_floor_with_no_forced_order(self):
         drawn = doc.stack()

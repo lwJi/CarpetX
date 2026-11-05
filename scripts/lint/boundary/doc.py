@@ -9,6 +9,7 @@ from .symbols import ACCEPTED
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
+API = "agent_docs/carpetx-public-api.md"
 SYMBOL_NAMESPACE = "CarpetX::"
 
 
@@ -95,7 +96,7 @@ STACK_LEGEND = (
     "a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes",
     f"an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above {HUB}/, is there for the arrow into {HUB}/",
     "the outer boxes are the door rule: driver() is called in the upper box, never in the lower",
-    f"{PUBLIC}/ is the public headers, {', '.join(os.path.basename(header) for header in PUBLIC_HEADERS)}, not a layer: a thorn reads nothing else of CarpetX, and agent_docs/carpetx-public-api.md describes them",
+    f"{PUBLIC}/ is the public headers, {', '.join(os.path.basename(header) for header in PUBLIC_HEADERS)}, not a layer: a thorn reads nothing else of CarpetX, and {API} describes them",
     "a dashed line is an import the build makes upward, a row of ACCEPTED in scripts/lint/boundary/symbols.py that the symbols check holds to the objects: the lower end declares, the upper end holds the body, the one way a call reaches up, at link time, and a class stands for its members",
     "a node names its layer, and no header where nothing can include it",
 )
@@ -406,7 +407,7 @@ PREAMBLE = (
     "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `ACCEPTED` rows of `scripts/lint/boundary/symbols.py`, "
     f"the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `{STARTUP}`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when "
     "the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX "
-    "only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule "
+    f"only through the headers `{API}` describes. `python3 scripts/lint check --help` prints what every rule "
     "named below holds. The list under each picture is its key."
 )
 SECTIONS: tuple[tuple[str, Callable[[str], str], tuple[str, ...]], ...] = (
