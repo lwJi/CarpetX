@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
-from typing import Callable
+from typing import Callable, Optional
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PROTOTYPE_END, PUBLIC_DIR, RULES, UNDER_HIERARCHY, below, declaration_head, declared_function, file_local, layer_of, layer_path, statements
+from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PROTOTYPE_END, PUBLIC_DIR, RULES, TRAVERSAL_FILES, TRAVERSAL_WORD, UNDER_HIERARCHY, below, declaration_head, declared_function, file_local, layer_of, layer_path, statements
 from .symbols import ACCEPTED
 from files import PROJECT
 
@@ -89,6 +90,66 @@ REGRID = (
     ("3", "amrex", layer_of(CALLBACKS[0]), CALLBACKS[1], CALLBACKS[0]),
 )
 assert {row[0] for row in REGRID} == set(REGRID_STEPS), REGRID
+
+PHASE_FILE, PHASE_HEADER = TRAVERSAL_FILES
+PHASE_LAYER = layer_of(PHASE_FILE)
+assert PHASE_LAYER is not None, PHASE_FILE
+CLASS = re.compile(r"^class (\w+) \{$", re.MULTILINE)
+REFUSAL = re.compile(r"\brefuse\s*\(")
+DEFINITION_OF = r"(?m)^[^;{{}}()\n]*\b(?:[\w:]+::)?(?<!~){name}\s*\([^;{{}}]*\)[^;{{}}]*\{{"
+DESTRUCTOR_OF = r"::{name}\s*\(\s*\)[^;{{}}]*\{{"
+CONSTRUCTED = r"(?<!\w){name}\s+\w+\s*[;({{]"
+ASSIGNED = r"\b{name}\b\s*(?:=(?!=)|\.reset\s*\()"
+
+
+@dataclasses.dataclass(frozen=True)
+class Slot:
+    region: str
+    names: tuple[str, ...]
+    states: tuple[str, ...]
+    arrows: tuple[tuple[str, str, str], ...]
+    reader: str
+
+    def writers(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(function for _, _, function in self.arrows if not function.startswith("~")))
+
+    def functions(self) -> tuple[str, ...]:
+        return self.writers() + (self.reader,)
+
+
+PHASE = (
+    Slot("window", ("active_levels",), ("closed", "open on a window"), (("closed", "open on a window", "traversal_scope_t"), ("open on a window", "closed", "~traversal_scope_t")), "scheduled_window"),
+    Slot("bin", ("tail_bin",), ("none", "a tail bin"), (("none", "a tail bin", "tail_bin_scope_t"), ("a tail bin", "none", "~tail_bin_scope_t")), "scheduled_tail_bin"),
+    Slot("recovery", ("recovery_traversal",), ("off", "on"), (("off", "on", "recovery_scope_t"), ("on", "off", "~recovery_scope_t")), "in_recovery_traversal"),
+    Slot("routine", ("last_routine",), ("none", "the last routine run"), (("none", "the last routine run", "routine_scope_t"), ("the last routine run", "the last routine run", "~routine_scope_t")), "scheduled_routine"),
+    Slot("iteration", ("recover_iteration",), ("unknown", "recorded"), (("unknown", "recorded", "record_recovered_iteration"),), "recovered_iteration"),
+    Slot(
+        "integrator",
+        ("integrator_config", "integrator_frozen"),
+        ("none", "registered", "frozen with none", "frozen"),
+        (("none", "registered", "record_integrator"), ("none", "frozen with none", "freeze_integrator"), ("registered", "frozen", "freeze_integrator")),
+        "integrator",
+    ),
+)
+REFUSED = {
+    "traversal_scope_t": "inside an open traversal",
+    "tail_bin_scope_t": "inside a tail bin",
+    "recovery_scope_t": "inside a recovery traversal",
+    "record_recovered_iteration": "a second time",
+    "record_integrator": "a second time, or after the freeze",
+    "freeze_integrator": "a second time",
+    "scheduled_window": "when closed",
+    "integrator": "until frozen",
+}
+SLOTS = tuple(name for slot in PHASE for name in slot.names)
+assert sorted(SLOTS) == sorted(TRAVERSAL_WORD.pattern[3:-3].split("|")), SLOTS
+PHASE_FUNCTIONS = tuple(dict.fromkeys(function for slot in PHASE for function in slot.functions()))
+assert set(REFUSED) <= set(PHASE_FUNCTIONS), REFUSED
+for slot in PHASE:
+    assert len(set(slot.states)) == len(slot.states), slot
+    for source, target, _ in slot.arrows:
+        assert source in slot.states and target in slot.states, (slot.region, source, target)
+STAYS = tuple(f"{function} keeps {' and '.join(slot.names)}" for slot in PHASE for source, target, function in slot.arrows if source == target)
 BOXES = (("above", f"above {HUB}/"), ("door", "driver() allowed"), ("nodoor", "no driver()"))
 STACK_LEGEND = (
     f"the layer rule holds the order {', '.join(f'{layer}/' for layer in LAYERS)} from the bottom: a file includes only its own layer or a lower one",
@@ -106,6 +167,12 @@ PASS_LEGEND = (
 REGRID_LEGEND = (
     "the numbered arrows are one regrid: " + ", ".join(f"{what} ({step})" for step, what in REGRID_STEPS.items()),
     "the table below lists every entry an outsider calls",
+)
+PHASE_LEGEND = (
+    f"each row is a slot of {PHASE_LAYER}/, the run's phase, and moves on its own: its left state is the value at startup, and an arrow is the one function of {os.path.basename(PHASE_HEADER)} that moves it, read from the assignment in its body in {os.path.basename(PHASE_FILE)}",
+    "a row's title names the layers whose calls move it, read from their sources; an arrow named with ~ is a scope's destructor, which runs when the scope ends",
+    f"a step that stays in one state is not drawn: {', '.join(STAYS)}",
+    f"the table below lists every function of {os.path.basename(PHASE_HEADER)} a layer calls, who calls it, and where a refuse in its body stops it",
 )
 
 
@@ -374,6 +441,96 @@ def the_regrid(root: str = PROJECT) -> str:
     return draw({(step, source, target): names for step, source, target, names, _ in REGRID})
 
 
+def both(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def body(text: str, name: str, file: str) -> str:
+    shape = DESTRUCTOR_OF.format(name=re.escape(name)) if name.startswith("~") else DEFINITION_OF.format(name=re.escape(name))
+    m = re.search(shape, text)
+    if not m:
+        raise ValueError(f"{name} not defined in {file}, where its row of PHASE in scripts/lint/boundary/doc.py says it is")
+    depth = 0
+    for i in range(m.end() - 1, len(text)):
+        depth += {"{": 1, "}": -1}.get(text[i], 0)
+        if depth == 0:
+            return text[m.end() : i]
+    raise ValueError(f"{name} opens a body in {file} that never closes")
+
+
+def uses(text: str, name: str) -> bool:
+    return called(text, name) or re.search(CONSTRUCTED.format(name=re.escape(name)), text) is not None
+
+
+def callers(root: str, name: str) -> tuple[str, ...]:
+    return tuple(layer for layer in reversed(LAYERS) if layer != PHASE_LAYER and any(uses(read(path), name) for path in sources(root, layer) if path.endswith(".cxx")))
+
+
+def declared_in_phase_header(root: str) -> list[str]:
+    text = read(os.path.join(root, PHASE_HEADER))
+    names: dict[str, None] = dict.fromkeys(CLASS.findall(text))
+    for number, line, statement in statements(text):
+        head = declaration_head(statement)
+        if PROTOTYPE_END.search(line) and DECLARATION_START.match(head) and not file_local(head):
+            name = declared_function(head, in_header=True)
+            if name is None:
+                raise ValueError(f"{PHASE_HEADER}:{number} declares something the map cannot name: {line.strip()}")
+            names[name] = None
+    return list(names)
+
+
+def phase(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
+    declared = declared_in_phase_header(root)
+    unlisted = [name for name in declared if name not in PHASE_FUNCTIONS]
+    if unlisted:
+        raise ValueError(f"{', '.join(unlisted)} declared in {PHASE_HEADER} but in no row of PHASE in scripts/lint/boundary/doc.py")
+    stale = [name for name in PHASE_FUNCTIONS if name not in declared]
+    if stale:
+        raise ValueError(f"{', '.join(stale)} in a row of PHASE in scripts/lint/boundary/doc.py but not declared in {PHASE_HEADER}")
+    text = read(os.path.join(root, PHASE_FILE))
+    found: dict[str, tuple[str, ...]] = {}
+    for slot in PHASE:
+        for _, _, function in slot.arrows:
+            if not any(re.search(ASSIGNED.format(name=name), body(text, function, PHASE_FILE)) for name in slot.names):
+                raise ValueError(f"{function} assigns none of {', '.join(slot.names)} in {PHASE_FILE}, where its arrow of PHASE in scripts/lint/boundary/doc.py says it moves the slot")
+        for function in slot.functions():
+            refuses = REFUSAL.search(body(text, function, PHASE_FILE)) is not None
+            if function in REFUSED and not refuses:
+                raise ValueError(f"{function} refuses nothing in {PHASE_FILE}, but its row of PHASE in scripts/lint/boundary/doc.py says it is refused {REFUSED[function]}")
+            if refuses and function not in REFUSED:
+                raise ValueError(f"{function} refuses in {PHASE_FILE}, but no row of REFUSED in scripts/lint/boundary/doc.py says when")
+            if function not in found:
+                found[function] = callers(root, function)
+                if not found[function]:
+                    raise ValueError(f"{function} is called in no layer above {PHASE_LAYER}/, so no row can say who calls it")
+    return found
+
+
+def the_phase(root: str = PROJECT) -> str:
+    who = phase(root)
+    lines = ["flowchart LR"]
+    for slot in PHASE:
+        writers = sorted({layer for function in slot.writers() for layer in who[function]}, key=top_down_order)
+        lines.append(f'  subgraph {slot.region}["{" and ".join(slot.names)}, written by {both([f"{layer}/" for layer in writers])}"]')
+        ids = {state: f"{slot.region}{i}" for i, state in enumerate(slot.states)}
+        lines.extend(f'    {ids[state]}["{state}"]' for state in slot.states)
+        lines.extend(f'    {ids[source]} -- "{function}" --> {ids[target]}' for source, target, function in slot.arrows if source != target)
+        lines.append("  end")
+    return "\n".join(lines) + "\n"
+
+
+PHASE_HEADING = "## Who moves and reads the phase"
+PHASE_INTRO = f"A layer above {PHASE_LAYER}/ moves the phase by opening a scope or recording a fact, and reads it through one function per slot. Each row is a slot, a function of {os.path.basename(PHASE_HEADER)}, the layers that call it, and when {os.path.basename(PHASE_FILE)} refuses the call."
+
+
+def phase_table(root: str = PROJECT) -> str:
+    who = phase(root)
+    lines = [PHASE_HEADING, "", PHASE_INTRO, "", "| Slot | Function | Called from | Refused |", "| --- | --- | --- | --- |"]
+    for slot in PHASE:
+        lines.extend(f"| `{', '.join(slot.names)}` | {function} | {', '.join(f'{layer}/' for layer in who[function])} | {REFUSED.get(function, 'never')} |" for function in slot.functions())
+    return "\n".join(lines) + "\n"
+
+
 ENTRIES_HEADING = "## Who the outsiders call"
 ENTRIES_INTRO = "An outsider decides when a layer works: it calls one of these entries. Each row is a layer, who calls into it, and what they call."
 
@@ -404,15 +561,16 @@ def owns() -> str:
 TITLE = "# CarpetX's internals"
 PREAMBLE = (
     "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `ACCEPTED` rows of `scripts/lint/boundary/symbols.py`, "
-    f"the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `{STARTUP}`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when "
+    f"the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `{STARTUP}`, a call, a body or a refusal; `scripts/lint/boundary/test_rules.py` fails when "
     "the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX "
     "only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule "
     "named below holds. The list under each picture is its key."
 )
-SECTIONS: tuple[tuple[str, Callable[[str], str], tuple[str, ...]], ...] = (
-    ("The stack", stack, STACK_LEGEND),
-    ("One pass of the schedule", the_pass, PASS_LEGEND),
-    ("One regrid", the_regrid, REGRID_LEGEND),
+SECTIONS: tuple[tuple[str, Callable[[str], str], tuple[str, ...], Optional[Callable[[str], str]]], ...] = (
+    ("The stack", stack, STACK_LEGEND, None),
+    ("One pass of the schedule", the_pass, PASS_LEGEND, None),
+    ("One regrid", the_regrid, REGRID_LEGEND, None),
+    ("The run's phase", the_phase, PHASE_LEGEND, phase_table),
 )
 
 
@@ -422,8 +580,10 @@ def legend(texts: tuple[str, ...]) -> str:
 
 def render(root: str = PROJECT) -> str:
     parts = [TITLE, "", PREAMBLE, ""]
-    for title, picture, texts in SECTIONS:
+    for title, picture, texts, table in SECTIONS:
         parts.extend([f"## {title}", "", "```mermaid", picture(root).rstrip("\n"), "```", "", legend(texts)])
+        if table:
+            parts.append(table(root))
     parts.append(entries(root))
     parts.append(owns())
     return "\n".join(parts)

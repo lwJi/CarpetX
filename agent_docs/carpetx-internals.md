@@ -1,6 +1,6 @@
 # CarpetX's internals
 
-`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `ACCEPTED` rows of `scripts/lint/boundary/symbols.py`, the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `CarpetX/src/flesh/startup.cxx`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule named below holds. The list under each picture is its key.
+`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `ACCEPTED` rows of `scripts/lint/boundary/symbols.py`, the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `CarpetX/src/flesh/startup.cxx`, a call, a body or a refusal; `scripts/lint/boundary/test_rules.py` fails when the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule named below holds. The list under each picture is its key.
 
 ## The stack
 
@@ -107,6 +107,74 @@ flowchart LR
 
 - the numbered arrows are one regrid: the driver asks the hierarchy (1), the hierarchy asks AMReX (2), AMReX calls back into the layer that defines its callbacks (3)
 - the table below lists every entry an outsider calls
+
+## The run's phase
+
+```mermaid
+flowchart LR
+  subgraph window["active_levels, written by schedule/"]
+    window0["closed"]
+    window1["open on a window"]
+    window0 -- "traversal_scope_t" --> window1
+    window1 -- "~traversal_scope_t" --> window0
+  end
+  subgraph bin["tail_bin, written by schedule/"]
+    bin0["none"]
+    bin1["a tail bin"]
+    bin0 -- "tail_bin_scope_t" --> bin1
+    bin1 -- "~tail_bin_scope_t" --> bin0
+  end
+  subgraph recovery["recovery_traversal, written by schedule/"]
+    recovery0["off"]
+    recovery1["on"]
+    recovery0 -- "recovery_scope_t" --> recovery1
+    recovery1 -- "~recovery_scope_t" --> recovery0
+  end
+  subgraph routine["last_routine, written by schedule/"]
+    routine0["none"]
+    routine1["the last routine run"]
+    routine0 -- "routine_scope_t" --> routine1
+  end
+  subgraph iteration["recover_iteration, written by flesh/"]
+    iteration0["unknown"]
+    iteration1["recorded"]
+    iteration0 -- "record_recovered_iteration" --> iteration1
+  end
+  subgraph integrator["integrator_config and integrator_frozen, written by api/ and schedule/"]
+    integrator0["none"]
+    integrator1["registered"]
+    integrator2["frozen with none"]
+    integrator3["frozen"]
+    integrator0 -- "record_integrator" --> integrator1
+    integrator0 -- "freeze_integrator" --> integrator2
+    integrator1 -- "freeze_integrator" --> integrator3
+  end
+```
+
+- each row is a slot of traversal/, the run's phase, and moves on its own: its left state is the value at startup, and an arrow is the one function of traversal.hxx that moves it, read from the assignment in its body in traversal.cxx
+- a row's title names the layers whose calls move it, read from their sources; an arrow named with ~ is a scope's destructor, which runs when the scope ends
+- a step that stays in one state is not drawn: ~routine_scope_t keeps last_routine
+- the table below lists every function of traversal.hxx a layer calls, who calls it, and where a refuse in its body stops it
+
+## Who moves and reads the phase
+
+A layer above traversal/ moves the phase by opening a scope or recording a fact, and reads it through one function per slot. Each row is a slot, a function of traversal.hxx, the layers that call it, and when traversal.cxx refuses the call.
+
+| Slot | Function | Called from | Refused |
+| --- | --- | --- | --- |
+| `active_levels` | traversal_scope_t | schedule/ | inside an open traversal |
+| `active_levels` | scheduled_window | api/, schedule/, comm/ | when closed |
+| `tail_bin` | tail_bin_scope_t | schedule/ | inside a tail bin |
+| `tail_bin` | scheduled_tail_bin | comm/ | never |
+| `recovery_traversal` | recovery_scope_t | schedule/ | inside a recovery traversal |
+| `recovery_traversal` | in_recovery_traversal | ops/ | never |
+| `last_routine` | routine_scope_t | schedule/ | never |
+| `last_routine` | scheduled_routine | comm/ | never |
+| `recover_iteration` | record_recovered_iteration | flesh/ | a second time |
+| `recover_iteration` | recovered_iteration | flesh/, schedule/, io/, comm/ | never |
+| `integrator_config, integrator_frozen` | record_integrator | api/ | a second time, or after the freeze |
+| `integrator_config, integrator_frozen` | freeze_integrator | schedule/ | a second time |
+| `integrator_config, integrator_frozen` | integrator | api/, hierarchy/ | until frozen |
 
 ## Who the outsiders call
 

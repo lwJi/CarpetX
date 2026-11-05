@@ -2126,12 +2126,12 @@ class Doc(unittest.TestCase):
     def test_render_is_the_whole_map(self):
         text = doc.render()
         self.assertTrue(text.startswith(doc.TITLE + "\n\n" + doc.PREAMBLE + "\n\n## The stack\n\n```mermaid\n" + doc.stack() + "```\n\n" + doc.legend(doc.STACK_LEGEND) + "\n## "))
-        self.assertTrue(text.endswith(doc.legend(doc.REGRID_LEGEND) + "\n" + doc.entries() + "\n" + doc.owns()))
-        for title, picture, texts in doc.SECTIONS:
+        self.assertTrue(text.endswith(doc.legend(doc.PHASE_LEGEND) + "\n" + doc.phase_table() + "\n" + doc.entries() + "\n" + doc.owns()))
+        for title, picture, texts, table in doc.SECTIONS:
             with self.subTest(title=title):
-                self.assertIn(f"\n## {title}\n\n```mermaid\n" + picture(PROJECT) + "```\n\n" + doc.legend(texts) + "\n", text)
-        self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), ["## The stack", "## One pass of the schedule", "## One regrid", doc.ENTRIES_HEADING, doc.OWNS_HEADING])
-        self.assertEqual(text.count("```"), 6)
+                self.assertIn(f"\n## {title}\n\n```mermaid\n" + picture(PROJECT) + "```\n\n" + doc.legend(texts) + "\n" + (table(PROJECT) if table else ""), text)
+        self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), ["## The stack", "## One pass of the schedule", "## One regrid", "## The run's phase", doc.PHASE_HEADING, doc.ENTRIES_HEADING, doc.OWNS_HEADING])
+        self.assertEqual(text.count("```"), 8)
         self.assertEqual(doc.legend(("a", "b")), "- a\n- b\n")
         for name in re.findall(r"`([^`\n]+)`", doc.PREAMBLE):
             with self.subTest(name=name):
@@ -2161,7 +2161,7 @@ class Doc(unittest.TestCase):
 
     def test_every_picture_is_followed_by_its_key_in_mermaid_obsidian_takes(self):
         text = doc.render()
-        for title, picture, texts in doc.SECTIONS:
+        for title, picture, texts, _ in doc.SECTIONS:
             with self.subTest(title=title):
                 drawn = picture(PROJECT)
                 self.assertIn("```mermaid\n" + drawn + "```\n\n" + doc.legend(texts), text)
@@ -2173,6 +2173,46 @@ class Doc(unittest.TestCase):
         self.assertIn("util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/", doc.STACK_LEGEND[0])
         self.assertIn(("hierarchy", "driver.hxx"), doc.layer_includes(PROJECT, "flesh"))
         self.assertIn(("door", "include"), doc.floor())
+
+    def test_the_phase_is_every_function_of_traversal_hxx_held_to_its_body_and_its_callers(self):
+        self.assertEqual(sorted(doc.SLOTS), sorted(rules.TRAVERSAL_WORD.pattern[3:-3].split("|")))
+        self.assertEqual(sorted(doc.declared_in_phase_header(PROJECT)), sorted(doc.PHASE_FUNCTIONS))
+        who = doc.phase()
+        self.assertEqual(who["scheduled_window"], ("api", "schedule", "comm"))
+        self.assertEqual(who["recovered_iteration"], ("flesh", "schedule", "io", "comm"))
+        self.assertEqual(who["record_integrator"], ("api",))
+        self.assertEqual(who["freeze_integrator"], ("schedule",))
+        self.assertEqual(who["integrator"], ("api", "hierarchy"))
+        self.assertEqual(who["routine_scope_t"], ("schedule",))
+        text = doc.read(os.path.join(PROJECT, doc.PHASE_FILE))
+        self.assertEqual(doc.body(text, "~traversal_scope_t", doc.PHASE_FILE).strip(), "active_levels.reset();")
+        self.assertEqual(doc.body(text, "~routine_scope_t", doc.PHASE_FILE).strip(), "last_routine = routine;")
+        self.assertIn("refuse(", doc.body(text, "integrator", doc.PHASE_FILE))
+        self.assertNotIn("refuse(", doc.body(text, "scheduled_tail_bin", doc.PHASE_FILE))
+        drawn = doc.the_phase()
+        lines = drawn.splitlines()
+        self.assertEqual(lines[0], "flowchart LR")
+        self.assertEqual([line.split("[")[0].strip() for line in lines if line.startswith("  subgraph ")], [f"subgraph {slot.region}" for slot in doc.PHASE])
+        self.assertIn('  subgraph integrator["integrator_config and integrator_frozen, written by api/ and schedule/"]', drawn)
+        self.assertIn('  subgraph iteration["recover_iteration, written by flesh/"]', drawn)
+        self.assertIn('    routine0 -- "routine_scope_t" --> routine1', drawn)
+        self.assertNotIn("~routine_scope_t", drawn)
+        self.assertEqual(doc.STAYS, ("~routine_scope_t keeps last_routine",))
+        edges = [re.fullmatch(r'    (\w+) -- "([^"]*)" --> (\w+)', line) for line in lines if " -- " in line]
+        self.assertTrue(all(edges), lines)
+        self.assertEqual(len(edges), sum(1 for slot in doc.PHASE for source, target, _ in slot.arrows if source != target))
+        for slot in doc.PHASE:
+            with self.subTest(slot=slot.region):
+                self.assertTrue(all(source == slot.states[0] for source, _, function in slot.arrows if function in slot.writers() and not function.startswith("freeze")), slot)
+                self.assertEqual(slot.writers() + (slot.reader,), slot.functions())
+        table = doc.phase_table().splitlines()
+        self.assertEqual(table[:6], [doc.PHASE_HEADING, "", doc.PHASE_INTRO, "", "| Slot | Function | Called from | Refused |", "| --- | --- | --- | --- |"])
+        self.assertEqual([row.split(" | ")[1] for row in table[6:]], list(doc.PHASE_FUNCTIONS))
+        self.assertIn("| `active_levels` | scheduled_window | api/, schedule/, comm/ | when closed |", table)
+        self.assertIn("| `last_routine` | scheduled_routine | comm/ | never |", table)
+        self.assertEqual(doc.both(["a/"]), "a/")
+        self.assertEqual(doc.both(["a/", "b/"]), "a/ and b/")
+        self.assertEqual(doc.both(["a/", "b/", "c/"]), "a/, b/ and c/")
 
     def test_the_pass_and_the_regrid_are_numbered_once_and_held(self):
         drawn = doc.the_pass()
@@ -2255,8 +2295,29 @@ class Doc(unittest.TestCase):
                 "class Timer {\n  Timer(const std::string &name);\n};\nstd::ostream &operator<<(std::ostream &os, symmetry_t symmetry);\nvoid prolongate(window_t window,\n                std::span<const gi_t> groups);\n"
                 "std::array<std::array<symmetry_t, Loop::dim>, 2> symmetries(level_t level);\nstatic_assert(sizeof(int) == 4);\n",
                 doc.PUBLIC_HEADERS[1]: "void register_integrator(const rk_config_t &config);\n",
+                doc.PHASE_HEADER: "".join(f"class {name} {{\npublic:\n  explicit {name}(int x);\n  ~{name}();\n}};\n" for name in ("traversal_scope_t", "tail_bin_scope_t", "recovery_scope_t", "routine_scope_t"))
+                + "window_t scheduled_window(const char *caller);\nconst char *scheduled_tail_bin();\nbool in_recovery_traversal();\nconst cFunctionData *scheduled_routine();\n"
+                "void record_recovered_iteration(\n    int iteration);\nint recovered_iteration();\nvoid record_integrator(const rk_config_t &config);\nvoid freeze_integrator();\nconst std::optional<rk_config_t> &\nintegrator();\n",
+                doc.PHASE_FILE: "".join(
+                    f"{name}::{name}(const int x) {{\n" + ("  if (open)\n    refuse(site, \"open\");\n" if name in doc.REFUSED else "") + f"  {slot} = x;\n}}\n{name}::~{name}() {{ {slot}{end} }}\n"
+                    for name, slot, end in (("traversal_scope_t", "active_levels", ".reset();"), ("tail_bin_scope_t", "tail_bin", " = nullptr;"), ("recovery_scope_t", "recovery_traversal", " = false;"), ("routine_scope_t", "last_routine", " = routine;"))
+                )
+                + "window_t scheduled_window(const char *const caller) {\n  if (!active_levels)\n    refuse(site, \"closed\");\n  return *active_levels;\n}\nconst char *scheduled_tail_bin() { return tail_bin; }\nbool in_recovery_traversal() { return recovery_traversal; }\n"
+                "const cFunctionData *scheduled_routine() { return last_routine; }\nvoid record_recovered_iteration(const int iteration) {\n  if (recover_iteration)\n    refuse(site, \"twice\");\n  recover_iteration = iteration;\n}\nint recovered_iteration() { return recover_iteration.value_or(-1); }\n"
+                "void record_integrator(const rk_config_t &config) {\n  if (integrator_frozen)\n    refuse(site, \"frozen\");\n  integrator_config = config;\n}\nvoid freeze_integrator() {\n  if (integrator_frozen)\n    refuse(site, \"twice\");\n  integrator_frozen = true;\n}\n"
+                "const std::optional<rk_config_t> &integrator() {\n  if (!integrator_frozen)\n    refuse(site, \"early\");\n  return integrator_config;\n}\n",
+                layer_path("schedule", "clocks.cxx"): "void TraverseTailBin(cGH *cctkGH, const char *bin) {\n  const tail_bin_scope_t scope(bin);\n}\nvoid Recompute(cGH *cctkGH) {\n  const recovery_scope_t scope;\n  const traversal_scope_t window_scope(group);\n  assert(cctkGH->cctk_iteration == recovered_iteration());\n}\n",
+                layer_path("flesh", "scheduled.cxx"): "int RecoverParameters() {\n  record_recovered_iteration(read_parameters());\n  return recovered_iteration() >= 0;\n}\n",
+                layer_path("comm", "sync_restrict.cxx"): "void SyncGroupsOnActiveLevels() {\n  const char *const bin = scheduled_tail_bin();\n  const cFunctionData *const func = scheduled_routine();\n  SyncGroups(scheduled_window(sync_caller().c_str()), gis);\n  return recovered_iteration() >= 0;\n}\n",
+                layer_path("ops", "interpolate.cxx"): "int InterpLocalUniform() {\n  return in_recovery_traversal();\n}\n",
+                layer_path("hierarchy", "group_tags.cxx"): 'std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry) {\n  return os << "none";\n}\nint stages() {\n  return CarpetX::integrator()->nstages();\n}\n',
             }
         )
+        files[layer_path("schedule", "evolve.cxx")] += "void Setup(cGH *cctkGH) {\n  const traversal_scope_t scope(window_t::levels(0, 0));\n  freeze_integrator();\n}\n"
+        files[layer_path("schedule", "callfunction.cxx")] += "void Run(const cFunctionData *attribute) {\n  const routine_scope_t routine_scope(attribute);\n  const window_t window = scheduled_window(routine.c_str());\n}\n"
+        files[layer_path("api", "api.cxx")] = files[layer_path("api", "api.cxx")].replace("void register_integrator(const rk_config_t &config) {\n}\n", "void register_integrator(const rk_config_t &config) {\n  record_integrator(config);\n}\nwindow_t active_window() {\n  return scheduled_window(\"CarpetX::active_window()\");\n}\n")
+        files[layer_path("api", "api_rk.cxx")] += "const rk_config_t &require_integrator() {\n  const std::optional<rk_config_t> &config = integrator();\n  return *config;\n}\n"
+        files[layer_path("io", "io.cxx")] += "int recovered() {\n  return recovered_iteration();\n}\n"
         files[layer_path("api", "api.cxx")] += "void prolongate(window_t window, std::span<const gi_t> groups) {\n}\nstd::array<std::array<symmetry_t, dim>, 2> symmetries(const level_t level) {\n  return {};\n}\n"
         with tempfile.TemporaryDirectory() as root:
             for layer in LAYERS:
@@ -2308,6 +2369,11 @@ class Doc(unittest.TestCase):
                     '  amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
                 ],
             )
+            phase = doc.the_phase(root).splitlines()
+            self.assertEqual(phase[:7], ["flowchart LR", '  subgraph window["active_levels, written by schedule/"]', '    window0["closed"]', '    window1["open on a window"]', '    window0 -- "traversal_scope_t" --> window1', '    window1 -- "~traversal_scope_t" --> window0', "  end"])
+            self.assertIn('  subgraph integrator["integrator_config and integrator_frozen, written by api/ and schedule/"]', phase)
+            self.assertEqual(doc.phase(root)["recovered_iteration"], ("flesh", "schedule", "io", "comm"))
+            self.assertIn("| `recovery_traversal` | in_recovery_traversal | ops/ | never |", doc.phase_table(root).splitlines())
             self.assertEqual(
                 doc.entries(root).splitlines()[6:],
                 [
@@ -2327,7 +2393,16 @@ class Doc(unittest.TestCase):
             startup = files[doc.STARTUP]
             evolve = files[layer_path("schedule", "evolve.cxx")]
             io_cxx = files[layer_path("io", "io.cxx")]
+            traversal = files[doc.PHASE_FILE]
             for message, changes, draw in [
+                ("traversal_scope_t not defined in CarpetX/src/traversal/traversal.cxx, where its row of PHASE", {doc.PHASE_FILE: traversal.replace("traversal_scope_t::traversal_scope_t(const int x) {", "traversal_scope_t::traversal_scope(const int x) {")}, doc.the_phase),
+                ("~traversal_scope_t assigns none of active_levels in CarpetX/src/traversal/traversal.cxx, where its arrow of PHASE", {doc.PHASE_FILE: traversal.replace("traversal_scope_t::~traversal_scope_t() { active_levels.reset(); }", "traversal_scope_t::~traversal_scope_t() { active_levels.resets(); }")}, doc.the_phase),
+                ("record_integrator refuses nothing in CarpetX/src/traversal/traversal.cxx, but its row of PHASE in scripts/lint/boundary/doc.py says it is refused a second time, or after the freeze", {doc.PHASE_FILE: traversal.replace("  if (integrator_frozen)\n    refuse(site, \"frozen\");\n  integrator_config = config;", "  integrator_config = config;")}, doc.phase_table),
+                ("scheduled_tail_bin refuses in CarpetX/src/traversal/traversal.cxx, but no row of REFUSED", {doc.PHASE_FILE: traversal.replace("const char *scheduled_tail_bin() { return tail_bin; }", "const char *scheduled_tail_bin() {\n  refuse(site, \"never\");\n  return tail_bin;\n}")}, doc.phase_table),
+                ("in_recovery_traversal is called in no layer above traversal/, so no row can say who calls it", {layer_path("ops", "interpolate.cxx"): "int InterpLocalUniform() {\n  return 0;\n}\n"}, doc.the_phase),
+                ("extra declared in CarpetX/src/traversal/traversal.hxx but in no row of PHASE", {doc.PHASE_HEADER: files[doc.PHASE_HEADER] + "int extra();\n"}, doc.the_phase),
+                ("integrator in a row of PHASE in scripts/lint/boundary/doc.py but not declared in CarpetX/src/traversal/traversal.hxx", {doc.PHASE_HEADER: files[doc.PHASE_HEADER].replace("const std::optional<rk_config_t> &\nintegrator();\n", "")}, doc.the_phase),
+                ("CarpetX/src/traversal/traversal.hxx:1 declares something the map cannot name: void (*handler)(int);", {doc.PHASE_HEADER: "void (*handler)(int);\n" + files[doc.PHASE_HEADER]}, doc.the_phase),
                 ("Foo registered in CarpetX/src/flesh/startup.cxx but in no row of REGISTERED", {doc.STARTUP: startup.replace("  CCTK_OverloadSetupGH(SetupGH);\n", "  CCTK_OverloadSetupGH(SetupGH);\n  CCTK_OverloadFoo(Foo);\n")}, doc.entries),
                 ("Shutdown in a row of REGISTERED in scripts/lint/boundary/doc.py but not registered", {doc.STARTUP: startup.replace("  CCTK_OverloadShutdown(Shutdown);\n", "")}, doc.entries),
                 ("OutputGH not defined in CarpetX/src/io/io.cxx, where its row", {layer_path("io", "io.cxx"): "int f() {\n  if (OutputGH(0)) {\n  }\n  return 0;\n}\n"}, doc.entries),
@@ -2350,7 +2425,7 @@ class Doc(unittest.TestCase):
                 doc.the_pass(root)
             with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("api", "api.cxx"), ("num_patches",)),)), self.assertRaisesRegex(ValueError, "in api/, at or above api/"):
                 doc.entries(root)
-            self.assertEqual(doc.render(root).count("```"), 6)
+            self.assertEqual(doc.render(root).count("```"), 8)
 
 if __name__ == "__main__":
     unittest.main()
