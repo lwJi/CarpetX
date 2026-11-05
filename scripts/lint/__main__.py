@@ -14,10 +14,10 @@ How the checks are run:
   Stop and SubagentStop hooks; both judge the branch from its merge base with dev. The Lint workflow
   runs `check --since` from the PR's base on every PR and on every push to dev. What a merge brings in
   from another branch is not judged, only the merge's own resolution. `check --since origin/dev` shows
-  what all of them would report; the rules are in agent_docs/code-comments.md and
-  agent_docs/carpetx-public-api.md, and `check --help` prints every boundary rule. `doc --write` writes
-  agent_docs/carpetx-internals.md, the map of CarpetX/src. `symbols` needs a build: the CI workflow runs it
-  after every build and agent_scripts/build.sh after a successful one.
+  what all of them would report; the comment rules are in agent_docs/code-comments.md, and `check --help`
+  prints every boundary rule. `doc --write` writes agent_docs/carpetx-internals.md, the map of CarpetX/src,
+  and agent_docs/carpetx-public-api.md, the contract of its public headers. `symbols` needs a build: the CI
+  workflow runs it after every build and agent_scripts/build.sh after a successful one.
 """
 HOOKS = {"hook-edit": "hook_edit", "hook-stop": "hook_stop"}
 
@@ -47,27 +47,29 @@ def run_check(checks, paths: list[str], since: str | None = None) -> int:
     return EXIT_FOUND if has_findings(found) else EXIT_CLEAN
 
 
-def run_doc(write: bool) -> int:
-    from boundary.doc import MAP, render
+def run_doc(write: bool, names: list[str]) -> int:
+    from boundary.public import GENERATED
     from files import PROJECT
 
-    try:
-        new = render()
-        if not write:
-            print(new, end="")
-            return EXIT_CLEAN
-        path = os.path.join(PROJECT, MAP)
-        text = None
-        if os.path.isfile(path):
-            with open(path) as f:
-                text = f.read()
-        if new != text:
-            with open(path, "w") as f:
-                f.write(new)
-    except (OSError, ValueError) as e:
-        print(f"lint doc: {e}", file=sys.stderr)
-        return EXIT_ERROR
-    print(f"{'rewrote' if new != text else 'unchanged'} {MAP}")
+    for name in names or list(GENERATED):
+        path, render = GENERATED[name]
+        try:
+            new = render()
+            if not write:
+                print(new, end="")
+                continue
+            full = os.path.join(PROJECT, path)
+            text = None
+            if os.path.isfile(full):
+                with open(full) as f:
+                    text = f.read()
+            if new != text:
+                with open(full, "w") as f:
+                    f.write(new)
+        except (OSError, ValueError) as e:
+            print(f"lint doc: {e}", file=sys.stderr)
+            return EXIT_ERROR
+        print(f"{'rewrote' if new != text else 'unchanged'} {path}")
     return EXIT_CLEAN
 
 
@@ -143,15 +145,21 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     symbols.add_argument("objdir", metavar="OBJDIR", help="the build directory holding one subdirectory of .cxx.o per layer, such as configs/sim/build/CarpetX")
-    doc = commands.add_parser("doc", help="print agent_docs/carpetx-internals.md as --write writes it: the stack, one pass of the schedule, one regrid, who the outsiders call, and what each layer owns")
-    doc.add_argument("--write", action="store_true", help="write agent_docs/carpetx-internals.md instead")
-    commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a finding or that touches the generated map")
+    from boundary.public import GENERATED
+
+    doc = commands.add_parser(
+        "doc",
+        help="print the generated agent_docs as --write writes them: internals, the map of CarpetX/src (the stack, one pass of the schedule, one regrid, who the outsiders call, what each layer owns), and public-api, the contract of its public headers (what they declare, a topic per part of it, and the refusals TestCarpetXAPI shows)",
+    )
+    doc.add_argument("names", nargs="*", metavar="DOC", choices=list(GENERATED) + [[]], help="which to print or write, " + " or ".join(f"{name} ({path})" for name, (path, _) in GENERATED.items()) + " (default: both)")
+    doc.add_argument("--write", action="store_true", help="write the files instead")
+    commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a finding or that touches a generated doc")
     commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a finding")
     args = parser.parse_args(argv)
     if args.command in HOOKS:
         return run_hook(HOOKS[args.command])
     if args.command == "doc":
-        return run_doc(args.write)
+        return run_doc(args.write, args.names)
     if args.command == "symbols":
         return run_symbols(args.objdir)
     if args.since is not None and args.paths:
