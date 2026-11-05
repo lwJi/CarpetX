@@ -62,7 +62,14 @@ CarpetX::rk_config_t valid_integrator() {
 
 bool rk_step_mode(const char *const mode) {
   return CCTK_EQUALS(mode, "rhs-repeated") ||
-         CCTK_EQUALS(mode, "step-closed-early");
+         CCTK_EQUALS(mode, "step-closed-early") ||
+         CCTK_EQUALS(mode, "state-before-rhs") ||
+         CCTK_EQUALS(mode, "rhs-after-last-stage");
+}
+
+bool rk_registered_mode(const char *const mode) {
+  return rk_step_mode(mode) || CCTK_EQUALS(mode, "rk-open-invalid-state") ||
+         CCTK_EQUALS(mode, "rhs-invalid");
 }
 
 extern "C" int TestCarpetXAPI_Startup() {
@@ -105,8 +112,15 @@ extern "C" int TestCarpetXAPI_AfterShutdown() {
 extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 
-  if (rk_step_mode(mode))
+  if (rk_registered_mode(mode))
     CarpetX::register_integrator(valid_integrator());
+  if (CCTK_EQUALS(mode, "rk-before-freeze")) {
+    CarpetX::register_integrator(valid_integrator());
+    const CarpetX::rk_step_t step =
+        CarpetX::open_rk_step(CarpetX::all_levels());
+    CCTK_ERROR("CarpetX::open_rk_step ran at WRAGH, before the driver froze "
+               "its integrator record");
+  }
   if (CCTK_EQUALS(mode, "register-twice")) {
     CarpetX::register_integrator(valid_integrator());
     CarpetX::register_integrator(valid_integrator());
@@ -197,6 +211,29 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   const std::array groups{gi};
   const CarpetX::window_t window = CarpetX::active_window();
 
+  if (CCTK_EQUALS(mode, "rk-open-invalid-state")) {
+    const CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
+    CCTK_ERROR("CarpetX::open_rk_step accepted state before anything wrote "
+               "its interior");
+  }
+  if (CCTK_EQUALS(mode, "parent-of-level-0")) {
+    [[maybe_unused]] const CarpetX::level_t parent =
+        window.coarsest().parent();
+    CCTK_ERROR("CarpetX::level_t::parent returned a level coarser than "
+               "refinement level 0");
+  }
+  if (CCTK_EQUALS(mode, "window-empty")) {
+    [[maybe_unused]] const CarpetX::level_t coarsest =
+        CarpetX::window_t::levels(0, 0).coarsest();
+    CCTK_ERROR("CarpetX::window_t::coarsest returned a level of a window "
+               "that holds none");
+  }
+  if (CCTK_EQUALS(mode, "window-out-of-bounds")) {
+    [[maybe_unused]] const CarpetX::window_t levels =
+        CarpetX::window_t::levels(0, 2);
+    CCTK_ERROR("CarpetX::window_t::levels accepted refinement levels [0, 2) "
+               "of a hierarchy with 1 level");
+  }
   if (CCTK_EQUALS(mode, "level-missing")) {
     const CarpetX::write_t write = CarpetX::write(
         CarpetX::group_t{CarpetX::level_t{CarpetX::patch_t{0}, 99}, gi}, tl,
@@ -307,12 +344,38 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     CarpetX::sync(window, groups);
     CCTK_ERROR("CarpetX::sync ran while a write scope was open");
   }
+  if (CCTK_EQUALS(mode, "invalidate-during-write")) {
+    CarpetX::invalidate(window, groups, tl, "TestCarpetXAPI_Fill");
+    CCTK_ERROR("CarpetX::invalidate ran while a write scope was open");
+  }
+  if (CCTK_EQUALS(mode, "schedule-during-write")) {
+    CarpetX::run_schedule_group_at(cctkGH, "TestCarpetXAPI_CheckGroup",
+                                   cctkGH->cctk_time, cctkGH->cctk_delta_time);
+    CCTK_ERROR("CarpetX scheduled TestCarpetXAPI_Check, which reads state, "
+               "while a write scope on state was open");
+  }
 
   writes.clear();
 
   window.loop_serially([&](const CarpetX::level_t level) {
     require_flags(CarpetX::group_t{level, gi}, CarpetX::make_valid_int(),
                   "after the write scope closed");
+  });
+
+  CarpetX::invalidate(window, groups, tl, "TestCarpetXAPI_Fill");
+  window.loop_serially([&](const CarpetX::level_t level) {
+    require_flags(CarpetX::group_t{level, gi}, CarpetX::valid_t(),
+                  "after CarpetX::invalidate");
+  });
+  window.loop_serially([&](const CarpetX::level_t level) {
+    CarpetX::write_t write =
+        CarpetX::write(CarpetX::group_t{level, gi}, tl,
+                       CarpetX::make_valid_int(), "TestCarpetXAPI_Fill");
+    fill_interior(level, write.mfab());
+  });
+  window.loop_serially([&](const CarpetX::level_t level) {
+    require_flags(CarpetX::group_t{level, gi}, CarpetX::make_valid_int(),
+                  "after the second write scope closed");
   });
 
   CarpetX::sync(window, groups);
@@ -337,6 +400,27 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
                 "domain of positive volume",
                 double(red.min), double(red.max), double(red.vol));
 
+  if (CCTK_EQUALS(mode, "rhs-invalid")) {
+    CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
+    step.rhs_computed();
+    CCTK_ERROR("CarpetX::rk_step_t::rhs_computed accepted state_rhs before "
+               "anything wrote its interior");
+  }
+  if (CCTK_EQUALS(mode, "state-before-rhs")) {
+    CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
+    step.state_updated();
+    CCTK_ERROR("CarpetX::rk_step_t::state_updated ran before rhs_computed");
+  }
+  if (CCTK_EQUALS(mode, "rhs-after-last-stage")) {
+    CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
+    for (std::size_t stage = 0; stage < rk4_weights.size(); ++stage) {
+      step.rhs_computed();
+      step.state_updated();
+    }
+    step.rhs_computed();
+    CCTK_ERROR("CarpetX::rk_step_t::rhs_computed ran after the last of its "
+               "4 stages");
+  }
   if (CCTK_EQUALS(mode, "rhs-repeated")) {
     CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
     step.rhs_computed();

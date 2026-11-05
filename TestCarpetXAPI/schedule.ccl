@@ -24,7 +24,11 @@ SCHEDULE TestCarpetXAPI_Fill AT initial
   OPTIONS: global
 } "Fill state through the public CarpetX API as TestCarpetXAPI::mode says"
 
-SCHEDULE TestCarpetXAPI_Check AT initial AFTER TestCarpetXAPI_Fill
+SCHEDULE GROUP TestCarpetXAPI_CheckGroup AT initial AFTER TestCarpetXAPI_Fill
+{
+} "Check state after TestCarpetXAPI_Fill; TestCarpetXAPI_Fill traverses this group through CarpetX::run_schedule_group_at while a write scope on state is open when TestCarpetXAPI::mode says so"
+
+SCHEDULE TestCarpetXAPI_Check IN TestCarpetXAPI_CheckGroup
 {
   LANG: C
   READS: state(everywhere)
