@@ -470,7 +470,6 @@ void RecoverRKBoundary(const window_t window) {
   for (const rk_pair_t &pair : integrator->integrated)
     states.push_back(pair.state);
   std::sort(states.begin(), states.end());
-  SyncGroupsByDirIGhostOnly(window, states, timelevels_t::one(rk_tl));
   const bool restricted = window_is_restricted(window);
   if (restricted)
     SyncGroupsByDirIProlongateOnlyAligned(window, states,

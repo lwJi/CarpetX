@@ -146,7 +146,7 @@ SECTIONS: tuple[Section, ...] = (
             ),
             Row(
                 "Under subcycling the SYNC of an integrated group copies the same-level ghosts and marks them on every level; on a refined level at iteration > 0 it keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote, and elsewhere it fills and marks every ghost itself. "
-                "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`; the integrator schedules nothing for it.",
+                "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`, and the thorn's SYNC there copies and marks the rest; the integrator schedules nothing for it.",
                 ("comm/sync_restrict.cxx:SyncGroupsByDirISubcycling", "api/api_rk.cxx:RecoverRKBoundary"),
             ),
         ),
