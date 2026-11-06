@@ -14,6 +14,7 @@
 #include <AMReX.H>
 #include <AMReX_BCRec.H>
 #include <AMReX_FillPatchUtil.H>
+#include <AMReX_iMultiFab.H>
 
 #include <algorithm>
 #include <array>
@@ -242,6 +243,26 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
       groupdata.push_back(
           std::make_unique<GHExt::PatchData::LevelData::GroupData>(
               group, level, ba, dm, why));
+  }
+
+  const amrex::Geometry &geom =
+      ext.patch(level.patch()).amrcore->Geom(level.index());
+  for (const std::unique_ptr<GroupData> &group : groupdata) {
+    if (!group)
+      continue;
+    const ghost_mask_key_t key{group->indextype, group->nghostzones};
+    if (ghost_masks.count(key))
+      continue;
+    const amrex::IndexType ixtype(
+        group->indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
+        group->indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
+        group->indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE);
+    amrex::iMultiFab mask(convert(ba, ixtype), dm, 1,
+                          amrex::IntVect(group->nghostzones));
+    mask.BuildMask(geom.Domain(), geom.periodicity(), ghost_mask_same_level,
+                   ghost_mask_coarse_fine, ghost_mask_physical_boundary,
+                   ghost_mask_interior);
+    ghost_masks.emplace(key, std::move(mask));
   }
 
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {

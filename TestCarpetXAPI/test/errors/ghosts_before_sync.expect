@@ -1,0 +1,2 @@
+  The same-level ghosts are invalid because: TestCarpetXAPI_Fill not filled (iteration 0).
+  The coarse-fine ghosts are valid because: CarpetX::rk_step_t::state_updated after RK stage 1 of 4 filled (iteration 0).

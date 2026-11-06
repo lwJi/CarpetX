@@ -29,6 +29,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -605,6 +606,13 @@ struct GHExt {
         return local_cctkGHs.at(component).get();
       }
 
+      using ghost_mask_key_t =
+          std::pair<std::array<int, dim>, std::array<int, dim> >;
+      static constexpr int ghost_mask_interior = 0;
+      static constexpr int ghost_mask_same_level = 1;
+      static constexpr int ghost_mask_coarse_fine = 2;
+      static constexpr int ghost_mask_physical_boundary = 3;
+
       struct GroupData {
         GroupData() = delete;
         GroupData(const GroupData &) = delete;
@@ -736,8 +744,14 @@ struct GHExt {
             groupdata.begin(), groupdata.end(), group_storage_filter{});
       }
 
+      const amrex::iMultiFab &ghost_mask(const GroupData &groupdata) const {
+        return ghost_masks.at(
+            ghost_mask_key_t{groupdata.indextype, groupdata.nghostzones});
+      }
+
     private:
       std::vector<std::unique_ptr<GroupData> > groupdata;
+      std::map<ghost_mask_key_t, amrex::iMultiFab> ghost_masks;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                        const LevelData &leveldata);

@@ -202,6 +202,42 @@ class Binding(unittest.TestCase):
         self.assertEqual(reported("TestCarpetXAPI/src/api.cxx", self.WRITES[2] + "\n"), [])
 
 
+class GhostOnly(unittest.TestCase):
+    CALLS = [
+        "SyncGroupsByDirIGhostOnly(window_t::one_level(level), states, timelevels_t::one(rk_tl));",
+        "SyncGroupsByDirIGhostOnly (window, groups, tls);",
+        "CarpetX::SyncGroupsByDirIGhostOnly(window, states, timelevels_t::one(tl_t{0}));",
+    ]
+
+    def test_a_call_outside_the_wrapper_is_reported(self):
+        for line in self.CALLS:
+            for name in ["CarpetX/src/api/api_rk.cxx", "CarpetX/src/schedule/clocks.cxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("ghost-only", line)])
+
+    def test_the_wrapper_and_the_definition_may_call_it(self):
+        for line in self.CALLS:
+            for name in rules.GHOST_ONLY_FILES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [])
+
+    def test_a_mention_that_is_not_a_call_passes(self):
+        for text in [
+            "static_assert(std::is_same_v<decltype(SyncGroupsByDirIGhostOnly), void(window_t)>);\n",
+            "SyncGroupsByDirIGhostOnlyAligned(window, groups, tls);\n",
+            "SyncGroupsByDirIGhostOnly_impl(window, groups, tls);\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/api/api_rk.cxx", "  " + text), [])
+
+    def test_another_thorn_and_the_public_headers_may_name_it(self):
+        self.assertEqual(reported("ODESolvers/src/solve.cxx", self.CALLS[1] + "\n"), [])
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", self.CALLS[1] + "\n"), [])
+
+    def test_the_rule_is_at_home_where_the_call_is_spelled(self):
+        self.assertEqual(rules.layers_of(rules.GHOST_ONLY_FILES), ("comm", "api", "flesh"))
+
+
 class Directions(unittest.TestCase):
     FORWARDED = (
         "  int SyncGroupsByDirI(const window_t window,\n"
@@ -1618,7 +1654,8 @@ class Report(unittest.TestCase):
             "no using-directive in a CarpetX header, "
             "every header opens with its own guard and internal.hxx, "
             "no extern C entry outside flesh/, "
-            "and the hierarchy has one door that util/ and traversal/ never use",
+            "the hierarchy has one door that util/ and traversal/ never use, "
+            "and no driver-internal ghost-only sync",
         )
 
     def test_counts(self):
@@ -2014,7 +2051,7 @@ class Doc(unittest.TestCase):
         rows = {line.split(":")[0]: line for line in doc.owns().splitlines()[4:]}
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
         self.assertTrue(rows["- `hierarchy/`"].endswith(" Rules at home here: validity, binding, varindex, model."))
-        self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry."))
+        self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
         self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "varindex", "model"])
@@ -2028,7 +2065,7 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "model", "traversal", "records", "codec", "entry"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "model", "traversal", "records", "codec", "entry", "ghost-only"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
