@@ -551,6 +551,10 @@ void SyncGroupsByDirISubcycling(const window_t window,
   const char *const prolongation_label =
       "SyncGroupsByDirISubcycling on coarse level before prolongation";
   const char *const sync_label = "SyncGroupsByDirISubcycling before syncing";
+  const char *const integrated_sync_label =
+      "SyncGroupsByDirISubcycling applies the boundary condition after the "
+      "same-level exchange and reads the coarse-fine ghosts that "
+      "state_updated or RecoverRKBoundary fills";
 
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : groups) {
@@ -622,8 +626,8 @@ void SyncGroupsByDirISubcycling(const window_t window,
             require(window_t::one_level(leveldata.level),
                     {.gi = gi,
                      .tl = tl,
-                     .where = make_valid_int(),
-                     .event = sync_label});
+                     .where = make_valid_int() | make_valid_coarse_fine(),
+                     .event = integrated_sync_label});
             tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl,
                                     &ext]() {
               FillPatch_Sync(tasks2, groupdata, *groupdata.timelevel(tl).mfab,

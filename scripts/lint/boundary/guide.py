@@ -88,6 +88,7 @@ SECTIONS: tuple[Section, ...] = (
             ),
             Row(
                 "The halo has two ghost regions with a bit each: the same-level ghosts, which another box of the level or a periodic image covers, and the coarse-fine ghosts, which no box of the level covers and only an interpolation from the parent fills. "
+                "A boundary condition reads both ghost regions, so it belongs to whichever ghost fill runs second, and that fill requires the other region valid. "
                 "`make_valid_ghosts()` and a schedule clause's everywhere name both.",
                 ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/hierarchy.cxx:LevelData", "hierarchy/valid.cxx:loop_ghost_halves", "hierarchy/valid.cxx:check_valid_gf"),
             ),
@@ -145,7 +146,7 @@ SECTIONS: tuple[Section, ...] = (
                 ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "api/api_rk.cxx:fill_refinement_boundary", "api/api_rk.cxx:rk_step_t"),
             ),
             Row(
-                "Under subcycling the SYNC of an integrated group copies the same-level ghosts and marks them on every level; on a refined level at iteration > 0 it keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote, and elsewhere it fills and marks every ghost itself. "
+                "Under subcycling the SYNC of an integrated group copies the same-level ghosts and marks them on every level; on a refined level at iteration > 0 it requires the interior and the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote, keeps them, and applies the boundary condition after the exchange, so it marks the same-level ghosts and the outer boundary, and elsewhere it fills and marks every ghost itself. "
                 "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`, and the thorn's SYNC there copies and marks the rest; the integrator schedules nothing for it.",
                 ("comm/sync_restrict.cxx:SyncGroupsByDirISubcycling", "api/api_rk.cxx:RecoverRKBoundary"),
             ),
