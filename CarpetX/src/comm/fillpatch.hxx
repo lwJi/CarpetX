@@ -79,11 +79,7 @@ void Prolongate_Start(
     const amrex::Geometry &cgeom, amrex::Interpolater *mapper,
     const amrex::Vector<amrex::BCRec> &bcrecs);
 
-// Finish the copy into the ghosts of `mfab`, then apply the fine boundary
-// conditions (after the prolongation, because symmetry boundary conditions
-// might require prolongated points).
-void Prolongate_Finish(const GHExt::PatchData::LevelData::GroupData &groupdata,
-                       amrex::MultiFab &mfab);
+void Prolongate_Finish(amrex::MultiFab &mfab);
 
 // Prolongate and sync interior. Expects coarse mfab prolongated and
 // synced. ("InterpFromCoarseLevel")

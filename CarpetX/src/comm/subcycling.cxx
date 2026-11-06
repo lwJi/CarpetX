@@ -458,16 +458,12 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
                           dense_output, stage, xsi, dtc);
         });
 
-    // Coarse BC on the combined state, spatial interpolation with the group's
-    // operator, scatter into the fine ghost halo, fine BC: the same back half
-    // every other coarse-to-fine fill takes.
     tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
                             &fine_patch, &fgeom, &cgeom]() {
       Prolongate_Start(groupdata, coarsegroupdata, mfab, crse_patch, fine_patch,
                        fgeom, cgeom, groupdata.interpolator, groupdata.bcrecs);
     });
-    tasks3.submit_serially(
-        [&groupdata, &mfab]() { Prolongate_Finish(groupdata, mfab); });
+    tasks3.submit_serially([&mfab]() { Prolongate_Finish(mfab); });
   }
 
   tasks1.run_tasks_serially();

@@ -292,7 +292,6 @@ void fill_refinement_boundary(const level_t level,
   assert(ext.use_subcycling);
   assert(level.index() > 0);
   assert(stage >= 1 && stage <= nstages);
-  const GHExt::PatchData::LevelData &leveldata = ext.level(level);
   const GHExt::PatchData::LevelData &parentdata = ext.level(level.parent());
   const CCTK_REAL substep_start =
       aligned_with_parent(level) ? rk_substep_ratio : 0;
@@ -303,16 +302,11 @@ void fill_refinement_boundary(const level_t level,
   const window_t window = window_t::one_level(level);
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : states) {
-    const GroupData &groupdata = leveldata.group(gi);
-    const valid_t outer = groupdata.all_faces_have_symmetries_or_boundaries()
-                              ? make_valid_outer()
-                              : valid_t();
-    scopes.push_back(
-        open_write(window, {.gi = gi,
-                            .tl = rk_tl,
-                            .fills = make_valid_coarse_fine() | outer,
-                            .keeps = ~make_valid_coarse_fine(),
-                            .event = event}));
+    scopes.push_back(open_write(window, {.gi = gi,
+                                         .tl = rk_tl,
+                                         .fills = make_valid_coarse_fine(),
+                                         .keeps = ~make_valid_coarse_fine(),
+                                         .event = event}));
   }
   FillRKBoundary(
       level, states, rk_tl, end_of_substep ? 1 : stage + 1,

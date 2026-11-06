@@ -141,7 +141,7 @@ SECTIONS: tuple[Section, ...] = (
             Row(
                 "`open_rk_step` is called once the state holds u(t_n), outside any OpenMP parallel region, and stores the old state of every registered pair with storage on each level of the window. "
                 "`rhs_computed` stores the stage band and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
-                "`state_updated` says the state holds the next stage value: under subcycling CarpetX fills the refinement boundary of every refined level in the window from its own clocks, scans the coarse-fine ghosts it wrote and marks them valid, and their outer boundary where every face has a symmetry or boundary; the same-level ghosts of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep. Without subcycling the last `state_updated` applies the flux registers.",
+                "`state_updated` says the state holds the next stage value: under subcycling CarpetX fills the refinement boundary of every refined level in the window from its own clocks, scans the coarse-fine ghosts it wrote and marks them valid; the same-level ghosts and the outer boundary of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep, which exchanges the same-level ghosts and then applies the boundary condition. Without subcycling the last `state_updated` applies the flux registers.",
                 ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "api/api_rk.cxx:fill_refinement_boundary", "api/api_rk.cxx:rk_step_t"),
             ),
             Row(
@@ -170,6 +170,7 @@ SECTIONS: tuple[Section, ...] = (
             "rhs_after_last_stage",
             "step_closed_early",
             "ghosts_before_sync",
+            "outer_before_sync",
         ),
     ),
 )

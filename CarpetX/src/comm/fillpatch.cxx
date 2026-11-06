@@ -149,8 +149,8 @@ void FillPatch_Prolongate(
     delete mfab_crse_patch_ptr;
 
     tasks3.submit_serially([&groupdata, &mfab, mfab_fine_patch_ptr]() {
-      // Finish the copy into the destination, fine boundary conditions
-      Prolongate_Finish(groupdata, mfab);
+      Prolongate_Finish(mfab);
+      apply_boundary_conditions(groupdata, mfab);
 
       delete mfab_fine_patch_ptr;
     });
@@ -187,12 +187,9 @@ void Prolongate_Start(
       IntVect{0} /* don't use any ghosts from the buffer */, nghosts);
 }
 
-void Prolongate_Finish(const GHExt::PatchData::LevelData::GroupData &groupdata,
-                       MultiFab &mfab) {
+void Prolongate_Finish(MultiFab &mfab) {
   // Finish copying fine buffer into destination
   mfab.ParallelCopy_finish();
-
-  apply_boundary_conditions(groupdata, mfab);
 }
 
 void FillPatch_NewLevel(
