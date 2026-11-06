@@ -45,7 +45,7 @@ void FillPatch_Prolongate(
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     MultiFab &mfab, const MultiFab &cmfab, const Geometry &fgeom,
     const Geometry &cgeom, Interpolater *const mapper,
-    const Vector<BCRec> &bcrecs, const bool do_sync,
+    const Vector<BCRec> &bcrecs, const bool do_sync, const bool fine_bc,
     const MultiFab *const cmfab_old, const CCTK_REAL w_new) {
   const IntVect &nghosts = mfab.nGrowVect();
   if (nghosts.max() == 0)
@@ -113,7 +113,7 @@ void FillPatch_Prolongate(
 
   tasks2.submit_serially([&tasks3, &groupdata, &coarsegroupdata, &mfab, &cgeom,
                           &fgeom, mapper, &bcrecs, &fpc, mfab_crse_patch_ptr,
-                          mfab_crse_patch_old_ptr, w_new, do_sync]() {
+                          mfab_crse_patch_old_ptr, w_new, do_sync, fine_bc]() {
     const int ncomps = mfab.nComp();
     MultiFab &mfab_crse_patch = *mfab_crse_patch_ptr;
 
@@ -148,9 +148,10 @@ void FillPatch_Prolongate(
 
     delete mfab_crse_patch_ptr;
 
-    tasks3.submit_serially([&groupdata, &mfab, mfab_fine_patch_ptr]() {
+    tasks3.submit_serially([&groupdata, &mfab, mfab_fine_patch_ptr, fine_bc]() {
       Prolongate_Finish(mfab);
-      apply_boundary_conditions(groupdata, mfab);
+      if (fine_bc)
+        apply_boundary_conditions(groupdata, mfab);
 
       delete mfab_fine_patch_ptr;
     });

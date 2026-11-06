@@ -15,14 +15,6 @@ void FillPatch_Sync(task_manager &tasks2,
                     const GHExt::PatchData::LevelData::GroupData &groupdata,
                     amrex::MultiFab &mfab, const amrex::Geometry &geom);
 
-// Prolongate ghosts from coarse level, optionally with same-level sync.
-// When do_sync=true, also performs FillBoundary (same-level ghost exchange).
-// When do_sync=false, only performs coarse-to-fine interpolation.
-//
-// Optional time-blend: when cmfab_old != nullptr and w_new != 1, the coarse
-// patch is filled as w_new*cmfab + (1-w_new)*cmfab_old before interpolation.
-// This is used to time-interpolate the coarse source when the fine level is
-// mid-subcycle (misaligned in time with the coarse level).
 void FillPatch_Prolongate(
     task_manager &tasks2, task_manager &tasks3,
     const GHExt::PatchData::LevelData::GroupData &groupdata,
@@ -30,11 +22,9 @@ void FillPatch_Prolongate(
     amrex::MultiFab &mfab, const amrex::MultiFab &cmfab,
     const amrex::Geometry &fgeom, const amrex::Geometry &cgeom,
     amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs,
-    bool do_sync, const amrex::MultiFab *cmfab_old = nullptr,
+    bool do_sync, bool fine_bc, const amrex::MultiFab *cmfab_old = nullptr,
     CCTK_REAL w_new = 1);
 
-// Prolongate and sync ghosts (same-level exchange + coarse-to-fine
-// interpolation)
 inline void FillPatch_ProlongateGhosts(
     task_manager &tasks2, task_manager &tasks3,
     const GHExt::PatchData::LevelData::GroupData &groupdata,
@@ -44,20 +34,20 @@ inline void FillPatch_ProlongateGhosts(
     amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs,
     const amrex::MultiFab *cmfab_old = nullptr, CCTK_REAL w_new = 1) {
   FillPatch_Prolongate(tasks2, tasks3, groupdata, coarsegroupdata, mfab, cmfab,
-                       fgeom, cgeom, mapper, bcrecs, /*do_sync=*/true,
-                       cmfab_old, w_new);
+                       fgeom, cgeom, mapper, bcrecs, true, true, cmfab_old,
+                       w_new);
 }
 
-// Prolongate only (coarse-to-fine interpolation, no same-level exchange)
 inline void FillPatch_ProlongateOnly(
     task_manager &tasks2, task_manager &tasks3,
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     amrex::MultiFab &mfab, const amrex::MultiFab &cmfab,
     const amrex::Geometry &fgeom, const amrex::Geometry &cgeom,
-    amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs) {
+    amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs,
+    const bool fine_bc) {
   FillPatch_Prolongate(tasks2, tasks3, groupdata, coarsegroupdata, mfab, cmfab,
-                       fgeom, cgeom, mapper, bcrecs, /*do_sync=*/false);
+                       fgeom, cgeom, mapper, bcrecs, false, fine_bc);
 }
 
 // The back half of a coarse-to-fine ghost fill, shared by

@@ -239,7 +239,8 @@ static void restrict_level(level_t level, std::span<const gi_t> groups,
 
 static void SyncGroupsByDirIProlongateOnly_impl(
     const window_t window, const std::span<const gi_t> groups0,
-    const bool prolongate_on_same_iteration, const timelevels_t tls) {
+    const bool prolongate_on_same_iteration, const bool fine_bc,
+    const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
@@ -272,7 +273,8 @@ static void SyncGroupsByDirIProlongateOnly_impl(
     for (const level_run_t &run : runs) {
       if (!run.value)
         continue;
-      const valid_t fills = coarse_fine_fills(run.levels, gi);
+      const valid_t fills = fine_bc ? coarse_fine_fills(run.levels, gi)
+                                    : make_valid_coarse_fine();
       for (const tl_t tl : fill_tls) {
         scopes.push_back(open_write(
             run.levels, {.gi = gi,
@@ -315,8 +317,18 @@ static void SyncGroupsByDirIProlongateOnly_impl(
         error_if_parent_invalid(leveldata, gi, tl,
                                 "SyncGroupsByDirIProlongateOnly on coarse "
                                 "level before prolongation");
+        if (fine_bc)
+          require(window_t::one_level(leveldata.level),
+                  {.gi = gi,
+                   .tl = tl,
+                   .where = make_valid_same_level(),
+                   .event = "SyncGroupsByDirIProlongateOnly applies the "
+                            "boundary condition after the restriction and "
+                            "reads the same-level ghosts the thorn's SYNC "
+                            "filled"});
         tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
-                                &coarsegroupdata, interpolator, tl, &ext]() {
+                                &coarsegroupdata, interpolator, tl, &ext,
+                                fine_bc]() {
           FillPatch_ProlongateOnly(
               tasks2, tasks3, groupdata, coarsegroupdata,
               *groupdata.timelevel(tl).mfab,
@@ -325,7 +337,7 @@ static void SyncGroupsByDirIProlongateOnly_impl(
                   .amrcore->Geom(leveldata.level.index()),
               ext.patch(leveldata.level.patch())
                   .amrcore->Geom(leveldata.level.parent().index()),
-              interpolator, groupdata.bcrecs);
+              interpolator, groupdata.bcrecs, fine_bc);
         });
 
       } // for tl
@@ -724,13 +736,13 @@ int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,
 void SyncGroupsByDirIProlongateOnly(const window_t window,
                                     const std::span<const gi_t> groups0,
                                     const timelevels_t tls) {
-  SyncGroupsByDirIProlongateOnly_impl(window, groups0, false, tls);
+  SyncGroupsByDirIProlongateOnly_impl(window, groups0, false, false, tls);
 }
 
 void SyncGroupsByDirIProlongateOnlyAligned(const window_t window,
                                            const std::span<const gi_t> groups0,
                                            const timelevels_t tls) {
-  SyncGroupsByDirIProlongateOnly_impl(window, groups0, true, tls);
+  SyncGroupsByDirIProlongateOnly_impl(window, groups0, true, false, tls);
 }
 
 void SyncGroupsByDirIGhostOnly(const window_t window,
@@ -802,7 +814,7 @@ void SyncGroupsByDirIGhostOnly(const window_t window,
 
 void ProlongateAfterRestriction(const window_t window) {
   const std::vector<gi_t> groups = reprolongate_groups();
-  SyncGroupsByDirIProlongateOnly_impl(window, groups, true,
+  SyncGroupsByDirIProlongateOnly_impl(window, groups, true, true,
                                       timelevels_t::all_but_oldest());
 }
 
