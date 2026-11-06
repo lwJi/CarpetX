@@ -4,7 +4,7 @@ Comments in thorn files can only be deleted.
 
 ## Which files are covered
 
-A thorn is a top-level directory with an `interface.ccl`, and its files are the C, C++ and Fortran sources under `src/`, every `.ccl`, every `.par` and `.par-DISABLED`, and `make.code.defn`. Repo tooling (`scripts/`, `agent_scripts/`, `docker/`, workflows, option lists) is not covered, and neither is `BenchX/`.
+A thorn is a top-level directory with an `interface.ccl`, and its files are the C, C++ and Fortran sources under `src/`, every `.ccl`, every `.par` and `.par-DISABLED`, and `make.code.defn`. Repo tooling (`scripts/`, `agent_scripts/`, `docker/`, workflows, option lists) is not covered.
 
 ## What a change may do
 
