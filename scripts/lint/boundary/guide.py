@@ -88,8 +88,9 @@ SECTIONS: tuple[Section, ...] = (
             ),
             Row(
                 "The halo has two ghost regions with a bit each: the same-level ghosts, which another box of the level or a periodic image covers, and the coarse-fine ghosts, which no box of the level covers and only an interpolation from the parent fills. "
+                "A ghost fill marks only the region it copies; the boundary condition reads the interior and both ghost regions, so it runs after the last ghost fill, requires all three valid, and alone marks the outer boundary. "
                 "`make_valid_ghosts()` and a schedule clause's everywhere name both.",
-                ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/hierarchy.cxx:LevelData", "hierarchy/valid.cxx:loop_ghost_halves", "hierarchy/valid.cxx:check_valid_gf"),
+                ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/hierarchy.cxx:LevelData", "hierarchy/valid.cxx:loop_ghost_halves", "hierarchy/valid.cxx:check_valid_gf", "comm/sync_restrict.cxx:apply_outer_boundary"),
             ),
             Row(
                 "`scratch(group)` is shaped like `data(group, tl_t{0})` and comes from a per-group pool its destructor returns it to; the pool dies with its level on a regrid, after which a `scratch_t` is an error, not a dangling pointer. It has no validity bits.",
@@ -104,7 +105,7 @@ SECTIONS: tuple[Section, ...] = (
         (
             Row(
                 "An operation without a `tl` acts on every time level but the oldest. "
-                "`sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the same-level, coarse-fine and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and sets the same-level bit, and `prolongate_ghosts` its coarse-to-fine interpolation alone and sets the coarse-fine bit; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. "
+                "`sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the same-level, coarse-fine and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and sets the same-level bit, and `prolongate_ghosts` its coarse-to-fine interpolation alone and sets the coarse-fine bit, neither applying the boundary condition; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. "
                 "`restrict_no_poison` leaves the coarse ghost and outer regions as they were, where the scheduled restriction invalidates and poisons them. `synchronize` waits for the device.",
                 ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "comm/sync_restrict.cxx:SyncGroupsByDirIGhostOnly", "comm/sync_restrict.cxx:SyncGroupsByDirIProlongateOnly_impl", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
             ),
@@ -141,11 +142,11 @@ SECTIONS: tuple[Section, ...] = (
             Row(
                 "`open_rk_step` is called once the state holds u(t_n), outside any OpenMP parallel region, and stores the old state of every registered pair with storage on each level of the window. "
                 "`rhs_computed` stores the stage band and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
-                "`state_updated` says the state holds the next stage value: under subcycling CarpetX fills the refinement boundary of every refined level in the window from its own clocks, scans the coarse-fine ghosts it wrote and marks them valid, and their outer boundary where every face has a symmetry or boundary; the same-level ghosts of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep. Without subcycling the last `state_updated` applies the flux registers.",
+                "`state_updated` says the state holds the next stage value: under subcycling CarpetX fills the refinement boundary of every refined level in the window from its own clocks, scans the coarse-fine ghosts it wrote and marks them valid; the same-level ghosts and the outer boundary of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep, which exchanges the same-level ghosts and then applies the boundary condition. Without subcycling the last `state_updated` applies the flux registers.",
                 ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "api/api_rk.cxx:fill_refinement_boundary", "api/api_rk.cxx:rk_step_t"),
             ),
             Row(
-                "Under subcycling the SYNC of an integrated group copies the same-level ghosts and marks them on every level; on a refined level at iteration > 0 it keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote, and elsewhere it fills and marks every ghost itself. "
+                "Under subcycling the SYNC of an integrated group copies the same-level ghosts and marks them on every level; on a refined level at iteration > 0 it keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote, and elsewhere it fills and marks every ghost itself; on every level it then applies the boundary condition, which requires the interior and both ghost regions, and marks the outer boundary. "
                 "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`, and the thorn's SYNC there copies and marks the rest; the integrator schedules nothing for it.",
                 ("comm/sync_restrict.cxx:SyncGroupsByDirISubcycling", "api/api_rk.cxx:RecoverRKBoundary"),
             ),
@@ -170,6 +171,7 @@ SECTIONS: tuple[Section, ...] = (
             "rhs_after_last_stage",
             "step_closed_early",
             "ghosts_before_sync",
+            "outer_before_sync",
         ),
     ),
 )

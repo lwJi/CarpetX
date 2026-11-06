@@ -28,15 +28,11 @@ using namespace amrex::detail;
 // Coroutines were popularized in the "Modula" language in the 1980s.
 // Welcome to the future, C++, you're only 40 years behind.
 
-void FillPatch_Sync(task_manager &tasks2,
-                    const GHExt::PatchData::LevelData::GroupData &groupdata,
-                    MultiFab &mfab, const Geometry &geom) {
+void FillPatch_Sync(task_manager &tasks2, MultiFab &mfab,
+                    const Geometry &geom) {
   mfab.FillBoundary_nowait(0, mfab.nComp(), mfab.nGrowVect(),
                            geom.periodicity());
-  tasks2.submit_serially([&groupdata, &mfab]() {
-    mfab.FillBoundary_finish();
-    apply_boundary_conditions(groupdata, mfab);
-  });
+  tasks2.submit_serially([&mfab]() { mfab.FillBoundary_finish(); });
 }
 
 void FillPatch_Prolongate(
@@ -74,18 +70,10 @@ void FillPatch_Prolongate(
     // There is no coarser level for our boundaries, i.e. there is no
     // prolongation.
 
-    if (do_sync) {
-      tasks2.submit_serially([&groupdata, &mfab]() {
-        mfab.FillBoundary_finish();
-        apply_boundary_conditions(groupdata, mfab);
-      });
-    }
+    if (do_sync)
+      tasks2.submit_serially([&mfab]() { mfab.FillBoundary_finish(); });
     return;
   }
-
-  // Prolongate from the next coarser level. Apply the boundary
-  // conditions after the prolongation is done (because symmetry
-  // boundary conditions might require prolongated points).
 
   // Copy parts of coarse grid into temporary buffer
   MultiFab *const mfab_crse_patch_ptr =
@@ -148,10 +136,8 @@ void FillPatch_Prolongate(
 
     delete mfab_crse_patch_ptr;
 
-    tasks3.submit_serially([&groupdata, &mfab, mfab_fine_patch_ptr]() {
-      // Finish the copy into the destination, fine boundary conditions
-      Prolongate_Finish(groupdata, mfab);
-
+    tasks3.submit_serially([&mfab, mfab_fine_patch_ptr]() {
+      Prolongate_Finish(mfab);
       delete mfab_fine_patch_ptr;
     });
   });
@@ -187,12 +173,9 @@ void Prolongate_Start(
       IntVect{0} /* don't use any ghosts from the buffer */, nghosts);
 }
 
-void Prolongate_Finish(const GHExt::PatchData::LevelData::GroupData &groupdata,
-                       MultiFab &mfab) {
+void Prolongate_Finish(MultiFab &mfab) {
   // Finish copying fine buffer into destination
   mfab.ParallelCopy_finish();
-
-  apply_boundary_conditions(groupdata, mfab);
 }
 
 void FillPatch_NewLevel(
