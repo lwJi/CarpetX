@@ -358,7 +358,6 @@ static std::vector<level_run_t> SyncGroupsByDirIProlongateOnly_impl(
   tasks3.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_boundaries(groups);
   scopes.clear();
 
   assert(sync_active);
@@ -814,7 +813,6 @@ void SyncGroupsByDirIGhostOnly(const window_t window,
   tasks2.run_tasks_serially();
   synchronize();
 
-  sync_multipatch_boundaries(groups);
   scopes.clear();
 
   assert(sync_active);
