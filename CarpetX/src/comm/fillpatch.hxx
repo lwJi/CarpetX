@@ -10,10 +10,8 @@
 
 namespace CarpetX {
 
-// Sync
-void FillPatch_Sync(task_manager &tasks2,
-                    const GHExt::PatchData::LevelData::GroupData &groupdata,
-                    amrex::MultiFab &mfab, const amrex::Geometry &geom);
+void FillPatch_Sync(task_manager &tasks2, amrex::MultiFab &mfab,
+                    const amrex::Geometry &geom);
 
 void FillPatch_Prolongate(
     task_manager &tasks2, task_manager &tasks3,
@@ -22,7 +20,7 @@ void FillPatch_Prolongate(
     amrex::MultiFab &mfab, const amrex::MultiFab &cmfab,
     const amrex::Geometry &fgeom, const amrex::Geometry &cgeom,
     amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs,
-    bool do_sync, bool fine_bc, const amrex::MultiFab *cmfab_old = nullptr,
+    bool do_sync, const amrex::MultiFab *cmfab_old = nullptr,
     CCTK_REAL w_new = 1);
 
 inline void FillPatch_ProlongateGhosts(
@@ -34,8 +32,7 @@ inline void FillPatch_ProlongateGhosts(
     amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs,
     const amrex::MultiFab *cmfab_old = nullptr, CCTK_REAL w_new = 1) {
   FillPatch_Prolongate(tasks2, tasks3, groupdata, coarsegroupdata, mfab, cmfab,
-                       fgeom, cgeom, mapper, bcrecs, true, true, cmfab_old,
-                       w_new);
+                       fgeom, cgeom, mapper, bcrecs, true, cmfab_old, w_new);
 }
 
 inline void FillPatch_ProlongateOnly(
@@ -44,10 +41,9 @@ inline void FillPatch_ProlongateOnly(
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     amrex::MultiFab &mfab, const amrex::MultiFab &cmfab,
     const amrex::Geometry &fgeom, const amrex::Geometry &cgeom,
-    amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs,
-    const bool fine_bc) {
+    amrex::Interpolater *mapper, const amrex::Vector<amrex::BCRec> &bcrecs) {
   FillPatch_Prolongate(tasks2, tasks3, groupdata, coarsegroupdata, mfab, cmfab,
-                       fgeom, cgeom, mapper, bcrecs, false, fine_bc);
+                       fgeom, cgeom, mapper, bcrecs, false);
 }
 
 // The back half of a coarse-to-fine ghost fill, shared by

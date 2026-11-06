@@ -28,15 +28,11 @@ using namespace amrex::detail;
 // Coroutines were popularized in the "Modula" language in the 1980s.
 // Welcome to the future, C++, you're only 40 years behind.
 
-void FillPatch_Sync(task_manager &tasks2,
-                    const GHExt::PatchData::LevelData::GroupData &groupdata,
-                    MultiFab &mfab, const Geometry &geom) {
+void FillPatch_Sync(task_manager &tasks2, MultiFab &mfab,
+                    const Geometry &geom) {
   mfab.FillBoundary_nowait(0, mfab.nComp(), mfab.nGrowVect(),
                            geom.periodicity());
-  tasks2.submit_serially([&groupdata, &mfab]() {
-    mfab.FillBoundary_finish();
-    apply_boundary_conditions(groupdata, mfab);
-  });
+  tasks2.submit_serially([&mfab]() { mfab.FillBoundary_finish(); });
 }
 
 void FillPatch_Prolongate(
@@ -45,7 +41,7 @@ void FillPatch_Prolongate(
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     MultiFab &mfab, const MultiFab &cmfab, const Geometry &fgeom,
     const Geometry &cgeom, Interpolater *const mapper,
-    const Vector<BCRec> &bcrecs, const bool do_sync, const bool fine_bc,
+    const Vector<BCRec> &bcrecs, const bool do_sync,
     const MultiFab *const cmfab_old, const CCTK_REAL w_new) {
   const IntVect &nghosts = mfab.nGrowVect();
   if (nghosts.max() == 0)
@@ -74,18 +70,10 @@ void FillPatch_Prolongate(
     // There is no coarser level for our boundaries, i.e. there is no
     // prolongation.
 
-    if (do_sync) {
-      tasks2.submit_serially([&groupdata, &mfab]() {
-        mfab.FillBoundary_finish();
-        apply_boundary_conditions(groupdata, mfab);
-      });
-    }
+    if (do_sync)
+      tasks2.submit_serially([&mfab]() { mfab.FillBoundary_finish(); });
     return;
   }
-
-  // Prolongate from the next coarser level. Apply the boundary
-  // conditions after the prolongation is done (because symmetry
-  // boundary conditions might require prolongated points).
 
   // Copy parts of coarse grid into temporary buffer
   MultiFab *const mfab_crse_patch_ptr =
@@ -113,7 +101,7 @@ void FillPatch_Prolongate(
 
   tasks2.submit_serially([&tasks3, &groupdata, &coarsegroupdata, &mfab, &cgeom,
                           &fgeom, mapper, &bcrecs, &fpc, mfab_crse_patch_ptr,
-                          mfab_crse_patch_old_ptr, w_new, do_sync, fine_bc]() {
+                          mfab_crse_patch_old_ptr, w_new, do_sync]() {
     const int ncomps = mfab.nComp();
     MultiFab &mfab_crse_patch = *mfab_crse_patch_ptr;
 
@@ -148,11 +136,8 @@ void FillPatch_Prolongate(
 
     delete mfab_crse_patch_ptr;
 
-    tasks3.submit_serially([&groupdata, &mfab, mfab_fine_patch_ptr, fine_bc]() {
+    tasks3.submit_serially([&mfab, mfab_fine_patch_ptr]() {
       Prolongate_Finish(mfab);
-      if (fine_bc)
-        apply_boundary_conditions(groupdata, mfab);
-
       delete mfab_fine_patch_ptr;
     });
   });
