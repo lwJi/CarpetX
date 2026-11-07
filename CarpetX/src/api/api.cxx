@@ -367,6 +367,14 @@ void prolongate_aligned_timelevels(const window_t window,
   SyncGroupsByDirIProlongateOnlyAligned(window, groups, tls);
 }
 
+void apply_outer_boundary_timelevels(const window_t window,
+                                     const std::span<const gi_t> groups,
+                                     const timelevels_t tls) {
+  const operation_scope_t op("CarpetX::apply_outer_boundary");
+  require_operable(window, groups);
+  ApplyOuterBoundary(window, groups, tls);
+}
+
 } // namespace
 
 void sync_ghosts_only(const window_t window,
@@ -397,6 +405,17 @@ void prolongate_aligned(const window_t window,
 void prolongate_aligned(const window_t window,
                         const std::span<const gi_t> groups, const tl_t tl) {
   prolongate_aligned_timelevels(window, groups, timelevels_t::one(tl));
+}
+
+void apply_outer_boundary(const window_t window,
+                          const std::span<const gi_t> groups) {
+  apply_outer_boundary_timelevels(window, groups,
+                                  timelevels_t::all_but_oldest());
+}
+
+void apply_outer_boundary(const window_t window,
+                          const std::span<const gi_t> groups, const tl_t tl) {
+  apply_outer_boundary_timelevels(window, groups, timelevels_t::one(tl));
 }
 
 void restrict_no_poison(const window_t window,

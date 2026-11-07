@@ -12,6 +12,7 @@ from files import PROJECT, is_thorn
 GUIDE = "agent_docs/carpetx-public-api.md"
 THORN = "TestCarpetXAPI"
 SOURCES = f"{THORN}/src"
+TESTS = f"{THORN}/test"
 ERRORS = f"{THORN}/test/errors"
 PARAM = f"{THORN}/param.ccl"
 DRIVER_PARAM = "CarpetX/param.ccl"
@@ -58,6 +59,7 @@ BOUNDARY: tuple[str, ...] = (
     "Every other header under `CarpetX/src/` includes `internal.hxx`, which refuses a compilation that is not CarpetX's own; `python3 scripts/lint check --only boundary` holds this, `python3 scripts/lint check --help` says what each rule holds, and `agent_docs/carpetx-internals.md` maps the inside.",
     f"`{THORN}` is a client of both headers: its `interface.ccl` and `configuration.ccl` are what a client declares, and `{SOURCES}/` exercises every name below but those on the last line of this preamble. "
     f"A refusal named under a section is a parfile of `{ERRORS}/`: the description of its mode in `{PARAM}` says what the run does, and its `.expect` file is the text CarpetX aborts with. "
+    f"A mode that a parfile of `{TESTS}/` sets is instead a test the testsuite holds to its reference output. "
     "Every call is available between the driver's SetupGH and its Shutdown, and a bad argument is a `CCTK_VERROR`, never garbage.",
 )
 UNEXERCISED_INTRO = "Held by nothing but the headers: "
@@ -106,12 +108,13 @@ SECTIONS: tuple[Section, ...] = (
             Row(
                 "An operation without a `tl` acts on every time level but the oldest. "
                 "`sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the same-level, coarse-fine and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and sets the same-level bit, and `prolongate_ghosts` its coarse-to-fine interpolation alone and sets the coarse-fine bit, neither applying the boundary condition; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. "
+                "`apply_outer_boundary` is the boundary condition alone: it requires the interior and both ghost regions, writes the outer region and sets the outer bit, so a thorn that has written a group everywhere and wants the driver's boundary condition on it calls this and no ghost fill. "
                 "`restrict_no_poison` leaves the coarse ghost and outer regions as they were, where the scheduled restriction invalidates and poisons them. `synchronize` waits for the device.",
-                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "comm/sync_restrict.cxx:SyncGroupsByDirIGhostOnly", "comm/sync_restrict.cxx:SyncGroupsByDirIProlongateOnly_impl", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
+                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "api/api.cxx:apply_outer_boundary", "comm/sync_restrict.cxx:SyncGroupsByDirIGhostOnly", "comm/sync_restrict.cxx:SyncGroupsByDirIProlongateOnly_impl", "comm/sync_restrict.cxx:ApplyOuterBoundary", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
-        refusals=("sync_during_write", "prolongate_unwritten_parent", "sync_invalid_coarse"),
+        refusals=("sync_during_write", "prolongate_unwritten_parent", "sync_invalid_coarse", "boundary_before_sync"),
     ),
     Section(
         "The hierarchy and the parameters",
@@ -303,9 +306,19 @@ def refusals(root: str) -> dict[str, tuple[str, str]]:
                 raise ValueError(f"{ERRORS}/{name}.par and {seen[mode]}.par both set {THORN}::mode = {mode!r}")
             seen[mode] = name
         found[name] = (described[mode] if mode != default else "", read(expect).strip())
-    unused = sorted(mode for mode in described if mode != default and mode not in seen)
+    tested: set[str] = set()
+    for par in sorted(glob.glob(os.path.join(root, TESTS, "*.par"))):
+        name = os.path.basename(par)[: -len(".par")]
+        m = PARFILE_MODE.search(read(par))
+        mode = m.group(1) if m else default
+        if mode not in described:
+            raise ValueError(f"{TESTS}/{name}.par sets {THORN}::mode = {mode!r}, which {PARAM} does not offer")
+        if mode in seen:
+            raise ValueError(f"{TESTS}/{name}.par and {ERRORS}/{seen[mode]}.par both set {THORN}::mode = {mode!r}: a mode is a test or a refusal")
+        tested.add(mode)
+    unused = sorted(mode for mode in described if mode != default and mode not in seen and mode not in tested)
     if unused:
-        raise ValueError(f"{PARAM} offers {THORN}::mode {', '.join(unused)}, which no parfile of {ERRORS}/ sets")
+        raise ValueError(f"{PARAM} offers {THORN}::mode {', '.join(unused)}, which no parfile of {TESTS}/ or {ERRORS}/ sets")
     return found
 
 

@@ -312,6 +312,9 @@ void invalidate(window_t window, std::span<const gi_t> groups, tl_t tl,
 void sync(window_t window, std::span<const gi_t> groups);
 void sync_ghosts_only(window_t window, std::span<const gi_t> groups);
 void sync_ghosts_only(window_t window, std::span<const gi_t> groups, tl_t tl);
+void apply_outer_boundary(window_t window, std::span<const gi_t> groups);
+void apply_outer_boundary(window_t window, std::span<const gi_t> groups,
+                          tl_t tl);
 void prolongate_ghosts(window_t window, std::span<const gi_t> groups);
 void prolongate_ghosts(window_t window, std::span<const gi_t> groups, tl_t tl);
 void prolongate_aligned(window_t window, std::span<const gi_t> groups);

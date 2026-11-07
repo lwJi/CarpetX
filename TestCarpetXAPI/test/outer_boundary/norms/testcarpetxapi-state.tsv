@@ -1,0 +1,2 @@
+# 1:iteration	2:time	3:testcarpetxapi::state.min	4:testcarpetxapi::state.max	5:testcarpetxapi::state.sum	6:testcarpetxapi::state.avg	7:testcarpetxapi::state.stddev	8:testcarpetxapi::state.volume	9:testcarpetxapi::state.L1norm	10:testcarpetxapi::state.L2norm	11:testcarpetxapi::state.maxabs
+0	0.0000000000000000e+00	-9.4345636337805916e-01	9.4345636337805916e-01	5.2583805365546965e-18	6.5729756706933706e-19	3.5355339059327373e-01	8.0000000000000000e+00	2.6304064591365511e-01	3.5355339059327373e-01	9.4345636337805916e-01
