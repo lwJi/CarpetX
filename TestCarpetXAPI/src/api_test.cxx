@@ -177,7 +177,9 @@ void require_flags(const CarpetX::group_t group,
                 std::string(expected).c_str());
 }
 
-void fill_interior(const CarpetX::level_t level, amrex::MultiFab &mfab) {
+template <typename BoxOf>
+void fill_boxes(const CarpetX::level_t level, amrex::MultiFab &mfab,
+                const BoxOf &box_of) {
   const amrex::Geometry &geom = CarpetX::geometry(level);
   const CCTK_REAL x0 = geom.ProbLo(0), y0 = geom.ProbLo(1), z0 = geom.ProbLo(2);
   const CCTK_REAL dx = geom.CellSize(0), dy = geom.CellSize(1),
@@ -185,7 +187,7 @@ void fill_interior(const CarpetX::level_t level, amrex::MultiFab &mfab) {
   for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
     const amrex::Array4<CCTK_REAL> arr = mfab.array(mfi);
     amrex::ParallelFor(
-        mfi.validbox(),
+        box_of(mfi),
         [=] AMREX_GPU_DEVICE(const int i, const int j, const int k) {
           arr(i, j, k, 0) = written_function(x0 + (i + CCTK_REAL(0.5)) * dx,
                                              y0 + (j + CCTK_REAL(0.5)) * dy,
@@ -193,6 +195,18 @@ void fill_interior(const CarpetX::level_t level, amrex::MultiFab &mfab) {
         });
   }
   CarpetX::synchronize();
+}
+
+void fill_interior(const CarpetX::level_t level, amrex::MultiFab &mfab) {
+  fill_boxes(level, mfab,
+             [](const amrex::MFIter &mfi) { return mfi.validbox(); });
+}
+
+void fill_domain(const CarpetX::level_t level, amrex::MultiFab &mfab) {
+  const amrex::Box domain = CarpetX::geometry(level).Domain();
+  fill_boxes(level, mfab, [&](const amrex::MFIter &mfi) {
+    return mfi.fabbox() & domain;
+  });
 }
 
 extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
@@ -338,6 +352,29 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     require_flags(group, CarpetX::valid_t(), "before anything wrote it");
   });
 
+  if (CCTK_EQUALS(mode, "outer-boundary")) {
+    const CarpetX::valid_t domain =
+        CarpetX::make_valid_int() | CarpetX::make_valid_ghosts();
+    window.loop_serially([&](const CarpetX::level_t level) {
+      CarpetX::write_t write = CarpetX::write(CarpetX::group_t{level, gi}, tl,
+                                              domain, "TestCarpetXAPI_Fill");
+      fill_domain(level, write.mfab());
+    });
+    window.loop_serially([&](const CarpetX::level_t level) {
+      require_flags(CarpetX::group_t{level, gi}, domain,
+                    "after the write scope that filled the domain closed");
+    });
+    CarpetX::apply_outer_boundary(window, groups);
+    window.loop_serially([&](const CarpetX::level_t level) {
+      const CarpetX::group_t group{level, gi};
+      require_flags(group, CarpetX::make_valid_all(),
+                    "after CarpetX::apply_outer_boundary");
+      CarpetX::require_valid(
+          group, tl, CarpetX::make_valid_all(),
+          "TestCarpetXAPI_Fill after CarpetX::apply_outer_boundary");
+    });
+    return;
+  }
   if (CCTK_EQUALS(mode, "require-invalid")) {
     window.loop_serially([&](const CarpetX::level_t level) {
       CarpetX::require_valid(CarpetX::group_t{level, gi}, tl,
@@ -402,6 +439,12 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     require_flags(CarpetX::group_t{level, gi}, CarpetX::make_valid_int(),
                   "after the write scope closed");
   });
+
+  if (CCTK_EQUALS(mode, "boundary-before-sync")) {
+    CarpetX::apply_outer_boundary(window, groups);
+    CCTK_ERROR("CarpetX::apply_outer_boundary ran on state whose ghosts "
+               "nothing has filled");
+  }
 
   CarpetX::invalidate(window, groups, tl, "TestCarpetXAPI_Fill");
   window.loop_serially([&](const CarpetX::level_t level) {

@@ -57,6 +57,9 @@ void SyncGroupsByDirIProlongateOnlyAligned(window_t window,
 void SyncGroupsByDirIGhostOnly(window_t window, std::span<const gi_t> groups,
                                timelevels_t tls);
 
+void ApplyOuterBoundary(window_t window, std::span<const gi_t> groups,
+                        timelevels_t tls);
+
 } // namespace CarpetX
 
 #endif

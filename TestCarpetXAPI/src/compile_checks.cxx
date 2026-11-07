@@ -31,6 +31,12 @@ concept sync_ghosts_only_takes =
 };
 
 template <class... Args>
+concept apply_outer_boundary_takes =
+    requires(window_t window, std::span<const gi_t> groups, Args... args) {
+  CarpetX::apply_outer_boundary(window, groups, args...);
+};
+
+template <class... Args>
 concept prolongate_ghosts_takes =
     requires(window_t window, std::span<const gi_t> groups, Args... args) {
   CarpetX::prolongate_ghosts(window, groups, args...);
@@ -235,6 +241,11 @@ static_assert(sync_ghosts_only_takes<>);
 static_assert(sync_ghosts_only_takes<tl_t>);
 static_assert(!sync_ghosts_only_takes<int>);
 static_assert(!sync_ghosts_only_takes<gi_t>);
+
+static_assert(apply_outer_boundary_takes<>);
+static_assert(apply_outer_boundary_takes<tl_t>);
+static_assert(!apply_outer_boundary_takes<int>);
+static_assert(!apply_outer_boundary_takes<gi_t>);
 
 static_assert(prolongate_ghosts_takes<>);
 static_assert(prolongate_ghosts_takes<tl_t>);

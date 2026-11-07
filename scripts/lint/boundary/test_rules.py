@@ -1926,7 +1926,9 @@ class Guide(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             os.makedirs(os.path.join(root, guide.ERRORS))
             with open(os.path.join(root, guide.PARAM), "w") as f:
-                f.write('KEYWORD mode "what"\n{\n  "fill" :: "fill state"\n  "twice" :: "write twice; CarpetX aborts the run"\n} "fill"\n')
+                f.write('KEYWORD mode "what"\n{\n  "fill" :: "fill state"\n  "twice" :: "write twice; CarpetX aborts the run"\n  "outer" :: "apply the boundary condition"\n} "fill"\n')
+            with open(os.path.join(root, guide.TESTS, "outer.par"), "w") as f:
+                f.write('TestCarpetXAPI::mode = "outer"\n')
 
             def parfile(name, body, expect="boom"):
                 with open(os.path.join(root, guide.ERRORS, name + ".par"), "w") as f:
@@ -1947,10 +1949,23 @@ class Guide(unittest.TestCase):
             parfile("lonely", 'TestCarpetXAPI::mode = "nosuch"\n')
             with self.assertRaisesRegex(ValueError, "lonely.par sets TestCarpetXAPI::mode = 'nosuch', which TestCarpetXAPI/param.ccl does not offer$"):
                 guide.refusals(root)
+            parfile("lonely", 'TestCarpetXAPI::mode = "outer"\n')
+            with self.assertRaisesRegex(ValueError, "^TestCarpetXAPI/test/outer.par and TestCarpetXAPI/test/errors/lonely.par both set TestCarpetXAPI::mode = 'outer': a mode is a test or a refusal$"):
+                guide.refusals(root)
             for suffix in (".par", ".expect"):
                 os.remove(os.path.join(root, guide.ERRORS, "lonely" + suffix))
+            with open(os.path.join(root, guide.TESTS, "outer.par"), "w") as f:
+                f.write('TestCarpetXAPI::mode = "nosuch"\n')
+            with self.assertRaisesRegex(ValueError, "^TestCarpetXAPI/test/outer.par sets TestCarpetXAPI::mode = 'nosuch', which TestCarpetXAPI/param.ccl does not offer$"):
+                guide.refusals(root)
+            os.remove(os.path.join(root, guide.TESTS, "outer.par"))
+            with self.assertRaisesRegex(ValueError, "^TestCarpetXAPI/param.ccl offers TestCarpetXAPI::mode outer, which no parfile of TestCarpetXAPI/test/ or TestCarpetXAPI/test/errors/ sets$"):
+                guide.refusals(root)
+            with open(os.path.join(root, guide.TESTS, "outer.par"), "w") as f:
+                f.write('TestCarpetXAPI::mode = "outer"\n')
+            for suffix in (".par", ".expect"):
                 os.remove(os.path.join(root, guide.ERRORS, "twice" + suffix))
-            with self.assertRaisesRegex(ValueError, "^TestCarpetXAPI/param.ccl offers TestCarpetXAPI::mode twice, which no parfile of TestCarpetXAPI/test/errors/ sets$"):
+            with self.assertRaisesRegex(ValueError, "^TestCarpetXAPI/param.ccl offers TestCarpetXAPI::mode twice, which no parfile of TestCarpetXAPI/test/ or TestCarpetXAPI/test/errors/ sets$"):
                 guide.refusals(root)
 
     def test_every_parfile_is_a_refusal_of_one_section(self):

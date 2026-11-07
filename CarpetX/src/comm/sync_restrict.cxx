@@ -818,6 +818,24 @@ void SyncGroupsByDirIGhostOnly(const window_t window,
   assert(sync_active);
 }
 
+void ApplyOuterBoundary(const window_t window,
+                        const std::span<const gi_t> groups0,
+                        const timelevels_t tls) {
+  mark_sync_active marked;
+
+  static Timer timer("ApplyOuterBoundary");
+  Interval interval(timer);
+
+  sync_log_groups("ApplyOuterBoundary", groups0);
+
+  const std::vector<gi_t> groups = sync_filter_groups(groups0);
+  apply_outer_boundary(window, groups, tls,
+                       "CarpetX::apply_outer_boundary reads the interior and "
+                       "both ghost regions");
+
+  assert(sync_active);
+}
+
 void ProlongateAfterRestriction(const window_t window) {
   const std::vector<gi_t> groups = sync_filter_groups(reprolongate_groups());
   const timelevels_t tls = timelevels_t::all_but_oldest();
