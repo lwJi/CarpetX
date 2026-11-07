@@ -1,0 +1,1 @@
+CarpetX::rk_step_t::rhs_computed on patches [0, 1), refinement levels [0, 1): all 4 stages of this step have run; destroy the rk_step_t and open the next step

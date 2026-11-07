@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import textwrap
+import traceback
+
+EXIT_CLEAN, EXIT_FOUND, EXIT_ERROR = 0, 1, 2
+ENFORCEMENT = """\
+How the checks are run:
+  .claude/settings.json runs hook-edit as the PreToolUse hook of Edit and Write, and hook-stop as the
+  Stop and SubagentStop hooks; both judge the branch from its merge base with dev. The Lint workflow
+  runs `check --since` from the PR's base on every PR and on every push to dev. What a merge brings in
+  from another branch is not judged, only the merge's own resolution. `check --since origin/dev` shows
+  what all of them would report; the rules are in agent_docs/code-comments.md and
+  agent_docs/carpetx-public-api.md, and `check --help` prints every boundary rule. `doc --write` writes
+  agent_docs/carpetx-internals.md, the map of CarpetX/src, and agent_docs/carpetx-public-api.md, the guide
+  to its headers. `symbols` needs a build: the CI workflow runs it after every build and
+  agent_scripts/build.sh after a successful one.
+"""
+HOOKS = {"hook-edit": "hook_edit", "hook-stop": "hook_stop"}
+
+
+def run_check(checks, paths: list[str], since: str | None = None) -> int:
+    from files import PROJECT, GitError, common_ancestor, resolve
+    from run import FileFailed, check_since, check_tree, has_findings, render, render_change
+
+    try:
+        if since is not None:
+            rev = resolve(PROJECT, since)
+            if rev is None:
+                raise GitError(f"{since!r} is not a commit in this repository")
+            base = common_ancestor(PROJECT, rev)
+            if base is None:
+                raise GitError(f"{since!r} and HEAD have no common ancestor")
+            found = check_since(PROJECT, base, checks)
+            report = render_change(found, every=True)
+        else:
+            found = check_tree(paths, checks)
+            report = render(found)
+    except (FileNotFoundError, FileFailed, GitError, OSError, UnicodeError) as e:
+        print(f"lint check: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    sys.stdout.reconfigure(errors="backslashreplace")
+    print(report)
+    return EXIT_FOUND if has_findings(found) else EXIT_CLEAN
+
+
+def generated_docs() -> dict[str, tuple[str, object]]:
+    from boundary import doc, guide
+
+    return {"internals": (doc.MAP, doc.render), "public-api": (guide.GUIDE, guide.render)}
+
+
+def run_doc(write: bool, names: list[str]) -> int:
+    from files import PROJECT
+
+    docs = generated_docs()
+    for name in names or list(docs):
+        file, render = docs[name]
+        try:
+            new = render()
+            if not write:
+                print(new, end="")
+                continue
+            path = os.path.join(PROJECT, file)
+            text = None
+            if os.path.isfile(path):
+                with open(path) as f:
+                    text = f.read()
+            if new != text:
+                with open(path, "w") as f:
+                    f.write(new)
+        except (OSError, ValueError) as e:
+            print(f"lint doc: {e}", file=sys.stderr)
+            return EXIT_ERROR
+        print(f"{'rewrote' if new != text else 'unchanged'} {file}")
+    return EXIT_CLEAN
+
+
+def run_symbols(objdir: str) -> int:
+    from boundary.symbols import RULE, SymbolsError, check
+
+    try:
+        report, clean = check(objdir)
+    except SymbolsError as e:
+        print(f"lint symbols: {e}", file=sys.stderr)
+        return EXIT_ERROR
+    sys.stdout.reconfigure(errors="backslashreplace")
+    print(report)
+    return EXIT_CLEAN if clean else EXIT_FOUND
+
+
+def run_hook(name: str) -> int:
+    try:
+        import hooks
+
+        raw = sys.stdin.buffer.read()
+    except Exception as e:
+        print(json.dumps({"systemMessage": f"lint check skipped: {type(e).__name__}: {e}"}))
+        return 0
+    return getattr(hooks, name)(raw, sys.stdout)
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) == 1 and argv[0] in HOOKS:
+        return run_hook(HOOKS[argv[0]])
+    try:
+        from checks import CHECKS
+
+        checks = CHECKS()
+    except Exception:
+        traceback.print_exc()
+        return EXIT_ERROR
+    names = [check.name for check in checks]
+    parser = argparse.ArgumentParser(
+        prog="python3 scripts/lint",
+        description="The checks the hooks and CI hold a change to: " + ", ".join(names) + ".",
+        epilog=ENFORCEMENT,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    check = commands.add_parser(
+        "check",
+        help="list every comment line outside the allow-list and every line a boundary rule reports",
+        description="List every comment line outside the allow-list and every line a boundary rule reports.",
+        epilog="What each check holds:\n\n" + "\n\n".join(f"{c.name}:\n{textwrap.indent(c.rule, '  ')}" for c in checks),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    check.add_argument("paths", nargs="*", metavar="PATH", help="files or directories to check (default: the whole tree)")
+    check.add_argument(
+        "--since",
+        metavar="REV",
+        help="report only what the working tree added or touched since its merge base with REV (what CI checks)",
+    )
+    check.add_argument(
+        "--only",
+        action="append",
+        choices=names,
+        metavar="CHECK",
+        help="run only this check, one of " + ", ".join(names) + " (repeatable; default: every check)",
+    )
+    from boundary.symbols import RULE as symbols_rule
+
+    symbols = commands.add_parser(
+        "symbols",
+        help="judge the layer order over the objects a build made, whatever syntax declared each import",
+        description=symbols_rule,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    symbols.add_argument("objdir", metavar="OBJDIR", help="the build directory holding one subdirectory of .cxx.o per layer, such as configs/sim/build/CarpetX")
+    doc = commands.add_parser(
+        "doc",
+        help="print the generated docs as --write writes them: internals, agent_docs/carpetx-internals.md, the map of CarpetX/src, and public-api, agent_docs/carpetx-public-api.md, the guide to its headers",
+    )
+    doc.add_argument("names", nargs="*", choices=["internals", "public-api"], metavar="DOC", help="internals or public-api (default: both)")
+    doc.add_argument("--write", action="store_true", help="write the files instead")
+    commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a finding or that touches the generated map")
+    commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a finding")
+    args = parser.parse_args(argv)
+    if args.command in HOOKS:
+        return run_hook(HOOKS[args.command])
+    if args.command == "doc":
+        return run_doc(args.write, args.names)
+    if args.command == "symbols":
+        return run_symbols(args.objdir)
+    if args.since is not None and args.paths:
+        parser.error("--since takes no PATH: it judges every thorn file the tree changed since its merge base with REV")
+    if args.only:
+        checks = tuple(check for check in checks if check.name in args.only)
+    try:
+        return run_check(checks, args.paths, args.since)
+    except Exception:
+        traceback.print_exc()
+        return EXIT_ERROR
+
+
+if __name__ == "__main__":
+    sys.exit(main())

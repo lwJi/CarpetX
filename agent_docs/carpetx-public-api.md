@@ -1,0 +1,49 @@
+# CarpetX's public API
+
+`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/guide.py`, which holds every row to the public headers, to `TestCarpetXAPI/src/` and to `TestCarpetXAPI/test/errors/`; the edit hook refuses an edit here. A row says only what a header cannot: a signature is read in the header, and a refusal in its parfile. Each paragraph ends with the functions of `CarpetX/src/` that hold it, and the generator fails when one is no longer defined in the file named.
+
+A thorn reaches CarpetX through the two headers `CarpetX/interface.ccl` exports from `CarpetX/src/include/`: `carpetx.hxx` for a general thorn, and `carpetx_rk.hxx` for the time integrator. Every other header under `CarpetX/src/` includes `internal.hxx`, which refuses a compilation that is not CarpetX's own; `python3 scripts/lint check --only boundary` holds this, `python3 scripts/lint check --help` says what each rule holds, and `agent_docs/carpetx-internals.md` maps the inside.
+
+`TestCarpetXAPI` is a client of both headers: its `interface.ccl` and `configuration.ccl` are what a client declares, and `TestCarpetXAPI/src/` exercises every name below but those on the last line of this preamble. A refusal named under a section is a parfile of `TestCarpetXAPI/test/errors/`: the description of its mode in `TestCarpetXAPI/param.ccl` says what the run does, and its `.expect` file is the text CarpetX aborts with. A mode that a parfile of `TestCarpetXAPI/test/` sets is instead a test the testsuite holds to its reference output. Every call is available between the driver's SetupGH and its Shutdown, and a bad argument is a `CCTK_VERROR`, never garbage.
+
+Held by nothing but the headers: `restrict_no_poison`, `scratch`.
+
+## Indices and handles
+
+`vi_t` is a variable's place in its group and `var_t` the flesh's variable index. A handle is made of indices and resolved on every call, so a stale one is reported, never dereferenced. `window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. A window checks its bounds when it is built, so the error names the line that built it. Held by `variable`, `levels`, `narrow`, `coarsest`, `finest`, `require_window_bounds` in `api/api.cxx`; `level` in `hierarchy/driver.hxx`.
+
+Refusals: `level_missing`, `timelevel_missing`, `parent_of_level_0`, `window_empty`, `window_out_of_bounds`, `window_outside_traversal`, `hierarchy_absent`.
+
+## Data, validity and the write scope
+
+A write scope sets the validity of the group at `tl` to exactly `leaves_valid` when it opens and poisons the regions it does not promise, so the scope must not read them; when it closes, the promised regions are scanned for poison and NaN. While it is open, a communication operation, `invalidate` or a scheduled function touching the group is refused. `require_valid` also runs that scan over `where`. A validity bit is set only by a write scope or a communication operation. Held by `write`, `require_valid`, `invalidate`, `require_no_open_write` in `api/api.cxx`; `write_scope_t` in `hierarchy/valid.cxx`; `CallFunction` in `schedule/callfunction.cxx`.
+
+The halo has two ghost regions with a bit each: the same-level ghosts, which another box of the level or a periodic image covers, and the coarse-fine ghosts, which no box of the level covers and only an interpolation from the parent fills. A ghost fill marks only the region it copies; the boundary condition reads the interior and both ghost regions, so it runs after the last ghost fill, requires all three valid, and alone marks the outer boundary. `make_valid_ghosts()` and a schedule clause's everywhere name both. Held by `make_valid_ghosts` in `include/carpetx.hxx`; `decode_clauses` in `schedule/clauses.cxx`; `LevelData` in `hierarchy/hierarchy.cxx`; `loop_ghost_halves`, `check_valid_gf` in `hierarchy/valid.cxx`; `apply_outer_boundary` in `comm/sync_restrict.cxx`.
+
+`scratch(group)` is shaped like `data(group, tl_t{0})` and comes from a per-group pool its destructor returns it to; the pool dies with its level on a regrid, after which a `scratch_t` is an error, not a dangling pointer. It has no validity bits. Held by `scratch`, `resolve_scratch`, `scratch_t` in `api/api.cxx`.
+
+Refusals: `write_twice`, `write_unfilled`, `require_invalid`, `invalidate_during_write`, `schedule_during_write`.
+
+## Communication
+
+An operation without a `tl` acts on every time level but the oldest. `sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the same-level, coarse-fine and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and sets the same-level bit, and `prolongate_ghosts` its coarse-to-fine interpolation alone and sets the coarse-fine bit, neither applying the boundary condition; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. `apply_outer_boundary` is the boundary condition alone: it requires the interior and both ghost regions, writes the outer region and sets the outer bit, so a thorn that has written a group everywhere and wants the driver's boundary condition on it calls this and no ghost fill. `restrict_no_poison` leaves the coarse ghost and outer regions as they were, where the scheduled restriction invalidates and poisons them. `synchronize` waits for the device. Held by `sync`, `sync_ghosts_only`, `prolongate_ghosts`, `prolongate_aligned`, `apply_outer_boundary`, `restrict_no_poison` in `api/api.cxx`; `SyncGroupsByDirIGhostOnly`, `SyncGroupsByDirIProlongateOnly_impl`, `ApplyOuterBoundary`, `Restrict`, `RestrictNoPoison` in `comm/sync_restrict.cxx`; `synchronize` in `hierarchy/loops.cxx`.
+
+Refusals: `sync_during_write`, `prolongate_unwritten_parent`, `sync_invalid_coarse`, `boundary_before_sync`.
+
+## The hierarchy and the parameters
+
+The BoxArray and DistributionMapping of a level are those of any group's MultiFab on it, and the refinement ratio is 2. Driver parameters are read through the flesh, `SHARES: Driver` or `CCTK_ParameterGet`, and CarpetX checks its own. Held by `PatchData`, `GroupData` in `hierarchy/hierarchy.cxx`; `per_level_max_grid_sizes` in `hierarchy/grid_sizes.cxx`; `select_groups` in `io/selection.cxx`.
+
+Refusals: `too_many_levels`, `output_unknown_variable`.
+
+## The integrator's contract: `carpetx_rk.hxx`
+
+Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step; CarpetX derives everything else, and runs without a registration until `open_rk_step`. Registration is `AT WRAGH`, once; the record freezes when that traversal ends. `dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. `b` holds the final-update weight of every stage, all zero for a method that never updates the state. Held by `register_integrator`, `require_integrator`, `check_weights`, `check_pair` in `api/api_rk.cxx`; `record_integrator`, `freeze_integrator` in `traversal/traversal.cxx`.
+
+`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH for the traversal; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does. Held by `run_schedule_group_at` in `api/api_rk.cxx`.
+
+`open_rk_step` is called once the state holds u(t_n), outside any OpenMP parallel region, and stores the old state of every registered pair with storage on each level of the window. `rhs_computed` stores the stage band and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. `state_updated` says the state holds the next stage value: under subcycling CarpetX fills the refinement boundary of every refined level in the window from its own clocks, scans the coarse-fine ghosts it wrote and marks them valid; the same-level ghosts and the outer boundary of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep, which exchanges the same-level ghosts and then applies the boundary condition. Without subcycling the last `state_updated` applies the flux registers. Held by `open_rk_step`, `require_serial_context`, `rhs_computed`, `state_updated`, `fill_refinement_boundary`, `rk_step_t` in `api/api_rk.cxx`.
+
+Under subcycling the SYNC of an integrated group copies the same-level ghosts and marks them on every level; on a refined level at iteration > 0 it keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote, and elsewhere it fills and marks every ghost itself; on every level it then applies the boundary condition, which requires the interior and both ghost regions, and marks the outer boundary. After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`, and the thorn's SYNC there copies and marks the rest; the integrator schedules nothing for it. Held by `SyncGroupsByDirISubcycling` in `comm/sync_restrict.cxx`; `RecoverRKBoundary` in `api/api_rk.cxx`.
+
+Refusals: `register_at_startup`, `register_at_paramcheck`, `register_after_use`, `register_twice`, `dense_output_stage_mismatch`, `weights_sum_mismatch`, `reflux_without_weights`, `subcycling_without_dense_output`, `integrated_not_checkpointed`, `unregistered_rk_call`, `rk_before_freeze`, `rk_open_invalid_state`, `rhs_invalid`, `rhs_repeated`, `state_before_rhs`, `rhs_after_last_stage`, `step_closed_early`, `ghosts_before_sync`, `outer_before_sync`.

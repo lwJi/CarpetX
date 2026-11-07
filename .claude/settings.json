@@ -11,7 +11,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "d=\"$CLAUDE_PROJECT_DIR/scripts/comments\"; [ -f \"$d/__main__.py\" ] || exit 0; python3 \"$d\" hook-edit"
+            "command": "d=\"$CLAUDE_PROJECT_DIR/scripts/lint\"; [ -f \"$d/__main__.py\" ] || exit 0; python3 \"$d\" hook-edit"
           }
         ]
       }
@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "d=\"$CLAUDE_PROJECT_DIR/scripts/comments\"; [ -f \"$d/__main__.py\" ] || exit 0; python3 \"$d\" hook-stop"
+            "command": "d=\"$CLAUDE_PROJECT_DIR/scripts/lint\"; [ -f \"$d/__main__.py\" ] || exit 0; python3 \"$d\" hook-stop"
           }
         ]
       }
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "d=\"$CLAUDE_PROJECT_DIR/scripts/comments\"; [ -f \"$d/__main__.py\" ] || exit 0; python3 \"$d\" hook-stop"
+            "command": "d=\"$CLAUDE_PROJECT_DIR/scripts/lint\"; [ -f \"$d/__main__.py\" ] || exit 0; python3 \"$d\" hook-stop"
           }
         ]
       }

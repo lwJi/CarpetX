@@ -4,7 +4,7 @@ Comments in thorn files can only be deleted.
 
 ## Which files are covered
 
-A thorn is a top-level directory with an `interface.ccl`, and its files are the C, C++ and Fortran sources under `src/`, every `.ccl`, every `.par` and `.par-DISABLED`, and `make.code.defn`. Repo tooling (`scripts/`, `agent_scripts/`, `docker/`, workflows, option lists) is not covered, and neither is `BenchX/`.
+A thorn is a top-level directory with an `interface.ccl`, and its files are the C, C++ and Fortran sources under `src/`, every `.ccl`, every `.par` and `.par-DISABLED`, and `make.code.defn`. Repo tooling (`scripts/`, `agent_scripts/`, `docker/`, workflows, option lists) is not covered.
 
 ## What a change may do
 
@@ -29,4 +29,4 @@ Explain in code (an `assert`, a name, a `CCTK_VERROR`) or in your commit message
 
 ## How it is enforced
 
-A hook refuses an Edit or Write that adds a comment line or keeps a comment over code it changes, a Stop hook blocks the turn once if the branch has done either since `dev`, and the `no-comments` check fails a PR that has; `python3 scripts/comments check --since origin/dev` shows what it would report. What a merge brings in from another branch is not judged, only the merge's own resolution.
+`python3 scripts/lint check --since origin/dev` shows what the hooks and the `Lint` workflow would report, beside the `boundary` check that shares the tool, and `--only no-comments` shows this check alone; `python3 scripts/lint --help` says how they run it.
