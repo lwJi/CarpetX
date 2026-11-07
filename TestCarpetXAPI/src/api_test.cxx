@@ -177,18 +177,21 @@ void require_flags(const CarpetX::group_t group,
                 std::string(expected).c_str());
 }
 
-template <typename BoxOf>
+enum class fill_t { interior, domain };
+
 void fill_boxes(const CarpetX::level_t level, amrex::MultiFab &mfab,
-                const BoxOf &box_of) {
+                const fill_t fill) {
   const amrex::Geometry &geom = CarpetX::geometry(level);
+  const amrex::Box domain = geom.Domain();
   const CCTK_REAL x0 = geom.ProbLo(0), y0 = geom.ProbLo(1), z0 = geom.ProbLo(2);
   const CCTK_REAL dx = geom.CellSize(0), dy = geom.CellSize(1),
                   dz = geom.CellSize(2);
   for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
+    const amrex::Box box =
+        fill == fill_t::interior ? mfi.validbox() : mfi.fabbox() & domain;
     const amrex::Array4<CCTK_REAL> arr = mfab.array(mfi);
     amrex::ParallelFor(
-        box_of(mfi),
-        [=] AMREX_GPU_DEVICE(const int i, const int j, const int k) {
+        box, [=] AMREX_GPU_DEVICE(const int i, const int j, const int k) {
           arr(i, j, k, 0) = written_function(x0 + (i + CCTK_REAL(0.5)) * dx,
                                              y0 + (j + CCTK_REAL(0.5)) * dy,
                                              z0 + (k + CCTK_REAL(0.5)) * dz);
@@ -198,15 +201,11 @@ void fill_boxes(const CarpetX::level_t level, amrex::MultiFab &mfab,
 }
 
 void fill_interior(const CarpetX::level_t level, amrex::MultiFab &mfab) {
-  fill_boxes(level, mfab,
-             [](const amrex::MFIter &mfi) { return mfi.validbox(); });
+  fill_boxes(level, mfab, fill_t::interior);
 }
 
 void fill_domain(const CarpetX::level_t level, amrex::MultiFab &mfab) {
-  const amrex::Box domain = CarpetX::geometry(level).Domain();
-  fill_boxes(level, mfab, [&](const amrex::MFIter &mfi) {
-    return mfi.fabbox() & domain;
-  });
+  fill_boxes(level, mfab, fill_t::domain);
 }
 
 extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
