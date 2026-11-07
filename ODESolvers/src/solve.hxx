@@ -1,10 +1,7 @@
 #ifndef CARPETX_ODESOLVERS_SOLVE_HXX
 #define CARPETX_ODESOLVERS_SOLVE_HXX
 
-// TODO: Don't include files from other thorns; create a proper interface
-#include "../../CarpetX/src/driver.hxx"
-#include "../../CarpetX/src/schedule.hxx"
-#include "../../CarpetX/src/timer.hxx"
+#include <carpetx.hxx>
 
 #include <cctk.h>
 #include <cctk_Parameters.h>
@@ -73,7 +70,6 @@ constexpr details::return_type<D, Types...> make_array(Types &&...t) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// A state vector component, with mfabs for each level, group, and variable
 struct statecomp_t {
 
   statecomp_t() = default;
@@ -85,48 +81,33 @@ struct statecomp_t {
   statecomp_t(const statecomp_t &) = delete;
   statecomp_t &operator=(const statecomp_t &) = delete;
 
-  vector<GHExt::PatchData::LevelData::GroupData *> groupdatas;
-  vector<amrex::MultiFab *> mfabs;
-  // Timelevel of every mfab/groupdata entry. Subcycling aliases the previous
-  // step at tl=1; all other paths use tl=0.
-  int timelevel = 0;
+  struct entry_t {
+    CarpetX::group_t group;
+    std::optional<CarpetX::scratch_t> tmp;
+  };
+  vector<entry_t> entries;
+  CarpetX::tl_t timelevel{0};
 
-  static void init_tmp_mfabs();
-  static void free_tmp_mfabs();
-
-  void set_valid(const valid_t valid) const;
-  template <size_t N>
-  static void combine_valids(const statecomp_t &dst, const CCTK_REAL scale,
-                             const array<CCTK_REAL, N> &factors,
-                             const array<const statecomp_t *, N> &srcs,
-                             const valid_t where);
-  void check_valid(const valid_t required, const function<string()> &why) const;
-  void check_valid(const valid_t required, const string &why) const {
-    check_valid(required, [=]() { return why; });
-  }
-
-  statecomp_t copy(const valid_t where) const;
+  statecomp_t copy() const;
 
   template <size_t N>
-  static void lincomb(const statecomp_t &dst, CCTK_REAL scale,
-                      const array<CCTK_REAL, N> &factors,
-                      const array<const statecomp_t *, N> &srcs,
-                      const valid_t where);
+  static void
+  lincomb(statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, N> &factors,
+          const array<const statecomp_t *, N> &srcs, CarpetX::valid_t where);
   template <size_t N>
-  static void lincomb(const statecomp_t &dst, CCTK_REAL scale,
-                      const array<CCTK_REAL, N> &factors,
-                      const array<statecomp_t *, N> &srcs,
-                      const valid_t where) {
+  static void
+  lincomb(statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, N> &factors,
+          const array<statecomp_t *, N> &srcs, const CarpetX::valid_t where) {
     array<const statecomp_t *, N> srcs1;
     for (size_t n = 0; n < N; ++n)
       srcs1[n] = srcs[n];
     lincomb(dst, scale, factors, srcs1, where);
   }
 
-  static void lincomb(const statecomp_t &dst, CCTK_REAL scale,
+  static void lincomb(statecomp_t &dst, CCTK_REAL scale,
                       const vector<CCTK_REAL> &factors,
                       const vector<const statecomp_t *> &srcs,
-                      const valid_t where);
+                      CarpetX::valid_t where);
 };
 
 template <std::size_t N> using reals = std::array<CCTK_REAL, N>;
@@ -160,9 +141,9 @@ inline int groupindex(const int other_gi, std::string gn) {
   return gi;
 }
 
-inline int get_group_rhs(const int gi) {
-  assert(gi >= 0);
-  const int tags = CCTK_GroupTagsTableI(gi);
+inline std::optional<CarpetX::gi_t> get_group_rhs(const CarpetX::gi_t gi) {
+  assert(gi.index() >= 0);
+  const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   std::vector<char> rhs_buf(1000);
   const int iret =
@@ -177,21 +158,23 @@ inline int get_group_rhs(const int gi) {
 
   const std::string str(rhs_buf.data());
   if (str.empty())
-    return -1; // No RHS specified
+    return std::nullopt;
 
-  const int rhs = groupindex(gi, str);
+  const int rhs = groupindex(gi.index(), str);
   if (rhs < 0)
     CCTK_VERROR("Variable group \"%s\" declares a RHS group \"%s\". "
                 "That group does not exist.",
-                CCTK_FullGroupName(gi), str.c_str());
-  assert(rhs != gi);
+                CCTK_FullGroupName(gi.index()), str.c_str());
+  const CarpetX::gi_t rhs_gi{rhs};
+  assert(rhs_gi != gi);
 
-  return rhs;
+  return rhs_gi;
 }
 
-inline std::vector<int> get_group_dependents(const int gi) {
-  assert(gi >= 0);
-  const int tags = CCTK_GroupTagsTableI(gi);
+inline std::vector<CarpetX::gi_t>
+get_group_dependents(const CarpetX::gi_t gi) {
+  assert(gi.index() >= 0);
+  const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   std::vector<char> dependents_buf(1000);
   const int iret = Util_TableGetString(tags, dependents_buf.size(),
@@ -204,7 +187,7 @@ inline std::vector<int> get_group_dependents(const int gi) {
     assert(0);
   }
 
-  std::vector<int> dependents;
+  std::vector<CarpetX::gi_t> dependents;
   const std::string str(dependents_buf.data());
   std::size_t pos = 0;
   for (;;) {
@@ -213,36 +196,21 @@ inline std::vector<int> get_group_dependents(const int gi) {
       ++pos;
     if (pos == str.size())
       break;
-    // Read group name
     const std::size_t group_begin = pos;
     while (pos < str.size() && !std::isspace(str[pos]))
       ++pos;
     const std::size_t group_end = pos;
     const std::string groupname =
         str.substr(group_begin, group_end - group_begin);
-    const int dep_gi = groupindex(gi, groupname);
+    const int dep_gi = groupindex(gi.index(), groupname);
     if (dep_gi < 0)
       CCTK_VERROR("Variable group \"%s\" declares a dependent group \"%s\". "
                   "That group does not exist.",
-                  CCTK_FullGroupName(gi), groupname.c_str());
-    dependents.push_back(dep_gi);
+                  CCTK_FullGroupName(gi.index()), groupname.c_str());
+    dependents.push_back(CarpetX::gi_t{dep_gi});
   }
 
   return dependents;
-}
-
-// Mark groups as invalid
-inline void mark_invalid(const std::vector<int> &groups) {
-  CarpetX::active_levels->loop_serially([&](const auto &leveldata) {
-    for (const int gi : groups) {
-      auto &groupdata = *leveldata.groupdata.at(gi);
-      // Invalidate all variables of the current time level
-      const int tl = 0;
-      for (auto &why_valid : groupdata.valid.at(tl))
-        why_valid =
-            why_valid_t([] { return "ODESolvers updated the state vector"; });
-    }
-  });
 }
 
 } // namespace ODESolvers

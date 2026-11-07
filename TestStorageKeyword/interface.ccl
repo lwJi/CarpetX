@@ -19,3 +19,8 @@ CCTK_REAL unstoraged_arr TYPE=array TIMELEVELS=2 DIM=1 SIZE=4 DISTRIB=constant
 {
   ua
 } "Array, declared but not STORAGE'd"
+
+CCTK_REAL storaged_arr3 TYPE=array TIMELEVELS=3 DIM=1 SIZE=4 DISTRIB=constant
+{
+  sa3
+} "Array with three time levels, STORAGE'd in schedule.ccl"

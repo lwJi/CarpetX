@@ -6,20 +6,6 @@ ActiveThorns = "
     ODESolvers
 "
 
-# standing.par with the implicit-explicit method IMEX122, with
-# CarpetX::do_reflux = yes and CarpetX::max_num_levels at its default (1).
-# FluxWaveToyX::state is integrated and carries a fluxes= tag, but a unigrid
-# run can never own a flux register, so ODESolvers_CheckMethod must accept
-# the implicit method here; with max_num_levels > 1 the same setup is
-# rejected at PARAMCHECK unless CarpetX::do_reflux = no.
-#
-# This pins only that the run passes PARAMCHECK and sets up initial data
-# (cctk_itlast = 0; the reference is the iteration-0 output). The IMEX122
-# step itself is broken and tracked separately: in ODESolvers_Solve the
-# copies y0 and y1 (var.copy(make_valid_int()), odesolvers_solve.cxx:567 and
-# :593) strip the state's ghost validity, so the first ODESolvers_RHS
-# aborts, and kprime2 is an empty statecomp_t used as a lincomb destination.
-
 Cactus::cctk_show_schedule = no
 Cactus::presync_mode = "mixed-error"
 

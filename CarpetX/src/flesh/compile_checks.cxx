@@ -1,0 +1,471 @@
+#include "io/checkpoint.hxx"
+#include "hierarchy/driver.hxx"
+#include "hierarchy/loops.hxx"
+#include "hierarchy/operations.hxx"
+#include "comm/reflux.hxx"
+#include "comm/subcycling.hxx"
+#include "comm/comm.hxx"
+#include "hierarchy/valid.hxx"
+
+#include <carpetx.hxx>
+
+#include <functional>
+#include <optional>
+#include <span>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+namespace CarpetX {
+namespace {
+
+template <class Group>
+concept record_takes = requires(GHExt & ext, Group group) {
+  ext.record(group);
+};
+
+template <class... Args>
+concept ghext_level_takes = requires(GHExt & ext, Args... args) {
+  ext.level(args...);
+};
+
+template <class Patch>
+concept ghext_patch_takes = requires(GHExt & ext, Patch patch) {
+  ext.patch(patch);
+};
+
+template <class Patch>
+concept ghext_num_levels_takes = requires(const GHExt &ext, Patch patch) {
+  ext.num_levels(patch);
+};
+
+template <class Level>
+concept patch_level_takes =
+    requires(GHExt::PatchData & patchdata, Level level) {
+  patchdata.level(level);
+};
+
+template <class Ext, class... Args>
+concept patch_cctkGH_takes = requires(const Ext &ext, Args... args) {
+  ext.get_patch_cctkGH(args...);
+};
+
+template <class Ext, class... Args>
+concept local_cctkGH_takes = requires(const Ext &ext, Args... args) {
+  ext.get_local_cctkGH(args...);
+};
+
+template <class... Args>
+concept ensure_rk_buffers_takes = requires(Args... args) {
+  EnsureRKBuffers(args...);
+};
+
+template <class... Args>
+concept accumulate_fluxes_takes = requires(Args... args) {
+  AccumulateFluxes(args...);
+};
+
+template <class... Args>
+concept checkpoint_bands_takes = requires(Args... args) {
+  checkpoint_bands(args...);
+};
+
+template <class... Args>
+concept finer_behind_takes =
+    requires(const checkpoint_record_t &record, Args... args) {
+  finer_level_is_behind(record, args...);
+};
+
+template <class Kernel>
+concept loop_parallel_takes = requires(window_t window, Kernel kernel) {
+  loop_parallel(window, kernel);
+};
+
+template <class Kernel>
+concept loop_fine_to_coarse_takes = requires(window_t window, Kernel kernel) {
+  loop_fine_to_coarse(window, kernel);
+};
+
+template <class Group>
+concept level_group_takes =
+    requires(GHExt::PatchData::LevelData & leveldata, Group group) {
+  leveldata.group(group);
+};
+
+template <class Timelevel>
+concept group_timelevel_takes =
+    requires(GHExt::PatchData::LevelData::GroupData & groupdata, Timelevel tl) {
+  groupdata.timelevel(tl);
+};
+
+template <class Timelevel>
+concept array_timelevel_takes =
+    requires(GHExt::GlobalData::ArrayGroupData & groupdata, Timelevel tl) {
+  groupdata.timelevel(tl);
+};
+
+template <class... Args>
+concept sync_by_dir_takes = requires(Args... args) {
+  SyncGroupsByDirI(args...);
+};
+
+template <class... Args>
+concept ghost_only_takes = requires(Args... args) {
+  SyncGroupsByDirIGhostOnly(args...);
+};
+
+template <class... Args>
+concept restrict_takes = requires(Args... args) {
+  Restrict(args...);
+};
+
+template <class... Args>
+concept restrict_no_poison_takes = requires(Args... args) {
+  RestrictNoPoison(args...);
+};
+
+template <class... Args>
+concept reflux_takes = requires(Args... args) {
+  Reflux(args...);
+};
+
+using comm_groups_entry_t = void(window_t, std::span<const gi_t>);
+using comm_timelevels_entry_t = void(window_t, std::span<const gi_t>,
+                                     timelevels_t);
+
+template <class... Args>
+concept window_is_restricted_takes = requires(Args... args) {
+  window_is_restricted(args...);
+};
+
+template <class Window>
+concept require_takes = requires(Window window, require_spec_t spec) {
+  require(window, spec);
+};
+
+template <class Group, class Timelevel>
+concept write_spec_names = requires(Group group, Timelevel tl) {
+  write_spec_t{.gi = group, .tl = tl};
+};
+
+template <class Variable>
+concept write_spec_variable = requires(gi_t gi, tl_t tl, Variable vi) {
+  write_spec_t{.gi = gi, .tl = tl, .vi = vi};
+};
+
+template <class Variable>
+concept record_var_takes =
+    requires(const GHExt::GroupRecord &record, Variable vi) {
+  record.var(vi);
+};
+
+template <class Variable>
+concept timelevel_valid_takes = requires(
+    const GHExt::PatchData::LevelData::GroupData::timelevel_t &timelevel,
+    Variable vi) {
+  timelevel.valid(vi);
+};
+
+template <class Variable>
+concept array_timelevel_valid_takes =
+    requires(const GHExt::GlobalData::ArrayGroupData::timelevel_t &timelevel,
+             Variable vi) {
+  timelevel.valid(vi);
+};
+
+template <class Variable>
+concept grid_ptr_takes =
+    requires(const GridPtrDesc1 &grid, const amrex::Array4<CCTK_REAL> &vars,
+             Variable vi) {
+  grid.ptr(vars, vi);
+};
+
+template <class Ext>
+concept assigns_use_subcycling = requires(Ext & ext) {
+  ext.use_subcycling = true;
+};
+
+template <class Ext>
+concept assigns_do_reflux = requires(Ext & ext) {
+  ext.do_reflux = true;
+};
+
+template <class Ext>
+concept assigns_active_timelevels = requires(Ext & ext, gi_t gi) {
+  ext.active_timelevels(gi) = 0;
+};
+
+template <class Ext>
+concept assigns_pending_timelevels = requires(Ext & ext) {
+  ext.pending_timelevels_->at(0) = 0;
+};
+
+template <class Ext>
+concept assigns_storage_frozen = requires(Ext & ext) {
+  ext.storage_frozen() = true;
+};
+
+template <class Ext>
+concept assigns_initialized = requires(Ext & ext) {
+  ext.initialized_ = true;
+};
+
+template <class Ext>
+concept assigns_is_initialized = requires(Ext & ext) {
+  ext.is_initialized() = true;
+};
+
+template <class... Args>
+concept create_hierarchy_takes = requires(Args... args) {
+  create_hierarchy(args...);
+};
+
+template <class Core>
+concept assigns_level_modified = requires(Core & core) {
+  core.level_modified.at(0) = true;
+};
+
+template <class Core>
+concept marks_level_modified = requires(Core & core, level_t level) {
+  core.mark_level_modified(level);
+};
+
+template <class Core>
+concept resets_level_modified = requires(Core & core, int num_levels) {
+  core.reset_level_modified(num_levels);
+};
+
+template <class Ext>
+concept regrids_amrcore = requires(Ext & ext, patch_t patch) {
+  ext.patch(patch).amrcore->regrid(0, 0.0);
+};
+
+template <class Ext>
+concept marks_initialized = requires(Ext & ext) { ext.mark_initialized(); };
+
+template <class Ext>
+concept opens_mutable_door = requires { Ext::mutable_instance(); };
+
+template <class Group>
+concept rotates = requires(Group & group) { group.rotate_timelevels(); };
+
+static_assert(record_takes<gi_t>);
+static_assert(!record_takes<int>);
+
+static_assert(ghext_level_takes<level_t>);
+static_assert(!ghext_level_takes<int, int>);
+static_assert(!ghext_level_takes<patch_t, int>);
+
+static_assert(ghext_patch_takes<patch_t>);
+static_assert(!ghext_patch_takes<int>);
+
+static_assert(ghext_num_levels_takes<patch_t>);
+static_assert(!ghext_num_levels_takes<int>);
+
+static_assert(patch_level_takes<level_t>);
+static_assert(!patch_level_takes<int>);
+
+static_assert(patch_cctkGH_takes<GHExt::PatchData::LevelData>);
+static_assert(!patch_cctkGH_takes<GHExt, int, int>);
+static_assert(local_cctkGH_takes<GHExt::PatchData::LevelData, int>);
+static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
+
+static_assert(ensure_rk_buffers_takes<level_t, gi_t>);
+static_assert(!ensure_rk_buffers_takes<int, int, gi_t>);
+
+static_assert(accumulate_fluxes_takes<level_t, int, CCTK_REAL>);
+static_assert(!accumulate_fluxes_takes<int, int, int, CCTK_REAL>);
+
+static_assert(checkpoint_bands_takes<level_t, gi_t>);
+static_assert(!checkpoint_bands_takes<int, int, gi_t>);
+static_assert(!checkpoint_bands_takes<level_t, int>);
+
+static_assert(finer_behind_takes<level_t>);
+static_assert(!finer_behind_takes<int, int>);
+
+static_assert(
+    loop_parallel_takes<std::function<void(const GHExt::PatchData::LevelData &,
+                                           int, int, const cGH *)> >);
+static_assert(!loop_parallel_takes<std::function<void(
+                  GHExt::PatchData::LevelData &, int, int, const cGH *)> >);
+static_assert(!loop_parallel_takes<
+              std::function<void(int, int, int, int, const cGH *)> >);
+static_assert(
+    !loop_parallel_takes<std::function<void(level_t, int, int, const cGH *)> >);
+
+static_assert(loop_fine_to_coarse_takes<
+              std::function<void(const GHExt::PatchData::LevelData &)> >);
+static_assert(!loop_fine_to_coarse_takes<
+              std::function<void(GHExt::PatchData::LevelData &)> >);
+static_assert(!loop_fine_to_coarse_takes<std::function<void(level_t)> >);
+
+static_assert(level_group_takes<gi_t>);
+static_assert(!level_group_takes<int>);
+
+static_assert(group_timelevel_takes<tl_t>);
+static_assert(!group_timelevel_takes<gi_t>);
+static_assert(!group_timelevel_takes<int>);
+
+static_assert(array_timelevel_takes<tl_t>);
+static_assert(!array_timelevel_takes<gi_t>);
+static_assert(!array_timelevel_takes<int>);
+
+static_assert(sync_by_dir_takes<window_t, std::span<const gi_t> >);
+
+static_assert(restrict_takes<window_t, std::span<const gi_t> >);
+static_assert(!restrict_takes<int, int, std::span<const gi_t> >);
+static_assert(restrict_no_poison_takes<window_t, std::span<const gi_t> >);
+static_assert(!restrict_no_poison_takes<int, int, std::span<const gi_t> >);
+static_assert(reflux_takes<window_t>);
+static_assert(!reflux_takes<int, int>);
+static_assert(window_is_restricted_takes<window_t>);
+static_assert(!window_is_restricted_takes<int, int>);
+static_assert(require_takes<window_t>);
+static_assert(!require_takes<level_t>);
+
+static_assert(ghost_only_takes<window_t, std::span<const gi_t>, timelevels_t>);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t> >);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, tl_t>);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, int>);
+
+static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
+static_assert(
+    std::is_same_v<decltype(ProlongateAfterRestriction), void(window_t)>);
+static_assert(std::is_same_v<decltype(RestrictNoPoison), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirI), comm_groups_entry_t>);
+static_assert(
+    std::is_same_v<decltype(SyncGroupsByDirISubcycling), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroups), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnly),
+                             comm_timelevels_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnlyAligned),
+                             comm_timelevels_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroupsByDirIGhostOnly),
+                             comm_timelevels_entry_t>);
+static_assert(std::is_same_v<decltype(Reflux), void(window_t)>);
+static_assert(std::is_same_v<decltype(RecoverRKBoundary), void(window_t)>);
+
+static_assert(write_spec_names<gi_t, tl_t>);
+static_assert(!write_spec_names<tl_t, gi_t>);
+static_assert(!write_spec_names<int, tl_t>);
+static_assert(!write_spec_names<gi_t, int>);
+
+static_assert(write_spec_variable<vi_t>);
+static_assert(!write_spec_variable<gi_t>);
+static_assert(!write_spec_variable<var_t>);
+static_assert(!write_spec_variable<int>);
+
+static_assert(record_var_takes<vi_t>);
+static_assert(!record_var_takes<gi_t>);
+static_assert(!record_var_takes<var_t>);
+static_assert(!record_var_takes<int>);
+
+static_assert(timelevel_valid_takes<vi_t>);
+static_assert(!timelevel_valid_takes<tl_t>);
+static_assert(!timelevel_valid_takes<int>);
+
+static_assert(array_timelevel_valid_takes<vi_t>);
+static_assert(!array_timelevel_valid_takes<tl_t>);
+static_assert(!array_timelevel_valid_takes<int>);
+
+static_assert(grid_ptr_takes<vi_t>);
+static_assert(!grid_ptr_takes<int>);
+
+static_assert(std::is_same_v<decltype(GHExt::GroupRecord::groupindex), gi_t>);
+static_assert(std::is_same_v<decltype(GHExt::PatchData::patch), patch_t>);
+static_assert(
+    std::is_same_v<decltype(GHExt::PatchData::LevelData::level), level_t>);
+static_assert(
+    std::is_same_v<decltype(GHExt::PatchData::LevelData::GroupData::level),
+                   const level_t>);
+static_assert(std::is_same_v<decltype(tiletag_t::level), level_t>);
+static_assert(std::is_same_v<decltype(tiletag_t::gi), gi_t>);
+static_assert(std::is_same_v<decltype(tiletag_t::vi), vi_t>);
+static_assert(std::is_same_v<decltype(tiletag_t::tl), tl_t>);
+static_assert(sizeof(tiletag_t) == 6 * sizeof(int));
+static_assert(std::is_same_v<decltype(write_spec_t::vi), std::optional<vi_t> >);
+static_assert(
+    std::is_same_v<decltype(require_spec_t::vi), std::optional<vi_t> >);
+static_assert(
+    std::is_same_v<decltype(invalidate_spec_t::vi), std::optional<vi_t> >);
+
+static_assert(std::is_same_v<
+              decltype(std::declval<const GHExt::GroupRecord &>().variables()),
+              index_range<vi_t> >);
+static_assert(std::is_same_v<decltype(std::declval<const GHExt::GroupRecord &>()
+                                          .var(std::declval<vi_t>())),
+                             var_t>);
+
+static_assert(std::is_same_v<
+              decltype(std::declval<const GHExt::GroupRecord &>().timelevels()),
+              tl_range>);
+static_assert(
+    std::is_same_v<decltype(*std::declval<tl_range>().begin()), tl_t>);
+static_assert(tl_range{tl_t{0}, tl_t{2}}.contains(tl_t{1}));
+static_assert(!tl_range{tl_t{0}, tl_t{2}}.contains(tl_t{2}));
+
+static_assert(std::is_same_v<decltype(std::declval<const GHExt::PatchData &>()
+                                          .level_handles()),
+                             level_range>);
+static_assert(
+    std::is_same_v<decltype(*std::declval<level_range>().begin()), level_t>);
+static_assert(next_index(level_t{patch_t{0}, 0}) == level_t{patch_t{0}, 1});
+static_assert(level_range{level_t{patch_t{1}, 0}, level_t{patch_t{1}, 2}}
+                  .contains(level_t{patch_t{1}, 1}));
+static_assert(!level_range{level_t{patch_t{1}, 0}, level_t{patch_t{1}, 2}}
+                   .contains(level_t{patch_t{0}, 1}));
+static_assert(std::is_same_v<
+              decltype(std::declval<const GHExt &>().patch_handles()),
+              index_range<patch_t> >);
+static_assert(next_index(patch_t{0}) == patch_t{1});
+
+static_assert(std::is_same_v<decltype(GHExt::use_subcycling), const bool>);
+static_assert(std::is_same_v<decltype(GHExt::do_reflux), const bool>);
+static_assert(!assigns_use_subcycling<GHExt>);
+static_assert(!assigns_do_reflux<GHExt>);
+static_assert(!std::is_default_constructible_v<GHExt>);
+static_assert(std::is_constructible_v<GHExt, GHExt::config_t>);
+static_assert(!std::is_convertible_v<GHExt::config_t, GHExt>);
+static_assert(!std::is_constructible_v<GHExt, bool, bool>);
+static_assert(create_hierarchy_takes<GHExt::config_t>);
+static_assert(!create_hierarchy_takes<bool, bool>);
+
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().active_timelevels(
+                       std::declval<gi_t>())),
+                   int>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().storage_frozen()),
+                   bool>);
+static_assert(!assigns_active_timelevels<GHExt>);
+static_assert(!assigns_pending_timelevels<GHExt>);
+static_assert(!assigns_storage_frozen<GHExt>);
+
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().is_initialized()),
+                   bool>);
+static_assert(!assigns_initialized<GHExt>);
+static_assert(!assigns_is_initialized<GHExt>);
+
+static_assert(std::is_same_v<
+              decltype(std::declval<const CactusAmrCore &>().modified_levels()),
+              std::optional<window_t::bounds_t>>);
+static_assert(std::is_same_v<decltype(&CactusAmrCore::regrid),
+                             void (CactusAmrCore::*)(int, amrex::Real, bool)>);
+static_assert(!assigns_level_modified<CactusAmrCore>);
+static_assert(!marks_level_modified<CactusAmrCore>);
+static_assert(!resets_level_modified<CactusAmrCore>);
+
+static_assert(std::is_same_v<decltype(driver()), const GHExt &>);
+static_assert(regrids_amrcore<GHExt>);
+static_assert(!regrids_amrcore<std::remove_reference_t<decltype(driver())> >);
+static_assert(!marks_initialized<GHExt>);
+static_assert(
+    !marks_initialized<std::remove_reference_t<decltype(driver())> >);
+static_assert(!opens_mutable_door<GHExt>);
+
+static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
+static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);
+
+} // namespace
+} // namespace CarpetX

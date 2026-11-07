@@ -2,6 +2,7 @@ IMPLEMENTS: PoissonX
 
 INHERITS: PDESolvers
 
+USES INCLUDE HEADER: carpetx.hxx
 USES INCLUDE HEADER: pdesolvers.hxx
 
 USES INCLUDE HEADER: defs.hxx

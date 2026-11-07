@@ -1,0 +1,1 @@
+CarpetX::use_subcycling = yes fills the refinement boundary by dense output, but the integrator registered dense_output = none

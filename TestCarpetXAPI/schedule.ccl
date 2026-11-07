@@ -1,0 +1,41 @@
+STORAGE: state state_rhs
+
+SCHEDULE TestCarpetXAPI_Startup AT startup
+{
+  LANG: C
+  OPTIONS: meta
+} "Call CarpetX::active_window outside any traversal when TestCarpetXAPI::mode says so"
+
+SCHEDULE TestCarpetXAPI_Register AT wragh
+{
+  LANG: C
+  OPTIONS: global
+} "Register a time integrator through CarpetX::register_integrator as TestCarpetXAPI::mode says"
+
+SCHEDULE TestCarpetXAPI_ParamCheck AT paramcheck
+{
+  LANG: C
+  OPTIONS: global
+} "Register a time integrator after the driver has frozen its integrator record when TestCarpetXAPI::mode says so"
+
+SCHEDULE TestCarpetXAPI_Fill AT initial
+{
+  LANG: C
+  OPTIONS: global
+} "Fill state through the public CarpetX API as TestCarpetXAPI::mode says"
+
+SCHEDULE GROUP TestCarpetXAPI_CheckGroup AT initial AFTER TestCarpetXAPI_Fill
+{
+} "Check state after TestCarpetXAPI_Fill; TestCarpetXAPI_Fill traverses this group through CarpetX::run_schedule_group_at while a write scope on state is open when TestCarpetXAPI::mode says so"
+
+SCHEDULE TestCarpetXAPI_Check IN TestCarpetXAPI_CheckGroup
+{
+  LANG: C
+  READS: state(everywhere)
+} "Abort unless state holds the written function everywhere, ghosts included"
+
+SCHEDULE TestCarpetXAPI_AfterShutdown AT shutdown AFTER Driver_Shutdown
+{
+  LANG: C
+  OPTIONS: meta
+} "Call CarpetX::num_levels after the driver has destroyed the grid hierarchy when TestCarpetXAPI::mode says so"

@@ -21,13 +21,13 @@ USES INCLUDE HEADER: derivs.hxx
 # (CarpetX/src/subcycling.cxx) now allocates each group's bands and coarse
 # patch together.
 
-CCTK_REAL state_lo TYPE=gf TAGS='rhs="rhs_lo" dependents="error_lo" prolongation_type="ddf" prolongation_order=1'
+CCTK_REAL state_lo TYPE=gf TAGS='rhs="rhs_lo" prolongation_type="ddf" prolongation_order=1'
 {
   u_lo
   rho_lo
 } "Scalar wave state vector, narrow prolongation stencil (declared first on purpose)"
 
-CCTK_REAL state_hi TYPE=gf TAGS='rhs="rhs_hi" dependents="error_hi" prolongation_type="hermite" prolongation_order=5'
+CCTK_REAL state_hi TYPE=gf TAGS='rhs="rhs_hi" prolongation_type="hermite" prolongation_order=5'
 {
   u_hi
   rho_hi
