@@ -37,25 +37,19 @@ void ProlongateAfterRestriction(window_t window);
 
 void RestrictNoPoison(window_t window, std::span<const gi_t> groups);
 
-void SyncGroupsByDirI(window_t window, std::span<const gi_t> groups);
-
-void SyncGroupsByDirISubcycling(window_t window, std::span<const gi_t> groups);
-
 void SyncGroups(window_t window, std::span<const gi_t> groups);
 
 int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,
                              const int *groups, const int *directions);
 
-void SyncGroupsByDirIProlongateOnly(window_t window,
-                                    std::span<const gi_t> groups,
-                                    timelevels_t tls);
+void ProlongateGhosts(window_t window, std::span<const gi_t> groups,
+                      timelevels_t tls);
 
-void SyncGroupsByDirIProlongateOnlyAligned(window_t window,
-                                           std::span<const gi_t> groups,
-                                           timelevels_t tls);
+void ProlongateAligned(window_t window, std::span<const gi_t> groups,
+                       timelevels_t tls);
 
-void SyncGroupsByDirIGhostOnly(window_t window, std::span<const gi_t> groups,
-                               timelevels_t tls);
+void SyncGhostsOnly(window_t window, std::span<const gi_t> groups,
+                    timelevels_t tls);
 
 void ApplyOuterBoundary(window_t window, std::span<const gi_t> groups,
                         timelevels_t tls);
