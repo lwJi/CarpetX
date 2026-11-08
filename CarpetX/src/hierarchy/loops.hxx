@@ -35,14 +35,12 @@ inline void loop_serially(
 void loop_parallel(
     window_t window,
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
-                             component_t component, tile_t tile,
-                             const cGH *cctkGH)> &kernel);
+                             tile_t tile, const cGH *cctkGH)> &kernel);
 
 void loop_serially(
     window_t window,
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
-                             component_t component, tile_t tile,
-                             const cGH *cctkGH)> &kernel);
+                             tile_t tile, const cGH *cctkGH)> &kernel);
 
 bool window_is_restricted(window_t window);
 

@@ -100,7 +100,7 @@ INDEX_PARAM = re.compile(r"\b(?:int|CCTK_INT)\s+(gi|vi|tl|patch|level|min_level|
 STORAGE_OVERLOADS = ("QueryGroupStorageB", "GroupStorageIncrease", "GroupStorageDecrease")
 AMREX_CALLBACKS = ("ErrorEst", "MakeNewLevelFromScratch", "MakeNewLevelFromCoarse", "RemakeLevel", "ClearLevel")
 INDEX_FIXED = {
-    PUBLIC_DIR + "carpetx.hxx": ("level_t", "window_t", "levels", "narrow"),
+    PUBLIC_DIR + "carpetx.hxx": ("level_t", "tile_t", "window_t", "levels", "narrow"),
     layer_path("schedule", "schedule.hxx"): STORAGE_OVERLOADS,
     layer_path("schedule", "storage.cxx"): STORAGE_OVERLOADS,
     layer_path("hierarchy", "handles.cxx"): ("levels", "narrow"),
@@ -453,10 +453,11 @@ RULES = (
         allowed=index_allowed,
         text="every CarpetX source and header names a group, variable, time level, patch, level, RK stage, box or "
         "tile by its type (gi_t, vi_t, tl_t, patch_t, level_t, window_t, stage_t, component_t, tile_t), never a bare "
-        "int or CCTK_INT, except in the signatures the flesh and AMReX fix, the level_t and window_t constructors, "
-        "and window_t::levels and narrow; a loop over a patch's levels walks level_handles(), one over the patches "
-        "patch_handles(), one over the RK stages rk_stages, one over the boxes of a MultiFab components_of(), and "
-        ".index() unwraps a handle where it meets AMReX or the flesh.",
+        "int or CCTK_INT, except in the signatures the flesh and AMReX fix, the level_t, tile_t and window_t "
+        "constructors, and window_t::levels and narrow; a loop over a patch's levels walks level_handles(), one over "
+        "the patches patch_handles(), one over the RK stages rk_stages, one over the boxes of a MultiFab "
+        "components_of(), the tile under an MFIter is tile_of(mfi), and .index() unwraps a handle where it meets "
+        "AMReX or the flesh.",
         noun="bare index int",
         where="in CarpetX",
         clean="no bare index int in CarpetX",

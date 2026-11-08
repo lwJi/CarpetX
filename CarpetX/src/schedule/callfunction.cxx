@@ -204,7 +204,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   switch (mode) {
   case mode_t::local:
     loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
-                              component_t, tile_t, const cGH *local_cctkGH) {
+                              tile_t, const cGH *local_cctkGH) {
       update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
       CCTK_CallFunction(function, attribute, const_cast<cGH *>(local_cctkGH));
     });

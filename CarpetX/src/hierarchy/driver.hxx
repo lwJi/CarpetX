@@ -586,7 +586,9 @@ struct GHExt {
 
       cGH *get_patch_cctkGH() const { return patch_cctkGH.get(); }
       cGH *get_local_cctkGH(const tile_t tile) const {
-        return local_cctkGHs.at(tile.index()).get();
+        cGH *const cctkGH = local_cctkGHs.at(tile.index()).get();
+        assert(cctkGH->cctk_component == tile.component().index());
+        return cctkGH;
       }
 
       using ghost_mask_key_t =

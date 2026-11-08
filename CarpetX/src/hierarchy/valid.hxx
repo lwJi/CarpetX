@@ -118,7 +118,8 @@ struct tiletag_t {
     return os << "tiletag_t{"
               << "patch:" << x.level.patch() << ","
               << "level:" << x.level.index() << ","
-              << "tile:" << x.tile << ","
+              << "component:" << x.tile.component() << ","
+              << "tile:" << x.tile.index() << ","
               << "gi:" << x.gi << ","
               << "vi:" << x.vi << ","
               << "tl:" << x.tl << "}";

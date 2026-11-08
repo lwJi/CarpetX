@@ -6,6 +6,8 @@
 #include <carpetx.hxx>
 
 #include <AMReX_FabArrayBase.H>
+#include <AMReX_MFIter.H>
+#include <AMReX_ParallelDescriptor.H>
 
 #include <cassert>
 
@@ -63,6 +65,12 @@ constexpr component_range components_of(const int count) {
 }
 inline component_range components_of(const amrex::FabArrayBase &fab) {
   return components_of(fab.size());
+}
+
+inline tile_t tile_of(const amrex::MFIter &mfi) {
+  assert(mfi.isValid());
+  assert(amrex::ParallelDescriptor::TeamSize() == 1);
+  return tile_t{component_t{mfi.index()}, mfi.tileIndex()};
 }
 
 } // namespace CarpetX

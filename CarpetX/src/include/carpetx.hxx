@@ -82,8 +82,17 @@ struct component_t : index_t<component_t> {
   using index_t::index_t;
 };
 
-struct tile_t : index_t<tile_t> {
-  using index_t::index_t;
+struct tile_t {
+  constexpr tile_t(const component_t component, const int tile)
+      : component_(component), tile_(tile) {}
+  constexpr component_t component() const { return component_; }
+  constexpr int index() const { return tile_; }
+  friend constexpr auto operator<=>(tile_t, tile_t) = default;
+  friend constexpr bool operator==(tile_t, tile_t) = default;
+
+private:
+  component_t component_;
+  int tile_;
 };
 
 enum class symmetry_t {
@@ -160,8 +169,8 @@ struct window_t {
   void
   loop_coarse_to_fine(const std::function<void(level_t level)> &kernel) const;
   void loop_parallel(
-      const std::function<void(level_t level, component_t component,
-                               tile_t tile, const cGH *cctkGH)> &kernel) const;
+      const std::function<void(level_t level, tile_t tile, const cGH *cctkGH)>
+          &kernel) const;
 
   friend constexpr bool operator==(const window_t &,
                                    const window_t &) = default;
@@ -492,7 +501,5 @@ struct std::hash<CarpetX::var_t> : CarpetX::index_hash<CarpetX::var_t> {};
 template <>
 struct std::hash<CarpetX::component_t>
     : CarpetX::index_hash<CarpetX::component_t> {};
-template <>
-struct std::hash<CarpetX::tile_t> : CarpetX::index_hash<CarpetX::tile_t> {};
 
 #endif

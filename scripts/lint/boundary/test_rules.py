@@ -674,6 +674,7 @@ class Index(unittest.TestCase):
                 self.assertEqual(reported(name, text), [])
 
     FIXED_DEFINITIONS = [
+        ("CarpetX/src/include/carpetx.hxx", "  constexpr tile_t(const component_t component, const int tile)\n      : component_(component), tile_(tile) {}\n"),
         ("CarpetX/src/hierarchy/handles.cxx", "window_t window_t::levels(const int min_level, const int max_level,\n                          const std::source_location site) {\n"),
         ("CarpetX/src/hierarchy/handles.cxx", "window_t window_t::narrow(const int min_level, const int max_level,\n                          const std::source_location site) const {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {\n"),
@@ -698,7 +699,7 @@ class Index(unittest.TestCase):
 
     def test_every_fixed_source_name_has_a_definition_case(self):
         named = {(name, call) for name, calls in rules.INDEX_FIXED.items() if name.endswith(".cxx") for call in calls}
-        cased = {(name, call) for name, text in self.FIXED_DEFINITIONS for call in rules.INDEX_FIXED[name] if re.search(rf"\b{call}\s*\(", text)}
+        cased = {(name, call) for name, text in self.FIXED_DEFINITIONS if name.endswith(".cxx") for call in rules.INDEX_FIXED[name] if re.search(rf"\b{call}\s*\(", text)}
         self.assertEqual(cased, named)
         for name, text in self.FIXED_DEFINITIONS:
             with self.subTest(name=name, text=text):

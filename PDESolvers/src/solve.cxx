@@ -117,8 +117,7 @@ void define_point_type() {
     const auto writes = open_writes(std::array{gi_pt}, CarpetX::make_valid_all(),
                                     "PDESolver::define_point_type");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_pt(
               layout1, static_cast<CCTK_REAL *>(
@@ -146,8 +145,7 @@ void define_point_type() {
         open_writes(std::array{gi_ind}, CarpetX::make_valid_all(),
                     "PDESolver::define_point_type before restricting");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_ind(
@@ -163,8 +161,6 @@ void define_point_type() {
   CarpetX::restrict_no_poison(CarpetX::active_window(), std::array{gi_ind});
 
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
-                                             const CarpetX::component_t
-                                                 component,
                                              const CarpetX::tile_t tile,
                                              const cGH *restrict const cctkGH) {
     const int level = lvl.index();
@@ -190,8 +186,7 @@ void define_point_type() {
         open_writes(std::array{gi_ind}, CarpetX::make_valid_all(),
                     "PDESolver::define_point_type before synchronizing");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_ind(
               layout1, static_cast<CCTK_REAL *>(
@@ -199,7 +194,7 @@ void define_point_type() {
           const Loop::GridDescBase grid(cctkGH);
           grid.loop_all<0, 0, 0>(grid.nghostzones,
                                  [&](const Loop::PointDesc &p) ARITH_INLINE {
-                                   gf_ind(p.I) = component.index();
+                                   gf_ind(p.I) = tile.component().index();
                                  });
         });
   }
@@ -207,8 +202,6 @@ void define_point_type() {
   CarpetX::sync_ghosts_only(CarpetX::active_window(), std::array{gi_ind}, tl);
 
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
-                                             const CarpetX::component_t
-                                                 component,
                                              const CarpetX::tile_t tile,
                                              const cGH *restrict const cctkGH) {
     const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -221,7 +214,7 @@ void define_point_type() {
     const Loop::GridDescBase grid(cctkGH);
     grid.loop_all<0, 0, 0>(grid.nghostzones,
                            [&](const Loop::PointDesc &p) ARITH_INLINE {
-                             if (gf_ind(p.I) != component.index()) {
+                             if (gf_ind(p.I) != tile.component().index()) {
                                assert(gf_pt(p.I) == int(point_type_t::undf) ||
                                       gf_pt(p.I) == int(point_type_t::bdry));
                                gf_pt(p.I) = int(point_type_t::sync);
@@ -234,8 +227,7 @@ void define_point_type() {
         open_writes(std::array{gi_ind}, CarpetX::make_valid_all(),
                     "PDESolver::define_point_type before prolongating");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_ind(
@@ -251,8 +243,6 @@ void define_point_type() {
   CarpetX::prolongate_ghosts(CarpetX::active_window(), std::array{gi_ind}, tl);
 
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
-                                             const CarpetX::component_t
-                                                 component,
                                              const CarpetX::tile_t tile,
                                              const cGH *restrict const cctkGH) {
     const int level = lvl.index();
@@ -280,8 +270,7 @@ void define_point_type() {
 
   Arith::vect<int, 6> npoints{0, 0, 0, 0, 0, 0};
   CarpetX::active_window().loop_parallel(
-      [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-          const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+      [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
         const Loop::GF3D2layout layout1(cctkGH, indextype);
         const Loop::GF3D2<const CCTK_REAL> gf_pt(
             layout1, static_cast<const CCTK_REAL *>(
@@ -335,8 +324,7 @@ void enumerate_points(
   std::vector<int> level_sizes(nlevels, 0);
   std::vector<int> level_maxcomponents(nlevels, -1);
   CarpetX::active_window().loop_parallel(
-      [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-          const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+      [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
         const int level = lvl.index();
 #pragma omp critical(PDESolvers_enumerate_points)
         {
@@ -360,8 +348,7 @@ void enumerate_points(
   }
 
   CarpetX::active_window().loop_parallel(
-      [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-          const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+      [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
         const int level = lvl.index();
         const Loop::GF3D2layout layout1(cctkGH, indextype);
         const Loop::GF3D2<const CCTK_REAL> gf_pt(
@@ -426,8 +413,7 @@ void enumerate_points(
     const auto writes = open_writes(std::array{gi_idx}, CarpetX::make_valid_all(),
                                     "PDESolver::enumerate_points");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_idx(
@@ -499,8 +485,7 @@ void enumerate_points(
     const auto writes = open_writes(std::array{gi_idx}, CarpetX::make_valid_all(),
                                     "PDESolver::enumerate_points");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
@@ -538,15 +523,14 @@ void enumerate_points(
     for (int level = 0; level < nlevels; ++level)
       locations.at(level).resize(level_sizes.at(level));
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           if (level == 0)
             assert(component_prolongated_sizes.at(level).at(tile.index()) == 0);
           if (component_prolongated_sizes.at(level).at(tile.index()) == 0)
             return;
           const auto &mfab = CarpetX::data(CarpetX::group_t{lvl, gi_idx}, tl);
-          const auto &fabbox = mfab.fabbox(component.index());
+          const auto &fabbox = mfab.fabbox(tile.component().index());
           const Arith::vect<int, 3> amrex_origin{
               fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
           const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -591,13 +575,12 @@ void enumerate_points(
       }
     }
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           if (!lvl.child())
             return;
           const auto &mfab = CarpetX::data(CarpetX::group_t{lvl, gi_idx}, tl);
-          const auto &fabbox = mfab.fabbox(component.index());
+          const auto &fabbox = mfab.fabbox(tile.component().index());
           const Arith::vect<int, 3> amrex_origin{
               fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
           const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -649,15 +632,14 @@ void enumerate_points(
     for (int level = 0; level < nlevels; ++level)
       Jpvalss.at(level).resize(level_sizes.at(level));
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           if (level == 0)
             assert(component_prolongated_sizes.at(level).at(tile.index()) == 0);
           if (component_prolongated_sizes.at(level).at(tile.index()) == 0)
             return;
           const auto &mfab = CarpetX::data(CarpetX::group_t{lvl, gi_idx}, tl);
-          const auto &fabbox = mfab.fabbox(component.index());
+          const auto &fabbox = mfab.fabbox(tile.component().index());
           const Arith::vect<int, 3> amrex_origin{
               fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
           const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -754,8 +736,6 @@ void copy_Cactus_to_PETSc(
                              "PDESolver::copy_Cactus_to_PETSc");
   });
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
-                                             const CarpetX::component_t
-                                                 component,
                                              const CarpetX::tile_t tile,
                                              const cGH *restrict const cctkGH) {
     const int level = lvl.index();
@@ -827,8 +807,7 @@ void copy_PETSc_to_Cactus(
     const auto writes = open_writes(gis, CarpetX::make_valid_int(),
                                     "PDESolver::copy_PETSc_to_Cactus");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
-            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GridDescBase grid(cctkGH);
