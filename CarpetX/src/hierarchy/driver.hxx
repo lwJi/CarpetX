@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cassert>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -77,6 +78,10 @@ template <class Index> struct index_range {
     return begin_ <= i && i < end_;
   }
   constexpr int size() const { return end_.index() - begin_.index(); }
+  constexpr Index last() const {
+    assert(begin_ < end_);
+    return Index{end_.index() - 1};
+  }
 
 private:
   Index begin_, end_;

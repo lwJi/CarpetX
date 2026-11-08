@@ -430,6 +430,7 @@ void rk_step_t::state_updated() {
 rk_step_t::~rk_step_t() {
   if (!p)
     return;
+  assert(p->stage != p->stages.end() || !p->have_rhs);
   if (p->stage != p->stages.end())
     CCTK_VERROR("CarpetX::rk_step_t on %s destroyed before RK stage %d of %d "
                 "was updated; every stage calls rhs_computed and then "
@@ -489,7 +490,7 @@ void RecoverRKBoundary(const window_t window) {
     if (restricted && aligned)
       continue;
     fill_refinement_boundary(entry.level, entry.groups.states,
-                             stage_t{integrator->nstages()},
+                             rk_stages(integrator->nstages()).last(),
                              "CarpetX::RecoverRKBoundary after recovery");
   }
   synchronize();
