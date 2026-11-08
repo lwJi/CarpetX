@@ -286,12 +286,13 @@ bool aligned_with_parent(const level_t level) {
 
 void fill_refinement_boundary(const level_t level,
                               const std::span<const gi_t> states,
-                              const stage_t stage, const bool end_of_substep,
-                              const std::string &event) {
+                              const stage_t stage, const std::string &event) {
   const GHExt &ext = driver();
   assert(ext.use_subcycling);
   assert(level.index() > 0);
-  assert(registered_stages().contains(stage));
+  const stage_range stages = registered_stages();
+  assert(stages.contains(stage));
+  const bool end_of_substep = !stages.contains(next_index(stage));
   const GHExt::PatchData::LevelData &parentdata = ext.level(level.parent());
   const CCTK_REAL substep_start =
       aligned_with_parent(level) ? rk_substep_ratio : 0;
@@ -317,8 +318,8 @@ void fill_refinement_boundary(const level_t level,
 struct rk_step_t::impl {
   window_t window;
   stage_range stages;
-  stage_range::iterator next_rhs;
-  stage_range::iterator next_update;
+  stage_range::iterator stage;
+  bool have_rhs = false;
   std::vector<CCTK_REAL> b;
   std::vector<gi_t> states;
   std::vector<rk_level_t> levels;
@@ -329,11 +330,8 @@ rk_step_t open_rk_step(const window_t window) {
   const rk_config_t &config = require_integrator();
   require_serial_context();
   const stage_range stages = rk_stages(config.nstages());
-  auto step = std::unique_ptr<rk_step_t::impl>(
-      new rk_step_t::impl{.window = window,
-                          .stages = stages,
-                          .next_rhs = stages.begin(),
-                          .next_update = stages.begin()});
+  auto step = std::unique_ptr<rk_step_t::impl>(new rk_step_t::impl{
+      .window = window, .stages = stages, .stage = stages.begin()});
   step->b = config.b;
   for (const rk_pair_t &pair : config.integrated)
     step->states.push_back(pair.state);
@@ -358,19 +356,19 @@ void rk_step_t::rhs_computed() {
   if (!p)
     CCTK_ERROR("CarpetX::rk_step_t::rhs_computed called on a moved-from RK "
                "step");
-  if (p->next_rhs != p->next_update)
-    CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s, RK stage %d of %d: "
-                "the stage already has its right-hand side; expected "
-                "state_updated",
-                describe(p->window).c_str(), (*p->next_update).index(),
-                p->stages.size());
-  if (p->next_rhs == p->stages.end())
+  if (p->stage == p->stages.end())
     CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s: all %d stages of "
                 "this step have run; destroy the rk_step_t and open the next "
                 "step",
                 describe(p->window).c_str(), p->stages.size());
-  const stage_t stage = *p->next_rhs;
-  ++p->next_rhs;
+  if (p->have_rhs)
+    CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s, RK stage %d of %d: "
+                "the stage already has its right-hand side; expected "
+                "state_updated",
+                describe(p->window).c_str(), (*p->stage).index(),
+                p->stages.size());
+  p->have_rhs = true;
+  const stage_t stage = *p->stage;
   const CCTK_REAL weight = p->b.at(stage.index() - 1);
   const CCTK_REAL delta_time = driver().get_global_cctkGH()->cctk_delta_time;
   using std::isfinite;
@@ -402,14 +400,15 @@ void rk_step_t::state_updated() {
   if (!p)
     CCTK_ERROR("CarpetX::rk_step_t::state_updated called on a moved-from RK "
                "step");
-  if (p->next_update == p->next_rhs)
+  if (!p->have_rhs)
     CCTK_VERROR("CarpetX::rk_step_t::state_updated on %s, RK stage %d of %d: "
                 "expected rhs_computed first",
-                describe(p->window).c_str(), (*p->next_update).index(),
+                describe(p->window).c_str(), (*p->stage).index(),
                 p->stages.size());
-  const stage_t stage = *p->next_update;
-  ++p->next_update;
-  const bool end_of_step = p->next_update == p->stages.end();
+  const stage_t stage = *p->stage;
+  ++p->stage;
+  p->have_rhs = false;
+  const bool end_of_step = p->stage == p->stages.end();
   require_operable(p->window, p->states);
   if (driver().use_subcycling) {
     require_serial_context();
@@ -420,8 +419,7 @@ void rk_step_t::state_updated() {
     for (const rk_level_t &entry : p->levels) {
       if (entry.level.index() == 0)
         continue;
-      fill_refinement_boundary(entry.level, entry.groups.states, stage,
-                               end_of_step, event);
+      fill_refinement_boundary(entry.level, entry.groups.states, stage, event);
     }
   } else if (end_of_step) {
     Reflux(p->window);
@@ -432,11 +430,11 @@ void rk_step_t::state_updated() {
 rk_step_t::~rk_step_t() {
   if (!p)
     return;
-  if (p->next_update != p->stages.end())
+  if (p->stage != p->stages.end())
     CCTK_VERROR("CarpetX::rk_step_t on %s destroyed before RK stage %d of %d "
                 "was updated; every stage calls rhs_computed and then "
                 "state_updated before the step closes",
-                describe(p->window).c_str(), (*p->next_update).index(),
+                describe(p->window).c_str(), (*p->stage).index(),
                 p->stages.size());
 }
 
@@ -491,7 +489,7 @@ void RecoverRKBoundary(const window_t window) {
     if (restricted && aligned)
       continue;
     fill_refinement_boundary(entry.level, entry.groups.states,
-                             stage_t{integrator->nstages()}, true,
+                             stage_t{integrator->nstages()},
                              "CarpetX::RecoverRKBoundary after recovery");
   }
   synchronize();
