@@ -150,9 +150,6 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
   build_buffers(recovering, selection, record_purpose::checkpoint,
                 codec->limits());
   read_record(*codec, recovering, recover_dir, recover_file, "RecoverGH");
-
-  // Increment epoch
-  carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 }
 
 void InputGH(const cGH *restrict cctkGH) {

@@ -26,7 +26,6 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -537,6 +536,7 @@ struct GHExt {
   bool storage_frozen() const { return !pending_timelevels_; }
 
   bool is_initialized() const { return initialized_; }
+  CCTK_INT epoch() const { return epoch_; }
 
   struct PatchData {
     PatchData() = delete;
@@ -872,6 +872,7 @@ struct GHExt {
 private:
   std::optional<std::vector<int>> pending_timelevels_;
   bool initialized_ = false;
+  CCTK_INT epoch_ = 0;
   std::vector<GroupRecord> group_records;
   std::vector<PatchData> patchdata;
 
@@ -892,10 +893,6 @@ private:
 
 const GHExt &driver();
 void assert_hierarchy_destroyed();
-
-// Monotonically increasing counter. Incremented whenever the AMR grid
-// hierarchy is invalidated (regridding, recovery). Starts at 0.
-extern std::atomic<CCTK_INT> carpetx_epoch;
 
 } // namespace CarpetX
 

@@ -210,6 +210,15 @@ concept assigns_is_initialized = requires(Ext & ext) {
   ext.is_initialized() = true;
 };
 
+template <class Ext>
+concept assigns_epoch_member = requires(Ext & ext) { ext.epoch_ = 0; };
+
+template <class Ext>
+concept assigns_epoch = requires(Ext & ext) { ext.epoch() = 0; };
+
+template <class Ext>
+concept bumps_epoch = requires(Ext & ext) { ++ext.epoch(); };
+
 template <class... Args>
 concept create_hierarchy_takes = requires(Args... args) {
   create_hierarchy(args...);
@@ -436,6 +445,12 @@ static_assert(
                    bool>);
 static_assert(!assigns_initialized<GHExt>);
 static_assert(!assigns_is_initialized<GHExt>);
+
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().epoch()), CCTK_INT>);
+static_assert(!assigns_epoch_member<GHExt>);
+static_assert(!assigns_epoch<GHExt>);
+static_assert(!bumps_epoch<GHExt>);
 
 static_assert(std::is_same_v<
               decltype(std::declval<const CactusAmrCore &>().modified_levels()),

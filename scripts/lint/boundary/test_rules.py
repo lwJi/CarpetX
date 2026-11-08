@@ -351,9 +351,11 @@ class Model(unittest.TestCase):
         "auto next = [n]() mutable { return ++n; };",
         "#include <carpetx_rk.hxx>",
         "# include  <carpetx_rk.hxx>",
+        "extern std::atomic<CCTK_INT> carpetx_epoch;",
+        "extern int x;",
     ]
 
-    def test_a_mutable_or_the_integrator_header_is_reported_in_the_data_model(self):
+    def test_a_mutable_an_extern_or_the_integrator_header_is_reported_in_the_data_model(self):
         for line in self.LEAKS:
             with self.subTest(line=line):
                 self.assertEqual(reported(self.MODEL, "  " + line + "\n"), [("model", line)])
@@ -380,6 +382,8 @@ class Model(unittest.TestCase):
             "GHExt &mutable_driver();\n"
             "const bool immutable = true;\n"
             "struct mutable_t;\n"
+            "CCTK_INT external_epoch() const;\n"
+            "bool is_extern_c;\n"
             "#include <carpetx.hxx>\n"
             "#include <carpetx_rk_extra.hxx>\n"
             "#include <ODESolvers/carpetx_rk.hxx>\n"
@@ -1645,7 +1649,7 @@ class Report(unittest.TestCase):
             "no validity call outside valid.cxx, no pointer-table write outside binding.cxx, "
             "no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, "
-            "no mutable or integrator include in the data model, no active_levels_t, "
+            "no mutable, extern or integrator include in the data model, no active_levels_t, "
             "no active_levels outside traversal.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
             "no hierarchy access in a checkpoint codec, "
@@ -1673,14 +1677,14 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([e]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var")
         self.assertEqual(summary([d, e, e]), "✗ boundary: 1 directions parameter in the sync layer, 2 firstvarindex additions outside GroupRecord::var")
         m = ("CarpetX/src/hierarchy/driver.hxx", Finding(4, "model", "mutable std::unique_ptr<amrex::MultiFab> cell_volume;"))
-        self.assertEqual(summary([m]), "✗ boundary: 1 mutable or integrator include in the data model")
-        self.assertEqual(summary([m, e, m]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 mutable or integrator includes in the data model")
+        self.assertEqual(summary([m]), "✗ boundary: 1 mutable, extern or integrator include in the data model")
+        self.assertEqual(summary([m, e, m]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 mutable, extern or integrator includes in the data model")
         w = ("CarpetX/src/schedule/schedule.hxx", Finding(3, "window", "struct active_levels_t;"))
         i = ("CarpetX/src/comm/subcycling.hxx", Finding(4, "index", "void EnsureRKBuffers(int patch, int level, gi_t gi);"))
         self.assertEqual(summary([w]), "✗ boundary: 1 active_levels_t use")
         self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in CarpetX")
         self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in CarpetX")
-        self.assertEqual(summary([w, m]), "✗ boundary: 1 mutable or integrator include in the data model, 1 active_levels_t use")
+        self.assertEqual(summary([w, m]), "✗ boundary: 1 mutable, extern or integrator include in the data model, 1 active_levels_t use")
         t = ("CarpetX/src/schedule/evolve.cxx", Finding(9, "traversal", "active_levels = std::nullopt;"))
         self.assertEqual(summary([t]), "✗ boundary: 1 traversal use outside traversal.cxx")
         self.assertEqual(summary([w, t, t, i]), "✗ boundary: 1 active_levels_t use, 2 traversal uses outside traversal.cxx, 1 bare index int in CarpetX")

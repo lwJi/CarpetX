@@ -25,7 +25,6 @@ static inline int omp_in_parallel() { return 0; }
 #endif
 
 #include <array>
-#include <atomic>
 #include <cassert>
 #include <optional>
 #include <vector>
@@ -195,7 +194,7 @@ extern "C" void CarpetX_Interpolate(const CCTK_POINTER_TO_CONST cctkGH_,
 }
 
 extern "C" CCTK_INT CarpetX_GetEpoch(void) {
-  return carpetx_epoch.load(std::memory_order_relaxed);
+  return driver().epoch();
 }
 
 extern "C" CCTK_INT CarpetX_DriverInterpolate(
