@@ -310,7 +310,7 @@ void fill_refinement_boundary(const level_t level,
   }
   FillRKBoundary(
       level, states, rk_tl,
-      end_of_substep ? *stages.begin() : next_index(stage),
+      end_of_substep ? stages.first() : next_index(stage),
       end_of_substep ? substep_start + rk_substep_ratio : substep_start, dtc);
 }
 

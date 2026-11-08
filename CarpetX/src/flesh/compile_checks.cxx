@@ -314,10 +314,12 @@ static_assert(all_rk_stages.contains(stage_t{max_num_rk_stages}));
 static_assert(!all_rk_stages.contains(stage_t{0}));
 static_assert(!all_rk_stages.contains(stage_t{max_num_rk_stages + 1}));
 static_assert(rk_stages(3).contains(stage_t{3}));
+static_assert(rk_stages(3).first() == stage_t{1});
 static_assert(rk_stages(3).last() == stage_t{3});
 static_assert(rk_stages(3).offset(stage_t{1}) == 0);
 static_assert(all_rk_stages.offset(stage_t{max_num_rk_stages}) ==
               max_num_rk_stages - 1);
+static_assert(all_rk_stages.first() == stage_t{1});
 static_assert(all_rk_stages.last() == stage_t{max_num_rk_stages});
 static_assert(!rk_stages(3).contains(stage_t{4}));
 static_assert(!rk_stages(0).contains(stage_t{1}));
