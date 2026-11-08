@@ -31,7 +31,7 @@ std::array<int, dim> get_group_indextype(gi_t gi);
 std::optional<std::array<gi_t, dim> > get_group_fluxes(gi_t gi);
 
 bool group_is_integrated(gi_t gi);
-int num_rk_stages();
+stage_range registered_stages();
 rk_dense_output_t registered_dense_output();
 bool group_has_flux_register(gi_t gi);
 void warn_inert_flux_tags();

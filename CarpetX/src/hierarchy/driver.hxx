@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -44,6 +45,10 @@ namespace CarpetX {
 using Loop::dim;
 
 inline constexpr int max_num_rk_stages = 4;
+
+struct stage_t : index_t<stage_t> {
+  using index_t::index_t;
+};
 
 template <class Derived>
 constexpr Derived next_index(const index_t<Derived> i) {
@@ -71,12 +76,32 @@ template <class Index> struct index_range {
   constexpr bool contains(const Index i) const {
     return begin_ <= i && i < end_;
   }
+  constexpr int size() const { return end_.index() - begin_.index(); }
+  constexpr int offset(const Index i) const {
+    assert(contains(i));
+    return i.index() - begin_.index();
+  }
+  constexpr Index first() const {
+    assert(begin_ < end_);
+    return begin_;
+  }
+  constexpr Index last() const {
+    assert(begin_ < end_);
+    return Index{end_.index() - 1};
+  }
 
 private:
   Index begin_, end_;
 };
 using tl_range = index_range<tl_t>;
 using level_range = index_range<level_t>;
+
+using stage_range = index_range<stage_t>;
+
+constexpr stage_range rk_stages(const int nstages) {
+  return stage_range{stage_t{1}, stage_t{nstages + 1}};
+}
+inline constexpr stage_range all_rk_stages = rk_stages(max_num_rk_stages);
 
 template <class T> class const_propagating_ptr {
 public:

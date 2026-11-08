@@ -17,11 +17,19 @@
 namespace CarpetX {
 
 struct group_buffers_t {
-  std::array<std::unique_ptr<amrex::MultiFab>, max_num_rk_stages>
-      ks_source_band;
+  std::unique_ptr<amrex::MultiFab> &ks_source(const stage_t stage) {
+    return ks_source_band[all_rk_stages.offset(stage)];
+  }
+  const std::unique_ptr<amrex::MultiFab> &ks_source(const stage_t stage) const {
+    return ks_source_band[all_rk_stages.offset(stage)];
+  }
   std::unique_ptr<amrex::MultiFab> old_source_band;
   std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;
   std::unique_ptr<amrex::FluxRegister> freg_scratch;
+
+private:
+  std::array<std::unique_ptr<amrex::MultiFab>, max_num_rk_stages>
+      ks_source_band;
 };
 
 struct level_buffers_t {

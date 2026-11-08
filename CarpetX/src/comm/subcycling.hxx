@@ -3,6 +3,7 @@
 
 #include "internal.hxx"
 
+#include "hierarchy/driver.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -22,10 +23,10 @@ void EnsureRKBuffers(level_t level, gi_t gi);
 void StoreRKOldState(level_t level, std::span<const gi_t> var_groups, tl_t tl);
 
 void StoreRKStage(level_t level, std::span<const gi_t> var_groups,
-                  std::span<const gi_t> rhs_groups, int stage);
+                  std::span<const gi_t> rhs_groups, stage_t stage);
 
 void FillRKBoundary(level_t level, std::span<const gi_t> var_groups, tl_t tl,
-                    int stage, CCTK_REAL xsi, CCTK_REAL dtc);
+                    stage_t stage, CCTK_REAL xsi, CCTK_REAL dtc);
 
 void RecoverRKBoundary(window_t window);
 
