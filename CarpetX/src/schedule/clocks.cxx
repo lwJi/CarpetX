@@ -511,7 +511,7 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
     }
   }
   if (!presync_groups.empty()) {
-    SyncGroupsLockstep(window, presync_groups);
+    SyncGroups(window, presync_groups);
   }
 }
 

@@ -37,10 +37,6 @@ void ProlongateAfterRestriction(window_t window);
 
 void RestrictNoPoison(window_t window, std::span<const gi_t> groups);
 
-void SyncGroupsLockstep(window_t window, std::span<const gi_t> groups);
-
-void SyncGroupsSubcycling(window_t window, std::span<const gi_t> groups);
-
 void SyncGroups(window_t window, std::span<const gi_t> groups);
 
 int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,

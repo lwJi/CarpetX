@@ -105,11 +105,6 @@ concept array_timelevel_takes =
 };
 
 template <class... Args>
-concept sync_lockstep_takes = requires(Args... args) {
-  SyncGroupsLockstep(args...);
-};
-
-template <class... Args>
 concept ghost_only_takes = requires(Args... args) {
   SyncGhostsOnly(args...);
 };
@@ -310,8 +305,6 @@ static_assert(array_timelevel_takes<tl_t>);
 static_assert(!array_timelevel_takes<gi_t>);
 static_assert(!array_timelevel_takes<int>);
 
-static_assert(sync_lockstep_takes<window_t, std::span<const gi_t> >);
-
 static_assert(restrict_takes<window_t, std::span<const gi_t> >);
 static_assert(!restrict_takes<int, int, std::span<const gi_t> >);
 static_assert(restrict_no_poison_takes<window_t, std::span<const gi_t> >);
@@ -332,10 +325,6 @@ static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateAfterRestriction), void(window_t)>);
 static_assert(std::is_same_v<decltype(RestrictNoPoison), comm_groups_entry_t>);
-static_assert(
-    std::is_same_v<decltype(SyncGroupsLockstep), comm_groups_entry_t>);
-static_assert(
-    std::is_same_v<decltype(SyncGroupsSubcycling), comm_groups_entry_t>);
 static_assert(std::is_same_v<decltype(SyncGroups), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateGhosts), comm_timelevels_entry_t>);

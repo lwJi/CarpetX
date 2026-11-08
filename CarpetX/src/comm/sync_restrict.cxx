@@ -37,9 +37,9 @@ struct mark_sync_active {
   mark_sync_active() {
     if (sync_active)
       CCTK_ERROR(
-          "Recursive call to SyncGroupsLockstep. Maybe you are syncing grid "
-          "functions in the \"restrict\" bin while the parameter "
-          "\"restrict_during_sync\" is true?");
+          "Recursive sync call. Maybe you are syncing grid functions in the "
+          "\"restrict\" bin while the parameter \"restrict_during_sync\" is "
+          "true?");
     sync_active = true;
   }
   ~mark_sync_active() { sync_active = false; }
@@ -269,7 +269,7 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
   static Timer timer("Sync");
   Interval interval(timer);
 
-  sync_log_groups("SyncGroupsProlongateOnly", groups0);
+  sync_log_groups("ProlongateGhosts", groups0);
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
@@ -357,8 +357,8 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
   return runs;
 }
 
-void SyncGroupsLockstep(const window_t window,
-                        const std::span<const gi_t> groups0) {
+static void SyncGroupsLockstep(const window_t window,
+                               const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
@@ -368,7 +368,7 @@ void SyncGroupsLockstep(const window_t window,
   static Timer timer("Sync");
   Interval interval(timer);
 
-  sync_log_groups("SyncGroups", groups0);
+  sync_log_groups("SyncGroupsLockstep", groups0);
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
@@ -535,8 +535,8 @@ integrator_owns_coarse_fine_ghosts(const GHExt::PatchData::LevelData &leveldata,
          leveldata.iteration > 0;
 }
 
-void SyncGroupsSubcycling(const window_t window,
-                          const std::span<const gi_t> groups0) {
+static void SyncGroupsSubcycling(const window_t window,
+                                 const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
@@ -548,7 +548,7 @@ void SyncGroupsSubcycling(const window_t window,
   static Timer timer("Sync");
   Interval interval(timer);
 
-  sync_log_groups("SyncGroupsBySubcycling", groups0);
+  sync_log_groups("SyncGroupsSubcycling", groups0);
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
@@ -738,7 +738,7 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
   static Timer timer("Sync");
   Interval interval(timer);
 
-  sync_log_groups("SyncGroupsGhostOnly", groups0);
+  sync_log_groups("SyncGhostsOnly", groups0);
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 

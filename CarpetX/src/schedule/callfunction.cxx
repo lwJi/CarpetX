@@ -88,7 +88,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     }
     if (!sync_set.empty()) {
       const std::vector<gi_t> sync_vec(sync_set.begin(), sync_set.end());
-      SyncGroupsLockstep(window, sync_vec);
+      SyncGroups(window, sync_vec);
     }
   }
 
