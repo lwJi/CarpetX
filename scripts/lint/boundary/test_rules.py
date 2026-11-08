@@ -2019,7 +2019,7 @@ class Guide(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "^open_rk_step is not defined in CarpetX/src/api/api.cxx, where a row of 'Indices and handles' in scripts/lint/boundary/guide.py says it is$"):
             guide.hold_bound(PROJECT, section, guide.Row("text", ("api/api.cxx:open_rk_step",)))
         self.assertEqual(guide.held(guide.Row("text", ("api/api.cxx:write", "api/api.cxx:invalidate", "hierarchy/valid.cxx:write_scope_t"))), "Held by `write`, `invalidate` in `api/api.cxx`; `write_scope_t` in `hierarchy/valid.cxx`.")
-        self.assertIn("built it. Held by `variable`, `levels`, ", guide.render())
+        self.assertIn("its box. Held by `variable`, `levels`, ", guide.render())
 
     def test_an_unexercised_name_is_declared_unused_and_listed_once(self):
         declared = guide.declared_names(PROJECT)
