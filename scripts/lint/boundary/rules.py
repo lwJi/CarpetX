@@ -94,7 +94,7 @@ VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\
 RECORD_VAR_FILE = layer_path("hierarchy", "driver.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
 MODEL_FILE = layer_path("hierarchy", "driver.hxx")
-MODEL_WORD = re.compile(r'\bmutable\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]')
+MODEL_WORD = re.compile(r'\bmutable\b|\bextern\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]')
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
 INDEX_PARAM = re.compile(r"\b(?:int|CCTK_INT)\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch)\b")
 STORAGE_OVERLOADS = ("QueryGroupStorageB", "GroupStorageIncrease", "GroupStorageDecrease")
@@ -409,13 +409,14 @@ RULES = (
         files=model_files,
         word=MODEL_WORD,
         allowed=never,
-        text=f"the data model, {MODEL_FILE}, has no mutable member and does not include <carpetx_rk.hxx>, so that a "
-        "const hierarchy writes nothing but grid data behind its pointers; what comm/ builds on a level lives in "
-        "comm/'s level_buffers_t, which LevelData holds through one pointer to a type it only forward-declares, and "
-        "the integrator record is a slot in traversal/.",
-        noun="mutable or integrator include",
+        text=f"the data model, {MODEL_FILE}, has no mutable member, declares no extern variable and does not include "
+        "<carpetx_rk.hxx>, so that a const hierarchy writes nothing but grid data behind its pointers and every fact "
+        "about the hierarchy, the epoch included, is a GHExt member changed through hierarchy_writer; what comm/ "
+        "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to a type it "
+        "only forward-declares, and the integrator record is a slot in traversal/.",
+        noun="mutable, extern or integrator include",
         where="in the data model",
-        clean="no mutable or integrator include in the data model",
+        clean="no mutable, extern or integrator include in the data model",
         home=layers_of((MODEL_FILE,)),
     ),
     Rule(

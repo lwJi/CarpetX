@@ -142,7 +142,6 @@ void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
   if (lev >= int(level_modified.size()))
     level_modified.resize(lev + 1, true);
   mark_level_modified(level);
-  carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 
   if (verbose)
 #pragma omp critical
@@ -421,7 +420,6 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   }
 
   mark_level_modified(level);
-  carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 
   if (verbose)
 #pragma omp critical
@@ -438,7 +436,6 @@ void CactusAmrCore::ClearLevel(const int lev) {
   hierarchy_writer::erase_levels_from(level);
 
   level_modified.resize(lev);
-  carpetx_epoch.fetch_add(1, std::memory_order_relaxed);
 
   if (verbose)
 #pragma omp critical

@@ -562,7 +562,7 @@ int current_iteration() {
 write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
                              const int iteration)
     : window(window), spec(std::move(spec)), iteration(iteration),
-      epoch(carpetx_epoch.load(std::memory_order_relaxed)), live(true) {
+      epoch(driver().epoch()), live(true) {
   const valid_t destroys = ~this->spec.keeps;
   const auto not_filled =
       event_reason(this->spec.event, " not filled", iteration);
@@ -606,7 +606,7 @@ void invalidate(const window_t window, invalidate_spec_t spec) {
 write_scope_t::~write_scope_t() {
   if (!live)
     return;
-  if (epoch != carpetx_epoch.load(std::memory_order_relaxed))
+  if (epoch != driver().epoch())
     CCTK_VERROR("CarpetX write scope \"%s\" (iteration %d) on group %s, time "
                 "level %d: the grid hierarchy was regridded while the write "
                 "scope was open",
