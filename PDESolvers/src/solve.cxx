@@ -458,7 +458,7 @@ void enumerate_points(
                     component_prolongated_offsets.at(level).at(tile.index()) +
                     component_prolongated_sizes.at(level).at(tile.index()))) {
             std::cout << "level=" << level << "\n";
-            std::cout << "component=" << tile.index() << "\n";
+            std::cout << "tile=" << tile.index() << "\n";
             std::cout << "idx_prolongated=" << idx_prolongated << "\n";
             std::cout << "npoints_prolongated_offset="
                       << npoints_prolongated_offset << "\n";
@@ -529,10 +529,6 @@ void enumerate_points(
             assert(component_prolongated_sizes.at(level).at(tile.index()) == 0);
           if (component_prolongated_sizes.at(level).at(tile.index()) == 0)
             return;
-          const auto &mfab = CarpetX::data(CarpetX::group_t{lvl, gi_idx}, tl);
-          const auto &fabbox = mfab.fabbox(tile.component().index());
-          const Arith::vect<int, 3> amrex_origin{
-              fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
@@ -541,7 +537,7 @@ void enumerate_points(
               layout1, static_cast<const CCTK_REAL *>(
                            CCTK_VarDataPtrI(cctkGH, tl.index(), vn_idx)));
           const Loop::GridDescBase grid(cctkGH);
-          const auto offset = amrex_origin;
+          const Arith::vect<int, 3> offset = grid.lbnd - grid.nghostzones;
 
           std::vector<std::tuple<int, Arith::vect<int, 3> > > locs;
           grid.loop_all<0, 0, 0>(
@@ -579,10 +575,6 @@ void enumerate_points(
           const int level = lvl.index();
           if (!lvl.child())
             return;
-          const auto &mfab = CarpetX::data(CarpetX::group_t{lvl, gi_idx}, tl);
-          const auto &fabbox = mfab.fabbox(tile.component().index());
-          const Arith::vect<int, 3> amrex_origin{
-              fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
@@ -593,7 +585,7 @@ void enumerate_points(
           const Loop::GridDescBase grid(cctkGH);
           Arith::vect<int, 3> imin, imax;
           grid.box_all<0, 0, 0>(grid.nghostzones, imin, imax);
-          const auto offset = amrex_origin;
+          const Arith::vect<int, 3> offset = grid.lbnd - grid.nghostzones;
 
           for (int level1 = 0; level1 < nlevels; ++level1) {
             for (int component1 = 0; component1 < level_sizes.at(level1);
@@ -638,10 +630,6 @@ void enumerate_points(
             assert(component_prolongated_sizes.at(level).at(tile.index()) == 0);
           if (component_prolongated_sizes.at(level).at(tile.index()) == 0)
             return;
-          const auto &mfab = CarpetX::data(CarpetX::group_t{lvl, gi_idx}, tl);
-          const auto &fabbox = mfab.fabbox(tile.component().index());
-          const Arith::vect<int, 3> amrex_origin{
-              fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
@@ -650,7 +638,7 @@ void enumerate_points(
               layout1, static_cast<const CCTK_REAL *>(
                            CCTK_VarDataPtrI(cctkGH, tl.index(), vn_idx)));
           const Loop::GridDescBase grid(cctkGH);
-          const auto offset = amrex_origin;
+          const Arith::vect<int, 3> offset = grid.lbnd - grid.nghostzones;
 
           const auto &locs = locations.at(level).at(tile.index());
           const auto &idxs = indices.at(level).at(tile.index());
