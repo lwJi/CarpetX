@@ -433,10 +433,10 @@ rk_step_t::~rk_step_t() {
   if (!p)
     return;
   if (p->next_update != p->stages.end())
-    CCTK_VERROR("CarpetX::rk_step_t on %s destroyed after %d of its %d "
-                "stages; every stage calls rhs_computed and then "
+    CCTK_VERROR("CarpetX::rk_step_t on %s destroyed before RK stage %d of %d "
+                "was updated; every stage calls rhs_computed and then "
                 "state_updated before the step closes",
-                describe(p->window).c_str(), (*p->next_update).index() - 1,
+                describe(p->window).c_str(), (*p->next_update).index(),
                 p->stages.size());
 }
 
