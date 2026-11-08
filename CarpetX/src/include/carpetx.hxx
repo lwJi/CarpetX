@@ -78,6 +78,14 @@ struct var_t : index_t<var_t> {
   using index_t::index_t;
 };
 
+struct component_t : index_t<component_t> {
+  using index_t::index_t;
+};
+
+struct tile_t : index_t<tile_t> {
+  using index_t::index_t;
+};
+
 enum class symmetry_t {
   none,
   interpatch,
@@ -152,8 +160,8 @@ struct window_t {
   void
   loop_coarse_to_fine(const std::function<void(level_t level)> &kernel) const;
   void loop_parallel(
-      const std::function<void(level_t level, int index, int component,
-                               const cGH *cctkGH)> &kernel) const;
+      const std::function<void(level_t level, component_t component,
+                               tile_t tile, const cGH *cctkGH)> &kernel) const;
 
   friend constexpr bool operator==(const window_t &,
                                    const window_t &) = default;
@@ -481,5 +489,10 @@ template <>
 struct std::hash<CarpetX::vi_t> : CarpetX::index_hash<CarpetX::vi_t> {};
 template <>
 struct std::hash<CarpetX::var_t> : CarpetX::index_hash<CarpetX::var_t> {};
+template <>
+struct std::hash<CarpetX::component_t>
+    : CarpetX::index_hash<CarpetX::component_t> {};
+template <>
+struct std::hash<CarpetX::tile_t> : CarpetX::index_hash<CarpetX::tile_t> {};
 
 #endif

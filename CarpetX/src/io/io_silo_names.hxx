@@ -78,18 +78,18 @@ inline std::string silo_spelling(std::string name) {
 }
 
 inline void put_block_suffix(std::ostringstream &buf, const level_t level,
-                             const int component) {
+                             const component_t component) {
   buf << ".m" << std::setw(4) << std::setfill('0') << level.patch().index()
       << ".rl" << std::setw(2) << std::setfill('0') << level.index() << ".c"
-      << std::setw(8) << std::setfill('0') << component;
+      << std::setw(8) << std::setfill('0') << component.index();
 }
 
 inline std::string
 make_meshname(const std::array<int, Loop::dim> &nghosts,
               const std::optional<level_t> level = std::nullopt,
-              const int component = -1,
+              const std::optional<component_t> component = std::nullopt,
               const std::string &band = std::string()) {
-  assert(bool(level) == (component >= 0));
+  assert(bool(level) == bool(component));
   std::ostringstream buf;
   buf << (level ? "box" : "gh") << ".ghosts";
   for (int d = 0; d < Loop::dim; ++d) {
@@ -98,7 +98,7 @@ make_meshname(const std::array<int, Loop::dim> &nghosts,
     buf << std::setw(2) << std::setfill('0') << nghosts[d];
   }
   if (level)
-    put_block_suffix(buf, *level, component);
+    put_block_suffix(buf, *level, *component);
   if (!band.empty())
     buf << ".band." << band;
   return DB::legalize_name(buf.str());
@@ -106,12 +106,13 @@ make_meshname(const std::array<int, Loop::dim> &nghosts,
 
 inline std::string make_varname(
     const std::string &var, const std::optional<level_t> level = std::nullopt,
-    const int component = -1, const std::string &band = std::string()) {
-  assert(bool(level) == (component >= 0));
+    const std::optional<component_t> component = std::nullopt,
+    const std::string &band = std::string()) {
+  assert(bool(level) == bool(component));
   std::ostringstream buf;
   buf << silo_spelling(var);
   if (level)
-    put_block_suffix(buf, *level, component);
+    put_block_suffix(buf, *level, *component);
   if (!band.empty())
     buf << ".band." << band;
   return DB::legalize_name(buf.str());

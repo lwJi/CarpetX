@@ -109,12 +109,13 @@ void window_t::loop_coarse_to_fine(
 }
 
 void window_t::loop_parallel(
-    const std::function<void(level_t level, int index, int component,
-                             const cGH *cctkGH)> &kernel) const {
+    const std::function<void(level_t level, component_t component,
+                             tile_t tile, const cGH *cctkGH)> &kernel) const {
   CarpetX::loop_parallel(
-      *this, [&](const GHExt::PatchData::LevelData &leveldata, const int index,
-                 const int component, const cGH *const cctkGH) {
-        kernel(leveldata.level, index, component, cctkGH);
+      *this, [&](const GHExt::PatchData::LevelData &leveldata,
+                 const component_t component, const tile_t tile,
+                 const cGH *const cctkGH) {
+        kernel(leveldata.level, component, tile, cctkGH);
       });
 }
 

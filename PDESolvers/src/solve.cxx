@@ -117,8 +117,8 @@ void define_point_type() {
     const auto writes = open_writes(std::array{gi_pt}, CarpetX::make_valid_all(),
                                     "PDESolver::define_point_type");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const int index, const int component,
-            const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_pt(
               layout1, static_cast<CCTK_REAL *>(
@@ -146,8 +146,8 @@ void define_point_type() {
         open_writes(std::array{gi_ind}, CarpetX::make_valid_all(),
                     "PDESolver::define_point_type before restricting");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const int index, const int component,
-            const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_ind(
@@ -163,8 +163,9 @@ void define_point_type() {
   CarpetX::restrict_no_poison(CarpetX::active_window(), std::array{gi_ind});
 
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
-                                             const int index,
-                                             const int component,
+                                             const CarpetX::component_t
+                                                 component,
+                                             const CarpetX::tile_t tile,
                                              const cGH *restrict const cctkGH) {
     const int level = lvl.index();
     const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -189,24 +190,26 @@ void define_point_type() {
         open_writes(std::array{gi_ind}, CarpetX::make_valid_all(),
                     "PDESolver::define_point_type before synchronizing");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const int index, const int component,
-            const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_ind(
               layout1, static_cast<CCTK_REAL *>(
                            CCTK_VarDataPtrI(cctkGH, tl.index(), vn_ind)));
           const Loop::GridDescBase grid(cctkGH);
           grid.loop_all<0, 0, 0>(grid.nghostzones,
-                                 [&](const Loop::PointDesc &p)
-                                     ARITH_INLINE { gf_ind(p.I) = index; });
+                                 [&](const Loop::PointDesc &p) ARITH_INLINE {
+                                   gf_ind(p.I) = component.index();
+                                 });
         });
   }
 
   CarpetX::sync_ghosts_only(CarpetX::active_window(), std::array{gi_ind}, tl);
 
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
-                                             const int index,
-                                             const int component,
+                                             const CarpetX::component_t
+                                                 component,
+                                             const CarpetX::tile_t tile,
                                              const cGH *restrict const cctkGH) {
     const Loop::GF3D2layout layout1(cctkGH, indextype);
     const Loop::GF3D2<CCTK_REAL> gf_pt(
@@ -218,7 +221,7 @@ void define_point_type() {
     const Loop::GridDescBase grid(cctkGH);
     grid.loop_all<0, 0, 0>(grid.nghostzones,
                            [&](const Loop::PointDesc &p) ARITH_INLINE {
-                             if (gf_ind(p.I) != index) {
+                             if (gf_ind(p.I) != component.index()) {
                                assert(gf_pt(p.I) == int(point_type_t::undf) ||
                                       gf_pt(p.I) == int(point_type_t::bdry));
                                gf_pt(p.I) = int(point_type_t::sync);
@@ -231,8 +234,8 @@ void define_point_type() {
         open_writes(std::array{gi_ind}, CarpetX::make_valid_all(),
                     "PDESolver::define_point_type before prolongating");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const int index, const int component,
-            const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_ind(
@@ -248,8 +251,9 @@ void define_point_type() {
   CarpetX::prolongate_ghosts(CarpetX::active_window(), std::array{gi_ind}, tl);
 
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
-                                             const int index,
-                                             const int component,
+                                             const CarpetX::component_t
+                                                 component,
+                                             const CarpetX::tile_t tile,
                                              const cGH *restrict const cctkGH) {
     const int level = lvl.index();
     const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -276,8 +280,8 @@ void define_point_type() {
 
   Arith::vect<int, 6> npoints{0, 0, 0, 0, 0, 0};
   CarpetX::active_window().loop_parallel(
-      [&](const CarpetX::level_t lvl, const int index, const int component,
-          const cGH *restrict const cctkGH) {
+      [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+          const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
         const Loop::GF3D2layout layout1(cctkGH, indextype);
         const Loop::GF3D2<const CCTK_REAL> gf_pt(
             layout1, static_cast<const CCTK_REAL *>(
@@ -331,15 +335,15 @@ void enumerate_points(
   std::vector<int> level_sizes(nlevels, 0);
   std::vector<int> level_maxcomponents(nlevels, -1);
   CarpetX::active_window().loop_parallel(
-      [&](const CarpetX::level_t lvl, const int index, const int component,
-          const cGH *restrict const cctkGH) {
+      [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+          const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
         const int level = lvl.index();
 #pragma omp critical(PDESolvers_enumerate_points)
         {
           ++level_sizes.at(level);
           int &maxcomponent = level_maxcomponents.at(level);
           using std::max;
-          maxcomponent = max(maxcomponent, component);
+          maxcomponent = max(maxcomponent, tile.index());
         }
       });
 
@@ -355,39 +359,39 @@ void enumerate_points(
     component_prolongated_sizes.at(level).resize(level_sizes.at(level));
   }
 
-  CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
-                                             const int index,
-                                             const int component,
-                                             const cGH *restrict const cctkGH) {
-    const int level = lvl.index();
-    const Loop::GF3D2layout layout1(cctkGH, indextype);
-    const Loop::GF3D2<const CCTK_REAL> gf_pt(
-        layout1, static_cast<const CCTK_REAL *>(
-                     CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
-    const Loop::GridDescBase grid(cctkGH);
-    int npoints = 0;
-    int npoints_prolongated = 0;
-    grid.loop_all<0, 0, 0>(grid.nghostzones,
-                           [&](const Loop::PointDesc &p) ARITH_INLINE {
-                             switch (int(gf_pt(p.I))) {
-                             case int(point_type_t::intr):
-                               ++npoints;
-                               break;
-                             case int(point_type_t::bdry):
-                             case int(point_type_t::rest):
-                             case int(point_type_t::sync):
-                               // ignore this point
-                               break;
-                             case int(point_type_t::prol):
-                               ++npoints_prolongated;
-                               break;
-                             default:
-                               assert(0);
-                             }
-                           });
-    component_sizes.at(level).at(component) = npoints;
-    component_prolongated_sizes.at(level).at(component) = npoints_prolongated;
-  });
+  CarpetX::active_window().loop_parallel(
+      [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+          const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
+        const int level = lvl.index();
+        const Loop::GF3D2layout layout1(cctkGH, indextype);
+        const Loop::GF3D2<const CCTK_REAL> gf_pt(
+            layout1, static_cast<const CCTK_REAL *>(
+                         CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
+        const Loop::GridDescBase grid(cctkGH);
+        int npoints = 0;
+        int npoints_prolongated = 0;
+        grid.loop_all<0, 0, 0>(grid.nghostzones,
+                               [&](const Loop::PointDesc &p) ARITH_INLINE {
+                                 switch (int(gf_pt(p.I))) {
+                                 case int(point_type_t::intr):
+                                   ++npoints;
+                                   break;
+                                 case int(point_type_t::bdry):
+                                 case int(point_type_t::rest):
+                                 case int(point_type_t::sync):
+                                   // ignore this point
+                                   break;
+                                 case int(point_type_t::prol):
+                                   ++npoints_prolongated;
+                                   break;
+                                 default:
+                                   assert(0);
+                                 }
+                               });
+        component_sizes.at(level).at(tile.index()) = npoints;
+        component_prolongated_sizes.at(level).at(tile.index()) =
+            npoints_prolongated;
+      });
 
   // Local exclusive prefix sum
   int npoints = 0;
@@ -422,8 +426,8 @@ void enumerate_points(
     const auto writes = open_writes(std::array{gi_idx}, CarpetX::make_valid_all(),
                                     "PDESolver::enumerate_points");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const int index, const int component,
-            const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<CCTK_REAL> gf_idx(
@@ -433,10 +437,11 @@ void enumerate_points(
               layout1, static_cast<const CCTK_REAL *>(
                            CCTK_VarDataPtrI(cctkGH, tl.index(), vn_pt)));
           const Loop::GridDescBase grid(cctkGH);
-          int idx = npoints_offset + component_offsets.at(level).at(component);
+          int idx =
+              npoints_offset + component_offsets.at(level).at(tile.index());
           int idx_prolongated =
               npoints_prolongated_offset +
-              component_prolongated_offsets.at(level).at(component);
+              component_prolongated_offsets.at(level).at(tile.index());
           grid.loop_all<0, 0, 0>(
               grid.nghostzones, [&](const Loop::PointDesc &p) ARITH_INLINE {
                 switch (int(gf_pt(p.I))) {
@@ -460,28 +465,29 @@ void enumerate_points(
                 }
               });
           assert(idx == npoints_offset +
-                            component_offsets.at(level).at(component) +
-                            component_sizes.at(level).at(component));
+                            component_offsets.at(level).at(tile.index()) +
+                            component_sizes.at(level).at(tile.index()));
           if (!(idx_prolongated ==
                 npoints_prolongated_offset +
-                    component_prolongated_offsets.at(level).at(component) +
-                    component_prolongated_sizes.at(level).at(component))) {
+                    component_prolongated_offsets.at(level).at(tile.index()) +
+                    component_prolongated_sizes.at(level).at(tile.index()))) {
             std::cout << "level=" << level << "\n";
-            std::cout << "component=" << component << "\n";
+            std::cout << "component=" << tile.index() << "\n";
             std::cout << "idx_prolongated=" << idx_prolongated << "\n";
             std::cout << "npoints_prolongated_offset="
                       << npoints_prolongated_offset << "\n";
             std::cout << "component_prolongated_offsets="
-                      << component_prolongated_offsets.at(level).at(component)
+                      << component_prolongated_offsets.at(level).at(
+                             tile.index())
                       << "\n";
             std::cout << "component_prolongated_sizes="
-                      << component_prolongated_sizes.at(level).at(component)
+                      << component_prolongated_sizes.at(level).at(tile.index())
                       << "\n";
           }
           assert(idx_prolongated ==
                  npoints_prolongated_offset +
-                     component_prolongated_offsets.at(level).at(component) +
-                     component_prolongated_sizes.at(level).at(component));
+                     component_prolongated_offsets.at(level).at(tile.index()) +
+                     component_prolongated_sizes.at(level).at(tile.index()));
         });
   }
 
@@ -493,8 +499,8 @@ void enumerate_points(
     const auto writes = open_writes(std::array{gi_idx}, CarpetX::make_valid_all(),
                                     "PDESolver::enumerate_points");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const int index, const int component,
-            const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GF3D2<const CCTK_REAL> gf_pt(
               layout1, static_cast<const CCTK_REAL *>(
@@ -532,15 +538,15 @@ void enumerate_points(
     for (int level = 0; level < nlevels; ++level)
       locations.at(level).resize(level_sizes.at(level));
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const int index, const int component,
-            const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           if (level == 0)
-            assert(component_prolongated_sizes.at(level).at(component) == 0);
-          if (component_prolongated_sizes.at(level).at(component) == 0)
+            assert(component_prolongated_sizes.at(level).at(tile.index()) == 0);
+          if (component_prolongated_sizes.at(level).at(tile.index()) == 0)
             return;
           const auto &mfab = CarpetX::data(CarpetX::group_t{lvl, gi_idx}, tl);
-          const auto &fabbox = mfab.fabbox(index);
+          const auto &fabbox = mfab.fabbox(component.index());
           const Arith::vect<int, 3> amrex_origin{
               fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
           const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -573,7 +579,7 @@ void enumerate_points(
                   }
                 }
               });
-          locations.at(level).at(component) = std::move(locs);
+          locations.at(level).at(tile.index()) = std::move(locs);
         });
 
     std::vector<std::vector<std::vector<int> > > indices(nlevels);
@@ -585,13 +591,13 @@ void enumerate_points(
       }
     }
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const int index, const int component,
-            const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           if (!lvl.child())
             return;
           const auto &mfab = CarpetX::data(CarpetX::group_t{lvl, gi_idx}, tl);
-          const auto &fabbox = mfab.fabbox(index);
+          const auto &fabbox = mfab.fabbox(component.index());
           const Arith::vect<int, 3> amrex_origin{
               fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
           const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -643,15 +649,15 @@ void enumerate_points(
     for (int level = 0; level < nlevels; ++level)
       Jpvalss.at(level).resize(level_sizes.at(level));
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const int index, const int component,
-            const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           if (level == 0)
-            assert(component_prolongated_sizes.at(level).at(component) == 0);
-          if (component_prolongated_sizes.at(level).at(component) == 0)
+            assert(component_prolongated_sizes.at(level).at(tile.index()) == 0);
+          if (component_prolongated_sizes.at(level).at(tile.index()) == 0)
             return;
           const auto &mfab = CarpetX::data(CarpetX::group_t{lvl, gi_idx}, tl);
-          const auto &fabbox = mfab.fabbox(index);
+          const auto &fabbox = mfab.fabbox(component.index());
           const Arith::vect<int, 3> amrex_origin{
               fabbox.smallEnd(0), fabbox.smallEnd(1), fabbox.smallEnd(2)};
           const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -664,8 +670,8 @@ void enumerate_points(
           const Loop::GridDescBase grid(cctkGH);
           const auto offset = amrex_origin;
 
-          const auto &locs = locations.at(level).at(component);
-          const auto &idxs = indices.at(level).at(component);
+          const auto &locs = locations.at(level).at(tile.index());
+          const auto &idxs = indices.at(level).at(tile.index());
           assert(idxs.size() == locs.size());
           int n = 0;
           std::vector<std::tuple<int, int, CCTK_REAL> > Jpvals;
@@ -705,7 +711,7 @@ void enumerate_points(
                 }
               });
           assert(n == int(locs.size()));
-          Jpvalss.at(level).at(component) = std::move(Jpvals);
+          Jpvalss.at(level).at(tile.index()) = std::move(Jpvals);
         });
 
     // Convert Jpvals into sparse matrix
@@ -748,8 +754,9 @@ void copy_Cactus_to_PETSc(
                              "PDESolver::copy_Cactus_to_PETSc");
   });
   CarpetX::active_window().loop_parallel([&](const CarpetX::level_t lvl,
-                                             const int index,
-                                             const int component,
+                                             const CarpetX::component_t
+                                                 component,
+                                             const CarpetX::tile_t tile,
                                              const cGH *restrict const cctkGH) {
     const int level = lvl.index();
     const Loop::GF3D2layout layout1(cctkGH, indextype);
@@ -762,7 +769,7 @@ void copy_Cactus_to_PETSc(
     for (int n = 0; n < nvars; ++n)
       gfs.emplace_back(layout1, static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(
                                     cctkGH, tl.index(), varinds.at(n))));
-    const int component_offset = component_offsets.at(level).at(component);
+    const int component_offset = component_offsets.at(level).at(tile.index());
     int nelems = 0;
     grid.loop_all<0, 0, 0>(
         grid.nghostzones, [&](const Loop::PointDesc &p) ARITH_INLINE {
@@ -781,7 +788,7 @@ void copy_Cactus_to_PETSc(
             assert(0);
           }
         });
-    assert(nelems == nvars * component_sizes.at(level).at(component));
+    assert(nelems == nvars * component_sizes.at(level).at(tile.index()));
   });
 
   ierr = VecRestoreArray(vec, &vec_ptr);
@@ -820,8 +827,8 @@ void copy_PETSc_to_Cactus(
     const auto writes = open_writes(gis, CarpetX::make_valid_int(),
                                     "PDESolver::copy_PETSc_to_Cactus");
     CarpetX::active_window().loop_parallel(
-        [&](const CarpetX::level_t lvl, const int index, const int component,
-            const cGH *restrict const cctkGH) {
+        [&](const CarpetX::level_t lvl, const CarpetX::component_t component,
+            const CarpetX::tile_t tile, const cGH *restrict const cctkGH) {
           const int level = lvl.index();
           const Loop::GF3D2layout layout1(cctkGH, indextype);
           const Loop::GridDescBase grid(cctkGH);
@@ -834,7 +841,7 @@ void copy_PETSc_to_Cactus(
             gfs.emplace_back(layout1, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
                                           cctkGH, tl.index(), varinds.at(n))));
           const int component_offset =
-              component_offsets.at(level).at(component);
+              component_offsets.at(level).at(tile.index());
           int nelems = 0;
           grid.loop_all<0, 0, 0>(
               grid.nghostzones, [&](const Loop::PointDesc &p) ARITH_INLINE {
@@ -854,7 +861,7 @@ void copy_PETSc_to_Cactus(
                   assert(0);
                 }
               });
-          assert(nelems == nvars * component_sizes.at(level).at(component));
+          assert(nelems == nvars * component_sizes.at(level).at(tile.index()));
         });
   }
 

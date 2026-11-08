@@ -3,6 +3,7 @@
 
 #include "internal.hxx"
 
+#include "hierarchy/indices.hxx"
 #include <carpetx.hxx>
 #include <tuple.hxx>
 
@@ -105,7 +106,7 @@ struct checksum_t {
 
 struct tiletag_t {
   level_t level;
-  int component;
+  tile_t tile;
   gi_t gi;
   vi_t vi;
   tl_t tl;
@@ -117,7 +118,7 @@ struct tiletag_t {
     return os << "tiletag_t{"
               << "patch:" << x.level.patch() << ","
               << "level:" << x.level.index() << ","
-              << "component:" << x.component << ","
+              << "tile:" << x.tile << ","
               << "gi:" << x.gi << ","
               << "vi:" << x.vi << ","
               << "tl:" << x.tl << "}";

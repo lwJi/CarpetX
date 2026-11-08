@@ -295,14 +295,14 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
     cGH *const cctkGH = ext.get_level_cctkGH(level);
     enter_patch_mode(cctkGH, leveldata);
     patch_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
-    int component = 0;
+    tile_t tile{0};
     const auto mfitinfo = amrex::MFItInfo().EnableTiling();
     for (amrex::MFIter mfi(*leveldata.fab, mfitinfo); mfi.isValid();
-         ++mfi, ++component) {
+         ++mfi, tile = next_index(tile)) {
       const MFPointer mfp(mfi);
       enter_local_mode(cctkGH, leveldata, mfp);
       cctkGH_binding::bind_local(cctkGH, leveldata, mfp);
-      assert(int(local_cctkGHs.size()) == component);
+      assert(int(local_cctkGHs.size()) == tile.index());
       local_cctkGHs.emplace_back(copy_cctkGH(cctkGH));
       cctkGH_binding::unbind_local(cctkGH, leveldata, mfp);
       leave_local_mode(cctkGH, leveldata, mfp);

@@ -38,7 +38,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
 
   level = leveldata.level.index();
   patch = leveldata.level.patch().index();
-  component = mfp.index();
+  component = mfp.index().index();
 
   for (int d = 0; d < dim; ++d)
     gsh[d] = domain[orient(d, 1)] + 1 - domain[orient(d, 0)] + 1 +
@@ -101,13 +101,13 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
 }
 
 GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
-                   const int component) {
+                   const component_t component) {
   const auto &patchdata = driver().patch(leveldata.level.patch());
 
   const amrex::FabArrayBase &fab = *leveldata.fab;
 
-  const amrex::Box &fbx = fab.fabbox(component);
-  const amrex::Box &vbx = fab.box(component);
+  const amrex::Box &fbx = fab.fabbox(component.index());
+  const amrex::Box &vbx = fab.box(component.index());
   const amrex::Box &gbx = fbx;
   const amrex::Box &domain =
       patchdata.amrcore->Geom(leveldata.level.index()).Domain();
@@ -117,7 +117,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
 
   level = leveldata.level.index();
   patch = leveldata.level.patch().index();
-  this->component = component;
+  this->component = component.index();
 
   for (int d = 0; d < dim; ++d)
     nghostzones[d] = fab.nGrowVect()[d];
@@ -218,9 +218,9 @@ GridPtrDesc1::GridPtrDesc1(
 GridPtrDesc1::GridPtrDesc1(
     const GHExt::PatchData::LevelData &leveldata,
     const GHExt::PatchData::LevelData::GroupData &groupdata,
-    const int component)
+    const component_t component)
     : GridDesc(leveldata, component) {
-  const amrex::Box &fbx = leveldata.fab->fabbox(component);
+  const amrex::Box &fbx = leveldata.fab->fabbox(component.index());
   cactus_offset = lbound(fbx);
   for (int d = 0; d < dim; ++d) {
     assert(groupdata.nghostzones.at(d) >= 0);

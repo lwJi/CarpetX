@@ -75,20 +75,21 @@ void loop_fine_to_coarse(
 void loop_parallel(
     const window_t window,
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
-                             int index, int component, const cGH *cctkGH)>
-        &kernel) {
+                             component_t component, tile_t tile,
+                             const cGH *cctkGH)> &kernel) {
   assert(omp_get_num_threads() == 1);
   task_manager tasks;
 
   loop_coarse_to_fine(window, [&](auto &restrict leveldata) {
-    int component = 0;
+    tile_t tile{0};
     const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync().EnableTiling();
     const auto &fab0 = *leveldata.fab;
-    for (amrex::MFIter mfi(fab0, mfitinfo); mfi.isValid(); ++mfi, ++component) {
-      const int index = mfi.index();
-      tasks.submit_serially([&kernel, &leveldata, index, component]() {
-        cGH *restrict const localGH = leveldata.get_local_cctkGH(component);
-        kernel(leveldata, index, component, localGH);
+    for (amrex::MFIter mfi(fab0, mfitinfo); mfi.isValid();
+         ++mfi, tile = next_index(tile)) {
+      const component_t component{mfi.index()};
+      tasks.submit_serially([&kernel, &leveldata, component, tile]() {
+        cGH *restrict const localGH = leveldata.get_local_cctkGH(tile);
+        kernel(leveldata, component, tile, localGH);
       });
     }
   });
@@ -99,16 +100,17 @@ void loop_parallel(
 void loop_serially(
     const window_t window,
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
-                             int index, int component, const cGH *cctkGH)>
-        &kernel) {
+                             component_t component, tile_t tile,
+                             const cGH *cctkGH)> &kernel) {
   loop_coarse_to_fine(window, [&](auto &restrict leveldata) {
-    int component = 0;
+    tile_t tile{0};
     const auto mfitinfo = amrex::MFItInfo().DisableDeviceSync().EnableTiling();
     const auto &fab0 = *leveldata.fab;
-    for (amrex::MFIter mfi(fab0, mfitinfo); mfi.isValid(); ++mfi, ++component) {
-      const int index = mfi.index();
-      cGH *restrict const localGH = leveldata.get_local_cctkGH(component);
-      kernel(leveldata, index, component, localGH);
+    for (amrex::MFIter mfi(fab0, mfitinfo); mfi.isValid();
+         ++mfi, tile = next_index(tile)) {
+      const component_t component{mfi.index()};
+      cGH *restrict const localGH = leveldata.get_local_cctkGH(tile);
+      kernel(leveldata, component, tile, localGH);
     }
   });
 }

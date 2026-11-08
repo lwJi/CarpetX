@@ -35,14 +35,14 @@ inline void loop_serially(
 void loop_parallel(
     window_t window,
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
-                             int index, int component, const cGH *cctkGH)>
-        &kernel);
+                             component_t component, tile_t tile,
+                             const cGH *cctkGH)> &kernel);
 
 void loop_serially(
     window_t window,
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
-                             int index, int component, const cGH *cctkGH)>
-        &kernel);
+                             component_t component, tile_t tile,
+                             const cGH *cctkGH)> &kernel);
 
 bool window_is_restricted(window_t window);
 
@@ -51,7 +51,7 @@ inline amrex::Orientation orient(int d, int f) {
 }
 
 struct MFPointer {
-  int m_index;
+  component_t m_index;
   amrex::Box m_validbox;
   amrex::Box m_tilebox;
 
@@ -61,10 +61,10 @@ struct MFPointer {
   MFPointer &operator=(const MFPointer &) = default;
   MFPointer &operator=(MFPointer &&) = default;
   MFPointer(const amrex::MFIter &mfi)
-      : m_index((assert(mfi.isValid()), mfi.index())),
+      : m_index((assert(mfi.isValid()), component_t{mfi.index()})),
         m_validbox(mfi.validbox()), m_tilebox(mfi.tilebox()) {}
 
-  constexpr int index() const noexcept { return m_index; }
+  constexpr component_t index() const noexcept { return m_index; }
 
   constexpr amrex::Box validbox() const noexcept { return m_validbox; }
 
@@ -92,7 +92,7 @@ struct GridDesc : Loop::GridDescBase {
   GridDesc() = delete;
   GridDesc(const GHExt::PatchData::LevelData &leveldata, const MFPointer &mfp);
   GridDesc(const GHExt::PatchData::LevelData &leveldata,
-           const int global_component);
+           component_t component);
   GridDesc(const cGH *cctkGH) : Loop::GridDescBase(cctkGH) {}
 };
 
@@ -124,7 +124,7 @@ struct GridPtrDesc1 : GridDesc {
                const MFPointer &mfp);
   GridPtrDesc1(const GHExt::PatchData::LevelData &leveldata,
                const GHExt::PatchData::LevelData::GroupData &groupdata,
-               int component);
+               component_t component);
 
   template <typename T>
   T *ptr(const amrex::Array4<T> &vars, const vi_t vi) const {

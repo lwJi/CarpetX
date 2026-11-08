@@ -560,6 +560,10 @@ class Index(unittest.TestCase):
         "void solve(CCTK_INT gi, CCTK_INT tl);",
         "void StoreRKStage(level_t level, std::span<const gi_t> var_groups, int stage);",
         "void AccumulateFluxes(level_t level, const int stage, CCTK_REAL weight);",
+        "cGH *get_local_cctkGH(const int component) const;",
+        "for (int component = 0; component < mfab.size(); ++component) {",
+        "int component;",
+        "void loop_parallel(window_t window, const std::function<void(level_t, int tile, const cGH *)> &kernel);",
     ]
 
     def test_index_reported(self):
@@ -739,6 +743,12 @@ class Index(unittest.TestCase):
             "void f(level_t level, stage_t stage, int nstages);\n",
             "const int num_rk_stages = CarpetX::num_rk_stages();\n",
             "int stages;\n",
+            "constexpr int index() const noexcept { return m_index; }\n",
+            "const int global_component;\n",
+            "for (int local_component = 0; local_component < n; ++local_component)\n",
+            "const int num_local_components = mfab.local_size();\n",
+            "int ncomponents, tiles;\n",
+            "void f(component_t component, tile_t tile);\n",
         ]:
             with self.subTest(text=text):
                 self.assertEqual([f for f in reported("CarpetX/src/hierarchy/driver.hxx", text) if f[0] == "index"], [])

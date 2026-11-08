@@ -96,7 +96,7 @@ RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
 MODEL_FILE = layer_path("hierarchy", "driver.hxx")
 MODEL_WORD = re.compile(r'\bmutable\b|\bextern\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]')
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
-INDEX_PARAM = re.compile(r"\b(?:int|CCTK_INT)\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch|stage)\b")
+INDEX_PARAM = re.compile(r"\b(?:int|CCTK_INT)\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch|stage|component|tile)\b")
 STORAGE_OVERLOADS = ("QueryGroupStorageB", "GroupStorageIncrease", "GroupStorageDecrease")
 AMREX_CALLBACKS = ("ErrorEst", "MakeNewLevelFromScratch", "MakeNewLevelFromCoarse", "RemakeLevel", "ClearLevel")
 INDEX_FIXED = {
@@ -451,11 +451,12 @@ RULES = (
         files=carpetx_cxx,
         word=INDEX_PARAM,
         allowed=index_allowed,
-        text="every CarpetX source and header names a group, variable, time level, patch, level or RK stage by its "
-        "type (gi_t, vi_t, tl_t, patch_t, level_t, window_t, stage_t), never a bare int or CCTK_INT, except in the "
-        "signatures the flesh and AMReX fix, the level_t and window_t constructors, and window_t::levels and narrow; "
-        "a loop over a patch's levels walks level_handles(), one over the patches patch_handles(), one over the RK "
-        "stages rk_stages, and .index() unwraps a handle where it meets AMReX or the flesh.",
+        text="every CarpetX source and header names a group, variable, time level, patch, level, RK stage, box or "
+        "tile by its type (gi_t, vi_t, tl_t, patch_t, level_t, window_t, stage_t, component_t, tile_t), never a bare "
+        "int or CCTK_INT, except in the signatures the flesh and AMReX fix, the level_t and window_t constructors, "
+        "and window_t::levels and narrow; a loop over a patch's levels walks level_handles(), one over the patches "
+        "patch_handles(), one over the RK stages rk_stages, one over the boxes of a MultiFab components_of(), and "
+        ".index() unwraps a handle where it meets AMReX or the flesh.",
         noun="bare index int",
         where="in CarpetX",
         clean="no bare index int in CarpetX",

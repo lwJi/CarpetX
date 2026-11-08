@@ -251,7 +251,7 @@ void enter_local_mode(cGH *restrict cctkGH,
   assert(in_patch_mode(cctkGH));
   const GridPtrDesc grid(leveldata, mfp);
 
-  cctkGH->cctk_component = mfp.index();
+  cctkGH->cctk_component = mfp.index().index();
   for (int d = 0; d < dim; ++d)
     cctkGH->cctk_lsh[d] = grid.lsh[d];
   for (int d = 0; d < dim; ++d)

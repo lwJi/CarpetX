@@ -7,6 +7,7 @@
 
 #ifdef HAVE_CAPABILITY_Silo
 
+#include "hierarchy/indices.hxx"
 #include "util/mpi_types.hxx"
 #include "util/refuse.hxx"
 
@@ -258,16 +259,18 @@ struct writer_t {
 
   bool writes_file() const { return bool(dbfile); }
 
-  const CCTK_REAL *gather(const amrex::MultiFab &mfab, const int component,
+  const CCTK_REAL *gather(const amrex::MultiFab &mfab,
+                          const component_t component,
                           const std::ptrdiff_t count, const int tag,
                           std::vector<CCTK_REAL> &buffer) const {
-    const int proc = mfab.DistributionMap()[component];
+    const int proc = mfab.DistributionMap()[component.index()];
     const int ioproc = proc / every * every;
     assert(count <= INT_MAX);
     if (proc == myproc && ioproc == myproc)
-      return mfab[component].dataPtr();
+      return mfab[component.index()].dataPtr();
     if (proc == myproc) {
-      MPI_Send(mfab[component].dataPtr(), count, mpi_datatype_v<CCTK_REAL>,
+      MPI_Send(mfab[component.index()].dataPtr(), count,
+               mpi_datatype_v<CCTK_REAL>,
                ioproc, tag, mpi_comm);
       return nullptr;
     }
@@ -277,8 +280,9 @@ struct writer_t {
     return buffer.data();
   }
 
-  bool takes_part(const amrex::MultiFab &mfab, const int component) const {
-    const int proc = mfab.DistributionMap()[component];
+  bool takes_part(const amrex::MultiFab &mfab,
+                  const component_t component) const {
+    const int proc = mfab.DistributionMap()[component.index()];
     const int ioproc = proc / every * every;
     return proc == myproc || ioproc == myproc;
   }
@@ -294,10 +298,10 @@ struct writer_t {
     std::set<ivect> &level_meshes = meshes[level];
     const bool have_mesh = level_meshes.count(nghosts);
 
-    for (int component = 0; component < mfab.size(); ++component) {
+    for (const component_t component : components_of(mfab)) {
       if (!takes_part(mfab, component))
         continue;
-      const amrex::Box &fabbox = mfab.fabbox(component);
+      const amrex::Box &fabbox = mfab.fabbox(component.index());
       const ivect dims = shape(fabbox);
       const std::ptrdiff_t zonecount = num_points(dims);
       const std::string meshname = make_meshname(nghosts, level, component);
@@ -313,11 +317,11 @@ struct writer_t {
           for (int d = 0; d < ndims; ++d)
             coord_ptrs[d] = coords[d].data();
         } else {
-          const int proc = mfab.DistributionMap()[component];
+          const int proc = mfab.DistributionMap()[component.index()];
           assert(proc == myproc && proc / every * every == myproc);
           const amrex::MultiFab &coord_mfab = *levelrecord.vertex_coords;
           assert(coord_mfab.nGrowVect() == mfab.nGrowVect());
-          const amrex::FArrayBox &coord_fab = coord_mfab[component];
+          const amrex::FArrayBox &coord_fab = coord_mfab[component.index()];
           for (int d = 0; d < ndims; ++d) {
             coord_ptrs[d] = coord_fab.dataPtr(d);
             assert(coord_ptrs[d]);
@@ -333,8 +337,8 @@ struct writer_t {
             xmin[d] = xminmax.first;
             xmax[d] = xminmax.second;
           }
-          coordinate_minima.at(level).at(component) = xmin;
-          coordinate_maxima.at(level).at(component) = xmax;
+          coordinate_minima.at(level).at(component.index()) = xmin;
+          coordinate_maxima.at(level).at(component.index()) = xmax;
         }
         put_quadmesh(dbfile.get(), meshname, coord_ptrs, dims_vc,
                      cartesian ? DB_COLLINEAR : DB_NONCOLLINEAR, cartesian,
@@ -368,10 +372,10 @@ struct writer_t {
     const int centering = db_centering(indextype);
     const ivect band_nghosts{0, 0, 0};
 
-    for (int component = 0; component < band.size(); ++component) {
+    for (const component_t component : components_of(band)) {
       if (!takes_part(band, component))
         continue;
-      const amrex::Box &fabbox = band.fabbox(component);
+      const amrex::Box &fabbox = band.fabbox(component.index());
       const ivect dims = shape(fabbox);
       const std::ptrdiff_t zonecount = num_points(dims);
       const std::string meshname =
@@ -489,8 +493,8 @@ struct metafile_writer_t {
   }
 
   std::string block_path(const amrex::MultiFab &mfab,
-                         const int component) const {
-    const int proc = mfab.DistributionMap()[component];
+                         const component_t component) const {
+    const int proc = mfab.DistributionMap()[component.index()];
     return make_subdirname(file, record.iteration) + "/" +
            make_filename(file, record.iteration, proc / every);
   }
@@ -543,8 +547,8 @@ struct metafile_writer_t {
           const int ncomps = ncomps_level_patch.at(level);
           const int fine_comp0 = comp0_level_patch.at(fine);
           const amrex::BoxArray &fine_boxarray = fine_mfab.boxarray;
-          for (int component = 0; component < ncomps; ++component) {
-            amrex::Box refined_box(mfab.box(component));
+          for (const component_t component : components_of(ncomps)) {
+            amrex::Box refined_box(mfab.box(component.index()));
             refined_box.refine(2);
             std::vector<int> children;
             for (const auto &ib : fine_boxarray.intersections(refined_box))
@@ -552,9 +556,8 @@ struct metafile_writer_t {
             segment_data.push_back(std::move(children));
           }
         } else {
-          for (int component = 0; component < ncomps_level.at(level.index());
-               ++component)
-            segment_data.emplace_back();
+          segment_data.resize(segment_data.size() +
+                              ncomps_level.at(level.index()));
         }
       }
       for (const auto &data : segment_data)
@@ -710,8 +713,8 @@ struct metafile_writer_t {
     for (const level_t level : record.levels()) {
       const level_record_t &levelrecord = record.level_record(level);
       const amrex::MultiFab &mfab = *layout.mfabs.at(level);
-      for (int c = 0; c < mfab.size(); ++c) {
-        const amrex::Box &fabbox = mfab.fabbox(c);
+      for (const component_t c : components_of(mfab)) {
+        const amrex::Box &fabbox = mfab.fabbox(c.index());
         std::array<ivect, 2> iextent;
         extent_t extent;
         for (int d = 0; d < ndims; ++d) {
@@ -723,8 +726,8 @@ struct metafile_writer_t {
                 geom.ProbLo(d) + fabbox.smallEnd(d) * geom.CellSize(d);
             extent[1][d] = geom.ProbLo(d) + fabbox.bigEnd(d) * geom.CellSize(d);
           } else {
-            extent[0][d] = coordinate_minima.at(level).at(c)[d];
-            extent[1][d] = coordinate_maxima.at(level).at(c)[d];
+            extent[0][d] = coordinate_minima.at(level).at(c.index())[d];
+            extent[1][d] = coordinate_maxima.at(level).at(c.index())[d];
           }
         }
         iextents.push_back(iextent);
@@ -794,7 +797,7 @@ struct metafile_writer_t {
       std::vector<std::string> varnames;
       for (const level_t level : record.levels()) {
         const amrex::MultiFab &mfab = *layout.mfabs.at(level);
-        for (int c = 0; c < mfab.size(); ++c)
+        for (const component_t c : components_of(mfab))
           varnames.push_back(block_path(mfab, c) + ":" +
                              make_varname(var, level, c));
       }
@@ -829,11 +832,11 @@ struct metafile_writer_t {
           record.level_record(level).boxes;
       const int ncomponents = levelboxes.size();
       std::vector<int> boxes(2 * ndims * ncomponents);
-      for (int component = 0; component < ncomponents; ++component) {
-        const amrex::Box &box = levelboxes.at(component);
+      for (const component_t component : components_of(ncomponents)) {
+        const amrex::Box &box = levelboxes.at(component.index());
         for (int d = 0; d < ndims; ++d) {
-          boxes[d + 2 * ndims * component] = box.smallEnd(d);
-          boxes[d + ndims + 2 * ndims * component] = box.bigEnd(d);
+          boxes[d + 2 * ndims * component.index()] = box.smallEnd(d);
+          boxes[d + ndims + 2 * ndims * component.index()] = box.bigEnd(d);
         }
       }
       const int dims[2] = {ncomponents, 2 * ndims};
@@ -972,15 +975,15 @@ struct reader_t {
     const int mpi_tag = tag ? band_read_tag : state_read_tag;
     const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
-    for (int component = 0; component < dm.size(); ++component) {
-      const int proc = dm[component];
+    for (const component_t component : components_of(mfab)) {
+      const int proc = dm[component.index()];
       const int ioproc = proc / every * every;
       const bool recv_this_fab = proc == myproc;
       const bool read_this_fab = ioproc == myproc;
       if (!(recv_this_fab || read_this_fab))
         continue;
 
-      const ivect dims = shape(mfab.fabbox(component));
+      const ivect dims = shape(mfab.fabbox(component.index()));
       const std::ptrdiff_t zonecount = num_points(dims);
       assert(numvars * zonecount <= INT_MAX);
 
@@ -988,9 +991,9 @@ struct reader_t {
       MPI_Request mpi_req;
       CCTK_REAL *data = nullptr;
       if (recv_this_fab && read_this_fab) {
-        data = mfab[component].dataPtr();
+        data = mfab[component.index()].dataPtr();
       } else if (recv_this_fab) {
-        MPI_Irecv(mfab[component].dataPtr(), numvars * zonecount,
+        MPI_Irecv(mfab[component.index()].dataPtr(), numvars * zonecount,
                   mpi_datatype_v<CCTK_REAL>, ioproc, mpi_tag, mpi_comm,
                   &mpi_req);
       } else {
@@ -1041,8 +1044,9 @@ struct silo_codec_t final : checkpoint_codec_t {
   }
   std::string key(const buffer_id_t &id) const override {
     const std::string *const tag = band_tag(id);
-    return without_component(make_varname(id.vars.at(0), id.level,
-                                          id.level ? 0 : -1,
+    const std::optional<component_t> component =
+        id.level ? std::optional<component_t>(component_t{0}) : std::nullopt;
+    return without_component(make_varname(id.vars.at(0), id.level, component,
                                           tag ? *tag : std::string()));
   }
 
@@ -1325,9 +1329,10 @@ checkpoint_record_t silo_codec_t::decode_structure(const std::string &dir,
         assert(!ierr);
       }
       MPI_Bcast(data.data(), data.size(), MPI_INT, metafile_ioproc, mpi_comm);
-      for (int component = 0; component < nfabs; ++component) {
-        const amrex::IntVect small(&data.at(2 * ndims * component));
-        const amrex::IntVect big(&data.at(ndims + 2 * ndims * component));
+      for (const component_t component : components_of(nfabs)) {
+        const amrex::IntVect small(&data.at(2 * ndims * component.index()));
+        const amrex::IntVect big(
+            &data.at(ndims + 2 * ndims * component.index()));
         levelrecord.boxes.push_back(amrex::Box(small, big));
       }
 

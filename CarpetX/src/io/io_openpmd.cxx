@@ -503,17 +503,15 @@ void carpetx_openpmd_t::write_openpmd_slice(const cGH *const cctkGH,
 
           for (int local_component = 0; local_component < num_local_components;
                ++local_component) {
-            const int component = mfab.IndexArray().at(local_component);
+            const component_t component{mfab.IndexArray().at(local_component)};
 
-            const amrex::Box &fabbox =
-                mfab.fabbox(component); // exterior (with ghosts)
+            const amrex::Box &fabbox = mfab.fabbox(component.index());
             const box_t<int, 3> extbox{
                 .lo = {fabbox.smallEnd(0), fabbox.smallEnd(1),
                        fabbox.smallEnd(2)},
                 .hi = {fabbox.bigEnd(0) + 1, fabbox.bigEnd(1) + 1,
                        fabbox.bigEnd(2) + 1}};
-            const amrex::Box &validbox =
-                mfab.box(component); // interior (without ghosts)
+            const amrex::Box &validbox = mfab.box(component.index());
             const box_t<int, 3> intbox{
                 .lo = {validbox.smallEnd(0), validbox.smallEnd(1),
                        validbox.smallEnd(2)},
@@ -560,7 +558,7 @@ void carpetx_openpmd_t::write_openpmd_slice(const cGH *const cctkGH,
             for (int d = 0; d < 3; ++d)
               assert(start.at(d) + count.at(d) <= extent.at(d));
 
-            const amrex::FArrayBox &fab = mfab[component];
+            const amrex::FArrayBox &fab = mfab[component.index()];
             for (const vi_t vi : groupdata.record.variables()) {
               openPMD::MeshRecordComponent &record_component =
                   record_components.at(vi.index());

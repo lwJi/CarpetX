@@ -137,13 +137,14 @@ struct carpetx_adios2_t {
 
   static std::string make_varname(const GHExt::GroupRecord &group,
                                   const vi_t vi, const level_t level,
-                                  const int component = -1) {
+                                  const std::optional<component_t> component =
+                                      std::nullopt) {
     std::ostringstream buf;
     buf << CCTK_FullVarName(group.var(vi).index());
     buf << ".m" << std::setw(4) << std::setfill('0') << level.patch().index();
     buf << ".rl" << std::setw(2) << std::setfill('0') << level.index();
-    if (component >= 0)
-      buf << ".c" << std::setw(8) << std::setfill('0') << component;
+    if (component)
+      buf << ".c" << std::setw(8) << std::setfill('0') << component->index();
     return buf.str();
   }
 
@@ -284,7 +285,8 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                   for (int local_component = 0;
                        local_component < num_local_components;
                        ++local_component) {
-                    const int component = mfab.IndexArray().at(local_component);
+                    const component_t component{
+                        mfab.IndexArray().at(local_component)};
                     const std::string varname = make_varname(
                         groupdata.record, vi, leveldata.level, component);
                     if (io_verbose)
@@ -361,8 +363,9 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             std::vector<box_t<int, 3> > grids(num_local_components);
             for (int local_component = 0;
                  local_component < num_local_components; ++local_component) {
-              const int component = mfab.IndexArray().at(local_component);
-              const amrex::Box &fabbox = mfab.fabbox(component); // exterior
+              const component_t component{
+                  mfab.IndexArray().at(local_component)};
+              const amrex::Box &fabbox = mfab.fabbox(component.index());
               grids.at(local_component) = box_t<int, 3>{
                   .lo = {fabbox.smallEnd(0), fabbox.smallEnd(1),
                          fabbox.smallEnd(2)},
@@ -387,13 +390,14 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                 for (int local_component = 0;
                      local_component < num_local_components;
                      ++local_component) {
-                  const int component = mfab.IndexArray().at(local_component);
+                  const component_t component{
+                      mfab.IndexArray().at(local_component)};
 
                   adios2::Dims lsh(3);
                   for (int d = 0; d < 3; ++d)
                     lsh.at(d) = level.grids.at(local_component).shape()[d];
                   const int np = level.grids.at(local_component).size();
-                  const amrex::FArrayBox &fab = mfab[component];
+                  const amrex::FArrayBox &fab = mfab[component.index()];
 
                   const std::string varname = make_varname(
                       groupdata.record, vi, leveldata.level, component);
@@ -427,10 +431,11 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                   for (int local_component = 0;
                        local_component < num_local_components;
                        ++local_component) {
-                    const int component = mfab.IndexArray().at(local_component);
+                    const component_t component{
+                        mfab.IndexArray().at(local_component)};
 
                     const size_t np = sizes.at(local_component);
-                    const amrex::FArrayBox &fab = mfab[component];
+                    const amrex::FArrayBox &fab = mfab[component.index()];
                     const CCTK_REAL *const ptr =
                         fab.dataPtr() + vi.index() * np;
                     assert(ptr);
@@ -450,9 +455,10 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                   for (int local_component = 0;
                        local_component < num_local_components;
                        ++local_component) {
-                    const int component = mfab.IndexArray().at(local_component);
+                    const component_t component{
+                        mfab.IndexArray().at(local_component)};
                     const size_t np = sizes.at(local_component);
-                    const amrex::FArrayBox &fab = mfab[component];
+                    const amrex::FArrayBox &fab = mfab[component.index()];
                     const CCTK_REAL *const ptr =
                         fab.dataPtr() + vi.index() * np;
                     assert(ptr);
