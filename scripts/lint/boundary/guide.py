@@ -110,7 +110,7 @@ SECTIONS: tuple[Section, ...] = (
                 "`sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the same-level, coarse-fine and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and sets the same-level bit, and `prolongate_ghosts` its coarse-to-fine interpolation alone and sets the coarse-fine bit, neither applying the boundary condition; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. "
                 "`apply_outer_boundary` is the boundary condition alone: it requires the interior and both ghost regions, writes the outer region and sets the outer bit, so a thorn that has written a group everywhere and wants the driver's boundary condition on it calls this and no ghost fill. "
                 "`restrict_no_poison` leaves the coarse ghost and outer regions as they were, where the scheduled restriction invalidates and poisons them. `synchronize` waits for the device.",
-                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "api/api.cxx:apply_outer_boundary", "comm/sync_restrict.cxx:SyncGroupsByDirIGhostOnly", "comm/sync_restrict.cxx:SyncGroupsByDirIProlongateOnly_impl", "comm/sync_restrict.cxx:ApplyOuterBoundary", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
+                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "api/api.cxx:apply_outer_boundary", "comm/sync_restrict.cxx:SyncGhostsOnly", "comm/sync_restrict.cxx:ProlongateGhosts_impl", "comm/sync_restrict.cxx:ApplyOuterBoundary", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
@@ -151,7 +151,7 @@ SECTIONS: tuple[Section, ...] = (
             Row(
                 "Under subcycling the SYNC of an integrated group copies the same-level ghosts and marks them on every level; on a refined level at iteration > 0 it keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote, and elsewhere it fills and marks every ghost itself; on every level it then applies the boundary condition, which requires the interior and both ghost regions, and marks the outer boundary. "
                 "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`, and the thorn's SYNC there copies and marks the rest; the integrator schedules nothing for it.",
-                ("comm/sync_restrict.cxx:SyncGroupsByDirISubcycling", "api/api_rk.cxx:RecoverRKBoundary"),
+                ("comm/sync_restrict.cxx:SyncGroupsSubcycling", "api/api_rk.cxx:RecoverRKBoundary"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Register", "TestCarpetXAPI_Fill"),

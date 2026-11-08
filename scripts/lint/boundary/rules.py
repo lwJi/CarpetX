@@ -74,7 +74,7 @@ GHOST_ONLY_FILES = (
     layer_path("api", "api.cxx"),
     layer_path("flesh", "compile_checks.cxx"),
 )
-GHOST_ONLY_WORD = re.compile(r"\bSyncGroupsByDirIGhostOnly\s*\(")
+GHOST_ONLY_WORD = re.compile(r"\bSyncGhostsOnly\s*\(")
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
     r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration|integrator_config|integrator_frozen)\b"
@@ -567,7 +567,7 @@ RULES = (
         files=private_cxx,
         word=GHOST_ONLY_WORD,
         allowed=in_files(GHOST_ONLY_FILES),
-        text="the same-level ghost-only copy is called only by the public sync_ghosts_only in CarpetX/src/api/api.cxx; "
+        text="SyncGhostsOnly, the same-level ghost-only copy, is called only by the public sync_ghosts_only in CarpetX/src/api/api.cxx; "
         "a sync inside the driver opens a scope that says what it fills and uses the scheduled SYNC or the "
         "prolongation.",
         noun="driver-internal ghost-only sync",

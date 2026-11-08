@@ -466,8 +466,7 @@ void RecoverRKBoundary(const window_t window) {
   std::sort(states.begin(), states.end());
   const bool restricted = window_is_restricted(window);
   if (restricted)
-    SyncGroupsByDirIProlongateOnlyAligned(window, states,
-                                          timelevels_t::one(rk_tl));
+    ProlongateAligned(window, states, timelevels_t::one(rk_tl));
 
   for (const rk_level_t &entry : levels) {
     if (entry.level.index() == 0)

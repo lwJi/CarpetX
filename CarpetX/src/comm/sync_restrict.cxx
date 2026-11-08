@@ -37,7 +37,7 @@ struct mark_sync_active {
   mark_sync_active() {
     if (sync_active)
       CCTK_ERROR(
-          "Recursive call to SyncGroupsByDirI. Maybe you are syncing grid "
+          "Recursive call to SyncGroupsLockstep. Maybe you are syncing grid "
           "functions in the \"restrict\" bin while the parameter "
           "\"restrict_during_sync\" is true?");
     sync_active = true;
@@ -257,7 +257,7 @@ static void restrict_level(level_t level, std::span<const gi_t> groups,
 // Sync entry points
 // =======================================================================
 
-static std::vector<level_run_t> SyncGroupsByDirIProlongateOnly_impl(
+static std::vector<level_run_t> ProlongateGhosts_impl(
     const window_t window, const std::span<const gi_t> groups0,
     const bool prolongate_on_same_iteration, const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
@@ -298,16 +298,10 @@ static std::vector<level_run_t> SyncGroupsByDirIProlongateOnly_impl(
                          .tl = tl,
                          .fills = make_valid_coarse_fine(),
                          .keeps = make_valid_all(),
-                         .event = "SyncGroupsByDirIProlongateOnly"}));
+                         .event = "ProlongateGhosts"}));
       }
     }
   }
-
-  // We need to loop over groups, patches, and levels in a definite
-  // order so that AMReX's communication pattern does not get
-  // confused. Therefore all the loops here are serial. The only
-  // parallelization happens within AMReX and within our boundary
-  // conditions. This is not efficient.
 
   task_manager tasks1;
   task_manager tasks2;
@@ -332,7 +326,7 @@ static std::vector<level_run_t> SyncGroupsByDirIProlongateOnly_impl(
 
       for (const tl_t tl : fill_tls) {
         error_if_parent_invalid(leveldata, gi, tl,
-                                "SyncGroupsByDirIProlongateOnly on coarse "
+                                "ProlongateGhosts on coarse "
                                 "level before prolongation");
         tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                 &coarsegroupdata, interpolator, tl, &ext]() {
@@ -346,10 +340,9 @@ static std::vector<level_run_t> SyncGroupsByDirIProlongateOnly_impl(
                   .amrcore->Geom(leveldata.level.parent().index()),
               interpolator, groupdata.bcrecs);
         });
-
-      } // for tl
+      }
     });
-  } // for gi
+  }
 
   tasks1.run_tasks_serially();
   synchronize();
@@ -364,8 +357,8 @@ static std::vector<level_run_t> SyncGroupsByDirIProlongateOnly_impl(
   return runs;
 }
 
-void SyncGroupsByDirI(const window_t window,
-                      const std::span<const gi_t> groups0) {
+void SyncGroupsLockstep(const window_t window,
+                        const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
@@ -426,21 +419,15 @@ void SyncGroupsByDirI(const window_t window,
       require(window, {.gi = gi,
                        .tl = tl,
                        .where = make_valid_int(),
-                       .event = "SyncGroupsByDirI before syncing"});
+                       .event = "SyncGroupsLockstep before syncing"});
       scopes.push_back(
           open_write(window, {.gi = gi,
                               .tl = tl,
                               .fills = make_valid_ghosts(),
                               .keeps = make_valid_int() | make_valid_outer(),
-                              .event = "SyncGroupsByDirI"}));
+                              .event = "SyncGroupsLockstep"}));
     }
   }
-
-  // We need to loop over groups, patches, and levels in a definite
-  // order so that AMReX's communication pattern does not get
-  // confused. Therefore all the loops here are serial. The only
-  // parallelization happens within AMReX and within our boundary
-  // conditions. This is not efficient.
 
   task_manager tasks1;
   task_manager tasks2;
@@ -454,7 +441,6 @@ void SyncGroupsByDirI(const window_t window,
           timelevels_t::all_but_oldest().range(groupdata.record);
 
       if (leveldata.level.index() == 0) {
-        // Copy from adjacent boxes on same level
 
         for (const tl_t tl : sync_tls) {
           tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl, &ext]() {
@@ -462,11 +448,9 @@ void SyncGroupsByDirI(const window_t window,
                            ext.patch(leveldata.level.patch())
                                .amrcore->Geom(leveldata.level.index()));
           });
-        } // for tl
+        }
 
-      } else { // if leveldata.level > 0
-        // Copy from adjacent boxes on same level, and interpolate
-        // from next coarser level
+      } else {
 
         const auto &restrict coarseleveldata =
             ext.level(leveldata.level.parent());
@@ -478,7 +462,7 @@ void SyncGroupsByDirI(const window_t window,
         for (const tl_t tl : sync_tls) {
           error_if_parent_invalid(
               leveldata, gi, tl,
-              "SyncGroupsByDirI on coarse level before prolongation");
+              "SyncGroupsLockstep on coarse level before prolongation");
           tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                   &coarsegroupdata, interpolator, tl, &ext]() {
             FillPatch_ProlongateGhosts(
@@ -491,12 +475,11 @@ void SyncGroupsByDirI(const window_t window,
                     .amrcore->Geom(leveldata.level.parent().index()),
                 interpolator, groupdata.bcrecs);
           });
+        }
 
-        } // for tl
-
-      } // if leveldata.level > 0
+      }
     });
-  } // for gi
+  }
 
   tasks1.run_tasks_serially();
   synchronize();
@@ -507,9 +490,9 @@ void SyncGroupsByDirI(const window_t window,
 
   scopes.clear();
   apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
-                       "SyncGroupsByDirI applies the boundary condition after "
-                       "the ghost fill and reads the interior and both ghost "
-                       "regions");
+                       "SyncGroupsLockstep applies the boundary condition "
+                       "after the ghost fill and reads the interior and both "
+                       "ghost regions");
 
   assert(sync_active);
 }
@@ -552,8 +535,8 @@ integrator_owns_coarse_fine_ghosts(const GHExt::PatchData::LevelData &leveldata,
          leveldata.iteration > 0;
 }
 
-void SyncGroupsByDirISubcycling(const window_t window,
-                                const std::span<const gi_t> groups0) {
+void SyncGroupsSubcycling(const window_t window,
+                          const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
@@ -570,8 +553,8 @@ void SyncGroupsByDirISubcycling(const window_t window,
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
   const char *const prolongation_label =
-      "SyncGroupsByDirISubcycling on coarse level before prolongation";
-  const char *const sync_label = "SyncGroupsByDirISubcycling before syncing";
+      "SyncGroupsSubcycling on coarse level before prolongation";
+  const char *const sync_label = "SyncGroupsSubcycling before syncing";
 
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : groups) {
@@ -592,16 +575,10 @@ void SyncGroupsByDirISubcycling(const window_t window,
                                      .tl = tl,
                                      .fills = fills,
                                      .keeps = keeps,
-                                     .event = "SyncGroupsByDirISubcycling"}));
+                                     .event = "SyncGroupsSubcycling"}));
       }
     }
   }
-
-  // We need to loop over groups, patches, and levels in a definite
-  // order so that AMReX's communication pattern does not get
-  // confused. Therefore all the loops here are serial. The only
-  // parallelization happens within AMReX and within our boundary
-  // conditions. This is not efficient.
 
   task_manager tasks1;
   task_manager tasks2;
@@ -626,9 +603,9 @@ void SyncGroupsByDirISubcycling(const window_t window,
                            ext.patch(leveldata.level.patch())
                                .amrcore->Geom(leveldata.level.index()));
           });
-        } // for tl
+        }
 
-      } else { // if leveldata.level > 0
+      } else {
 
         const auto &restrict coarseleveldata =
             ext.level(leveldata.level.parent());
@@ -651,10 +628,8 @@ void SyncGroupsByDirISubcycling(const window_t window,
                              ext.patch(leveldata.level.patch())
                                  .amrcore->Geom(leveldata.level.index()));
             });
-          } // for tl
+          }
         } else {
-          // Copy from adjacent boxes on same level, and interpolate
-          // from next coarser level
           amrex::Interpolater *const interpolator = groupdata.interpolator;
 
           const bool aligned =
@@ -693,12 +668,11 @@ void SyncGroupsByDirISubcycling(const window_t window,
                       .amrcore->Geom(leveldata.level.parent().index()),
                   interpolator, groupdata.bcrecs, cmfab_old, tl_w_new);
             });
-          } // for tl
+          }
         }
-
-      } // if leveldata.level > 0
+      }
     });
-  } // for gi
+  }
 
   tasks1.run_tasks_serially();
   synchronize();
@@ -709,7 +683,7 @@ void SyncGroupsByDirISubcycling(const window_t window,
 
   scopes.clear();
   apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
-                       "SyncGroupsByDirISubcycling applies the boundary "
+                       "SyncGroupsSubcycling applies the boundary "
                        "condition after the ghost fill and reads the interior "
                        "and both ghost regions");
 
@@ -718,9 +692,9 @@ void SyncGroupsByDirISubcycling(const window_t window,
 
 void SyncGroups(const window_t window, const std::span<const gi_t> groups) {
   if (driver().use_subcycling)
-    SyncGroupsByDirISubcycling(window, groups);
+    SyncGroupsSubcycling(window, groups);
   else
-    SyncGroupsByDirI(window, groups);
+    SyncGroupsLockstep(window, groups);
 }
 
 namespace {
@@ -741,21 +715,20 @@ int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,
   return numgroups;
 }
 
-void SyncGroupsByDirIProlongateOnly(const window_t window,
-                                    const std::span<const gi_t> groups0,
-                                    const timelevels_t tls) {
-  SyncGroupsByDirIProlongateOnly_impl(window, groups0, false, tls);
+void ProlongateGhosts(const window_t window,
+                      const std::span<const gi_t> groups0,
+                      const timelevels_t tls) {
+  ProlongateGhosts_impl(window, groups0, false, tls);
 }
 
-void SyncGroupsByDirIProlongateOnlyAligned(const window_t window,
-                                           const std::span<const gi_t> groups0,
-                                           const timelevels_t tls) {
-  SyncGroupsByDirIProlongateOnly_impl(window, groups0, true, tls);
+void ProlongateAligned(const window_t window,
+                       const std::span<const gi_t> groups0,
+                       const timelevels_t tls) {
+  ProlongateGhosts_impl(window, groups0, true, tls);
 }
 
-void SyncGroupsByDirIGhostOnly(const window_t window,
-                               const std::span<const gi_t> groups0,
-                               const timelevels_t tls) {
+void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
+                    const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
@@ -775,21 +748,15 @@ void SyncGroupsByDirIGhostOnly(const window_t window,
       require(window, {.gi = gi,
                        .tl = tl,
                        .where = make_valid_int(),
-                       .event = "SyncGroupsByDirIGhostOnly before syncing"});
+                       .event = "SyncGhostsOnly before syncing"});
       scopes.push_back(
           open_write(window, {.gi = gi,
                               .tl = tl,
                               .fills = make_valid_same_level(),
                               .keeps = ~make_valid_same_level(),
-                              .event = "SyncGroupsByDirIGhostOnly"}));
+                              .event = "SyncGhostsOnly"}));
     }
   }
-
-  // We need to loop over groups, patches, and levels in a definite
-  // order so that AMReX's communication pattern does not get
-  // confused. Therefore all the loops here are serial. The only
-  // parallelization happens within AMReX and within our boundary
-  // conditions. This is not efficient.
 
   task_manager tasks1;
   task_manager tasks2;
@@ -804,9 +771,9 @@ void SyncGroupsByDirIGhostOnly(const window_t window,
                          ext.patch(leveldata.level.patch())
                              .amrcore->Geom(leveldata.level.index()));
         });
-      } // for tl
+      }
     });
-  } // for gi
+  }
 
   tasks1.run_tasks_serially();
   synchronize();
@@ -840,7 +807,7 @@ void ProlongateAfterRestriction(const window_t window) {
   const std::vector<gi_t> groups = sync_filter_groups(reprolongate_groups());
   const timelevels_t tls = timelevels_t::all_but_oldest();
   const std::vector<level_run_t> runs =
-      SyncGroupsByDirIProlongateOnly_impl(window, groups, true, tls);
+      ProlongateGhosts_impl(window, groups, true, tls);
   for (const level_run_t &run : runs)
     if (run.value)
       apply_outer_boundary(run.levels, groups, tls,

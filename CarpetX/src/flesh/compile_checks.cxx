@@ -105,13 +105,13 @@ concept array_timelevel_takes =
 };
 
 template <class... Args>
-concept sync_by_dir_takes = requires(Args... args) {
-  SyncGroupsByDirI(args...);
+concept sync_lockstep_takes = requires(Args... args) {
+  SyncGroupsLockstep(args...);
 };
 
 template <class... Args>
 concept ghost_only_takes = requires(Args... args) {
-  SyncGroupsByDirIGhostOnly(args...);
+  SyncGhostsOnly(args...);
 };
 
 template <class... Args>
@@ -310,7 +310,7 @@ static_assert(array_timelevel_takes<tl_t>);
 static_assert(!array_timelevel_takes<gi_t>);
 static_assert(!array_timelevel_takes<int>);
 
-static_assert(sync_by_dir_takes<window_t, std::span<const gi_t> >);
+static_assert(sync_lockstep_takes<window_t, std::span<const gi_t> >);
 
 static_assert(restrict_takes<window_t, std::span<const gi_t> >);
 static_assert(!restrict_takes<int, int, std::span<const gi_t> >);
@@ -332,16 +332,17 @@ static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateAfterRestriction), void(window_t)>);
 static_assert(std::is_same_v<decltype(RestrictNoPoison), comm_groups_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroupsByDirI), comm_groups_entry_t>);
 static_assert(
-    std::is_same_v<decltype(SyncGroupsByDirISubcycling), comm_groups_entry_t>);
+    std::is_same_v<decltype(SyncGroupsLockstep), comm_groups_entry_t>);
+static_assert(
+    std::is_same_v<decltype(SyncGroupsSubcycling), comm_groups_entry_t>);
 static_assert(std::is_same_v<decltype(SyncGroups), comm_groups_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnly),
-                             comm_timelevels_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnlyAligned),
-                             comm_timelevels_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroupsByDirIGhostOnly),
-                             comm_timelevels_entry_t>);
+static_assert(
+    std::is_same_v<decltype(ProlongateGhosts), comm_timelevels_entry_t>);
+static_assert(
+    std::is_same_v<decltype(ProlongateAligned), comm_timelevels_entry_t>);
+static_assert(
+    std::is_same_v<decltype(SyncGhostsOnly), comm_timelevels_entry_t>);
 static_assert(std::is_same_v<decltype(Reflux), void(window_t)>);
 static_assert(std::is_same_v<decltype(RecoverRKBoundary), void(window_t)>);
 

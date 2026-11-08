@@ -417,11 +417,6 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
   const auto &cgeom = patchdata.amrcore->Geom(parent.index());
   const rk_dense_output_t dense_output = registered_dense_output();
 
-  // We need to loop over groups in a definite order so that AMReX's
-  // communication pattern does not get confused (as in
-  // SyncGroupsByDirIProlongateOnly_impl), hence the serial task managers.
-  // tasks1 evaluates the dense output, tasks2 starts the prolongation, tasks3
-  // finishes it.
   task_manager tasks1;
   task_manager tasks2;
   task_manager tasks3;

@@ -348,7 +348,7 @@ void sync_ghosts_only_timelevels(const window_t window,
                                  const timelevels_t tls) {
   const operation_scope_t op("CarpetX::sync_ghosts_only");
   require_operable(window, groups);
-  SyncGroupsByDirIGhostOnly(window, groups, tls);
+  SyncGhostsOnly(window, groups, tls);
 }
 
 void prolongate_ghosts_timelevels(const window_t window,
@@ -356,7 +356,7 @@ void prolongate_ghosts_timelevels(const window_t window,
                                   const timelevels_t tls) {
   const operation_scope_t op("CarpetX::prolongate_ghosts");
   require_operable(window, groups);
-  SyncGroupsByDirIProlongateOnly(window, groups, tls);
+  ProlongateGhosts(window, groups, tls);
 }
 
 void prolongate_aligned_timelevels(const window_t window,
@@ -364,7 +364,7 @@ void prolongate_aligned_timelevels(const window_t window,
                                    const timelevels_t tls) {
   const operation_scope_t op("CarpetX::prolongate_aligned");
   require_operable(window, groups);
-  SyncGroupsByDirIProlongateOnlyAligned(window, groups, tls);
+  ProlongateAligned(window, groups, tls);
 }
 
 void apply_outer_boundary_timelevels(const window_t window,

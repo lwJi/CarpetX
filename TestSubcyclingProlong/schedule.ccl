@@ -19,7 +19,7 @@ SCHEDULE TestSubcyclingProlong_Update AT evol
   LANG: C
   WRITES: snapshot(interior)
   SYNC: snapshot
-} "Set snapshot = w(cctk_time,x) each substep and sync (routes through SyncGroupsByDirISubcycling)"
+} "Set snapshot = w(cctk_time,x) each substep and sync (routes through SyncGroupsSubcycling)"
 
 SCHEDULE TestSubcyclingProlong_Error AT analysis
 {

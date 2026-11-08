@@ -204,9 +204,9 @@ class Binding(unittest.TestCase):
 
 class GhostOnly(unittest.TestCase):
     CALLS = [
-        "SyncGroupsByDirIGhostOnly(window_t::one_level(level), states, timelevels_t::one(rk_tl));",
-        "SyncGroupsByDirIGhostOnly (window, groups, tls);",
-        "CarpetX::SyncGroupsByDirIGhostOnly(window, states, timelevels_t::one(tl_t{0}));",
+        "SyncGhostsOnly(window_t::one_level(level), states, timelevels_t::one(rk_tl));",
+        "SyncGhostsOnly (window, groups, tls);",
+        "CarpetX::SyncGhostsOnly(window, states, timelevels_t::one(tl_t{0}));",
     ]
 
     def test_a_call_outside_the_wrapper_is_reported(self):
@@ -223,9 +223,9 @@ class GhostOnly(unittest.TestCase):
 
     def test_a_mention_that_is_not_a_call_passes(self):
         for text in [
-            "static_assert(std::is_same_v<decltype(SyncGroupsByDirIGhostOnly), void(window_t)>);\n",
-            "SyncGroupsByDirIGhostOnlyAligned(window, groups, tls);\n",
-            "SyncGroupsByDirIGhostOnly_impl(window, groups, tls);\n",
+            "static_assert(std::is_same_v<decltype(SyncGhostsOnly), void(window_t)>);\n",
+            "SyncGhostsOnlyAligned(window, groups, tls);\n",
+            "SyncGhostsOnly_impl(window, groups, tls);\n",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/api/api_rk.cxx", "  " + text), [])
@@ -240,7 +240,7 @@ class GhostOnly(unittest.TestCase):
 
 class Directions(unittest.TestCase):
     FORWARDED = (
-        "  int SyncGroupsByDirI(const window_t window,\n"
+        "  int SyncGroupsLockstep(const window_t window,\n"
         "                       const cGH *restrict cctkGH, int numgroups,\n"
         "                       const int *groups, const int *directions);\n"
     )
@@ -404,7 +404,7 @@ class Model(unittest.TestCase):
 class Window(unittest.TestCase):
     USES = [
         "struct active_levels_t;",
-        "int SyncGroupsByDirI(active_levels_t window, const cGH *restrict cctkGH,",
+        "int SyncGroupsLockstep(active_levels_t window, const cGH *restrict cctkGH,",
         "active_levels_t scheduled_window(const char *caller,",
         "const traversal_scope_t scope(active_levels_t(0, level + 1));",
     ]
