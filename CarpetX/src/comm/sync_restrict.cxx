@@ -269,7 +269,11 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
   static Timer timer("Sync");
   Interval interval(timer);
 
-  sync_log_groups("ProlongateGhosts", groups0);
+  const char *const label = "ProlongateGhosts";
+  const std::string prolongation_label =
+      std::string(label) + " on coarse level before prolongation";
+
+  sync_log_groups(label, groups0);
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
@@ -298,7 +302,7 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
                          .tl = tl,
                          .fills = make_valid_coarse_fine(),
                          .keeps = make_valid_all(),
-                         .event = "ProlongateGhosts"}));
+                         .event = label}));
       }
     }
   }
@@ -325,9 +329,7 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
       amrex::Interpolater *const interpolator = groupdata.interpolator;
 
       for (const tl_t tl : fill_tls) {
-        error_if_parent_invalid(leveldata, gi, tl,
-                                "ProlongateGhosts on coarse "
-                                "level before prolongation");
+        error_if_parent_invalid(leveldata, gi, tl, prolongation_label.c_str());
         tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                 &coarsegroupdata, interpolator, tl, &ext]() {
           FillPatch_ProlongateOnly(
@@ -368,7 +370,15 @@ static void SyncGroupsLockstep(const window_t window,
   static Timer timer("Sync");
   Interval interval(timer);
 
-  sync_log_groups("SyncGroupsLockstep", groups0);
+  const char *const label = "SyncGroupsLockstep";
+  const std::string sync_label = std::string(label) + " before syncing";
+  const std::string prolongation_label =
+      std::string(label) + " on coarse level before prolongation";
+  const std::string boundary_label =
+      std::string(label) + " applies the boundary condition after the ghost "
+                           "fill and reads the interior and both ghost regions";
+
+  sync_log_groups(label, groups0);
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
@@ -419,13 +429,13 @@ static void SyncGroupsLockstep(const window_t window,
       require(window, {.gi = gi,
                        .tl = tl,
                        .where = make_valid_int(),
-                       .event = "SyncGroupsLockstep before syncing"});
+                       .event = sync_label});
       scopes.push_back(
           open_write(window, {.gi = gi,
                               .tl = tl,
                               .fills = make_valid_ghosts(),
                               .keeps = make_valid_int() | make_valid_outer(),
-                              .event = "SyncGroupsLockstep"}));
+                              .event = label}));
     }
   }
 
@@ -460,9 +470,8 @@ static void SyncGroupsLockstep(const window_t window,
         amrex::Interpolater *const interpolator = groupdata.interpolator;
 
         for (const tl_t tl : sync_tls) {
-          error_if_parent_invalid(
-              leveldata, gi, tl,
-              "SyncGroupsLockstep on coarse level before prolongation");
+          error_if_parent_invalid(leveldata, gi, tl,
+                                  prolongation_label.c_str());
           tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                   &coarsegroupdata, interpolator, tl, &ext]() {
             FillPatch_ProlongateGhosts(
@@ -490,9 +499,7 @@ static void SyncGroupsLockstep(const window_t window,
 
   scopes.clear();
   apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
-                       "SyncGroupsLockstep applies the boundary condition "
-                       "after the ghost fill and reads the interior and both "
-                       "ghost regions");
+                       boundary_label.c_str());
 
   assert(sync_active);
 }
@@ -548,13 +555,17 @@ static void SyncGroupsSubcycling(const window_t window,
   static Timer timer("Sync");
   Interval interval(timer);
 
-  sync_log_groups("SyncGroupsSubcycling", groups0);
+  const char *const label = "SyncGroupsSubcycling";
+  const std::string sync_label = std::string(label) + " before syncing";
+  const std::string prolongation_label =
+      std::string(label) + " on coarse level before prolongation";
+  const std::string boundary_label =
+      std::string(label) + " applies the boundary condition after the ghost "
+                           "fill and reads the interior and both ghost regions";
+
+  sync_log_groups(label, groups0);
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
-
-  const char *const prolongation_label =
-      "SyncGroupsSubcycling on coarse level before prolongation";
-  const char *const sync_label = "SyncGroupsSubcycling before syncing";
 
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : groups) {
@@ -575,7 +586,7 @@ static void SyncGroupsSubcycling(const window_t window,
                                      .tl = tl,
                                      .fills = fills,
                                      .keeps = keeps,
-                                     .event = "SyncGroupsSubcycling"}));
+                                     .event = label}));
       }
     }
   }
@@ -647,10 +658,11 @@ static void SyncGroupsSubcycling(const window_t window,
                      .tl = tl,
                      .where = make_valid_int(),
                      .event = sync_label});
-            error_if_parent_invalid(leveldata, gi, tl, prolongation_label);
+            error_if_parent_invalid(leveldata, gi, tl,
+                                    prolongation_label.c_str());
             if (do_blend)
               error_if_parent_invalid(leveldata, gi, tl_t{1},
-                                      prolongation_label);
+                                      prolongation_label.c_str());
             const amrex::MultiFab *const cmfab_old =
                 do_blend ? coarsegroupdata.timelevel(tl_t{1}).mfab.get()
                          : nullptr;
@@ -683,9 +695,7 @@ static void SyncGroupsSubcycling(const window_t window,
 
   scopes.clear();
   apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
-                       "SyncGroupsSubcycling applies the boundary "
-                       "condition after the ghost fill and reads the interior "
-                       "and both ghost regions");
+                       boundary_label.c_str());
 
   assert(sync_active);
 }
@@ -738,7 +748,10 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
   static Timer timer("Sync");
   Interval interval(timer);
 
-  sync_log_groups("SyncGhostsOnly", groups0);
+  const char *const label = "SyncGhostsOnly";
+  const std::string sync_label = std::string(label) + " before syncing";
+
+  sync_log_groups(label, groups0);
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
@@ -748,13 +761,13 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
       require(window, {.gi = gi,
                        .tl = tl,
                        .where = make_valid_int(),
-                       .event = "SyncGhostsOnly before syncing"});
+                       .event = sync_label});
       scopes.push_back(
           open_write(window, {.gi = gi,
                               .tl = tl,
                               .fills = make_valid_same_level(),
                               .keeps = ~make_valid_same_level(),
-                              .event = "SyncGhostsOnly"}));
+                              .event = label}));
     }
   }
 
