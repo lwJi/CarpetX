@@ -62,7 +62,6 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
 
   auto yf_arrs = crse_patch.arrays();
   amrex::GpuArray<amrex::MultiArray4<const CCTK_REAL>, RKSTAGES> kcs_arrs;
-  int slot = 0;
   for (const stage_t ks_stage : stages) {
     const std::unique_ptr<amrex::MultiFab> &ks_band =
         buffers.ks_source(ks_stage);
@@ -70,7 +69,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
     assert(ks_band->nComp() == nvars);
     assert(ks_band->boxArray() == crse_patch.boxArray());
     assert(ks_band->DistributionMap() == crse_patch.DistributionMap());
-    kcs_arrs[slot++] = ks_band->const_arrays();
+    kcs_arrs[stages.offset(ks_stage)] = ks_band->const_arrays();
   }
 
   if constexpr (RKSTAGES == 3) {
@@ -268,9 +267,9 @@ rk_fill_fpinfo(const amrex::MultiFab &finemfab,
 }
 
 std::string ks_source_band_tag(const stage_t stage) {
-  assert(all_rk_stages.contains(stage));
   std::ostringstream buf;
-  buf << "kss_s" << std::setw(2) << std::setfill('0') << stage.index() - 1;
+  buf << "kss_s" << std::setw(2) << std::setfill('0')
+      << all_rk_stages.offset(stage);
   return buf.str();
 }
 

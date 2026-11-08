@@ -292,7 +292,7 @@ void fill_refinement_boundary(const level_t level,
   assert(level.index() > 0);
   const stage_range stages = registered_stages();
   assert(stages.contains(stage));
-  const bool end_of_substep = !stages.contains(next_index(stage));
+  const bool end_of_substep = stage == stages.last();
   const GHExt::PatchData::LevelData &parentdata = ext.level(level.parent());
   const CCTK_REAL substep_start =
       aligned_with_parent(level) ? rk_substep_ratio : 0;
@@ -309,7 +309,8 @@ void fill_refinement_boundary(const level_t level,
                                          .event = event}));
   }
   FillRKBoundary(
-      level, states, rk_tl, end_of_substep ? stage_t{1} : next_index(stage),
+      level, states, rk_tl,
+      end_of_substep ? *stages.begin() : next_index(stage),
       end_of_substep ? substep_start + rk_substep_ratio : substep_start, dtc);
 }
 
@@ -329,7 +330,7 @@ rk_step_t open_rk_step(const window_t window) {
   const operation_scope_t op("CarpetX::open_rk_step");
   const rk_config_t &config = require_integrator();
   require_serial_context();
-  const stage_range stages = rk_stages(config.nstages());
+  const stage_range stages = registered_stages();
   auto step = std::unique_ptr<rk_step_t::impl>(new rk_step_t::impl{
       .window = window, .stages = stages, .stage = stages.begin()});
   step->b = config.b;
@@ -369,7 +370,7 @@ void rk_step_t::rhs_computed() {
                 p->stages.size());
   p->have_rhs = true;
   const stage_t stage = *p->stage;
-  const CCTK_REAL weight = p->b.at(stage.index() - 1);
+  const CCTK_REAL weight = p->b.at(p->stages.offset(stage));
   const CCTK_REAL delta_time = driver().get_global_cctkGH()->cctk_delta_time;
   using std::isfinite;
   if (!(isfinite(delta_time) && delta_time != 0))
@@ -490,7 +491,7 @@ void RecoverRKBoundary(const window_t window) {
     if (restricted && aligned)
       continue;
     fill_refinement_boundary(entry.level, entry.groups.states,
-                             rk_stages(integrator->nstages()).last(),
+                             registered_stages().last(),
                              "CarpetX::RecoverRKBoundary after recovery");
   }
   synchronize();

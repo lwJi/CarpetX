@@ -78,6 +78,10 @@ template <class Index> struct index_range {
     return begin_ <= i && i < end_;
   }
   constexpr int size() const { return end_.index() - begin_.index(); }
+  constexpr int offset(const Index i) const {
+    assert(contains(i));
+    return i.index() - begin_.index();
+  }
   constexpr Index last() const {
     assert(begin_ < end_);
     return Index{end_.index() - 1};
