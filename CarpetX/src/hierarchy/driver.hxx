@@ -46,6 +46,10 @@ using Loop::dim;
 
 inline constexpr int max_num_rk_stages = 4;
 
+struct stage_t : index_t<stage_t> {
+  using index_t::index_t;
+};
+
 template <class Derived>
 constexpr Derived next_index(const index_t<Derived> i) {
   return Derived{i.index() + 1};
@@ -78,6 +82,9 @@ private:
 };
 using tl_range = index_range<tl_t>;
 using level_range = index_range<level_t>;
+
+inline constexpr index_range<stage_t> rk_stages{stage_t{1},
+                                                stage_t{max_num_rk_stages + 1}};
 
 template <class T> class const_propagating_ptr {
 public:

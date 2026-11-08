@@ -3,6 +3,7 @@
 
 #include "internal.hxx"
 
+#include "hierarchy/driver.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -11,7 +12,7 @@ namespace CarpetX {
 
 void EnsureFluxGeometry(level_t level);
 
-void AccumulateFluxes(level_t level, int stage, CCTK_REAL weight);
+void AccumulateFluxes(level_t level, stage_t stage, CCTK_REAL weight);
 
 void Reflux(window_t window);
 

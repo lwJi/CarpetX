@@ -66,12 +66,12 @@ void EnsureFluxGeometry(const level_t level) {
   assert(have_all_or_none());
 }
 
-void AccumulateFluxes(const level_t level, const int stage,
+void AccumulateFluxes(const level_t level, const stage_t stage,
                       const CCTK_REAL weight) {
   const GHExt &ext = driver();
   if (!ext.do_reflux)
     return;
-  assert(stage >= 1 && stage <= num_rk_stages());
+  assert(rk_stages.contains(stage) && stage.index() <= num_rk_stages());
 
   static Timer timer("AccumulateFluxes");
   Interval interval(timer);
@@ -117,7 +117,7 @@ void AccumulateFluxes(const level_t level, const int stage,
             child_freg->refRatio(), child_freg->fineLevel(),
             child_freg->nComp());
       }
-      if (stage == 1)
+      if (stage == stage_t{1})
         child_freg->setVal(0);
       const int numvars = groupdata.record.numvars;
       const CCTK_REAL mult = -weight;

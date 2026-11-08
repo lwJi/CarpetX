@@ -554,6 +554,8 @@ class Index(unittest.TestCase):
         "int min_patch, max_patch;",
         "CCTK_INT GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size);",
         "void solve(CCTK_INT gi, CCTK_INT tl);",
+        "void StoreRKStage(level_t level, std::span<const gi_t> var_groups, int stage);",
+        "void AccumulateFluxes(level_t level, const int stage, CCTK_REAL weight);",
     ]
 
     def test_index_reported(self):
@@ -730,6 +732,9 @@ class Index(unittest.TestCase):
             "extern \"C\" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,\n",
             "CCTK_INT num_patches = 1;\n",
             "MY_CCTK_INT level;\n",
+            "void f(level_t level, stage_t stage, int nstages);\n",
+            "const int num_rk_stages = CarpetX::num_rk_stages();\n",
+            "int stages;\n",
         ]:
             with self.subTest(text=text):
                 self.assertEqual([f for f in reported("CarpetX/src/hierarchy/driver.hxx", text) if f[0] == "index"], [])

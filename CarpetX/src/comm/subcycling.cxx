@@ -27,6 +27,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -38,13 +39,12 @@ using GroupData = GHExt::PatchData::LevelData::GroupData;
 template <int RKSTAGES>
 void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                           const amrex::MultiFab &old_band,
-                          const std::array<std::unique_ptr<amrex::MultiFab>,
-                                           max_num_rk_stages> &ks_bands,
-                          const int stage, const CCTK_REAL xsi,
-                          const CCTK_REAL dtc) {
+                          const group_buffers_t &buffers, const stage_t stage,
+                          const CCTK_REAL xsi, const CCTK_REAL dtc) {
   static_assert(RKSTAGES == 3 || RKSTAGES == 4,
                 "rk_dense_output only supports RKSTAGES == 3 or 4");
-  assert(stage > 0 && stage <= RKSTAGES);
+  const index_range<stage_t> stages{stage_t{1}, stage_t{RKSTAGES + 1}};
+  assert(stages.contains(stage));
 
   constexpr CCTK_REAL r = rk_substep_ratio;
 
@@ -62,12 +62,15 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
 
   auto yf_arrs = crse_patch.arrays();
   amrex::GpuArray<amrex::MultiArray4<const CCTK_REAL>, RKSTAGES> kcs_arrs;
-  for (int s = 0; s < RKSTAGES; ++s) {
-    assert(ks_bands[s]);
-    assert(ks_bands[s]->nComp() == nvars);
-    assert(ks_bands[s]->boxArray() == crse_patch.boxArray());
-    assert(ks_bands[s]->DistributionMap() == crse_patch.DistributionMap());
-    kcs_arrs[s] = ks_bands[s]->const_arrays();
+  int slot = 0;
+  for (const stage_t ks_stage : stages) {
+    const std::unique_ptr<amrex::MultiFab> &ks_band =
+        buffers.ks_source(ks_stage);
+    assert(ks_band);
+    assert(ks_band->nComp() == nvars);
+    assert(ks_band->boxArray() == crse_patch.boxArray());
+    assert(ks_band->DistributionMap() == crse_patch.DistributionMap());
+    kcs_arrs[slot++] = ks_band->const_arrays();
   }
 
   if constexpr (RKSTAGES == 3) {
@@ -89,7 +92,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
         4. / 3.   // btt3
     };
 
-    if (stage == 1) {
+    if (stage == stage_t{1}) {
       amrex::ParallelFor(
           crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
@@ -99,7 +102,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
             const CCTK_REAL uu = b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2];
             yf_arrs[b_](i, j, k, n) += dtc * uu;
           });
-    } else if (stage == 2) {
+    } else if (stage == stage_t{2}) {
       amrex::ParallelFor(
           crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
@@ -156,7 +159,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
         4.0   // bttt4
     };
 
-    if (stage == 1) {
+    if (stage == stage_t{1}) {
       amrex::ParallelFor(
           crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
@@ -167,7 +170,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                 b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2] + b[3] * kk[3];
             yf_arrs[b_](i, j, k, n) += dtc * uu;
           });
-    } else if (stage == 2) {
+    } else if (stage == stage_t{2}) {
       amrex::ParallelFor(
           crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
@@ -183,10 +186,11 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
     } else { // stage 3 or stage 4
       const CCTK_REAL r2 = r * r;
       const CCTK_REAL r3 = r2 * r;
-      const CCTK_REAL at = (stage == 3) ? 0.5 * r : r;
-      const CCTK_REAL att = (stage == 3) ? 0.25 * r2 : 0.5 * r2;
-      const CCTK_REAL attt = (stage == 3) ? 0.0625 * r3 : 0.125 * r3;
-      const CCTK_REAL ak = (stage == 3) ? -4.0 : 4.0;
+      const bool third = stage == stage_t{3};
+      const CCTK_REAL at = third ? 0.5 * r : r;
+      const CCTK_REAL att = third ? 0.25 * r2 : 0.5 * r2;
+      const CCTK_REAL attt = third ? 0.0625 * r3 : 0.125 * r3;
+      const CCTK_REAL ak = third ? -4.0 : 4.0;
       amrex::ParallelFor(
           crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
@@ -214,16 +218,15 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
 
 void rk_dense_output(amrex::MultiFab &crse_patch,
                      const amrex::MultiFab &old_band,
-                     const std::array<std::unique_ptr<amrex::MultiFab>,
-                                      max_num_rk_stages> &ks_bands,
-                     const rk_dense_output_t dense_output, const int stage,
+                     const group_buffers_t &buffers,
+                     const rk_dense_output_t dense_output, const stage_t stage,
                      const CCTK_REAL xsi, const CCTK_REAL dtc) {
   switch (dense_output) {
   case rk_dense_output_t::ssprk3:
-    rk_dense_output_impl<3>(crse_patch, old_band, ks_bands, stage, xsi, dtc);
+    rk_dense_output_impl<3>(crse_patch, old_band, buffers, stage, xsi, dtc);
     break;
   case rk_dense_output_t::rk4:
-    rk_dense_output_impl<4>(crse_patch, old_band, ks_bands, stage, xsi, dtc);
+    rk_dense_output_impl<4>(crse_patch, old_band, buffers, stage, xsi, dtc);
     break;
   default:
     CCTK_ERROR("Subcycling dense output: the registered integrator has no "
@@ -264,25 +267,19 @@ rk_fill_fpinfo(const amrex::MultiFab &finemfab,
                                         cgeom, index_space);
 }
 
-enum class band_kind { ks_source, old_source, flux_register };
-
-std::string subcycling_band_tag(const band_kind kind, const int stage = -1) {
+std::string ks_source_band_tag(const stage_t stage) {
+  assert(rk_stages.contains(stage));
   std::ostringstream buf;
-  switch (kind) {
-  case band_kind::ks_source:
-    assert(stage >= 0 && stage < max_num_rk_stages);
-    buf << "kss_s" << std::setw(2) << std::setfill('0') << stage;
-    break;
-  case band_kind::old_source:
-    buf << "olds";
-    break;
-  case band_kind::flux_register:
-    assert(stage >= 0 && stage < 2 * dim);
-    buf << "freg_" << "xyz"[stage / 2] << (stage % 2 ? "hi" : "lo");
-    break;
-  default:
-    assert(0);
-  }
+  buf << "kss_s" << std::setw(2) << std::setfill('0') << stage.index() - 1;
+  return buf.str();
+}
+
+std::string old_source_band_tag() { return "olds"; }
+
+std::string flux_register_band_tag(const amrex::Orientation face) {
+  assert(face.coordDir() >= 0 && face.coordDir() < dim);
+  std::ostringstream buf;
+  buf << "freg_" << "xyz"[face.coordDir()] << (face.isHigh() ? "hi" : "lo");
   return buf.str();
 }
 
@@ -307,8 +304,9 @@ void EnsureRKBuffers(const level_t level, const gi_t gi) {
     const bool have = bool(buffers.rk_crse_patch);
     bool good = bool(buffers.rk_fine_patch) == have &&
                 bool(buffers.old_source_band) == have;
-    for (int stage = 0; stage < num_rk_stages; ++stage)
-      good = good && bool(buffers.ks_source_band[stage]) == have;
+    for (const stage_t stage : rk_stages)
+      if (stage.index() <= num_rk_stages)
+        good = good && bool(buffers.ks_source(stage)) == have;
     return good;
   };
   assert(have_all_or_none());
@@ -333,9 +331,10 @@ void EnsureRKBuffers(const level_t level, const gi_t gi) {
 
   const int numvars = groupdata.record.numvars;
   assert(numvars == ncomps);
-  for (int stage = 0; stage < num_rk_stages; ++stage)
-    buffers.ks_source_band[stage] = std::make_unique<amrex::MultiFab>(
-        fpc.ba_crse_patch, fpc.dm_patch, numvars, 0);
+  for (const stage_t stage : rk_stages)
+    if (stage.index() <= num_rk_stages)
+      buffers.ks_source(stage) = std::make_unique<amrex::MultiFab>(
+          fpc.ba_crse_patch, fpc.dm_patch, numvars, 0);
   buffers.old_source_band = std::make_unique<amrex::MultiFab>(
       fpc.ba_crse_patch, fpc.dm_patch, numvars, 0);
 
@@ -373,13 +372,13 @@ void StoreRKOldState(const level_t level,
 }
 
 void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
-                  const std::span<const gi_t> rhs_groups, const int stage) {
+                  const std::span<const gi_t> rhs_groups,
+                  const stage_t stage) {
   const GHExt &ext = driver();
   if (!ext.use_subcycling)
     return;
-  assert(stage >= 1 && stage <= num_rk_stages());
+  assert(rk_stages.contains(stage) && stage.index() <= num_rk_stages());
   assert(var_groups.size() == rhs_groups.size());
-  const int s = stage - 1;
   const auto &patchdata = ext.patch(level.patch());
   const std::optional<level_t> child = level.child();
   if (!child)
@@ -393,15 +392,15 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
     const group_buffers_t &childbuffers =
         buffers_of(childleveldata, var_groups[i]);
     const GroupData &rhs_groupdata = leveldata.group(rhs_groups[i]);
-    if (!childbuffers.ks_source_band[s])
+    if (!childbuffers.ks_source(stage))
       continue;
-    copy_interior_to_band(*childbuffers.ks_source_band[s],
+    copy_interior_to_band(*childbuffers.ks_source(stage),
                           *rhs_groupdata.timelevel(tl_t{0}).mfab, period);
   }
 }
 
 void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
-                    const tl_t tl, const int stage, const CCTK_REAL xsi,
+                    const tl_t tl, const stage_t stage, const CCTK_REAL xsi,
                     const CCTK_REAL dtc) {
   if (level.index() == 0)
     return;
@@ -454,8 +453,8 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
 
     tasks1.submit_serially(
         [&buffers, &crse_patch, &old_band, dense_output, stage, xsi, dtc]() {
-          rk_dense_output(crse_patch, old_band, buffers.ks_source_band,
-                          dense_output, stage, xsi, dtc);
+          rk_dense_output(crse_patch, old_band, buffers, dense_output, stage,
+                          xsi, dtc);
         });
 
     tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
@@ -484,23 +483,21 @@ std::vector<checkpoint_band_t> checkpoint_bands(const level_t level,
   const GroupData &childgroupdata = childleveldata.group(gi);
   const group_buffers_t &childbuffers = buffers_of(childleveldata, gi);
 
-  const auto add_band = [&](amrex::MultiFab *const band, const band_kind kind,
-                            const int stage) {
+  const auto add_band = [&](amrex::MultiFab *const band, std::string tag) {
     if (band && !band->empty())
-      bands.push_back({subcycling_band_tag(kind, stage), band});
+      bands.push_back({std::move(tag), band});
   };
-  for (int stage = 0; stage < max_num_rk_stages; ++stage)
-    add_band(childbuffers.ks_source_band[stage].get(), band_kind::ks_source,
-             stage);
-  add_band(childbuffers.old_source_band.get(), band_kind::old_source, -1);
+  for (const stage_t stage : rk_stages)
+    add_band(childbuffers.ks_source(stage).get(), ks_source_band_tag(stage));
+  add_band(childbuffers.old_source_band.get(), old_source_band_tag());
   if (childgroupdata.freg)
-    for (int face = 0; face < 2 * dim; ++face) {
-      const amrex::Orientation orientation(face / 2,
-                                           face % 2 ? amrex::Orientation::high
-                                                    : amrex::Orientation::low);
-      add_band(&(*childgroupdata.freg)[orientation].multiFab(),
-               band_kind::flux_register, face);
-    }
+    for (int dir = 0; dir < dim; ++dir)
+      for (const auto side :
+           {amrex::Orientation::low, amrex::Orientation::high}) {
+        const amrex::Orientation face(dir, side);
+        add_band(&(*childgroupdata.freg)[face].multiFab(),
+                 flux_register_band_tag(face));
+      }
   return bands;
 }
 
