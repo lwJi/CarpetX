@@ -664,8 +664,8 @@ class Index(unittest.TestCase):
                 self.assertEqual(reported(name, text), [])
 
     FIXED_DEFINITIONS = [
-        ("CarpetX/src/api/api.cxx", "window_t window_t::levels(const int min_level, const int max_level,\n                          const std::source_location site) {\n"),
-        ("CarpetX/src/api/api.cxx", "window_t window_t::narrow(const int min_level, const int max_level,\n                          const std::source_location site) const {\n"),
+        ("CarpetX/src/hierarchy/handles.cxx", "window_t window_t::levels(const int min_level, const int max_level,\n                          const std::source_location site) {\n"),
+        ("CarpetX/src/hierarchy/handles.cxx", "window_t window_t::narrow(const int min_level, const int max_level,\n                          const std::source_location site) const {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int GroupStorageIncrease(const cGH *cctkGH, int gi, const int *tls) {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int GroupStorageDecrease(const cGH *cctkGH, int gi, const int *tls) {\n"),
@@ -704,7 +704,7 @@ class Index(unittest.TestCase):
         text = "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {\n  for (int level = 0; level < 2; ++level)\n"
         self.assertEqual(reported("CarpetX/src/schedule/storage.cxx", text), [("index", "for (int level = 0; level < 2; ++level)")])
         text = "window_t window_t::levels(const int min_level, const int max_level) {\n  const int patch = 0;\n"
-        self.assertEqual(reported("CarpetX/src/api/api.cxx", text), [("index", "const int patch = 0;")])
+        self.assertEqual(reported("CarpetX/src/hierarchy/handles.cxx", text), [("index", "const int patch = 0;")])
 
     def test_a_fixed_definition_passes_only_in_its_own_file(self):
         for name, text in self.FIXED_DEFINITIONS:
@@ -2098,7 +2098,8 @@ class Doc(unittest.TestCase):
         self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "io", "CactusAmrCore"))
         self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "comm", "make_level_buffers"))
         self.assertIn('  comm -. "get_interpolator" .- hierarchy', doc.stack())
-        self.assertIn('  api -. "all_levels, level_t, RecoverRKBoundary, variable, window_t" .- schedule', doc.stack())
+        self.assertIn('  api -. "RecoverRKBoundary" .- schedule', doc.stack())
+        self.assertNotIn('level_t" .-', doc.stack())
         self.assertNotIn(".->", doc.stack())
         self.assertNotIn("apply_boundary_conditions", doc.stack())
 
@@ -2296,6 +2297,7 @@ class Doc(unittest.TestCase):
                 layer_path("regrid", "regrid.cxx"): "void CactusAmrCore::ErrorEst(const int lev,\n                             amrex::TagBoxArray &tags) {\n}\n"
                 + "".join(f"void CactusAmrCore::{name}(int lev) {{\n}}\n" for name in doc.AMREX_CALLBACKS[1:]),
                 layer_path("hierarchy", "hierarchy.cxx"): "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
+                layer_path("hierarchy", "handles.cxx"): "variable_t variable(const var_t var) {\n  return {};\n}\nwindow_t active_window() {\n  return scheduled_window(\"x\");\n}\nwindow_t all_levels() {\n  return window_t::levels(0, 1);\n}\n",
                 layer_path("hierarchy", "loops.cxx"): "void synchronize() {\n}\n",
                 layer_path("hierarchy", "valid.cxx"): 'std::string valid_t::explanation() const {\n  return "";\n}\n',
                 layer_path("hierarchy", "group_tags.cxx"): 'std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry) {\n  return os << "none";\n}\n',
@@ -2305,7 +2307,8 @@ class Doc(unittest.TestCase):
                 layer_path("api", "api_rk.cxx"): "void run_schedule_group_at(const cGH *cctkGH) {\n  CCTK_ScheduleTraverse(group, cctkGH, CallFunction);\n}\n",
                 doc.PUBLIC_HEADERS[0]: "int num_patches();\nvoid synchronize();\nreduction<CCTK_REAL, Loop::dim> reduce(gi_t gi);\nstruct valid_t {\n  std::string explanation() const;\n};\n"
                 "class Timer {\n  Timer(const std::string &name);\n};\nstd::ostream &operator<<(std::ostream &os, symmetry_t symmetry);\nvoid prolongate(window_t window,\n                std::span<const gi_t> groups);\n"
-                "std::array<std::array<symmetry_t, Loop::dim>, 2> symmetries(level_t level);\nstatic_assert(sizeof(int) == 4);\n",
+                "std::array<std::array<symmetry_t, Loop::dim>, 2> symmetries(level_t level);\nstatic_assert(sizeof(int) == 4);\n"
+                "variable_t variable(var_t var);\nwindow_t active_window();\nwindow_t all_levels();\n",
                 doc.PUBLIC_HEADERS[1]: "void register_integrator(const rk_config_t &config);\n",
             }
         )
@@ -2323,8 +2326,8 @@ class Doc(unittest.TestCase):
             write({})
             self.assertEqual(doc.registrations(root), [name for _, names in doc.REGISTERED for name in names])
             self.assertEqual(doc.extern_c_files(root), ["startup.cxx"])
-            self.assertEqual(doc.prototypes(root), {doc.PUBLIC_HEADERS[0]: ("num_patches", "synchronize", "reduce", "operator<<", "prolongate", "symmetries"), doc.PUBLIC_HEADERS[1]: ("register_integrator",)})
-            self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "symmetries", "register_integrator"), "hierarchy": ("synchronize", "valid_t", "operator<<"), "ops": ("reduce",), "util": ("Timer",)})
+            self.assertEqual(doc.prototypes(root), {doc.PUBLIC_HEADERS[0]: ("num_patches", "synchronize", "reduce", "operator<<", "prolongate", "symmetries", "variable", "active_window", "all_levels"), doc.PUBLIC_HEADERS[1]: ("register_integrator",)})
+            self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "symmetries", "register_integrator"), "hierarchy": ("variable", "active_window", "all_levels", "synchronize", "valid_t", "operator<<"), "ops": ("reduce",), "util": ("Timer",)})
             lines = doc.the_pass(root).splitlines()
             self.assertEqual(
                 [line for line in lines if " -- " in line],
@@ -2338,7 +2341,7 @@ class Doc(unittest.TestCase):
                     '  schedule -- "7 CCTK_CallFunction" --> thorn',
                     '  thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api',
                     '  thorn -- "8 reduce" --> ops',
-                    '  thorn -- "8 synchronize, valid_t, operator<<" --> hierarchy',
+                    '  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t, operator<<" --> hierarchy',
                     '  thorn -- "8 Timer" --> util',
                     '  api -- "9 CCTK_ScheduleTraverse" --> cactus',
                     '  cactus -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB" --> schedule',
@@ -2372,7 +2375,7 @@ class Doc(unittest.TestCase):
                     "| `ops/` | a thorn | reduce |",
                     "| `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |",
                     "| `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |",
-                    "| `hierarchy/` | a thorn | synchronize, valid_t, operator<< |",
+                    "| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t, operator<< |",
                     "| `util/` | a thorn | Timer |",
                 ],
             )

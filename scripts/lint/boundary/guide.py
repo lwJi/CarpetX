@@ -73,7 +73,7 @@ SECTIONS: tuple[Section, ...] = (
                 "A handle is made of indices and resolved on every call, so a stale one is reported, never dereferenced. "
                 "`window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. "
                 "A window checks its bounds when it is built, so the error names the line that built it.",
-                ("api/api.cxx:variable", "api/api.cxx:levels", "api/api.cxx:narrow", "api/api.cxx:coarsest", "api/api.cxx:finest", "api/api.cxx:require_window_bounds", "hierarchy/driver.hxx:level"),
+                ("hierarchy/handles.cxx:variable", "hierarchy/handles.cxx:levels", "hierarchy/handles.cxx:narrow", "hierarchy/handles.cxx:coarsest", "hierarchy/handles.cxx:finest", "hierarchy/handles.cxx:require_window_bounds", "hierarchy/driver.hxx:level"),
             ),
         ),
         exercised_by=("compile_checks.cxx", "TestCarpetXAPI_Fill"),

@@ -18,20 +18,7 @@ STRONG = frozenset("TDBRSG")
 ACCEPTED = (
     ("hierarchy", "comm", "CarpetX::get_interpolator("),
     ("hierarchy", "regrid", "CarpetX::CactusAmrCore::"),
-    ("hierarchy", "api", "CarpetX::level_t::"),
-    ("comm", "api", "CarpetX::level_t::"),
-    ("comm", "api", "CarpetX::window_t::"),
-    ("regrid", "api", "CarpetX::level_t::"),
-    ("regrid", "api", "CarpetX::window_t::"),
-    ("ops", "api", "CarpetX::level_t::"),
-    ("ops", "api", "CarpetX::variable("),
-    ("ops", "api", "CarpetX::window_t::"),
-    ("io", "api", "CarpetX::window_t::"),
-    ("schedule", "api", "CarpetX::all_levels("),
-    ("schedule", "api", "CarpetX::level_t::"),
     ("schedule", "api", "CarpetX::RecoverRKBoundary("),
-    ("schedule", "api", "CarpetX::variable("),
-    ("schedule", "api", "CarpetX::window_t::"),
 )
 RULE = wrap(
     "symbols: an object the build made from a CarpetX .cxx imports a symbol of namespace CarpetX only from an "

@@ -42,12 +42,7 @@ flowchart TB
   nodoor -- "carpetx.hxx, carpetx_rk.hxx" --> include
   comm -. "get_interpolator" .- hierarchy
   regrid -. "CactusAmrCore" .- hierarchy
-  api -. "level_t" .- hierarchy
-  api -. "level_t, window_t" .- comm
-  api -. "level_t, window_t" .- regrid
-  api -. "level_t, variable, window_t" .- ops
-  api -. "window_t" .- io
-  api -. "all_levels, level_t, RecoverRKBoundary, variable, window_t" .- schedule
+  api -. "RecoverRKBoundary" .- schedule
 ```
 
 - the layer rule holds the order util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/ from the bottom: a file includes only its own layer or a lower one
@@ -81,7 +76,7 @@ flowchart LR
   schedule -- "7 CCTK_CallFunction" --> thorn
   thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api
   thorn -- "8 reduce" --> ops
-  thorn -- "8 synchronize, valid_t, operator<<" --> hierarchy
+  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t, operator<<" --> hierarchy
   thorn -- "8 Timer" --> util
   api -- "9 CCTK_ScheduleTraverse" --> cactus
   cactus -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB" --> schedule
@@ -123,7 +118,7 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 | `ops/` | a thorn | reduce |
 | `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |
 | `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |
-| `hierarchy/` | a thorn | synchronize, valid_t, operator<< |
+| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t, operator<< |
 | `util/` | a thorn | Timer |
 
 ## What each layer owns
