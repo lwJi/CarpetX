@@ -19,11 +19,11 @@ namespace CarpetX {
 
 struct group_buffers_t {
   std::unique_ptr<amrex::MultiFab> &ks_source(const stage_t stage) {
-    assert(rk_stages.contains(stage));
+    assert(all_rk_stages.contains(stage));
     return ks_source_band[stage.index() - 1];
   }
   const std::unique_ptr<amrex::MultiFab> &ks_source(const stage_t stage) const {
-    assert(rk_stages.contains(stage));
+    assert(all_rk_stages.contains(stage));
     return ks_source_band[stage.index() - 1];
   }
   std::unique_ptr<amrex::MultiFab> old_source_band;

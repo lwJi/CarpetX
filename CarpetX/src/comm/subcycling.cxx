@@ -43,7 +43,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                           const CCTK_REAL xsi, const CCTK_REAL dtc) {
   static_assert(RKSTAGES == 3 || RKSTAGES == 4,
                 "rk_dense_output only supports RKSTAGES == 3 or 4");
-  const index_range<stage_t> stages{stage_t{1}, stage_t{RKSTAGES + 1}};
+  const stage_range stages = rk_stages(RKSTAGES);
   assert(stages.contains(stage));
 
   constexpr CCTK_REAL r = rk_substep_ratio;
@@ -268,7 +268,7 @@ rk_fill_fpinfo(const amrex::MultiFab &finemfab,
 }
 
 std::string ks_source_band_tag(const stage_t stage) {
-  assert(rk_stages.contains(stage));
+  assert(all_rk_stages.contains(stage));
   std::ostringstream buf;
   buf << "kss_s" << std::setw(2) << std::setfill('0') << stage.index() - 1;
   return buf.str();
@@ -297,16 +297,14 @@ void EnsureRKBuffers(const level_t level, const gi_t gi) {
   const auto &leveldata = patchdata.level(level);
   const GroupData &groupdata = leveldata.group(gi);
   group_buffers_t &buffers = buffers_of(leveldata, gi);
-  const int num_rk_stages = CarpetX::num_rk_stages();
-  assert(num_rk_stages >= 0 && num_rk_stages <= max_num_rk_stages);
+  const stage_range stages = registered_stages();
 
   [[maybe_unused]] const auto have_all_or_none = [&]() {
     const bool have = bool(buffers.rk_crse_patch);
     bool good = bool(buffers.rk_fine_patch) == have &&
                 bool(buffers.old_source_band) == have;
-    for (const stage_t stage : rk_stages)
-      if (stage.index() <= num_rk_stages)
-        good = good && bool(buffers.ks_source(stage)) == have;
+    for (const stage_t stage : stages)
+      good = good && bool(buffers.ks_source(stage)) == have;
     return good;
   };
   assert(have_all_or_none());
@@ -331,10 +329,9 @@ void EnsureRKBuffers(const level_t level, const gi_t gi) {
 
   const int numvars = groupdata.record.numvars;
   assert(numvars == ncomps);
-  for (const stage_t stage : rk_stages)
-    if (stage.index() <= num_rk_stages)
-      buffers.ks_source(stage) = std::make_unique<amrex::MultiFab>(
-          fpc.ba_crse_patch, fpc.dm_patch, numvars, 0);
+  for (const stage_t stage : stages)
+    buffers.ks_source(stage) = std::make_unique<amrex::MultiFab>(
+        fpc.ba_crse_patch, fpc.dm_patch, numvars, 0);
   buffers.old_source_band = std::make_unique<amrex::MultiFab>(
       fpc.ba_crse_patch, fpc.dm_patch, numvars, 0);
 
@@ -377,7 +374,7 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
   const GHExt &ext = driver();
   if (!ext.use_subcycling)
     return;
-  assert(rk_stages.contains(stage) && stage.index() <= num_rk_stages());
+  assert(registered_stages().contains(stage));
   assert(var_groups.size() == rhs_groups.size());
   const auto &patchdata = ext.patch(level.patch());
   const std::optional<level_t> child = level.child();
@@ -487,7 +484,7 @@ std::vector<checkpoint_band_t> checkpoint_bands(const level_t level,
     if (band && !band->empty())
       bands.push_back({std::move(tag), band});
   };
-  for (const stage_t stage : rk_stages)
+  for (const stage_t stage : all_rk_stages)
     add_band(childbuffers.ks_source(stage).get(), ks_source_band_tag(stage));
   add_band(childbuffers.old_source_band.get(), old_source_band_tag());
   if (childgroupdata.freg)

@@ -76,6 +76,7 @@ template <class Index> struct index_range {
   constexpr bool contains(const Index i) const {
     return begin_ <= i && i < end_;
   }
+  constexpr int size() const { return end_.index() - begin_.index(); }
 
 private:
   Index begin_, end_;
@@ -83,8 +84,12 @@ private:
 using tl_range = index_range<tl_t>;
 using level_range = index_range<level_t>;
 
-inline constexpr index_range<stage_t> rk_stages{stage_t{1},
-                                                stage_t{max_num_rk_stages + 1}};
+using stage_range = index_range<stage_t>;
+
+constexpr stage_range rk_stages(const int nstages) {
+  return stage_range{stage_t{1}, stage_t{nstages + 1}};
+}
+inline constexpr stage_range all_rk_stages = rk_stages(max_num_rk_stages);
 
 template <class T> class const_propagating_ptr {
 public:

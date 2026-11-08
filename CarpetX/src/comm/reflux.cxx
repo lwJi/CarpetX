@@ -71,7 +71,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
   const GHExt &ext = driver();
   if (!ext.do_reflux)
     return;
-  assert(rk_stages.contains(stage) && stage.index() <= num_rk_stages());
+  assert(registered_stages().contains(stage));
 
   static Timer timer("AccumulateFluxes");
   Interval interval(timer);

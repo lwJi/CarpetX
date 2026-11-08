@@ -392,9 +392,9 @@ bool group_is_integrated(const gi_t gi) {
   return integrator && integrator->is_integrated(gi);
 }
 
-int num_rk_stages() {
+stage_range registered_stages() {
   const std::optional<rk_config_t> &integrator = CarpetX::integrator();
-  return integrator ? integrator->nstages() : max_num_rk_stages;
+  return integrator ? rk_stages(integrator->nstages()) : all_rk_stages;
 }
 
 rk_dense_output_t registered_dense_output() {

@@ -309,10 +309,13 @@ static_assert(!std::is_convertible_v<int, stage_t>);
 static_assert(!std::is_convertible_v<stage_t, tl_t>);
 static_assert(!std::is_convertible_v<tl_t, stage_t>);
 static_assert(next_index(stage_t{1}) == stage_t{2});
-static_assert(rk_stages.contains(stage_t{1}));
-static_assert(rk_stages.contains(stage_t{max_num_rk_stages}));
-static_assert(!rk_stages.contains(stage_t{0}));
-static_assert(!rk_stages.contains(stage_t{max_num_rk_stages + 1}));
+static_assert(all_rk_stages.contains(stage_t{1}));
+static_assert(all_rk_stages.contains(stage_t{max_num_rk_stages}));
+static_assert(!all_rk_stages.contains(stage_t{0}));
+static_assert(!all_rk_stages.contains(stage_t{max_num_rk_stages + 1}));
+static_assert(rk_stages(3).contains(stage_t{3}));
+static_assert(!rk_stages(3).contains(stage_t{4}));
+static_assert(!rk_stages(0).contains(stage_t{1}));
 
 static_assert(checkpoint_bands_takes<level_t, gi_t>);
 static_assert(!checkpoint_bands_takes<int, int, gi_t>);
