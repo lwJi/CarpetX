@@ -47,6 +47,7 @@ PUBLIC_HEADERS = (PUBLIC_DIR + "carpetx.hxx", PUBLIC_DIR + "carpetx_rk.hxx")
 PUBLIC_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"](' + "|".join(re.escape(os.path.basename(header)) for header in PUBLIC_HEADERS) + r')[>"]')
 PUBLIC_LAYER = "api"
 PUBLIC_BODIES = (
+    (layer_path("hierarchy", "handles.cxx"), ("variable", "active_window", "all_levels")),
     (layer_path("hierarchy", "loops.cxx"), ("synchronize",)),
     (layer_path("hierarchy", "valid.cxx"), ("valid_t",)),
     (layer_path("hierarchy", "group_tags.cxx"), ("operator<<",)),

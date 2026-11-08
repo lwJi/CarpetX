@@ -10,7 +10,7 @@ Held by nothing but the headers: `restrict_no_poison`, `scratch`.
 
 ## Indices and handles
 
-`vi_t` is a variable's place in its group and `var_t` the flesh's variable index. A handle is made of indices and resolved on every call, so a stale one is reported, never dereferenced. `window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. A window checks its bounds when it is built, so the error names the line that built it. Held by `variable`, `levels`, `narrow`, `coarsest`, `finest`, `require_window_bounds` in `api/api.cxx`; `level` in `hierarchy/driver.hxx`.
+`vi_t` is a variable's place in its group and `var_t` the flesh's variable index. A handle is made of indices and resolved on every call, so a stale one is reported, never dereferenced. `window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. A window checks its bounds when it is built, so the error names the line that built it. Held by `variable`, `levels`, `narrow`, `coarsest`, `finest`, `require_window_bounds` in `hierarchy/handles.cxx`; `level` in `hierarchy/driver.hxx`.
 
 Refusals: `level_missing`, `timelevel_missing`, `parent_of_level_0`, `window_empty`, `window_out_of_bounds`, `window_outside_traversal`, `hierarchy_absent`.
 

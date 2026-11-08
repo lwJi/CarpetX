@@ -103,7 +103,7 @@ INDEX_FIXED = {
     PUBLIC_DIR + "carpetx.hxx": ("level_t", "window_t", "levels", "narrow"),
     layer_path("schedule", "schedule.hxx"): STORAGE_OVERLOADS,
     layer_path("schedule", "storage.cxx"): STORAGE_OVERLOADS,
-    layer_path("api", "api.cxx"): ("levels", "narrow"),
+    layer_path("hierarchy", "handles.cxx"): ("levels", "narrow"),
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
     layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
     layer_path("hierarchy", "group_tags.cxx"): ("CCTK_TraverseString",),
