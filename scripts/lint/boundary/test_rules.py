@@ -204,9 +204,9 @@ class Binding(unittest.TestCase):
 
 class GhostOnly(unittest.TestCase):
     CALLS = [
-        "SyncGroupsByDirIGhostOnly(window_t::one_level(level), states, timelevels_t::one(rk_tl));",
-        "SyncGroupsByDirIGhostOnly (window, groups, tls);",
-        "CarpetX::SyncGroupsByDirIGhostOnly(window, states, timelevels_t::one(tl_t{0}));",
+        "SyncGhostsOnly(window_t::one_level(level), states, timelevels_t::one(rk_tl));",
+        "SyncGhostsOnly (window, groups, tls);",
+        "CarpetX::SyncGhostsOnly(window, states, timelevels_t::one(tl_t{0}));",
     ]
 
     def test_a_call_outside_the_wrapper_is_reported(self):
@@ -223,9 +223,9 @@ class GhostOnly(unittest.TestCase):
 
     def test_a_mention_that_is_not_a_call_passes(self):
         for text in [
-            "static_assert(std::is_same_v<decltype(SyncGroupsByDirIGhostOnly), void(window_t)>);\n",
-            "SyncGroupsByDirIGhostOnlyAligned(window, groups, tls);\n",
-            "SyncGroupsByDirIGhostOnly_impl(window, groups, tls);\n",
+            "static_assert(std::is_same_v<decltype(SyncGhostsOnly), void(window_t)>);\n",
+            "SyncGhostsOnlyAligned(window, groups, tls);\n",
+            "SyncGhostsOnly_impl(window, groups, tls);\n",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/api/api_rk.cxx", "  " + text), [])
@@ -240,7 +240,7 @@ class GhostOnly(unittest.TestCase):
 
 class Directions(unittest.TestCase):
     FORWARDED = (
-        "  int SyncGroupsByDirI(const window_t window,\n"
+        "  int SyncGroupsLockstep(const window_t window,\n"
         "                       const cGH *restrict cctkGH, int numgroups,\n"
         "                       const int *groups, const int *directions);\n"
     )
@@ -351,9 +351,11 @@ class Model(unittest.TestCase):
         "auto next = [n]() mutable { return ++n; };",
         "#include <carpetx_rk.hxx>",
         "# include  <carpetx_rk.hxx>",
+        "extern std::atomic<CCTK_INT> carpetx_epoch;",
+        "extern int x;",
     ]
 
-    def test_a_mutable_or_the_integrator_header_is_reported_in_the_data_model(self):
+    def test_a_mutable_an_extern_or_the_integrator_header_is_reported_in_the_data_model(self):
         for line in self.LEAKS:
             with self.subTest(line=line):
                 self.assertEqual(reported(self.MODEL, "  " + line + "\n"), [("model", line)])
@@ -380,6 +382,8 @@ class Model(unittest.TestCase):
             "GHExt &mutable_driver();\n"
             "const bool immutable = true;\n"
             "struct mutable_t;\n"
+            "CCTK_INT external_epoch() const;\n"
+            "bool is_extern_c;\n"
             "#include <carpetx.hxx>\n"
             "#include <carpetx_rk_extra.hxx>\n"
             "#include <ODESolvers/carpetx_rk.hxx>\n"
@@ -404,7 +408,7 @@ class Model(unittest.TestCase):
 class Window(unittest.TestCase):
     USES = [
         "struct active_levels_t;",
-        "int SyncGroupsByDirI(active_levels_t window, const cGH *restrict cctkGH,",
+        "int SyncGroupsLockstep(active_levels_t window, const cGH *restrict cctkGH,",
         "active_levels_t scheduled_window(const char *caller,",
         "const traversal_scope_t scope(active_levels_t(0, level + 1));",
     ]
@@ -666,8 +670,8 @@ class Index(unittest.TestCase):
                 self.assertEqual(reported(name, text), [])
 
     FIXED_DEFINITIONS = [
-        ("CarpetX/src/api/api.cxx", "window_t window_t::levels(const int min_level, const int max_level,\n                          const std::source_location site) {\n"),
-        ("CarpetX/src/api/api.cxx", "window_t window_t::narrow(const int min_level, const int max_level,\n                          const std::source_location site) const {\n"),
+        ("CarpetX/src/hierarchy/handles.cxx", "window_t window_t::levels(const int min_level, const int max_level,\n                          const std::source_location site) {\n"),
+        ("CarpetX/src/hierarchy/handles.cxx", "window_t window_t::narrow(const int min_level, const int max_level,\n                          const std::source_location site) const {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int GroupStorageIncrease(const cGH *cctkGH, int gi, const int *tls) {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int GroupStorageDecrease(const cGH *cctkGH, int gi, const int *tls) {\n"),
@@ -706,7 +710,7 @@ class Index(unittest.TestCase):
         text = "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {\n  for (int level = 0; level < 2; ++level)\n"
         self.assertEqual(reported("CarpetX/src/schedule/storage.cxx", text), [("index", "for (int level = 0; level < 2; ++level)")])
         text = "window_t window_t::levels(const int min_level, const int max_level) {\n  const int patch = 0;\n"
-        self.assertEqual(reported("CarpetX/src/api/api.cxx", text), [("index", "const int patch = 0;")])
+        self.assertEqual(reported("CarpetX/src/hierarchy/handles.cxx", text), [("index", "const int patch = 0;")])
 
     def test_a_fixed_definition_passes_only_in_its_own_file(self):
         for name, text in self.FIXED_DEFINITIONS:
@@ -1650,7 +1654,7 @@ class Report(unittest.TestCase):
             "no validity call outside valid.cxx, no pointer-table write outside binding.cxx, "
             "no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, "
-            "no mutable or integrator include in the data model, no active_levels_t, "
+            "no mutable, extern or integrator include in the data model, no active_levels_t, "
             "no active_levels outside traversal.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
             "no hierarchy access in a checkpoint codec, "
@@ -1678,14 +1682,14 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([e]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var")
         self.assertEqual(summary([d, e, e]), "✗ boundary: 1 directions parameter in the sync layer, 2 firstvarindex additions outside GroupRecord::var")
         m = ("CarpetX/src/hierarchy/driver.hxx", Finding(4, "model", "mutable std::unique_ptr<amrex::MultiFab> cell_volume;"))
-        self.assertEqual(summary([m]), "✗ boundary: 1 mutable or integrator include in the data model")
-        self.assertEqual(summary([m, e, m]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 mutable or integrator includes in the data model")
+        self.assertEqual(summary([m]), "✗ boundary: 1 mutable, extern or integrator include in the data model")
+        self.assertEqual(summary([m, e, m]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 mutable, extern or integrator includes in the data model")
         w = ("CarpetX/src/schedule/schedule.hxx", Finding(3, "window", "struct active_levels_t;"))
         i = ("CarpetX/src/comm/subcycling.hxx", Finding(4, "index", "void EnsureRKBuffers(int patch, int level, gi_t gi);"))
         self.assertEqual(summary([w]), "✗ boundary: 1 active_levels_t use")
         self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in CarpetX")
         self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in CarpetX")
-        self.assertEqual(summary([w, m]), "✗ boundary: 1 mutable or integrator include in the data model, 1 active_levels_t use")
+        self.assertEqual(summary([w, m]), "✗ boundary: 1 mutable, extern or integrator include in the data model, 1 active_levels_t use")
         t = ("CarpetX/src/schedule/evolve.cxx", Finding(9, "traversal", "active_levels = std::nullopt;"))
         self.assertEqual(summary([t]), "✗ boundary: 1 traversal use outside traversal.cxx")
         self.assertEqual(summary([w, t, t, i]), "✗ boundary: 1 active_levels_t use, 2 traversal uses outside traversal.cxx, 1 bare index int in CarpetX")
@@ -2103,7 +2107,8 @@ class Doc(unittest.TestCase):
         self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "io", "CactusAmrCore"))
         self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "comm", "make_level_buffers"))
         self.assertIn('  comm -. "get_interpolator" .- hierarchy', doc.stack())
-        self.assertIn('  api -. "all_levels, level_t, RecoverRKBoundary, variable, window_t" .- schedule', doc.stack())
+        self.assertIn('  api -. "RecoverRKBoundary" .- schedule', doc.stack())
+        self.assertNotIn('level_t" .-', doc.stack())
         self.assertNotIn(".->", doc.stack())
         self.assertNotIn("apply_boundary_conditions", doc.stack())
 
@@ -2301,6 +2306,7 @@ class Doc(unittest.TestCase):
                 layer_path("regrid", "regrid.cxx"): "void CactusAmrCore::ErrorEst(const int lev,\n                             amrex::TagBoxArray &tags) {\n}\n"
                 + "".join(f"void CactusAmrCore::{name}(int lev) {{\n}}\n" for name in doc.AMREX_CALLBACKS[1:]),
                 layer_path("hierarchy", "hierarchy.cxx"): "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
+                layer_path("hierarchy", "handles.cxx"): "variable_t variable(const var_t var) {\n  return {};\n}\nwindow_t active_window() {\n  return scheduled_window(\"x\");\n}\nwindow_t all_levels() {\n  return window_t::levels(0, 1);\n}\n",
                 layer_path("hierarchy", "loops.cxx"): "void synchronize() {\n}\n",
                 layer_path("hierarchy", "valid.cxx"): 'std::string valid_t::explanation() const {\n  return "";\n}\n',
                 layer_path("hierarchy", "group_tags.cxx"): 'std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry) {\n  return os << "none";\n}\n',
@@ -2310,7 +2316,8 @@ class Doc(unittest.TestCase):
                 layer_path("api", "api_rk.cxx"): "void run_schedule_group_at(const cGH *cctkGH) {\n  CCTK_ScheduleTraverse(group, cctkGH, CallFunction);\n}\n",
                 doc.PUBLIC_HEADERS[0]: "int num_patches();\nvoid synchronize();\nreduction<CCTK_REAL, Loop::dim> reduce(gi_t gi);\nstruct valid_t {\n  std::string explanation() const;\n};\n"
                 "class Timer {\n  Timer(const std::string &name);\n};\nstd::ostream &operator<<(std::ostream &os, symmetry_t symmetry);\nvoid prolongate(window_t window,\n                std::span<const gi_t> groups);\n"
-                "std::array<std::array<symmetry_t, Loop::dim>, 2> symmetries(level_t level);\nstatic_assert(sizeof(int) == 4);\n",
+                "std::array<std::array<symmetry_t, Loop::dim>, 2> symmetries(level_t level);\nstatic_assert(sizeof(int) == 4);\n"
+                "variable_t variable(var_t var);\nwindow_t active_window();\nwindow_t all_levels();\n",
                 doc.PUBLIC_HEADERS[1]: "void register_integrator(const rk_config_t &config);\n",
             }
         )
@@ -2328,8 +2335,8 @@ class Doc(unittest.TestCase):
             write({})
             self.assertEqual(doc.registrations(root), [name for _, names in doc.REGISTERED for name in names])
             self.assertEqual(doc.extern_c_files(root), ["startup.cxx"])
-            self.assertEqual(doc.prototypes(root), {doc.PUBLIC_HEADERS[0]: ("num_patches", "synchronize", "reduce", "operator<<", "prolongate", "symmetries"), doc.PUBLIC_HEADERS[1]: ("register_integrator",)})
-            self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "symmetries", "register_integrator"), "hierarchy": ("synchronize", "valid_t", "operator<<"), "ops": ("reduce",), "util": ("Timer",)})
+            self.assertEqual(doc.prototypes(root), {doc.PUBLIC_HEADERS[0]: ("num_patches", "synchronize", "reduce", "operator<<", "prolongate", "symmetries", "variable", "active_window", "all_levels"), doc.PUBLIC_HEADERS[1]: ("register_integrator",)})
+            self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "symmetries", "register_integrator"), "hierarchy": ("variable", "active_window", "all_levels", "synchronize", "valid_t", "operator<<"), "ops": ("reduce",), "util": ("Timer",)})
             lines = doc.the_pass(root).splitlines()
             self.assertEqual(
                 [line for line in lines if " -- " in line],
@@ -2343,7 +2350,7 @@ class Doc(unittest.TestCase):
                     '  schedule -- "7 CCTK_CallFunction" --> thorn',
                     '  thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api',
                     '  thorn -- "8 reduce" --> ops',
-                    '  thorn -- "8 synchronize, valid_t, operator<<" --> hierarchy',
+                    '  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t, operator<<" --> hierarchy',
                     '  thorn -- "8 Timer" --> util',
                     '  api -- "9 CCTK_ScheduleTraverse" --> cactus',
                     '  cactus -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB" --> schedule',
@@ -2377,7 +2384,7 @@ class Doc(unittest.TestCase):
                     "| `ops/` | a thorn | reduce |",
                     "| `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |",
                     "| `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |",
-                    "| `hierarchy/` | a thorn | synchronize, valid_t, operator<< |",
+                    "| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t, operator<< |",
                     "| `util/` | a thorn | Timer |",
                 ],
             )

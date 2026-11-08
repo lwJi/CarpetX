@@ -79,8 +79,6 @@ GHExt::PatchData &GHExt::add_patch(const patch_t patch) {
   return patchdata.emplace_back(patch);
 }
 
-std::atomic<CCTK_INT> carpetx_epoch{0};
-
 ////////////////////////////////////////////////////////////////////////////////
 
 GHExt::cctkGHptr &GHExt::cctkGHptr::operator=(cctkGHptr &&ptr) {
@@ -177,12 +175,14 @@ GHExt::PatchData::add_level(const level_t level, const amrex::BoxArray &ba,
                             const std::function<std::string()> &why,
                             level_buffers_ptr buffers) {
   assert(level.patch() == patch && level.index() == num_levels());
+  ++GHExt::mutable_instance().epoch_;
   return leveldata.emplace_back(level, ba, dm, why, std::move(buffers));
 }
 
 GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
                                                             LevelData &&fresh) {
   assert(fresh.level == level);
+  ++GHExt::mutable_instance().epoch_;
   using std::swap;
   swap(this->level(level), fresh);
   return std::move(fresh);
@@ -191,6 +191,7 @@ GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
 void GHExt::PatchData::erase_levels_from(const level_t level) {
   assert(level.patch() == patch && level.index() >= 0 &&
          level.index() <= num_levels());
+  ++GHExt::mutable_instance().epoch_;
   leveldata.erase(leveldata.begin() + level.index(), leveldata.end());
 }
 

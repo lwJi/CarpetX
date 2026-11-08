@@ -23,6 +23,7 @@ SHUTDOWN = "__ZN7CarpetX10ShutdownIOEv"
 DRIVER = "__ZN7CarpetX6driverEv"
 TIMER = "__ZN7CarpetX5TimerD2Ev"
 PARENT = "__ZNK7CarpetX7level_t6parentENSt3__115source_locationE"
+REMAKE = "_ZN7CarpetX13CactusAmrCore11RemakeLevelEid"
 LINUX_DEFINED = (
     "0000000000003428 T _ZN7CarpetX10ShutdownIOEv\n"
     "0000000000000000 W _ZN7CarpetX5TimerD2Ev\n"
@@ -96,12 +97,18 @@ class Reaches(unittest.TestCase):
 
 class Accepted(unittest.TestCase):
     def test_a_listed_body_is_accepted_only_between_the_layers_of_its_row(self):
-        reach = Reach("comm/reflux.cxx.o", "comm", "api", PARENT)
-        self.assertTrue(accepted(reach, "CarpetX::level_t::parent(std::source_location) const"))
-        self.assertFalse(accepted(Reach("comm/reflux.cxx.o", "comm", "schedule", PARENT), "CarpetX::level_t::parent()"))
-        self.assertFalse(accepted(Reach("io/io.cxx.o", "io", "api", PARENT), "CarpetX::level_t::parent()"))
-        self.assertFalse(accepted(reach, "CarpetX::level_tx::parent()"))
+        reach = Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "regrid", REMAKE)
+        self.assertTrue(accepted(reach, "CarpetX::CactusAmrCore::RemakeLevel(int, double)"))
+        self.assertFalse(accepted(Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "io", REMAKE), "CarpetX::CactusAmrCore::RemakeLevel(int, double)"))
+        self.assertFalse(accepted(Reach("comm/buffers.cxx.o", "comm", "regrid", REMAKE), "CarpetX::CactusAmrCore::RemakeLevel(int, double)"))
+        self.assertFalse(accepted(reach, "CarpetX::CactusAmrCorex::RemakeLevel(int, double)"))
         self.assertFalse(accepted(Reach("io/io.cxx.o", "io", "api", SHUTDOWN), "CarpetX::ShutdownIO()"))
+
+    def test_a_handle_body_is_not_accepted_above_hierarchy(self):
+        for low in ["hierarchy", "comm", "regrid", "ops", "io", "schedule"]:
+            for readable in ["CarpetX::level_t::parent(std::source_location) const", "CarpetX::window_t::finest(std::source_location) const", "CarpetX::variable(CarpetX::var_t)", "CarpetX::all_levels()"]:
+                with self.subTest(low=low, readable=readable):
+                    self.assertFalse(accepted(Reach(f"{low}/x.cxx.o", low, "api", PARENT), readable))
 
     def test_every_row_reaches_up_from_one_layer_to_another(self):
         from boundary.rules import LAYERS
@@ -116,8 +123,8 @@ class Accepted(unittest.TestCase):
 
     def test_split(self):
         up = Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "io", SHUTDOWN)
-        ok = Reach("comm/reflux.cxx.o", "comm", "api", PARENT)
-        readable = {SHUTDOWN: "CarpetX::ShutdownIO()", PARENT: "CarpetX::level_t::parent() const"}
+        ok = Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "regrid", REMAKE)
+        readable = {SHUTDOWN: "CarpetX::ShutdownIO()", REMAKE: "CarpetX::CactusAmrCore::RemakeLevel(int, double)", PARENT: "CarpetX::level_t::parent() const"}
         self.assertEqual(split([up, ok], readable), ([up], [ok]))
         self.assertEqual(split([Reach("io/io.cxx.o", "io", "api", PARENT)], readable), ([Reach("io/io.cxx.o", "io", "api", PARENT)], []))
 

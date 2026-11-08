@@ -74,7 +74,7 @@ GHOST_ONLY_FILES = (
     layer_path("api", "api.cxx"),
     layer_path("flesh", "compile_checks.cxx"),
 )
-GHOST_ONLY_WORD = re.compile(r"\bSyncGroupsByDirIGhostOnly\s*\(")
+GHOST_ONLY_WORD = re.compile(r"\bSyncGhostsOnly\s*\(")
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
     r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration|integrator_config|integrator_frozen)\b"
@@ -94,7 +94,7 @@ VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\
 RECORD_VAR_FILE = layer_path("hierarchy", "driver.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
 MODEL_FILE = layer_path("hierarchy", "driver.hxx")
-MODEL_WORD = re.compile(r'\bmutable\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]')
+MODEL_WORD = re.compile(r'\bmutable\b|\bextern\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]')
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
 INDEX_PARAM = re.compile(r"\b(?:int|CCTK_INT)\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch|stage)\b")
 STORAGE_OVERLOADS = ("QueryGroupStorageB", "GroupStorageIncrease", "GroupStorageDecrease")
@@ -103,7 +103,7 @@ INDEX_FIXED = {
     PUBLIC_DIR + "carpetx.hxx": ("level_t", "window_t", "levels", "narrow"),
     layer_path("schedule", "schedule.hxx"): STORAGE_OVERLOADS,
     layer_path("schedule", "storage.cxx"): STORAGE_OVERLOADS,
-    layer_path("api", "api.cxx"): ("levels", "narrow"),
+    layer_path("hierarchy", "handles.cxx"): ("levels", "narrow"),
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
     layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
     layer_path("hierarchy", "group_tags.cxx"): ("CCTK_TraverseString",),
@@ -409,13 +409,14 @@ RULES = (
         files=model_files,
         word=MODEL_WORD,
         allowed=never,
-        text=f"the data model, {MODEL_FILE}, has no mutable member and does not include <carpetx_rk.hxx>, so that a "
-        "const hierarchy writes nothing but grid data behind its pointers; what comm/ builds on a level lives in "
-        "comm/'s level_buffers_t, which LevelData holds through one pointer to a type it only forward-declares, and "
-        "the integrator record is a slot in traversal/.",
-        noun="mutable or integrator include",
+        text=f"the data model, {MODEL_FILE}, has no mutable member, declares no extern variable and does not include "
+        "<carpetx_rk.hxx>, so that a const hierarchy writes nothing but grid data behind its pointers and every fact "
+        "about the hierarchy, the epoch included, is a GHExt member changed through hierarchy_writer; what comm/ "
+        "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to a type it "
+        "only forward-declares, and the integrator record is a slot in traversal/.",
+        noun="mutable, extern or integrator include",
         where="in the data model",
-        clean="no mutable or integrator include in the data model",
+        clean="no mutable, extern or integrator include in the data model",
         home=layers_of((MODEL_FILE,)),
     ),
     Rule(
@@ -567,7 +568,7 @@ RULES = (
         files=private_cxx,
         word=GHOST_ONLY_WORD,
         allowed=in_files(GHOST_ONLY_FILES),
-        text="the same-level ghost-only copy is called only by the public sync_ghosts_only in CarpetX/src/api/api.cxx; "
+        text="SyncGhostsOnly, the same-level ghost-only copy, is called only by the public sync_ghosts_only in CarpetX/src/api/api.cxx; "
         "a sync inside the driver opens a scope that says what it fills and uses the scheduled SYNC or the "
         "prolongation.",
         noun="driver-internal ghost-only sync",

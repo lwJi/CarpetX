@@ -109,10 +109,6 @@ int Initialise(tFleshConfig *config) {
     CCTK_ERROR("CarpetX requires CarpetX::restrict_during_sync = "
                "\"no\" when CarpetX::use_subcycling = \"yes\"");
 
-  // Check presync_mode when use_subcycling is on: in presync-only mode
-  // CallFunction and CycleTimelevels sync through SyncGroupsByDirI, which
-  // bypasses the subcycling sync (SyncGroupsByDirISubcycling), its time
-  // interpolation and its end-of-step check
   if (use_subcycling && CCTK_EQUALS(presync_mode, "presync-only"))
     CCTK_ERROR("CarpetX requires Cactus::presync_mode = \"mixed-error\" when "
                "CarpetX::use_subcycling = \"yes\"");

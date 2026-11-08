@@ -118,13 +118,8 @@ concept array_timelevel_takes =
 };
 
 template <class... Args>
-concept sync_by_dir_takes = requires(Args... args) {
-  SyncGroupsByDirI(args...);
-};
-
-template <class... Args>
 concept ghost_only_takes = requires(Args... args) {
-  SyncGroupsByDirIGhostOnly(args...);
+  SyncGhostsOnly(args...);
 };
 
 template <class... Args>
@@ -227,6 +222,15 @@ template <class Ext>
 concept assigns_is_initialized = requires(Ext & ext) {
   ext.is_initialized() = true;
 };
+
+template <class Ext>
+concept assigns_epoch_member = requires(Ext & ext) { ext.epoch_ = 0; };
+
+template <class Ext>
+concept assigns_epoch = requires(Ext & ext) { ext.epoch() = 0; };
+
+template <class Ext>
+concept bumps_epoch = requires(Ext & ext) { ++ext.epoch(); };
 
 template <class... Args>
 concept create_hierarchy_takes = requires(Args... args) {
@@ -358,8 +362,6 @@ static_assert(array_timelevel_takes<tl_t>);
 static_assert(!array_timelevel_takes<gi_t>);
 static_assert(!array_timelevel_takes<int>);
 
-static_assert(sync_by_dir_takes<window_t, std::span<const gi_t> >);
-
 static_assert(restrict_takes<window_t, std::span<const gi_t> >);
 static_assert(!restrict_takes<int, int, std::span<const gi_t> >);
 static_assert(restrict_no_poison_takes<window_t, std::span<const gi_t> >);
@@ -380,16 +382,13 @@ static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateAfterRestriction), void(window_t)>);
 static_assert(std::is_same_v<decltype(RestrictNoPoison), comm_groups_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroupsByDirI), comm_groups_entry_t>);
-static_assert(
-    std::is_same_v<decltype(SyncGroupsByDirISubcycling), comm_groups_entry_t>);
 static_assert(std::is_same_v<decltype(SyncGroups), comm_groups_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnly),
-                             comm_timelevels_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroupsByDirIProlongateOnlyAligned),
-                             comm_timelevels_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroupsByDirIGhostOnly),
-                             comm_timelevels_entry_t>);
+static_assert(
+    std::is_same_v<decltype(ProlongateGhosts), comm_timelevels_entry_t>);
+static_assert(
+    std::is_same_v<decltype(ProlongateAligned), comm_timelevels_entry_t>);
+static_assert(
+    std::is_same_v<decltype(SyncGhostsOnly), comm_timelevels_entry_t>);
 static_assert(std::is_same_v<decltype(Reflux), void(window_t)>);
 static_assert(std::is_same_v<decltype(RecoverRKBoundary), void(window_t)>);
 
@@ -494,6 +493,12 @@ static_assert(
                    bool>);
 static_assert(!assigns_initialized<GHExt>);
 static_assert(!assigns_is_initialized<GHExt>);
+
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().epoch()), CCTK_INT>);
+static_assert(!assigns_epoch_member<GHExt>);
+static_assert(!assigns_epoch<GHExt>);
+static_assert(!bumps_epoch<GHExt>);
 
 static_assert(std::is_same_v<
               decltype(std::declval<const CactusAmrCore &>().modified_levels()),
