@@ -6,6 +6,7 @@
 #include "comm/level_pairs.hxx"
 #include "comm/comm.hxx"
 #include "traversal/traversal.hxx"
+#include "util/refuse.hxx"
 #include "util/task_manager.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/valid.hxx"
@@ -19,6 +20,7 @@
 #include <cassert>
 #include <functional>
 #include <optional>
+#include <source_location>
 #include <span>
 #include <sstream>
 #include <string>
@@ -31,19 +33,23 @@ namespace CarpetX {
 // Sync helpers
 // =======================================================================
 
-bool sync_active = false; // Catch recursive calls
+namespace {
+bool sync_active = false;
 
-struct mark_sync_active {
-  mark_sync_active() {
+struct sync_guard_t {
+  explicit sync_guard_t(
+      const std::source_location site = std::source_location::current()) {
     if (sync_active)
-      CCTK_ERROR(
-          "Recursive sync call. Maybe you are syncing grid functions in the "
-          "\"restrict\" bin while the parameter \"restrict_during_sync\" is "
-          "true?");
+      refuse(site, "a sync is already open: a sync cannot be started inside "
+                   "one. A routine that a sync calls, such as a thorn's "
+                   "MultiPatch_Interpolate, must not sync grid functions");
     sync_active = true;
   }
-  ~mark_sync_active() { sync_active = false; }
+  ~sync_guard_t() { sync_active = false; }
+  sync_guard_t(const sync_guard_t &) = delete;
+  sync_guard_t &operator=(const sync_guard_t &) = delete;
 };
+} // namespace
 
 static void sync_log_groups(const char *label,
                             const std::span<const gi_t> groups0) {
@@ -264,7 +270,7 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
 
   const GHExt &ext = driver();
 
-  mark_sync_active marked;
+  const sync_guard_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -351,8 +357,6 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
   synchronize();
 
   scopes.clear();
-
-  assert(sync_active);
   return runs;
 }
 
@@ -362,7 +366,7 @@ static void SyncGroupsLockstep(const window_t window,
 
   const GHExt &ext = driver();
 
-  mark_sync_active marked;
+  const sync_guard_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -494,8 +498,6 @@ static void SyncGroupsLockstep(const window_t window,
   scopes.clear();
   apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
                        boundary_label.c_str());
-
-  assert(sync_active);
 }
 
 static void error_if_sync_in_tail(const window_t window,
@@ -544,7 +546,7 @@ static void SyncGroupsSubcycling(const window_t window,
 
   error_if_sync_in_tail(window, groups0);
 
-  mark_sync_active marked;
+  const sync_guard_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -688,8 +690,6 @@ static void SyncGroupsSubcycling(const window_t window,
   scopes.clear();
   apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
                        boundary_label.c_str());
-
-  assert(sync_active);
 }
 
 void SyncGroups(const window_t window, const std::span<const gi_t> groups) {
@@ -735,7 +735,7 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
 
   const GHExt &ext = driver();
 
-  mark_sync_active marked;
+  const sync_guard_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -786,14 +786,12 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
   synchronize();
 
   scopes.clear();
-
-  assert(sync_active);
 }
 
 void ApplyOuterBoundary(const window_t window,
                         const std::span<const gi_t> groups0,
                         const timelevels_t tls) {
-  mark_sync_active marked;
+  const sync_guard_t sync;
 
   static Timer timer("ApplyOuterBoundary");
   Interval interval(timer);
@@ -804,8 +802,6 @@ void ApplyOuterBoundary(const window_t window,
   apply_outer_boundary(window, groups, tls,
                        "CarpetX::apply_outer_boundary reads the interior and "
                        "both ghost regions");
-
-  assert(sync_active);
 }
 
 void ProlongateAfterRestriction(const window_t window) {
