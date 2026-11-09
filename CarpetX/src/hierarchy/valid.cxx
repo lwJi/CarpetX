@@ -132,10 +132,10 @@ struct ghost_half_t {
 
 ghost_half_t ghost_half(const Loop::GridDescBaseDevice &grid,
                         const GHExt::PatchData::LevelData &leveldata,
-                        const GroupData &groupdata, const int index,
+                        const GroupData &groupdata, const component_t component,
                         const valid_t where) {
   assert(one_ghost_half(where));
-  return {leveldata.ghost_mask(groupdata).const_array(index),
+  return {leveldata.ghost_mask(groupdata).const_array(component.index()),
           grid.lbnd - grid.nghostzones,
           where.valid_same_level
               ? GHExt::PatchData::LevelData::ghost_mask_same_level
@@ -145,8 +145,9 @@ ghost_half_t ghost_half(const Loop::GridDescBaseDevice &grid,
 template <typename F>
 void loop_ghost_halves(const Loop::GridDescBaseDevice &grid,
                        const GHExt::PatchData::LevelData &leveldata,
-                       const GroupData &groupdata, const int index,
-                       const valid_t where, const F &kernel) {
+                       const GroupData &groupdata,
+                       const component_t component, const valid_t where,
+                       const F &kernel) {
   if (!where.valid_same_level && !where.valid_coarse_fine)
     return;
   if (!one_ghost_half(where)) {
@@ -155,7 +156,7 @@ void loop_ghost_halves(const Loop::GridDescBaseDevice &grid,
     return;
   }
   const ghost_half_t half =
-      ghost_half(grid, leveldata, groupdata, index, where);
+      ghost_half(grid, leveldata, groupdata, component, where);
   grid.loop_idx(where_t::ghosts, groupdata.indextype, groupdata.nghostzones,
                 [&](const Loop::PointDesc &p) {
                   if (half(p))
@@ -166,7 +167,8 @@ void loop_ghost_halves(const Loop::GridDescBaseDevice &grid,
 template <typename F>
 void loop_ghost_halves_device(const Loop::GridDescBaseDevice &grid,
                               const GHExt::PatchData::LevelData &leveldata,
-                              const GroupData &groupdata, const int index,
+                              const GroupData &groupdata,
+                              const component_t component,
                               const valid_t where, const F &kernel) {
   if (!where.valid_same_level && !where.valid_coarse_fine)
     return;
@@ -176,7 +178,7 @@ void loop_ghost_halves_device(const Loop::GridDescBaseDevice &grid,
     return;
   }
   const ghost_half_t half =
-      ghost_half(grid, leveldata, groupdata, index, where);
+      ghost_half(grid, leveldata, groupdata, component, where);
   grid.loop_device_idx<where_t::ghosts>(
       groupdata.indextype, groupdata.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
@@ -242,7 +244,7 @@ void poison_invalid_gf(const window_t window, const gi_t gi, const vi_t vi,
   poison_value.set_to_poison(poison);
 
   loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
-                            const int index, const int component,
+                            const tile_t tile,
                             const cGH *restrict const cctkGH) {
     const auto &restrict groupdata = leveldata.group(gi);
 
@@ -266,8 +268,8 @@ void poison_invalid_gf(const window_t window, const gi_t gi, const vi_t vi,
       if (where.valid_outer)
         grid.loop_device_idx<where_t::boundary>(
             groupdata.indextype, groupdata.nghostzones, set_poison);
-      loop_ghost_halves_device(grid, leveldata, groupdata, index, where,
-                               set_poison);
+      loop_ghost_halves_device(grid, leveldata, groupdata, tile.component(),
+                               where, set_poison);
     }
   });
 
@@ -307,7 +309,7 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
   CCTK_REAL *restrict const poison_found_ptr = poison_found.dataPtr();
 
   loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
-                            const int index, const int component,
+                            const tile_t tile,
                             const cGH *restrict const cctkGH) {
     const auto &restrict groupdata = leveldata.group(gi);
 
@@ -335,8 +337,8 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
       if (where.valid_outer)
         grid.loop_device_idx<where_t::boundary>(
             groupdata.indextype, groupdata.nghostzones, update_poison_found);
-      loop_ghost_halves_device(grid, leveldata, groupdata, index, where,
-                               update_poison_found);
+      loop_ghost_halves_device(grid, leveldata, groupdata, tile.component(),
+                               where, update_poison_found);
     }
   });
   synchronize();
@@ -357,7 +359,7 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
   struct info_t {
     where_t where;
     level_t level;
-    int component;
+    component_t component;
     vect<int, dim> I;
     vect<CCTK_REAL, dim> X;
     CCTK_REAL val;
@@ -365,7 +367,7 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
   std::vector<info_t> infos;
 
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata,
-                            const int index, const int component,
+                            const tile_t tile,
                             const cGH *restrict const cctkGH) {
     const auto &restrict groupdata = leveldata.group(gi);
 
@@ -396,7 +398,7 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
       nan_xmax[2] = fmax(nan_xmax[2], p.z);
 
       infos.push_back(info_t{where, level_t{patch_t{p.patch}, p.level},
-                             p.component, p.I, p.X, gf(p.I)});
+                             component_t{p.component}, p.I, p.X, gf(p.I)});
     };
 
     if (where.valid_int)
@@ -409,7 +411,7 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
                     groupdata.nghostzones, [&](const Loop::PointDesc &p) {
                       update_nan_count(p, where_t::boundary);
                     });
-    loop_ghost_halves(grid, leveldata, groupdata, index, where,
+    loop_ghost_halves(grid, leveldata, groupdata, tile.component(), where,
                       [&](const Loop::PointDesc &p) {
                         update_nan_count(p, where_t::ghosts);
                       });
@@ -725,7 +727,7 @@ checksums_t calculate_checksums(
   Interval interval(timer);
 
   loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
-                            const int index, const int component,
+                            const tile_t tile,
                             const cGH *restrict const cctkGH) {
     for (const auto &groupdata : leveldata.groups()) {
       const Loop::GridDescBaseDevice grid(cctkGH);
@@ -734,7 +736,7 @@ checksums_t calculate_checksums(
       for (const vi_t vi : groupdata.record.variables()) {
         for (const tl_t tl : groupdata.record.timelevels()) {
           const gi_t gi = groupdata.record.groupindex;
-          const tiletag_t tiletag{leveldata.level, component, gi, vi, tl};
+          const tiletag_t tiletag{leveldata.level, tile, gi, vi, tl};
 
           const valid_t valid = groupdata.timelevel(tl).valid(vi);
           if (tl.index() >=
@@ -768,8 +770,8 @@ checksums_t calculate_checksums(
             grid.loop_idx(where_t::boundary, groupdata.indextype,
                           groupdata.nghostzones, add_point);
 
-          loop_ghost_halves(grid, leveldata, groupdata, index, to_check,
-                            add_point);
+          loop_ghost_halves(grid, leveldata, groupdata, tile.component(),
+                            to_check, add_point);
 
 #pragma omp critical(CarpetX_calculate_checksums)
           checksums[tiletag] = checksum;
@@ -794,7 +796,7 @@ void check_checksums(const window_t window, const checksums_t &checksums,
   Interval interval(timer);
 
   loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
-                            const int index, const int component,
+                            const tile_t tile,
                             const cGH *restrict const cctkGH) {
     for (const auto &groupdata : leveldata.groups()) {
       const Loop::GridDescBaseDevice grid(cctkGH);
@@ -803,7 +805,7 @@ void check_checksums(const window_t window, const checksums_t &checksums,
       for (const vi_t vi : groupdata.record.variables()) {
         for (const tl_t tl : groupdata.record.timelevels()) {
           const gi_t gi = groupdata.record.groupindex;
-          const tiletag_t tiletag{leveldata.level, component, gi, vi, tl};
+          const tiletag_t tiletag{leveldata.level, tile, gi, vi, tl};
 
           if (!checksums.count(tiletag))
             continue;
@@ -831,8 +833,8 @@ void check_checksums(const window_t window, const checksums_t &checksums,
             grid.loop_idx(where_t::boundary, groupdata.indextype,
                           groupdata.nghostzones, add_point);
 
-          loop_ghost_halves(grid, leveldata, groupdata, index, did_check,
-                            add_point);
+          loop_ghost_halves(grid, leveldata, groupdata, tile.component(),
+                            did_check, add_point);
 
           if (checksum != old_checksum)
 #pragma omp critical

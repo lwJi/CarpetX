@@ -4,6 +4,7 @@
 #include "internal.hxx"
 
 #include <loop.hxx>
+#include "hierarchy/indices.hxx"
 #include "hierarchy/valid.hxx"
 #include "util/refuse.hxx"
 #include "util/var_type.hxx"
@@ -50,49 +51,6 @@ struct stage_t : index_t<stage_t> {
   using index_t::index_t;
 };
 
-template <class Derived>
-constexpr Derived next_index(const index_t<Derived> i) {
-  return Derived{i.index() + 1};
-}
-constexpr level_t next_index(const level_t level) {
-  return level_t{level.patch(), level.index() + 1};
-}
-
-template <class Index> struct index_range {
-  struct iterator {
-    Index current;
-    constexpr Index operator*() const { return current; }
-    constexpr iterator &operator++() {
-      current = next_index(current);
-      return *this;
-    }
-    friend constexpr bool operator==(iterator, iterator) = default;
-  };
-
-  constexpr index_range(const Index begin, const Index end)
-      : begin_(begin), end_(end) {}
-  constexpr iterator begin() const { return iterator{begin_}; }
-  constexpr iterator end() const { return iterator{end_}; }
-  constexpr bool contains(const Index i) const {
-    return begin_ <= i && i < end_;
-  }
-  constexpr int size() const { return end_.index() - begin_.index(); }
-  constexpr int offset(const Index i) const {
-    assert(contains(i));
-    return i.index() - begin_.index();
-  }
-  constexpr Index first() const {
-    assert(begin_ < end_);
-    return begin_;
-  }
-  constexpr Index last() const {
-    assert(begin_ < end_);
-    return Index{end_.index() - 1};
-  }
-
-private:
-  Index begin_, end_;
-};
 using tl_range = index_range<tl_t>;
 using level_range = index_range<level_t>;
 
@@ -624,11 +582,13 @@ struct GHExt {
       level_buffers_ptr buffers;
 
       cctkGHptr patch_cctkGH;
-      std::vector<cctkGHptr> local_cctkGHs; // [component]
+      std::vector<cctkGHptr> local_cctkGHs;
 
       cGH *get_patch_cctkGH() const { return patch_cctkGH.get(); }
-      cGH *get_local_cctkGH(const int component) const {
-        return local_cctkGHs.at(component).get();
+      cGH *get_local_cctkGH(const tile_t tile) const {
+        cGH *const cctkGH = local_cctkGHs.at(tile.index()).get();
+        assert(cctkGH->cctk_component == tile.component().index());
+        return cctkGH;
       }
 
       using ghost_mask_key_t =

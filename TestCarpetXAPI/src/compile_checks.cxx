@@ -2,6 +2,7 @@
 #include <carpetx_rk.hxx>
 
 #include <array>
+#include <functional>
 #include <optional>
 #include <span>
 #include <type_traits>
@@ -11,9 +12,11 @@
 namespace TestCarpetXAPI {
 namespace {
 
+using CarpetX::component_t;
 using CarpetX::gi_t;
 using CarpetX::level_t;
 using CarpetX::patch_t;
+using CarpetX::tile_t;
 using CarpetX::tl_t;
 using CarpetX::var_t;
 using CarpetX::vi_t;
@@ -108,6 +111,11 @@ template <class Window> concept operates_on = requires(Window window) {
   CarpetX::sync(window, std::span<const gi_t>());
 };
 
+template <class Kernel>
+concept loop_parallel_takes = requires(window_t window, Kernel kernel) {
+  window.loop_parallel(kernel);
+};
+
 template <class Scope> concept reads_mfab = requires(Scope &&scope) {
   std::forward<Scope>(scope).mfab();
 };
@@ -155,6 +163,47 @@ static_assert(!std::is_convertible_v<patch_t, int>);
 static_assert(std::is_trivially_copyable_v<patch_t>);
 static_assert(!std::is_constructible_v<patch_t, gi_t>);
 static_assert(!std::is_constructible_v<gi_t, patch_t>);
+
+static_assert(std::is_constructible_v<component_t, int>);
+static_assert(!std::is_convertible_v<int, component_t>);
+static_assert(!std::is_convertible_v<component_t, int>);
+static_assert(std::is_trivially_copyable_v<component_t>);
+static_assert(sizeof(component_t) == sizeof(int));
+static_assert(!std::is_constructible_v<component_t, patch_t>);
+static_assert(!std::is_constructible_v<patch_t, component_t>);
+static_assert(!adds_int<component_t>);
+
+static_assert(std::is_constructible_v<tile_t, component_t, int>);
+static_assert(!std::is_constructible_v<tile_t, int>);
+static_assert(!std::is_constructible_v<tile_t, int, int>);
+static_assert(!std::is_constructible_v<tile_t, int, component_t>);
+static_assert(!std::is_constructible_v<tile_t, component_t>);
+static_assert(!std::is_constructible_v<component_t, tile_t>);
+static_assert(!std::is_convertible_v<tile_t, int>);
+static_assert(!std::is_convertible_v<tile_t, component_t>);
+static_assert(!std::is_convertible_v<component_t, tile_t>);
+static_assert(std::is_trivially_copyable_v<tile_t>);
+static_assert(sizeof(tile_t) == 2 * sizeof(int));
+static_assert(!adds_int<tile_t>);
+static_assert(std::is_same_v<decltype(std::declval<tile_t>().component()),
+                             component_t>);
+static_assert(std::is_same_v<decltype(std::declval<tile_t>().index()), int>);
+static_assert(tile_t{component_t{3}, 7}.component() == component_t{3});
+static_assert(tile_t{component_t{3}, 7}.index() == 7);
+static_assert(tile_t{component_t{3}, 7} == tile_t{component_t{3}, 7});
+static_assert(tile_t{component_t{3}, 7} != tile_t{component_t{4}, 7});
+static_assert(tile_t{component_t{3}, 7} != tile_t{component_t{3}, 8});
+
+static_assert(
+    loop_parallel_takes<std::function<void(level_t, tile_t, const cGH *)> >);
+static_assert(
+    !loop_parallel_takes<std::function<void(level_t, int, const cGH *)> >);
+static_assert(
+    !loop_parallel_takes<std::function<void(level_t, int, int, const cGH *)> >);
+static_assert(!loop_parallel_takes<
+              std::function<void(level_t, component_t, const cGH *)> >);
+static_assert(!loop_parallel_takes<std::function<void(level_t, component_t,
+                                                      tile_t, const cGH *)> >);
 
 static_assert(std::is_constructible_v<level_t, patch_t, int>);
 static_assert(!std::is_constructible_v<level_t, int, int>);

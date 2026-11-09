@@ -284,7 +284,9 @@ static_assert(!patch_level_takes<int>);
 
 static_assert(patch_cctkGH_takes<GHExt::PatchData::LevelData>);
 static_assert(!patch_cctkGH_takes<GHExt, int, int>);
-static_assert(local_cctkGH_takes<GHExt::PatchData::LevelData, int>);
+static_assert(local_cctkGH_takes<GHExt::PatchData::LevelData, tile_t>);
+static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, int>);
+static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, component_t>);
 static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
 
 static_assert(ensure_rk_buffers_takes<level_t, gi_t>);
@@ -312,6 +314,10 @@ static_assert(!std::is_convertible_v<stage_t, int>);
 static_assert(!std::is_convertible_v<int, stage_t>);
 static_assert(!std::is_convertible_v<stage_t, tl_t>);
 static_assert(!std::is_convertible_v<tl_t, stage_t>);
+static_assert(!std::is_convertible_v<stage_t, component_t>);
+static_assert(!std::is_convertible_v<component_t, stage_t>);
+static_assert(!std::is_convertible_v<stage_t, tile_t>);
+static_assert(!std::is_convertible_v<tile_t, stage_t>);
 static_assert(next_index(stage_t{1}) == stage_t{2});
 static_assert(all_rk_stages.contains(stage_t{1}));
 static_assert(all_rk_stages.contains(stage_t{max_num_rk_stages}));
@@ -335,15 +341,60 @@ static_assert(!checkpoint_bands_takes<level_t, int>);
 static_assert(finer_behind_takes<level_t>);
 static_assert(!finer_behind_takes<int, int>);
 
-static_assert(
-    loop_parallel_takes<std::function<void(const GHExt::PatchData::LevelData &,
-                                           int, int, const cGH *)> >);
+static_assert(loop_parallel_takes<std::function<void(
+                  const GHExt::PatchData::LevelData &, tile_t, const cGH *)> >);
 static_assert(!loop_parallel_takes<std::function<void(
-                  GHExt::PatchData::LevelData &, int, int, const cGH *)> >);
-static_assert(!loop_parallel_takes<
-              std::function<void(int, int, int, int, const cGH *)> >);
+                  const GHExt::PatchData::LevelData &, int, const cGH *)> >);
 static_assert(
-    !loop_parallel_takes<std::function<void(level_t, int, int, const cGH *)> >);
+    !loop_parallel_takes<std::function<void(const GHExt::PatchData::LevelData &,
+                                            int, int, const cGH *)> >);
+static_assert(!loop_parallel_takes<
+              std::function<void(const GHExt::PatchData::LevelData &,
+                                 component_t, const cGH *)> >);
+static_assert(!loop_parallel_takes<
+              std::function<void(const GHExt::PatchData::LevelData &,
+                                 component_t, tile_t, const cGH *)> >);
+static_assert(!loop_parallel_takes<std::function<void(
+                  GHExt::PatchData::LevelData &, tile_t, const cGH *)> >);
+static_assert(
+    !loop_parallel_takes<std::function<void(int, int, int, const cGH *)> >);
+static_assert(
+    !loop_parallel_takes<std::function<void(level_t, tile_t, const cGH *)> >);
+
+static_assert(!adds_int<component_t>);
+static_assert(!adds_int<tile_t>);
+static_assert(!std::is_convertible_v<component_t, int>);
+static_assert(!std::is_convertible_v<int, component_t>);
+static_assert(!std::is_convertible_v<tile_t, int>);
+static_assert(!std::is_convertible_v<int, tile_t>);
+static_assert(!std::is_convertible_v<component_t, tile_t>);
+static_assert(!std::is_convertible_v<tile_t, component_t>);
+static_assert(std::is_constructible_v<tile_t, component_t, int>);
+static_assert(!std::is_constructible_v<tile_t, int>);
+static_assert(!std::is_constructible_v<tile_t, int, int>);
+static_assert(!std::is_constructible_v<tile_t, int, component_t>);
+static_assert(std::is_same_v<decltype(std::declval<tile_t>().component()),
+                             component_t>);
+static_assert(tile_t{component_t{3}, 7}.component() == component_t{3});
+static_assert(tile_t{component_t{3}, 7}.index() == 7);
+static_assert(tile_t{component_t{3}, 7} != tile_t{component_t{4}, 7});
+static_assert(tile_t{component_t{3}, 7} != tile_t{component_t{3}, 8});
+static_assert(std::is_same_v<decltype(tile_of(std::declval<amrex::MFIter &>())),
+                             tile_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const MFPointer &>().index()),
+                   component_t>);
+static_assert(
+    std::is_constructible_v<GridPtrDesc1, const GHExt::PatchData::LevelData &,
+                            const GHExt::PatchData::LevelData::GroupData &,
+                            component_t>);
+static_assert(
+    !std::is_constructible_v<GridPtrDesc1, const GHExt::PatchData::LevelData &,
+                             const GHExt::PatchData::LevelData::GroupData &,
+                             int>);
+static_assert(std::is_same_v<decltype(components_of(0)), component_range>);
+static_assert(components_of(3).contains(component_t{2}));
+static_assert(!components_of(3).contains(component_t{3}));
 
 static_assert(loop_fine_to_coarse_takes<
               std::function<void(const GHExt::PatchData::LevelData &)> >);
@@ -426,10 +477,11 @@ static_assert(
     std::is_same_v<decltype(GHExt::PatchData::LevelData::GroupData::level),
                    const level_t>);
 static_assert(std::is_same_v<decltype(tiletag_t::level), level_t>);
+static_assert(std::is_same_v<decltype(tiletag_t::tile), tile_t>);
 static_assert(std::is_same_v<decltype(tiletag_t::gi), gi_t>);
 static_assert(std::is_same_v<decltype(tiletag_t::vi), vi_t>);
 static_assert(std::is_same_v<decltype(tiletag_t::tl), tl_t>);
-static_assert(sizeof(tiletag_t) == 6 * sizeof(int));
+static_assert(sizeof(tiletag_t) == 7 * sizeof(int));
 static_assert(std::is_same_v<decltype(write_spec_t::vi), std::optional<vi_t> >);
 static_assert(
     std::is_same_v<decltype(require_spec_t::vi), std::optional<vi_t> >);

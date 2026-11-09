@@ -320,8 +320,8 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
     for (const auto &leveldata : patchdata.levels()) {
       level_record_t &levelrecord = record.add_level(patchdata.patch);
       const amrex::FabArrayBase &fab = *leveldata.fab;
-      for (int component = 0; component < fab.size(); ++component)
-        levelrecord.boxes.push_back(fab.box(component));
+      for (const component_t component : components_of(fab))
+        levelrecord.boxes.push_back(fab.box(component.index()));
       levelrecord.iteration = leveldata.iteration;
       levelrecord.last_step_iteration = leveldata.last_step_iteration;
       snapshot_geometry(levelrecord, leveldata.level);

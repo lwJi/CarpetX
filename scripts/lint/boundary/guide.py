@@ -72,8 +72,9 @@ SECTIONS: tuple[Section, ...] = (
                 "`vi_t` is a variable's place in its group and `var_t` the flesh's variable index. "
                 "A handle is made of indices and resolved on every call, so a stale one is reported, never dereferenced. "
                 "`window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. "
-                "A window checks its bounds when it is built, so the error names the line that built it.",
-                ("hierarchy/handles.cxx:variable", "hierarchy/handles.cxx:levels", "hierarchy/handles.cxx:narrow", "hierarchy/handles.cxx:coarsest", "hierarchy/handles.cxx:finest", "hierarchy/handles.cxx:require_window_bounds", "hierarchy/driver.hxx:level"),
+                "A window checks its bounds when it is built, so the error names the line that built it. "
+                "`component_t` is a box of a level, AMReX's global box index and the flesh's `cctk_component`; `tile_t` is one tile of the tiled traversal over this rank's boxes and carries the `component_t` it lies in, so `loop_parallel` hands its kernel the `level_t`, the `tile_t` and the local cGH, and a tile is looked up by its slot and checked against its box.",
+                ("hierarchy/handles.cxx:variable", "hierarchy/handles.cxx:levels", "hierarchy/handles.cxx:narrow", "hierarchy/handles.cxx:coarsest", "hierarchy/handles.cxx:finest", "hierarchy/handles.cxx:require_window_bounds", "hierarchy/handles.cxx:loop_parallel", "hierarchy/driver.hxx:level", "hierarchy/driver.hxx:get_local_cctkGH", "hierarchy/indices.hxx:tile_of"),
             ),
         ),
         exercised_by=("compile_checks.cxx", "TestCarpetXAPI_Fill"),

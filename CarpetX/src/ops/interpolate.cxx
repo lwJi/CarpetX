@@ -490,7 +490,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
         for (amrex::ParConstIter<3, 2> pti(container, lev); pti.isValid();
              ++pti) {
           const auto &particles = pti.GetArrayOfStructs();
-          const int component = MFPointer(pti).index();
+          const component_t component = MFPointer(pti).index();
           for (const auto &particle : particles)
             oldids.insert(particle.id());
           old_nparticles += particles.size();
@@ -513,7 +513,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
         const int lev = int(&level - levels.data());
         for (amrex::ParConstIter<3, 2> pti(container, lev); pti.isValid();
              ++pti) {
-          const int component = MFPointer(pti).index();
+          const component_t component = MFPointer(pti).index();
           const auto &particles = pti.GetArrayOfStructs();
           for (const auto &particle : particles)
             newids.insert(particle.id());

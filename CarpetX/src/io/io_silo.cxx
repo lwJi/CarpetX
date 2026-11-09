@@ -49,20 +49,16 @@ namespace {
 
 constexpr bool io_verbose = true;
 
-// Slice membership + slab bounds for component `c`, shared by the data-write
-// and metadata passes so they skip the same components in the same order.
-// Returns the thickness-1 slab (or nullopt if `c` misses the plane), tested
-// against the interior box so a box-boundary plane belongs to one component.
 inline std::optional<std::pair<Arith::vect<int, 3>, Arith::vect<int, 3> > >
-slice_slab(const amrex::MultiFab &mfab, const int c,
+slice_slab(const amrex::MultiFab &mfab, const component_t c,
            const amrex::Real *const x0, const amrex::Real *const dx,
            const amrex::IndexType &indextype, const slice_t &slice) {
-  const amrex::Box &fabbox = mfab.fabbox(c); // exterior
+  const amrex::Box &fabbox = mfab.fabbox(c.index());
   const Arith::vect<int, 3> ext_lo{fabbox.smallEnd(0), fabbox.smallEnd(1),
                                    fabbox.smallEnd(2)};
   const Arith::vect<int, 3> ext_hi{fabbox.bigEnd(0) + 1, fabbox.bigEnd(1) + 1,
                                    fabbox.bigEnd(2) + 1};
-  const amrex::Box &validbox = mfab.box(c); // interior (variable-typed)
+  const amrex::Box &validbox = mfab.box(c.index());
   // enclosedCells maps a nodal or cell valid box to the same cell range, so
   // membership (which box owns the plane) is centering-independent.
   const amrex::Box cvalidbox = amrex::enclosedCells(validbox);
@@ -243,16 +239,15 @@ void write_silo_slice(const cGH *restrict const cctkGH,
           const mesh_props_t mesh_props{nghosts};
           const bool have_mesh = have_meshes.count(mesh_props);
 
-          for (int component = 0; component < ncomponents; ++component) {
-            const int proc = dm[component];
+          for (const component_t component : components_of(ncomponents)) {
+            const int proc = dm[component.index()];
             const int ioproc = proc / ioproc_every * ioproc_every;
             const bool send_this_fab = proc == myproc;
             const bool write_this_fab = ioproc == myproc;
             if (!(send_this_fab || write_this_fab))
               continue;
 
-            // TODO: Check whether data are valid
-            const amrex::Box &fabbox = mfab.fabbox(component); // exterior
+            const amrex::Box &fabbox = mfab.fabbox(component.index());
 
             // Exterior (source) half-open bounds. The variable `data` array is
             // always shaped by this box, whether the local fab pointer or an
@@ -362,17 +357,16 @@ void write_silo_slice(const cGH *restrict const cctkGH,
               have_meshes.insert(mesh_props);
             } // if write mesh
 
-            // Communicate variable
             static Timer timer_mpi("OutputSilo.mpi");
             auto interval_mpi = std::make_unique<Interval>(timer_mpi);
             const int mpi_tag = 22900; // randomly chosen
             std::vector<CCTK_REAL> buffer;
             const CCTK_REAL *data = nullptr;
             if (send_this_fab && write_this_fab) {
-              const amrex::FArrayBox &fab = mfab[component];
+              const amrex::FArrayBox &fab = mfab[component.index()];
               data = fab.dataPtr();
             } else if (send_this_fab) {
-              const amrex::FArrayBox &fab = mfab[component];
+              const amrex::FArrayBox &fab = mfab[component.index()];
               assert(numvars * src_zonecount <= INT_MAX);
               MPI_Send(fab.dataPtr(), numvars * src_zonecount,
                        mpi_datatype_v<CCTK_REAL>, ioproc, mpi_tag, mpi_comm);
@@ -525,7 +519,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                 patchdata.amrcore->Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
-            for (int c = 0; c < ncomponents; ++c) {
+            for (const component_t c : components_of(ncomponents)) {
               const auto slab_box =
                   slice_slab(mfab, c, x0, dx, indextype, slice);
               if (!slab_box)
@@ -555,10 +549,10 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                 patchdata.amrcore->Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
-            for (int c = 0; c < ncomponents; ++c) {
+            for (const component_t c : components_of(ncomponents)) {
               if (!slice_slab(mfab, c, x0, dx, indextype, slice))
                 continue; // skip components that miss the plane
-              const int proc = dm[c];
+              const int proc = dm[c.index()];
               const std::string proc_filename =
                   make_subdirname(output_file, cctk_iteration) + "/" +
                   make_filename(output_file, cctk_iteration,
@@ -626,7 +620,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                 patchdata.amrcore->Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
-            for (int c = 0; c < ncomponents; ++c) {
+            for (const component_t c : components_of(ncomponents)) {
               const auto slab_box =
                   slice_slab(mfab, c, x0, dx, indextype, slice);
               if (!slab_box)
@@ -697,10 +691,10 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                   patchdata.amrcore->Geom(leveldata.level.index());
               const amrex::Real *const x0 = geom.ProbLo();
               const amrex::Real *const dx = geom.CellSize();
-              for (int c = 0; c < ncomponents; ++c) {
+              for (const component_t c : components_of(ncomponents)) {
                 if (!slice_slab(mfab, c, x0, dx, indextype, slice))
                   continue; // skip components that miss the plane
-                const int proc = dm[c];
+                const int proc = dm[c.index()];
                 const std::string proc_filename =
                     make_subdirname(output_file, cctk_iteration) + "/" +
                     make_filename(output_file, cctk_iteration,
@@ -764,12 +758,13 @@ void write_silo_slice(const cGH *restrict const cctkGH,
           const amrex::FabArrayBase &fab = *leveldata.fab;
           const int ncomponents = fab.size();
           std::vector<int> boxes(2 * ndims * ncomponents);
-          for (int component = 0; component < ncomponents; ++component) {
-            const amrex::Box &fabbox = fab.box(component); // valid region
+          for (const component_t component : components_of(fab)) {
+            const amrex::Box &fabbox = fab.box(component.index());
             for (int d = 0; d < ndims; ++d)
-              boxes[d + 2 * ndims * component] = fabbox.smallEnd(d);
+              boxes[d + 2 * ndims * component.index()] = fabbox.smallEnd(d);
             for (int d = 0; d < ndims; ++d)
-              boxes[d + ndims + 2 * ndims * component] = fabbox.bigEnd(d);
+              boxes[d + ndims + 2 * ndims * component.index()] =
+                  fabbox.bigEnd(d);
           }
           const int dims[2] = {ncomponents, 2 * ndims};
           const std::string varname =
