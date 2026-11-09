@@ -13,7 +13,7 @@ flowchart TB
       schedule["schedule/"]
       io["io/"]
       ops["ops/"]
-      regrid["regrid/ no header"]
+      regrid["regrid/"]
       comm["comm/"]
     end
     hierarchy["hierarchy/"]
@@ -26,14 +26,15 @@ flowchart TB
   flesh -- "schedule.hxx" --> schedule
   flesh -- "checkpoint.hxx, io.hxx" --> io
   flesh -- "interp.hxx, linsolve.hxx" --> ops
-  flesh -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  flesh -- "regrid.hxx" --> regrid
+  flesh -- "buffers.hxx, comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   api -- "schedule.hxx" --> schedule
   api -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   schedule -- "io.hxx" --> io
   schedule -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
-  regrid -- "buffers.hxx, fillpatch.hxx" --> comm
+  regrid -- "fillpatch.hxx" --> comm
   traversal -- "refuse.hxx" --> util
   above -- "driver.hxx, grid_sizes.hxx, group_tags.hxx, indices.hxx, loops.hxx, operations.hxx, valid.hxx" --> hierarchy
   door -- "traversal.hxx" --> traversal
@@ -41,7 +42,6 @@ flowchart TB
   door -- "carpetx.hxx, carpetx_rk.hxx" --> include
   nodoor -- "carpetx.hxx, carpetx_rk.hxx" --> include
   comm -. "get_interpolator" .- hierarchy
-  regrid -. "CactusAmrCore" .- hierarchy
   api -. "RecoverRKBoundary" .- schedule
 ```
 

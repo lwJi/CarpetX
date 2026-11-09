@@ -1,7 +1,8 @@
+#include "regrid/regrid.hxx"
+
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
-#include "comm/buffers.hxx"
 #include "comm/fillpatch.hxx"
 #include <loop_device.hxx>
 
@@ -10,21 +11,13 @@
 #include <AMReX_TagBox.H>
 
 #include <cstddef>
-#include <optional>
+#include <memory>
 #include <sstream>
 
 namespace CarpetX {
 
 using Loop::GF3D1;
 using Loop::where_t;
-
-CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox *rb,
-                             int max_level_in,
-                             const amrex::Vector<int> &n_cell_in, int coord,
-                             amrex::Vector<amrex::IntVect> ref_ratios,
-                             const int *is_per)
-    : amrex::AmrCore(rb, max_level_in, n_cell_in, coord, ref_ratios, is_per),
-      patch(patch) {}
 
 CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox &rb,
                              int max_level_in,
@@ -36,28 +29,13 @@ CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox &rb,
 
 CactusAmrCore::~CactusAmrCore() {}
 
-void CactusAmrCore::regrid(const int lbase, const amrex::Real time,
-                           const bool initial) {
-  level_modified.assign(finestLevel() + 1, false);
-  amrex::AmrCore::regrid(lbase, time, initial);
-}
-
-std::optional<window_t::bounds_t> CactusAmrCore::modified_levels() const {
-  std::optional<window_t::bounds_t> bounds;
-  for (int lev = 0; lev < int(level_modified.size()); ++lev) {
-    if (!level_modified.at(lev))
-      continue;
-    if (!bounds)
-      bounds = window_t::bounds_t{lev, lev + 1};
-    else
-      bounds->max = lev + 1;
-  }
-  return bounds;
-}
-
-void CactusAmrCore::mark_level_modified(const level_t level) {
-  assert(level.patch() == patch);
-  level_modified.at(level.index()) = true;
+std::unique_ptr<amrex::AmrCore>
+make_cactus_amrcore(const patch_t patch, const amrex::RealBox &domain,
+                    const int max_level_in, const amrex::Vector<int> &ncells,
+                    const amrex::Array<int, dim> &is_periodic) {
+  return std::make_unique<CactusAmrCore>(patch, domain, max_level_in, ncells,
+                                         -1, amrex::Vector<amrex::IntVect>(),
+                                         is_periodic);
 }
 
 void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
@@ -126,60 +104,6 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
                100.0 * npoints_clear / npoints_total, 100.0);
 }
 
-void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
-                               const amrex::DistributionMapping &dm,
-                               const std::function<std::string()> &why) {
-  DECLARE_CCTK_PARAMETERS;
-  assert(level.patch() == patch);
-  const int lev = level.index();
-
-  if (verbose)
-#pragma omp critical
-    CCTK_VINFO("SetupLevel patch %d level %d", patch.index(), lev);
-
-  hierarchy_writer::add_level(level, ba, dm, why, make_level_buffers());
-
-  if (lev >= int(level_modified.size()))
-    level_modified.resize(lev + 1, true);
-  mark_level_modified(level);
-
-  if (verbose)
-#pragma omp critical
-    CCTK_VINFO("SetupLevel patch %d level %d done.", patch.index(), lev);
-}
-
-amrex::BoxArray CactusAmrCore::RechopLevel(const level_t recovered_level,
-                                           amrex::BoxArray ba) const {
-  assert(recovered_level.patch() == patch);
-  if (recovered_level.index() == 0)
-    return MakeBaseGrids();
-
-  amrex::BoxList bl = ba.boxList();
-  while (bl.simplify())
-    ;
-  ba = amrex::BoxArray(std::move(bl));
-  ba.maxSize(maxGridSize(recovered_level.index()));
-  if (refine_grid_layout)
-    ChopGrids(recovered_level.index(), ba, amrex::ParallelDescriptor::NProcs());
-  return ba;
-}
-
-void CactusAmrCore::make_level(const level_t level, const amrex::BoxArray &ba,
-                               const amrex::DistributionMapping &dm,
-                               const std::string &why) {
-  SetupLevel(level, ba, dm, [why]() { return why; });
-
-  const auto &leveldata = driver().level(level);
-  const window_t window = window_t::one_level(level);
-  for (const auto &groupdata : leveldata.groups()) {
-    for (const tl_t tl : groupdata.record.timelevels())
-      invalidate(window, {.gi = groupdata.record.groupindex,
-                          .tl = tl,
-                          .where = make_valid_all(),
-                          .event = why});
-  }
-}
-
 void CactusAmrCore::MakeNewLevelFromScratch(
     int lev, amrex::Real time, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm) {
@@ -190,7 +114,7 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 #pragma omp critical
     CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d", patch.index(), lev);
 
-  make_level(level, ba, dm, "MakeNewLevelFromScratch");
+  hierarchy_writer::make_level(level, ba, dm, "MakeNewLevelFromScratch");
 
   if (verbose)
 #pragma omp critical
@@ -235,7 +159,8 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 
   assert(lev > 0);
 
-  SetupLevel(level, ba, dm, []() { return "MakeNewLevelFromCoarse"; });
+  hierarchy_writer::add_level(level, ba, dm,
+                              []() { return "MakeNewLevelFromCoarse"; });
 
   const auto &patchdata = driver().patch(patch);
   const auto &leveldata = patchdata.level(level);
@@ -377,8 +302,8 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   assert(leveldata.iteration == coarseleveldata.iteration);
 
   const GHExt::PatchData::LevelData oldleveldata =
-      hierarchy_writer::remake_level(
-          level, ba, dm, []() { return "RemakeLevel"; }, make_level_buffers());
+      hierarchy_writer::remake_level(level, ba, dm,
+                                     []() { return "RemakeLevel"; });
 
   for (const auto &groupdata : leveldata.groups()) {
     const gi_t gi = groupdata.record.groupindex;
@@ -419,8 +344,6 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
     }
   }
 
-  mark_level_modified(level);
-
   if (verbose)
 #pragma omp critical
     CCTK_VINFO("RemakeLevel patch %d level %d done.", patch.index(), lev);
@@ -434,8 +357,6 @@ void CactusAmrCore::ClearLevel(const int lev) {
 #pragma omp critical
     CCTK_VINFO("ClearLevel patch %d level %d", patch.index(), lev);
   hierarchy_writer::erase_levels_from(level);
-
-  level_modified.resize(lev);
 
   if (verbose)
 #pragma omp critical

@@ -2,7 +2,9 @@
 #include "hierarchy/grid_sizes.hxx"
 #include "hierarchy/operations.hxx"
 #include "schedule/schedule.hxx"
+#include "comm/buffers.hxx"
 #include "comm/comm.hxx"
+#include "regrid/regrid.hxx"
 #include "ops/interp.hxx"
 #include "io/io.hxx"
 #include "util/logo.hxx"
@@ -104,8 +106,10 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
     assert(!ierr);
   }
 
-  return &create_hierarchy(
-      {.use_subcycling = bool(use_subcycling), .do_reflux = bool(do_reflux)});
+  return &create_hierarchy({.use_subcycling = bool(use_subcycling),
+                            .do_reflux = bool(do_reflux),
+                            .make_core = make_cactus_amrcore,
+                            .make_buffers = make_level_buffers});
 }
 
 int InitGH(cGH *restrict cctkGH) {

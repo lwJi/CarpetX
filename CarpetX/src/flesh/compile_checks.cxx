@@ -5,6 +5,7 @@
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
 #include "comm/comm.hxx"
+#include "regrid/regrid.hxx"
 #include "hierarchy/valid.hxx"
 
 #include <carpetx.hxx>
@@ -237,19 +238,19 @@ concept create_hierarchy_takes = requires(Args... args) {
   create_hierarchy(args...);
 };
 
-template <class Core>
-concept assigns_level_modified = requires(Core & core) {
-  core.level_modified.at(0) = true;
+template <class Patch>
+concept assigns_level_modified = requires(Patch & patch) {
+  patch.level_modified.at(0) = true;
 };
 
-template <class Core>
-concept marks_level_modified = requires(Core & core, level_t level) {
-  core.mark_level_modified(level);
+template <class Patch>
+concept marks_level_modified = requires(Patch & patch, level_t level) {
+  patch.mark_level_modified(level);
 };
 
-template <class Core>
-concept resets_level_modified = requires(Core & core, int num_levels) {
-  core.reset_level_modified(num_levels);
+template <class Patch>
+concept resets_level_modified = requires(Patch & patch) {
+  patch.reset_level_modified();
 };
 
 template <class Ext>
@@ -552,14 +553,13 @@ static_assert(!assigns_epoch_member<GHExt>);
 static_assert(!assigns_epoch<GHExt>);
 static_assert(!bumps_epoch<GHExt>);
 
-static_assert(std::is_same_v<
-              decltype(std::declval<const CactusAmrCore &>().modified_levels()),
-              std::optional<window_t::bounds_t>>);
-static_assert(std::is_same_v<decltype(&CactusAmrCore::regrid),
-                             void (CactusAmrCore::*)(int, amrex::Real, bool)>);
-static_assert(!assigns_level_modified<CactusAmrCore>);
-static_assert(!marks_level_modified<CactusAmrCore>);
-static_assert(!resets_level_modified<CactusAmrCore>);
+static_assert(
+    std::is_same_v<
+        decltype(std::declval<const GHExt::PatchData &>().modified_levels()),
+        std::optional<window_t::bounds_t>>);
+static_assert(!assigns_level_modified<GHExt::PatchData>);
+static_assert(!marks_level_modified<GHExt::PatchData>);
+static_assert(!resets_level_modified<GHExt::PatchData>);
 
 static_assert(std::is_same_v<decltype(driver()), const GHExt &>);
 static_assert(regrids_amrcore<GHExt>);

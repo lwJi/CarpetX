@@ -454,8 +454,20 @@ CarpetX::InterpolationSetup::InterpolationSetup(
         pinned_particle_tiles.at(patch.index());
 
     const auto &restrict patchdata = ext.patch(patch);
-    containers.at(patch.index()) =
-        const_cast<CactusAmrCore *>(patchdata.amrcore.get());
+    const amrex::AmrCore &core = *patchdata.amrcore;
+    const int nlevels = core.finestLevel() + 1;
+    amrex::Vector<amrex::Geometry> geoms;
+    amrex::Vector<amrex::DistributionMapping> dms;
+    amrex::Vector<amrex::BoxArray> bas;
+    amrex::Vector<amrex::IntVect> ref_ratios;
+    for (int lev = 0; lev < nlevels; ++lev) {
+      geoms.push_back(core.Geom(lev));
+      dms.push_back(core.DistributionMap(lev));
+      bas.push_back(core.boxArray(lev));
+      if (lev + 1 < nlevels)
+        ref_ratios.push_back(core.refRatio(lev));
+    }
+    containers.at(patch.index()) = Container(geoms, dms, bas, ref_ratios);
     const level_t level{patchdata.patch, 0};
     const auto &restrict leveldata = patchdata.level(level);
     const amrex::MFIter mfi(*leveldata.fab);
