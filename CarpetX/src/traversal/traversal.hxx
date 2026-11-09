@@ -40,6 +40,15 @@ public:
   recovery_scope_t &operator=(const recovery_scope_t &) = delete;
 };
 
+class sync_scope_t {
+public:
+  explicit sync_scope_t(
+      std::source_location site = std::source_location::current());
+  ~sync_scope_t();
+  sync_scope_t(const sync_scope_t &) = delete;
+  sync_scope_t &operator=(const sync_scope_t &) = delete;
+};
+
 class routine_scope_t {
 public:
   explicit routine_scope_t(const cFunctionData *routine);
@@ -58,6 +67,8 @@ scheduled_window(const char *caller,
 const char *scheduled_tail_bin();
 
 bool in_recovery_traversal();
+
+bool in_sync();
 
 const cFunctionData *scheduled_routine();
 

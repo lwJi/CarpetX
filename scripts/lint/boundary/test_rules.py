@@ -453,6 +453,7 @@ class Traversal(unittest.TestCase):
         "if (!tail_bin) return;",
         "recovery_traversal = true;",
         "assert(!recovery_traversal);",
+        "sync_open = true;",
         "last_routine = attribute;",
         "const auto *f = last_routine;",
     ]
@@ -486,6 +487,8 @@ class Traversal(unittest.TestCase):
             "tail_bin_scope_t scope(bin);\n",
             "in_recovery_traversal();\n",
             "recovery_scope_t scope;\n",
+            "in_sync();\n",
+            "const sync_scope_t sync;\n",
             "scheduled_routine();\n",
             "routine_scope_t routine_scope(attribute);\n",
         ]:

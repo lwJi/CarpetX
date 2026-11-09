@@ -79,9 +79,6 @@ CCTK_INT FUNCTION MultiPatch_GetBoundarySizesAndTypes
    CCTK_INT OUT ARRAY is_physbnd)
 PROVIDES FUNCTION MultiPatch_GetBoundarySizesAndTypes WITH CarpetX_GetBoundarySizesAndTypes LANGUAGE C
 
-CCTK_INT FUNCTION GetCallFunctionCount()
-PROVIDES FUNCTION GetCallFunctionCount WITH CarpetX_GetCallFunctionCount LANGUAGE C
-
 void FUNCTION GetLoopBoxAll(
   CCTK_POINTER_TO_CONST IN cctkGH,
   CCTK_INT IN size,

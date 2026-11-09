@@ -32,20 +32,6 @@ namespace CarpetX {
 // Sync helpers
 // =======================================================================
 
-bool sync_active = false; // Catch recursive calls
-
-struct mark_sync_active {
-  mark_sync_active() {
-    if (sync_active)
-      CCTK_ERROR(
-          "Recursive sync call. Maybe you are syncing grid functions in the "
-          "\"restrict\" bin while the parameter \"restrict_during_sync\" is "
-          "true?");
-    sync_active = true;
-  }
-  ~mark_sync_active() { sync_active = false; }
-};
-
 static void sync_log_groups(const char *label,
                             const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
@@ -265,7 +251,7 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
 
   const GHExt &ext = driver();
 
-  mark_sync_active marked;
+  const sync_scope_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -356,7 +342,7 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
 
   scopes.clear();
 
-  assert(sync_active);
+  assert(in_sync());
   return runs;
 }
 
@@ -366,7 +352,7 @@ static void SyncGroupsLockstep(const window_t window,
 
   const GHExt &ext = driver();
 
-  mark_sync_active marked;
+  const sync_scope_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -502,7 +488,7 @@ static void SyncGroupsLockstep(const window_t window,
   apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
                        boundary_label.c_str());
 
-  assert(sync_active);
+  assert(in_sync());
 }
 
 static void error_if_sync_in_tail(const window_t window,
@@ -551,7 +537,7 @@ static void SyncGroupsSubcycling(const window_t window,
 
   error_if_sync_in_tail(window, groups0);
 
-  mark_sync_active marked;
+  const sync_scope_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -698,7 +684,7 @@ static void SyncGroupsSubcycling(const window_t window,
   apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
                        boundary_label.c_str());
 
-  assert(sync_active);
+  assert(in_sync());
 }
 
 void SyncGroups(const window_t window, const std::span<const gi_t> groups) {
@@ -744,7 +730,7 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
 
   const GHExt &ext = driver();
 
-  mark_sync_active marked;
+  const sync_scope_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -796,13 +782,13 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
 
   scopes.clear();
 
-  assert(sync_active);
+  assert(in_sync());
 }
 
 void ApplyOuterBoundary(const window_t window,
                         const std::span<const gi_t> groups0,
                         const timelevels_t tls) {
-  mark_sync_active marked;
+  const sync_scope_t sync;
 
   static Timer timer("ApplyOuterBoundary");
   Interval interval(timer);
@@ -814,7 +800,7 @@ void ApplyOuterBoundary(const window_t window,
                        "CarpetX::apply_outer_boundary reads the interior and "
                        "both ghost regions");
 
-  assert(sync_active);
+  assert(in_sync());
 }
 
 void ProlongateAfterRestriction(const window_t window) {

@@ -10,6 +10,7 @@ namespace {
 std::optional<window_t> active_levels;
 const char *tail_bin = nullptr;
 bool recovery_traversal = false;
+bool sync_open = false;
 const cFunctionData *last_routine = nullptr;
 std::optional<int> recover_iteration;
 } // namespace
@@ -50,6 +51,16 @@ recovery_scope_t::recovery_scope_t(const std::source_location site) {
 
 recovery_scope_t::~recovery_scope_t() { recovery_traversal = false; }
 
+sync_scope_t::sync_scope_t(const std::source_location site) {
+  if (sync_open)
+    refuse(site, "Recursive sync call. Maybe you are syncing grid functions in "
+                 "the \"restrict\" bin while the parameter "
+                 "\"restrict_during_sync\" is true?");
+  sync_open = true;
+}
+
+sync_scope_t::~sync_scope_t() { sync_open = false; }
+
 routine_scope_t::routine_scope_t(const cFunctionData *const routine)
     : routine(routine) {
   last_routine = routine;
@@ -77,6 +88,8 @@ window_t scheduled_window(const char *const caller,
 const char *scheduled_tail_bin() { return tail_bin; }
 
 bool in_recovery_traversal() { return recovery_traversal; }
+
+bool in_sync() { return sync_open; }
 
 const cFunctionData *scheduled_routine() { return last_routine; }
 
