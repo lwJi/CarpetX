@@ -72,7 +72,7 @@ double gettime() {
 std::optional<window_t::bounds_t> modified_levels(const GHExt &ext) {
   std::optional<window_t::bounds_t> bounds;
   for (const auto &patchdata : ext.patches()) {
-    const auto patch_bounds = patchdata.amrcore->modified_levels();
+    const auto patch_bounds = patchdata.modified_levels();
     if (!patch_bounds)
       continue;
     if (!bounds) {

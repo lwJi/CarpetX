@@ -15,23 +15,14 @@
 
 #include <functional>
 #include <memory>
-#include <optional>
 #include <string>
-#include <vector>
 
 namespace CarpetX {
 
 class CactusAmrCore final : public amrcore_t {
   patch_t patch;
-  std::vector<bool> level_modified;
-
-  void mark_level_modified(level_t level);
 
 public:
-  virtual void regrid(int lbase, amrex::Real time,
-                      bool initial = false) override;
-  virtual std::optional<window_t::bounds_t> modified_levels() const override;
-
   CactusAmrCore(patch_t patch, const amrex::RealBox &rb, int max_level_in,
                 const amrex::Vector<int> &n_cell_in, int coord,
                 amrex::Vector<amrex::IntVect> const &ref_ratios,
@@ -46,8 +37,6 @@ public:
   void SetupLevel(level_t level, const amrex::BoxArray &ba,
                   const amrex::DistributionMapping &dm,
                   const std::function<std::string()> &why);
-  virtual amrex::BoxArray RechopLevel(level_t level,
-                                      amrex::BoxArray ba) const override;
   virtual void make_level(level_t level, const amrex::BoxArray &ba,
                           const amrex::DistributionMapping &dm,
                           const std::string &why) override;

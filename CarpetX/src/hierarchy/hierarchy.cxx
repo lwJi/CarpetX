@@ -13,7 +13,9 @@
 
 #include <AMReX.H>
 #include <AMReX_BCRec.H>
+#include <AMReX_BoxList.H>
 #include <AMReX_FillPatchUtil.H>
+#include <AMReX_ParallelDescriptor.H>
 #include <AMReX_iMultiFab.H>
 
 #include <algorithm>
@@ -173,7 +175,9 @@ GHExt::PatchData::add_level(const level_t level, const amrex::BoxArray &ba,
                             const std::function<std::string()> &why,
                             level_buffers_ptr buffers) {
   assert(level.patch() == patch && level.index() == num_levels());
+  assert(int(level_modified.size()) == num_levels());
   ++GHExt::mutable_instance().epoch_;
+  level_modified.push_back(true);
   return leveldata.emplace_back(level, ba, dm, why, std::move(buffers));
 }
 
@@ -183,6 +187,7 @@ GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
   ++GHExt::mutable_instance().epoch_;
   using std::swap;
   swap(this->level(level), fresh);
+  level_modified.at(level.index()) = true;
   return std::move(fresh);
 }
 
@@ -191,6 +196,25 @@ void GHExt::PatchData::erase_levels_from(const level_t level) {
          level.index() <= num_levels());
   ++GHExt::mutable_instance().epoch_;
   leveldata.erase(leveldata.begin() + level.index(), leveldata.end());
+  level_modified.resize(level.index());
+}
+
+void GHExt::PatchData::reset_level_modified() {
+  assert(num_levels() == amrcore->finestLevel() + 1);
+  level_modified.assign(num_levels(), false);
+}
+
+std::optional<window_t::bounds_t> GHExt::PatchData::modified_levels() const {
+  std::optional<window_t::bounds_t> bounds;
+  for (int lev = 0; lev < int(level_modified.size()); ++lev) {
+    if (!level_modified.at(lev))
+      continue;
+    if (!bounds)
+      bounds = window_t::bounds_t{lev, lev + 1};
+    else
+      bounds->max = lev + 1;
+  }
+  return bounds;
 }
 
 GHExt::PatchData::LevelData::LevelData(const level_t level,
@@ -607,15 +631,32 @@ void hierarchy_writer::mark_initialized() {
 }
 
 void hierarchy_writer::regrid(const level_t base_level, const CCTK_REAL time) {
-  GHExt::mutable_instance()
-      .patch(base_level.patch())
-      .amrcore->regrid(base_level.index(), time);
+  GHExt::PatchData &patchdata =
+      GHExt::mutable_instance().patch(base_level.patch());
+  patchdata.reset_level_modified();
+  patchdata.amrcore->regrid(base_level.index(), time);
 }
 
 void hierarchy_writer::set_finest_level(const level_t finest_level) {
   GHExt::mutable_instance()
       .patch(finest_level.patch())
       .amrcore->SetFinestLevel(finest_level.index());
+}
+
+static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
+                                    const level_t recovered_level,
+                                    amrex::BoxArray ba) {
+  if (recovered_level.index() == 0)
+    return mesh.MakeBaseGrids();
+
+  amrex::BoxList bl = ba.boxList();
+  while (bl.simplify())
+    ;
+  ba = amrex::BoxArray(std::move(bl));
+  ba.maxSize(mesh.maxGridSize(recovered_level.index()));
+  mesh.ChopGrids(recovered_level.index(), ba,
+                 amrex::ParallelDescriptor::NProcs());
+  return ba;
 }
 
 void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
@@ -628,7 +669,7 @@ void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
     amrcore.SetGeometry(lev, geom);
   }
   if (rechop)
-    ba = amrcore.RechopLevel(level, ba);
+    ba = rechop_level(amrcore, level, ba);
   amrcore.SetBoxArray(lev, ba);
   const amrex::DistributionMapping dm(ba);
   amrcore.SetDistributionMap(lev, dm);

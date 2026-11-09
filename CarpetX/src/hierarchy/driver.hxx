@@ -153,9 +153,6 @@ struct amrcore_t : amrex::AmrCore {
   amrcore_t(const amrex::AmrCore &rhs) = delete;
   amrcore_t &operator=(const amrex::AmrCore &rhs) = delete;
 
-  virtual std::optional<window_t::bounds_t> modified_levels() const = 0;
-  virtual amrex::BoxArray RechopLevel(level_t level,
-                                      amrex::BoxArray ba) const = 0;
   virtual void make_level(level_t level, const amrex::BoxArray &ba,
                           const amrex::DistributionMapping &dm,
                           const std::string &why) = 0;
@@ -733,10 +730,13 @@ struct GHExt {
     }
     std::span<const LevelData> levels() const { return leveldata; }
     std::span<LevelData> levels() { return leveldata; }
+    std::optional<window_t::bounds_t> modified_levels() const;
 
   private:
     std::vector<LevelData> leveldata;
+    std::vector<bool> level_modified;
 
+    void reset_level_modified();
     LevelData &add_level(level_t level, const amrex::BoxArray &ba,
                          const amrex::DistributionMapping &dm,
                          const std::function<std::string()> &why,
