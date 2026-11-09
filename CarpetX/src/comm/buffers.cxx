@@ -11,22 +11,13 @@
 #include <AMReX_FluxRegister.H>
 #include <AMReX_Interpolater.H>
 
-#include <array>
 #include <cassert>
 #include <memory>
-#include <optional>
 #include <source_location>
 
 namespace CarpetX {
 
 namespace {
-amrex::IndexType index_type_of(const std::array<int, dim> &indextype) {
-  return amrex::IndexType(
-      indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
-      indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
-      indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE);
-}
-
 amrex::Vector<amrex::BCRec> bcrecs_of(const GHExt::GroupRecord &record,
                                       const level_t level) {
   const GHExt::PatchData &patchdata = driver().patch(level.patch());
@@ -47,20 +38,14 @@ amrex::Vector<amrex::BCRec> bcrecs_of(const GHExt::GroupRecord &record,
 
 std::unique_ptr<amrex::FluxRegister>
 flux_register_of(const GHExt::GroupRecord &record, const level_t level,
-                 const std::array<int, dim> &indextype,
                  const amrex::BoxArray &ba,
                  const amrex::DistributionMapping &dm) {
-  const gi_t gi = record.groupindex;
-  if (!get_group_fluxes(gi))
+  if (level.index() == 0 || !group_has_flux_register(record.groupindex))
     return nullptr;
-  if (level.index() == 0 || !group_has_flux_register(gi))
-    return nullptr;
-  assert((indextype == std::array<int, dim>{1, 1, 1}));
   const amrex::IntVect ratio =
       driver().patch(level.patch()).amrcore->refRatio(level.parent().index());
   auto freg = std::make_unique<amrex::FluxRegister>(
-      convert(ba, index_type_of(indextype)), dm, ratio, level.index(),
-      record.numvars);
+      ba, dm, ratio, level.index(), record.numvars);
   freg->setVal(0);
   return freg;
 }
@@ -74,8 +59,7 @@ group_buffers_t::group_buffers_t(const GHExt::GroupRecord &record,
                            get_group_prolongation_order(record.groupindex),
                            get_group_indextype(record.groupindex))),
       bcrecs(bcrecs_of(record, level)),
-      freg(flux_register_of(record, level,
-                            get_group_indextype(record.groupindex), ba, dm)) {
+      freg(flux_register_of(record, level, ba, dm)) {
   assert(record.kind == group_kind::grid_function);
 }
 
