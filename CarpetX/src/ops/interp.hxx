@@ -15,10 +15,9 @@
 
 namespace CarpetX {
 
-// Create a cache of data required for interpolation
 class InterpolationSetup {
 private:
-  using Container = amrex::AmrParticleContainer<3, 2>;
+  using Container = amrex::ParticleContainer<3, 2>;
   using Particle = Container::ParticleType;
   using PinnedParticleTile = amrex::ParticleContainer_impl<
       Particle, 0, 0, amrex::PinnedArenaAllocator>::ParticleTileType;

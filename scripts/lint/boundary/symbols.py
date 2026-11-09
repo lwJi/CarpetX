@@ -17,7 +17,6 @@ NAMESPACE = "7CarpetX"
 STRONG = frozenset("TDBRSG")
 ACCEPTED = (
     ("hierarchy", "comm", "CarpetX::get_interpolator("),
-    ("hierarchy", "regrid", "CarpetX::CactusAmrCore::"),
     ("schedule", "api", "CarpetX::RecoverRKBoundary("),
 )
 RULE = wrap(
