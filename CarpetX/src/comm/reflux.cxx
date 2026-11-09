@@ -90,8 +90,8 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
     const gi_t gi = groupdata.record.groupindex;
 
     amrex::FluxRegister *const child_freg =
-        childleveldata ? childleveldata->group(gi).freg.get() : nullptr;
-    amrex::FluxRegister *const own_freg = groupdata.freg.get();
+        childleveldata ? buffers_of(*childleveldata, gi).freg.get() : nullptr;
+    amrex::FluxRegister *const own_freg = buffers_of(leveldata, gi).freg.get();
     if (!child_freg && !own_freg)
       continue;
 
@@ -184,9 +184,9 @@ static void reflux_level(const level_t level) {
 
   for (const auto &groupdata : leveldata.groups()) {
     const gi_t gi = groupdata.record.groupindex;
-    const auto &finegroupdata = fineleveldata.group(gi);
+    const group_buffers_t &finebuffers = buffers_of(fineleveldata, gi);
 
-    if (!finegroupdata.freg)
+    if (!finebuffers.freg)
       continue;
 
     if (verbose)
@@ -213,7 +213,7 @@ static void reflux_level(const level_t level) {
     const amrex::MultiFab &volume = *buffers_of(leveldata).cell_volume;
     assert(volume.ixType() == state.ixType());
     assert(volume.DistributionMap() == state.DistributionMap());
-    finegroupdata.freg->Reflux(state, volume, 1.0, 0, 0,
+    finebuffers.freg->Reflux(state, volume, 1.0, 0, 0,
                                groupdata.record.numvars, geom);
   }
 }

@@ -1,7 +1,5 @@
 #include "comm/prolongate_3d_rf2.hxx"
 
-#include "hierarchy/group_tags.hxx"
-
 #include <cctk.h>
 
 #include <array>

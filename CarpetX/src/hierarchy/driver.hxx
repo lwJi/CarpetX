@@ -18,8 +18,6 @@
 
 #include <AMReX.H>
 #include <AMReX_AmrCore.H>
-#include <AMReX_FluxRegister.H>
-#include <AMReX_Interpolater.H>
 #include <AMReX_MultiFab.H>
 #include <AMReX_iMultiFab.H>
 
@@ -155,7 +153,9 @@ using amrcore_factory = std::unique_ptr<amrex::AmrCore> (*)(
 struct level_buffers_t;
 using level_buffers_ptr =
     std::unique_ptr<level_buffers_t, void (*)(level_buffers_t *)>;
-using level_buffers_factory = level_buffers_ptr (*)();
+using level_buffers_factory = level_buffers_ptr (*)(
+    level_t level, const amrex::BoxArray &ba,
+    const amrex::DistributionMapping &dm);
 
 struct GHExt {
 
@@ -620,16 +620,12 @@ struct GHExt {
         std::array<int, dim> indextype;
         std::array<int, dim> nghostzones;
 
-        amrex::Interpolater *interpolator;
-
         std::array<std::array<boundary_t, dim>, 2> boundaries;
         bool all_faces_have_symmetries_or_boundaries() const;
         std::vector<std::array<int, dim> > parities;
         std::vector<CCTK_REAL> dirichlet_values;
         std::vector<CCTK_REAL> robin_values;
-        amrex::Vector<amrex::BCRec> bcrecs;
 
-        std::unique_ptr<amrex::FluxRegister> freg;
         std::optional<std::array<gi_t, dim> > fluxes;
 
         struct scratch_slot_t {

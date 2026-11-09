@@ -6,6 +6,9 @@
 #include "hierarchy/driver.hxx"
 #include "util/task_manager.hxx"
 
+#include <AMReX_BCRec.H>
+#include <AMReX_Interpolater.H>
+
 #include <functional>
 
 namespace CarpetX {

@@ -13,7 +13,6 @@
 #include <util_Table.h>
 
 #include <AMReX.H>
-#include <AMReX_BCRec.H>
 #include <AMReX_BoxList.H>
 #include <AMReX_FillPatchUtil.H>
 #include <AMReX_ParallelDescriptor.H>
@@ -223,7 +222,8 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
                                        const amrex::BoxArray &ba,
                                        const amrex::DistributionMapping &dm,
                                        const std::function<std::string()> &why)
-    : level(level), buffers(GHExt::mutable_instance().make_buffers_()) {
+    : level(level),
+      buffers(GHExt::mutable_instance().make_buffers_(level, ba, dm)) {
   assert(this->buffers);
   DECLARE_CCTK_PARAMETERS;
 
@@ -347,8 +347,6 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   indextype = get_group_indextype(groupindex);
   nghostzones = get_group_nghostzones(groupindex);
 
-  interpolator = get_interpolator(*this); // reads groupindex, indextype
-
   const GHExt &ext = driver();
   const auto &geom = ext.patch(level.patch()).amrcore->Geom(level.index());
   for (int d = 0; d < dim; ++d)
@@ -375,21 +373,6 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   if (robin_values.empty())
     robin_values.resize(numvars, 0);
 
-  amrex::BCRec bcrec;
-  for (int f = 0; f < 2; ++f) {
-    for (int d = 0; d < dim; ++d) {
-      const auto bc =
-          ext.patch(level.patch()).symmetries[f][d] == symmetry_t::periodic
-              ? amrex::BCType::int_dir
-              : amrex::BCType::ext_dir;
-      if (f == 0)
-        bcrec.setLo(d, bc);
-      else
-        bcrec.setHi(d, bc);
-    }
-  }
-  bcrecs.resize(numvars, bcrec);
-
   const amrex::BoxArray &gba = convert(
       ba, amrex::IndexType(
               indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
@@ -402,16 +385,8 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
                      numvars, why);
 
   fluxes = get_group_fluxes(groupindex);
-  if (fluxes) {
+  if (fluxes)
     assert((indextype == std::array<int, dim>{1, 1, 1}));
-    if (level.index() > 0 && group_has_flux_register(groupindex)) {
-      const amrex::IntVect ratio =
-          ext.patch(level.patch()).amrcore->refRatio(level.parent().index());
-      freg = std::make_unique<amrex::FluxRegister>(gba, dm, ratio,
-                                                   level.index(), numvars);
-      freg->setVal(0);
-    }
-  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

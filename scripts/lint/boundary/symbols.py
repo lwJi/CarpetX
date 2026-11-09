@@ -16,7 +16,6 @@ OBJECT_SUFFIX = ".cxx.o"
 NAMESPACE = "7CarpetX"
 STRONG = frozenset("TDBRSG")
 ACCEPTED = (
-    ("hierarchy", "comm", "CarpetX::get_interpolator("),
     ("schedule", "api", "CarpetX::RecoverRKBoundary("),
 )
 RULE = wrap(
