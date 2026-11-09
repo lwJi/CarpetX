@@ -13,9 +13,7 @@
 #include <AMReX_TagBox.H>
 #include <AMReX_Vector.H>
 
-#include <functional>
 #include <memory>
-#include <string>
 
 namespace CarpetX {
 
@@ -34,9 +32,6 @@ public:
 
   virtual void ErrorEst(int level, amrex::TagBoxArray &tags, amrex::Real time,
                         int ngrow) override;
-  void SetupLevel(level_t level, const amrex::BoxArray &ba,
-                  const amrex::DistributionMapping &dm,
-                  const std::function<std::string()> &why);
   virtual void
   MakeNewLevelFromScratch(int level, amrex::Real time,
                           const amrex::BoxArray &ba,

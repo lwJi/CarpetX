@@ -585,8 +585,7 @@ GHExt::record_of(const var_t var, const std::source_location site) const {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const GHExt::PatchData &
-hierarchy_writer::add_patch(const patch_t patch) {
+const GHExt::PatchData &hierarchy_writer::add_patch(const patch_t patch) {
   return GHExt::mutable_instance().add_patch(patch);
 }
 
@@ -594,15 +593,6 @@ const GHExt::PatchData::LevelData &
 hierarchy_writer::add_level(const level_t level, const amrex::BoxArray &ba,
                             const amrex::DistributionMapping &dm,
                             const std::function<std::string()> &why) {
-  return GHExt::mutable_instance()
-      .patch(level.patch())
-      .add_level(level, ba, dm, why);
-}
-
-const GHExt::PatchData::LevelData &
-hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
-                             const amrex::DistributionMapping &dm,
-                             const std::string &why) {
   DECLARE_CCTK_PARAMETERS;
 
   if (verbose)
@@ -611,12 +601,24 @@ hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
                level.index());
 
   const GHExt::PatchData::LevelData &leveldata =
-      add_level(level, ba, dm, [why]() { return why; });
+      GHExt::mutable_instance()
+          .patch(level.patch())
+          .add_level(level, ba, dm, why);
 
   if (verbose)
 #pragma omp critical
     CCTK_VINFO("SetupLevel patch %d level %d done.", level.patch().index(),
                level.index());
+
+  return leveldata;
+}
+
+const GHExt::PatchData::LevelData &
+hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
+                             const amrex::DistributionMapping &dm,
+                             const std::string &why) {
+  const GHExt::PatchData::LevelData &leveldata =
+      add_level(level, ba, dm, [why]() { return why; });
 
   const window_t window = window_t::one_level(level);
   for (const auto &groupdata : leveldata.groups()) {
@@ -689,7 +691,8 @@ static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
 
 void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
                                      const bool rechop) {
-  amrex::AmrCore &amrcore = *GHExt::mutable_instance().patch(level.patch()).amrcore;
+  amrex::AmrCore &amrcore =
+      *GHExt::mutable_instance().patch(level.patch()).amrcore;
   const int lev = level.index();
   if (lev > 0) {
     amrex::Geometry geom = amrcore.Geom(lev - 1);

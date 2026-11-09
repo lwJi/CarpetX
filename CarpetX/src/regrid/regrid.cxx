@@ -104,24 +104,6 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
                100.0 * npoints_clear / npoints_total, 100.0);
 }
 
-void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
-                               const amrex::DistributionMapping &dm,
-                               const std::function<std::string()> &why) {
-  DECLARE_CCTK_PARAMETERS;
-  assert(level.patch() == patch);
-  const int lev = level.index();
-
-  if (verbose)
-#pragma omp critical
-    CCTK_VINFO("SetupLevel patch %d level %d", patch.index(), lev);
-
-  hierarchy_writer::add_level(level, ba, dm, why);
-
-  if (verbose)
-#pragma omp critical
-    CCTK_VINFO("SetupLevel patch %d level %d done.", patch.index(), lev);
-}
-
 void CactusAmrCore::MakeNewLevelFromScratch(
     int lev, amrex::Real time, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm) {
@@ -177,7 +159,8 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 
   assert(lev > 0);
 
-  SetupLevel(level, ba, dm, []() { return "MakeNewLevelFromCoarse"; });
+  hierarchy_writer::add_level(level, ba, dm,
+                              []() { return "MakeNewLevelFromCoarse"; });
 
   const auto &patchdata = driver().patch(patch);
   const auto &leveldata = patchdata.level(level);
@@ -319,8 +302,8 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   assert(leveldata.iteration == coarseleveldata.iteration);
 
   const GHExt::PatchData::LevelData oldleveldata =
-      hierarchy_writer::remake_level(
-          level, ba, dm, []() { return "RemakeLevel"; });
+      hierarchy_writer::remake_level(level, ba, dm,
+                                     []() { return "RemakeLevel"; });
 
   for (const auto &groupdata : leveldata.groups()) {
     const gi_t gi = groupdata.record.groupindex;
