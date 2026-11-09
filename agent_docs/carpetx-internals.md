@@ -33,7 +33,7 @@ flowchart TB
   schedule -- "io.hxx" --> io
   schedule -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   io -- "reduction.hxx" --> ops
-  io -- "subcycling.hxx" --> comm
+  io -- "buffers.hxx, subcycling.hxx" --> comm
   regrid -- "buffers.hxx, fillpatch.hxx" --> comm
   traversal -- "refuse.hxx" --> util
   above -- "driver.hxx, grid_sizes.hxx, group_tags.hxx, indices.hxx, loops.hxx, operations.hxx, valid.hxx" --> hierarchy

@@ -454,7 +454,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
         pinned_particle_tiles.at(patch.index());
 
     const auto &restrict patchdata = ext.patch(patch);
-    const amrcore_t &core = *patchdata.amrcore;
+    const amrex::AmrCore &core = *patchdata.amrcore;
     const int nlevels = core.finestLevel() + 1;
     amrex::Vector<amrex::Geometry> geoms;
     amrex::Vector<amrex::DistributionMapping> dms;

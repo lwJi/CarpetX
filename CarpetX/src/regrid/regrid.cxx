@@ -25,12 +25,12 @@ CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox &rb,
                              const amrex::Vector<int> &n_cell_in, int coord,
                              amrex::Vector<amrex::IntVect> const &ref_ratios,
                              amrex::Array<int, AMREX_SPACEDIM> const &is_per)
-    : amrcore_t(rb, max_level_in, n_cell_in, coord, ref_ratios, is_per),
+    : amrex::AmrCore(rb, max_level_in, n_cell_in, coord, ref_ratios, is_per),
       patch(patch) {}
 
 CactusAmrCore::~CactusAmrCore() {}
 
-std::unique_ptr<amrcore_t>
+std::unique_ptr<amrex::AmrCore>
 make_cactus_amrcore(const patch_t patch, const amrex::RealBox &domain,
                     const int max_level_in, const amrex::Vector<int> &ncells,
                     const amrex::Array<int, dim> &is_periodic) {
@@ -123,22 +123,6 @@ void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
     CCTK_VINFO("SetupLevel patch %d level %d done.", patch.index(), lev);
 }
 
-void CactusAmrCore::make_level(const level_t level, const amrex::BoxArray &ba,
-                               const amrex::DistributionMapping &dm,
-                               const std::string &why) {
-  SetupLevel(level, ba, dm, [why]() { return why; });
-
-  const auto &leveldata = driver().level(level);
-  const window_t window = window_t::one_level(level);
-  for (const auto &groupdata : leveldata.groups()) {
-    for (const tl_t tl : groupdata.record.timelevels())
-      invalidate(window, {.gi = groupdata.record.groupindex,
-                          .tl = tl,
-                          .where = make_valid_all(),
-                          .event = why});
-  }
-}
-
 void CactusAmrCore::MakeNewLevelFromScratch(
     int lev, amrex::Real time, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm) {
@@ -149,7 +133,8 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 #pragma omp critical
     CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d", patch.index(), lev);
 
-  make_level(level, ba, dm, "MakeNewLevelFromScratch");
+  hierarchy_writer::make_level(level, ba, dm, "MakeNewLevelFromScratch",
+                               make_level_buffers());
 
   if (verbose)
 #pragma omp critical

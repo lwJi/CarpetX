@@ -4,6 +4,7 @@
 #include "hierarchy/operations.hxx"
 #include "hierarchy/valid.hxx"
 #include "io/selection.hxx"
+#include "comm/buffers.hxx"
 #include "comm/subcycling.hxx"
 #include "util/refuse.hxx"
 
@@ -360,7 +361,7 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
           level,
           amrex::BoxArray(amrex::BoxList(
               amrex::Vector<amrex::Box>(boxes.begin(), boxes.end()))),
-          rechop_on_recovery);
+          rechop_on_recovery, make_level_buffers);
       snapshot_geometry(levelrecord, level);
     }
   }

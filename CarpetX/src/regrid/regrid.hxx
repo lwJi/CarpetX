@@ -19,7 +19,7 @@
 
 namespace CarpetX {
 
-class CactusAmrCore final : public amrcore_t {
+class CactusAmrCore final : public amrex::AmrCore {
   patch_t patch;
 
 public:
@@ -37,9 +37,6 @@ public:
   void SetupLevel(level_t level, const amrex::BoxArray &ba,
                   const amrex::DistributionMapping &dm,
                   const std::function<std::string()> &why);
-  virtual void make_level(level_t level, const amrex::BoxArray &ba,
-                          const amrex::DistributionMapping &dm,
-                          const std::string &why) override;
   virtual void
   MakeNewLevelFromScratch(int level, amrex::Real time,
                           const amrex::BoxArray &ba,
@@ -53,7 +50,7 @@ public:
   virtual void ClearLevel(int level) override;
 };
 
-std::unique_ptr<amrcore_t>
+std::unique_ptr<amrex::AmrCore>
 make_cactus_amrcore(patch_t patch, const amrex::RealBox &domain, int,
                     const amrex::Vector<int> &ncells,
                     const amrex::Array<int, dim> &is_periodic);

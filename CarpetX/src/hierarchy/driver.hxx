@@ -148,22 +148,14 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct amrcore_t : amrex::AmrCore {
-  using amrex::AmrCore::AmrCore;
-  amrcore_t(const amrex::AmrCore &rhs) = delete;
-  amrcore_t &operator=(const amrex::AmrCore &rhs) = delete;
-
-  virtual void make_level(level_t level, const amrex::BoxArray &ba,
-                          const amrex::DistributionMapping &dm,
-                          const std::string &why) = 0;
-};
-using amrcore_factory = std::unique_ptr<amrcore_t> (*)(
+using amrcore_factory = std::unique_ptr<amrex::AmrCore> (*)(
     patch_t patch, const amrex::RealBox &domain, int,
     const amrex::Vector<int> &ncells, const amrex::Array<int, dim> &is_periodic);
 
 struct level_buffers_t;
 using level_buffers_ptr =
     std::unique_ptr<level_buffers_t, void (*)(level_buffers_t *)>;
+using level_buffers_factory = level_buffers_ptr (*)();
 
 struct GHExt {
 
@@ -503,7 +495,7 @@ struct GHExt {
 
     std::array<std::array<symmetry_t, dim>, 2> symmetries;
 
-    const_propagating_ptr<amrcore_t> amrcore;
+    const_propagating_ptr<amrex::AmrCore> amrcore;
 
     struct LevelData {
       LevelData() = delete;

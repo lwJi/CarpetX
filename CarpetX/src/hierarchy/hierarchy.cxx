@@ -2,6 +2,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/operations.hxx"
+#include "hierarchy/valid.hxx"
 
 #include "hierarchy/loops.hxx"
 #include <carpetx.hxx>
@@ -600,6 +601,37 @@ hierarchy_writer::add_level(const level_t level, const amrex::BoxArray &ba,
       .add_level(level, ba, dm, why, std::move(buffers));
 }
 
+const GHExt::PatchData::LevelData &
+hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
+                             const amrex::DistributionMapping &dm,
+                             const std::string &why,
+                             level_buffers_ptr buffers) {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (verbose)
+#pragma omp critical
+    CCTK_VINFO("SetupLevel patch %d level %d", level.patch().index(),
+               level.index());
+
+  const GHExt::PatchData::LevelData &leveldata =
+      add_level(level, ba, dm, [why]() { return why; }, std::move(buffers));
+
+  if (verbose)
+#pragma omp critical
+    CCTK_VINFO("SetupLevel patch %d level %d done.", level.patch().index(),
+               level.index());
+
+  const window_t window = window_t::one_level(level);
+  for (const auto &groupdata : leveldata.groups()) {
+    for (const tl_t tl : groupdata.record.timelevels())
+      invalidate(window, {.gi = groupdata.record.groupindex,
+                          .tl = tl,
+                          .where = make_valid_all(),
+                          .event = why});
+  }
+  return leveldata;
+}
+
 GHExt::PatchData::LevelData
 hierarchy_writer::remake_level(const level_t level, const amrex::BoxArray &ba,
                                const amrex::DistributionMapping &dm,
@@ -660,8 +692,10 @@ static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
 }
 
 void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
-                                     const bool rechop) {
-  amrcore_t &amrcore = *GHExt::mutable_instance().patch(level.patch()).amrcore;
+                                     const bool rechop,
+                                     const level_buffers_factory make_buffers) {
+  assert(make_buffers);
+  amrex::AmrCore &amrcore = *GHExt::mutable_instance().patch(level.patch()).amrcore;
   const int lev = level.index();
   if (lev > 0) {
     amrex::Geometry geom = amrcore.Geom(lev - 1);
@@ -673,7 +707,7 @@ void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
   amrcore.SetBoxArray(lev, ba);
   const amrex::DistributionMapping dm(ba);
   amrcore.SetDistributionMap(lev, dm);
-  amrcore.make_level(level, ba, dm, "Recovering");
+  make_level(level, ba, dm, "Recovering", make_buffers());
 }
 
 void hierarchy_writer::record_storage(const gi_t gi, const int timelevels) {
