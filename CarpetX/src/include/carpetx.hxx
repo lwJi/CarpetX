@@ -103,6 +103,8 @@ enum class symmetry_t {
 };
 std::ostream &operator<<(std::ostream &os, symmetry_t symmetry);
 
+enum class rk_dense_output_t { none, ssprk3, rk4 };
+
 struct level_t {
   constexpr level_t(const patch_t patch, const int level)
       : patch_(patch), level_(level) {}

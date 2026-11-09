@@ -77,7 +77,7 @@ GHOST_ONLY_FILES = (
 GHOST_ONLY_WORD = re.compile(r"\bSyncGhostsOnly\s*\(")
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
-    r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration|integrator_config|integrator_frozen)\b"
+    r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b"
 )
 DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
@@ -416,7 +416,7 @@ RULES = (
         "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but grid data behind its pointers and every fact "
         "about the hierarchy, the epoch included, is a GHExt member changed through hierarchy_writer; what comm/ "
         "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to a type it "
-        "only forward-declares, and the integrator record is a slot in traversal/.",
+        "only forward-declares, and the integrator record is a GHExt value and a GroupRecord field.",
         noun="mutable, extern, integrator include or comm/ object",
         where="in the data model",
         clean="no mutable, extern, integrator include or comm/ object in the data model",
@@ -438,12 +438,10 @@ RULES = (
         files=private_cxx,
         word=TRAVERSAL_WORD,
         allowed=in_files(TRAVERSAL_FILES),
-        text="a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine, recover_iteration, and the "
-        "integrator's integrator_config and integrator_frozen) is named only in CarpetX/src/traversal/traversal.cxx "
-        "and traversal.hxx; a driver phase opens a scope, parameter recovery calls record_recovered_iteration() "
-        "once, register_integrator calls record_integrator() once, the scheduler calls freeze_integrator() once "
-        "after WRAGH, and a reader calls scheduled_window(), scheduled_tail_bin(), in_recovery_traversal(), "
-        "scheduled_routine(), recovered_iteration() or integrator(), which refuses until the record is frozen.",
+        text="a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine, recover_iteration) is named "
+        "only in CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, parameter "
+        "recovery calls record_recovered_iteration() once, and a reader calls scheduled_window(), "
+        "scheduled_tail_bin(), in_recovery_traversal(), scheduled_routine() or recovered_iteration().",
         noun="traversal use",
         where="outside traversal.cxx",
         clean="no active_levels outside traversal.cxx",

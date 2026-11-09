@@ -40,7 +40,7 @@ flowchart TB
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
   door -- "carpetx.hxx, carpetx_rk.hxx" --> include
-  nodoor -- "carpetx.hxx, carpetx_rk.hxx" --> include
+  nodoor -- "carpetx.hxx" --> include
   api -. "RecoverRKBoundary" .- schedule
 ```
 

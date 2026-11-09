@@ -18,7 +18,9 @@
 #include <functional>
 #include <optional>
 #include <source_location>
+#include <span>
 #include <string>
+#include <utility>
 
 namespace CarpetX {
 
@@ -50,6 +52,12 @@ struct hierarchy_writer {
 
   static void record_storage(gi_t gi, int timelevels);
   static void freeze_storage();
+  static void record_integrator(
+      GHExt::integrator_t integrator,
+      std::span<const std::pair<gi_t, gi_t> > pairs,
+      std::source_location site = std::source_location::current());
+  static void freeze_integrator(
+      std::source_location site = std::source_location::current());
   static void adopt_flesh_cctkGH(cGH *cctkGH);
   static void *array_data(gi_t gi, tl_t tl);
 

@@ -3,13 +3,13 @@
 #include "api/api.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
+#include "hierarchy/operations.hxx"
 #include "schedule/schedule.hxx"
 #include "hierarchy/loops.hxx"
 #include "comm/comm.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
 #include "hierarchy/valid.hxx"
-#include "traversal/traversal.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -40,13 +40,22 @@ namespace CarpetX {
 
 namespace {
 
-const rk_config_t &require_integrator() {
-  const std::optional<rk_config_t> &config = integrator();
-  if (!config)
+const GHExt::integrator_t &require_integrator() {
+  const std::optional<GHExt::integrator_t> &integrator = driver().integrator();
+  if (!integrator)
     refuse(std::source_location::current(),
            "no time integrator is registered; call "
            "CarpetX::register_integrator AT WRAGH");
-  return *config;
+  return *integrator;
+}
+
+std::vector<gi_t> integrated_states() {
+  const GHExt &ext = driver();
+  std::vector<gi_t> states;
+  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()}))
+    if (ext.record(gi).rhs)
+      states.push_back(gi);
+  return states;
 }
 
 const char *dense_output_name(const rk_dense_output_t dense_output) {
@@ -182,7 +191,11 @@ void register_integrator(const rk_config_t &config) {
                     "group %s, which carries a fluxes= tag; register an "
                     "explicit method or set CarpetX::do_reflux = no",
                     int(max_num_levels), CCTK_FullGroupName(pair.state.index()));
-  record_integrator(config);
+  std::vector<std::pair<gi_t, gi_t> > pairs;
+  for (const rk_pair_t &pair : config.integrated)
+    pairs.emplace_back(pair.state, pair.rhs);
+  hierarchy_writer::record_integrator(
+      {rk_stages(config.nstages()), config.dense_output, config.b}, pairs);
   CCTK_VINFO("Registered the time integrator: %d RK stages, dense output %s, "
              "%d integrated group%s, %s",
              config.nstages(), dense_output_name(config.dense_output),
@@ -248,33 +261,33 @@ std::string describe(const window_t &window) {
   return buf.str();
 }
 
-integrated_groups_t integrated_groups_with_storage(const level_t level,
-                                                   const rk_config_t &config) {
+integrated_groups_t integrated_groups_with_storage(const level_t level) {
   const GHExt &ext = driver();
   ext.level(level);
   integrated_groups_t groups;
-  for (const rk_pair_t &pair : config.integrated) {
-    if (!ext.record(pair.state).has_storage())
+  for (const GHExt::GroupRecord &record :
+       ext.records(group_kind::grid_function)) {
+    if (!record.rhs)
       continue;
-    if (!ext.record(pair.rhs).has_storage())
+    const gi_t rhs = *record.rhs;
+    if (!ext.record(rhs).has_storage())
       refuse(std::source_location::current(),
              "integrated group %s has storage on patch %d, refinement level "
              "%d, but its right-hand side %s has none",
-             CCTK_FullGroupName(pair.state.index()), level.patch().index(),
-             level.index(), CCTK_FullGroupName(pair.rhs.index()));
-    groups.states.push_back(pair.state);
-    groups.rhss.push_back(pair.rhs);
+             record.groupname.c_str(), level.patch().index(), level.index(),
+             CCTK_FullGroupName(rhs.index()));
+    groups.states.push_back(record.groupindex);
+    groups.rhss.push_back(rhs);
   }
   return groups;
 }
 
-std::vector<rk_level_t> integrated_levels(const window_t window,
-                                          const rk_config_t &config) {
+std::vector<rk_level_t> integrated_levels(const window_t window) {
   std::vector<rk_level_t> levels;
   loop_coarse_to_fine(
       window, [&](const GHExt::PatchData::LevelData &leveldata) {
-        levels.push_back({leveldata.level, integrated_groups_with_storage(
-                                               leveldata.level, config)});
+        levels.push_back(
+            {leveldata.level, integrated_groups_with_storage(leveldata.level)});
       });
   return levels;
 }
@@ -328,15 +341,14 @@ struct rk_step_t::impl {
 
 rk_step_t open_rk_step(const window_t window) {
   const operation_scope_t op("CarpetX::open_rk_step");
-  const rk_config_t &config = require_integrator();
+  const GHExt::integrator_t &integrator = require_integrator();
   require_serial_context();
   const stage_range stages = registered_stages();
   auto step = std::unique_ptr<rk_step_t::impl>(new rk_step_t::impl{
       .window = window, .stages = stages, .stage = stages.begin()});
-  step->b = config.b;
-  for (const rk_pair_t &pair : config.integrated)
-    step->states.push_back(pair.state);
-  step->levels = integrated_levels(window, config);
+  step->b = integrator.weights;
+  step->states = integrated_states();
+  step->levels = integrated_levels(window);
   for (const rk_level_t &entry : step->levels) {
     for (const gi_t gi : entry.groups.states)
       require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),
@@ -445,8 +457,11 @@ void RecoverRKBoundary(const window_t window) {
   const GHExt &ext = driver();
   if (!ext.use_subcycling)
     return;
-  const std::optional<rk_config_t> &integrator = CarpetX::integrator();
-  if (!integrator || integrator->integrated.empty())
+  const std::optional<GHExt::integrator_t> &integrator = ext.integrator();
+  if (!integrator)
+    return;
+  const std::vector<gi_t> states = integrated_states();
+  if (states.empty())
     return;
   const operation_scope_t op("CarpetX::RecoverRKBoundary");
 
@@ -460,7 +475,7 @@ void RecoverRKBoundary(const window_t window) {
   static Timer timer("RecoverRKBoundary");
   Interval interval(timer);
 
-  const std::vector<rk_level_t> levels = integrated_levels(window, *integrator);
+  const std::vector<rk_level_t> levels = integrated_levels(window);
   for (const rk_level_t &entry : levels)
     for (const gi_t gi : entry.groups.states)
       require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),
@@ -468,10 +483,6 @@ void RecoverRKBoundary(const window_t window) {
                     "the integrated groups to be populated by checkpoint "
                     "recovery");
 
-  std::vector<gi_t> states;
-  for (const rk_pair_t &pair : integrator->integrated)
-    states.push_back(pair.state);
-  std::sort(states.begin(), states.end());
   const bool restricted = window_is_restricted(window);
   if (restricted)
     ProlongateAligned(window, states, timelevels_t::one(rk_tl));
@@ -490,7 +501,7 @@ void RecoverRKBoundary(const window_t window) {
     if (restricted && aligned)
       continue;
     fill_refinement_boundary(entry.level, entry.groups.states,
-                             registered_stages().last(),
+                             integrator->stages.last(),
                              "CarpetX::RecoverRKBoundary after recovery");
   }
   synchronize();
