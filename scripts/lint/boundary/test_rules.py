@@ -601,7 +601,7 @@ class Index(unittest.TestCase):
             "                        int ngrow) override;\n"
             "  virtual void ClearLevel(int level) override;\n"
         )
-        self.assertEqual(reported("CarpetX/src/hierarchy/driver.hxx", text), [])
+        self.assertEqual(reported("CarpetX/src/regrid/regrid.hxx", text), [])
 
     def test_index_allowed_only_where_the_signature_is_fixed(self):
         for name in ["CarpetX/src/hierarchy/driver.hxx", "CarpetX/src/comm/comm.hxx"]:

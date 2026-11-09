@@ -74,9 +74,10 @@ void GHExt::mark_initialized() {
   initialized_ = true;
 }
 
-GHExt::PatchData &GHExt::add_patch(const patch_t patch) {
+GHExt::PatchData &GHExt::add_patch(const patch_t patch,
+                                   const amrcore_factory make_core) {
   assert(patch.index() == num_patches());
-  return patchdata.emplace_back(patch);
+  return patchdata.emplace_back(patch, make_core);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -102,7 +103,9 @@ GHExt::cctkGHptr::~cctkGHptr() {
   cctkGH = nullptr;
 }
 
-GHExt::PatchData::PatchData(const patch_t patch) : patch(patch) {
+GHExt::PatchData::PatchData(const patch_t patch,
+                             const amrcore_factory make_core)
+    : patch(patch) {
   DECLARE_CCTK_PARAMETERS;
 
   // Domain
@@ -126,11 +129,6 @@ GHExt::PatchData::PatchData(const patch_t patch) : patch(patch) {
     domain = amrex::RealBox(xmin1, xmax1);
   }
 
-  const int coord = -1; // undefined?
-
-  // Refinement ratios
-  const amrex::Vector<amrex::IntVect> reffacts{}; // empty
-
   symmetries = get_symmetries(patch);
 
   {
@@ -153,8 +151,8 @@ GHExt::PatchData::PatchData(const patch_t patch) : patch(patch) {
       symmetries[0][1] == symmetry_t::periodic,
       symmetries[0][2] == symmetry_t::periodic};
 
-  amrcore = std::make_unique<CactusAmrCore>(
-      patch, domain, max_num_levels - 1, ncells, coord, reffacts, is_periodic);
+  assert(make_core);
+  amrcore = make_core(patch, domain, max_num_levels - 1, ncells, is_periodic);
 
   if (verbose) {
 #pragma omp critical
@@ -562,8 +560,10 @@ GHExt::record_of(const var_t var, const std::source_location site) const {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const GHExt::PatchData &hierarchy_writer::add_patch(const patch_t patch) {
-  return GHExt::mutable_instance().add_patch(patch);
+const GHExt::PatchData &
+hierarchy_writer::add_patch(const patch_t patch,
+                            const amrcore_factory make_core) {
+  return GHExt::mutable_instance().add_patch(patch, make_core);
 }
 
 const GHExt::PatchData::LevelData &
@@ -620,8 +620,7 @@ void hierarchy_writer::set_finest_level(const level_t finest_level) {
 
 void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
                                      const bool rechop) {
-  CactusAmrCore &amrcore =
-      *GHExt::mutable_instance().patch(level.patch()).amrcore;
+  amrcore_t &amrcore = *GHExt::mutable_instance().patch(level.patch()).amrcore;
   const int lev = level.index();
   if (lev > 0) {
     amrex::Geometry geom = amrcore.Geom(lev - 1);

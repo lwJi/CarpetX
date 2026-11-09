@@ -148,51 +148,21 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 
 ////////////////////////////////////////////////////////////////////////////////
 
-class CactusAmrCore final : public amrex::AmrCore {
-  patch_t patch;
-  std::vector<bool> level_modified;
+struct amrcore_t : amrex::AmrCore {
+  using amrex::AmrCore::AmrCore;
+  amrcore_t(const amrex::AmrCore &rhs) = delete;
+  amrcore_t &operator=(const amrex::AmrCore &rhs) = delete;
 
-  void mark_level_modified(level_t level);
-
-public:
-  virtual void regrid(int lbase, amrex::Real time,
-                      bool initial = false) override;
-  std::optional<window_t::bounds_t> modified_levels() const;
-
-  CactusAmrCore(patch_t patch, const amrex::RealBox *rb, int max_level_in,
-                const amrex::Vector<int> &n_cell_in, int coord = -1,
-                amrex::Vector<amrex::IntVect> ref_ratios =
-                    amrex::Vector<amrex::IntVect>(),
-                const int *is_per = nullptr);
-  CactusAmrCore(patch_t patch, const amrex::RealBox &rb, int max_level_in,
-                const amrex::Vector<int> &n_cell_in, int coord,
-                amrex::Vector<amrex::IntVect> const &ref_ratios,
-                amrex::Array<int, AMREX_SPACEDIM> const &is_per);
-  CactusAmrCore(const amrex::AmrCore &rhs) = delete;
-  CactusAmrCore &operator=(const amrex::AmrCore &rhs) = delete;
-
-  virtual ~CactusAmrCore() override;
-
-  virtual void ErrorEst(int level, amrex::TagBoxArray &tags, amrex::Real time,
-                        int ngrow) override;
-  void SetupLevel(level_t level, const amrex::BoxArray &ba,
-                  const amrex::DistributionMapping &dm,
-                  const std::function<std::string()> &why);
-  amrex::BoxArray RechopLevel(level_t level, amrex::BoxArray ba) const;
-  void make_level(level_t level, const amrex::BoxArray &ba,
-                  const amrex::DistributionMapping &dm, const std::string &why);
-  virtual void
-  MakeNewLevelFromScratch(int level, amrex::Real time,
-                          const amrex::BoxArray &ba,
-                          const amrex::DistributionMapping &dm) override;
-  virtual void
-  MakeNewLevelFromCoarse(int level, amrex::Real time, const amrex::BoxArray &ba,
-                         const amrex::DistributionMapping &dm) override;
-  virtual void RemakeLevel(int level, amrex::Real time,
-                           const amrex::BoxArray &ba,
-                           const amrex::DistributionMapping &dm) override;
-  virtual void ClearLevel(int level) override;
+  virtual std::optional<window_t::bounds_t> modified_levels() const = 0;
+  virtual amrex::BoxArray RechopLevel(level_t level,
+                                      amrex::BoxArray ba) const = 0;
+  virtual void make_level(level_t level, const amrex::BoxArray &ba,
+                          const amrex::DistributionMapping &dm,
+                          const std::string &why) = 0;
 };
+using amrcore_factory = std::unique_ptr<amrcore_t> (*)(
+    patch_t patch, const amrex::RealBox &domain, int,
+    const amrex::Vector<int> &ncells, const amrex::Array<int, dim> &is_periodic);
 
 struct level_buffers_t;
 using level_buffers_ptr =
@@ -528,7 +498,7 @@ struct GHExt {
     PatchData(PatchData &&) = default;
     PatchData &operator=(PatchData &&) = default;
 
-    PatchData(patch_t patch);
+    PatchData(patch_t patch, amrcore_factory make_core);
 
     patch_t patch;
 
@@ -536,7 +506,7 @@ struct GHExt {
 
     std::array<std::array<symmetry_t, dim>, 2> symmetries;
 
-    const_propagating_ptr<CactusAmrCore> amrcore;
+    const_propagating_ptr<amrcore_t> amrcore;
 
     struct LevelData {
       LevelData() = delete;
@@ -862,7 +832,7 @@ private:
   std::vector<PatchData> patchdata;
 
   static GHExt &mutable_instance();
-  PatchData &add_patch(patch_t patch);
+  PatchData &add_patch(patch_t patch, amrcore_factory make_core);
   void record_storage(gi_t gi, int timelevels);
   void freeze_storage();
   void mark_initialized();

@@ -26,7 +26,8 @@ GHExt &create_hierarchy(GHExt::config_t config);
 void destroy_hierarchy();
 
 struct hierarchy_writer {
-  static const GHExt::PatchData &add_patch(patch_t patch);
+  static const GHExt::PatchData &add_patch(patch_t patch,
+                                           amrcore_factory make_core);
   static const GHExt::PatchData::LevelData &
   add_level(level_t level, const amrex::BoxArray &ba,
             const amrex::DistributionMapping &dm,

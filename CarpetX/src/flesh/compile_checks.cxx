@@ -5,6 +5,7 @@
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
 #include "comm/comm.hxx"
+#include "regrid/regrid.hxx"
 #include "hierarchy/valid.hxx"
 
 #include <carpetx.hxx>

@@ -1,3 +1,5 @@
+#include "regrid/regrid.hxx"
+
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
@@ -10,6 +12,7 @@
 #include <AMReX_TagBox.H>
 
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <sstream>
 
@@ -18,23 +21,24 @@ namespace CarpetX {
 using Loop::GF3D1;
 using Loop::where_t;
 
-CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox *rb,
-                             int max_level_in,
-                             const amrex::Vector<int> &n_cell_in, int coord,
-                             amrex::Vector<amrex::IntVect> ref_ratios,
-                             const int *is_per)
-    : amrex::AmrCore(rb, max_level_in, n_cell_in, coord, ref_ratios, is_per),
-      patch(patch) {}
-
 CactusAmrCore::CactusAmrCore(const patch_t patch, const amrex::RealBox &rb,
                              int max_level_in,
                              const amrex::Vector<int> &n_cell_in, int coord,
                              amrex::Vector<amrex::IntVect> const &ref_ratios,
                              amrex::Array<int, AMREX_SPACEDIM> const &is_per)
-    : amrex::AmrCore(rb, max_level_in, n_cell_in, coord, ref_ratios, is_per),
+    : amrcore_t(rb, max_level_in, n_cell_in, coord, ref_ratios, is_per),
       patch(patch) {}
 
 CactusAmrCore::~CactusAmrCore() {}
+
+std::unique_ptr<amrcore_t>
+make_cactus_amrcore(const patch_t patch, const amrex::RealBox &domain,
+                    const int max_level_in, const amrex::Vector<int> &ncells,
+                    const amrex::Array<int, dim> &is_periodic) {
+  return std::make_unique<CactusAmrCore>(patch, domain, max_level_in, ncells,
+                                         -1, amrex::Vector<amrex::IntVect>(),
+                                         is_periodic);
+}
 
 void CactusAmrCore::regrid(const int lbase, const amrex::Real time,
                            const bool initial) {

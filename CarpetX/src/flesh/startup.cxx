@@ -3,6 +3,7 @@
 #include "hierarchy/operations.hxx"
 #include "schedule/schedule.hxx"
 #include "comm/comm.hxx"
+#include "regrid/regrid.hxx"
 #include "ops/interp.hxx"
 #include "io/io.hxx"
 #include "util/logo.hxx"
@@ -125,7 +126,7 @@ int InitGH(cGH *restrict cctkGH) {
   }
   for (const patch_t patch :
        index_range<patch_t>(patch_t{0}, patch_t{num_patches}))
-    hierarchy_writer::add_patch(patch);
+    hierarchy_writer::add_patch(patch, make_cactus_amrcore);
 
   return 0;
 }

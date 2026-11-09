@@ -109,7 +109,7 @@ INDEX_FIXED = {
     layer_path("hierarchy", "group_tags.cxx"): ("CCTK_TraverseString",),
     layer_path("comm", "comm.hxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("comm", "sync_restrict.cxx"): (FLESH_SYNC_OVERLOAD,),
-    layer_path("hierarchy", "driver.hxx"): AMREX_CALLBACKS,
+    layer_path("regrid", "regrid.hxx"): AMREX_CALLBACKS,
     layer_path("regrid", "regrid.cxx"): AMREX_CALLBACKS,
 }
 INDEX_FIXED_CALL = {name: re.compile(r"\b(" + "|".join(calls) + r")\s*\(") for name, calls in INDEX_FIXED.items()}
