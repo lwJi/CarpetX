@@ -3,7 +3,6 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
-#include "comm/buffers.hxx"
 #include "comm/fillpatch.hxx"
 #include <loop_device.hxx>
 
@@ -116,7 +115,7 @@ void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
 #pragma omp critical
     CCTK_VINFO("SetupLevel patch %d level %d", patch.index(), lev);
 
-  hierarchy_writer::add_level(level, ba, dm, why, make_level_buffers());
+  hierarchy_writer::add_level(level, ba, dm, why);
 
   if (verbose)
 #pragma omp critical
@@ -133,8 +132,7 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 #pragma omp critical
     CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d", patch.index(), lev);
 
-  hierarchy_writer::make_level(level, ba, dm, "MakeNewLevelFromScratch",
-                               make_level_buffers());
+  hierarchy_writer::make_level(level, ba, dm, "MakeNewLevelFromScratch");
 
   if (verbose)
 #pragma omp critical
@@ -322,7 +320,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
 
   const GHExt::PatchData::LevelData oldleveldata =
       hierarchy_writer::remake_level(
-          level, ba, dm, []() { return "RemakeLevel"; }, make_level_buffers());
+          level, ba, dm, []() { return "RemakeLevel"; });
 
   for (const auto &groupdata : leveldata.groups()) {
     const gi_t gi = groupdata.record.groupindex;

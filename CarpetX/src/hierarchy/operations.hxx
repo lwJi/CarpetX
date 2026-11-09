@@ -26,21 +26,18 @@ GHExt &create_hierarchy(GHExt::config_t config);
 void destroy_hierarchy();
 
 struct hierarchy_writer {
-  static const GHExt::PatchData &add_patch(patch_t patch,
-                                           amrcore_factory make_core);
+  static const GHExt::PatchData &add_patch(patch_t patch);
   static const GHExt::PatchData::LevelData &
   add_level(level_t level, const amrex::BoxArray &ba,
             const amrex::DistributionMapping &dm,
-            const std::function<std::string()> &why, level_buffers_ptr buffers);
+            const std::function<std::string()> &why);
   static const GHExt::PatchData::LevelData &
   make_level(level_t level, const amrex::BoxArray &ba,
-             const amrex::DistributionMapping &dm, const std::string &why,
-             level_buffers_ptr buffers);
+             const amrex::DistributionMapping &dm, const std::string &why);
   static GHExt::PatchData::LevelData
   remake_level(level_t level, const amrex::BoxArray &ba,
                const amrex::DistributionMapping &dm,
-               const std::function<std::string()> &why,
-               level_buffers_ptr buffers);
+               const std::function<std::string()> &why);
   static void erase_levels_from(level_t level);
 
   static void
@@ -50,8 +47,7 @@ struct hierarchy_writer {
   static void mark_initialized();
   static void regrid(level_t base_level, CCTK_REAL time);
   static void set_finest_level(level_t finest_level);
-  static void recover_level(level_t level, amrex::BoxArray ba, bool rechop,
-                            level_buffers_factory make_buffers);
+  static void recover_level(level_t level, amrex::BoxArray ba, bool rechop);
 
   static void record_storage(gi_t gi, int timelevels);
   static void freeze_storage();

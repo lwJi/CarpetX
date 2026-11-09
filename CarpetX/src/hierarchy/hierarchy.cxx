@@ -70,17 +70,20 @@ void assert_hierarchy_destroyed() { assert(!ghext); }
 
 GHExt::GHExt(const config_t config)
     : use_subcycling(config.use_subcycling), do_reflux(config.do_reflux),
-      pending_timelevels_(std::in_place, CCTK_NumGroups(), 0) {}
+      pending_timelevels_(std::in_place, CCTK_NumGroups(), 0),
+      make_core_(config.make_core), make_buffers_(config.make_buffers) {
+  assert(make_core_);
+  assert(make_buffers_);
+}
 
 void GHExt::mark_initialized() {
   assert(!initialized_);
   initialized_ = true;
 }
 
-GHExt::PatchData &GHExt::add_patch(const patch_t patch,
-                                   const amrcore_factory make_core) {
+GHExt::PatchData &GHExt::add_patch(const patch_t patch) {
   assert(patch.index() == num_patches());
-  return patchdata.emplace_back(patch, make_core);
+  return patchdata.emplace_back(patch, make_core_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -154,7 +157,6 @@ GHExt::PatchData::PatchData(const patch_t patch,
       symmetries[0][1] == symmetry_t::periodic,
       symmetries[0][2] == symmetry_t::periodic};
 
-  assert(make_core);
   amrcore = make_core(patch, domain, max_num_levels - 1, ncells, is_periodic);
 
   if (verbose) {
@@ -173,13 +175,12 @@ GHExt::PatchData::PatchData(const patch_t patch,
 GHExt::PatchData::LevelData &
 GHExt::PatchData::add_level(const level_t level, const amrex::BoxArray &ba,
                             const amrex::DistributionMapping &dm,
-                            const std::function<std::string()> &why,
-                            level_buffers_ptr buffers) {
+                            const std::function<std::string()> &why) {
   assert(level.patch() == patch && level.index() == num_levels());
   assert(int(level_modified.size()) == num_levels());
   ++GHExt::mutable_instance().epoch_;
   level_modified.push_back(true);
-  return leveldata.emplace_back(level, ba, dm, why, std::move(buffers));
+  return leveldata.emplace_back(level, ba, dm, why);
 }
 
 GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
@@ -221,9 +222,8 @@ std::optional<window_t::bounds_t> GHExt::PatchData::modified_levels() const {
 GHExt::PatchData::LevelData::LevelData(const level_t level,
                                        const amrex::BoxArray &ba,
                                        const amrex::DistributionMapping &dm,
-                                       const std::function<std::string()> &why,
-                                       level_buffers_ptr buffers)
-    : level(level), buffers(std::move(buffers)) {
+                                       const std::function<std::string()> &why)
+    : level(level), buffers(GHExt::mutable_instance().make_buffers_()) {
   assert(this->buffers);
   DECLARE_CCTK_PARAMETERS;
 
@@ -586,26 +586,23 @@ GHExt::record_of(const var_t var, const std::source_location site) const {
 ////////////////////////////////////////////////////////////////////////////////
 
 const GHExt::PatchData &
-hierarchy_writer::add_patch(const patch_t patch,
-                            const amrcore_factory make_core) {
-  return GHExt::mutable_instance().add_patch(patch, make_core);
+hierarchy_writer::add_patch(const patch_t patch) {
+  return GHExt::mutable_instance().add_patch(patch);
 }
 
 const GHExt::PatchData::LevelData &
 hierarchy_writer::add_level(const level_t level, const amrex::BoxArray &ba,
                             const amrex::DistributionMapping &dm,
-                            const std::function<std::string()> &why,
-                            level_buffers_ptr buffers) {
+                            const std::function<std::string()> &why) {
   return GHExt::mutable_instance()
       .patch(level.patch())
-      .add_level(level, ba, dm, why, std::move(buffers));
+      .add_level(level, ba, dm, why);
 }
 
 const GHExt::PatchData::LevelData &
 hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
                              const amrex::DistributionMapping &dm,
-                             const std::string &why,
-                             level_buffers_ptr buffers) {
+                             const std::string &why) {
   DECLARE_CCTK_PARAMETERS;
 
   if (verbose)
@@ -614,7 +611,7 @@ hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
                level.index());
 
   const GHExt::PatchData::LevelData &leveldata =
-      add_level(level, ba, dm, [why]() { return why; }, std::move(buffers));
+      add_level(level, ba, dm, [why]() { return why; });
 
   if (verbose)
 #pragma omp critical
@@ -635,9 +632,8 @@ hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
 GHExt::PatchData::LevelData
 hierarchy_writer::remake_level(const level_t level, const amrex::BoxArray &ba,
                                const amrex::DistributionMapping &dm,
-                               const std::function<std::string()> &why,
-                               level_buffers_ptr buffers) {
-  GHExt::PatchData::LevelData fresh(level, ba, dm, why, std::move(buffers));
+                               const std::function<std::string()> &why) {
+  GHExt::PatchData::LevelData fresh(level, ba, dm, why);
   return GHExt::mutable_instance()
       .patch(level.patch())
       .replace_level(level, std::move(fresh));
@@ -692,9 +688,7 @@ static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
 }
 
 void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
-                                     const bool rechop,
-                                     const level_buffers_factory make_buffers) {
-  assert(make_buffers);
+                                     const bool rechop) {
   amrex::AmrCore &amrcore = *GHExt::mutable_instance().patch(level.patch()).amrcore;
   const int lev = level.index();
   if (lev > 0) {
@@ -707,7 +701,7 @@ void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
   amrcore.SetBoxArray(lev, ba);
   const amrex::DistributionMapping dm(ba);
   amrcore.SetDistributionMap(lev, dm);
-  make_level(level, ba, dm, "Recovering", make_buffers());
+  make_level(level, ba, dm, "Recovering");
 }
 
 void hierarchy_writer::record_storage(const gi_t gi, const int timelevels) {

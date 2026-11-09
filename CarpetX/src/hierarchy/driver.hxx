@@ -162,6 +162,8 @@ struct GHExt {
   struct config_t {
     bool use_subcycling;
     bool do_reflux;
+    amrcore_factory make_core;
+    level_buffers_factory make_buffers;
   };
   explicit GHExt(config_t config);
   GHExt(const GHExt &) = delete;
@@ -506,8 +508,7 @@ struct GHExt {
 
       LevelData(level_t level, const amrex::BoxArray &ba,
                 const amrex::DistributionMapping &dm,
-                const std::function<std::string()> &why,
-                level_buffers_ptr buffers);
+                const std::function<std::string()> &why);
 
       level_t level;
 
@@ -731,8 +732,7 @@ struct GHExt {
     void reset_level_modified();
     LevelData &add_level(level_t level, const amrex::BoxArray &ba,
                          const amrex::DistributionMapping &dm,
-                         const std::function<std::string()> &why,
-                         level_buffers_ptr buffers);
+                         const std::function<std::string()> &why);
     LevelData replace_level(level_t level, LevelData &&fresh);
     void erase_levels_from(level_t level);
 
@@ -820,11 +820,13 @@ private:
   std::optional<std::vector<int>> pending_timelevels_;
   bool initialized_ = false;
   CCTK_INT epoch_ = 0;
+  const amrcore_factory make_core_;
+  const level_buffers_factory make_buffers_;
   std::vector<GroupRecord> group_records;
   std::vector<PatchData> patchdata;
 
   static GHExt &mutable_instance();
-  PatchData &add_patch(patch_t patch, amrcore_factory make_core);
+  PatchData &add_patch(patch_t patch);
   void record_storage(gi_t gi, int timelevels);
   void freeze_storage();
   void mark_initialized();

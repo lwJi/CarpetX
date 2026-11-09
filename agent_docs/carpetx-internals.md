@@ -27,14 +27,14 @@ flowchart TB
   flesh -- "checkpoint.hxx, io.hxx" --> io
   flesh -- "interp.hxx, linsolve.hxx" --> ops
   flesh -- "regrid.hxx" --> regrid
-  flesh -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  flesh -- "buffers.hxx, comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   api -- "schedule.hxx" --> schedule
   api -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   schedule -- "io.hxx" --> io
   schedule -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   io -- "reduction.hxx" --> ops
-  io -- "buffers.hxx, subcycling.hxx" --> comm
-  regrid -- "buffers.hxx, fillpatch.hxx" --> comm
+  io -- "subcycling.hxx" --> comm
+  regrid -- "fillpatch.hxx" --> comm
   traversal -- "refuse.hxx" --> util
   above -- "driver.hxx, grid_sizes.hxx, group_tags.hxx, indices.hxx, loops.hxx, operations.hxx, valid.hxx" --> hierarchy
   door -- "traversal.hxx" --> traversal
