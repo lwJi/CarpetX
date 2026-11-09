@@ -11,6 +11,7 @@
 #include <cassert>
 #include <iostream>
 #include <map>
+#include <string>
 
 namespace CarpetX {
 
@@ -177,6 +178,10 @@ extern const std::map<int, std::array<amrex::Interpolater *, 8> >
 
 extern const std::map<int, std::array<amrex::Interpolater *, 8> >
     prolongate_poly_eno3lfb_3d_rf2;
+
+amrex::Interpolater *get_interpolator(std::string prolongation_type,
+                                      int prolongation_order,
+                                      std::array<int, dim> indextype);
 
 } // namespace CarpetX
 

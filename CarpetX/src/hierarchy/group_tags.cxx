@@ -558,18 +558,4 @@ int get_group_prolongation_order(const gi_t gi) {
   return group_prolongation_order;
 }
 
-amrex::Interpolater *
-get_interpolator(const GHExt::PatchData::LevelData::GroupData &groupdata) {
-  DECLARE_CCTK_PARAMETERS;
-
-  const std::string group_prolongation_type =
-      get_group_prolongation_type(groupdata.record.groupindex);
-  const int group_prolongation_order =
-      get_group_prolongation_order(groupdata.record.groupindex);
-  const std::array<int, dim> &group_indextype = groupdata.indextype;
-
-  return get_interpolator(group_prolongation_type, group_prolongation_order,
-                          group_indextype);
-}
-
 } // namespace CarpetX

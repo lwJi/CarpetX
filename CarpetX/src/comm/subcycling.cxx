@@ -312,7 +312,7 @@ void EnsureRKBuffers(const level_t level, const gi_t gi) {
 
   const amrex::MultiFab &mfab = *groupdata.timelevel(tl_t{0}).mfab;
   const amrex::FabArrayBase::FPinfo &fpc = rk_fill_fpinfo(
-      mfab, groupdata.interpolator, patchdata.amrcore->Geom(level.index()),
+      mfab, buffers.interpolator, patchdata.amrcore->Geom(level.index()),
       patchdata.amrcore->Geom(level.parent().index()));
   // Empty coarse-fine footprint: all buffers stay null
   if (fpc.ba_crse_patch.empty())
@@ -432,7 +432,7 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
 
     const group_buffers_t &buffers = buffers_of(leveldata, gi);
     if (!buffers.old_source_band) {
-      assert(rk_fill_fpinfo(mfab, groupdata.interpolator, fgeom, cgeom)
+      assert(rk_fill_fpinfo(mfab, buffers.interpolator, fgeom, cgeom)
                  .ba_crse_patch.empty());
       continue;
     }
@@ -448,10 +448,10 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
                           xsi, dtc);
         });
 
-    tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
-                            &fine_patch, &fgeom, &cgeom]() {
+    tasks2.submit_serially([&groupdata, &coarsegroupdata, &buffers, &mfab,
+                            &crse_patch, &fine_patch, &fgeom, &cgeom]() {
       Prolongate_Start(groupdata, coarsegroupdata, mfab, crse_patch, fine_patch,
-                       fgeom, cgeom, groupdata.interpolator, groupdata.bcrecs);
+                       fgeom, cgeom, buffers.interpolator, buffers.bcrecs);
     });
     tasks3.submit_serially([&mfab]() { Prolongate_Finish(mfab); });
   }
@@ -471,7 +471,6 @@ std::vector<checkpoint_band_t> checkpoint_bands(const level_t level,
   if (!child)
     return bands;
   const auto &childleveldata = driver().level(*child);
-  const GroupData &childgroupdata = childleveldata.group(gi);
   const group_buffers_t &childbuffers = buffers_of(childleveldata, gi);
 
   const auto add_band = [&](amrex::MultiFab *const band, std::string tag) {
@@ -481,12 +480,12 @@ std::vector<checkpoint_band_t> checkpoint_bands(const level_t level,
   for (const stage_t stage : all_rk_stages)
     add_band(childbuffers.ks_source(stage).get(), ks_source_band_tag(stage));
   add_band(childbuffers.old_source_band.get(), old_source_band_tag());
-  if (childgroupdata.freg)
+  if (childbuffers.freg)
     for (int dir = 0; dir < dim; ++dir)
       for (const auto side :
            {amrex::Orientation::low, amrex::Orientation::high}) {
         const amrex::Orientation face(dir, side);
-        add_band(&(*childgroupdata.freg)[face].multiFab(),
+        add_band(&(*childbuffers.freg)[face].multiFab(),
                  flux_register_band_tag(face));
       }
   return bands;

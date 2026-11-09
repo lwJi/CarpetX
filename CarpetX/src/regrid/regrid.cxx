@@ -141,7 +141,8 @@ void CactusAmrCore::SetupLevel(const level_t level, const amrex::BoxArray &ba,
 #pragma omp critical
     CCTK_VINFO("SetupLevel patch %d level %d", patch.index(), lev);
 
-  hierarchy_writer::add_level(level, ba, dm, why, make_level_buffers());
+  hierarchy_writer::add_level(level, ba, dm, why,
+                              make_level_buffers(level, ba, dm));
 
   if (lev >= int(level_modified.size()))
     level_modified.resize(lev + 1, true);
@@ -262,7 +263,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
     const gi_t gi = groupdata.record.groupindex;
     auto &coarsegroupdata = coarseleveldata.group(gi);
     assert(&coarsegroupdata.record == &groupdata.record);
-    amrex::Interpolater *const interpolator = groupdata.interpolator;
+    const group_buffers_t &buffers = buffers_of(leveldata, gi);
 
     const tl_range prolongate_tls = regrid_prolongate_tls(groupdata.record);
     const valid_t fills = regrid_fills(groupdata);
@@ -288,7 +289,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
               groupdata, coarsegroupdata, *groupdata.timelevel(tl).mfab,
               *coarsegroupdata.timelevel(tl).mfab,
               patchdata.amrcore->Geom(coarse.index()),
-              patchdata.amrcore->Geom(lev), interpolator, groupdata.bcrecs);
+              patchdata.amrcore->Geom(lev), buffers.interpolator, buffers.bcrecs);
         } else {
           invalidate(fine_levels,
                      {.gi = gi,
@@ -382,14 +383,14 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
 
   const GHExt::PatchData::LevelData oldleveldata =
       hierarchy_writer::remake_level(
-          level, ba, dm, []() { return "RemakeLevel"; }, make_level_buffers());
+          level, ba, dm, []() { return "RemakeLevel"; }, make_level_buffers(level, ba, dm));
 
   for (const auto &groupdata : leveldata.groups()) {
     const gi_t gi = groupdata.record.groupindex;
     const auto &oldgroupdata = oldleveldata.group(gi);
     const auto &coarsegroupdata = coarseleveldata.group(gi);
     assert(&coarsegroupdata.record == &groupdata.record);
-    amrex::Interpolater *const interpolator = groupdata.interpolator;
+    const group_buffers_t &buffers = buffers_of(leveldata, gi);
 
     const valid_t fills = regrid_fills(groupdata);
     assert(fills == make_valid_all());
@@ -409,7 +410,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
             *coarsegroupdata.timelevel(tl).mfab,
             *oldgroupdata.timelevel(tl).mfab,
             patchdata.amrcore->Geom(coarse.index()),
-            patchdata.amrcore->Geom(lev), interpolator, groupdata.bcrecs);
+            patchdata.amrcore->Geom(lev), buffers.interpolator, buffers.bcrecs);
       } else {
         invalidate(fine_levels,
                    {.gi = gi,
