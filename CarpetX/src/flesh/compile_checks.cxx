@@ -12,6 +12,7 @@
 
 #include <functional>
 #include <optional>
+#include <source_location>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -260,6 +261,25 @@ concept regrids_amrcore = requires(Ext & ext, patch_t patch) {
 
 template <class Ext>
 concept marks_initialized = requires(Ext & ext) { ext.mark_initialized(); };
+
+template <class Ext>
+concept assigns_integrator = requires(Ext & ext) { ext.integrator_.reset(); };
+
+template <class Ext>
+concept assigns_integrator_open = requires(Ext & ext) {
+  ext.integrator_open_ = true;
+};
+
+template <class Ext>
+concept records_integrator = requires(Ext & ext) {
+  ext.record_integrator(GHExt::integrator_t{},
+                        std::source_location::current());
+};
+
+template <class Ext>
+concept freezes_integrator = requires(Ext & ext) {
+  ext.freeze_integrator(std::source_location::current());
+};
 
 template <class Ext>
 concept opens_mutable_door = requires { Ext::mutable_instance(); };
@@ -540,6 +560,18 @@ static_assert(
 static_assert(!assigns_active_timelevels<GHExt>);
 static_assert(!assigns_pending_timelevels<GHExt>);
 static_assert(!assigns_storage_frozen<GHExt>);
+
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().integrator()),
+                   const std::optional<GHExt::integrator_t> &>);
+static_assert(
+    std::is_same_v<
+        decltype(std::declval<const GHExt::integrator_t &>().stages()),
+        stage_range>);
+static_assert(!assigns_integrator<GHExt>);
+static_assert(!assigns_integrator_open<GHExt>);
+static_assert(!records_integrator<GHExt>);
+static_assert(!freezes_integrator<GHExt>);
 
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().is_initialized()),

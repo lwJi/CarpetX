@@ -4,11 +4,9 @@
 #include "internal.hxx"
 
 #include <carpetx.hxx>
-#include <carpetx_rk.hxx>
 
 #include <cctk_Schedule.h>
 
-#include <optional>
 #include <source_location>
 
 namespace CarpetX {
@@ -67,16 +65,6 @@ void record_recovered_iteration(
     int iteration, std::source_location site = std::source_location::current());
 
 int recovered_iteration();
-
-void record_integrator(
-    const rk_config_t &config,
-    std::source_location site = std::source_location::current());
-
-void freeze_integrator(
-    std::source_location site = std::source_location::current());
-
-const std::optional<rk_config_t> &
-integrator(std::source_location site = std::source_location::current());
 
 } // namespace CarpetX
 

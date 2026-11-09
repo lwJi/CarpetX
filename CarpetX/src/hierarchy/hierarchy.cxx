@@ -27,6 +27,7 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <source_location>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -549,6 +550,35 @@ void GHExt::freeze_storage() {
   }
 }
 
+void GHExt::record_integrator(integrator_t integrator,
+                              const std::source_location site) {
+  if (!integrator_open_)
+    refuse(site, "the driver froze its integrator record after the WRAGH "
+                 "traversal; schedule the registration AT WRAGH");
+  if (integrator_)
+    refuse(site,
+           "a time integrator is already registered (%d RK stages, %d "
+           "integrated groups); an integrator registers exactly once, AT "
+           "WRAGH",
+           integrator_->stages().size(), int(integrator_->rhs.size()));
+  integrator_ = std::move(integrator);
+}
+
+void GHExt::freeze_integrator(const std::source_location site) {
+  if (!integrator_open_)
+    refuse(site, "the integrator record is already frozen: the driver freezes "
+                 "it once, after its WRAGH traversal");
+  integrator_open_ = false;
+}
+
+const std::optional<GHExt::integrator_t> &
+GHExt::integrator(const std::source_location site) const {
+  if (integrator_open_)
+    refuse(site, "the integrator record is read before the driver froze it; "
+                 "a reader runs after the WRAGH traversal");
+  return integrator_;
+}
+
 const GHExt::GroupRecord &
 GHExt::record_of(const var_t var, const std::source_location site) const {
   const gi_t gi{CCTK_GroupIndexFromVarI(var.index())};
@@ -688,6 +718,15 @@ void hierarchy_writer::record_storage(const gi_t gi, const int timelevels) {
 
 void hierarchy_writer::freeze_storage() {
   GHExt::mutable_instance().freeze_storage();
+}
+
+void hierarchy_writer::record_integrator(GHExt::integrator_t integrator,
+                                         const std::source_location site) {
+  GHExt::mutable_instance().record_integrator(std::move(integrator), site);
+}
+
+void hierarchy_writer::freeze_integrator(const std::source_location site) {
+  GHExt::mutable_instance().freeze_integrator(site);
 }
 
 void hierarchy_writer::adopt_flesh_cctkGH(cGH *const cctkGH) {

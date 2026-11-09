@@ -1,7 +1,6 @@
 #include "hierarchy/group_tags.hxx"
 
 #include "hierarchy/driver.hxx"
-#include "traversal/traversal.hxx"
 
 #include <cctk_Parameters.h>
 #include <util_Table.h>
@@ -388,17 +387,17 @@ std::optional<std::array<gi_t, dim> > get_group_fluxes(const gi_t gi) {
 
 bool group_is_integrated(const gi_t gi) {
   assert(gi.index() >= 0 && gi.index() < CCTK_NumGroups());
-  const std::optional<rk_config_t> &integrator = CarpetX::integrator();
-  return integrator && integrator->is_integrated(gi);
+  const std::optional<GHExt::integrator_t> &integrator = driver().integrator();
+  return integrator && integrator->rhs.contains(gi);
 }
 
 stage_range registered_stages() {
-  const std::optional<rk_config_t> &integrator = CarpetX::integrator();
-  return integrator ? rk_stages(integrator->nstages()) : all_rk_stages;
+  const std::optional<GHExt::integrator_t> &integrator = driver().integrator();
+  return integrator ? integrator->stages() : all_rk_stages;
 }
 
 rk_dense_output_t registered_dense_output() {
-  const std::optional<rk_config_t> &integrator = CarpetX::integrator();
+  const std::optional<GHExt::integrator_t> &integrator = driver().integrator();
   return integrator ? integrator->dense_output : rk_dense_output_t::none;
 }
 
@@ -411,7 +410,7 @@ bool group_has_flux_register(const gi_t gi) {
 void warn_inert_flux_tags() {
   DECLARE_CCTK_PARAMETERS;
   const GHExt &ext = driver();
-  const std::optional<rk_config_t> &integrator = CarpetX::integrator();
+  const std::optional<GHExt::integrator_t> &integrator = ext.integrator();
   if (max_num_levels <= 1)
     return;
   if (CCTK_MyProc(nullptr) != 0)
@@ -419,7 +418,7 @@ void warn_inert_flux_tags() {
   if (!ext.do_reflux) {
     for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()})) {
       if (CCTK_GroupTypeI(gi.index()) == CCTK_GF && integrator &&
-          integrator->is_integrated(gi) && get_group_fluxes(gi)) {
+          integrator->rhs.contains(gi) && get_group_fluxes(gi)) {
         CCTK_INFO("Grid functions integrated by ODESolvers carry fluxes= "
                   "tags, but refluxing at coarse-fine boundaries is off; set "
                   "CarpetX::do_reflux = yes to enable it");
