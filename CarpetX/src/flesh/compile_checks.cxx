@@ -82,13 +82,28 @@ concept checkpoint_bands_takes = requires(Args... args) {
 };
 
 template <class... Args>
-concept mark_bands_restored_takes = requires(Args... args) {
-  mark_bands_restored(args...);
+concept restore_bands_takes = requires(Args... args) {
+  restore_bands(args...);
 };
 
 template <class Bands, class... Args>
 concept bands_sources_takes = requires(const Bands &bands, Args... args) {
   bands.sources(args...);
+};
+
+template <class Bands, class... Args>
+concept bands_stored_takes = requires(Bands & bands, Args... args) {
+  bands.stored(args...);
+};
+
+template <class Bands, class... Args>
+concept bands_restore_takes = requires(Bands & bands, Args... args) {
+  bands.restore(args...);
+};
+
+template <class Bands, class... Args>
+concept bands_holds_takes = requires(const Bands &bands, Args... args) {
+  bands.holds(args...);
 };
 
 template <class Bands>
@@ -371,15 +386,20 @@ static_assert(all_rk_stages.last() == stage_t{max_num_rk_stages});
 static_assert(!rk_stages(3).contains(stage_t{4}));
 static_assert(!rk_stages(0).contains(stage_t{1}));
 
-static_assert(checkpoint_bands_takes<level_t, gi_t, band_listing>);
+static_assert(checkpoint_bands_takes<level_t, gi_t, rat64>);
 static_assert(!checkpoint_bands_takes<level_t, gi_t>);
-static_assert(!checkpoint_bands_takes<level_t, gi_t, bool>);
-static_assert(!checkpoint_bands_takes<int, int, gi_t, band_listing>);
-static_assert(!checkpoint_bands_takes<level_t, int, band_listing>);
+static_assert(!checkpoint_bands_takes<int, int, gi_t, rat64>);
+static_assert(!checkpoint_bands_takes<level_t, int, rat64>);
 
-static_assert(mark_bands_restored_takes<level_t, gi_t, rat64>);
-static_assert(!mark_bands_restored_takes<level_t, int, rat64>);
-static_assert(!mark_bands_restored_takes<int, int, gi_t, rat64>);
+static_assert(restore_bands_takes<level_t, gi_t, rat64>);
+static_assert(!restore_bands_takes<level_t, gi_t>);
+static_assert(!restore_bands_takes<level_t, int, rat64>);
+static_assert(!restore_bands_takes<int, int, gi_t, rat64>);
+static_assert(bands_stored_takes<rk_bands_t, rat64>);
+static_assert(!bands_stored_takes<rk_bands_t>);
+static_assert(bands_restore_takes<rk_bands_t, rat64>);
+static_assert(!bands_restore_takes<rk_bands_t>);
+static_assert(!bands_holds_takes<rk_bands_t, rat64>);
 static_assert(bands_sources_takes<rk_bands_t, rat64, fill_site_t>);
 static_assert(!bands_sources_takes<rk_bands_t>);
 static_assert(!reaches_bands_parent_step<rk_bands_t>);

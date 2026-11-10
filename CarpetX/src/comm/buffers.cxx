@@ -147,16 +147,27 @@ void rk_bands_t::store_stage(const stage_t stage,
   ++stages_stored_;
 }
 
-void rk_bands_t::restored(const rat64 parent_step) {
+bool rk_bands_t::holds(const rat64 parent_step) const {
+  return parent_step_ && *parent_step_ == parent_step &&
+         stages_stored_ == int(ks_source_.size());
+}
+
+std::optional<rk_bands_t::slots_t> rk_bands_t::stored(const rat64 parent_step) {
+  if (!holds(parent_step))
+    return std::nullopt;
+  return slots_t{old_source_, std::span<amrex::MultiFab>(ks_source_)};
+}
+
+rk_bands_t::slots_t rk_bands_t::restore(const rat64 parent_step) {
   parent_step_ = parent_step;
   stages_stored_ = int(ks_source_.size());
+  return {old_source_, std::span<amrex::MultiFab>(ks_source_)};
 }
 
 rk_bands_t::sources_t rk_bands_t::sources(const rat64 parent_step,
                                           const fill_site_t &where) const {
   const int num_stages = int(ks_source_.size());
-  const bool holds_parent_step = parent_step_ && *parent_step_ == parent_step;
-  if (!holds_parent_step || stages_stored_ != num_stages)
+  if (!holds(parent_step))
     refuse(std::source_location::current(),
            "the RK bands of group %s on patch %d, refinement level %d hold "
            "%s; the fill needs all %d stages of parent step %s",

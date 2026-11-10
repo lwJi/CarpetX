@@ -240,9 +240,6 @@ void build_buffers(checkpoint_record_t &record,
                    const record_purpose purpose, const codec_limits_t &limits) {
   const GHExt &ext = driver();
   const bool restartable = purpose != record_purpose::output;
-  const band_listing listing = purpose == record_purpose::recovery
-                                   ? band_listing::built
-                                   : band_listing::stored;
   for (const auto &patchdata : ext.patches()) {
     for (const auto &leveldata : patchdata.levels()) {
       const level_t level = leveldata.level;
@@ -266,7 +263,12 @@ void build_buffers(checkpoint_record_t &record,
 
         if (!bands)
           continue;
-        for (const auto &[tag, band] : checkpoint_bands(level, gi, listing)) {
+        const rat64 parent_step = *record.level_record(level).iteration;
+        const std::vector<checkpoint_band_t> listed =
+            purpose == record_purpose::recovery
+                ? restore_bands(level, gi, parent_step)
+                : checkpoint_bands(level, gi, parent_step);
+        for (const auto &[tag, band] : listed) {
           assert(band->nGrowVect() == 0);
           record.buffers.push_back({.id = {.group = group.groupname,
                                            .vars = vars,
@@ -427,19 +429,6 @@ void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
   }
 
   codec.decode_data(record, dir, file);
-
-  for (const buffer_t &buffer : record.buffers) {
-    if (!std::holds_alternative<std::string>(buffer.id.which))
-      continue;
-    assert(buffer.id.level);
-    const level_t parent = *buffer.id.level;
-    const std::optional<rat64> &parent_step =
-        record.level_record(parent).iteration;
-    assert(parent_step);
-    const gi_t gi{CCTK_GroupIndex(buffer.id.group.c_str())};
-    assert(gi.index() >= 0);
-    mark_bands_restored(parent, gi, *parent_step);
-  }
 
   scopes.clear();
   array_scopes.clear();

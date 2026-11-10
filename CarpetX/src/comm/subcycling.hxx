@@ -33,12 +33,11 @@ struct checkpoint_band_t {
   amrex::MultiFab *band;
 };
 
-enum class band_listing { stored, built };
-
 std::vector<checkpoint_band_t> checkpoint_bands(level_t level, gi_t gi,
-                                                band_listing which);
+                                                rat64 parent_step);
 
-void mark_bands_restored(level_t parent, gi_t gi, rat64 parent_step);
+std::vector<checkpoint_band_t> restore_bands(level_t level, gi_t gi,
+                                             rat64 parent_step);
 
 } // namespace CarpetX
 
