@@ -25,7 +25,7 @@ namespace CarpetX {
 
 struct group_selection_t;
 
-enum class record_purpose { checkpoint, output };
+enum class record_purpose { checkpoint, recovery, output };
 
 struct buffer_id_t {
   std::string group;

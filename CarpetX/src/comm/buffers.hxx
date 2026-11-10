@@ -23,6 +23,12 @@
 namespace CarpetX {
 
 struct checkpoint_band_t;
+enum class band_listing;
+
+struct fill_site_t {
+  level_t level;
+  gi_t gi;
+};
 
 class rk_bands_t {
 public:
@@ -30,15 +36,16 @@ public:
              stage_range stages);
 
   void store_old(const amrex::MultiFab &parent_state,
-                 const amrex::Periodicity &period);
+                 const amrex::Periodicity &period, rat64 parent_step);
   void store_stage(stage_t stage, const amrex::MultiFab &parent_rhs,
-                   const amrex::Periodicity &period);
+                   const amrex::Periodicity &period, std::source_location site);
+  void restored(rat64 parent_step);
 
   struct sources_t {
     const amrex::MultiFab &old;
     std::span<const amrex::MultiFab> ks;
   };
-  sources_t sources() const;
+  sources_t sources(rat64 parent_step, const fill_site_t &where) const;
 
   amrex::MultiFab &crse_patch();
   amrex::MultiFab &fine_patch();
@@ -47,7 +54,10 @@ private:
   amrex::MultiFab old_source_;
   std::vector<amrex::MultiFab> ks_source_;
   amrex::MultiFab crse_patch_, fine_patch_;
-  friend std::vector<checkpoint_band_t> checkpoint_bands(level_t, gi_t);
+  std::optional<rat64> parent_step_;
+  int stages_stored_ = 0;
+  friend std::vector<checkpoint_band_t> checkpoint_bands(level_t, gi_t,
+                                                         band_listing);
 };
 
 struct group_buffers_t {

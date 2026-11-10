@@ -135,7 +135,7 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
 
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
   checkpoint_record_t recovering = record;
-  build_buffers(recovering, selection, record_purpose::checkpoint,
+  build_buffers(recovering, selection, record_purpose::recovery,
                 codec->limits());
   read_record(*codec, recovering, recover_dir, recover_file, "RecoverGH");
 }

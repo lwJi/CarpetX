@@ -26,6 +26,7 @@
 #include <iomanip>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -284,7 +285,8 @@ void StoreRKOldState(const level_t level,
         buffers_of(patchdata.level(*child), gi).rk_bands;
     if (!bands)
       continue;
-    bands->store_old(*groupdata.timelevel(tl).mfab, period);
+    bands->store_old(*groupdata.timelevel(tl).mfab, period,
+                     leveldata.iteration);
   }
 }
 
@@ -311,7 +313,8 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
     const GroupData &rhs_groupdata = leveldata.group(rhs_groups[i]);
     if (!bands)
       continue;
-    bands->store_stage(stage, *rhs_groupdata.timelevel(tl_t{0}).mfab, period);
+    bands->store_stage(stage, *rhs_groupdata.timelevel(tl_t{0}).mfab, period,
+                       std::source_location::current());
   }
 }
 
@@ -356,7 +359,8 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
         rk_fill_fpinfo(mfab, interpolator_of(groupdata.record), fgeom, cgeom)));
     if (!bands)
       continue;
-    const rk_bands_t::sources_t src = bands->sources();
+    const rk_bands_t::sources_t src =
+        bands->sources(coarseleveldata.iteration, {level, gi});
     amrex::MultiFab &crse_patch = bands->crse_patch();
     amrex::MultiFab &fine_patch = bands->fine_patch();
 
@@ -380,8 +384,8 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
   synchronize();
 }
 
-std::vector<checkpoint_band_t> checkpoint_bands(const level_t level,
-                                                const gi_t gi) {
+std::vector<checkpoint_band_t>
+checkpoint_bands(const level_t level, const gi_t gi, const band_listing which) {
   std::vector<checkpoint_band_t> bands;
   const std::optional<level_t> child = level.child();
   if (!child)
@@ -393,7 +397,9 @@ std::vector<checkpoint_band_t> checkpoint_bands(const level_t level,
     if (band && !band->empty())
       bands.push_back({std::move(tag), band});
   };
-  if (std::optional<rk_bands_t> &rk_bands = childbuffers.rk_bands) {
+  std::optional<rk_bands_t> &rk_bands = childbuffers.rk_bands;
+  const bool ever_stored = rk_bands && rk_bands->parent_step_;
+  if (rk_bands && (which == band_listing::built || ever_stored)) {
     const stage_range stages = rk_stages(int(rk_bands->ks_source_.size()));
     for (const stage_t stage : stages)
       add_band(&rk_bands->ks_source_.at(stages.offset(stage)),
@@ -409,6 +415,16 @@ std::vector<checkpoint_band_t> checkpoint_bands(const level_t level,
                  flux_register_band_tag(face));
       }
   return bands;
+}
+
+void mark_bands_restored(const level_t parent, const gi_t gi,
+                         const rat64 parent_step) {
+  const std::optional<level_t> child = parent.child();
+  assert(child);
+  std::optional<rk_bands_t> &bands =
+      buffers_of(driver().level(*child), gi).rk_bands;
+  if (bands)
+    bands->restored(parent_step);
 }
 
 } // namespace CarpetX
