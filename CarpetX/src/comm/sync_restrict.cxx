@@ -1,4 +1,5 @@
 #include "hierarchy/loops.hxx"
+#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "comm/boundaries.hxx"
@@ -289,11 +290,8 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
           const GHExt::PatchData::LevelData &leveldata) {
         if (leveldata.level.index() == 0)
           return false;
-        if (ext.use_subcycling && prolongate_on_same_iteration) {
-          const auto &restrict coarseleveldata =
-              ext.level(leveldata.level.parent());
-          return leveldata.iteration == coarseleveldata.iteration;
-        }
+        if (ext.use_subcycling && prolongate_on_same_iteration)
+          return aligned_with_parent(leveldata.level);
         return true;
       };
   const std::vector<level_run_t> runs = split_levels(window, prolongates_into);
@@ -638,13 +636,10 @@ static void SyncGroupsSubcycling(const window_t window,
             });
           }
         } else {
-          const bool aligned =
-              (leveldata.iteration == coarseleveldata.iteration);
-          const bool blend = !aligned && coarsegroupdata.num_timelevels() >= 2;
-          const rat64 cdt = coarseleveldata.delta_iteration;
-          const rat64 t_new = coarseleveldata.iteration;
-          const rat64 t_fin = leveldata.iteration;
-          const CCTK_REAL w_new = CCTK_REAL((t_fin - t_new + cdt) / cdt);
+          const bool blend = !aligned_with_parent(leveldata.level) &&
+                             coarsegroupdata.num_timelevels() >= 2;
+          const CCTK_REAL w_new =
+              CCTK_REAL(fraction_of_parent_step(leveldata.level));
 
           for (const tl_t tl : sync_tls) {
             const bool do_blend = blend && tl == tl_t{0};

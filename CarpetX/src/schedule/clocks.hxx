@@ -11,7 +11,7 @@
 
 namespace CarpetX {
 
-level_t WidenMinLevel(level_t level, rat64 target_iteration);
+level_t WidenMinLevel(level_t level);
 window_t FinestClockGroup();
 std::vector<window_t> StepGroups();
 

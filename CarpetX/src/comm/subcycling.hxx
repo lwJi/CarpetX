@@ -3,6 +3,7 @@
 
 #include "internal.hxx"
 
+#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include <carpetx.hxx>
 
@@ -16,7 +17,8 @@
 
 namespace CarpetX {
 
-inline constexpr CCTK_REAL rk_substep_ratio = 0.5;
+inline constexpr CCTK_REAL rk_substep_ratio =
+    CCTK_REAL(1) / time_refinement;
 
 void StoreRKOldState(level_t level, std::span<const gi_t> var_groups, tl_t tl);
 

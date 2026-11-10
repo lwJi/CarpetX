@@ -1,6 +1,7 @@
 #include <carpetx_rk.hxx>
 
 #include "api/api.hxx"
+#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/operations.hxx"
@@ -291,11 +292,6 @@ integrated_levels(const window_t window,
                                                leveldata.level, integrator)});
       });
   return levels;
-}
-
-bool aligned_with_parent(const level_t level) {
-  return driver().level(level).iteration ==
-         driver().level(level.parent()).iteration;
 }
 
 void fill_refinement_boundary(const level_t level,

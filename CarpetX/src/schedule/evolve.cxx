@@ -372,7 +372,7 @@ int Evolve(tFleshConfig *config) {
 
         const level_t finest{patchdata.patch, patchdata.num_levels() - 1};
         assert(patchdata.level(finest).iteration == iteration);
-        const level_t min_active_level = WidenMinLevel(finest, iteration);
+        const level_t min_active_level = WidenMinLevel(finest);
 
         const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
         const CCTK_REAL time = 0; // dummy time
@@ -472,9 +472,9 @@ int Evolve(tFleshConfig *config) {
         CCTK_Traverse(cctkGH, "CCTK_EVOL");
       }
 
+      assert(coarsest.iteration == level_iteration);
       const window_t widened = window_t::levels(
-          WidenMinLevel(window.coarsest(), level_iteration).index(),
-          window.level_bounds().max);
+          WidenMinLevel(window.coarsest()).index(), window.level_bounds().max);
       hierarchy_writer::stamp_last_step(widened, cctkGH->cctk_iteration);
     }
 
