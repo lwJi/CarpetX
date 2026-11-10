@@ -300,15 +300,7 @@ void fill_refinement_boundary(const level_t level,
   const GHExt &ext = driver();
   assert(ext.use_subcycling);
   assert(level.index() > 0);
-  const stage_range stages = registered_stages();
-  assert(stages.contains(stage));
-  const bool end_of_substep = stage == stages.last();
-  const GHExt::PatchData::LevelData &parentdata = ext.level(level.parent());
-  const CCTK_REAL substep_start =
-      aligned_with_parent(level) ? rk_substep_ratio : 0;
-  const CCTK_REAL dtc = ext.get_global_cctkGH()->cctk_delta_time *
-                        CCTK_REAL(parentdata.delta_iteration);
-  assert(std::isfinite(dtc) && dtc > 0);
+  assert(registered_stages().contains(stage));
   const window_t window = window_t::one_level(level);
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : states) {
@@ -318,10 +310,7 @@ void fill_refinement_boundary(const level_t level,
                                          .keeps = ~make_valid_coarse_fine(),
                                          .event = event}));
   }
-  FillRKBoundary(
-      level, states, rk_tl,
-      end_of_substep ? stages.first() : next_index(stage),
-      end_of_substep ? substep_start + rk_substep_ratio : substep_start, dtc);
+  FillRKBoundary(level, states, stage);
 }
 
 } // namespace

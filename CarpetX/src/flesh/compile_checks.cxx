@@ -355,12 +355,15 @@ static_assert(store_rk_stage_takes<level_t, std::span<const gi_t>,
 static_assert(!store_rk_stage_takes<level_t, std::span<const gi_t>,
                                     std::span<const gi_t>, int>);
 
-static_assert(fill_rk_boundary_takes<level_t, std::span<const gi_t>, tl_t,
-                                     stage_t, CCTK_REAL, CCTK_REAL>);
+static_assert(fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t>);
+static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, int>);
+static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, tl_t>);
 static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, tl_t,
-                                      int, CCTK_REAL, CCTK_REAL>);
+                                      stage_t, CCTK_REAL, CCTK_REAL>);
 static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t,
-                                      tl_t, CCTK_REAL, CCTK_REAL>);
+                                      CCTK_REAL, CCTK_REAL>);
+static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t,
+                                      rat64>);
 
 static_assert(!adds_int<stage_t>);
 static_assert(!std::is_convertible_v<stage_t, int>);

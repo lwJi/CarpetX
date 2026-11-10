@@ -25,8 +25,8 @@ void StoreRKOldState(level_t level, std::span<const gi_t> var_groups, tl_t tl);
 void StoreRKStage(level_t level, std::span<const gi_t> var_groups,
                   std::span<const gi_t> rhs_groups, stage_t stage);
 
-void FillRKBoundary(level_t level, std::span<const gi_t> var_groups, tl_t tl,
-                    stage_t stage, CCTK_REAL xsi, CCTK_REAL dtc);
+void FillRKBoundary(level_t child, std::span<const gi_t> states,
+                    stage_t completed);
 
 void RecoverRKBoundary(window_t window);
 

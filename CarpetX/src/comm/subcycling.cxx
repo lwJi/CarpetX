@@ -23,6 +23,7 @@
 
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <iomanip>
 #include <memory>
 #include <optional>
@@ -343,28 +344,37 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
   }
 }
 
-void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
-                    const tl_t tl, const stage_t stage, const CCTK_REAL xsi,
-                    const CCTK_REAL dtc) {
-  if (level.index() == 0)
+void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
+                    const stage_t completed) {
+  if (child.index() == 0)
     return;
   const GHExt &ext = driver();
   if (!ext.use_subcycling)
     return;
 
-  auto &patchdata = ext.patch(level.patch());
-  auto &leveldata = patchdata.level(level);
-  const level_t parent = level.parent();
+  auto &patchdata = ext.patch(child.patch());
+  auto &leveldata = patchdata.level(child);
+  const level_t parent = child.parent();
   const auto &coarseleveldata = patchdata.level(parent);
-  const auto &fgeom = patchdata.amrcore->Geom(level.index());
+  const auto &fgeom = patchdata.amrcore->Geom(child.index());
   const auto &cgeom = patchdata.amrcore->Geom(parent.index());
   const rk_dense_output_t dense_output = registered_dense_output();
+  const stage_range stages = registered_stages();
+  assert(stages.contains(completed));
+  const substep_t substep = substep_of_parent_step(child);
+  const bool substep_done = completed == stages.last();
+  const stage_t stage = substep_done ? stages.first() : next_index(completed);
+  const CCTK_REAL xsi = CCTK_REAL(substep_done ? substep.end : substep.begin);
+  const CCTK_REAL dtc = ext.get_global_cctkGH()->cctk_delta_time *
+                        CCTK_REAL(coarseleveldata.delta_iteration);
+  assert(std::isfinite(dtc) && dtc > 0);
+  constexpr tl_t filled_tl{0};
 
   task_manager tasks1;
   task_manager tasks2;
   task_manager tasks3;
 
-  for (const gi_t gi : var_groups) {
+  for (const gi_t gi : states) {
     const GroupData &groupdata = leveldata.group(gi);
     const GroupData &coarsegroupdata = coarseleveldata.group(gi);
     assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
@@ -372,7 +382,7 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
     // subcycling SYNC leave the coarse-fine ghosts to this function
     assert(group_is_integrated(gi));
 
-    amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+    amrex::MultiFab &mfab = *groupdata.timelevel(filled_tl).mfab;
 
     // As in FillPatch_Prolongate: without ghosts there is nothing to fill
     if (mfab.nGrowVect().max() == 0)
@@ -385,7 +395,7 @@ void FillRKBoundary(const level_t level, const std::span<const gi_t> var_groups,
     if (!bands)
       continue;
     const rk_bands_t::sources_t src =
-        bands->sources(coarseleveldata.iteration, {level, gi});
+        bands->sources(coarseleveldata.iteration, {child, gi});
     amrex::MultiFab &crse_patch = bands->crse_patch();
     amrex::MultiFab &fine_patch = bands->fine_patch();
 
