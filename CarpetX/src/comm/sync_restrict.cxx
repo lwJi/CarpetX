@@ -326,12 +326,10 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
       auto &restrict coarsegroupdata = coarseleveldata.group(gi);
       assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
 
-      amrex::Interpolater *const interpolator = groupdata.interpolator;
-
       for (const tl_t tl : fill_tls) {
         error_if_parent_invalid(leveldata, gi, tl, prolongation_label.c_str());
         tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
-                                &coarsegroupdata, interpolator, tl, &ext]() {
+                                &coarsegroupdata, tl, &ext]() {
           FillPatch_ProlongateOnly(
               tasks2, tasks3, groupdata, coarsegroupdata,
               *groupdata.timelevel(tl).mfab,
@@ -339,8 +337,7 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
               ext.patch(leveldata.level.patch())
                   .amrcore->Geom(leveldata.level.index()),
               ext.patch(leveldata.level.patch())
-                  .amrcore->Geom(leveldata.level.parent().index()),
-              interpolator, groupdata.bcrecs);
+                  .amrcore->Geom(leveldata.level.parent().index()));
         });
       }
     });
@@ -467,13 +464,11 @@ static void SyncGroupsLockstep(const window_t window,
         auto &restrict coarsegroupdata = coarseleveldata.group(gi);
         assert(coarsegroupdata.record.numvars == groupdata.record.numvars);
 
-        amrex::Interpolater *const interpolator = groupdata.interpolator;
-
         for (const tl_t tl : sync_tls) {
           error_if_parent_invalid(leveldata, gi, tl,
                                   prolongation_label.c_str());
           tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
-                                  &coarsegroupdata, interpolator, tl, &ext]() {
+                                  &coarsegroupdata, tl, &ext]() {
             FillPatch_ProlongateGhosts(
                 tasks2, tasks3, groupdata, coarsegroupdata,
                 *groupdata.timelevel(tl).mfab,
@@ -481,8 +476,7 @@ static void SyncGroupsLockstep(const window_t window,
                 ext.patch(leveldata.level.patch())
                     .amrcore->Geom(leveldata.level.index()),
                 ext.patch(leveldata.level.patch())
-                    .amrcore->Geom(leveldata.level.parent().index()),
-                interpolator, groupdata.bcrecs);
+                    .amrcore->Geom(leveldata.level.parent().index()));
           });
         }
 
@@ -641,8 +635,6 @@ static void SyncGroupsSubcycling(const window_t window,
             });
           }
         } else {
-          amrex::Interpolater *const interpolator = groupdata.interpolator;
-
           const bool aligned =
               (leveldata.iteration == coarseleveldata.iteration);
           const bool blend = !aligned && coarsegroupdata.num_timelevels() >= 2;
@@ -668,7 +660,7 @@ static void SyncGroupsSubcycling(const window_t window,
                          : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
             tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
-                                    &coarsegroupdata, interpolator, tl,
+                                    &coarsegroupdata, tl,
                                     cmfab_old, tl_w_new, &ext]() {
               FillPatch_ProlongateGhosts(
                   tasks2, tasks3, groupdata, coarsegroupdata,
@@ -678,7 +670,7 @@ static void SyncGroupsSubcycling(const window_t window,
                       .amrcore->Geom(leveldata.level.index()),
                   ext.patch(leveldata.level.patch())
                       .amrcore->Geom(leveldata.level.parent().index()),
-                  interpolator, groupdata.bcrecs, cmfab_old, tl_w_new);
+                  cmfab_old, tl_w_new);
             });
           }
         }

@@ -17,6 +17,8 @@
 namespace CarpetX {
 
 struct group_buffers_t {
+  std::unique_ptr<amrex::FluxRegister> freg;
+
   std::unique_ptr<amrex::MultiFab> &ks_source(const stage_t stage) {
     return ks_source_band[all_rk_stages.offset(stage)];
   }
@@ -38,7 +40,8 @@ struct level_buffers_t {
   std::unique_ptr<amrex::MultiFab> cell_volume;
 };
 
-level_buffers_ptr make_level_buffers();
+level_buffers_ptr make_level_buffers(level_t level, const amrex::BoxArray &ba,
+                                     const amrex::DistributionMapping &dm);
 
 level_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata);
 

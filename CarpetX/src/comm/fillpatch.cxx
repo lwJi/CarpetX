@@ -1,8 +1,11 @@
 #include "comm/fillpatch.hxx"
 #include "comm/boundaries.hxx"
+#include "comm/prolongate_3d_rf2.hxx"
 
+#include <cassert>
 #include <utility>
 
+#include <AMReX_BCRec.H>
 #include <AMReX_FillPatchUtil.H>
 #include <AMReX_MultiFabUtil.H>
 #include <AMReX_Version.H>
@@ -28,6 +31,26 @@ using namespace amrex::detail;
 // Coroutines were popularized in the "Modula" language in the 1980s.
 // Welcome to the future, C++, you're only 40 years behind.
 
+namespace {
+Vector<BCRec>
+bcrecs_of(const GHExt::PatchData::LevelData::GroupData &groupdata) {
+  const GHExt::PatchData &patchdata = driver().patch(groupdata.level.patch());
+  BCRec bcrec;
+  for (int f = 0; f < 2; ++f) {
+    for (int d = 0; d < dim; ++d) {
+      const auto bc = patchdata.symmetries[f][d] == symmetry_t::periodic
+                          ? BCType::int_dir
+                          : BCType::ext_dir;
+      if (f == 0)
+        bcrec.setLo(d, bc);
+      else
+        bcrec.setHi(d, bc);
+    }
+  }
+  return Vector<BCRec>(groupdata.record.numvars, bcrec);
+}
+} // namespace
+
 void FillPatch_Sync(task_manager &tasks2, MultiFab &mfab,
                     const Geometry &geom) {
   mfab.FillBoundary_nowait(0, mfab.nComp(), mfab.nGrowVect(),
@@ -40,9 +63,10 @@ void FillPatch_Prolongate(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     MultiFab &mfab, const MultiFab &cmfab, const Geometry &fgeom,
-    const Geometry &cgeom, Interpolater *const mapper,
-    const Vector<BCRec> &bcrecs, const bool do_sync,
-    const MultiFab *const cmfab_old, const CCTK_REAL w_new) {
+    const Geometry &cgeom, const bool do_sync, const MultiFab *const cmfab_old,
+    const CCTK_REAL w_new) {
+  Interpolater *const mapper = interpolator_of(groupdata.record);
+
   const IntVect &nghosts = mfab.nGrowVect();
   if (nghosts.max() == 0)
     return;
@@ -100,7 +124,7 @@ void FillPatch_Prolongate(
   }
 
   tasks2.submit_serially([&tasks3, &groupdata, &coarsegroupdata, &mfab, &cgeom,
-                          &fgeom, mapper, &bcrecs, &fpc, mfab_crse_patch_ptr,
+                          &fgeom, &fpc, mfab_crse_patch_ptr,
                           mfab_crse_patch_old_ptr, w_new, do_sync]() {
     const int ncomps = mfab.nComp();
     MultiFab &mfab_crse_patch = *mfab_crse_patch_ptr;
@@ -129,10 +153,8 @@ void FillPatch_Prolongate(
         new MultiFab(make_mf_fine_patch<MultiFab>(fpc, ncomps));
     MultiFab &mfab_fine_patch = *mfab_fine_patch_ptr;
 
-    // Coarse boundary conditions, interpolation into the fine buffer, and
-    // start of the copy into the destination
     Prolongate_Start(groupdata, coarsegroupdata, mfab, mfab_crse_patch,
-                     mfab_fine_patch, fgeom, cgeom, mapper, bcrecs);
+                     mfab_fine_patch, fgeom, cgeom);
 
     delete mfab_crse_patch_ptr;
 
@@ -147,8 +169,10 @@ void Prolongate_Start(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     MultiFab &mfab, MultiFab &crse_patch, MultiFab &fine_patch,
-    const Geometry &fgeom, const Geometry &cgeom, Interpolater *const mapper,
-    const Vector<BCRec> &bcrecs) {
+    const Geometry &fgeom, const Geometry &cgeom) {
+  Interpolater *const mapper = interpolator_of(groupdata.record);
+  const Vector<BCRec> bcrecs = bcrecs_of(groupdata);
+
   const IntVect &nghosts = mfab.nGrowVect();
   const int ncomps = mfab.nComp();
   const IntVect ratio{2, 2, 2};
@@ -182,8 +206,10 @@ void FillPatch_NewLevel(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     MultiFab &mfab, const MultiFab &cmfab, const Geometry &cgeom,
-    const Geometry &fgeom, Interpolater *const mapper,
-    const Vector<BCRec> &bcrecs) {
+    const Geometry &fgeom) {
+  Interpolater *const mapper = interpolator_of(groupdata.record);
+  const Vector<BCRec> bcrecs = bcrecs_of(groupdata);
+
   const int ncomps = mfab.nComp();
   const IntVect ratio{2, 2, 2};
   const IntVect &nghosts = mfab.nGrowVect();
@@ -226,8 +252,10 @@ void FillPatch_RemakeLevel(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     MultiFab &mfab, const MultiFab &cmfab, const MultiFab &fmfab,
-    const Geometry &cgeom, const Geometry &fgeom, Interpolater *const mapper,
-    const Vector<BCRec> &bcrecs) {
+    const Geometry &cgeom, const Geometry &fgeom) {
+  Interpolater *const mapper = interpolator_of(groupdata.record);
+  const Vector<BCRec> bcrecs = bcrecs_of(groupdata);
+
   const int ncomps = mfab.nComp();
   const IntVect ratio{2, 2, 2};
   const IntVect &nghosts = mfab.nGrowVect();

@@ -178,6 +178,8 @@ extern const std::map<int, std::array<amrex::Interpolater *, 8> >
 extern const std::map<int, std::array<amrex::Interpolater *, 8> >
     prolongate_poly_eno3lfb_3d_rf2;
 
+amrex::Interpolater *interpolator_of(const GHExt::GroupRecord &record);
+
 } // namespace CarpetX
 
 #endif

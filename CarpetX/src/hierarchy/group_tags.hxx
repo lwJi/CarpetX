@@ -10,8 +10,6 @@
 
 #include <cctk.h>
 
-#include <AMReX_Interpolater.H>
-
 #include <array>
 #include <optional>
 #include <string>
@@ -40,12 +38,8 @@ std::array<int, dim> get_group_nghostzones(gi_t gi);
 std::vector<std::array<int, dim> > get_group_parities(gi_t gi);
 std::vector<CCTK_REAL> get_group_dirichlet_values(gi_t gi);
 std::vector<CCTK_REAL> get_group_robin_values(gi_t gi);
-
-amrex::Interpolater *get_interpolator(std::string prolongation_type,
-                                      int prolongation_order,
-                                      std::array<int, dim> indextype);
-amrex::Interpolater *
-get_interpolator(const GHExt::PatchData::LevelData::GroupData &groupdata);
+std::string get_group_prolongation_type(gi_t gi);
+int get_group_prolongation_order(gi_t gi);
 
 } // namespace CarpetX
 
