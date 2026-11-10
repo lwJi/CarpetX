@@ -10,8 +10,6 @@
 
 namespace CarpetX {
 
-enum class rk_dense_output_t { none, ssprk3, rk4 };
-
 constexpr int rk_dense_output_stages(const rk_dense_output_t dense_output) {
   switch (dense_output) {
   case rk_dense_output_t::ssprk3:

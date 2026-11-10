@@ -137,7 +137,7 @@ SECTIONS: tuple[Section, ...] = (
                 "Registration is `AT WRAGH`, once; the record freezes when that traversal ends. "
                 "`dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. "
                 "`b` holds the final-update weight of every stage, all zero for a method that never updates the state.",
-                ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "traversal/traversal.cxx:record_integrator", "traversal/traversal.cxx:freeze_integrator"),
+                ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "hierarchy/hierarchy.cxx:record_integrator", "hierarchy/hierarchy.cxx:freeze_integrator"),
             ),
             Row(
                 "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH for the traversal; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",

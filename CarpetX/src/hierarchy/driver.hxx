@@ -479,6 +479,15 @@ struct GHExt {
   int active_timelevels(gi_t gi) const;
   bool storage_frozen() const { return !pending_timelevels_; }
 
+  struct integrator_t {
+    rk_dense_output_t dense_output;
+    std::vector<CCTK_REAL> weights;
+    std::map<gi_t, gi_t> rhs;
+    stage_range stages() const { return rk_stages(int(weights.size())); }
+  };
+  const std::optional<integrator_t> &
+  integrator(std::source_location site = std::source_location::current()) const;
+
   bool is_initialized() const { return initialized_; }
   CCTK_INT epoch() const { return epoch_; }
 
@@ -819,12 +828,16 @@ private:
   const amrcore_factory make_core_;
   const level_buffers_factory make_buffers_;
   std::vector<GroupRecord> group_records;
+  std::optional<integrator_t> integrator_;
+  bool integrator_open_ = true;
   std::vector<PatchData> patchdata;
 
   static GHExt &mutable_instance();
   PatchData &add_patch(patch_t patch);
   void record_storage(gi_t gi, int timelevels);
   void freeze_storage();
+  void record_integrator(integrator_t integrator, std::source_location site);
+  void freeze_integrator(std::source_location site);
   void mark_initialized();
 
   friend struct hierarchy_writer;
