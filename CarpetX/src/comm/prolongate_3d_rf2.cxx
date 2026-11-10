@@ -1,5 +1,7 @@
 #include "comm/prolongate_3d_rf2.hxx"
 
+#include "hierarchy/group_tags.hxx"
+
 #include <cctk.h>
 
 #include <array>
@@ -46,6 +48,7 @@ std::ostream &operator<<(std::ostream &os, const fallback_t fb) {
   assert(false);
 }
 
+namespace {
 amrex::Interpolater *get_interpolator(const std::string prolongation_type,
                                       const int prolongation_order,
                                       const std::array<int, dim> indextype) {
@@ -81,6 +84,13 @@ amrex::Interpolater *get_interpolator(const std::string prolongation_type,
                 prolongation_order, prolongation_type.c_str());
 
   return operators->at(prolongation_order).at(indextype_scalar);
+}
+} // namespace
+
+amrex::Interpolater *interpolator_of(const GHExt::GroupRecord &record) {
+  return get_interpolator(get_group_prolongation_type(record.groupindex),
+                          get_group_prolongation_order(record.groupindex),
+                          get_group_indextype(record.groupindex));
 }
 
 } // namespace CarpetX

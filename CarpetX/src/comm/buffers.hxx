@@ -6,9 +6,7 @@
 #include "hierarchy/driver.hxx"
 #include <carpetx.hxx>
 
-#include <AMReX_BCRec.H>
 #include <AMReX_FluxRegister.H>
-#include <AMReX_Interpolater.H>
 #include <AMReX_MultiFab.H>
 
 #include <array>
@@ -19,14 +17,6 @@
 namespace CarpetX {
 
 struct group_buffers_t {
-  group_buffers_t(const GHExt::GroupRecord &record, level_t level,
-                  const amrex::BoxArray &ba,
-                  const amrex::DistributionMapping &dm);
-  group_buffers_t(const group_buffers_t &) = delete;
-  group_buffers_t &operator=(const group_buffers_t &) = delete;
-
-  amrex::Interpolater *const interpolator;
-  const amrex::Vector<amrex::BCRec> bcrecs;
   std::unique_ptr<amrex::FluxRegister> freg;
 
   std::unique_ptr<amrex::MultiFab> &ks_source(const stage_t stage) {
@@ -45,7 +35,7 @@ private:
 };
 
 struct level_buffers_t {
-  std::vector<std::unique_ptr<group_buffers_t> > groups;
+  std::vector<group_buffers_t> groups;
   std::array<std::unique_ptr<amrex::MultiFab>, dim> face_area;
   std::unique_ptr<amrex::MultiFab> cell_volume;
 };
