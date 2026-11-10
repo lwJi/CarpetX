@@ -10,20 +10,6 @@
 #include <util_ErrorCodes.h>
 #include <util_Table.h>
 
-#if defined _OPENMP
-#include <omp.h>
-#elif defined __HIPCC__
-#define omp_get_max_threads() 1
-#define omp_get_num_threads() 1
-#define omp_get_thread_num() 0
-#define omp_in_parallel() 0
-#else
-static inline int omp_get_max_threads() { return 1; }
-static inline int omp_get_num_threads() { return 1; }
-static inline int omp_get_thread_num() { return 0; }
-static inline int omp_in_parallel() { return 0; }
-#endif
-
 #include <array>
 #include <cassert>
 #include <optional>
@@ -105,16 +91,6 @@ extern "C" CCTK_INT CarpetX_GetBoundarySizesAndTypes(
     }
   }
   return 0;
-}
-
-int CallFunction_count = -1;
-extern "C" CCTK_INT CarpetX_GetCallFunctionCount() {
-#ifndef AMREX_USE_GPU
-  return omp_get_thread_num();
-#else
-  assert(CallFunction_count >= 0);
-  return CallFunction_count;
-#endif
 }
 
 extern "C" void CarpetX_GetLoopBoxAll(const void *restrict const cctkGH_,
