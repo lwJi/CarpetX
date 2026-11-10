@@ -84,7 +84,8 @@ static std::vector<gi_t> sync_filter_groups(const std::span<const gi_t> groups0)
   return groups;
 }
 
-static void sync_multipatch_boundaries(const std::span<const gi_t> groups) {
+static void sync_multipatch_boundaries(const sync_guard_t &,
+                                       const std::span<const gi_t> groups) {
   const GHExt &ext = driver();
   static const bool have_multipatch_boundaries =
       CCTK_IsFunctionAliased("MultiPatch_Interpolate");
@@ -126,7 +127,8 @@ static valid_t outer_fills(const window_t window, const gi_t gi) {
   return covered.value_or(false) ? make_valid_outer() : valid_t();
 }
 
-static void apply_outer_boundary(const window_t window,
+static void apply_outer_boundary(const sync_guard_t &sync,
+                                 const window_t window,
                                  const std::span<const gi_t> groups,
                                  const timelevels_t tls,
                                  const char *const event) {
@@ -153,7 +155,7 @@ static void apply_outer_boundary(const window_t window,
         apply_boundary_conditions(groupdata, *groupdata.timelevel(tl).mfab);
     });
   synchronize();
-  sync_multipatch_boundaries(groups);
+  sync_multipatch_boundaries(sync, groups);
   scopes.clear();
 }
 
@@ -264,13 +266,12 @@ static void restrict_level(level_t level, std::span<const gi_t> groups,
 // =======================================================================
 
 static std::vector<level_run_t> ProlongateGhosts_impl(
-    const window_t window, const std::span<const gi_t> groups0,
+    const sync_guard_t &, const window_t window,
+    const std::span<const gi_t> groups0,
     const bool prolongate_on_same_iteration, const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
-
-  const sync_guard_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -496,7 +497,7 @@ static void SyncGroupsLockstep(const window_t window,
   synchronize();
 
   scopes.clear();
-  apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
+  apply_outer_boundary(sync, window, groups, timelevels_t::all_but_oldest(),
                        boundary_label.c_str());
 }
 
@@ -688,7 +689,7 @@ static void SyncGroupsSubcycling(const window_t window,
   synchronize();
 
   scopes.clear();
-  apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
+  apply_outer_boundary(sync, window, groups, timelevels_t::all_but_oldest(),
                        boundary_label.c_str());
 }
 
@@ -720,13 +721,15 @@ int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,
 void ProlongateGhosts(const window_t window,
                       const std::span<const gi_t> groups0,
                       const timelevels_t tls) {
-  ProlongateGhosts_impl(window, groups0, false, tls);
+  const sync_guard_t sync;
+  ProlongateGhosts_impl(sync, window, groups0, false, tls);
 }
 
 void ProlongateAligned(const window_t window,
                        const std::span<const gi_t> groups0,
                        const timelevels_t tls) {
-  ProlongateGhosts_impl(window, groups0, true, tls);
+  const sync_guard_t sync;
+  ProlongateGhosts_impl(sync, window, groups0, true, tls);
 }
 
 void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
@@ -799,19 +802,20 @@ void ApplyOuterBoundary(const window_t window,
   sync_log_groups("ApplyOuterBoundary", groups0);
 
   const std::vector<gi_t> groups = sync_filter_groups(groups0);
-  apply_outer_boundary(window, groups, tls,
+  apply_outer_boundary(sync, window, groups, tls,
                        "CarpetX::apply_outer_boundary reads the interior and "
                        "both ghost regions");
 }
 
 void ProlongateAfterRestriction(const window_t window) {
+  const sync_guard_t sync;
   const std::vector<gi_t> groups = sync_filter_groups(reprolongate_groups());
   const timelevels_t tls = timelevels_t::all_but_oldest();
   const std::vector<level_run_t> runs =
-      ProlongateGhosts_impl(window, groups, true, tls);
+      ProlongateGhosts_impl(sync, window, groups, true, tls);
   for (const level_run_t &run : runs)
     if (run.value)
-      apply_outer_boundary(run.levels, groups, tls,
+      apply_outer_boundary(sync, run.levels, groups, tls,
                            "ProlongateAfterRestriction applies the boundary "
                            "condition after the prolongation and reads the "
                            "interior and both ghost regions");
