@@ -1,6 +1,8 @@
 #include "comm/fillpatch.hxx"
 #include "comm/boundaries.hxx"
+#include "comm/buffers.hxx"
 
+#include <cassert>
 #include <utility>
 
 #include <AMReX_FillPatchUtil.H>
@@ -28,6 +30,17 @@ using namespace amrex::detail;
 // Coroutines were popularized in the "Modula" language in the 1980s.
 // Welcome to the future, C++, you're only 40 years behind.
 
+namespace {
+const group_buffers_t &
+group_buffers_of(const GHExt::PatchData::LevelData::GroupData &groupdata) {
+  const GHExt::PatchData::LevelData &leveldata =
+      driver().level(groupdata.level);
+  const gi_t gi = groupdata.record.groupindex;
+  assert(&leveldata.group(gi) == &groupdata);
+  return buffers_of(leveldata, gi);
+}
+} // namespace
+
 void FillPatch_Sync(task_manager &tasks2, MultiFab &mfab,
                     const Geometry &geom) {
   mfab.FillBoundary_nowait(0, mfab.nComp(), mfab.nGrowVect(),
@@ -40,9 +53,12 @@ void FillPatch_Prolongate(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     MultiFab &mfab, const MultiFab &cmfab, const Geometry &fgeom,
-    const Geometry &cgeom, Interpolater *const mapper,
-    const Vector<BCRec> &bcrecs, const bool do_sync,
-    const MultiFab *const cmfab_old, const CCTK_REAL w_new) {
+    const Geometry &cgeom, const bool do_sync, const MultiFab *const cmfab_old,
+    const CCTK_REAL w_new) {
+  const group_buffers_t &buffers = group_buffers_of(groupdata);
+  Interpolater *const mapper = buffers.interpolator;
+  const Vector<BCRec> &bcrecs = buffers.bcrecs;
+
   const IntVect &nghosts = mfab.nGrowVect();
   if (nghosts.max() == 0)
     return;
@@ -182,8 +198,11 @@ void FillPatch_NewLevel(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     MultiFab &mfab, const MultiFab &cmfab, const Geometry &cgeom,
-    const Geometry &fgeom, Interpolater *const mapper,
-    const Vector<BCRec> &bcrecs) {
+    const Geometry &fgeom) {
+  const group_buffers_t &buffers = group_buffers_of(groupdata);
+  Interpolater *const mapper = buffers.interpolator;
+  const Vector<BCRec> &bcrecs = buffers.bcrecs;
+
   const int ncomps = mfab.nComp();
   const IntVect ratio{2, 2, 2};
   const IntVect &nghosts = mfab.nGrowVect();
@@ -226,8 +245,11 @@ void FillPatch_RemakeLevel(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     MultiFab &mfab, const MultiFab &cmfab, const MultiFab &fmfab,
-    const Geometry &cgeom, const Geometry &fgeom, Interpolater *const mapper,
-    const Vector<BCRec> &bcrecs) {
+    const Geometry &cgeom, const Geometry &fgeom) {
+  const group_buffers_t &buffers = group_buffers_of(groupdata);
+  Interpolater *const mapper = buffers.interpolator;
+  const Vector<BCRec> &bcrecs = buffers.bcrecs;
+
   const int ncomps = mfab.nComp();
   const IntVect ratio{2, 2, 2};
   const IntVect &nghosts = mfab.nGrowVect();

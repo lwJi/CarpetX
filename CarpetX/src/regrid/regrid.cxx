@@ -3,7 +3,6 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
-#include "comm/buffers.hxx"
 #include "comm/fillpatch.hxx"
 #include <loop_device.hxx>
 
@@ -184,7 +183,6 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
     const gi_t gi = groupdata.record.groupindex;
     auto &coarsegroupdata = coarseleveldata.group(gi);
     assert(&coarsegroupdata.record == &groupdata.record);
-    const group_buffers_t &buffers = buffers_of(leveldata, gi);
 
     const tl_range prolongate_tls = regrid_prolongate_tls(groupdata.record);
     const valid_t fills = regrid_fills(groupdata);
@@ -210,7 +208,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
               groupdata, coarsegroupdata, *groupdata.timelevel(tl).mfab,
               *coarsegroupdata.timelevel(tl).mfab,
               patchdata.amrcore->Geom(coarse.index()),
-              patchdata.amrcore->Geom(lev), buffers.interpolator, buffers.bcrecs);
+              patchdata.amrcore->Geom(lev));
         } else {
           invalidate(fine_levels,
                      {.gi = gi,
@@ -311,7 +309,6 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
     const auto &oldgroupdata = oldleveldata.group(gi);
     const auto &coarsegroupdata = coarseleveldata.group(gi);
     assert(&coarsegroupdata.record == &groupdata.record);
-    const group_buffers_t &buffers = buffers_of(leveldata, gi);
 
     const valid_t fills = regrid_fills(groupdata);
     assert(fills == make_valid_all());
@@ -331,7 +328,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
             *coarsegroupdata.timelevel(tl).mfab,
             *oldgroupdata.timelevel(tl).mfab,
             patchdata.amrcore->Geom(coarse.index()),
-            patchdata.amrcore->Geom(lev), buffers.interpolator, buffers.bcrecs);
+            patchdata.amrcore->Geom(lev));
       } else {
         invalidate(fine_levels,
                    {.gi = gi,
