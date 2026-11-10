@@ -2,6 +2,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
+#include "comm/buffers.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
 #include "comm/comm.hxx"
@@ -55,11 +56,6 @@ concept patch_cctkGH_takes = requires(const Ext &ext, Args... args) {
 template <class Ext, class... Args>
 concept local_cctkGH_takes = requires(const Ext &ext, Args... args) {
   ext.get_local_cctkGH(args...);
-};
-
-template <class... Args>
-concept ensure_rk_buffers_takes = requires(Args... args) {
-  EnsureRKBuffers(args...);
 };
 
 template <class... Args>
@@ -310,8 +306,8 @@ static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, int>);
 static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, component_t>);
 static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
 
-static_assert(ensure_rk_buffers_takes<level_t, gi_t>);
-static_assert(!ensure_rk_buffers_takes<int, int, gi_t>);
+static_assert(std::is_same_v<decltype(group_buffers_t::rk_bands),
+                             std::optional<rk_bands_t>>);
 
 static_assert(accumulate_fluxes_takes<level_t, stage_t, CCTK_REAL>);
 static_assert(!accumulate_fluxes_takes<level_t, int, CCTK_REAL>);

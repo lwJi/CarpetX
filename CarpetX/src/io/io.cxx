@@ -7,7 +7,6 @@
 #include "io/io_silo.hxx"
 #include "io/io_tsv.hxx"
 #include "io/selection.hxx"
-#include "comm/subcycling.hxx"
 #include "traversal/traversal.hxx"
 #include "util/refuse.hxx"
 #include <carpetx.hxx>
@@ -132,18 +131,7 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
                cctk_iteration, double(cctk_time), double(runtime / 3600));
   }
 
-  const GHExt &ext = driver();
   const group_selection_t selection = checkpointed_groups();
-
-  if (ext.use_subcycling) {
-    for (const auto &patchdata : ext.patches())
-      for (const auto &leveldata : patchdata.levels()) {
-        if (leveldata.level.index() == 0)
-          continue;
-        for (const auto &groupdata : leveldata.groups())
-          EnsureRKBuffers(leveldata.level, groupdata.record.groupindex);
-      }
-  }
 
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
   checkpoint_record_t recovering = record;

@@ -543,7 +543,7 @@ class Traversal(unittest.TestCase):
 
 class Index(unittest.TestCase):
     BARE = [
-        "void EnsureRKBuffers(int patch, int level, gi_t gi);",
+        "void StoreRKOldState(int patch, int level, std::span<const gi_t> var_groups, tl_t tl);",
         "const GroupRecord &record(const int gi, const std::source_location site) const;",
         "void Restrict(const cGH *cctkGH, int min_level, int max_level,",
         "bool window_is_restricted(int min_level, int max_level);",
@@ -1690,7 +1690,7 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([m]), "✗ boundary: 1 mutable, extern, integrator include or comm/ object in the data model")
         self.assertEqual(summary([m, e, m]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 mutable, extern, integrator include or comm/ objects in the data model")
         w = ("CarpetX/src/schedule/schedule.hxx", Finding(3, "window", "struct active_levels_t;"))
-        i = ("CarpetX/src/comm/subcycling.hxx", Finding(4, "index", "void EnsureRKBuffers(int patch, int level, gi_t gi);"))
+        i = ("CarpetX/src/comm/subcycling.hxx", Finding(4, "index", "void StoreRKOldState(int patch, int level, std::span<const gi_t> var_groups, tl_t tl);"))
         self.assertEqual(summary([w]), "✗ boundary: 1 active_levels_t use")
         self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in CarpetX")
         self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in CarpetX")

@@ -18,8 +18,6 @@ namespace CarpetX {
 
 inline constexpr CCTK_REAL rk_substep_ratio = 0.5;
 
-void EnsureRKBuffers(level_t level, gi_t gi);
-
 void StoreRKOldState(level_t level, std::span<const gi_t> var_groups, tl_t tl);
 
 void StoreRKStage(level_t level, std::span<const gi_t> var_groups,
