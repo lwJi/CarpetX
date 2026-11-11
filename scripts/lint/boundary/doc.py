@@ -4,29 +4,10 @@ import os
 import re
 from typing import Callable
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PROTOTYPE_END, PUBLIC_DIR, RULES, UNDER_HIERARCHY, below, declaration_head, declared_function, file_local, layer_of, layer_path, statements
-from .symbols import ACCEPTED
+from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PROTOTYPE_END, PUBLIC_DIR, RULES, UNDER_HIERARCHY, declaration_head, declared_function, file_local, layer_of, layer_path, statements
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
-SYMBOL_NAMESPACE = "CarpetX::"
-
-
-def link_name(prefix: str) -> str:
-    assert prefix.startswith(SYMBOL_NAMESPACE), prefix
-    return prefix[len(SYMBOL_NAMESPACE) :].rstrip("(:")
-
-
-def link_time() -> tuple[tuple[str, str, tuple[str, ...]], ...]:
-    edges: dict[tuple[str, str], dict[str, None]] = {}
-    for low, high, prefix in ACCEPTED:
-        assert LAYERS.index(low) < LAYERS.index(high), (low, high)
-        edges.setdefault((low, high), {})[link_name(prefix)] = None
-    order = sorted(edges, key=lambda edge: (LAYERS.index(edge[0]), LAYERS.index(edge[1])))
-    return tuple((low, high, tuple(sorted(edges[(low, high)], key=str.lower))) for low, high in order)
-
-
-LINK_TIME = link_time()
 HUB = HIERARCHY_LAYERS[0]
 ABOVE = HIERARCHY_LAYERS[1:]
 PUBLIC = "include"
@@ -97,12 +78,11 @@ STACK_LEGEND = (
     f"an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above {HUB}/, is there for the arrow into {HUB}/",
     "the outer boxes are the door rule: driver() is called in the upper box, never in the lower",
     f"{PUBLIC}/ is the public headers, {', '.join(os.path.basename(header) for header in PUBLIC_HEADERS)}, not a layer: a thorn reads nothing else of CarpetX, and agent_docs/carpetx-public-api.md describes them",
-    "a dashed line is an import the build makes upward, a row of ACCEPTED in scripts/lint/boundary/symbols.py that the symbols check holds to the objects: the lower end declares, the upper end holds the body, the one way a call reaches up, at link time, and a class stands for its members",
     "a node names its layer, and no header where nothing can include it",
 )
 PASS_LEGEND = (
     "the numbered arrows are one pass of the schedule: " + ", ".join(f"{what} ({step})" for step, what in STEPS.items()),
-    "a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX, or at link time through a dashed line of the stack",
+    "a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX",
 )
 REGRID_LEGEND = (
     "the numbered arrows are one regrid: " + ", ".join(f"{what} ({step})" for step, what in REGRID_STEPS.items()),
@@ -216,9 +196,6 @@ def stack(root: str = PROJECT) -> str:
         lines.append(f'  {source} -- "{", ".join(headers)}" --> {target}')
     for (box, target), headers in floor(root).items():
         lines.append(f'  {box} -- "{", ".join(headers)}" --> {target}')
-    for low, high, names in LINK_TIME:
-        assert LAYERS.index(low) < LAYERS.index(high), (low, high)
-        lines.append(f'  {high} -. "{", ".join(names)}" .- {low}')
     return "\n".join(lines) + "\n"
 
 
@@ -404,7 +381,7 @@ def owns() -> str:
 
 TITLE = "# CarpetX's internals"
 PREAMBLE = (
-    "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, the `ACCEPTED` rows of `scripts/lint/boundary/symbols.py`, "
+    "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, "
     f"the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `{STARTUP}`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when "
     "the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX "
     "only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule "
@@ -428,18 +405,3 @@ def render(root: str = PROJECT) -> str:
     parts.append(entries(root))
     parts.append(owns())
     return "\n".join(parts)
-
-
-def declares_and_defines(root: str, low: str, high: str, name: str) -> bool:
-    def found(paths: list[str], shape: re.Pattern) -> bool:
-        for path in paths:
-            if os.path.exists(path):
-                with open(path) as f:
-                    if shape.search(f.read()):
-                        return True
-        return False
-
-    headers = [path for layer in below(low) for path in sources(root, layer) if path.endswith(".hxx")]
-    headers += [os.path.join(root, header) for header in PUBLIC_HEADERS]
-    bodies = [path for path in sources(root, high) if path.endswith(".cxx")]
-    return found(headers, re.compile(rf"\b{name}\b")) and found(bodies, re.compile(DEFINITION.format(name=name)))

@@ -14,7 +14,7 @@ import hooks
 from files import PROJECT, Lang
 from run import check_since
 
-from . import check, doc, guide, rules, symbols
+from . import check, doc, guide, rules
 from .rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, RULE, Finding, below, findings, layer_of, layer_path, new_findings, render, summary
 
 ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
@@ -2102,36 +2102,6 @@ class Doc(unittest.TestCase):
         with self.assertRaises(AssertionError):
             rules.layers_of((rules.MAKE_DEFN,))
 
-    def test_a_dashed_edge_is_declared_low_and_defined_high(self):
-        for low, high, names in doc.LINK_TIME:
-            self.assertLess(LAYERS.index(low), LAYERS.index(high))
-            for name in names:
-                with self.subTest(low=low, high=high, name=name):
-                    self.assertTrue(doc.declares_and_defines(PROJECT, low, high, name))
-                    self.assertIn(f'  {high} -. "{", ".join(names)}" .- {low}', doc.stack())
-        self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "io", "CactusAmrCore"))
-        self.assertFalse(doc.declares_and_defines(PROJECT, "hierarchy", "comm", "make_level_buffers"))
-        self.assertNotIn("get_interpolator", doc.stack())
-        self.assertEqual(doc.LINK_TIME, ())
-        self.assertNotIn(" -. ", doc.stack())
-        with mock.patch.object(doc, "LINK_TIME", (("schedule", "api", ("RecoverRKBoundary",)),)):
-            self.assertIn('  api -. "RecoverRKBoundary" .- schedule', doc.stack())
-        self.assertNotIn('level_t" .-', doc.stack())
-        self.assertNotIn(".->", doc.stack())
-        self.assertNotIn("apply_boundary_conditions", doc.stack())
-
-    def test_the_dashed_edges_are_the_rows_of_accepted(self):
-        rows = {(low, high, doc.link_name(prefix)) for low, high, prefix in symbols.ACCEPTED}
-        drawn = {(low, high, name) for low, high, names in doc.LINK_TIME for name in names}
-        self.assertEqual(drawn, rows)
-        edges = [(low, high) for low, high, _ in doc.LINK_TIME]
-        self.assertEqual(edges, sorted(set(edges), key=lambda edge: (LAYERS.index(edge[0]), LAYERS.index(edge[1]))))
-        self.assertEqual(doc.stack().count(" -. "), len(doc.LINK_TIME))
-        self.assertEqual(doc.link_name("CarpetX::level_t::"), "level_t")
-        self.assertEqual(doc.link_name("CarpetX::all_levels("), "all_levels")
-        with self.assertRaises(AssertionError):
-            doc.link_name("std::string")
-
     def test_the_includes_are_read_from_the_tree_above_the_base(self):
         with tempfile.TemporaryDirectory() as root:
             src = os.path.join(root, "CarpetX", "src")
@@ -2143,9 +2113,7 @@ class Doc(unittest.TestCase):
                 "io/x.hxx": '#include "io/io.hxx"\n#include "ops/reduction.hxx"\n#include <mpi.h>\n',
                 "comm/comm.hxx": "",
                 "comm/notes.txt": '#include "io/io.hxx"\n',
-                "hierarchy/driver.hxx": "class Core {\n  Core(int n);\n  void Est(const int lev, Tags &tags) const;\n};\nTags *tags_of(const Core &core);\n",
-                "regrid/r.cxx": "Core::Core(int n) : Base(n), lev(0) {}\nvoid Core::Est(const int lev,\n    Tags &tags) const {\n  helper(lev);\n}\nTags *tags_of(const Core &core) {\n  return nullptr;\n}\n",
-                "io/y.cxx": "void write(Core &core) {\n  Core &other = core;\n  other.Est(1, tags);\n  std::make_unique<Core>(1);\n}\n",
+                "hierarchy/driver.hxx": "",
             }
             for name, text in files.items():
                 with open(os.path.join(src, name), "w") as f:
@@ -2165,8 +2133,6 @@ class Doc(unittest.TestCase):
             graph = drawn.splitlines()
             self.assertEqual(graph[-7], '  include["include/"]')
             self.assertEqual(graph[-6:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops', '  above -- "driver.hxx" --> hierarchy', '  door -- "refuse.hxx" --> util'])
-            with mock.patch.object(doc, "LINK_TIME", (("schedule", "api", ("RecoverRKBoundary",)),)):
-                self.assertEqual(doc.stack(root).splitlines(), graph + ['  api -. "RecoverRKBoundary" .- schedule'])
             self.assertNotIn("%%", drawn)
             self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("hierarchy", "io", "comm")))
             self.assertIn('      ops["ops/ no header"]', drawn)
@@ -2186,13 +2152,6 @@ class Doc(unittest.TestCase):
             self.assertEqual(doc.floor(root)[("nodoor", "include")], ("carpetx_rk.hxx",))
             self.assertEqual(doc.public_includes(root, "util"), {"carpetx_rk.hxx"})
             self.assertEqual(doc.public_includes(root, "flesh"), set())
-            for name in ("Core", "Est", "tags_of"):
-                with self.subTest(name=name):
-                    self.assertTrue(doc.declares_and_defines(root, "hierarchy", "regrid", name))
-                    self.assertFalse(doc.declares_and_defines(root, "hierarchy", "io", name))
-            self.assertTrue(doc.declares_and_defines(root, "io", "regrid", "Core"))
-            self.assertFalse(doc.declares_and_defines(root, "util", "regrid", "Core"))
-            self.assertFalse(doc.declares_and_defines(root, "regrid", "io", "Core"))
 
     def test_render_is_the_whole_map(self):
         text = doc.render()

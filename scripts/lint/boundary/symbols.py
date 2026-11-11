@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
@@ -15,13 +15,10 @@ from .rules import LAYERS, below
 OBJECT_SUFFIX = ".cxx.o"
 NAMESPACE = "7CarpetX"
 STRONG = frozenset("TDBRSG")
-ACCEPTED: tuple[tuple[str, str, str], ...] = ()
 RULE = wrap(
     "symbols: an object the build made from a CarpetX .cxx imports a symbol of namespace CarpetX only from an "
     "object of its own layer or a lower one, whatever declared it: a header, a prototype, a block-scope declaration "
-    "or an extern. A reach listed in ACCEPTED in scripts/lint/boundary/symbols.py, a row naming the importing "
-    "layer, the layer of the body and the symbol's prefix, is reported as accepted until the bodies move down; the "
-    "list only shrinks, and the map draws each row as a dashed edge of its stack."
+    "or an extern. No reach is excepted: a body a lower layer calls moves down to that layer."
 )
 
 Demangle = Callable[[Iterable[str]], dict[str, str]]
@@ -101,10 +98,6 @@ def reaches(layers: dict[str, str], defined: dict[str, str], imports: dict[str, 
     return found
 
 
-def accepted(reach: Reach, readable: str) -> bool:
-    return any(reach.layer == low and reach.to == high and readable.startswith(prefix) for low, high, prefix in ACCEPTED)
-
-
 def demangle(names: Iterable[str]) -> dict[str, str]:
     names = list(dict.fromkeys(names))
     if not names:
@@ -115,31 +108,19 @@ def demangle(names: Iterable[str]) -> dict[str, str]:
     return dict(zip(names, done.stdout.splitlines()))
 
 
-def split(found: list[Reach], readable: dict[str, str]) -> tuple[list[Reach], list[Reach]]:
-    upward = [r for r in found if not accepted(r, readable[r.symbol])]
-    waived = [r for r in found if accepted(r, readable[r.symbol])]
-    return upward, waived
-
-
-def summary(upward: list[Reach], waived: list[Reach]) -> str:
-    tail = f", {plural(len(waived), 'accepted import')} listed in ACCEPTED" if waived else ""
+def summary(upward: list[Reach]) -> str:
     if not upward:
-        return "✓ symbols: every CarpetX import from the importing object's layer or a lower one" + tail
-    return f"✗ symbols: {plural(len(upward), 'upward import')}" + tail
+        return "✓ symbols: every CarpetX import from the importing object's layer or a lower one"
+    return f"✗ symbols: {plural(len(upward), 'upward import')}"
 
 
-def render(upward: list[Reach], waived: list[Reach], readable: dict[str, str]) -> str:
+def render(upward: list[Reach], readable: dict[str, str]) -> str:
     out = []
     if upward:
         width = max(len(r.object) for r in upward)
         out.extend(f"{r.object.ljust(width)}   -> {r.to.ljust(9)}   {readable[r.symbol]}" for r in upward)
         out.extend(RULE.split("\n"))
-    if waived:
-        counts = Counter((r.layer, r.to) for r in waived)
-        out.append(
-            "accepted: " + ", ".join(f"{a}/ -> {b}/ {n}" for (a, b), n in sorted(counts.items(), key=lambda kv: (LAYERS.index(kv[0][0]), LAYERS.index(kv[0][1]))))
-        )
-    out.append(summary(upward, waived))
+    out.append(summary(upward))
     return "\n".join(out)
 
 
@@ -147,7 +128,6 @@ def check(objdir: str, demangler: Optional[Demangle] = None) -> tuple[str, bool]
     layers = layer_objects(objdir)
     definitions = {obj: parse_definitions(nm(os.path.join(objdir, obj), "--defined-only")) for obj in layers}
     imports = {obj: parse_imports(nm(os.path.join(objdir, obj), "--undefined-only")) for obj in layers}
-    found = reaches(layers, strong_definitions(definitions, layers), imports)
-    readable = (demangler or demangle)(r.symbol for r in found)
-    upward, waived = split(found, readable)
-    return render(upward, waived, readable), not upward
+    upward = reaches(layers, strong_definitions(definitions, layers), imports)
+    readable = (demangler or demangle)(r.symbol for r in upward)
+    return render(upward, readable), not upward
