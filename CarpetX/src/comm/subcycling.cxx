@@ -267,10 +267,11 @@ std::string flux_register_band_tag(const amrex::Orientation face) {
   return buf.str();
 }
 
-std::vector<checkpoint_band_t>
+template <class Band>
+std::vector<Band>
 list_bands(group_buffers_t &buffers,
            const std::optional<rk_bands_t::slots_t> rk_slots) {
-  std::vector<checkpoint_band_t> bands;
+  std::vector<Band> bands;
   const auto add_band = [&](amrex::MultiFab *const band, std::string tag) {
     if (band && !band->empty())
       bands.push_back({std::move(tag), band});
@@ -370,13 +371,13 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   assert(std::isfinite(dtc) && dtc > 0);
 
   const window_t window = window_t::one_level(child);
-  std::vector<write_scope_t> scopes;
+  write_scopes_t scopes;
   for (const gi_t gi : states) {
-    scopes.push_back(open_write(window, {.gi = gi,
-                                         .tl = rk_tl,
-                                         .fills = make_valid_coarse_fine(),
-                                         .keeps = ~make_valid_coarse_fine(),
-                                         .event = event}));
+    scopes.open(window, {.gi = gi,
+                         .tl = rk_tl,
+                         .fills = make_valid_coarse_fine(),
+                         .keeps = ~make_valid_coarse_fine(),
+                         .event = event});
   }
 
   task_manager tasks1;
@@ -391,7 +392,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
     // subcycling SYNC leave the coarse-fine ghosts to this function
     assert(group_is_integrated(gi));
 
-    amrex::MultiFab &mfab = *groupdata.timelevel(rk_tl).mfab;
+    amrex::MultiFab &mfab = scopes.mfab(child, gi, rk_tl);
 
     // As in FillPatch_Prolongate: without ghosts there is nothing to fill
     if (mfab.nGrowVect().max() == 0)
@@ -435,20 +436,21 @@ checkpoint_bands(const level_t level, const gi_t gi, const rat64 parent_step) {
     return {};
   group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
   std::optional<rk_bands_t> &rk_bands = childbuffers.rk_bands;
-  return list_bands(childbuffers,
-                    rk_bands ? rk_bands->stored(parent_step) : std::nullopt);
+  return list_bands<checkpoint_band_t>(
+      childbuffers, rk_bands ? rk_bands->stored(parent_step) : std::nullopt);
 }
 
-std::vector<checkpoint_band_t> restore_bands(const level_t level, const gi_t gi,
-                                             const rat64 parent_step) {
+std::vector<restore_band_t> restore_bands(const level_t level, const gi_t gi,
+                                          const rat64 parent_step) {
   const std::optional<level_t> child = level.child();
   if (!child)
     return {};
   group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
   std::optional<rk_bands_t> &rk_bands = childbuffers.rk_bands;
-  return list_bands(childbuffers, rk_bands ? std::optional<rk_bands_t::slots_t>(
-                                                 rk_bands->restore(parent_step))
-                                           : std::nullopt);
+  return list_bands<restore_band_t>(
+      childbuffers, rk_bands ? std::optional<rk_bands_t::slots_t>(
+                                   rk_bands->restore(parent_step))
+                             : std::nullopt);
 }
 
 void RecoverRKBoundary(const window_t window) {

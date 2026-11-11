@@ -456,25 +456,26 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
                               .where = make_valid_all(),
                               .event = "CycleTimelevels"});
         } else {
-          std::vector<write_scope_t> scopes;
+          write_scopes_t scopes;
           for (const vi_t vi : group.variables())
             for (const seed_run_t &run : seed_runs(window, gi, vi))
-              scopes.push_back(open_write(
+              scopes.open(
                   run.levels,
                   {.gi = gi,
                    .tl = tl_t{0},
                    .vi = vi,
                    .fills = run.seed,
                    .keeps = {},
-                   .event = "CycleTimelevels (seed from old time level)"}));
-          loop_serially(window, [&](auto &restrict leveldata) {
-            auto &restrict groupdata = leveldata.group(gi);
-            amrex::MultiFab::Copy(
-                *groupdata.timelevel(tl_t{0}).mfab,
-                *groupdata.timelevel(tl_t{1}).mfab, 0, 0,
-                groupdata.record.numvars,
-                groupdata.timelevel(tl_t{0}).mfab->nGrowVect());
-          });
+                   .event = "CycleTimelevels (seed from old time level)"});
+          if (group.numvars > 0)
+            loop_serially(window, [&](auto &restrict leveldata) {
+              auto &restrict groupdata = leveldata.group(gi);
+              amrex::MultiFab::Copy(
+                  scopes.mfab(leveldata.level, gi, tl_t{0}),
+                  *groupdata.timelevel(tl_t{1}).mfab, 0, 0,
+                  groupdata.record.numvars,
+                  groupdata.timelevel(tl_t{0}).mfab->nGrowVect());
+            });
         }
       }
       if (group.do_evolve) {

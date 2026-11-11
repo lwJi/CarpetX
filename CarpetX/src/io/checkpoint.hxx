@@ -17,6 +17,7 @@
 #include <optional>
 #include <set>
 #include <source_location>
+#include <span>
 #include <string>
 #include <variant>
 #include <vector>
@@ -25,7 +26,7 @@ namespace CarpetX {
 
 struct group_selection_t;
 
-enum class record_purpose { checkpoint, recovery, output };
+enum class record_purpose { checkpoint, output };
 
 struct buffer_id_t {
   std::string group;
@@ -36,11 +37,11 @@ struct buffer_id_t {
 };
 
 struct grid_buffer_t {
-  amrex::MultiFab *mfab;
+  const amrex::MultiFab *mfab;
 };
 
 struct array_buffer_t {
-  void *data;
+  const void *data;
   var_type vartype;
   std::vector<int> shape;
 };
@@ -48,6 +49,21 @@ struct array_buffer_t {
 struct buffer_t {
   buffer_id_t id;
   std::variant<grid_buffer_t, array_buffer_t> data;
+};
+
+struct grid_target_t {
+  amrex::MultiFab *mfab;
+};
+
+struct array_target_t {
+  void *data;
+  var_type vartype;
+  std::vector<int> shape;
+};
+
+struct target_t {
+  buffer_id_t id;
+  std::variant<grid_target_t, array_target_t> data;
 };
 
 struct level_record_t {
@@ -105,6 +121,7 @@ struct checkpoint_codec_t {
                                                const std::string &file,
                                                int iteration) = 0;
   virtual void decode_data(const checkpoint_record_t &record,
+                           std::span<const target_t> targets,
                            const std::string &dir, const std::string &file) = 0;
 };
 
@@ -127,15 +144,12 @@ build_record(const cGH *cctkGH, const group_selection_t &selection,
              record_purpose purpose, const codec_limits_t &limits,
              std::source_location site = std::source_location::current());
 
-void build_buffers(checkpoint_record_t &record,
-                   const group_selection_t &selection, record_purpose purpose,
-                   const codec_limits_t &limits);
-
 void apply_structure(
     cGH *cctkGH, checkpoint_record_t &record,
     std::source_location site = std::source_location::current());
 
 void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
+                 const group_selection_t &selection, bool restartable,
                  const std::string &dir, const std::string &file,
                  const std::string &event,
                  std::source_location site = std::source_location::current());

@@ -57,12 +57,14 @@ struct hierarchy_writer {
   static void freeze_integrator(
       std::source_location site = std::source_location::current());
   static void adopt_flesh_cctkGH(cGH *cctkGH);
-  static void *array_data(gi_t gi, tl_t tl);
 
   static std::size_t
   acquire_scratch(group_t group,
                   std::source_location site = std::source_location::current());
   static void release_scratch(group_t group, std::size_t slot);
+  static amrex::MultiFab &
+  scratch_mfab(group_t group, std::size_t slot,
+               std::source_location site = std::source_location::current());
 
   static void advance_clocks(window_t window);
   static void stamp_last_step(window_t window, int iteration);

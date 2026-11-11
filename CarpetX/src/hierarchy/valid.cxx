@@ -145,9 +145,8 @@ ghost_half_t ghost_half(const Loop::GridDescBaseDevice &grid,
 template <typename F>
 void loop_ghost_halves(const Loop::GridDescBaseDevice &grid,
                        const GHExt::PatchData::LevelData &leveldata,
-                       const GroupData &groupdata,
-                       const component_t component, const valid_t where,
-                       const F &kernel) {
+                       const GroupData &groupdata, const component_t component,
+                       const valid_t where, const F &kernel) {
   if (!where.valid_same_level && !where.valid_coarse_fine)
     return;
   if (!one_ghost_half(where)) {
@@ -168,8 +167,8 @@ template <typename F>
 void loop_ghost_halves_device(const Loop::GridDescBaseDevice &grid,
                               const GHExt::PatchData::LevelData &leveldata,
                               const GroupData &groupdata,
-                              const component_t component,
-                              const valid_t where, const F &kernel) {
+                              const component_t component, const valid_t where,
+                              const F &kernel) {
   if (!where.valid_same_level && !where.valid_coarse_fine)
     return;
   if (!one_ghost_half(where)) {
@@ -554,6 +553,14 @@ std::vector<vi_t> variables_of(const gi_t gi, const std::optional<vi_t> vi) {
   return vis;
 }
 
+bool window_contains(const window_t window, const level_t level) {
+  const window_t::bounds_t levels = window.level_bounds();
+  const window_t::bounds_t patches = window.patch_bounds();
+  return level.index() >= levels.min && level.index() < levels.max &&
+         level.patch().index() >= patches.min &&
+         level.patch().index() < patches.max;
+}
+
 } // namespace
 
 int current_iteration() {
@@ -583,11 +590,8 @@ write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
 }
 
 write_scope_t::write_scope_t(write_scope_t &&other) noexcept
-    : window(other.window),
-      spec(std::move(other.spec)),
-      iteration(other.iteration),
-      epoch(other.epoch),
-      live(other.live) {
+    : window(other.window), spec(std::move(other.spec)),
+      iteration(other.iteration), epoch(other.epoch), live(other.live) {
   other.live = false;
 }
 
@@ -630,6 +634,55 @@ write_scope_t::~write_scope_t() {
   });
 }
 
+amrex::MultiFab &write_scope_t::mfab(const level_t level,
+                                     const std::source_location site) & {
+  if (!live)
+    refuse(site,
+           "a moved-from write scope on group %s, time level %d hands out no "
+           "data",
+           driver().record(spec.gi).groupname.c_str(), spec.tl.index());
+  if (!window_contains(window, level)) {
+    const window_t::bounds_t levels = window.level_bounds();
+    const window_t::bounds_t patches = window.patch_bounds();
+    refuse(site,
+           "write scope \"%s\" on group %s, time level %d covers patches [%d, "
+           "%d), refinement levels [%d, %d), not patch %d, refinement level %d",
+           spec.event.c_str(), driver().record(spec.gi).groupname.c_str(),
+           spec.tl.index(), patches.min, patches.max, levels.min, levels.max,
+           level.patch().index(), level.index());
+  }
+  return *GHExt::mutable_instance()
+              .level(level, site)
+              .group(spec.gi, site)
+              .timelevel(spec.tl, site)
+              .mfab;
+}
+
+write_scopes_t::~write_scopes_t() { close(); }
+
+void write_scopes_t::open(const window_t window, write_spec_t spec) {
+  scopes.push_back(open_write(window, std::move(spec)));
+}
+
+amrex::MultiFab &write_scopes_t::mfab(const level_t level, const gi_t gi,
+                                      const tl_t tl,
+                                      const std::source_location site) & {
+  for (write_scope_t &scope : scopes)
+    if (scope.spec.gi == gi && scope.spec.tl == tl &&
+        window_contains(scope.window, level))
+      return scope.mfab(level, site);
+  refuse(site,
+         "none of the %zu open write scopes of this set covers group %s, time "
+         "level %d on patch %d, refinement level %d",
+         scopes.size(), driver().record(gi).groupname.c_str(), tl.index(),
+         level.patch().index(), level.index());
+}
+
+void write_scopes_t::close() {
+  while (!scopes.empty())
+    scopes.pop_front();
+}
+
 void require(const window_t window, require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
@@ -667,8 +720,7 @@ array_write_scope_t::array_write_scope_t(write_spec_t spec, const int iteration)
 }
 
 array_write_scope_t::array_write_scope_t(array_write_scope_t &&other) noexcept
-    : spec(std::move(other.spec)),
-      iteration(other.iteration),
+    : spec(std::move(other.spec)), iteration(other.iteration),
       live(other.live) {
   other.live = false;
 }
@@ -698,6 +750,19 @@ array_write_scope_t::~array_write_scope_t() {
     check_valid_ga(spec.gi, vi, spec.tl, spec.fills, msg);
     timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);
   }
+}
+
+void *array_write_scope_t::data(const std::source_location site) & {
+  if (!live)
+    refuse(site,
+           "a moved-from array write scope on group %s, time level %d hands "
+           "out no data",
+           driver().record(spec.gi).groupname.c_str(), spec.tl.index());
+  return GHExt::mutable_instance()
+      .record(spec.gi)
+      .array(site)
+      .timelevel(spec.tl, site)
+      .data.data_at(0);
 }
 
 void require_array(require_spec_t spec) {

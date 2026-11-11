@@ -203,18 +203,17 @@ static void reflux_level(const level_t level) {
 
     EnsureFluxGeometry(level);
 
-    const write_scope_t scope =
-        open_write(coarse_level, {.gi = gi,
-                                  .tl = tl,
-                                  .fills = make_valid_int(),
-                                  .keeps = make_valid_all(),
-                                  .event = "Reflux"});
-    amrex::MultiFab &state = *groupdata.timelevel(tl).mfab;
+    write_scope_t scope = open_write(coarse_level, {.gi = gi,
+                                                    .tl = tl,
+                                                    .fills = make_valid_int(),
+                                                    .keeps = make_valid_all(),
+                                                    .event = "Reflux"});
+    amrex::MultiFab &state = scope.mfab(level);
     const amrex::MultiFab &volume = *buffers_of(leveldata).cell_volume;
     assert(volume.ixType() == state.ixType());
     assert(volume.DistributionMap() == state.DistributionMap());
-    finebuffers.freg->Reflux(state, volume, 1.0, 0, 0,
-                               groupdata.record.numvars, geom);
+    finebuffers.freg->Reflux(state, volume, 1.0, 0, 0, groupdata.record.numvars,
+                             geom);
   }
 }
 

@@ -443,6 +443,39 @@ class Window(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/hierarchy/valid.hxx", text, Lang.CXX), [Finding(2, "window", self.USES[0])])
 
 
+class Alias(unittest.TestCase):
+    USES = [
+        "amrex::MultiFab alias(*groupdata.timelevel(tl).mfab, amrex::make_alias, 0, 1);",
+        "const amrex::MultiFab view(mfab, make_alias, vi.index(), 1);",
+        "amrex::FArrayBox fab(mfab[mfi], amrex::make_alias, 0, 1);",
+    ]
+
+    def test_alias_reported(self):
+        for line in self.USES:
+            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/hierarchy/valid.hxx", "CarpetX/src/include/carpetx.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("alias", line)])
+
+    def test_other_words_are_fine(self):
+        for text in [
+            "  amrex::MultiFab copy(mfab, amrex::make_deep_copy, 0, 1);\n",
+            "  const int make_aliased = 1;\n",
+            "  remake_alias(mfab);\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", text), [])
+
+    def test_other_thorns_are_not_checked(self):
+        self.assertEqual(reported("ODESolvers/src/solve.cxx", self.USES[0] + "\n"), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported("CarpetX/src/make.code.defn", "X = make_alias\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n  " + self.USES[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/comm/reflux.cxx", text, Lang.CXX), [Finding(2, "alias", self.USES[0])])
+
+
 class Traversal(unittest.TestCase):
     USES = [
         "active_levels = std::nullopt;",
@@ -1660,6 +1693,7 @@ class Report(unittest.TestCase):
             "no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, "
             "no mutable, extern, integrator include or comm/ object in the data model, no active_levels_t, "
+            "no make_alias in CarpetX, "
             "no active_levels outside traversal.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
             "no hierarchy access in a checkpoint codec, "
@@ -1692,6 +1726,9 @@ class Report(unittest.TestCase):
         w = ("CarpetX/src/schedule/schedule.hxx", Finding(3, "window", "struct active_levels_t;"))
         i = ("CarpetX/src/comm/subcycling.hxx", Finding(4, "index", "void StoreRKOldState(int patch, int level, std::span<const gi_t> var_groups, tl_t tl);"))
         self.assertEqual(summary([w]), "✗ boundary: 1 active_levels_t use")
+        al = ("CarpetX/src/comm/reflux.cxx", Finding(8, "alias", "amrex::MultiFab alias(state, amrex::make_alias, 0, 1);"))
+        self.assertEqual(summary([al]), "✗ boundary: 1 make_alias use in CarpetX")
+        self.assertEqual(summary([al, w, al]), "✗ boundary: 1 active_levels_t use, 2 make_alias uses in CarpetX")
         self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in CarpetX")
         self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in CarpetX")
         self.assertEqual(summary([w, m]), "✗ boundary: 1 mutable, extern, integrator include or comm/ object in the data model, 1 active_levels_t use")

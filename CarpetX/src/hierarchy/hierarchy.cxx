@@ -752,14 +752,6 @@ void hierarchy_writer::adopt_flesh_cctkGH(cGH *const cctkGH) {
   ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
 }
 
-void *hierarchy_writer::array_data(const gi_t gi, const tl_t tl) {
-  return GHExt::mutable_instance()
-      .record(gi)
-      .array()
-      .timelevel(tl)
-      .data.data_at(0);
-}
-
 std::size_t hierarchy_writer::acquire_scratch(const group_t group,
                                               const std::source_location site) {
   auto &groupdata = GHExt::mutable_instance().group(group, site);
@@ -783,6 +775,14 @@ void hierarchy_writer::release_scratch(const group_t group,
   auto &pool = GHExt::mutable_instance().group(group).scratch_pool;
   assert(slot < pool.size() && pool.at(slot).in_use);
   pool.at(slot).in_use = false;
+}
+
+amrex::MultiFab &
+hierarchy_writer::scratch_mfab(const group_t group, const std::size_t slot,
+                               const std::source_location site) {
+  auto &pool = GHExt::mutable_instance().group(group, site).scratch_pool;
+  assert(slot < pool.size() && pool.at(slot).in_use);
+  return *pool.at(slot).mfab;
 }
 
 void hierarchy_writer::advance_clocks(const window_t window) {

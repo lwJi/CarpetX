@@ -62,6 +62,7 @@ inline constexpr stage_range all_rk_stages = rk_stages(max_num_rk_stages);
 template <class T> class const_propagating_ptr {
 public:
   const_propagating_ptr() = default;
+  const_propagating_ptr(std::unique_ptr<T> ptr) : ptr_(std::move(ptr)) {}
   const_propagating_ptr &operator=(std::unique_ptr<T> ptr) {
     ptr_ = std::move(ptr);
     return *this;
@@ -148,14 +149,15 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 
 using amrcore_factory = std::unique_ptr<amrex::AmrCore> (*)(
     patch_t patch, const amrex::RealBox &domain, int,
-    const amrex::Vector<int> &ncells, const amrex::Array<int, dim> &is_periodic);
+    const amrex::Vector<int> &ncells,
+    const amrex::Array<int, dim> &is_periodic);
 
 struct level_buffers_t;
 using level_buffers_ptr =
     std::unique_ptr<level_buffers_t, void (*)(level_buffers_t *)>;
-using level_buffers_factory = level_buffers_ptr (*)(
-    level_t level, const amrex::BoxArray &ba,
-    const amrex::DistributionMapping &dm);
+using level_buffers_factory =
+    level_buffers_ptr (*)(level_t level, const amrex::BoxArray &ba,
+                          const amrex::DistributionMapping &dm);
 
 struct GHExt {
 
@@ -557,7 +559,7 @@ struct GHExt {
       }
 
       using ghost_mask_key_t =
-          std::pair<std::array<int, dim>, std::array<int, dim> >;
+          std::pair<std::array<int, dim>, std::array<int, dim>>;
       static constexpr int ghost_mask_interior = 0;
       static constexpr int ghost_mask_same_level = 1;
       static constexpr int ghost_mask_coarse_fine = 2;
@@ -583,7 +585,7 @@ struct GHExt {
                       const std::function<std::string()> &why)
               : mfab(std::move(mfab)), valid_(numvars, why_valid_t(why)) {}
 
-          std::unique_ptr<amrex::MultiFab> mfab;
+          const_propagating_ptr<amrex::MultiFab> mfab;
           int open_writes = 0;
 
           valid_t valid(const vi_t vi) const {
@@ -627,14 +629,14 @@ struct GHExt {
 
         std::array<std::array<boundary_t, dim>, 2> boundaries;
         bool all_faces_have_symmetries_or_boundaries() const;
-        std::vector<std::array<int, dim> > parities;
+        std::vector<std::array<int, dim>> parities;
         std::vector<CCTK_REAL> dirichlet_values;
         std::vector<CCTK_REAL> robin_values;
 
-        std::optional<std::array<gi_t, dim> > fluxes;
+        std::optional<std::array<gi_t, dim>> fluxes;
 
         struct scratch_slot_t {
-          std::unique_ptr<amrex::MultiFab> mfab;
+          const_propagating_ptr<amrex::MultiFab> mfab;
           bool in_use = false;
         };
         std::vector<scratch_slot_t> scratch_pool;
@@ -679,13 +681,13 @@ struct GHExt {
       auto groups() const {
         return storage_range<
             const GroupData,
-            std::vector<std::unique_ptr<GroupData> >::const_iterator,
+            std::vector<std::unique_ptr<GroupData>>::const_iterator,
             group_storage_filter>(groupdata.begin(), groupdata.end(),
                                   group_storage_filter{});
       }
       auto groups() {
         return storage_range<GroupData,
-                             std::vector<std::unique_ptr<GroupData> >::iterator,
+                             std::vector<std::unique_ptr<GroupData>>::iterator,
                              group_storage_filter>(
             groupdata.begin(), groupdata.end(), group_storage_filter{});
       }
@@ -696,7 +698,7 @@ struct GHExt {
       }
 
     private:
-      std::vector<std::unique_ptr<GroupData> > groupdata;
+      std::vector<std::unique_ptr<GroupData>> groupdata;
       std::map<ghost_mask_key_t, amrex::iMultiFab> ghost_masks;
 
       friend YAML::Emitter &operator<<(YAML::Emitter &yaml,

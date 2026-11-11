@@ -8,16 +8,19 @@
 #include <tuple.hxx>
 
 #include <AMReX_Box.H>
+#include <AMReX_MultiFab.H>
 
 #include <yaml-cpp/yaml.h>
 #include <zlib.h>
 
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <iomanip>
 #include <iostream>
 #include <map>
 #include <optional>
+#include <source_location>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -178,14 +181,42 @@ public:
   write_scope_t &operator=(write_scope_t &&) = delete;
   ~write_scope_t();
 
+  amrex::MultiFab &
+  mfab(level_t level,
+       std::source_location site = std::source_location::current()) &;
+  void
+  mfab(level_t level,
+       std::source_location site = std::source_location::current()) && = delete;
+
 private:
   friend write_scope_t open_write(window_t window, write_spec_t spec);
+  friend class write_scopes_t;
   write_scope_t(window_t window, write_spec_t spec, int iteration);
   window_t window;
   write_spec_t spec;
   int iteration;
   CCTK_INT epoch;
   bool live;
+};
+
+class write_scopes_t {
+public:
+  write_scopes_t() = default;
+  write_scopes_t(const write_scopes_t &) = delete;
+  write_scopes_t &operator=(const write_scopes_t &) = delete;
+  ~write_scopes_t();
+
+  void open(window_t window, write_spec_t spec);
+  amrex::MultiFab &
+  mfab(level_t level, gi_t gi, tl_t tl,
+       std::source_location site = std::source_location::current()) &;
+  void
+  mfab(level_t level, gi_t gi, tl_t tl,
+       std::source_location site = std::source_location::current()) && = delete;
+  void close();
+
+private:
+  std::deque<write_scope_t> scopes;
 };
 
 void invalidate(window_t window, invalidate_spec_t spec);
@@ -204,6 +235,10 @@ public:
   array_write_scope_t &operator=(const array_write_scope_t &) = delete;
   array_write_scope_t &operator=(array_write_scope_t &&) = delete;
   ~array_write_scope_t();
+
+  void *data(std::source_location site = std::source_location::current()) &;
+  void
+  data(std::source_location site = std::source_location::current()) && = delete;
 
 private:
   friend array_write_scope_t open_array_write(write_spec_t spec);
