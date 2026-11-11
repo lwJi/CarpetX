@@ -41,7 +41,6 @@ flowchart TB
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
   door -- "carpetx.hxx, carpetx_rk.hxx" --> include
   nodoor -- "carpetx.hxx" --> include
-  api -. "RecoverRKBoundary" .- schedule
 ```
 
 - the layer rule holds the order util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/ from the bottom: a file includes only its own layer or a lower one

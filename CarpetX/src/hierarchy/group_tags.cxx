@@ -1,6 +1,8 @@
 #include "hierarchy/group_tags.hxx"
 
 #include "hierarchy/driver.hxx"
+#include "hierarchy/loops.hxx"
+#include "util/refuse.hxx"
 
 #include <cctk_Parameters.h>
 #include <util_Table.h>
@@ -9,7 +11,9 @@
 #include <cctype>
 #include <cstddef>
 #include <ostream>
+#include <source_location>
 #include <string>
+#include <vector>
 
 namespace CarpetX {
 
@@ -438,6 +442,46 @@ void warn_inert_flux_tags() {
                "CarpetX::do_reflux)",
                CCTK_FullGroupName(gi.index()));
   }
+}
+
+std::vector<gi_t> integrated_states(const GHExt::integrator_t &integrator) {
+  std::vector<gi_t> states;
+  for (const auto &[state, rhs] : integrator.rhs)
+    states.push_back(state);
+  return states;
+}
+
+integrated_groups_t
+integrated_groups_with_storage(const level_t level,
+                               const GHExt::integrator_t &integrator) {
+  const GHExt &ext = driver();
+  ext.level(level);
+  integrated_groups_t groups;
+  for (const auto &[state, rhs] : integrator.rhs) {
+    if (!ext.record(state).has_storage())
+      continue;
+    if (!ext.record(rhs).has_storage())
+      refuse(std::source_location::current(),
+             "integrated group %s has storage on patch %d, refinement level "
+             "%d, but its right-hand side %s has none",
+             CCTK_FullGroupName(state.index()), level.patch().index(),
+             level.index(), CCTK_FullGroupName(rhs.index()));
+    groups.states.push_back(state);
+    groups.rhss.push_back(rhs);
+  }
+  return groups;
+}
+
+std::vector<rk_level_t>
+integrated_levels(const window_t window,
+                  const GHExt::integrator_t &integrator) {
+  std::vector<rk_level_t> levels;
+  loop_coarse_to_fine(
+      window, [&](const GHExt::PatchData::LevelData &leveldata) {
+        levels.push_back({leveldata.level, integrated_groups_with_storage(
+                                               leveldata.level, integrator)});
+      });
+  return levels;
 }
 
 std::array<int, dim> get_group_nghostzones(const gi_t gi) {

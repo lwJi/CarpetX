@@ -16,6 +16,7 @@
 #include <optional>
 #include <source_location>
 #include <span>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -355,15 +356,21 @@ static_assert(store_rk_stage_takes<level_t, std::span<const gi_t>,
 static_assert(!store_rk_stage_takes<level_t, std::span<const gi_t>,
                                     std::span<const gi_t>, int>);
 
-static_assert(fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t>);
-static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, int>);
-static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, tl_t>);
+static_assert(fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t,
+                                     const std::string &>);
+static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t>);
+static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, int,
+                                      const std::string &>);
 static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, tl_t,
-                                      stage_t, CCTK_REAL, CCTK_REAL>);
+                                      const std::string &>);
+static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, tl_t,
+                                      stage_t, CCTK_REAL, CCTK_REAL,
+                                      const std::string &>);
 static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t,
-                                      CCTK_REAL, CCTK_REAL>);
+                                      CCTK_REAL, CCTK_REAL,
+                                      const std::string &>);
 static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t,
-                                      rat64>);
+                                      rat64, const std::string &>);
 
 static_assert(!adds_int<stage_t>);
 static_assert(!std::is_convertible_v<stage_t, int>);

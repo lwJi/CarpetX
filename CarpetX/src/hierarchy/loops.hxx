@@ -12,6 +12,7 @@
 #include <cassert>
 #include <functional>
 #include <ostream>
+#include <string>
 
 namespace CarpetX {
 
@@ -43,6 +44,8 @@ void loop_serially(
                              tile_t tile, const cGH *cctkGH)> &kernel);
 
 bool window_is_restricted(window_t window);
+
+std::string describe(window_t window);
 
 inline amrex::Orientation orient(int d, int f) {
   return amrex::Orientation(d, amrex::Orientation::Side(f));

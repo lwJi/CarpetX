@@ -147,12 +147,12 @@ SECTIONS: tuple[Section, ...] = (
                 "`open_rk_step` is called once the state holds u(t_n), outside any OpenMP parallel region, and stores the old state of every registered pair with storage on each level of the window. "
                 "`rhs_computed` stores the stage band and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
                 "`state_updated` says the state holds the next stage value: under subcycling CarpetX fills the refinement boundary of every refined level in the window from its own clocks, scans the coarse-fine ghosts it wrote and marks them valid; the same-level ghosts and the outer boundary of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep, which exchanges the same-level ghosts and then applies the boundary condition. Without subcycling the last `state_updated` applies the flux registers.",
-                ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "api/api_rk.cxx:fill_refinement_boundary", "api/api_rk.cxx:rk_step_t"),
+                ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "comm/subcycling.cxx:FillRKBoundary", "api/api_rk.cxx:rk_step_t"),
             ),
             Row(
                 "Under subcycling the SYNC of an integrated group copies the same-level ghosts and marks them on every level; on a refined level at iteration > 0 it keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote, and elsewhere it fills and marks every ghost itself; on every level it then applies the boundary condition, which requires the interior and both ghost regions, and marks the outer boundary. "
                 "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`, and the thorn's SYNC there copies and marks the rest; the integrator schedules nothing for it.",
-                ("comm/sync_restrict.cxx:SyncGroupsSubcycling", "api/api_rk.cxx:RecoverRKBoundary"),
+                ("comm/sync_restrict.cxx:SyncGroupsSubcycling", "comm/subcycling.cxx:RecoverRKBoundary"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Register", "TestCarpetXAPI_Fill", "TestCarpetXAPI_Step"),
