@@ -313,6 +313,18 @@ static_assert(std::is_same_v<decltype(group_buffers_t::rk_bands),
 
 static_assert(
     std::is_same_v<decltype(grid_buffer_t::mfab), const amrex::MultiFab *>);
+static_assert(
+    std::is_same_v<decltype(checkpoint_band_t::band), const amrex::MultiFab *>);
+static_assert(
+    std::is_same_v<decltype(restore_band_t::band), amrex::MultiFab *>);
+static_assert(std::is_same_v<decltype(checkpoint_bands(std::declval<level_t>(),
+                                                       std::declval<gi_t>(),
+                                                       std::declval<rat64>())),
+                             std::vector<checkpoint_band_t>>);
+static_assert(std::is_same_v<decltype(restore_bands(std::declval<level_t>(),
+                                                    std::declval<gi_t>(),
+                                                    std::declval<rat64>())),
+                             std::vector<restore_band_t>>);
 
 static_assert(accumulate_fluxes_takes<level_t, stage_t, CCTK_REAL>);
 static_assert(!accumulate_fluxes_takes<level_t, int, CCTK_REAL>);

@@ -267,10 +267,11 @@ std::string flux_register_band_tag(const amrex::Orientation face) {
   return buf.str();
 }
 
-std::vector<checkpoint_band_t>
+template <class Band>
+std::vector<Band>
 list_bands(group_buffers_t &buffers,
            const std::optional<rk_bands_t::slots_t> rk_slots) {
-  std::vector<checkpoint_band_t> bands;
+  std::vector<Band> bands;
   const auto add_band = [&](amrex::MultiFab *const band, std::string tag) {
     if (band && !band->empty())
       bands.push_back({std::move(tag), band});
@@ -435,20 +436,21 @@ checkpoint_bands(const level_t level, const gi_t gi, const rat64 parent_step) {
     return {};
   group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
   std::optional<rk_bands_t> &rk_bands = childbuffers.rk_bands;
-  return list_bands(childbuffers,
-                    rk_bands ? rk_bands->stored(parent_step) : std::nullopt);
+  return list_bands<checkpoint_band_t>(
+      childbuffers, rk_bands ? rk_bands->stored(parent_step) : std::nullopt);
 }
 
-std::vector<checkpoint_band_t> restore_bands(const level_t level, const gi_t gi,
-                                             const rat64 parent_step) {
+std::vector<restore_band_t> restore_bands(const level_t level, const gi_t gi,
+                                          const rat64 parent_step) {
   const std::optional<level_t> child = level.child();
   if (!child)
     return {};
   group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
   std::optional<rk_bands_t> &rk_bands = childbuffers.rk_bands;
-  return list_bands(childbuffers, rk_bands ? std::optional<rk_bands_t::slots_t>(
-                                                 rk_bands->restore(parent_step))
-                                           : std::nullopt);
+  return list_bands<restore_band_t>(
+      childbuffers, rk_bands ? std::optional<rk_bands_t::slots_t>(
+                                   rk_bands->restore(parent_step))
+                             : std::nullopt);
 }
 
 void RecoverRKBoundary(const window_t window) {
