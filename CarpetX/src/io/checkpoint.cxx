@@ -425,6 +425,7 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
 }
 
 void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
+                     structure_writer_t &structure,
                      const std::source_location site) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -442,13 +443,13 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
   for (const auto &patchdata : ext.patches()) {
     const int nlevels = record.num_levels(patchdata.patch);
     assert(nlevels > 0);
-    hierarchy_writer::set_finest_level(level_t{patchdata.patch, nlevels - 1});
+    structure.set_finest_level(level_t{patchdata.patch, nlevels - 1});
 
     for (int lev = 0; lev < nlevels; ++lev) {
       const level_t level{patchdata.patch, lev};
       level_record_t &levelrecord = record.level_record(level);
       const std::vector<amrex::Box> &boxes = levelrecord.boxes;
-      hierarchy_writer::recover_level(
+      structure.recover_level(
           level,
           amrex::BoxArray(amrex::BoxList(
               amrex::Vector<amrex::Box>(boxes.begin(), boxes.end()))),

@@ -599,6 +599,11 @@ static_assert(
 static_assert(!std::is_default_constructible_v<clock_writer_t>);
 static_assert(!std::is_copy_constructible_v<clock_writer_t>);
 static_assert(!std::is_move_constructible_v<clock_writer_t>);
+static_assert(std::is_same_v<decltype(hierarchy_writers_t::structure),
+                             structure_writer_t>);
+static_assert(!std::is_default_constructible_v<structure_writer_t>);
+static_assert(!std::is_copy_constructible_v<structure_writer_t>);
+static_assert(!std::is_move_constructible_v<structure_writer_t>);
 
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().active_timelevels(

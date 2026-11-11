@@ -89,7 +89,8 @@ std::optional<window_t::bounds_t> modified_levels(const GHExt &ext) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int Initialise(tFleshConfig *config, clock_writer_t &clock) {
+int Initialise(tFleshConfig *config, clock_writer_t &clock,
+               structure_writer_t &structure) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("Initialise");
@@ -145,11 +146,10 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock) {
 
   CCTK_VINFO("Setting initial values for max_grid_size values for all levels");
   for (const auto &patchdata : ext.patches())
-    hierarchy_writer::set_max_grid_size(patchdata.patch,
-                                        per_level_max_grid_sizes());
+    structure.set_max_grid_size(patchdata.patch, per_level_max_grid_sizes());
 
   if (config->recovered) {
-    RecoverFromCheckpoint(cctkGH, clock);
+    RecoverFromCheckpoint(cctkGH, clock, structure);
     return 0;
 
   } else {
@@ -163,7 +163,7 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock) {
 
       const CCTK_REAL time = 0; // dummy time
       for (const auto &patchdata : ext.patches())
-        hierarchy_writer::make_new_grids(patchdata.patch, time);
+        structure.make_new_grids(patchdata.patch, time);
 
       SetDeltaTime(cctkGH);
 #pragma omp critical
@@ -211,7 +211,7 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock) {
       }
     }
 
-    hierarchy_writer::mark_initialized();
+    structure.mark_initialized();
 
     for (;;) {
       const level_t level = all_levels().finest();
@@ -240,7 +240,7 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock) {
 
           const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
           const CCTK_REAL time = 0; // dummy time
-          hierarchy_writer::regrid(level_t{patchdata.patch, 0}, time);
+          structure.regrid(level_t{patchdata.patch, 0}, time);
 
           const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
           const int max_numlevels = patchdata.amrcore->maxLevel() + 1;
@@ -319,7 +319,8 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock) {
   return 0;
 }
 
-int Evolve(tFleshConfig *config, clock_writer_t &clock) {
+int Evolve(tFleshConfig *config, clock_writer_t &clock,
+           structure_writer_t &structure) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("Evolve");
@@ -379,10 +380,10 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock) {
 
         CCTK_VINFO(
             "Setting max_grid_size values for all levels before regridding");
-        hierarchy_writer::set_max_grid_size(patchdata.patch,
-                                            per_level_max_grid_sizes());
+        structure.set_max_grid_size(patchdata.patch,
+                                    per_level_max_grid_sizes());
 
-        hierarchy_writer::regrid(min_active_level, time);
+        structure.regrid(min_active_level, time);
 
         const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
         const int max_numlevels = patchdata.amrcore->maxLevel() + 1;

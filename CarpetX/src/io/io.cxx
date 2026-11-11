@@ -102,7 +102,8 @@ void encode_output(const cGH *const cctkGH, const char *const operation,
 
 // Recovering
 
-checkpoint_record_t RecoverGridStructure(cGH *restrict cctkGH) {
+checkpoint_record_t RecoverGridStructure(cGH *restrict cctkGH,
+                                         structure_writer_t &structure) {
   const operation_scope_t op("CarpetX::RecoverGridStructure");
   DECLARE_CCTK_PARAMETERS;
 
@@ -110,7 +111,7 @@ checkpoint_record_t RecoverGridStructure(cGH *restrict cctkGH) {
   refuse_unless_recoverable(codec->limits());
   checkpoint_record_t record =
       codec->decode_structure(recover_dir, recover_file, recovered_iteration());
-  apply_structure(cctkGH, record);
+  apply_structure(cctkGH, record, structure);
   return record;
 }
 

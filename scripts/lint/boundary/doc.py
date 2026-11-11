@@ -68,11 +68,13 @@ REGRID_STEPS = {
     "3": "AMReX calls back into the layer that defines its callbacks",
 }
 REGRID = (
-    ("1", "schedule", "hierarchy", ("hierarchy_writer::regrid",), layer_path("hierarchy", "hierarchy.cxx")),
+    ("1", "schedule", "hierarchy", ("structure_writer_t::regrid",), layer_path("hierarchy", "hierarchy.cxx")),
     ("2", "hierarchy", "amrex", ("amrcore->regrid",), layer_path("hierarchy", "hierarchy.cxx")),
     ("3", "amrex", layer_of(CALLBACKS[0]), CALLBACKS[1], CALLBACKS[0]),
 )
 assert {row[0] for row in REGRID} == set(REGRID_STEPS), REGRID
+CALLED_AS = {"structure_writer_t::regrid": "structure.regrid"}
+assert set(CALLED_AS) <= {name for row in PASS + REGRID for name in row[3]}, CALLED_AS
 BOXES = (("above", f"above {HUB}/"), ("door", "driver() allowed"), ("nodoor", "no driver()"))
 STACK_LEGEND = (
     f"the layer rule holds the order {', '.join(f'{layer}/' for layer in LAYERS)} from the bottom: a file includes only its own layer or a lower one",
@@ -303,7 +305,7 @@ def hold(root: str, row: tuple[str, str, str, tuple[str, ...], str]) -> None:
         if missing:
             raise ValueError(f"{', '.join(missing)} not defined in {file}, where step {step} lands")
         if source in LAYERS:
-            missing = [name for name in names if not layer_calls(root, source, name)]
+            missing = [call for call in (CALLED_AS.get(name, name) for name in names) if not layer_calls(root, source, call)]
             if missing:
                 raise ValueError(f"{', '.join(missing)} not called in {source}/, where step {step} starts")
     else:

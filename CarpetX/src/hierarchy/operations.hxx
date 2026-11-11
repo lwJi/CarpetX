@@ -44,34 +44,44 @@ private:
   friend hierarchy_writers_t create_hierarchy(GHExt::config_t config);
 };
 
-struct hierarchy_writers_t {
-  clock_writer_t clock;
-};
+class structure_writer_t {
+public:
+  structure_writer_t(const structure_writer_t &) = delete;
+  structure_writer_t(structure_writer_t &&) = delete;
 
-struct hierarchy_writer {
-  static const GHExt::PatchData &add_patch(patch_t patch);
-  static const GHExt::PatchData::LevelData &
+  const GHExt::PatchData &add_patch(patch_t patch);
+  const GHExt::PatchData::LevelData &
   add_level(level_t level, const amrex::BoxArray &ba,
             const amrex::DistributionMapping &dm,
             const std::function<std::string()> &why);
-  static const GHExt::PatchData::LevelData &
+  const GHExt::PatchData::LevelData &
   make_level(level_t level, const amrex::BoxArray &ba,
              const amrex::DistributionMapping &dm, const std::string &why);
-  static GHExt::PatchData::LevelData
+  GHExt::PatchData::LevelData
   remake_level(level_t level, const amrex::BoxArray &ba,
                const amrex::DistributionMapping &dm,
                const std::function<std::string()> &why);
-  static void erase_levels_from(level_t level);
+  void erase_levels_from(level_t level);
 
-  static void
-  set_max_grid_size(patch_t patch,
-                    const amrex::Vector<amrex::IntVect> &max_grid_sizes);
-  static void make_new_grids(patch_t patch, CCTK_REAL time);
-  static void mark_initialized();
-  static void regrid(level_t base_level, CCTK_REAL time);
-  static void set_finest_level(level_t finest_level);
-  static void recover_level(level_t level, amrex::BoxArray ba, bool rechop);
+  void set_max_grid_size(patch_t patch,
+                         const amrex::Vector<amrex::IntVect> &max_grid_sizes);
+  void make_new_grids(patch_t patch, CCTK_REAL time);
+  void mark_initialized();
+  void regrid(level_t base_level, CCTK_REAL time);
+  void set_finest_level(level_t finest_level);
+  void recover_level(level_t level, amrex::BoxArray ba, bool rechop);
 
+private:
+  structure_writer_t() = default;
+  friend hierarchy_writers_t create_hierarchy(GHExt::config_t config);
+};
+
+struct hierarchy_writers_t {
+  clock_writer_t clock;
+  structure_writer_t structure;
+};
+
+struct hierarchy_writer {
   static void record_storage(gi_t gi, int timelevels);
   static void freeze_storage();
   static void record_integrator(

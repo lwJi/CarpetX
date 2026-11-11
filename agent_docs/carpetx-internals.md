@@ -94,7 +94,7 @@ flowchart LR
   schedule["schedule/"]
   regrid["regrid/"]
   hierarchy["hierarchy/"]
-  schedule -- "1 hierarchy_writer::regrid" --> hierarchy
+  schedule -- "1 structure_writer_t::regrid" --> hierarchy
   hierarchy -- "2 amrcore->regrid" --> amrex
   amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
 ```

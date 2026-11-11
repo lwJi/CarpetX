@@ -19,9 +19,11 @@ namespace CarpetX {
 
 class CactusAmrCore final : public amrex::AmrCore {
   patch_t patch;
+  structure_writer_t &structure;
 
 public:
-  CactusAmrCore(patch_t patch, const amrex::RealBox &rb, int max_level_in,
+  CactusAmrCore(structure_writer_t &structure, patch_t patch,
+                const amrex::RealBox &rb, int max_level_in,
                 const amrex::Vector<int> &n_cell_in, int coord,
                 amrex::Vector<amrex::IntVect> const &ref_ratios,
                 amrex::Array<int, AMREX_SPACEDIM> const &is_per);
@@ -46,7 +48,8 @@ public:
 };
 
 std::unique_ptr<amrex::AmrCore>
-make_cactus_amrcore(patch_t patch, const amrex::RealBox &domain, int,
+make_cactus_amrcore(structure_writer_t &structure, patch_t patch,
+                    const amrex::RealBox &domain, int,
                     const amrex::Vector<int> &ncells,
                     const amrex::Array<int, dim> &is_periodic);
 

@@ -39,12 +39,12 @@ std::unique_ptr<hierarchy_writers_t> writers;
 int Initialise_entry(tFleshConfig *config) {
   CCTKi_AddGH(config, 0, CCTK_SetupGH(config, 0));
   assert(writers);
-  return Initialise(config, writers->clock);
+  return Initialise(config, writers->clock, writers->structure);
 }
 
 int Evolve_entry(tFleshConfig *config) {
   assert(writers);
-  return Evolve(config, writers->clock);
+  return Evolve(config, writers->clock, writers->structure);
 }
 } // namespace
 
@@ -137,6 +137,7 @@ int InitGH(cGH *restrict cctkGH) {
 
   assert(cctkGH);
 
+  assert(writers);
   assert(driver().num_patches() == 0);
   CCTK_INT num_patches = 1;
   if (CCTK_IsFunctionAliased("MultiPatch_GetSystemSpecification")) {
@@ -145,7 +146,7 @@ int InitGH(cGH *restrict cctkGH) {
   }
   for (const patch_t patch :
        index_range<patch_t>(patch_t{0}, patch_t{num_patches}))
-    hierarchy_writer::add_patch(patch);
+    writers->structure.add_patch(patch);
 
   return 0;
 }

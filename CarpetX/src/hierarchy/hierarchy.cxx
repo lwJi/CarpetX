@@ -82,9 +82,10 @@ void GHExt::mark_initialized() {
   initialized_ = true;
 }
 
-GHExt::PatchData &GHExt::add_patch(const patch_t patch) {
+GHExt::PatchData &GHExt::add_patch(structure_writer_t &structure,
+                                   const patch_t patch) {
   assert(patch.index() == num_patches());
-  return patchdata.emplace_back(patch, make_core_);
+  return patchdata.emplace_back(structure, patch, make_core_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -110,7 +111,7 @@ GHExt::cctkGHptr::~cctkGHptr() {
   cctkGH = nullptr;
 }
 
-GHExt::PatchData::PatchData(const patch_t patch,
+GHExt::PatchData::PatchData(structure_writer_t &structure, const patch_t patch,
                             const amrcore_factory make_core)
     : patch(patch) {
   DECLARE_CCTK_PARAMETERS;
@@ -158,7 +159,8 @@ GHExt::PatchData::PatchData(const patch_t patch,
       symmetries[0][1] == symmetry_t::periodic,
       symmetries[0][2] == symmetry_t::periodic};
 
-  amrcore = make_core(patch, domain, max_num_levels - 1, ncells, is_periodic);
+  amrcore = make_core(structure, patch, domain, max_num_levels - 1, ncells,
+                      is_periodic);
 
   if (verbose) {
 #pragma omp critical
@@ -603,14 +605,14 @@ GHExt::record_of(const var_t var, const std::source_location site) const {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const GHExt::PatchData &hierarchy_writer::add_patch(const patch_t patch) {
-  return GHExt::mutable_instance().add_patch(patch);
+const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
+  return GHExt::mutable_instance().add_patch(*this, patch);
 }
 
 const GHExt::PatchData::LevelData &
-hierarchy_writer::add_level(const level_t level, const amrex::BoxArray &ba,
-                            const amrex::DistributionMapping &dm,
-                            const std::function<std::string()> &why) {
+structure_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
+                              const amrex::DistributionMapping &dm,
+                              const std::function<std::string()> &why) {
   DECLARE_CCTK_PARAMETERS;
 
   if (verbose)
@@ -632,9 +634,9 @@ hierarchy_writer::add_level(const level_t level, const amrex::BoxArray &ba,
 }
 
 const GHExt::PatchData::LevelData &
-hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
-                             const amrex::DistributionMapping &dm,
-                             const std::string &why) {
+structure_writer_t::make_level(const level_t level, const amrex::BoxArray &ba,
+                               const amrex::DistributionMapping &dm,
+                               const std::string &why) {
   const GHExt::PatchData::LevelData &leveldata =
       add_level(level, ba, dm, [why]() { return why; });
 
@@ -650,42 +652,43 @@ hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
 }
 
 GHExt::PatchData::LevelData
-hierarchy_writer::remake_level(const level_t level, const amrex::BoxArray &ba,
-                               const amrex::DistributionMapping &dm,
-                               const std::function<std::string()> &why) {
+structure_writer_t::remake_level(const level_t level, const amrex::BoxArray &ba,
+                                 const amrex::DistributionMapping &dm,
+                                 const std::function<std::string()> &why) {
   GHExt::PatchData::LevelData fresh(level, ba, dm, why);
   return GHExt::mutable_instance()
       .patch(level.patch())
       .replace_level(level, std::move(fresh));
 }
 
-void hierarchy_writer::erase_levels_from(const level_t level) {
+void structure_writer_t::erase_levels_from(const level_t level) {
   GHExt::mutable_instance().patch(level.patch()).erase_levels_from(level);
 }
 
-void hierarchy_writer::set_max_grid_size(
+void structure_writer_t::set_max_grid_size(
     const patch_t patch, const amrex::Vector<amrex::IntVect> &max_grid_sizes) {
   GHExt::mutable_instance().patch(patch).amrcore->SetMaxGridSize(
       max_grid_sizes);
 }
 
-void hierarchy_writer::make_new_grids(const patch_t patch,
-                                      const CCTK_REAL time) {
+void structure_writer_t::make_new_grids(const patch_t patch,
+                                        const CCTK_REAL time) {
   GHExt::mutable_instance().patch(patch).amrcore->MakeNewGrids(time);
 }
 
-void hierarchy_writer::mark_initialized() {
+void structure_writer_t::mark_initialized() {
   GHExt::mutable_instance().mark_initialized();
 }
 
-void hierarchy_writer::regrid(const level_t base_level, const CCTK_REAL time) {
+void structure_writer_t::regrid(const level_t base_level,
+                                const CCTK_REAL time) {
   GHExt::PatchData &patchdata =
       GHExt::mutable_instance().patch(base_level.patch());
   patchdata.reset_level_modified();
   patchdata.amrcore->regrid(base_level.index(), time);
 }
 
-void hierarchy_writer::set_finest_level(const level_t finest_level) {
+void structure_writer_t::set_finest_level(const level_t finest_level) {
   GHExt::mutable_instance()
       .patch(finest_level.patch())
       .amrcore->SetFinestLevel(finest_level.index());
@@ -707,8 +710,8 @@ static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
   return ba;
 }
 
-void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
-                                     const bool rechop) {
+void structure_writer_t::recover_level(const level_t level, amrex::BoxArray ba,
+                                       const bool rechop) {
   amrex::AmrCore &amrcore =
       *GHExt::mutable_instance().patch(level.patch()).amrcore;
   const int lev = level.index();

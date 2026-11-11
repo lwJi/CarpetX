@@ -232,9 +232,9 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
                 checkpoint_iteration, finest_last_step_iteration);
 }
 
-static void RecoverHierarchy(cGH *restrict const cctkGH,
-                             clock_writer_t &clock) {
-  const checkpoint_record_t record = RecoverGridStructure(cctkGH);
+static void RecoverHierarchy(cGH *restrict const cctkGH, clock_writer_t &clock,
+                             structure_writer_t &structure) {
+  const checkpoint_record_t record = RecoverGridStructure(cctkGH, structure);
 
   {
     const traversal_scope_t scope(all_levels());
@@ -261,7 +261,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH,
 
   RestoreLevelClocks(cctkGH, record, clock);
 
-  hierarchy_writer::mark_initialized();
+  structure.mark_initialized();
 
   SetDeltaTime(cctkGH);
 }
@@ -330,13 +330,14 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
   CCTK_VINFO("Recovery does not rerun restriction, POSTSTEP or ANALYSIS");
 }
 
-void RecoverFromCheckpoint(cGH *restrict const cctkGH, clock_writer_t &clock) {
+void RecoverFromCheckpoint(cGH *restrict const cctkGH, clock_writer_t &clock,
+                           structure_writer_t &structure) {
   DECLARE_CCTK_PARAMETERS;
 
 #pragma omp critical
   CCTK_VINFO("Recovering from checkpoint...");
 
-  RecoverHierarchy(cctkGH, clock);
+  RecoverHierarchy(cctkGH, clock, structure);
 
   RecomputePerClockGroup(cctkGH);
 

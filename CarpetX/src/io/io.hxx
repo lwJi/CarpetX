@@ -13,7 +13,8 @@ namespace CarpetX {
 
 std::string get_simulation_name();
 
-checkpoint_record_t RecoverGridStructure(cGH *cctkGH);
+checkpoint_record_t RecoverGridStructure(cGH *cctkGH,
+                                         structure_writer_t &structure);
 void RecoverGH(const cGH *cctkGH, const checkpoint_record_t &record);
 void InputGH(const cGH *cctkGH);
 

@@ -2296,14 +2296,15 @@ class Doc(unittest.TestCase):
         files = {file: "".join(define(name) for name in names) for file, names in doc.REGISTERED}
         files[doc.STARTUP] = files[doc.STARTUP].replace(define("ScheduleTraverseGH"), "")
         for name in ("Initialise", "Evolve"):
-            files[doc.STARTUP] = files[doc.STARTUP].replace(define(f"{name}_entry"), f"int {name}_entry(tFleshConfig *config) {{\n  return {name}(config, writers->clock);\n}}\n")
+            files[doc.STARTUP] = files[doc.STARTUP].replace(define(f"{name}_entry"), f"int {name}_entry(tFleshConfig *config) {{\n  return {name}(config, writers->clock, writers->structure);\n}}\n")
         files[doc.STARTUP] += (
             "int ScheduleTraverseGH(cGH *cctkGH,\n                       const char *where) {\n  return CCTK_ScheduleTraverse(where, cctkGH, CallFunction);\n}\n"
             'extern "C" int CarpetX_Startup() {\n' + "".join(f"  CCTK_Overload{name}({name});\n" for _, names in doc.REGISTERED for name in names) + "}\n"
         )
         files[layer_path("schedule", "evolve.cxx")] = (
-            "int Initialise(tFleshConfig *config, clock_writer_t &clock) {\n  CCTK_Traverse(cctkGH, \"CCTK_INITIAL\");\n  return 0;\n}\nint Evolve(tFleshConfig *config, clock_writer_t &clock) {\n"
-            "  hierarchy_writer::regrid(level, time);\n  CCTK_Traverse(cctkGH, \"CCTK_EVOL\");\n  CCTK_OutputGH(cctkGH);\n  return 0;\n}\nint Shutdown(tFleshConfig *config) {\n  return 0;\n}\n"
+            "int Initialise(tFleshConfig *config, clock_writer_t &clock,\n               structure_writer_t &structure) {\n  CCTK_Traverse(cctkGH, \"CCTK_INITIAL\");\n  return 0;\n}\n"
+            "int Evolve(tFleshConfig *config, clock_writer_t &clock,\n           structure_writer_t &structure) {\n"
+            "  structure.regrid(level, time);\n  CCTK_Traverse(cctkGH, \"CCTK_EVOL\");\n  CCTK_OutputGH(cctkGH);\n  return 0;\n}\nint Shutdown(tFleshConfig *config) {\n  return 0;\n}\n"
         )
         files.update(
             {
@@ -2312,7 +2313,7 @@ class Doc(unittest.TestCase):
                 layer_path("io", "io.cxx"): '#include "internal.hxx"\n#include <carpetx.hxx>\nint OutputGH(const cGH *cctkGH) {\n  if (Evolve(0)) {\n    return 1;\n  }\n  return 0;\n}\n',
                 layer_path("regrid", "regrid.cxx"): "void CactusAmrCore::ErrorEst(const int lev,\n                             amrex::TagBoxArray &tags) {\n}\n"
                 + "".join(f"void CactusAmrCore::{name}(int lev) {{\n}}\n" for name in doc.AMREX_CALLBACKS[1:]),
-                layer_path("hierarchy", "hierarchy.cxx"): "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
+                layer_path("hierarchy", "hierarchy.cxx"): "void structure_writer_t::regrid(const level_t base,\n                                const CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
                 layer_path("hierarchy", "handles.cxx"): "variable_t variable(const var_t var) {\n  return {};\n}\nwindow_t active_window() {\n  return scheduled_window(\"x\");\n}\nwindow_t all_levels() {\n  return window_t::levels(0, 1);\n}\n",
                 layer_path("hierarchy", "loops.cxx"): "void synchronize() {\n}\n",
                 layer_path("hierarchy", "valid.cxx"): 'std::string valid_t::explanation() const {\n  return "";\n}\n',
@@ -2376,7 +2377,7 @@ class Doc(unittest.TestCase):
                     '  schedule["schedule/"]',
                     '  regrid["regrid/"]',
                     '  hierarchy["hierarchy/"]',
-                    '  schedule -- "1 hierarchy_writer::regrid" --> hierarchy',
+                    '  schedule -- "1 structure_writer_t::regrid" --> hierarchy',
                     '  hierarchy -- "2 amrcore->regrid" --> amrex',
                     '  amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
                 ],
@@ -2400,6 +2401,7 @@ class Doc(unittest.TestCase):
             startup = files[doc.STARTUP]
             evolve = files[layer_path("schedule", "evolve.cxx")]
             io_cxx = files[layer_path("io", "io.cxx")]
+            hierarchy_cxx = files[layer_path("hierarchy", "hierarchy.cxx")]
             for message, changes, draw in [
                 ("Foo registered in CarpetX/src/flesh/startup.cxx but in no row of REGISTERED", {doc.STARTUP: startup.replace("  CCTK_OverloadSetupGH(SetupGH);\n", "  CCTK_OverloadSetupGH(SetupGH);\n  CCTK_OverloadFoo(Foo);\n")}, doc.entries),
                 ("Shutdown in a row of REGISTERED in scripts/lint/boundary/doc.py but not registered", {doc.STARTUP: startup.replace("  CCTK_OverloadShutdown(Shutdown);\n", "")}, doc.entries),
@@ -2407,9 +2409,11 @@ class Doc(unittest.TestCase):
                 ("OutputGH not defined in CarpetX/src/io/io.cxx, where step 4 lands", {layer_path("io", "io.cxx"): io_cxx.replace("int OutputGH(const cGH *cctkGH) {", "int Output(const cGH *cctkGH) {")}, doc.the_pass),
                 ("CCTK_Traverse not called in CarpetX/src/schedule/evolve.cxx, where step 2 starts", {layer_path("schedule", "evolve.cxx"): re.sub(r"  CCTK_Traverse\(.*\n", "", evolve)}, doc.the_pass),
                 ("CCTK_ScheduleTraverse not called in CarpetX/src/flesh/startup.cxx, where step 5 starts", {doc.STARTUP: startup.replace("CCTK_ScheduleTraverse(where, cctkGH, CallFunction)", "0")}, doc.the_pass),
-                ("Evolve not called in flesh/, where step 1 starts", {doc.STARTUP: startup.replace("return Evolve(config, writers->clock)", "return 0")}, doc.the_pass),
-                ("hierarchy_writer::regrid not called in schedule/, where step 1 starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  hierarchy_writer::regrid(level, time);\n", "")}, doc.the_regrid),
-                ("amrcore->regrid not called in CarpetX/src/hierarchy/hierarchy.cxx, where step 2 starts", {layer_path("hierarchy", "hierarchy.cxx"): "void hierarchy_writer::regrid(level_t base, CCTK_REAL time) {\n}\n"}, doc.the_regrid),
+                ("Evolve not called in flesh/, where step 1 starts", {doc.STARTUP: startup.replace("return Evolve(config, writers->clock, writers->structure)", "return 0")}, doc.the_pass),
+                ("structure.regrid not called in schedule/, where step 1 starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  structure.regrid(level, time);\n", "")}, doc.the_regrid),
+                ("structure.regrid not called in schedule/, where step 1 starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  structure.regrid(level, time);\n", "  hierarchy_writer::regrid(level, time);\n")}, doc.the_regrid),
+                ("structure_writer_t::regrid not defined in CarpetX/src/hierarchy/hierarchy.cxx, where step 1 lands", {layer_path("hierarchy", "hierarchy.cxx"): hierarchy_cxx.replace("structure_writer_t::regrid", "hierarchy_writer::regrid")}, doc.the_regrid),
+                ("amrcore->regrid not called in CarpetX/src/hierarchy/hierarchy.cxx, where step 2 starts", {layer_path("hierarchy", "hierarchy.cxx"): hierarchy_cxx.replace("  ext.amrcore->regrid(base.index(), time);\n", "")}, doc.the_regrid),
                 ("nowhere declared in a public header but defined in no api/ file and in no row of PUBLIC_BODIES", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "int nowhere();\n"}, doc.entries),
                 ("CarpetX/src/include/carpetx_rk.hxx:2 declares something the map cannot name: void (*handler)(int);", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "void (*handler)(int);\n"}, doc.entries),
                 ("operator<< not defined in CarpetX/src/hierarchy/group_tags.cxx, where its row of PUBLIC_BODIES", {layer_path("hierarchy", "group_tags.cxx"): "int tags() {\n  return 0;\n}\n"}, doc.the_pass),

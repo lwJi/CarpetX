@@ -10,8 +10,10 @@
 
 namespace CarpetX {
 
-int Initialise(tFleshConfig *config, clock_writer_t &clock);
-int Evolve(tFleshConfig *config, clock_writer_t &clock);
+int Initialise(tFleshConfig *config, clock_writer_t &clock,
+               structure_writer_t &structure);
+int Evolve(tFleshConfig *config, clock_writer_t &clock,
+           structure_writer_t &structure);
 int Shutdown(tFleshConfig *config);
 
 int CallFunction(void *function, cFunctionData *attribute, void *data);
