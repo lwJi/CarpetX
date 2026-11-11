@@ -370,13 +370,13 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   assert(std::isfinite(dtc) && dtc > 0);
 
   const window_t window = window_t::one_level(child);
-  std::vector<write_scope_t> scopes;
+  write_scopes_t scopes;
   for (const gi_t gi : states) {
-    scopes.push_back(open_write(window, {.gi = gi,
-                                         .tl = rk_tl,
-                                         .fills = make_valid_coarse_fine(),
-                                         .keeps = ~make_valid_coarse_fine(),
-                                         .event = event}));
+    scopes.open(window, {.gi = gi,
+                         .tl = rk_tl,
+                         .fills = make_valid_coarse_fine(),
+                         .keeps = ~make_valid_coarse_fine(),
+                         .event = event});
   }
 
   task_manager tasks1;
@@ -391,7 +391,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
     // subcycling SYNC leave the coarse-fine ghosts to this function
     assert(group_is_integrated(gi));
 
-    amrex::MultiFab &mfab = *groupdata.timelevel(rk_tl).mfab;
+    amrex::MultiFab &mfab = scopes.mfab(child, gi, rk_tl);
 
     // As in FillPatch_Prolongate: without ghosts there is nothing to fill
     if (mfab.nGrowVect().max() == 0)

@@ -14,6 +14,7 @@
 #include <zlib.h>
 
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -186,12 +187,30 @@ public:
 
 private:
   friend write_scope_t open_write(window_t window, write_spec_t spec);
+  friend class write_scopes_t;
   write_scope_t(window_t window, write_spec_t spec, int iteration);
   window_t window;
   write_spec_t spec;
   int iteration;
   CCTK_INT epoch;
   bool live;
+};
+
+class write_scopes_t {
+public:
+  write_scopes_t() = default;
+  write_scopes_t(const write_scopes_t &) = delete;
+  write_scopes_t &operator=(const write_scopes_t &) = delete;
+  ~write_scopes_t();
+
+  void open(window_t window, write_spec_t spec);
+  amrex::MultiFab &
+  mfab(level_t level, gi_t gi, tl_t tl,
+       std::source_location site = std::source_location::current());
+  void close();
+
+private:
+  std::deque<write_scope_t> scopes;
 };
 
 void invalidate(window_t window, invalidate_spec_t spec);

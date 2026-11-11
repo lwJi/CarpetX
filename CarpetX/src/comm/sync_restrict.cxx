@@ -135,7 +135,7 @@ static void apply_outer_boundary(const sync_guard_t &sync,
                                  const timelevels_t tls,
                                  const char *const event) {
   const GHExt &ext = driver();
-  std::vector<write_scope_t> scopes;
+  write_scopes_t scopes;
   for (const gi_t gi : groups) {
     const valid_t fills = outer_fills(window, gi);
     for (const tl_t tl : tls.range(ext.record(gi))) {
@@ -143,22 +143,23 @@ static void apply_outer_boundary(const sync_guard_t &sync,
                        .tl = tl,
                        .where = make_valid_int() | make_valid_ghosts(),
                        .event = event});
-      scopes.push_back(open_write(window, {.gi = gi,
-                                           .tl = tl,
-                                           .fills = fills,
-                                           .keeps = make_valid_all(),
-                                           .event = event}));
+      scopes.open(window, {.gi = gi,
+                           .tl = tl,
+                           .fills = fills,
+                           .keeps = make_valid_all(),
+                           .event = event});
     }
   }
   for (const gi_t gi : groups)
     loop_serially(window, [&](auto &restrict leveldata) {
       auto &restrict groupdata = leveldata.group(gi);
       for (const tl_t tl : tls.range(groupdata.record))
-        apply_boundary_conditions(groupdata, *groupdata.timelevel(tl).mfab);
+        apply_boundary_conditions(groupdata,
+                                  scopes.mfab(leveldata.level, gi, tl));
     });
   synchronize();
   sync_multipatch_boundaries(sync, groups);
-  scopes.clear();
+  scopes.close();
 }
 
 struct level_run_t {
@@ -297,19 +298,18 @@ ProlongateGhosts_impl(const sync_guard_t &, const window_t window,
         return true;
       };
   const std::vector<level_run_t> runs = split_levels(window, prolongates_into);
-  std::vector<write_scope_t> scopes;
+  write_scopes_t scopes;
   for (const gi_t gi : groups) {
     const tl_range fill_tls = tls.range(ext.record(gi));
     for (const level_run_t &run : runs) {
       if (!run.value)
         continue;
       for (const tl_t tl : fill_tls) {
-        scopes.push_back(
-            open_write(run.levels, {.gi = gi,
-                                    .tl = tl,
-                                    .fills = make_valid_coarse_fine(),
-                                    .keeps = make_valid_all(),
-                                    .event = label}));
+        scopes.open(run.levels, {.gi = gi,
+                                 .tl = tl,
+                                 .fills = make_valid_coarse_fine(),
+                                 .keeps = make_valid_all(),
+                                 .event = label});
       }
     }
   }
@@ -336,10 +336,10 @@ ProlongateGhosts_impl(const sync_guard_t &, const window_t window,
       for (const tl_t tl : fill_tls) {
         error_if_parent_invalid(leveldata, gi, tl, prolongation_label.c_str());
         tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
-                                &coarsegroupdata, tl, &ext]() {
+                                &coarsegroupdata, &scopes, gi, tl, &ext]() {
           FillPatch_ProlongateOnly(
               tasks2, tasks3, groupdata, coarsegroupdata,
-              *groupdata.timelevel(tl).mfab,
+              scopes.mfab(leveldata.level, gi, tl),
               *coarsegroupdata.timelevel(tl).mfab,
               ext.patch(leveldata.level.patch())
                   .amrcore->Geom(leveldata.level.index()),
@@ -357,7 +357,7 @@ ProlongateGhosts_impl(const sync_guard_t &, const window_t window,
   tasks3.run_tasks_serially();
   synchronize();
 
-  scopes.clear();
+  scopes.close();
   return runs;
 }
 
@@ -423,7 +423,7 @@ static void SyncGroupsLockstep(const window_t window,
         });
   }
 
-  std::vector<write_scope_t> scopes;
+  write_scopes_t scopes;
   for (const gi_t gi : groups) {
     const tl_range sync_tls =
         timelevels_t::all_but_oldest().range(ext.record(gi));
@@ -431,12 +431,11 @@ static void SyncGroupsLockstep(const window_t window,
       require(
           window,
           {.gi = gi, .tl = tl, .where = make_valid_int(), .event = sync_label});
-      scopes.push_back(
-          open_write(window, {.gi = gi,
-                              .tl = tl,
-                              .fills = make_valid_ghosts(),
-                              .keeps = make_valid_int() | make_valid_outer(),
-                              .event = label}));
+      scopes.open(window, {.gi = gi,
+                           .tl = tl,
+                           .fills = make_valid_ghosts(),
+                           .keeps = make_valid_int() | make_valid_outer(),
+                           .event = label});
     }
   }
 
@@ -454,11 +453,12 @@ static void SyncGroupsLockstep(const window_t window,
       if (leveldata.level.index() == 0) {
 
         for (const tl_t tl : sync_tls) {
-          tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl, &ext]() {
-            FillPatch_Sync(tasks2, *groupdata.timelevel(tl).mfab,
-                           ext.patch(leveldata.level.patch())
-                               .amrcore->Geom(leveldata.level.index()));
-          });
+          tasks1.submit_serially(
+              [&tasks2, &leveldata, &scopes, gi, tl, &ext]() {
+                FillPatch_Sync(tasks2, scopes.mfab(leveldata.level, gi, tl),
+                               ext.patch(leveldata.level.patch())
+                                   .amrcore->Geom(leveldata.level.index()));
+              });
         }
 
       } else {
@@ -472,10 +472,10 @@ static void SyncGroupsLockstep(const window_t window,
           error_if_parent_invalid(leveldata, gi, tl,
                                   prolongation_label.c_str());
           tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
-                                  &coarsegroupdata, tl, &ext]() {
+                                  &coarsegroupdata, &scopes, gi, tl, &ext]() {
             FillPatch_ProlongateGhosts(
                 tasks2, tasks3, groupdata, coarsegroupdata,
-                *groupdata.timelevel(tl).mfab,
+                scopes.mfab(leveldata.level, gi, tl),
                 *coarsegroupdata.timelevel(tl).mfab,
                 ext.patch(leveldata.level.patch())
                     .amrcore->Geom(leveldata.level.index()),
@@ -494,7 +494,7 @@ static void SyncGroupsLockstep(const window_t window,
   tasks3.run_tasks_serially();
   synchronize();
 
-  scopes.clear();
+  scopes.close();
   apply_outer_boundary(sync, window, groups, timelevels_t::all_but_oldest(),
                        boundary_label.c_str());
 }
@@ -562,7 +562,7 @@ static void SyncGroupsSubcycling(const window_t window,
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
-  std::vector<write_scope_t> scopes;
+  write_scopes_t scopes;
   for (const gi_t gi : groups) {
     const tl_range sync_tls =
         timelevels_t::all_but_oldest().range(ext.record(gi));
@@ -576,11 +576,11 @@ static void SyncGroupsSubcycling(const window_t window,
       const valid_t keeps = run.value ? ~make_valid_same_level()
                                       : make_valid_int() | make_valid_outer();
       for (const tl_t tl : sync_tls) {
-        scopes.push_back(open_write(run.levels, {.gi = gi,
-                                                 .tl = tl,
-                                                 .fills = fills,
-                                                 .keeps = keeps,
-                                                 .event = label}));
+        scopes.open(run.levels, {.gi = gi,
+                                 .tl = tl,
+                                 .fills = fills,
+                                 .keeps = keeps,
+                                 .event = label});
       }
     }
   }
@@ -603,11 +603,12 @@ static void SyncGroupsSubcycling(const window_t window,
                    .tl = tl,
                    .where = make_valid_int(),
                    .event = sync_label});
-          tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl, &ext]() {
-            FillPatch_Sync(tasks2, *groupdata.timelevel(tl).mfab,
-                           ext.patch(leveldata.level.patch())
-                               .amrcore->Geom(leveldata.level.index()));
-          });
+          tasks1.submit_serially(
+              [&tasks2, &leveldata, &scopes, gi, tl, &ext]() {
+                FillPatch_Sync(tasks2, scopes.mfab(leveldata.level, gi, tl),
+                               ext.patch(leveldata.level.patch())
+                                   .amrcore->Geom(leveldata.level.index()));
+              });
         }
 
       } else {
@@ -628,8 +629,8 @@ static void SyncGroupsSubcycling(const window_t window,
                      .where = make_valid_int(),
                      .event = sync_label});
             tasks1.submit_serially(
-                [&tasks2, &leveldata, &groupdata, tl, &ext]() {
-                  FillPatch_Sync(tasks2, *groupdata.timelevel(tl).mfab,
+                [&tasks2, &leveldata, &scopes, gi, tl, &ext]() {
+                  FillPatch_Sync(tasks2, scopes.mfab(leveldata.level, gi, tl),
                                  ext.patch(leveldata.level.patch())
                                      .amrcore->Geom(leveldata.level.index()));
                 });
@@ -657,11 +658,11 @@ static void SyncGroupsSubcycling(const window_t window,
                          : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
             tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
-                                    &coarsegroupdata, tl, cmfab_old, tl_w_new,
-                                    &ext]() {
+                                    &coarsegroupdata, &scopes, gi, tl,
+                                    cmfab_old, tl_w_new, &ext]() {
               FillPatch_ProlongateGhosts(
                   tasks2, tasks3, groupdata, coarsegroupdata,
-                  *groupdata.timelevel(tl).mfab,
+                  scopes.mfab(leveldata.level, gi, tl),
                   *coarsegroupdata.timelevel(tl).mfab,
                   ext.patch(leveldata.level.patch())
                       .amrcore->Geom(leveldata.level.index()),
@@ -682,7 +683,7 @@ static void SyncGroupsSubcycling(const window_t window,
   tasks3.run_tasks_serially();
   synchronize();
 
-  scopes.clear();
+  scopes.close();
   apply_outer_boundary(sync, window, groups, timelevels_t::all_but_oldest(),
                        boundary_label.c_str());
 }
@@ -744,17 +745,17 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
-  std::vector<write_scope_t> scopes;
+  write_scopes_t scopes;
   for (const gi_t gi : groups) {
     for (const tl_t tl : tls.range(ext.record(gi))) {
       require(
           window,
           {.gi = gi, .tl = tl, .where = make_valid_int(), .event = sync_label});
-      scopes.push_back(open_write(window, {.gi = gi,
-                                           .tl = tl,
-                                           .fills = make_valid_same_level(),
-                                           .keeps = ~make_valid_same_level(),
-                                           .event = label}));
+      scopes.open(window, {.gi = gi,
+                           .tl = tl,
+                           .fills = make_valid_same_level(),
+                           .keeps = ~make_valid_same_level(),
+                           .event = label});
     }
   }
 
@@ -766,8 +767,8 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
       auto &restrict groupdata = leveldata.group(gi);
 
       for (const tl_t tl : tls.range(groupdata.record)) {
-        tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl, &ext]() {
-          FillPatch_Sync(tasks2, *groupdata.timelevel(tl).mfab,
+        tasks1.submit_serially([&tasks2, &leveldata, &scopes, gi, tl, &ext]() {
+          FillPatch_Sync(tasks2, scopes.mfab(leveldata.level, gi, tl),
                          ext.patch(leveldata.level.patch())
                              .amrcore->Geom(leveldata.level.index()));
         });
@@ -780,7 +781,7 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
   tasks2.run_tasks_serially();
   synchronize();
 
-  scopes.clear();
+  scopes.close();
 }
 
 void ApplyOuterBoundary(const window_t window,

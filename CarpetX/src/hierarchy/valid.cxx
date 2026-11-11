@@ -553,6 +553,14 @@ std::vector<vi_t> variables_of(const gi_t gi, const std::optional<vi_t> vi) {
   return vis;
 }
 
+bool window_contains(const window_t window, const level_t level) {
+  const window_t::bounds_t levels = window.level_bounds();
+  const window_t::bounds_t patches = window.patch_bounds();
+  return level.index() >= levels.min && level.index() < levels.max &&
+         level.patch().index() >= patches.min &&
+         level.patch().index() < patches.max;
+}
+
 } // namespace
 
 int current_iteration() {
@@ -633,22 +641,46 @@ amrex::MultiFab &write_scope_t::mfab(const level_t level,
            "a moved-from write scope on group %s, time level %d hands out no "
            "data",
            driver().record(spec.gi).groupname.c_str(), spec.tl.index());
-  const window_t::bounds_t levels = window.level_bounds();
-  const window_t::bounds_t patches = window.patch_bounds();
-  if (level.index() < levels.min || level.index() >= levels.max ||
-      level.patch().index() < patches.min ||
-      level.patch().index() >= patches.max)
+  if (!window_contains(window, level)) {
+    const window_t::bounds_t levels = window.level_bounds();
+    const window_t::bounds_t patches = window.patch_bounds();
     refuse(site,
            "write scope \"%s\" on group %s, time level %d covers patches [%d, "
            "%d), refinement levels [%d, %d), not patch %d, refinement level %d",
            spec.event.c_str(), driver().record(spec.gi).groupname.c_str(),
            spec.tl.index(), patches.min, patches.max, levels.min, levels.max,
            level.patch().index(), level.index());
+  }
   return *GHExt::mutable_instance()
               .level(level, site)
               .group(spec.gi, site)
               .timelevel(spec.tl, site)
               .mfab;
+}
+
+write_scopes_t::~write_scopes_t() { close(); }
+
+void write_scopes_t::open(const window_t window, write_spec_t spec) {
+  scopes.push_back(open_write(window, std::move(spec)));
+}
+
+amrex::MultiFab &write_scopes_t::mfab(const level_t level, const gi_t gi,
+                                      const tl_t tl,
+                                      const std::source_location site) {
+  for (write_scope_t &scope : scopes)
+    if (scope.spec.gi == gi && scope.spec.tl == tl &&
+        window_contains(scope.window, level))
+      return scope.mfab(level, site);
+  refuse(site,
+         "none of the %zu open write scopes of this set covers group %s, time "
+         "level %d on patch %d, refinement level %d",
+         scopes.size(), driver().record(gi).groupname.c_str(), tl.index(),
+         level.patch().index(), level.index());
+}
+
+void write_scopes_t::close() {
+  while (!scopes.empty())
+    scopes.pop_front();
 }
 
 void require(const window_t window, require_spec_t spec) {
