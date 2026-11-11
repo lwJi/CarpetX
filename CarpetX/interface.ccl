@@ -112,20 +112,6 @@ PROVIDES FUNCTION CallScheduleGroup WITH CarpetX_CallScheduleGroup LANGUAGE C
 
 
 
-# Solve elliptic equations
-
-void FUNCTION SolvePoisson(
-  CCTK_INT IN gi_sol,
-  CCTK_INT IN gi_rhs,
-  CCTK_INT IN gi_res,
-  CCTK_REAL IN reltol,
-  CCTK_REAL IN abstol,
-  CCTK_REAL OUT res_initial,
-  CCTK_REAL OUT res_final)
-PROVIDES FUNCTION SolvePoisson WITH CarpetX_SolvePoisson LANGUAGE C
-
-
-
 # Interpolation
 
 void FUNCTION Interpolate(

@@ -2,7 +2,6 @@
 #include "hierarchy/loops.hxx"
 #include "schedule/schedule.hxx"
 #include "ops/interp.hxx"
-#include "ops/linsolve.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -12,7 +11,6 @@
 
 #include <array>
 #include <cassert>
-#include <optional>
 #include <vector>
 
 namespace CarpetX {
@@ -132,18 +130,6 @@ extern "C" void CarpetX_CallScheduleGroup(void *cctkGH_,
   assert(!ierr);
 }
 
-extern "C" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,
-                                     const CCTK_INT gi_rhs,
-                                     const CCTK_INT gi_res,
-                                     const CCTK_REAL reltol,
-                                     const CCTK_REAL abstol,
-                                     CCTK_REAL *restrict const res_initial,
-                                     CCTK_REAL *restrict const res_final) {
-  solve_poisson(gi_t{gi_sol}, gi_t{gi_rhs},
-                gi_res >= 0 ? std::optional<gi_t>(gi_t{gi_res}) : std::nullopt,
-                reltol, abstol, res_initial, res_final);
-}
-
 extern "C" void CarpetX_Interpolate(const CCTK_POINTER_TO_CONST cctkGH_,
                                     const CCTK_INT npoints,
                                     const CCTK_REAL *restrict const globalsx,
@@ -169,9 +155,7 @@ extern "C" void CarpetX_Interpolate(const CCTK_POINTER_TO_CONST cctkGH_,
                     resultptrs_);
 }
 
-extern "C" CCTK_INT CarpetX_GetEpoch(void) {
-  return driver().epoch();
-}
+extern "C" CCTK_INT CarpetX_GetEpoch(void) { return driver().epoch(); }
 
 extern "C" CCTK_INT CarpetX_DriverInterpolate(
     CCTK_POINTER_TO_CONST const cctkGH, CCTK_INT const N_dims,

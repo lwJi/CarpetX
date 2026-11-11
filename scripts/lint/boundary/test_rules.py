@@ -644,7 +644,7 @@ class Index(unittest.TestCase):
 
     def test_a_source_in_every_layer_is_judged_like_a_header(self):
         for line in self.COUNTED:
-            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/ops/linsolve.cxx", "CarpetX/src/ops/reduction.cxx", "CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_tsv.cxx", "CarpetX/src/hierarchy/loops.cxx"]:
+            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/ops/interpolate.cxx", "CarpetX/src/ops/reduction.cxx", "CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_tsv.cxx", "CarpetX/src/hierarchy/loops.cxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("index", line)])
 
@@ -663,7 +663,7 @@ class Index(unittest.TestCase):
             "for (int lev = 0; lev < max_levels; ++lev) {\n"
             "}\n"
         )
-        for name in ["CarpetX/src/io/io.cxx", "CarpetX/src/ops/linsolve.cxx", "CarpetX/src/schedule/evolve.cxx"]:
+        for name in ["CarpetX/src/io/io.cxx", "CarpetX/src/ops/interpolate.cxx", "CarpetX/src/schedule/evolve.cxx"]:
             with self.subTest(name=name):
                 self.assertEqual(reported(name, text), [])
 
@@ -713,7 +713,7 @@ class Index(unittest.TestCase):
 
     def test_a_fixed_definition_passes_only_in_its_own_file(self):
         for name, text in self.FIXED_DEFINITIONS:
-            for other in ["CarpetX/src/io/io.cxx", "CarpetX/src/ops/linsolve.cxx", "CarpetX/src/hierarchy/hierarchy.cxx"]:
+            for other in ["CarpetX/src/io/io.cxx", "CarpetX/src/ops/interpolate.cxx", "CarpetX/src/hierarchy/hierarchy.cxx"]:
                 with self.subTest(name=name, other=other):
                     self.assertEqual([f for f in reported(other, text) if f[0] == "index"], self.bare_lines(text))
 
@@ -732,7 +732,7 @@ class Index(unittest.TestCase):
             "int min_level_, max_level_;\n",
             "void f(level_t level, gi_t gi, tl_t tl, vi_t vi, patch_t patch);\n",
             "const CCTK_INT nvars, const CCTK_INT *restrict const varinds,\n",
-            "extern \"C\" void CarpetX_SolvePoisson(const CCTK_INT gi_sol,\n",
+            "extern \"C\" void CarpetX_GetLoopBoxAll(const void *restrict const cctkGH_,\n                                      const CCTK_INT size,\n",
             "CCTK_INT num_patches = 1;\n",
             "MY_CCTK_INT level;\n",
             "void f(level_t level, stage_t stage, int nstages);\n",
