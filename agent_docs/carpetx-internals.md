@@ -25,7 +25,7 @@ flowchart TB
   include["include/"]
   flesh -- "schedule.hxx" --> schedule
   flesh -- "checkpoint.hxx, io.hxx" --> io
-  flesh -- "interp.hxx, linsolve.hxx" --> ops
+  flesh -- "interp.hxx" --> ops
   flesh -- "regrid.hxx" --> regrid
   flesh -- "buffers.hxx, comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   api -- "schedule.hxx" --> schedule

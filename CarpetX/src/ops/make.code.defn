@@ -1,6 +1,5 @@
 SRCS =							\
 	interpolate.cxx					\
-	linsolve.cxx					\
 	reduction.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
