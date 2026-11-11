@@ -3,20 +3,15 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from unittest import mock
 
-from boundary import symbols
 from boundary.symbols import (
-    ACCEPTED,
     Reach,
     SymbolsError,
-    accepted,
     layer_objects,
     parse_definitions,
     parse_imports,
     reaches,
     render,
-    split,
     strong_definitions,
     summary,
 )
@@ -25,8 +20,6 @@ SHUTDOWN = "__ZN7CarpetX10ShutdownIOEv"
 DRIVER = "__ZN7CarpetX6driverEv"
 TIMER = "__ZN7CarpetX5TimerD2Ev"
 PARENT = "__ZNK7CarpetX7level_t6parentENSt3__115source_locationE"
-RECOVER = "_ZN7CarpetX17RecoverRKBoundaryENS_8window_tE"
-ROW = ("schedule", "api", "CarpetX::RecoverRKBoundary(")
 LINUX_DEFINED = (
     "0000000000003428 T _ZN7CarpetX10ShutdownIOEv\n"
     "0000000000000000 W _ZN7CarpetX5TimerD2Ev\n"
@@ -98,48 +91,6 @@ class Reaches(unittest.TestCase):
         self.assertEqual(reaches(self.LAYERS, self.DEFINED, imports), [])
 
 
-class Accepted(unittest.TestCase):
-    def test_no_reach_is_accepted(self):
-        self.assertEqual(ACCEPTED, ())
-        self.assertFalse(accepted(Reach("schedule/clocks.cxx.o", "schedule", "api", RECOVER), "CarpetX::RecoverRKBoundary(CarpetX::window_t)"))
-
-    def test_a_listed_body_is_accepted_only_between_the_layers_of_its_row(self):
-        reach = Reach("schedule/clocks.cxx.o", "schedule", "api", RECOVER)
-        with mock.patch.object(symbols, "ACCEPTED", (ROW,)):
-            self.assertTrue(accepted(reach, "CarpetX::RecoverRKBoundary(CarpetX::window_t)"))
-            self.assertFalse(accepted(Reach("schedule/clocks.cxx.o", "schedule", "flesh", RECOVER), "CarpetX::RecoverRKBoundary(CarpetX::window_t)"))
-            self.assertFalse(accepted(Reach("io/io.cxx.o", "io", "api", RECOVER), "CarpetX::RecoverRKBoundary(CarpetX::window_t)"))
-            self.assertFalse(accepted(reach, "CarpetX::RecoverRKBoundaryx(CarpetX::window_t)"))
-            self.assertFalse(accepted(Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "regrid", RECOVER), "CarpetX::CactusAmrCore::RemakeLevel(int, double)"))
-            self.assertFalse(accepted(Reach("io/io.cxx.o", "io", "api", SHUTDOWN), "CarpetX::ShutdownIO()"))
-
-    def test_a_handle_body_is_not_accepted_above_hierarchy(self):
-        for low in ["hierarchy", "comm", "regrid", "ops", "io", "schedule"]:
-            for readable in ["CarpetX::level_t::parent(std::source_location) const", "CarpetX::window_t::finest(std::source_location) const", "CarpetX::variable(CarpetX::var_t)", "CarpetX::all_levels()"]:
-                with self.subTest(low=low, readable=readable):
-                    self.assertFalse(accepted(Reach(f"{low}/x.cxx.o", low, "api", PARENT), readable))
-
-    def test_every_row_reaches_up_from_one_layer_to_another(self):
-        from boundary.rules import LAYERS
-
-        for low, high, prefix in ACCEPTED:
-            with self.subTest(low=low, high=high, prefix=prefix):
-                self.assertIn(low, LAYERS)
-                self.assertIn(high, LAYERS)
-                self.assertLess(LAYERS.index(low), LAYERS.index(high))
-                self.assertTrue(prefix.startswith("CarpetX::"))
-        self.assertEqual(len(set(ACCEPTED)), len(ACCEPTED))
-
-    def test_split(self):
-        up = Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "io", SHUTDOWN)
-        ok = Reach("schedule/clocks.cxx.o", "schedule", "api", RECOVER)
-        readable = {SHUTDOWN: "CarpetX::ShutdownIO()", RECOVER: "CarpetX::RecoverRKBoundary(CarpetX::window_t)", PARENT: "CarpetX::level_t::parent() const"}
-        with mock.patch.object(symbols, "ACCEPTED", (ROW,)):
-            self.assertEqual(split([up, ok], readable), ([up], [ok]))
-        self.assertEqual(split([up, ok], readable), ([up, ok], []))
-        self.assertEqual(split([Reach("io/io.cxx.o", "io", "api", PARENT)], readable), ([Reach("io/io.cxx.o", "io", "api", PARENT)], []))
-
-
 class Objects(unittest.TestCase):
     def test_objects_under_a_layer_directory_and_nothing_else(self):
         with tempfile.TemporaryDirectory() as objdir:
@@ -167,26 +118,14 @@ class Objects(unittest.TestCase):
 
 class Report(unittest.TestCase):
     UP = Reach("hierarchy/group_tags.cxx.o", "hierarchy", "comm", "_ZN7CarpetX16get_interpolatorEv")
-    OK = Reach("io/io.cxx.o", "io", "api", PARENT)
-    READABLE = {UP.symbol: "CarpetX::get_interpolator(std::string)", PARENT: "CarpetX::level_t::parent() const"}
+    READABLE = {UP.symbol: "CarpetX::get_interpolator(std::string)"}
 
     def test_clean(self):
-        self.assertEqual(render([], [], {}), "✓ symbols: every CarpetX import from the importing object's layer or a lower one")
-
-    def test_accepted_only(self):
-        text = render([], [self.OK, self.OK], self.READABLE)
-        self.assertEqual(
-            text.split("\n"),
-            [
-                "accepted: io/ -> api/ 2",
-                "✓ symbols: every CarpetX import from the importing object's layer or a lower one, 2 accepted imports listed in ACCEPTED",
-            ],
-        )
+        self.assertEqual(render([], {}), "✓ symbols: every CarpetX import from the importing object's layer or a lower one")
 
     def test_upward(self):
-        lines = render([self.UP], [self.OK], self.READABLE).split("\n")
+        lines = render([self.UP], self.READABLE).split("\n")
         self.assertEqual(lines[0], "hierarchy/group_tags.cxx.o   -> comm        CarpetX::get_interpolator(std::string)")
         self.assertTrue(lines[1].startswith("symbols: an object the build made"))
-        self.assertEqual(lines[-2], "accepted: io/ -> api/ 1")
-        self.assertEqual(lines[-1], "✗ symbols: 1 upward import, 1 accepted import listed in ACCEPTED")
-        self.assertEqual(summary([self.UP, self.UP], []), "✗ symbols: 2 upward imports")
+        self.assertEqual(lines[-1], "✗ symbols: 1 upward import")
+        self.assertEqual(summary([self.UP, self.UP]), "✗ symbols: 2 upward imports")
