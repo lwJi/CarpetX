@@ -51,12 +51,12 @@ GHExt &GHExt::mutable_instance() { return existing_hierarchy(); }
 
 const GHExt &driver() { return existing_hierarchy(); }
 
-GHExt &create_hierarchy(const GHExt::config_t config) {
+hierarchy_writers_t create_hierarchy(const GHExt::config_t config) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
   ghext = std::make_unique<GHExt>(config);
-  return *ghext;
+  return hierarchy_writers_t{};
 }
 
 void destroy_hierarchy() {
@@ -785,30 +785,30 @@ hierarchy_writer::scratch_mfab(const group_t group, const std::size_t slot,
   return *pool.at(slot).mfab;
 }
 
-void hierarchy_writer::advance_clocks(const window_t window) {
+void clock_writer_t::advance_clocks(const window_t window) {
   loop_serially(window, [](const GHExt::PatchData::LevelData &leveldata) {
     auto &clock = GHExt::mutable_instance().level(leveldata.level);
     clock.iteration += clock.delta_iteration;
   });
 }
 
-void hierarchy_writer::stamp_last_step(const window_t window,
-                                       const int iteration) {
+void clock_writer_t::stamp_last_step(const window_t window,
+                                     const int iteration) {
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     GHExt::mutable_instance().level(leveldata.level).last_step_iteration =
         iteration;
   });
 }
 
-void hierarchy_writer::stamp_last_finalized(const window_t window,
-                                            const int iteration) {
+void clock_writer_t::stamp_last_finalized(const window_t window,
+                                          const int iteration) {
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     GHExt::mutable_instance().level(leveldata.level).last_finalized_iteration =
         iteration;
   });
 }
 
-void hierarchy_writer::restore_level_clock(
+void clock_writer_t::restore_level_clock(
     const level_t level, const rat64 iteration,
     const std::optional<int> last_step_iteration) {
   auto &leveldata = GHExt::mutable_instance().level(level);
@@ -817,11 +817,11 @@ void hierarchy_writer::restore_level_clock(
     leveldata.last_step_iteration = *last_step_iteration;
 }
 
-void hierarchy_writer::rotate_timelevels(const window_t window, const gi_t gi) {
+void clock_writer_t::rotate_timelevels(const window_t window, const gi_t gi) {
   cctkGH_binding::rotate(window, gi);
 }
 
-void hierarchy_writer::rotate_array_timelevels(const gi_t gi) {
+void clock_writer_t::rotate_array_timelevels(const gi_t gi) {
   cctkGH_binding::rotate(gi);
 }
 

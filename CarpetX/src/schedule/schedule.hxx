@@ -3,13 +3,15 @@
 
 #include "internal.hxx"
 
+#include "hierarchy/operations.hxx"
+
 #include <cctk.h>
 #include <cctk_Schedule.h>
 
 namespace CarpetX {
 
-int Initialise(tFleshConfig *config);
-int Evolve(tFleshConfig *config);
+int Initialise(tFleshConfig *config, clock_writer_t &clock);
+int Evolve(tFleshConfig *config, clock_writer_t &clock);
 int Shutdown(tFleshConfig *config);
 
 int CallFunction(void *function, cFunctionData *attribute, void *data);

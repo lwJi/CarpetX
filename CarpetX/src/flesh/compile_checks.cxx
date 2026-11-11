@@ -591,6 +591,14 @@ static_assert(!std::is_convertible_v<GHExt::config_t, GHExt>);
 static_assert(!std::is_constructible_v<GHExt, bool, bool>);
 static_assert(create_hierarchy_takes<GHExt::config_t>);
 static_assert(!create_hierarchy_takes<bool, bool>);
+static_assert(
+    std::is_same_v<decltype(create_hierarchy(std::declval<GHExt::config_t>())),
+                   hierarchy_writers_t>);
+static_assert(
+    std::is_same_v<decltype(hierarchy_writers_t::clock), clock_writer_t>);
+static_assert(!std::is_default_constructible_v<clock_writer_t>);
+static_assert(!std::is_copy_constructible_v<clock_writer_t>);
+static_assert(!std::is_move_constructible_v<clock_writer_t>);
 
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().active_timelevels(

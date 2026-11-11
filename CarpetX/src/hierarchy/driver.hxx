@@ -839,6 +839,7 @@ private:
   void mark_initialized();
 
   friend struct hierarchy_writer;
+  friend class clock_writer_t;
   friend struct cctkGH_binding;
   friend class write_scope_t;
   friend class array_write_scope_t;

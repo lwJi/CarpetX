@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -32,6 +33,19 @@ namespace {
 int ghext_handle = -1;
 
 amrex::AMReX *restrict pamrex = nullptr;
+
+std::unique_ptr<hierarchy_writers_t> writers;
+
+int Initialise_entry(tFleshConfig *config) {
+  CCTKi_AddGH(config, 0, CCTK_SetupGH(config, 0));
+  assert(writers);
+  return Initialise(config, writers->clock);
+}
+
+int Evolve_entry(tFleshConfig *config) {
+  assert(writers);
+  return Evolve(config, writers->clock);
+}
 } // namespace
 
 void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
@@ -106,10 +120,12 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
     assert(!ierr);
   }
 
-  return &create_hierarchy({.use_subcycling = bool(use_subcycling),
-                            .do_reflux = bool(do_reflux),
-                            .make_core = make_cactus_amrcore,
-                            .make_buffers = make_level_buffers});
+  writers.reset(new hierarchy_writers_t(
+      create_hierarchy({.use_subcycling = bool(use_subcycling),
+                        .do_reflux = bool(do_reflux),
+                        .make_core = make_cactus_amrcore,
+                        .make_buffers = make_level_buffers})));
+  return writers.get();
 }
 
 int InitGH(cGH *restrict cctkGH) {
@@ -163,6 +179,7 @@ extern "C" int CarpetX_Shutdown() {
   }
 
   destroy_hierarchy();
+  writers.reset();
 
   amrex::Finalize(pamrex);
   pamrex = nullptr;
@@ -339,8 +356,8 @@ extern "C" int CarpetX_Startup() {
                                                     ScheduleTraverseGH);
   assert(iret);
 
-  CCTK_OverloadInitialise(Initialise);
-  CCTK_OverloadEvolve(Evolve);
+  CCTK_OverloadInitialise(Initialise_entry);
+  CCTK_OverloadEvolve(Evolve_entry);
   CCTK_OverloadShutdown(Shutdown);
   CCTK_OverloadOutputGH(OutputGH);
 

@@ -64,7 +64,9 @@ flowchart LR
   comm["comm/"]
   hierarchy["hierarchy/"]
   util["util/"]
-  cactus -- "1 Initialise, Evolve, Shutdown" --> schedule
+  cactus -- "1 Initialise_entry, Evolve_entry" --> flesh
+  flesh -- "1 Initialise, Evolve" --> schedule
+  cactus -- "1 Shutdown" --> schedule
   schedule -- "2 CCTK_Traverse, CCTK_OutputGH" --> cactus
   cactus -- "3 ScheduleTraverseGH" --> flesh
   cactus -- "4 OutputGH" --> io
@@ -107,9 +109,9 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 | Layer | Caller | Entries |
 | --- | --- | --- |
 | `flesh/` | Cactus flesh | every extern "C" in aliased.cxx, scheduled.cxx, startup.cxx |
-| `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, MyProc, nProcs, Exit, Abort, Barrier, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |
+| `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, Initialise_entry, Evolve_entry, MyProc, nProcs, Exit, Abort, Barrier, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |
 | `api/` | a thorn | every function of carpetx.hxx, carpetx_rk.hxx not named in a row below |
-| `schedule/` | Cactus flesh | Initialise, Evolve, Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB |
+| `schedule/` | Cactus flesh | Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB |
 | `io/` | Cactus flesh | OutputGH |
 | `ops/` | Cactus flesh | InterpLocalUniform |
 | `ops/` | a thorn | reduce |

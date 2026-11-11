@@ -22,8 +22,31 @@
 
 namespace CarpetX {
 
-GHExt &create_hierarchy(GHExt::config_t config);
+struct hierarchy_writers_t;
+[[nodiscard]] hierarchy_writers_t create_hierarchy(GHExt::config_t config);
 void destroy_hierarchy();
+
+class clock_writer_t {
+public:
+  clock_writer_t(const clock_writer_t &) = delete;
+  clock_writer_t(clock_writer_t &&) = delete;
+
+  void advance_clocks(window_t window);
+  void stamp_last_step(window_t window, int iteration);
+  void stamp_last_finalized(window_t window, int iteration);
+  void restore_level_clock(level_t level, rat64 iteration,
+                           std::optional<int> last_step_iteration);
+  void rotate_timelevels(window_t window, gi_t gi);
+  void rotate_array_timelevels(gi_t gi);
+
+private:
+  clock_writer_t() = default;
+  friend hierarchy_writers_t create_hierarchy(GHExt::config_t config);
+};
+
+struct hierarchy_writers_t {
+  clock_writer_t clock;
+};
 
 struct hierarchy_writer {
   static const GHExt::PatchData &add_patch(patch_t patch);
@@ -65,14 +88,6 @@ struct hierarchy_writer {
   static amrex::MultiFab &
   scratch_mfab(group_t group, std::size_t slot,
                std::source_location site = std::source_location::current());
-
-  static void advance_clocks(window_t window);
-  static void stamp_last_step(window_t window, int iteration);
-  static void stamp_last_finalized(window_t window, int iteration);
-  static void restore_level_clock(level_t level, rat64 iteration,
-                                  std::optional<int> last_step_iteration);
-  static void rotate_timelevels(window_t window, gi_t gi);
-  static void rotate_array_timelevels(gi_t gi);
 };
 
 } // namespace CarpetX

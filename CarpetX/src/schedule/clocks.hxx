@@ -3,6 +3,8 @@
 
 #include "internal.hxx"
 
+#include "hierarchy/operations.hxx"
+
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -18,13 +20,14 @@ std::vector<window_t> StepGroups();
 void SetDeltaTime(cGH *restrict cctkGH);
 void SetStepTime(cGH *restrict cctkGH, level_t level, rat64 clock);
 
-void RecoverFromCheckpoint(cGH *restrict cctkGH);
+void RecoverFromCheckpoint(cGH *restrict cctkGH, clock_writer_t &clock);
 
 void TraverseTailBin(cGH *restrict cctkGH, const char *bin);
 void FinalizeWindow(window_t window, cGH *restrict cctkGH, bool reflux);
 
 bool EvolutionIsDone(cGH *restrict cctkGH);
-void CycleTimelevels(window_t window, cGH *restrict cctkGH);
+void CycleTimelevels(window_t window, cGH *restrict cctkGH,
+                     clock_writer_t &clock);
 
 } // namespace CarpetX
 

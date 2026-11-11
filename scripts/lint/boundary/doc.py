@@ -16,8 +16,8 @@ OUTSIDERS = (("cactus", "Cactus flesh"), ("amrex", "AMReX"), ("thorn", "a thorn'
 STARTUP = layer_path("flesh", "startup.cxx")
 REGISTRATION = re.compile(r"\bCCTK_(?:Overload\w+|RegisterGHExtension\w+|InterpRegisterOpLocalUniform)\s*\(\s*(?:ghext_handle\s*,\s*)?(\w+)")
 REGISTERED = (
-    (STARTUP, ("SetupGH", "InitGH", "ScheduleTraverseGH", "MyProc", "nProcs", "Exit", "Abort", "Barrier", "CarpetX_InterpGridArrays", "ArrayGroupSizeB", "GroupDynamicData")),
-    (layer_path("schedule", "evolve.cxx"), ("Initialise", "Evolve", "Shutdown")),
+    (STARTUP, ("SetupGH", "InitGH", "ScheduleTraverseGH", "Initialise_entry", "Evolve_entry", "MyProc", "nProcs", "Exit", "Abort", "Barrier", "CarpetX_InterpGridArrays", "ArrayGroupSizeB", "GroupDynamicData")),
+    (layer_path("schedule", "evolve.cxx"), ("Shutdown",)),
     (layer_path("schedule", "storage.cxx"), ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease", "QueryGroupStorageB")),
     (layer_path("io", "io.cxx"), ("OutputGH",)),
     (layer_path("ops", "interpolate.cxx"), ("InterpLocalUniform",)),
@@ -50,7 +50,9 @@ STEPS = {
     HANDED: "what a routine asks of the flesh, the flesh hands to the layer that owns the work",
 }
 PASS = (
-    ("1", "cactus", "schedule", ("Initialise", "Evolve", "Shutdown"), layer_path("schedule", "evolve.cxx")),
+    ("1", "cactus", "flesh", ("Initialise_entry", "Evolve_entry"), STARTUP),
+    ("1", "flesh", "schedule", ("Initialise", "Evolve"), layer_path("schedule", "evolve.cxx")),
+    ("1", "cactus", "schedule", ("Shutdown",), layer_path("schedule", "evolve.cxx")),
     ("2", "schedule", "cactus", ("CCTK_Traverse", "CCTK_OutputGH"), layer_path("schedule", "evolve.cxx")),
     ("3", "cactus", "flesh", ("ScheduleTraverseGH",), STARTUP),
     ("4", "cactus", "io", ("OutputGH",), layer_path("io", "io.cxx")),

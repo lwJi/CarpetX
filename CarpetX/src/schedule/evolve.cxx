@@ -89,14 +89,15 @@ std::optional<window_t::bounds_t> modified_levels(const GHExt &ext) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-int Initialise(tFleshConfig *config) {
+int Initialise(tFleshConfig *config, clock_writer_t &clock) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("Initialise");
   Interval interval(timer);
 
-  cGH *restrict const cctkGH = CCTK_SetupGH(config, 0);
-  CCTKi_AddGH(config, 0, cctkGH);
+  assert(config);
+  cGH *restrict const cctkGH = config->GH[0];
+  assert(cctkGH);
 
   // Check presync mode
   if (!CCTK_EQUALS(presync_mode, "mixed-error") &&
@@ -148,8 +149,7 @@ int Initialise(tFleshConfig *config) {
                                         per_level_max_grid_sizes());
 
   if (config->recovered) {
-    // Recovery runs its own sequence and skips the fresh-start tail below
-    RecoverFromCheckpoint(cctkGH);
+    RecoverFromCheckpoint(cctkGH, clock);
     return 0;
 
   } else {
@@ -319,7 +319,7 @@ int Initialise(tFleshConfig *config) {
   return 0;
 }
 
-int Evolve(tFleshConfig *config) {
+int Evolve(tFleshConfig *config, clock_writer_t &clock) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("Evolve");
@@ -456,13 +456,13 @@ int Evolve(tFleshConfig *config) {
         const traversal_scope_t scope(window);
 
         level_iteration += level_delta_iteration;
-        hierarchy_writer::advance_clocks(window);
+        clock.advance_clocks(window);
         loop_serially(window, [&](const auto &leveldata) {
           assert(level_iteration == leveldata.iteration);
           assert(level_delta_iteration == leveldata.delta_iteration);
         });
 
-        CycleTimelevels(window, cctkGH);
+        CycleTimelevels(window, cctkGH, clock);
 
         if (!ext.use_subcycling)
           cctkGH->cctk_time += cctkGH->cctk_delta_time;
@@ -475,7 +475,7 @@ int Evolve(tFleshConfig *config) {
       assert(coarsest.iteration == level_iteration);
       const window_t widened = window_t::levels(
           WidenMinLevel(window.coarsest()).index(), window.level_bounds().max);
-      hierarchy_writer::stamp_last_step(widened, cctkGH->cctk_iteration);
+      clock.stamp_last_step(widened, cctkGH->cctk_iteration);
     }
 
     {
@@ -485,7 +485,7 @@ int Evolve(tFleshConfig *config) {
       TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
       TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
 
-      hierarchy_writer::stamp_last_finalized(window, cctkGH->cctk_iteration);
+      clock.stamp_last_finalized(window, cctkGH->cctk_iteration);
 
       TraverseTailBin(cctkGH, "CCTK_CHECKPOINT");
       const double output_start_time = gettime();
