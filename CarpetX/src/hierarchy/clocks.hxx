@@ -27,10 +27,6 @@ inline bool aligned_with_parent(const level_t child) {
   return substep_of_parent_step(child).aligned();
 }
 
-inline rat64 fraction_of_parent_step(const level_t child) {
-  return substep_of_parent_step(child).end;
-}
-
 } // namespace CarpetX
 
 #endif

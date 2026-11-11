@@ -244,8 +244,6 @@ namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
 
-constexpr tl_t rk_tl{0};
-
 void require_serial_context() {
   if (omp_in_parallel())
     CCTK_VERROR("%s must run outside an OpenMP parallel region: it opens its "

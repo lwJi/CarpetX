@@ -635,10 +635,10 @@ static void SyncGroupsSubcycling(const window_t window,
                 });
           }
         } else {
-          const bool blend = !aligned_with_parent(leveldata.level) &&
-                             coarsegroupdata.num_timelevels() >= 2;
-          const CCTK_REAL w_new =
-              CCTK_REAL(fraction_of_parent_step(leveldata.level));
+          const substep_t substep = substep_of_parent_step(leveldata.level);
+          const bool blend =
+              !substep.aligned() && coarsegroupdata.num_timelevels() >= 2;
+          const CCTK_REAL w_new = CCTK_REAL(substep.end);
 
           for (const tl_t tl : sync_tls) {
             const bool do_blend = blend && tl == tl_t{0};

@@ -19,6 +19,8 @@ namespace CarpetX {
 
 inline constexpr CCTK_REAL rk_substep_ratio = CCTK_REAL(1) / time_refinement;
 
+inline constexpr tl_t rk_tl{0};
+
 void StoreRKOldState(level_t level, std::span<const gi_t> var_groups, tl_t tl);
 
 void StoreRKStage(level_t level, std::span<const gi_t> var_groups,

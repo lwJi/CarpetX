@@ -367,7 +367,6 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   const CCTK_REAL dtc = ext.get_global_cctkGH()->cctk_delta_time *
                         CCTK_REAL(coarseleveldata.delta_iteration);
   assert(std::isfinite(dtc) && dtc > 0);
-  constexpr tl_t filled_tl{0};
 
   task_manager tasks1;
   task_manager tasks2;
@@ -381,7 +380,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
     // subcycling SYNC leave the coarse-fine ghosts to this function
     assert(group_is_integrated(gi));
 
-    amrex::MultiFab &mfab = *groupdata.timelevel(filled_tl).mfab;
+    amrex::MultiFab &mfab = *groupdata.timelevel(rk_tl).mfab;
 
     // As in FillPatch_Prolongate: without ghosts there is nothing to fill
     if (mfab.nGrowVect().max() == 0)
