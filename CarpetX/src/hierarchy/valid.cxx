@@ -149,15 +149,16 @@ void loop_ghost_halves(const Loop::GridDescBaseDevice &grid,
                        const valid_t where, const F &kernel) {
   if (!where.valid_same_level && !where.valid_coarse_fine)
     return;
+  const GHExt::GroupRecord::layout_t &group_layout = groupdata.record.layout();
   if (!one_ghost_half(where)) {
-    grid.loop_idx(where_t::ghosts, groupdata.indextype, groupdata.nghostzones,
-                  kernel);
+    grid.loop_idx(where_t::ghosts, group_layout.indextype,
+                  group_layout.nghostzones, kernel);
     return;
   }
   const ghost_half_t half =
       ghost_half(grid, leveldata, groupdata, component, where);
-  grid.loop_idx(where_t::ghosts, groupdata.indextype, groupdata.nghostzones,
-                [&](const Loop::PointDesc &p) {
+  grid.loop_idx(where_t::ghosts, group_layout.indextype,
+                group_layout.nghostzones, [&](const Loop::PointDesc &p) {
                   if (half(p))
                     kernel(p);
                 });
@@ -171,15 +172,16 @@ void loop_ghost_halves_device(const Loop::GridDescBaseDevice &grid,
                               const F &kernel) {
   if (!where.valid_same_level && !where.valid_coarse_fine)
     return;
+  const GHExt::GroupRecord::layout_t &group_layout = groupdata.record.layout();
   if (!one_ghost_half(where)) {
-    grid.loop_device_idx<where_t::ghosts>(groupdata.indextype,
-                                          groupdata.nghostzones, kernel);
+    grid.loop_device_idx<where_t::ghosts>(group_layout.indextype,
+                                          group_layout.nghostzones, kernel);
     return;
   }
   const ghost_half_t half =
       ghost_half(grid, leveldata, groupdata, component, where);
   grid.loop_device_idx<where_t::ghosts>(
-      groupdata.indextype, groupdata.nghostzones,
+      group_layout.indextype, group_layout.nghostzones,
       [=] CCTK_DEVICE(const Loop::PointDesc &p) CCTK_ATTRIBUTE_ALWAYS_INLINE {
         if (half(p))
           kernel(p);
@@ -246,9 +248,11 @@ void poison_invalid_gf(const window_t window, const gi_t gi, const vi_t vi,
                             const tile_t tile,
                             const cGH *restrict const cctkGH) {
     const auto &restrict groupdata = leveldata.group(gi);
+    const GHExt::GroupRecord::layout_t &group_layout =
+        groupdata.record.layout();
 
     const Loop::GridDescBaseDevice grid(cctkGH);
-    const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
+    const Loop::GF3D2layout layout(cctkGH, group_layout.indextype);
     const Loop::GF3D2<CCTK_REAL> gf(
         layout, static_cast<CCTK_REAL *>(CCTK_VarDataPtrI(
                     cctkGH, tl.index(), groupdata.record.var(vi).index())));
@@ -259,14 +263,14 @@ void poison_invalid_gf(const window_t window, const gi_t gi, const vi_t vi,
 
     if (where.valid_all()) {
       grid.loop_device_idx<where_t::everywhere>(
-          groupdata.indextype, groupdata.nghostzones, set_poison);
+          group_layout.indextype, group_layout.nghostzones, set_poison);
     } else {
       if (where.valid_int)
         grid.loop_device_idx<where_t::interior>(
-            groupdata.indextype, groupdata.nghostzones, set_poison);
+            group_layout.indextype, group_layout.nghostzones, set_poison);
       if (where.valid_outer)
         grid.loop_device_idx<where_t::boundary>(
-            groupdata.indextype, groupdata.nghostzones, set_poison);
+            group_layout.indextype, group_layout.nghostzones, set_poison);
       loop_ghost_halves_device(grid, leveldata, groupdata, tile.component(),
                                where, set_poison);
     }
@@ -311,9 +315,11 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
                             const tile_t tile,
                             const cGH *restrict const cctkGH) {
     const auto &restrict groupdata = leveldata.group(gi);
+    const GHExt::GroupRecord::layout_t &group_layout =
+        groupdata.record.layout();
 
     const Loop::GridDescBaseDevice grid(cctkGH);
-    const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
+    const Loop::GF3D2layout layout(cctkGH, group_layout.indextype);
     const Loop::GF3D2<const CCTK_REAL> gf(
         layout, static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(
                     cctkGH, tl.index(), groupdata.record.var(vi).index())));
@@ -327,15 +333,18 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
         };
 
     if (where.valid_all()) {
-      grid.loop_device_idx<where_t::everywhere>(
-          groupdata.indextype, groupdata.nghostzones, update_poison_found);
+      grid.loop_device_idx<where_t::everywhere>(group_layout.indextype,
+                                                group_layout.nghostzones,
+                                                update_poison_found);
     } else {
       if (where.valid_int)
-        grid.loop_device_idx<where_t::interior>(
-            groupdata.indextype, groupdata.nghostzones, update_poison_found);
+        grid.loop_device_idx<where_t::interior>(group_layout.indextype,
+                                                group_layout.nghostzones,
+                                                update_poison_found);
       if (where.valid_outer)
-        grid.loop_device_idx<where_t::boundary>(
-            groupdata.indextype, groupdata.nghostzones, update_poison_found);
+        grid.loop_device_idx<where_t::boundary>(group_layout.indextype,
+                                                group_layout.nghostzones,
+                                                update_poison_found);
       loop_ghost_halves_device(grid, leveldata, groupdata, tile.component(),
                                where, update_poison_found);
     }
@@ -369,9 +378,11 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
                             const tile_t tile,
                             const cGH *restrict const cctkGH) {
     const auto &restrict groupdata = leveldata.group(gi);
+    const GHExt::GroupRecord::layout_t &group_layout =
+        groupdata.record.layout();
 
     const Loop::GridDescBaseDevice grid(cctkGH);
-    const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
+    const Loop::GF3D2layout layout(cctkGH, group_layout.indextype);
     const Loop::GF3D2<const CCTK_REAL> gf(
         layout, static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(
                     cctkGH, tl.index(), groupdata.record.var(vi).index())));
@@ -401,13 +412,13 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
     };
 
     if (where.valid_int)
-      grid.loop_idx(where_t::interior, groupdata.indextype,
-                    groupdata.nghostzones, [&](const Loop::PointDesc &p) {
+      grid.loop_idx(where_t::interior, group_layout.indextype,
+                    group_layout.nghostzones, [&](const Loop::PointDesc &p) {
                       update_nan_count(p, where_t::interior);
                     });
     if (where.valid_outer)
-      grid.loop_idx(where_t::boundary, groupdata.indextype,
-                    groupdata.nghostzones, [&](const Loop::PointDesc &p) {
+      grid.loop_idx(where_t::boundary, group_layout.indextype,
+                    group_layout.nghostzones, [&](const Loop::PointDesc &p) {
                       update_nan_count(p, where_t::boundary);
                     });
     loop_ghost_halves(grid, leveldata, groupdata, tile.component(), where,
@@ -795,8 +806,10 @@ checksums_t calculate_checksums(
                             const tile_t tile,
                             const cGH *restrict const cctkGH) {
     for (const auto &groupdata : leveldata.groups()) {
+      const GHExt::GroupRecord::layout_t &group_layout =
+          groupdata.record.layout();
       const Loop::GridDescBaseDevice grid(cctkGH);
-      const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
+      const Loop::GF3D2layout layout(cctkGH, group_layout.indextype);
 
       for (const vi_t vi : groupdata.record.variables()) {
         for (const tl_t tl : groupdata.record.timelevels()) {
@@ -828,12 +841,12 @@ checksums_t calculate_checksums(
           };
 
           if (to_check.valid_int)
-            grid.loop_idx(where_t::interior, groupdata.indextype,
-                          groupdata.nghostzones, add_point);
+            grid.loop_idx(where_t::interior, group_layout.indextype,
+                          group_layout.nghostzones, add_point);
 
           if (to_check.valid_outer)
-            grid.loop_idx(where_t::boundary, groupdata.indextype,
-                          groupdata.nghostzones, add_point);
+            grid.loop_idx(where_t::boundary, group_layout.indextype,
+                          group_layout.nghostzones, add_point);
 
           loop_ghost_halves(grid, leveldata, groupdata, tile.component(),
                             to_check, add_point);
@@ -864,8 +877,10 @@ void check_checksums(const window_t window, const checksums_t &checksums,
                             const tile_t tile,
                             const cGH *restrict const cctkGH) {
     for (const auto &groupdata : leveldata.groups()) {
+      const GHExt::GroupRecord::layout_t &group_layout =
+          groupdata.record.layout();
       const Loop::GridDescBaseDevice grid(cctkGH);
-      const Loop::GF3D2layout layout(cctkGH, groupdata.indextype);
+      const Loop::GF3D2layout layout(cctkGH, group_layout.indextype);
 
       for (const vi_t vi : groupdata.record.variables()) {
         for (const tl_t tl : groupdata.record.timelevels()) {
@@ -891,12 +906,12 @@ void check_checksums(const window_t window, const checksums_t &checksums,
           };
 
           if (did_check.valid_int)
-            grid.loop_idx(where_t::interior, groupdata.indextype,
-                          groupdata.nghostzones, add_point);
+            grid.loop_idx(where_t::interior, group_layout.indextype,
+                          group_layout.nghostzones, add_point);
 
           if (did_check.valid_outer)
-            grid.loop_idx(where_t::boundary, groupdata.indextype,
-                          groupdata.nghostzones, add_point);
+            grid.loop_idx(where_t::boundary, group_layout.indextype,
+                          group_layout.nghostzones, add_point);
 
           loop_ghost_halves(grid, leveldata, groupdata, tile.component(),
                             did_check, add_point);

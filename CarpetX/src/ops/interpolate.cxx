@@ -83,8 +83,9 @@ template <typename T, int order, int centering> struct interpolator {
     using std::isfinite;
     if (!(isfinite(val))) {
       std::cerr << "!isfinite gi=" << gi
-                << " groupname=" << CCTK_FullGroupName(gi.index()) << " vi=" << vi
-                << " i=" << i << " di=" << di << " val=" << val << "\n";
+                << " groupname=" << CCTK_FullGroupName(gi.index())
+                << " vi=" << vi << " i=" << i << " di=" << di << " val=" << val
+                << "\n";
       for (int c = -1; c <= +1; ++c)
         for (int b = -1; b <= +1; ++b)
           for (int a = -1; a <= +1; ++a)
@@ -612,10 +613,12 @@ void CarpetX::InterpolationSetup::Interpolate(
           const gi_t gi = givis.at(v).gi;
           const vi_t vi = givis.at(v).vi;
           const auto &restrict groupdata = leveldata.group(gi);
-          const int centering = groupdata.indextype[0] * 0b100 +
-                                groupdata.indextype[1] * 0b010 +
-                                groupdata.indextype[2] * 0b001;
-          assert(all(groupdata.nghostzones == grid.nghostzones));
+          const GHExt::GroupRecord::layout_t &layout =
+              groupdata.record.layout();
+          const int centering = layout.indextype[0] * 0b100 +
+                                layout.indextype[1] * 0b010 +
+                                layout.indextype[2] * 0b001;
+          assert(all(layout.nghostzones == grid.nghostzones));
           const amrex::Array4<const CCTK_REAL> &vars =
               groupdata.timelevel(tl).mfab->array(pti);
           vect<int, dim> derivs;
@@ -669,8 +672,8 @@ void CarpetX::InterpolationSetup::Interpolate(
             default:
               CCTK_VERROR("Interpolation order %d for centering [%d,%d,%d] not "
                           "yet supported",
-                          int(interpolation_order), groupdata.indextype[0],
-                          groupdata.indextype[1], groupdata.indextype[2]);
+                          int(interpolation_order), layout.indextype[0],
+                          layout.indextype[1], layout.indextype[2]);
             } // switch interpolation_order
             break;
           } // case 0b000
@@ -712,16 +715,16 @@ void CarpetX::InterpolationSetup::Interpolate(
             default:
               CCTK_VERROR("Interpolation order %d for centering [%d,%d,%d] not "
                           "yet supported",
-                          int(interpolation_order), groupdata.indextype[0],
-                          groupdata.indextype[1], groupdata.indextype[2]);
+                          int(interpolation_order), layout.indextype[0],
+                          layout.indextype[1], layout.indextype[2]);
             } // switch interpolation_order
             break;
           } // case 0b111
 
           default:
             CCTK_VERROR("Centering [%d,%d,%d] not yet supported",
-                        groupdata.indextype[0], groupdata.indextype[1],
-                        groupdata.indextype[2]);
+                        layout.indextype[0], layout.indextype[1],
+                        layout.indextype[2]);
           } // switch centering
 
         } // for var

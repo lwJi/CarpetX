@@ -329,6 +329,27 @@ template <class Binding>
 concept rotates_arrays_unlent =
     requires(GHExt &ext, gi_t gi) { Binding::rotate(ext, gi); };
 
+template <class T>
+concept holds_indextype = requires(const T &t) { t.indextype; };
+
+template <class T>
+concept holds_nghostzones = requires(const T &t) { t.nghostzones; };
+
+template <class T>
+concept holds_boundaries = requires(const T &t) { t.boundaries; };
+
+template <class T>
+concept holds_parities = requires(const T &t) { t.parities; };
+
+template <class T>
+concept holds_dirichlet_values = requires(const T &t) { t.dirichlet_values; };
+
+template <class T>
+concept holds_robin_values = requires(const T &t) { t.robin_values; };
+
+template <class T>
+concept holds_fluxes = requires(const T &t) { t.fluxes; };
+
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
 
@@ -758,6 +779,24 @@ static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt &>);
 static_assert(
     !std::is_constructible_v<hierarchy_writers_t, std::unique_ptr<GHExt>>);
 static_assert(!hands_out_hierarchy<hierarchy_writers_t>);
+
+static_assert(std::is_same_v<
+              decltype(std::declval<const GHExt::GroupRecord &>().layout()),
+              const GHExt::GroupRecord::layout_t &>);
+static_assert(holds_indextype<GHExt::GroupRecord::layout_t>);
+static_assert(!holds_indextype<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_nghostzones<GHExt::GroupRecord::layout_t>);
+static_assert(!holds_nghostzones<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_boundaries<GHExt::GroupRecord::layout_t>);
+static_assert(!holds_boundaries<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_parities<GHExt::GroupRecord::layout_t>);
+static_assert(!holds_parities<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_dirichlet_values<GHExt::GroupRecord::layout_t>);
+static_assert(!holds_dirichlet_values<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_robin_values<GHExt::GroupRecord::layout_t>);
+static_assert(!holds_robin_values<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_fluxes<GHExt::GroupRecord::layout_t>);
+static_assert(!holds_fluxes<GHExt::PatchData::LevelData::GroupData>);
 
 } // namespace
 } // namespace CarpetX

@@ -77,17 +77,18 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
 
     std::size_t npoints_set_local = 0, npoints_clear_local = 0,
                 npoints_total_local = 0;
-    grid.loop_idx(
-        where_t::interior, groupdata.indextype, [&](const Loop::PointDesc &p) {
-          const int tag = err_(p.I) >= regrid_error_threshold
-                              ? amrex::TagBox::SET
-                              : amrex::TagBox::CLEAR;
-          npoints_set_local += tag == amrex::TagBox::SET;
-          npoints_clear_local += tag == amrex::TagBox::CLEAR;
-          ++npoints_total_local;
-          tags_array4(grid.cactus_offset.x + p.i, grid.cactus_offset.y + p.j,
-                      grid.cactus_offset.z + p.k) = tag;
-        });
+    grid.loop_idx(where_t::interior, groupdata.record.layout().indextype,
+                  [&](const Loop::PointDesc &p) {
+                    const int tag = err_(p.I) >= regrid_error_threshold
+                                        ? amrex::TagBox::SET
+                                        : amrex::TagBox::CLEAR;
+                    npoints_set_local += tag == amrex::TagBox::SET;
+                    npoints_clear_local += tag == amrex::TagBox::CLEAR;
+                    ++npoints_total_local;
+                    tags_array4(grid.cactus_offset.x + p.i,
+                                grid.cactus_offset.y + p.j,
+                                grid.cactus_offset.z + p.k) = tag;
+                  });
 
 #pragma omp atomic update
     npoints_set += npoints_set_local;

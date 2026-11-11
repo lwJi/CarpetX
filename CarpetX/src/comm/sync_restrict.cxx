@@ -866,7 +866,7 @@ static void restrict_level(const level_t level,
         Interval interval(timer);
         int rank = 0;
         for (int d = 0; d < dim; ++d)
-          rank += groupdata.indextype.at(d);
+          rank += groupdata.record.layout().indextype.at(d);
         switch (rank) {
         case 0:
           average_down_nodal(*finegroupdata.timelevel(tl).mfab,

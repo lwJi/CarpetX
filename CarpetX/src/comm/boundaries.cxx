@@ -35,20 +35,20 @@ namespace CarpetX {
 BoundaryCondition::BoundaryCondition(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     amrex::FArrayBox &dest)
-    : groupdata(groupdata), patchdata(driver().patch(groupdata.level.patch())),
+    : group_layout(groupdata.record.layout()),
+      patchdata(driver().patch(groupdata.level.patch())),
       geom(patchdata.amrcore->Geom(groupdata.level.index())), dest(dest),
       imin{geom.Domain().smallEnd(0), geom.Domain().smallEnd(1),
            geom.Domain().smallEnd(2)},
-      imax{geom.Domain().bigEnd(0) + 1 + !groupdata.indextype[0],
-           geom.Domain().bigEnd(1) + 1 + !groupdata.indextype[1],
-           geom.Domain().bigEnd(2) + 1 + !groupdata.indextype[2]},
-      // Vertices are shifted outwards by 1/2 grid spacing
-      xmin{geom.ProbLo(0) + CCTK_REAL(0.5) * groupdata.indextype[0] - 1,
-           geom.ProbLo(1) + CCTK_REAL(0.5) * groupdata.indextype[1] - 1,
-           geom.ProbLo(2) + CCTK_REAL(0.5) * groupdata.indextype[2] - 1},
-      xmax{geom.ProbHi(0) - CCTK_REAL(0.5) * groupdata.indextype[0] + 1,
-           geom.ProbHi(1) - CCTK_REAL(0.5) * groupdata.indextype[1] + 1,
-           geom.ProbHi(2) - CCTK_REAL(0.5) * groupdata.indextype[2] + 1},
+      imax{geom.Domain().bigEnd(0) + 1 + !group_layout.indextype[0],
+           geom.Domain().bigEnd(1) + 1 + !group_layout.indextype[1],
+           geom.Domain().bigEnd(2) + 1 + !group_layout.indextype[2]},
+      xmin{geom.ProbLo(0) + CCTK_REAL(0.5) * group_layout.indextype[0] - 1,
+           geom.ProbLo(1) + CCTK_REAL(0.5) * group_layout.indextype[1] - 1,
+           geom.ProbLo(2) + CCTK_REAL(0.5) * group_layout.indextype[2] - 1},
+      xmax{geom.ProbHi(0) - CCTK_REAL(0.5) * group_layout.indextype[0] + 1,
+           geom.ProbHi(1) - CCTK_REAL(0.5) * group_layout.indextype[1] + 1,
+           geom.ProbHi(2) - CCTK_REAL(0.5) * group_layout.indextype[2] + 1},
       dx{geom.CellSize(0), geom.CellSize(1), geom.CellSize(2)},
       dmin{dest.box().smallEnd(0), dest.box().smallEnd(1),
            dest.box().smallEnd(2)},
@@ -56,10 +56,9 @@ BoundaryCondition::BoundaryCondition(
            dest.box().bigEnd(2) + 1},
       layout(dmin, dmax), destptr(dest.dataPtr()) {
 
-  // Check centering
   for (int d = 0; d < dim; ++d)
     assert((dest.box().type(d) == amrex::IndexType::CELL) ==
-           groupdata.indextype[d]);
+           group_layout.indextype[d]);
 
   // Ensure the destination array is large enough
   for (int d = 0; d < dim; ++d) {
