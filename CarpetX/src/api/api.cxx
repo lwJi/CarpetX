@@ -165,7 +165,8 @@ amrex::MultiFab &scratch_t::mfab() & {
   if (!p)
     CCTK_ERROR("CarpetX::scratch_t::mfab() called on a moved-from scratch "
                "buffer");
-  return *resolve_scratch(p->group, p->slot).mfab;
+  resolve_scratch(p->group, p->slot);
+  return hierarchy_writer::scratch_mfab(p->group, p->slot);
 }
 
 const amrex::MultiFab &scratch_t::mfab() const & {

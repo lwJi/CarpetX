@@ -777,6 +777,14 @@ void hierarchy_writer::release_scratch(const group_t group,
   pool.at(slot).in_use = false;
 }
 
+amrex::MultiFab &
+hierarchy_writer::scratch_mfab(const group_t group, const std::size_t slot,
+                               const std::source_location site) {
+  auto &pool = GHExt::mutable_instance().group(group, site).scratch_pool;
+  assert(slot < pool.size() && pool.at(slot).in_use);
+  return *pool.at(slot).mfab;
+}
+
 void hierarchy_writer::advance_clocks(const window_t window) {
   loop_serially(window, [](const GHExt::PatchData::LevelData &leveldata) {
     auto &clock = GHExt::mutable_instance().level(leveldata.level);

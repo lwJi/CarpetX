@@ -413,7 +413,7 @@ RULES = (
         word=MODEL_WORD,
         allowed=never,
         text=f"the data model, {MODEL_FILE}, has no mutable member, declares no extern variable, does not include "
-        "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but grid data behind its pointers and every fact "
+        "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but comm/'s buffers and what its cGH pointers reach, and every fact "
         "about the hierarchy, the epoch included, is a GHExt member changed through hierarchy_writer; what comm/ "
         "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to a type it "
         "only forward-declares, and the integrator record is a GHExt value.",

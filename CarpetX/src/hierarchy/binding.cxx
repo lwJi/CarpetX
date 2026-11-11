@@ -43,7 +43,7 @@ void assert_array_group_bound(const cGH *const cctkGH, const gi_t gi) {
 }
 
 void bind_grid_group(cGH *const cctkGH,
-                     const GHExt::PatchData::LevelData::GroupData &groupdata,
+                     GHExt::PatchData::LevelData::GroupData &groupdata,
                      const GridPtrDesc1 &grid1, const component_t component) {
   assert(cctkGH);
   for (const tl_t tl : groupdata.record.timelevels()) {
@@ -61,7 +61,7 @@ void assert_grid_group_bound(
     const GridPtrDesc1 &grid1, const component_t component) {
   assert(cctkGH);
   for (const tl_t tl : groupdata.record.timelevels()) {
-    const amrex::Array4<CCTK_REAL> vars =
+    const amrex::Array4<const CCTK_REAL> vars =
         groupdata.timelevel(tl).mfab->array(component.index());
     for (const vi_t vi : groupdata.record.variables())
       assert(cctkGH->data[groupdata.record.var(vi).index()][tl.index()] ==
@@ -88,11 +88,11 @@ void cctkGH_binding::unbind_arrays(cGH *const cctkGH) {
 }
 
 void cctkGH_binding::bind_local(cGH *const cctkGH,
-                                const GHExt::PatchData::LevelData &leveldata,
+                                GHExt::PatchData::LevelData &leveldata,
                                 const MFPointer &mfp) {
   assert(in_local_mode(cctkGH));
   assert(cctkGH->cctk_component == mfp.index().index());
-  for (const auto &groupdata : leveldata.groups()) {
+  for (auto &groupdata : leveldata.groups()) {
     const GridPtrDesc1 grid1(leveldata, groupdata, mfp);
     bind_grid_group(cctkGH, groupdata, grid1, mfp.index());
   }
