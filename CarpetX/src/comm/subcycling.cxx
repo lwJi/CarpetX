@@ -3,10 +3,17 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "comm/buffers.hxx"
+#include "comm/comm.hxx"
 #include "comm/fillpatch.hxx"
 #include "comm/prolongate_3d_rf2.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/valid.hxx"
+#include "util/refuse.hxx"
 #include "util/task_manager.hxx"
+#include <carpetx.hxx>
+
+#include <cctk.h>
+#include <cctk_Parameters.h>
 
 #include <AMReX_FabArray.H>     // MultiArray4, MultiFab::arrays()
 #include <AMReX_FabArrayBase.H> // FabArrayBase::TheFPinfo
@@ -290,8 +297,6 @@ list_bands(group_buffers_t &buffers,
 void StoreRKOldState(const level_t level,
                      const std::span<const gi_t> var_groups, const tl_t tl) {
   const GHExt &ext = driver();
-  if (!ext.use_subcycling)
-    return;
   const auto &patchdata = ext.patch(level.patch());
   const auto &leveldata = patchdata.level(level);
   const std::optional<level_t> child = level.child();
@@ -319,8 +324,6 @@ void StoreRKOldState(const level_t level,
 void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
                   const std::span<const gi_t> rhs_groups, const stage_t stage) {
   const GHExt &ext = driver();
-  if (!ext.use_subcycling)
-    return;
   assert(registered_stages().contains(stage));
   assert(var_groups.size() == rhs_groups.size());
   const auto &patchdata = ext.patch(level.patch());
@@ -344,12 +347,10 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
 }
 
 void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
-                    const stage_t completed) {
-  if (child.index() == 0)
-    return;
+                    const stage_t completed, const std::string &event) {
   const GHExt &ext = driver();
-  if (!ext.use_subcycling)
-    return;
+  assert(ext.use_subcycling);
+  assert(child.index() > 0);
 
   auto &patchdata = ext.patch(child.patch());
   auto &leveldata = patchdata.level(child);
@@ -367,6 +368,16 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   const CCTK_REAL dtc = ext.get_global_cctkGH()->cctk_delta_time *
                         CCTK_REAL(coarseleveldata.delta_iteration);
   assert(std::isfinite(dtc) && dtc > 0);
+
+  const window_t window = window_t::one_level(child);
+  std::vector<write_scope_t> scopes;
+  for (const gi_t gi : states) {
+    scopes.push_back(open_write(window, {.gi = gi,
+                                         .tl = rk_tl,
+                                         .fills = make_valid_coarse_fine(),
+                                         .keeps = ~make_valid_coarse_fine(),
+                                         .event = event}));
+  }
 
   task_manager tasks1;
   task_manager tasks2;
@@ -438,6 +449,64 @@ std::vector<checkpoint_band_t> restore_bands(const level_t level, const gi_t gi,
   return list_bands(childbuffers, rk_bands ? std::optional<rk_bands_t::slots_t>(
                                                  rk_bands->restore(parent_step))
                                            : std::nullopt);
+}
+
+void RecoverRKBoundary(const window_t window) {
+  DECLARE_CCTK_PARAMETERS;
+  const GHExt &ext = driver();
+  if (!ext.use_subcycling)
+    return;
+  const std::optional<GHExt::integrator_t> &integrator = ext.integrator();
+  if (!integrator)
+    return;
+  if (integrator->rhs.empty())
+    return;
+  const std::vector<gi_t> states = integrated_states(*integrator);
+  const operation_scope_t op("CarpetX::RecoverRKBoundary");
+
+  if (verbose)
+    CCTK_VINFO("RecoverRKBoundary on %s: refilling the refinement-boundary "
+               "ghosts of the integrated groups (spatial prolongation on "
+               "time-aligned levels of a restricted window, dense output from "
+               "the level's restored source bands otherwise)",
+               describe(window).c_str());
+
+  static Timer timer("RecoverRKBoundary");
+  Interval interval(timer);
+
+  const std::vector<rk_level_t> levels = integrated_levels(window, *integrator);
+  for (const rk_level_t &entry : levels)
+    for (const gi_t gi : entry.groups.states)
+      require(window_t::one_level(entry.level),
+              {.gi = gi,
+               .tl = rk_tl,
+               .where = make_valid_int(),
+               .event = "CarpetX::RecoverRKBoundary requires the tl=0 "
+                        "interior of the integrated groups to be populated by "
+                        "checkpoint recovery"});
+
+  const bool restricted = window_is_restricted(window);
+  if (restricted)
+    ProlongateAligned(window, states, timelevels_t::one(rk_tl));
+
+  for (const rk_level_t &entry : levels) {
+    if (entry.level.index() == 0)
+      continue;
+    const bool aligned = aligned_with_parent(entry.level);
+    if (aligned != (entry.level.index() > window.level_bounds().min))
+      CCTK_VERROR("CarpetX::RecoverRKBoundary on %s: refinement level %d is "
+                  "%s its parent, but recovery traverses each clock group "
+                  "separately, so only the group's coarsest level lags its "
+                  "parent",
+                  describe(window).c_str(), entry.level.index(),
+                  aligned ? "aligned with" : "lagging");
+    if (restricted && aligned)
+      continue;
+    FillRKBoundary(entry.level, entry.groups.states,
+                   integrator->stages().last(),
+                   "CarpetX::RecoverRKBoundary after recovery");
+  }
+  synchronize();
 }
 
 } // namespace CarpetX

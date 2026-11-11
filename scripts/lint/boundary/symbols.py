@@ -15,9 +15,7 @@ from .rules import LAYERS, below
 OBJECT_SUFFIX = ".cxx.o"
 NAMESPACE = "7CarpetX"
 STRONG = frozenset("TDBRSG")
-ACCEPTED = (
-    ("schedule", "api", "CarpetX::RecoverRKBoundary("),
-)
+ACCEPTED: tuple[tuple[str, str, str], ...] = ()
 RULE = wrap(
     "symbols: an object the build made from a CarpetX .cxx imports a symbol of namespace CarpetX only from an "
     "object of its own layer or a lower one, whatever declared it: a header, a prototype, a block-scope declaration "

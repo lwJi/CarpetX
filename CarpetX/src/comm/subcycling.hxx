@@ -27,7 +27,7 @@ void StoreRKStage(level_t level, std::span<const gi_t> var_groups,
                   std::span<const gi_t> rhs_groups, stage_t stage);
 
 void FillRKBoundary(level_t child, std::span<const gi_t> states,
-                    stage_t completed);
+                    stage_t completed, const std::string &event);
 
 void RecoverRKBoundary(window_t window);
 

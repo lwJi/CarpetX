@@ -1,7 +1,6 @@
 #include <carpetx_rk.hxx>
 
 #include "api/api.hxx"
-#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/operations.hxx"
@@ -49,13 +48,6 @@ const GHExt::integrator_t &require_integrator() {
            "no time integrator is registered; call "
            "CarpetX::register_integrator AT WRAGH");
   return *integrator;
-}
-
-std::vector<gi_t> integrated_states(const GHExt::integrator_t &integrator) {
-  std::vector<gi_t> states;
-  for (const auto &[state, rhs] : integrator.rhs)
-    states.push_back(state);
-  return states;
 }
 
 const char *dense_output_name(const rk_dense_output_t dense_output) {
@@ -231,15 +223,6 @@ void run_schedule_group_at(const cGH *const cctkGH_, const char *const group,
                 group, double(time), ierr);
 }
 
-struct integrated_groups_t {
-  std::vector<gi_t> states, rhss;
-};
-
-struct rk_level_t {
-  level_t level;
-  integrated_groups_t groups;
-};
-
 namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
@@ -249,67 +232,6 @@ void require_serial_context() {
     CCTK_VERROR("%s must run outside an OpenMP parallel region: it opens its "
                 "own MFIter and OpenMP regions and warms AMReX's FPinfo cache",
                 current_operation());
-}
-
-std::string describe(const window_t &window) {
-  const auto levels = window.level_bounds();
-  const auto patches = window.patch_bounds();
-  std::ostringstream buf;
-  buf << "patches [" << patches.min << ", " << patches.max
-      << "), refinement levels [" << levels.min << ", " << levels.max << ")";
-  return buf.str();
-}
-
-integrated_groups_t
-integrated_groups_with_storage(const level_t level,
-                               const GHExt::integrator_t &integrator) {
-  const GHExt &ext = driver();
-  ext.level(level);
-  integrated_groups_t groups;
-  for (const auto &[state, rhs] : integrator.rhs) {
-    if (!ext.record(state).has_storage())
-      continue;
-    if (!ext.record(rhs).has_storage())
-      refuse(std::source_location::current(),
-             "integrated group %s has storage on patch %d, refinement level "
-             "%d, but its right-hand side %s has none",
-             CCTK_FullGroupName(state.index()), level.patch().index(),
-             level.index(), CCTK_FullGroupName(rhs.index()));
-    groups.states.push_back(state);
-    groups.rhss.push_back(rhs);
-  }
-  return groups;
-}
-
-std::vector<rk_level_t>
-integrated_levels(const window_t window,
-                  const GHExt::integrator_t &integrator) {
-  std::vector<rk_level_t> levels;
-  loop_coarse_to_fine(
-      window, [&](const GHExt::PatchData::LevelData &leveldata) {
-        levels.push_back({leveldata.level, integrated_groups_with_storage(
-                                               leveldata.level, integrator)});
-      });
-  return levels;
-}
-
-void fill_refinement_boundary(const level_t level,
-                              const std::span<const gi_t> states,
-                              const stage_t stage, const std::string &event) {
-  const GHExt &ext = driver();
-  assert(ext.use_subcycling);
-  assert(level.index() > 0);
-  assert(registered_stages().contains(stage));
-  const window_t window = window_t::one_level(level);
-  std::vector<write_scope_t> scopes;
-  for (const gi_t gi : states) {
-    scopes.push_back(open_write(window, {.gi = gi,
-                                         .tl = rk_tl,
-                                         .fills = make_valid_coarse_fine(),
-                                         .keeps = ~make_valid_coarse_fine(),
-                                         .event = event}));
-  }
-  FillRKBoundary(level, states, stage);
 }
 
 } // namespace
@@ -417,7 +339,7 @@ void rk_step_t::state_updated() {
     for (const rk_level_t &entry : p->levels) {
       if (entry.level.index() == 0)
         continue;
-      fill_refinement_boundary(entry.level, entry.groups.states, stage, event);
+      FillRKBoundary(entry.level, entry.groups.states, stage, event);
     }
   } else if (end_of_step) {
     Reflux(p->window);
@@ -435,61 +357,6 @@ rk_step_t::~rk_step_t() {
                 "state_updated before the step closes",
                 describe(p->window).c_str(), (*p->stage).index(),
                 p->stages.size());
-}
-
-void RecoverRKBoundary(const window_t window) {
-  DECLARE_CCTK_PARAMETERS;
-  const GHExt &ext = driver();
-  if (!ext.use_subcycling)
-    return;
-  const std::optional<GHExt::integrator_t> &integrator = ext.integrator();
-  if (!integrator)
-    return;
-  if (integrator->rhs.empty())
-    return;
-  const std::vector<gi_t> states = integrated_states(*integrator);
-  const operation_scope_t op("CarpetX::RecoverRKBoundary");
-
-  if (verbose)
-    CCTK_VINFO("RecoverRKBoundary on %s: refilling the refinement-boundary "
-               "ghosts of the integrated groups (spatial prolongation on "
-               "time-aligned levels of a restricted window, dense output from "
-               "the level's restored source bands otherwise)",
-               describe(window).c_str());
-
-  static Timer timer("RecoverRKBoundary");
-  Interval interval(timer);
-
-  const std::vector<rk_level_t> levels = integrated_levels(window, *integrator);
-  for (const rk_level_t &entry : levels)
-    for (const gi_t gi : entry.groups.states)
-      require_valid(group_t{entry.level, gi}, rk_tl, make_valid_int(),
-                    "CarpetX::RecoverRKBoundary requires the tl=0 interior of "
-                    "the integrated groups to be populated by checkpoint "
-                    "recovery");
-
-  const bool restricted = window_is_restricted(window);
-  if (restricted)
-    ProlongateAligned(window, states, timelevels_t::one(rk_tl));
-
-  for (const rk_level_t &entry : levels) {
-    if (entry.level.index() == 0)
-      continue;
-    const bool aligned = aligned_with_parent(entry.level);
-    if (aligned != (entry.level.index() > window.level_bounds().min))
-      CCTK_VERROR("CarpetX::RecoverRKBoundary on %s: refinement level %d is "
-                  "%s its parent, but recovery traverses each clock group "
-                  "separately, so only the group's coarsest level lags its "
-                  "parent",
-                  describe(window).c_str(), entry.level.index(),
-                  aligned ? "aligned with" : "lagging");
-    if (restricted && aligned)
-      continue;
-    fill_refinement_boundary(entry.level, entry.groups.states,
-                             integrator->stages().last(),
-                             "CarpetX::RecoverRKBoundary after recovery");
-  }
-  synchronize();
 }
 
 } // namespace CarpetX
