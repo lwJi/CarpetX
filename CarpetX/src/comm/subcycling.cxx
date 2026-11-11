@@ -317,8 +317,7 @@ void StoreRKOldState(const level_t level,
 }
 
 void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
-                  const std::span<const gi_t> rhs_groups,
-                  const stage_t stage) {
+                  const std::span<const gi_t> rhs_groups, const stage_t stage) {
   const GHExt &ext = driver();
   if (!ext.use_subcycling)
     return;
@@ -419,9 +418,8 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   synchronize();
 }
 
-std::vector<checkpoint_band_t> checkpoint_bands(const level_t level,
-                                                const gi_t gi,
-                                                const rat64 parent_step) {
+std::vector<checkpoint_band_t>
+checkpoint_bands(const level_t level, const gi_t gi, const rat64 parent_step) {
   const std::optional<level_t> child = level.child();
   if (!child)
     return {};
@@ -438,10 +436,9 @@ std::vector<checkpoint_band_t> restore_bands(const level_t level, const gi_t gi,
     return {};
   group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
   std::optional<rk_bands_t> &rk_bands = childbuffers.rk_bands;
-  return list_bands(childbuffers,
-                    rk_bands ? std::optional<rk_bands_t::slots_t>(
-                                   rk_bands->restore(parent_step))
-                             : std::nullopt);
+  return list_bands(childbuffers, rk_bands ? std::optional<rk_bands_t::slots_t>(
+                                                 rk_bands->restore(parent_step))
+                                           : std::nullopt);
 }
 
 } // namespace CarpetX

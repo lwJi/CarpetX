@@ -190,7 +190,8 @@ void register_integrator(const rk_config_t &config) {
                     "weights b), but it registered no weights and integrates "
                     "group %s, which carries a fluxes= tag; register an "
                     "explicit method or set CarpetX::do_reflux = no",
-                    int(max_num_levels), CCTK_FullGroupName(pair.state.index()));
+                    int(max_num_levels),
+                    CCTK_FullGroupName(pair.state.index()));
   std::map<gi_t, gi_t> rhs;
   for (const rk_pair_t &pair : config.integrated)
     rhs.emplace(pair.state, pair.rhs);
@@ -374,8 +375,8 @@ void rk_step_t::rhs_computed() {
   if (!(isfinite(delta_time) && delta_time != 0))
     CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s, RK stage %d of %d: "
                 "cctk_delta_time is %g",
-                describe(p->window).c_str(), stage.index(),
-                p->stages.size(), double(delta_time));
+                describe(p->window).c_str(), stage.index(), p->stages.size(),
+                double(delta_time));
   const std::string why = "CarpetX::rk_step_t::rhs_computed on " +
                           describe(p->window) + ": RK stage " +
                           std::to_string(stage.index()) + " of " +
