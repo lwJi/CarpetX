@@ -99,6 +99,7 @@ MODEL_WORD = re.compile(
     r"|\bamrex::(Interpolater|BCRec|FluxRegister)\b"
 )
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
+ALIAS_WORD = re.compile(r"\bmake_alias\b")
 INDEX_PARAM = re.compile(r"\b(?:int|CCTK_INT)\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch|stage|component|tile)\b")
 STORAGE_OVERLOADS = ("QueryGroupStorageB", "GroupStorageIncrease", "GroupStorageDecrease")
 AMREX_CALLBACKS = ("ErrorEst", "MakeNewLevelFromScratch", "MakeNewLevelFromCoarse", "RemakeLevel", "ClearLevel")
@@ -432,6 +433,19 @@ RULES = (
         noun="active_levels_t use",
         where="",
         clean="no active_levels_t",
+    ),
+    Rule(
+        "alias",
+        files=carpetx_cxx,
+        word=ALIAS_WORD,
+        allowed=never,
+        text="amrex::make_alias is named nowhere in CarpetX: AMReX's alias constructor takes a const MultiFab and "
+        "returns a mutable one over the same data, which would turn what driver() hands out into a destination; a "
+        "write site takes its destination from the write scope it opened, and a view of some components passes "
+        "scomp and ncomp to the AMReX call.",
+        noun="make_alias use",
+        where="in CarpetX",
+        clean="no make_alias in CarpetX",
     ),
     Rule(
         "traversal",
