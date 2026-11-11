@@ -198,18 +198,17 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
                    .tl = tl,
                    .where = make_valid_all(),
                    .event = "MakeNewLevelFromCoarse before prolongation"});
-          const write_scope_t scope = open_write(
+          write_scope_t scope = open_write(
               fine_levels,
               {.gi = gi,
                .tl = tl,
                .fills = fills,
                .keeps = {},
                .event = "MakeNewLevelFromCoarse after prolongation"});
-          FillPatch_NewLevel(
-              groupdata, coarsegroupdata, *groupdata.timelevel(tl).mfab,
-              *coarsegroupdata.timelevel(tl).mfab,
-              patchdata.amrcore->Geom(coarse.index()),
-              patchdata.amrcore->Geom(lev));
+          FillPatch_NewLevel(groupdata, coarsegroupdata, scope.mfab(level),
+                             *coarsegroupdata.timelevel(tl).mfab,
+                             patchdata.amrcore->Geom(coarse.index()),
+                             patchdata.amrcore->Geom(lev));
         } else {
           invalidate(fine_levels,
                      {.gi = gi,
@@ -318,18 +317,17 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
 
     for (const tl_t tl : groupdata.record.timelevels()) {
       if (transports(coarsegroupdata, oldgroupdata, tl)) {
-        const write_scope_t scope = open_write(
+        write_scope_t scope = open_write(
             fine_levels, {.gi = gi,
                           .tl = tl,
                           .fills = fills,
                           .keeps = {},
                           .event = "RemakeLevel after prolongation"});
-        FillPatch_RemakeLevel(
-            groupdata, coarsegroupdata, *groupdata.timelevel(tl).mfab,
-            *coarsegroupdata.timelevel(tl).mfab,
-            *oldgroupdata.timelevel(tl).mfab,
-            patchdata.amrcore->Geom(coarse.index()),
-            patchdata.amrcore->Geom(lev));
+        FillPatch_RemakeLevel(groupdata, coarsegroupdata, scope.mfab(level),
+                              *coarsegroupdata.timelevel(tl).mfab,
+                              *oldgroupdata.timelevel(tl).mfab,
+                              patchdata.amrcore->Geom(coarse.index()),
+                              patchdata.amrcore->Geom(lev));
       } else {
         invalidate(fine_levels,
                    {.gi = gi,

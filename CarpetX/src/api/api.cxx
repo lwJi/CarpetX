@@ -98,7 +98,6 @@ const amrex::MultiFab &data(const group_t group, const tl_t tl) {
 
 struct write_t::impl {
   group_t group;
-  tl_t tl;
   write_scope_t scope;
 };
 
@@ -110,7 +109,7 @@ amrex::MultiFab &write_t::mfab() & {
   const operation_scope_t op("CarpetX::write_t::mfab");
   if (!p)
     CCTK_ERROR("CarpetX::write_t::mfab() called on a moved-from write scope");
-  return *driver().group(p->group).timelevel(p->tl).mfab;
+  return p->scope.mfab(p->group.level);
 }
 
 write_t::~write_t() = default;
@@ -128,13 +127,12 @@ write_t write(const group_t group, const tl_t tl, const valid_t leaves_valid,
                 open_writes == 1 ? "" : "s", groupdata.level.patch().index(),
                 groupdata.level.index());
   return write_t(std::unique_ptr<write_t::impl>(
-      new write_t::impl{group, tl,
-                        open_write(window_t::one_level(group.level),
-                                   {.gi = group.gi,
-                                    .tl = tl,
-                                    .fills = leaves_valid,
-                                    .keeps = leaves_valid,
-                                    .event = event_name(what)})}));
+      new write_t::impl{group, open_write(window_t::one_level(group.level),
+                                          {.gi = group.gi,
+                                           .tl = tl,
+                                           .fills = leaves_valid,
+                                           .keeps = leaves_valid,
+                                           .event = event_name(what)})}));
 }
 
 struct scratch_t::impl {

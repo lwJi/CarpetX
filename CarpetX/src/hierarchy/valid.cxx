@@ -145,9 +145,8 @@ ghost_half_t ghost_half(const Loop::GridDescBaseDevice &grid,
 template <typename F>
 void loop_ghost_halves(const Loop::GridDescBaseDevice &grid,
                        const GHExt::PatchData::LevelData &leveldata,
-                       const GroupData &groupdata,
-                       const component_t component, const valid_t where,
-                       const F &kernel) {
+                       const GroupData &groupdata, const component_t component,
+                       const valid_t where, const F &kernel) {
   if (!where.valid_same_level && !where.valid_coarse_fine)
     return;
   if (!one_ghost_half(where)) {
@@ -168,8 +167,8 @@ template <typename F>
 void loop_ghost_halves_device(const Loop::GridDescBaseDevice &grid,
                               const GHExt::PatchData::LevelData &leveldata,
                               const GroupData &groupdata,
-                              const component_t component,
-                              const valid_t where, const F &kernel) {
+                              const component_t component, const valid_t where,
+                              const F &kernel) {
   if (!where.valid_same_level && !where.valid_coarse_fine)
     return;
   if (!one_ghost_half(where)) {
@@ -583,11 +582,8 @@ write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
 }
 
 write_scope_t::write_scope_t(write_scope_t &&other) noexcept
-    : window(other.window),
-      spec(std::move(other.spec)),
-      iteration(other.iteration),
-      epoch(other.epoch),
-      live(other.live) {
+    : window(other.window), spec(std::move(other.spec)),
+      iteration(other.iteration), epoch(other.epoch), live(other.live) {
   other.live = false;
 }
 
@@ -630,6 +626,31 @@ write_scope_t::~write_scope_t() {
   });
 }
 
+amrex::MultiFab &write_scope_t::mfab(const level_t level,
+                                     const std::source_location site) {
+  if (!live)
+    refuse(site,
+           "a moved-from write scope on group %s, time level %d hands out no "
+           "data",
+           driver().record(spec.gi).groupname.c_str(), spec.tl.index());
+  const window_t::bounds_t levels = window.level_bounds();
+  const window_t::bounds_t patches = window.patch_bounds();
+  if (level.index() < levels.min || level.index() >= levels.max ||
+      level.patch().index() < patches.min ||
+      level.patch().index() >= patches.max)
+    refuse(site,
+           "write scope \"%s\" on group %s, time level %d covers patches [%d, "
+           "%d), refinement levels [%d, %d), not patch %d, refinement level %d",
+           spec.event.c_str(), driver().record(spec.gi).groupname.c_str(),
+           spec.tl.index(), patches.min, patches.max, levels.min, levels.max,
+           level.patch().index(), level.index());
+  return *GHExt::mutable_instance()
+              .level(level, site)
+              .group(spec.gi, site)
+              .timelevel(spec.tl, site)
+              .mfab;
+}
+
 void require(const window_t window, require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const std::vector<vi_t> vis = variables_of(spec.gi, spec.vi);
@@ -667,8 +688,7 @@ array_write_scope_t::array_write_scope_t(write_spec_t spec, const int iteration)
 }
 
 array_write_scope_t::array_write_scope_t(array_write_scope_t &&other) noexcept
-    : spec(std::move(other.spec)),
-      iteration(other.iteration),
+    : spec(std::move(other.spec)), iteration(other.iteration),
       live(other.live) {
   other.live = false;
 }

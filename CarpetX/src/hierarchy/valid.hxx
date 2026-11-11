@@ -8,6 +8,7 @@
 #include <tuple.hxx>
 
 #include <AMReX_Box.H>
+#include <AMReX_MultiFab.H>
 
 #include <yaml-cpp/yaml.h>
 #include <zlib.h>
@@ -18,6 +19,7 @@
 #include <iostream>
 #include <map>
 #include <optional>
+#include <source_location>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -177,6 +179,10 @@ public:
   write_scope_t &operator=(const write_scope_t &) = delete;
   write_scope_t &operator=(write_scope_t &&) = delete;
   ~write_scope_t();
+
+  amrex::MultiFab &
+  mfab(level_t level,
+       std::source_location site = std::source_location::current());
 
 private:
   friend write_scope_t open_write(window_t window, write_spec_t spec);

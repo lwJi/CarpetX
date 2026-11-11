@@ -853,12 +853,11 @@ static void restrict_level(const level_t level,
                .tl = tl,
                .where = make_valid_int(),
                .event = "Restrict on coarse level before restricting"});
-      const write_scope_t scope =
-          open_write(coarse_level, {.gi = gi,
-                                    .tl = tl,
-                                    .fills = make_valid_int(),
-                                    .keeps = coarse_keeps,
-                                    .event = "Restrict"});
+      write_scope_t scope = open_write(coarse_level, {.gi = gi,
+                                                      .tl = tl,
+                                                      .fills = make_valid_int(),
+                                                      .keeps = coarse_keeps,
+                                                      .event = "Restrict"});
 
 #if 1
       {
@@ -870,19 +869,18 @@ static void restrict_level(const level_t level,
         switch (rank) {
         case 0:
           average_down_nodal(*finegroupdata.timelevel(tl).mfab,
-                             *groupdata.timelevel(tl).mfab, reffact);
+                             scope.mfab(level), reffact);
           break;
         case 1:
           average_down_edges(*finegroupdata.timelevel(tl).mfab,
-                             *groupdata.timelevel(tl).mfab, reffact);
+                             scope.mfab(level), reffact);
           break;
         case 2:
           average_down_faces(*finegroupdata.timelevel(tl).mfab,
-                             *groupdata.timelevel(tl).mfab, reffact);
+                             scope.mfab(level), reffact);
           break;
         case 3:
-          average_down(*finegroupdata.timelevel(tl).mfab,
-                       *groupdata.timelevel(tl).mfab, 0,
+          average_down(*finegroupdata.timelevel(tl).mfab, scope.mfab(level), 0,
                        groupdata.record.numvars, reffact);
           break;
         default:
