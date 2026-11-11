@@ -1,4 +1,5 @@
 #include "hierarchy/binding.hxx"
+#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/operations.hxx"
@@ -219,6 +220,21 @@ std::optional<window_t::bounds_t> GHExt::PatchData::modified_levels() const {
   return bounds;
 }
 
+substep_t substep_of_parent_step(const level_t child) {
+  const GHExt &ext = driver();
+  const GHExt::PatchData::LevelData &parentdata = ext.level(child.parent());
+  const GHExt::PatchData::LevelData &childdata = ext.level(child);
+  const rat64 parent_step_begin =
+      parentdata.iteration - parentdata.delta_iteration;
+  const rat64 end =
+      (childdata.iteration - parent_step_begin) / parentdata.delta_iteration;
+  const rat64 begin =
+      end - childdata.delta_iteration / parentdata.delta_iteration;
+  assert(begin >= 0 && end <= 1 &&
+         "the child has taken a substep of its parent's current step");
+  return {begin, end};
+}
+
 GHExt::PatchData::LevelData::LevelData(const level_t level,
                                        const amrex::BoxArray &ba,
                                        const amrex::DistributionMapping &dm,
@@ -229,19 +245,16 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
   DECLARE_CCTK_PARAMETERS;
 
   GHExt &ext = GHExt::mutable_instance();
-  const int timereffact = ext.use_subcycling ? 2 : 1;
   if (level.index() == 0) {
-    // We are creating the coarsest level
-    is_subcycling_level = false; // unused
     iteration = 0;
     delta_iteration = 1;
     last_step_iteration = 0;
     last_finalized_iteration = 0;
   } else {
     auto &coarseleveldata = ext.level(level.parent());
-    is_subcycling_level = ext.use_subcycling;
     iteration = coarseleveldata.iteration;
-    delta_iteration = coarseleveldata.delta_iteration / timereffact;
+    delta_iteration = coarseleveldata.delta_iteration /
+                      (ext.use_subcycling ? time_refinement : 1);
     // A level that a regrid creates or remakes shares its parent's clock, and
     // so the parent's last step and last end-of-step window
     last_step_iteration = coarseleveldata.last_step_iteration;

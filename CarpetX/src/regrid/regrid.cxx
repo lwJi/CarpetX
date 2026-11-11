@@ -1,5 +1,6 @@
 #include "regrid/regrid.hxx"
 
+#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
@@ -169,7 +170,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
   const window_t fine_levels = window_t::one_level(level);
   const window_t coarse_levels = window_t::one_level(coarse);
 
-  if (leveldata.iteration != coarseleveldata.iteration) {
+  if (!aligned_with_parent(level)) {
     std::ostringstream msg;
     msg << "Coarse (rl=" << coarse.index()
         << ", it=" << coarseleveldata.iteration << ") and fine (rl=" << lev
@@ -255,7 +256,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   const window_t fine_levels = window_t::one_level(level);
   const window_t coarse_levels = window_t::one_level(coarse);
 
-  if (leveldata.iteration != coarseleveldata.iteration) {
+  if (!aligned_with_parent(level)) {
     std::ostringstream msg;
     msg << "Coarse (rl=" << coarse.index()
         << ", it=" << coarseleveldata.iteration << ") and fine (rl=" << lev
@@ -298,7 +299,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
                                          amrex::IndexType::CELL,
                                          amrex::IndexType::CELL));
 
-  assert(leveldata.iteration == coarseleveldata.iteration);
+  assert(aligned_with_parent(level));
 
   const GHExt::PatchData::LevelData oldleveldata =
       hierarchy_writer::remake_level(level, ba, dm,

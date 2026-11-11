@@ -1,4 +1,5 @@
 #include "hierarchy/loops.hxx"
+#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "comm/boundaries.hxx"
@@ -66,7 +67,8 @@ static void sync_log_groups(const char *label,
   }
 }
 
-static std::vector<gi_t> sync_filter_groups(const std::span<const gi_t> groups0) {
+static std::vector<gi_t>
+sync_filter_groups(const std::span<const gi_t> groups0) {
   static const gi_t gi_regrid_error{
       CCTK_GroupIndex("CarpetXRegrid::regrid_error")};
   assert(gi_regrid_error.index() >= 0);
@@ -265,10 +267,11 @@ static void restrict_level(level_t level, std::span<const gi_t> groups,
 // Sync entry points
 // =======================================================================
 
-static std::vector<level_run_t> ProlongateGhosts_impl(
-    const sync_guard_t &, const window_t window,
-    const std::span<const gi_t> groups0,
-    const bool prolongate_on_same_iteration, const timelevels_t tls) {
+static std::vector<level_run_t>
+ProlongateGhosts_impl(const sync_guard_t &, const window_t window,
+                      const std::span<const gi_t> groups0,
+                      const bool prolongate_on_same_iteration,
+                      const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
@@ -289,11 +292,8 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
           const GHExt::PatchData::LevelData &leveldata) {
         if (leveldata.level.index() == 0)
           return false;
-        if (ext.use_subcycling && prolongate_on_same_iteration) {
-          const auto &restrict coarseleveldata =
-              ext.level(leveldata.level.parent());
-          return leveldata.iteration == coarseleveldata.iteration;
-        }
+        if (ext.use_subcycling && prolongate_on_same_iteration)
+          return aligned_with_parent(leveldata.level);
         return true;
       };
   const std::vector<level_run_t> runs = split_levels(window, prolongates_into);
@@ -304,12 +304,12 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
       if (!run.value)
         continue;
       for (const tl_t tl : fill_tls) {
-        scopes.push_back(open_write(
-            run.levels, {.gi = gi,
-                         .tl = tl,
-                         .fills = make_valid_coarse_fine(),
-                         .keeps = make_valid_all(),
-                         .event = label}));
+        scopes.push_back(
+            open_write(run.levels, {.gi = gi,
+                                    .tl = tl,
+                                    .fills = make_valid_coarse_fine(),
+                                    .keeps = make_valid_all(),
+                                    .event = label}));
       }
     }
   }
@@ -428,10 +428,9 @@ static void SyncGroupsLockstep(const window_t window,
     const tl_range sync_tls =
         timelevels_t::all_but_oldest().range(ext.record(gi));
     for (const tl_t tl : sync_tls) {
-      require(window, {.gi = gi,
-                       .tl = tl,
-                       .where = make_valid_int(),
-                       .event = sync_label});
+      require(
+          window,
+          {.gi = gi, .tl = tl, .where = make_valid_int(), .event = sync_label});
       scopes.push_back(
           open_write(window, {.gi = gi,
                               .tl = tl,
@@ -484,7 +483,6 @@ static void SyncGroupsLockstep(const window_t window,
                     .amrcore->Geom(leveldata.level.parent().index()));
           });
         }
-
       }
     });
   }
@@ -578,12 +576,11 @@ static void SyncGroupsSubcycling(const window_t window,
       const valid_t keeps = run.value ? ~make_valid_same_level()
                                       : make_valid_int() | make_valid_outer();
       for (const tl_t tl : sync_tls) {
-        scopes.push_back(open_write(run.levels,
-                                    {.gi = gi,
-                                     .tl = tl,
-                                     .fills = fills,
-                                     .keeps = keeps,
-                                     .event = label}));
+        scopes.push_back(open_write(run.levels, {.gi = gi,
+                                                 .tl = tl,
+                                                 .fills = fills,
+                                                 .keeps = keeps,
+                                                 .event = label}));
       }
     }
   }
@@ -630,21 +627,18 @@ static void SyncGroupsSubcycling(const window_t window,
                      .tl = tl,
                      .where = make_valid_int(),
                      .event = sync_label});
-            tasks1.submit_serially([&tasks2, &leveldata, &groupdata, tl,
-                                    &ext]() {
-              FillPatch_Sync(tasks2, *groupdata.timelevel(tl).mfab,
-                             ext.patch(leveldata.level.patch())
-                                 .amrcore->Geom(leveldata.level.index()));
-            });
+            tasks1.submit_serially(
+                [&tasks2, &leveldata, &groupdata, tl, &ext]() {
+                  FillPatch_Sync(tasks2, *groupdata.timelevel(tl).mfab,
+                                 ext.patch(leveldata.level.patch())
+                                     .amrcore->Geom(leveldata.level.index()));
+                });
           }
         } else {
-          const bool aligned =
-              (leveldata.iteration == coarseleveldata.iteration);
-          const bool blend = !aligned && coarsegroupdata.num_timelevels() >= 2;
-          const rat64 cdt = coarseleveldata.delta_iteration;
-          const rat64 t_new = coarseleveldata.iteration;
-          const rat64 t_fin = leveldata.iteration;
-          const CCTK_REAL w_new = CCTK_REAL((t_fin - t_new + cdt) / cdt);
+          const substep_t substep = substep_of_parent_step(leveldata.level);
+          const bool blend =
+              !substep.aligned() && coarsegroupdata.num_timelevels() >= 2;
+          const CCTK_REAL w_new = CCTK_REAL(substep.end);
 
           for (const tl_t tl : sync_tls) {
             const bool do_blend = blend && tl == tl_t{0};
@@ -663,8 +657,8 @@ static void SyncGroupsSubcycling(const window_t window,
                          : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
             tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
-                                    &coarsegroupdata, tl,
-                                    cmfab_old, tl_w_new, &ext]() {
+                                    &coarsegroupdata, tl, cmfab_old, tl_w_new,
+                                    &ext]() {
               FillPatch_ProlongateGhosts(
                   tasks2, tasks3, groupdata, coarsegroupdata,
                   *groupdata.timelevel(tl).mfab,
@@ -753,16 +747,14 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : groups) {
     for (const tl_t tl : tls.range(ext.record(gi))) {
-      require(window, {.gi = gi,
-                       .tl = tl,
-                       .where = make_valid_int(),
-                       .event = sync_label});
-      scopes.push_back(
-          open_write(window, {.gi = gi,
-                              .tl = tl,
-                              .fills = make_valid_same_level(),
-                              .keeps = ~make_valid_same_level(),
-                              .event = label}));
+      require(
+          window,
+          {.gi = gi, .tl = tl, .where = make_valid_int(), .event = sync_label});
+      scopes.push_back(open_write(window, {.gi = gi,
+                                           .tl = tl,
+                                           .fills = make_valid_same_level(),
+                                           .keeps = ~make_valid_same_level(),
+                                           .event = label}));
     }
   }
 

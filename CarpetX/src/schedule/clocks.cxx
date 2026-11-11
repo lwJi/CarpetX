@@ -1,4 +1,5 @@
 #include "schedule/clocks.hxx"
+#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
@@ -29,9 +30,8 @@
 
 namespace CarpetX {
 
-level_t WidenMinLevel(level_t level, const rat64 target_iteration) {
-  while (level.index() > 0 &&
-         driver().level(level.parent()).iteration == target_iteration)
+level_t WidenMinLevel(level_t level) {
+  while (level.index() > 0 && aligned_with_parent(level))
     level = level.parent();
   return level;
 }
@@ -39,8 +39,7 @@ level_t WidenMinLevel(level_t level, const rat64 target_iteration) {
 namespace {
 window_t ClockGroupBelow(const window_t window) {
   const level_t finest = window.finest();
-  const level_t coarsest =
-      WidenMinLevel(finest, driver().level(finest).iteration);
+  const level_t coarsest = WidenMinLevel(finest);
   return window.narrow(coarsest.index(), finest.index() + 1);
 }
 
@@ -115,19 +114,10 @@ CCTK_REAL get_finest_mindx() {
 
 std::vector<window_t> StepGroups() {
   const GHExt &ext = driver();
-  const auto starts_a_group = [&](const int level_index) {
-    for (const auto &patchdata : ext.patches()) {
-      const level_t level{patchdata.patch, level_index};
-      if (patchdata.level_handles().contains(level) &&
-          patchdata.level(level).is_subcycling_level)
-        return true;
-    }
-    return false;
-  };
   std::vector<window_t> groups;
   int first = 0;
   for (int level_index = 1; level_index <= ext.num_levels(); ++level_index) {
-    if (level_index == ext.num_levels() || starts_a_group(level_index)) {
+    if (level_index == ext.num_levels() || ext.use_subcycling) {
       groups.push_back(window_t::levels(first, level_index));
       first = level_index;
     }
@@ -155,7 +145,7 @@ void SetDeltaTime(cGH *restrict const cctkGH) {
 void SetStepTime(cGH *restrict const cctkGH, const level_t level,
                  const rat64 clock) {
   if (driver().use_subcycling) {
-    cctkGH->cctk_timefac = 1 << level.index();
+    cctkGH->cctk_timefac = substeps_per_coarsest_step(level.index());
     cctkGH->cctk_time = cctkGH->cctk_delta_time * double(clock);
   } else {
     cctkGH->cctk_timefac = 1;
@@ -167,7 +157,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
   const int checkpoint_iteration = cctkGH->cctk_iteration;
 
   const GHExt &ext = driver();
-  const int iteration_ratio = 1 << (ext.num_levels() - 1);
+  const int iteration_ratio = substeps_per_coarsest_step(ext.num_levels() - 1);
   bool have_last_step_iterations = true;
   for (const auto &patchdata : ext.patches()) {
     for (const auto &leveldata : patchdata.levels()) {

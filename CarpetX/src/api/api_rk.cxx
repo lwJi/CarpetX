@@ -1,6 +1,7 @@
 #include <carpetx_rk.hxx>
 
 #include "api/api.hxx"
+#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/operations.hxx"
@@ -189,7 +190,8 @@ void register_integrator(const rk_config_t &config) {
                     "weights b), but it registered no weights and integrates "
                     "group %s, which carries a fluxes= tag; register an "
                     "explicit method or set CarpetX::do_reflux = no",
-                    int(max_num_levels), CCTK_FullGroupName(pair.state.index()));
+                    int(max_num_levels),
+                    CCTK_FullGroupName(pair.state.index()));
   std::map<gi_t, gi_t> rhs;
   for (const rk_pair_t &pair : config.integrated)
     rhs.emplace(pair.state, pair.rhs);
@@ -242,8 +244,6 @@ namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
 
-constexpr tl_t rk_tl{0};
-
 void require_serial_context() {
   if (omp_in_parallel())
     CCTK_VERROR("%s must run outside an OpenMP parallel region: it opens its "
@@ -293,26 +293,13 @@ integrated_levels(const window_t window,
   return levels;
 }
 
-bool aligned_with_parent(const level_t level) {
-  return driver().level(level).iteration ==
-         driver().level(level.parent()).iteration;
-}
-
 void fill_refinement_boundary(const level_t level,
                               const std::span<const gi_t> states,
                               const stage_t stage, const std::string &event) {
   const GHExt &ext = driver();
   assert(ext.use_subcycling);
   assert(level.index() > 0);
-  const stage_range stages = registered_stages();
-  assert(stages.contains(stage));
-  const bool end_of_substep = stage == stages.last();
-  const GHExt::PatchData::LevelData &parentdata = ext.level(level.parent());
-  const CCTK_REAL substep_start =
-      aligned_with_parent(level) ? rk_substep_ratio : 0;
-  const CCTK_REAL dtc = ext.get_global_cctkGH()->cctk_delta_time *
-                        CCTK_REAL(parentdata.delta_iteration);
-  assert(std::isfinite(dtc) && dtc > 0);
+  assert(registered_stages().contains(stage));
   const window_t window = window_t::one_level(level);
   std::vector<write_scope_t> scopes;
   for (const gi_t gi : states) {
@@ -322,10 +309,7 @@ void fill_refinement_boundary(const level_t level,
                                          .keeps = ~make_valid_coarse_fine(),
                                          .event = event}));
   }
-  FillRKBoundary(
-      level, states, rk_tl,
-      end_of_substep ? stages.first() : next_index(stage),
-      end_of_substep ? substep_start + rk_substep_ratio : substep_start, dtc);
+  FillRKBoundary(level, states, stage);
 }
 
 } // namespace
@@ -389,8 +373,8 @@ void rk_step_t::rhs_computed() {
   if (!(isfinite(delta_time) && delta_time != 0))
     CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s, RK stage %d of %d: "
                 "cctk_delta_time is %g",
-                describe(p->window).c_str(), stage.index(),
-                p->stages.size(), double(delta_time));
+                describe(p->window).c_str(), stage.index(), p->stages.size(),
+                double(delta_time));
   const std::string why = "CarpetX::rk_step_t::rhs_computed on " +
                           describe(p->window) + ": RK stage " +
                           std::to_string(stage.index()) + " of " +

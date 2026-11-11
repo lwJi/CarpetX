@@ -1,4 +1,5 @@
 #include "io/checkpoint.hxx"
+#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
@@ -354,12 +355,15 @@ static_assert(store_rk_stage_takes<level_t, std::span<const gi_t>,
 static_assert(!store_rk_stage_takes<level_t, std::span<const gi_t>,
                                     std::span<const gi_t>, int>);
 
-static_assert(fill_rk_boundary_takes<level_t, std::span<const gi_t>, tl_t,
-                                     stage_t, CCTK_REAL, CCTK_REAL>);
+static_assert(fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t>);
+static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, int>);
+static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, tl_t>);
 static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, tl_t,
-                                      int, CCTK_REAL, CCTK_REAL>);
+                                      stage_t, CCTK_REAL, CCTK_REAL>);
 static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t,
-                                      tl_t, CCTK_REAL, CCTK_REAL>);
+                                      CCTK_REAL, CCTK_REAL>);
+static_assert(!fill_rk_boundary_takes<level_t, std::span<const gi_t>, stage_t,
+                                      rat64>);
 
 static_assert(!adds_int<stage_t>);
 static_assert(!std::is_convertible_v<stage_t, int>);
@@ -385,6 +389,13 @@ static_assert(all_rk_stages.first() == stage_t{1});
 static_assert(all_rk_stages.last() == stage_t{max_num_rk_stages});
 static_assert(!rk_stages(3).contains(stage_t{4}));
 static_assert(!rk_stages(0).contains(stage_t{1}));
+
+static_assert(!substep_t{0, rat64(1) / 2}.aligned());
+static_assert(substep_t{rat64(1) / 2, 1}.aligned());
+static_assert(rk_substep_ratio * time_refinement == 1);
+static_assert(substeps_per_coarsest_step(0) == 1);
+static_assert(substeps_per_coarsest_step(3) ==
+              time_refinement * time_refinement * time_refinement);
 
 static_assert(checkpoint_bands_takes<level_t, gi_t, rat64>);
 static_assert(!checkpoint_bands_takes<level_t, gi_t>);

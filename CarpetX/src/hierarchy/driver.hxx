@@ -521,10 +521,6 @@ struct GHExt {
 
       level_t level;
 
-      // This level uses subcycling with respect to the next coarser
-      // level. (Ignored for the coarsest level.)
-      bool is_subcycling_level;
-
       // Iteration and time at which this cycle level is valid
       rat64 iteration, delta_iteration;
 
