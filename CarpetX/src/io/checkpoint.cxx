@@ -239,11 +239,11 @@ void build_buffers(checkpoint_record_t &record,
                    const group_selection_t &selection,
                    const record_purpose purpose, const codec_limits_t &limits) {
   const GHExt &ext = driver();
+  const bool restartable = purpose != record_purpose::output;
   for (const auto &patchdata : ext.patches()) {
     for (const auto &leveldata : patchdata.levels()) {
       const level_t level = leveldata.level;
-      const bool bands = purpose == record_purpose::checkpoint &&
-                         finer_level_is_behind(record, level);
+      const bool bands = restartable && finer_level_is_behind(record, level);
       for (const auto &groupdata : leveldata.groups()) {
         const GHExt::GroupRecord &group = groupdata.record;
         const gi_t gi = group.groupindex;
@@ -251,9 +251,8 @@ void build_buffers(checkpoint_record_t &record,
           continue;
         const std::vector<std::string> vars = variable_names(group);
 
-        const tl_range tls = purpose == record_purpose::checkpoint
-                                 ? group.timelevels()
-                                 : tl_range{tl_t{0}, tl_t{1}};
+        const tl_range tls =
+            restartable ? group.timelevels() : tl_range{tl_t{0}, tl_t{1}};
         for (const tl_t tl : tls)
           record.buffers.push_back(
               {.id = {.group = group.groupname,
@@ -264,7 +263,12 @@ void build_buffers(checkpoint_record_t &record,
 
         if (!bands)
           continue;
-        for (const auto &[tag, band] : checkpoint_bands(level, gi)) {
+        const rat64 parent_step = *record.level_record(level).iteration;
+        const std::vector<checkpoint_band_t> listed =
+            purpose == record_purpose::recovery
+                ? restore_bands(level, gi, parent_step)
+                : checkpoint_bands(level, gi, parent_step);
+        for (const auto &[tag, band] : listed) {
           assert(band->nGrowVect() == 0);
           record.buffers.push_back({.id = {.group = group.groupname,
                                            .vars = vars,
@@ -303,6 +307,7 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
                                  const record_purpose purpose,
                                  const codec_limits_t &limits,
                                  const std::source_location site) {
+  assert(purpose != record_purpose::recovery);
   if (purpose == record_purpose::checkpoint)
     refuse_unless_carried(selection, limits, site);
 

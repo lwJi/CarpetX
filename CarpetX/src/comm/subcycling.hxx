@@ -18,8 +18,6 @@ namespace CarpetX {
 
 inline constexpr CCTK_REAL rk_substep_ratio = 0.5;
 
-void EnsureRKBuffers(level_t level, gi_t gi);
-
 void StoreRKOldState(level_t level, std::span<const gi_t> var_groups, tl_t tl);
 
 void StoreRKStage(level_t level, std::span<const gi_t> var_groups,
@@ -35,7 +33,11 @@ struct checkpoint_band_t {
   amrex::MultiFab *band;
 };
 
-std::vector<checkpoint_band_t> checkpoint_bands(level_t level, gi_t gi);
+std::vector<checkpoint_band_t> checkpoint_bands(level_t level, gi_t gi,
+                                                rat64 parent_step);
+
+std::vector<checkpoint_band_t> restore_bands(level_t level, gi_t gi,
+                                             rat64 parent_step);
 
 } // namespace CarpetX
 

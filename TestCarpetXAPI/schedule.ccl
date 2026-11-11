@@ -34,6 +34,12 @@ SCHEDULE TestCarpetXAPI_Check IN TestCarpetXAPI_CheckGroup
   READS: state(everywhere)
 } "Abort unless state holds the written function everywhere, ghosts included"
 
+SCHEDULE TestCarpetXAPI_Step AT evol
+{
+  LANG: C
+  OPTIONS: level
+} "Run an RK step on state through CarpetX::open_rk_step on the levels being stepped, or skip it, as TestCarpetXAPI::mode says"
+
 SCHEDULE TestCarpetXAPI_AfterShutdown AT shutdown AFTER Driver_Shutdown
 {
   LANG: C

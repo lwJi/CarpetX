@@ -155,7 +155,7 @@ SECTIONS: tuple[Section, ...] = (
                 ("comm/sync_restrict.cxx:SyncGroupsSubcycling", "api/api_rk.cxx:RecoverRKBoundary"),
             ),
         ),
-        exercised_by=("TestCarpetXAPI_Register", "TestCarpetXAPI_Fill"),
+        exercised_by=("TestCarpetXAPI_Register", "TestCarpetXAPI_Fill", "TestCarpetXAPI_Step"),
         refusals=(
             "register_at_startup",
             "register_at_paramcheck",
@@ -176,6 +176,8 @@ SECTIONS: tuple[Section, ...] = (
             "step_closed_early",
             "ghosts_before_sync",
             "outer_before_sync",
+            "rk_fill_before_parent_step",
+            "rk_fill_stale_parent_step",
         ),
     ),
 )

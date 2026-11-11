@@ -71,7 +71,9 @@ bool rk_registered_mode(const char *const mode) {
   return rk_step_mode(mode) || CCTK_EQUALS(mode, "rk-open-invalid-state") ||
          CCTK_EQUALS(mode, "rhs-invalid") ||
          CCTK_EQUALS(mode, "ghosts-before-sync") ||
-         CCTK_EQUALS(mode, "outer-before-sync");
+         CCTK_EQUALS(mode, "outer-before-sync") ||
+         CCTK_EQUALS(mode, "rk-fill-before-parent-step") ||
+         CCTK_EQUALS(mode, "rk-fill-stale-parent-step");
 }
 
 extern "C" int TestCarpetXAPI_Startup() {
@@ -208,6 +210,16 @@ void fill_domain(const CarpetX::level_t level, amrex::MultiFab &mfab) {
   fill_boxes(level, mfab, fill_t::domain);
 }
 
+void fill_interiors(const CarpetX::window_t levels, const CarpetX::gi_t filled,
+                    const char *const event) {
+  std::vector<CarpetX::write_t> writes;
+  levels.loop_serially([&](const CarpetX::level_t level) {
+    writes.push_back(CarpetX::write(CarpetX::group_t{level, filled}, tl,
+                                    CarpetX::make_valid_int(), event));
+    fill_interior(level, writes.back().mfab());
+  });
+}
+
 extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -285,6 +297,29 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     CarpetX::sync(window, groups);
     CCTK_ERROR("CarpetX::sync read the interior of state on level 0 after it "
                "had been invalidated");
+  }
+
+  if (CCTK_EQUALS(mode, "rk-fill-before-parent-step") &&
+      window.level_bounds().max > 1) {
+    const CarpetX::gi_t rhs = group("TestCarpetXAPI::state_rhs");
+    fill_interiors(window, gi, "TestCarpetXAPI_Fill");
+    fill_interiors(window, rhs, "TestCarpetXAPI_Fill");
+    const CarpetX::rk_step_t parent_step =
+        CarpetX::open_rk_step(window.narrow(0, 1));
+    CarpetX::rk_step_t step = CarpetX::open_rk_step(window.narrow(1, 2));
+    step.rhs_computed();
+    step.state_updated();
+    CCTK_ERROR("CarpetX::rk_step_t::state_updated filled the refinement "
+               "boundary of state on level 1 before the step of level 0 "
+               "stored any RK stage");
+  }
+  if (CCTK_EQUALS(mode, "rk-fill-stale-parent-step") &&
+      window.level_bounds().max > 1) {
+    fill_interiors(window, gi, "TestCarpetXAPI_Fill");
+    fill_interiors(window, group("TestCarpetXAPI::state_rhs"),
+                   "TestCarpetXAPI_Fill");
+    CarpetX::sync(window, groups);
+    return;
   }
 
   const bool outer_mode = CCTK_EQUALS(mode, "outer-before-sync");
@@ -519,6 +554,29 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     }
     CCTK_ERROR("CarpetX::rk_step_t closed after 1 of 4 stages");
   }
+}
+
+extern "C" void TestCarpetXAPI_Step(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (!CCTK_EQUALS(mode, "rk-fill-stale-parent-step"))
+    return;
+  const CarpetX::window_t window = CarpetX::active_window();
+  const int first_iteration_without_parent_step = 3;
+  if (window.coarsest().index() == 0 &&
+      cctkGH->cctk_iteration >= first_iteration_without_parent_step)
+    return;
+
+  const CarpetX::gi_t gi = state_group();
+  const CarpetX::gi_t rhs = group("TestCarpetXAPI::state_rhs");
+  CarpetX::rk_step_t step = CarpetX::open_rk_step(window);
+  for (std::size_t stage = 0; stage < rk4_weights.size(); ++stage) {
+    fill_interiors(window, rhs, "TestCarpetXAPI_Step");
+    step.rhs_computed();
+    fill_interiors(window, gi, "TestCarpetXAPI_Step");
+    step.state_updated();
+  }
+  CarpetX::sync(window, std::array{gi});
 }
 
 extern "C" void TestCarpetXAPI_Check(CCTK_ARGUMENTS) {

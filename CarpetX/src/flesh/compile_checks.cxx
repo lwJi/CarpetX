@@ -2,6 +2,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
+#include "comm/buffers.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
 #include "comm/comm.hxx"
@@ -58,11 +59,6 @@ concept local_cctkGH_takes = requires(const Ext &ext, Args... args) {
 };
 
 template <class... Args>
-concept ensure_rk_buffers_takes = requires(Args... args) {
-  EnsureRKBuffers(args...);
-};
-
-template <class... Args>
 concept accumulate_fluxes_takes = requires(Args... args) {
   AccumulateFluxes(args...);
 };
@@ -83,6 +79,41 @@ concept adds_int = requires(Index index) { index + 1; };
 template <class... Args>
 concept checkpoint_bands_takes = requires(Args... args) {
   checkpoint_bands(args...);
+};
+
+template <class... Args>
+concept restore_bands_takes = requires(Args... args) {
+  restore_bands(args...);
+};
+
+template <class Bands, class... Args>
+concept bands_sources_takes = requires(const Bands &bands, Args... args) {
+  bands.sources(args...);
+};
+
+template <class Bands, class... Args>
+concept bands_stored_takes = requires(Bands & bands, Args... args) {
+  bands.stored(args...);
+};
+
+template <class Bands, class... Args>
+concept bands_restore_takes = requires(Bands & bands, Args... args) {
+  bands.restore(args...);
+};
+
+template <class Bands, class... Args>
+concept bands_holds_takes = requires(const Bands &bands, Args... args) {
+  bands.holds(args...);
+};
+
+template <class Bands>
+concept reaches_bands_parent_step = requires(Bands & bands) {
+  bands.parent_step_;
+};
+
+template <class Bands>
+concept reaches_bands_stages_stored = requires(Bands & bands) {
+  bands.stages_stored_;
 };
 
 template <class... Args>
@@ -310,8 +341,8 @@ static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, int>);
 static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, component_t>);
 static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
 
-static_assert(ensure_rk_buffers_takes<level_t, gi_t>);
-static_assert(!ensure_rk_buffers_takes<int, int, gi_t>);
+static_assert(std::is_same_v<decltype(group_buffers_t::rk_bands),
+                             std::optional<rk_bands_t>>);
 
 static_assert(accumulate_fluxes_takes<level_t, stage_t, CCTK_REAL>);
 static_assert(!accumulate_fluxes_takes<level_t, int, CCTK_REAL>);
@@ -355,9 +386,24 @@ static_assert(all_rk_stages.last() == stage_t{max_num_rk_stages});
 static_assert(!rk_stages(3).contains(stage_t{4}));
 static_assert(!rk_stages(0).contains(stage_t{1}));
 
-static_assert(checkpoint_bands_takes<level_t, gi_t>);
-static_assert(!checkpoint_bands_takes<int, int, gi_t>);
-static_assert(!checkpoint_bands_takes<level_t, int>);
+static_assert(checkpoint_bands_takes<level_t, gi_t, rat64>);
+static_assert(!checkpoint_bands_takes<level_t, gi_t>);
+static_assert(!checkpoint_bands_takes<int, int, gi_t, rat64>);
+static_assert(!checkpoint_bands_takes<level_t, int, rat64>);
+
+static_assert(restore_bands_takes<level_t, gi_t, rat64>);
+static_assert(!restore_bands_takes<level_t, gi_t>);
+static_assert(!restore_bands_takes<level_t, int, rat64>);
+static_assert(!restore_bands_takes<int, int, gi_t, rat64>);
+static_assert(bands_stored_takes<rk_bands_t, rat64>);
+static_assert(!bands_stored_takes<rk_bands_t>);
+static_assert(bands_restore_takes<rk_bands_t, rat64>);
+static_assert(!bands_restore_takes<rk_bands_t>);
+static_assert(!bands_holds_takes<rk_bands_t, rat64>);
+static_assert(bands_sources_takes<rk_bands_t, rat64, fill_site_t>);
+static_assert(!bands_sources_takes<rk_bands_t>);
+static_assert(!reaches_bands_parent_step<rk_bands_t>);
+static_assert(!reaches_bands_stages_stored<rk_bands_t>);
 
 static_assert(finer_behind_takes<level_t>);
 static_assert(!finer_behind_takes<int, int>);

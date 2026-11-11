@@ -1,4 +1,4 @@
-KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Register at WRAGH, TestCarpetXAPI_ParamCheck at PARAMCHECK, TestCarpetXAPI_Fill at CCTK_INITIAL, and TestCarpetXAPI_AfterShutdown at SHUTDOWN"
+KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Register at WRAGH, TestCarpetXAPI_ParamCheck at PARAMCHECK, TestCarpetXAPI_Fill at CCTK_INITIAL, TestCarpetXAPI_Step at CCTK_EVOL, and TestCarpetXAPI_AfterShutdown at SHUTDOWN"
 {
   "write-scope"       :: "write the interior of state through a write scope that states interior validity, then sync; TestCarpetXAPI_Check reads state everywhere"
   "sync-during-write" :: "call CarpetX::sync on state while a write scope on it is open; CarpetX aborts the run"
@@ -32,6 +32,8 @@ KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Regist
   "window-out-of-bounds" :: "build a window of refinement levels [0, 2) on a hierarchy of 1 level; CarpetX aborts the run"
   "invalidate-during-write" :: "call CarpetX::invalidate on state while a write scope on it is open; CarpetX aborts the run"
   "schedule-during-write" :: "traverse TestCarpetXAPI_CheckGroup through CarpetX::run_schedule_group_at while a write scope on state is open; TestCarpetXAPI_Check in that group reads state, and CarpetX aborts the run"
+  "rk-fill-before-parent-step" :: "register a valid integrator, and once the hierarchy has two levels under CarpetX::use_subcycling fill state and state_rhs, open an RK step on level 0 without running any of its stages, and run the first RK stage of a step on level 1, whose refinement boundary is filled from the stages of the step on level 0; CarpetX aborts the run"
+  "rk-fill-stale-parent-step" :: "register a valid integrator, and under CarpetX::use_subcycling with two levels have TestCarpetXAPI_Step at CCTK_EVOL run an RK step on each level as the driver steps it for two iterations, then skip the step of level 0 at iteration 3, whose clock the driver has advanced, and run the step of level 1; CarpetX aborts the run"
   "rk-before-freeze"   :: "register a valid integrator at WRAGH and open an RK step in the same call, before the driver has frozen its integrator record; CarpetX aborts the run"
   "rk-open-invalid-state" :: "register a valid integrator and open an RK step before anything has written the interior of state; CarpetX aborts the run"
   "rhs-invalid"        :: "register a valid integrator, fill state, open an RK step and report the right-hand side computed while nothing has written state_rhs; CarpetX aborts the run"
