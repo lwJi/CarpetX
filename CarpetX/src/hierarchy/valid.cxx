@@ -635,7 +635,7 @@ write_scope_t::~write_scope_t() {
 }
 
 amrex::MultiFab &write_scope_t::mfab(const level_t level,
-                                     const std::source_location site) {
+                                     const std::source_location site) & {
   if (!live)
     refuse(site,
            "a moved-from write scope on group %s, time level %d hands out no "
@@ -666,7 +666,7 @@ void write_scopes_t::open(const window_t window, write_spec_t spec) {
 
 amrex::MultiFab &write_scopes_t::mfab(const level_t level, const gi_t gi,
                                       const tl_t tl,
-                                      const std::source_location site) {
+                                      const std::source_location site) & {
   for (write_scope_t &scope : scopes)
     if (scope.spec.gi == gi && scope.spec.tl == tl &&
         window_contains(scope.window, level))
@@ -752,7 +752,7 @@ array_write_scope_t::~array_write_scope_t() {
   }
 }
 
-void *array_write_scope_t::data(const std::source_location site) {
+void *array_write_scope_t::data(const std::source_location site) & {
   if (!live)
     refuse(site,
            "a moved-from array write scope on group %s, time level %d hands "

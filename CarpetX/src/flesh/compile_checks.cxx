@@ -250,6 +250,15 @@ concept writes_scratch = requires(Ext &ext, group_t group) {
   ext.group(group).scratch_pool.at(0).mfab->setVal(0);
 };
 
+template <class Scope, class... Args>
+concept hands_out_mfab = requires(Scope scope, Args... args) {
+  std::forward<Scope>(scope).mfab(args...);
+};
+
+template <class Scope>
+concept hands_out_data =
+    requires(Scope scope) { std::forward<Scope>(scope).data(); };
+
 template <class Ext>
 concept marks_initialized = requires(Ext &ext) { ext.mark_initialized(); };
 
@@ -619,6 +628,15 @@ static_assert(writes_scratch<GHExt>);
 static_assert(!writes_scratch<std::remove_reference_t<decltype(driver())>>);
 static_assert(!std::is_copy_constructible_v<write_scope_t>);
 static_assert(!std::is_copy_assignable_v<write_scope_t>);
+static_assert(hands_out_mfab<write_scope_t &, level_t>);
+static_assert(!hands_out_mfab<write_scope_t, level_t>);
+static_assert(!hands_out_mfab<const write_scope_t &, level_t>);
+static_assert(hands_out_mfab<write_scopes_t &, level_t, gi_t, tl_t>);
+static_assert(!hands_out_mfab<write_scopes_t, level_t, gi_t, tl_t>);
+static_assert(!hands_out_mfab<const write_scopes_t &, level_t, gi_t, tl_t>);
+static_assert(hands_out_data<array_write_scope_t &>);
+static_assert(!hands_out_data<array_write_scope_t>);
+static_assert(!hands_out_data<const array_write_scope_t &>);
 static_assert(!marks_initialized<GHExt>);
 static_assert(!marks_initialized<std::remove_reference_t<decltype(driver())>>);
 static_assert(!opens_mutable_door<GHExt>);

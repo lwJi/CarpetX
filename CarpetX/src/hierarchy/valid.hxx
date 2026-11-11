@@ -183,7 +183,10 @@ public:
 
   amrex::MultiFab &
   mfab(level_t level,
-       std::source_location site = std::source_location::current());
+       std::source_location site = std::source_location::current()) &;
+  void
+  mfab(level_t level,
+       std::source_location site = std::source_location::current()) && = delete;
 
 private:
   friend write_scope_t open_write(window_t window, write_spec_t spec);
@@ -206,7 +209,10 @@ public:
   void open(window_t window, write_spec_t spec);
   amrex::MultiFab &
   mfab(level_t level, gi_t gi, tl_t tl,
-       std::source_location site = std::source_location::current());
+       std::source_location site = std::source_location::current()) &;
+  void
+  mfab(level_t level, gi_t gi, tl_t tl,
+       std::source_location site = std::source_location::current()) && = delete;
   void close();
 
 private:
@@ -230,7 +236,9 @@ public:
   array_write_scope_t &operator=(array_write_scope_t &&) = delete;
   ~array_write_scope_t();
 
-  void *data(std::source_location site = std::source_location::current());
+  void *data(std::source_location site = std::source_location::current()) &;
+  void
+  data(std::source_location site = std::source_location::current()) && = delete;
 
 private:
   friend array_write_scope_t open_array_write(write_spec_t spec);
