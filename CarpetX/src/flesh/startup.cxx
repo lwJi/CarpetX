@@ -1,6 +1,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/grid_sizes.hxx"
 #include "hierarchy/operations.hxx"
+#include "api/api.hxx"
 #include "schedule/schedule.hxx"
 #include "comm/buffers.hxx"
 #include "comm/comm.hxx"
@@ -39,12 +40,37 @@ std::unique_ptr<hierarchy_writers_t> writers;
 int Initialise_entry(tFleshConfig *config) {
   CCTKi_AddGH(config, 0, CCTK_SetupGH(config, 0));
   assert(writers);
-  return Initialise(config, writers->clock, writers->structure);
+  return Initialise(config, writers->clock, writers->structure,
+                    writers->registry);
 }
 
 int Evolve_entry(tFleshConfig *config) {
   assert(writers);
   return Evolve(config, writers->clock, writers->structure);
+}
+
+int EnableGroupStorage_entry(const cGH *cctkGH, const char *groupname) {
+  assert(writers);
+  return EnableGroupStorage(cctkGH, groupname, writers->registry);
+}
+
+int DisableGroupStorage_entry(const cGH *cctkGH, const char *groupname) {
+  assert(writers);
+  return DisableGroupStorage(cctkGH, groupname, writers->registry);
+}
+
+int GroupStorageIncrease_entry(const cGH *cctkGH, int n_groups,
+                               const int *groups, const int *tls, int *status) {
+  assert(writers);
+  return GroupStorageIncrease(cctkGH, n_groups, groups, tls, status,
+                              writers->registry);
+}
+
+int GroupStorageDecrease_entry(const cGH *cctkGH, int n_groups,
+                               const int *groups, const int *tls, int *status) {
+  assert(writers);
+  return GroupStorageDecrease(cctkGH, n_groups, groups, tls, status,
+                              writers->registry);
 }
 } // namespace
 
@@ -125,6 +151,7 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
                         .do_reflux = bool(do_reflux),
                         .make_core = make_cactus_amrcore,
                         .make_buffers = make_level_buffers})));
+  adopt_writers(writers->registry, writers->scratch);
   return writers.get();
 }
 
@@ -180,6 +207,7 @@ extern "C" int CarpetX_Shutdown() {
   }
 
   destroy_hierarchy();
+  return_writers();
   writers.reset();
 
   amrex::Finalize(pamrex);
@@ -368,10 +396,10 @@ extern "C" int CarpetX_Startup() {
   CCTK_OverloadAbort(Abort);
   CCTK_OverloadBarrier(Barrier);
 
-  CCTK_OverloadEnableGroupStorage(EnableGroupStorage);
-  CCTK_OverloadDisableGroupStorage(DisableGroupStorage);
-  CCTK_OverloadGroupStorageIncrease(GroupStorageIncrease);
-  CCTK_OverloadGroupStorageDecrease(GroupStorageDecrease);
+  CCTK_OverloadEnableGroupStorage(EnableGroupStorage_entry);
+  CCTK_OverloadDisableGroupStorage(DisableGroupStorage_entry);
+  CCTK_OverloadGroupStorageIncrease(GroupStorageIncrease_entry);
+  CCTK_OverloadGroupStorageDecrease(GroupStorageDecrease_entry);
   CCTK_OverloadQueryGroupStorageB(QueryGroupStorageB);
 
   CCTK_OverloadSyncGroupsByDirI(SyncGroupsOnActiveLevels);

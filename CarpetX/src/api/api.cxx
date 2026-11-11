@@ -166,7 +166,7 @@ amrex::MultiFab &scratch_t::mfab() & {
     CCTK_ERROR("CarpetX::scratch_t::mfab() called on a moved-from scratch "
                "buffer");
   resolve_scratch(p->group, p->slot);
-  return hierarchy_writer::scratch_mfab(p->group, p->slot);
+  return scratch_writer().mfab(p->group, p->slot);
 }
 
 const amrex::MultiFab &scratch_t::mfab() const & {
@@ -182,12 +182,12 @@ scratch_t::~scratch_t() {
     return;
   const operation_scope_t op("CarpetX::scratch_t::~scratch_t");
   resolve_scratch(p->group, p->slot);
-  hierarchy_writer::release_scratch(p->group, p->slot);
+  scratch_writer().release(p->group, p->slot);
 }
 
 scratch_t scratch(const group_t group) {
   const operation_scope_t op("CarpetX::scratch");
-  const std::size_t slot = hierarchy_writer::acquire_scratch(group);
+  const std::size_t slot = scratch_writer().acquire(group);
   return scratch_t(
       std::unique_ptr<scratch_t::impl>(new scratch_t::impl{group, slot}));
 }

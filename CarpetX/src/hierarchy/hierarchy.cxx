@@ -728,24 +728,24 @@ void structure_writer_t::recover_level(const level_t level, amrex::BoxArray ba,
   make_level(level, ba, dm, "Recovering");
 }
 
-void hierarchy_writer::record_storage(const gi_t gi, const int timelevels) {
+void registry_writer_t::record_storage(const gi_t gi, const int timelevels) {
   GHExt::mutable_instance().record_storage(gi, timelevels);
 }
 
-void hierarchy_writer::freeze_storage() {
+void registry_writer_t::freeze_storage() {
   GHExt::mutable_instance().freeze_storage();
 }
 
-void hierarchy_writer::record_integrator(GHExt::integrator_t integrator,
-                                         const std::source_location site) {
+void registry_writer_t::record_integrator(GHExt::integrator_t integrator,
+                                          const std::source_location site) {
   GHExt::mutable_instance().record_integrator(std::move(integrator), site);
 }
 
-void hierarchy_writer::freeze_integrator(const std::source_location site) {
+void registry_writer_t::freeze_integrator(const std::source_location site) {
   GHExt::mutable_instance().freeze_integrator(site);
 }
 
-void hierarchy_writer::adopt_flesh_cctkGH(cGH *const cctkGH) {
+void registry_writer_t::adopt_flesh_cctkGH(cGH *const cctkGH) {
   GHExt &ext = GHExt::mutable_instance();
   assert(cctkGH);
   assert(!ext.flesh_cctkGH);
@@ -755,8 +755,8 @@ void hierarchy_writer::adopt_flesh_cctkGH(cGH *const cctkGH) {
   ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
 }
 
-std::size_t hierarchy_writer::acquire_scratch(const group_t group,
-                                              const std::source_location site) {
+std::size_t scratch_writer_t::acquire(const group_t group,
+                                      const std::source_location site) {
   auto &groupdata = GHExt::mutable_instance().group(group, site);
   auto &pool = groupdata.scratch_pool;
   std::size_t slot = 0;
@@ -773,16 +773,15 @@ std::size_t hierarchy_writer::acquire_scratch(const group_t group,
   return slot;
 }
 
-void hierarchy_writer::release_scratch(const group_t group,
-                                       const std::size_t slot) {
+void scratch_writer_t::release(const group_t group, const std::size_t slot) {
   auto &pool = GHExt::mutable_instance().group(group).scratch_pool;
   assert(slot < pool.size() && pool.at(slot).in_use);
   pool.at(slot).in_use = false;
 }
 
-amrex::MultiFab &
-hierarchy_writer::scratch_mfab(const group_t group, const std::size_t slot,
-                               const std::source_location site) {
+amrex::MultiFab &scratch_writer_t::mfab(const group_t group,
+                                        const std::size_t slot,
+                                        const std::source_location site) {
   auto &pool = GHExt::mutable_instance().group(group, site).scratch_pool;
   assert(slot < pool.size() && pool.at(slot).in_use);
   return *pool.at(slot).mfab;

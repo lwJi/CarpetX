@@ -741,7 +741,6 @@ struct GHExt {
     LevelData replace_level(level_t level, LevelData &&fresh);
     void erase_levels_from(level_t level);
 
-    friend struct hierarchy_writer;
     friend class structure_writer_t;
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const PatchData &patchdata);
@@ -841,9 +840,10 @@ private:
   void freeze_integrator(std::source_location site);
   void mark_initialized();
 
-  friend struct hierarchy_writer;
   friend class clock_writer_t;
   friend class structure_writer_t;
+  friend class registry_writer_t;
+  friend class scratch_writer_t;
   friend struct cctkGH_binding;
   friend class write_scope_t;
   friend class array_write_scope_t;

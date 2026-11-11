@@ -11,7 +11,7 @@
 namespace CarpetX {
 
 int Initialise(tFleshConfig *config, clock_writer_t &clock,
-               structure_writer_t &structure);
+               structure_writer_t &structure, registry_writer_t &registry);
 int Evolve(tFleshConfig *config, clock_writer_t &clock,
            structure_writer_t &structure);
 int Shutdown(tFleshConfig *config);
@@ -19,11 +19,15 @@ int Shutdown(tFleshConfig *config);
 int CallFunction(void *function, cFunctionData *attribute, void *data);
 
 int GroupStorageIncrease(const cGH *cctkGH, int n_groups, const int *groups,
-                         const int *tls, int *status);
+                         const int *tls, int *status,
+                         registry_writer_t &registry);
 int GroupStorageDecrease(const cGH *cctkGH, int n_groups, const int *groups,
-                         const int *tls, int *status);
-int EnableGroupStorage(const cGH *cctkGH, const char *groupname);
-int DisableGroupStorage(const cGH *cctkGH, const char *groupname);
+                         const int *tls, int *status,
+                         registry_writer_t &registry);
+int EnableGroupStorage(const cGH *cctkGH, const char *groupname,
+                       registry_writer_t &registry);
+int DisableGroupStorage(const cGH *cctkGH, const char *groupname,
+                        registry_writer_t &registry);
 int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);
 
 } // namespace CarpetX

@@ -16,9 +16,9 @@ OUTSIDERS = (("cactus", "Cactus flesh"), ("amrex", "AMReX"), ("thorn", "a thorn'
 STARTUP = layer_path("flesh", "startup.cxx")
 REGISTRATION = re.compile(r"\bCCTK_(?:Overload\w+|RegisterGHExtension\w+|InterpRegisterOpLocalUniform)\s*\(\s*(?:ghext_handle\s*,\s*)?(\w+)")
 REGISTERED = (
-    (STARTUP, ("SetupGH", "InitGH", "ScheduleTraverseGH", "Initialise_entry", "Evolve_entry", "MyProc", "nProcs", "Exit", "Abort", "Barrier", "CarpetX_InterpGridArrays", "ArrayGroupSizeB", "GroupDynamicData")),
+    (STARTUP, ("SetupGH", "InitGH", "ScheduleTraverseGH", "Initialise_entry", "Evolve_entry", "MyProc", "nProcs", "Exit", "Abort", "Barrier", "EnableGroupStorage_entry", "DisableGroupStorage_entry", "GroupStorageIncrease_entry", "GroupStorageDecrease_entry", "CarpetX_InterpGridArrays", "ArrayGroupSizeB", "GroupDynamicData")),
     (layer_path("schedule", "evolve.cxx"), ("Shutdown",)),
-    (layer_path("schedule", "storage.cxx"), ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease", "QueryGroupStorageB")),
+    (layer_path("schedule", "storage.cxx"), ("QueryGroupStorageB",)),
     (layer_path("io", "io.cxx"), ("OutputGH",)),
     (layer_path("ops", "interpolate.cxx"), ("InterpLocalUniform",)),
     (layer_path("comm", "sync_restrict.cxx"), (FLESH_SYNC_OVERLOAD,)),
@@ -60,6 +60,8 @@ PASS = (
     ("6", "cactus", "schedule", ("CallFunction",), layer_path("schedule", "callfunction.cxx")),
     ("7", "schedule", "thorn", ("CCTK_CallFunction",), layer_path("schedule", "callfunction.cxx")),
     ("9", "api", "cactus", ("CCTK_ScheduleTraverse",), layer_path("api", "api_rk.cxx")),
+    (HANDED, "cactus", "flesh", ("EnableGroupStorage_entry", "DisableGroupStorage_entry", "GroupStorageIncrease_entry", "GroupStorageDecrease_entry"), STARTUP),
+    (HANDED, "flesh", "schedule", ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease"), layer_path("schedule", "storage.cxx")),
 )
 assert {row[0] for row in PASS} | {BODIES, HANDED} == set(STEPS), PASS
 REGRID_STEPS = {

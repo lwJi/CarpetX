@@ -76,28 +76,48 @@ private:
   friend hierarchy_writers_t create_hierarchy(GHExt::config_t config);
 };
 
+class registry_writer_t {
+public:
+  registry_writer_t(const registry_writer_t &) = delete;
+  registry_writer_t(registry_writer_t &&) = delete;
+
+  void record_storage(gi_t gi, int timelevels);
+  void freeze_storage();
+  void record_integrator(
+      GHExt::integrator_t integrator,
+      std::source_location site = std::source_location::current());
+  void freeze_integrator(
+      std::source_location site = std::source_location::current());
+  void adopt_flesh_cctkGH(cGH *cctkGH);
+
+private:
+  registry_writer_t() = default;
+  friend hierarchy_writers_t create_hierarchy(GHExt::config_t config);
+};
+
+class scratch_writer_t {
+public:
+  scratch_writer_t(const scratch_writer_t &) = delete;
+  scratch_writer_t(scratch_writer_t &&) = delete;
+
+  std::size_t
+  acquire(group_t group,
+          std::source_location site = std::source_location::current());
+  void release(group_t group, std::size_t slot);
+  amrex::MultiFab &
+  mfab(group_t group, std::size_t slot,
+       std::source_location site = std::source_location::current());
+
+private:
+  scratch_writer_t() = default;
+  friend hierarchy_writers_t create_hierarchy(GHExt::config_t config);
+};
+
 struct hierarchy_writers_t {
   clock_writer_t clock;
   structure_writer_t structure;
-};
-
-struct hierarchy_writer {
-  static void record_storage(gi_t gi, int timelevels);
-  static void freeze_storage();
-  static void record_integrator(
-      GHExt::integrator_t integrator,
-      std::source_location site = std::source_location::current());
-  static void freeze_integrator(
-      std::source_location site = std::source_location::current());
-  static void adopt_flesh_cctkGH(cGH *cctkGH);
-
-  static std::size_t
-  acquire_scratch(group_t group,
-                  std::source_location site = std::source_location::current());
-  static void release_scratch(group_t group, std::size_t slot);
-  static amrex::MultiFab &
-  scratch_mfab(group_t group, std::size_t slot,
-               std::source_location site = std::source_location::current());
+  registry_writer_t registry;
+  scratch_writer_t scratch;
 };
 
 } // namespace CarpetX

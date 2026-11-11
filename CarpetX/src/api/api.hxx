@@ -6,10 +6,16 @@
 #include <carpetx.hxx>
 
 #include "hierarchy/driver.hxx"
+#include "hierarchy/operations.hxx"
 
 #include <span>
 
 namespace CarpetX {
+
+void adopt_writers(registry_writer_t &registry, scratch_writer_t &scratch);
+void return_writers();
+registry_writer_t &registry_writer();
+scratch_writer_t &scratch_writer();
 
 void require_no_open_write(
     const GHExt::PatchData::LevelData::GroupData &groupdata);

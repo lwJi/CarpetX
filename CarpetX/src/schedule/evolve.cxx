@@ -90,7 +90,7 @@ std::optional<window_t::bounds_t> modified_levels(const GHExt &ext) {
 ////////////////////////////////////////////////////////////////////////////////
 
 int Initialise(tFleshConfig *config, clock_writer_t &clock,
-               structure_writer_t &structure) {
+               structure_writer_t &structure, registry_writer_t &registry) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("Initialise");
@@ -124,21 +124,21 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
   CCTKi_ScheduleGHInit(cctkGH);
 
   const GHExt &ext = driver();
-  hierarchy_writer::freeze_storage();
+  registry.freeze_storage();
 
   // Initialise all grid extensions
   CCTKi_InitGHExtensions(cctkGH);
 
   setup_cctkGH(cctkGH);
   enter_global_mode(cctkGH);
-  hierarchy_writer::adopt_flesh_cctkGH(cctkGH);
+  registry.adopt_flesh_cctkGH(cctkGH);
 
   for (const auto &patchdata : ext.patches())
     assert(patchdata.num_levels() == 0);
   {
     const traversal_scope_t scope(window_t::levels(0, 0));
     CCTK_Traverse(cctkGH, "CCTK_WRAGH");
-    hierarchy_writer::freeze_integrator();
+    registry.freeze_integrator();
     CCTK_Traverse(cctkGH, "CCTK_PARAMCHECK");
     CCTKi_FinaliseParamWarn();
     warn_inert_flux_tags();

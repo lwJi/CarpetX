@@ -8,6 +8,7 @@
 #include "comm/subcycling.hxx"
 #include "comm/comm.hxx"
 #include "regrid/regrid.hxx"
+#include "schedule/schedule.hxx"
 #include "hierarchy/valid.hxx"
 
 #include <carpetx.hxx>
@@ -604,6 +605,22 @@ static_assert(std::is_same_v<decltype(hierarchy_writers_t::structure),
 static_assert(!std::is_default_constructible_v<structure_writer_t>);
 static_assert(!std::is_copy_constructible_v<structure_writer_t>);
 static_assert(!std::is_move_constructible_v<structure_writer_t>);
+static_assert(
+    std::is_same_v<decltype(hierarchy_writers_t::registry), registry_writer_t>);
+static_assert(!std::is_default_constructible_v<registry_writer_t>);
+static_assert(!std::is_copy_constructible_v<registry_writer_t>);
+static_assert(!std::is_move_constructible_v<registry_writer_t>);
+static_assert(
+    std::is_same_v<decltype(hierarchy_writers_t::scratch), scratch_writer_t>);
+static_assert(!std::is_default_constructible_v<scratch_writer_t>);
+static_assert(!std::is_copy_constructible_v<scratch_writer_t>);
+static_assert(!std::is_move_constructible_v<scratch_writer_t>);
+static_assert(std::is_same_v<decltype(Initialise),
+                             int(tFleshConfig *, clock_writer_t &,
+                                 structure_writer_t &, registry_writer_t &)>);
+static_assert(
+    std::is_same_v<decltype(Evolve), int(tFleshConfig *, clock_writer_t &,
+                                         structure_writer_t &)>);
 
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().active_timelevels(

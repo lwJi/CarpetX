@@ -561,7 +561,7 @@ class Traversal(unittest.TestCase):
             "  if (integrator_frozen) return;\n",
             "  integrator_frozen = true;\n",
             "record_integrator(config);\n",
-            "hierarchy_writer::freeze_integrator();\n",
+            "registry.freeze_integrator();\n",
             "const std::optional<rk_config_t> &config = integrator();\n",
             "const std::optional<rk_config_t> &integrator = CarpetX::integrator();\n",
             "return integrator && integrator->is_integrated(gi);\n",
@@ -2249,7 +2249,9 @@ class Doc(unittest.TestCase):
         self.assertIn('  cactus -- "10 SyncGroupsOnActiveLevels" --> comm', drawn)
         self.assertIn('  thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api', drawn)
         self.assertIn('  api -- "9 CCTK_ScheduleTraverse" --> cactus', drawn)
-        self.assertEqual(doc.handed(), [("schedule", ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease", "QueryGroupStorageB")), ("ops", ("InterpLocalUniform",)), ("comm", ("SyncGroupsOnActiveLevels",))])
+        self.assertIn('  cactus -- "10 EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry" --> flesh', drawn)
+        self.assertIn('  flesh -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease" --> schedule', drawn)
+        self.assertEqual(doc.handed(), [("schedule", ("QueryGroupStorageB",)), ("ops", ("InterpLocalUniform",)), ("comm", ("SyncGroupsOnActiveLevels",))])
         for layer, names in doc.handed():
             for name in names:
                 with self.subTest(name=name):
@@ -2295,14 +2297,18 @@ class Doc(unittest.TestCase):
 
         files = {file: "".join(define(name) for name in names) for file, names in doc.REGISTERED}
         files[doc.STARTUP] = files[doc.STARTUP].replace(define("ScheduleTraverseGH"), "")
-        for name in ("Initialise", "Evolve"):
-            files[doc.STARTUP] = files[doc.STARTUP].replace(define(f"{name}_entry"), f"int {name}_entry(tFleshConfig *config) {{\n  return {name}(config, writers->clock, writers->structure);\n}}\n")
+        for name, lent in (("Initialise", "writers->clock, writers->structure, writers->registry"), ("Evolve", "writers->clock, writers->structure")):
+            files[doc.STARTUP] = files[doc.STARTUP].replace(define(f"{name}_entry"), f"int {name}_entry(tFleshConfig *config) {{\n  return {name}(config, {lent});\n}}\n")
+        storage = ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease")
+        for name in storage:
+            files[doc.STARTUP] = files[doc.STARTUP].replace(define(f"{name}_entry"), f"int {name}_entry(const cGH *cctkGH) {{\n  return {name}(cctkGH, writers->registry);\n}}\n")
+        files[layer_path("schedule", "storage.cxx")] += "".join(f"int {name}(const cGH *cctkGH,\n       registry_writer_t &registry) {{\n  return 0;\n}}\n" for name in storage)
         files[doc.STARTUP] += (
             "int ScheduleTraverseGH(cGH *cctkGH,\n                       const char *where) {\n  return CCTK_ScheduleTraverse(where, cctkGH, CallFunction);\n}\n"
             'extern "C" int CarpetX_Startup() {\n' + "".join(f"  CCTK_Overload{name}({name});\n" for _, names in doc.REGISTERED for name in names) + "}\n"
         )
         files[layer_path("schedule", "evolve.cxx")] = (
-            "int Initialise(tFleshConfig *config, clock_writer_t &clock,\n               structure_writer_t &structure) {\n  CCTK_Traverse(cctkGH, \"CCTK_INITIAL\");\n  return 0;\n}\n"
+            "int Initialise(tFleshConfig *config, clock_writer_t &clock,\n               structure_writer_t &structure, registry_writer_t &registry) {\n  CCTK_Traverse(cctkGH, \"CCTK_INITIAL\");\n  return 0;\n}\n"
             "int Evolve(tFleshConfig *config, clock_writer_t &clock,\n           structure_writer_t &structure) {\n"
             "  structure.regrid(level, time);\n  CCTK_Traverse(cctkGH, \"CCTK_EVOL\");\n  CCTK_OutputGH(cctkGH);\n  return 0;\n}\nint Shutdown(tFleshConfig *config) {\n  return 0;\n}\n"
         )
@@ -2363,9 +2369,11 @@ class Doc(unittest.TestCase):
                     '  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t, operator<<" --> hierarchy',
                     '  thorn -- "8 Timer" --> util',
                     '  api -- "9 CCTK_ScheduleTraverse" --> cactus',
-                    '  cactus -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB" --> schedule',
+                    '  cactus -- "10 QueryGroupStorageB" --> schedule',
                     '  cactus -- "10 InterpLocalUniform" --> ops',
                     '  cactus -- "10 SyncGroupsOnActiveLevels" --> comm',
+                    '  cactus -- "10 EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry" --> flesh',
+                    '  flesh -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease" --> schedule',
                 ],
             )
             self.assertEqual([line.split("[")[0].strip() for line in lines[3:11]], ["flesh", "api", "schedule", "io", "ops", "comm", "hierarchy", "util"])
@@ -2386,9 +2394,9 @@ class Doc(unittest.TestCase):
                 doc.entries(root).splitlines()[6:],
                 [
                     '| `flesh/` | Cactus flesh | every extern "C" in startup.cxx |',
-                    "| `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, Initialise_entry, Evolve_entry, MyProc, nProcs, Exit, Abort, Barrier, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |",
+                    "| `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, Initialise_entry, Evolve_entry, MyProc, nProcs, Exit, Abort, Barrier, EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |",
                     "| `api/` | a thorn | every function of carpetx.hxx, carpetx_rk.hxx not named in a row below |",
-                    "| `schedule/` | Cactus flesh | Shutdown, EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, QueryGroupStorageB |",
+                    "| `schedule/` | Cactus flesh | Shutdown, QueryGroupStorageB |",
                     "| `io/` | Cactus flesh | OutputGH |",
                     "| `ops/` | Cactus flesh | InterpLocalUniform |",
                     "| `ops/` | a thorn | reduce |",
@@ -2402,6 +2410,7 @@ class Doc(unittest.TestCase):
             evolve = files[layer_path("schedule", "evolve.cxx")]
             io_cxx = files[layer_path("io", "io.cxx")]
             hierarchy_cxx = files[layer_path("hierarchy", "hierarchy.cxx")]
+            storage_cxx = files[layer_path("schedule", "storage.cxx")]
             for message, changes, draw in [
                 ("Foo registered in CarpetX/src/flesh/startup.cxx but in no row of REGISTERED", {doc.STARTUP: startup.replace("  CCTK_OverloadSetupGH(SetupGH);\n", "  CCTK_OverloadSetupGH(SetupGH);\n  CCTK_OverloadFoo(Foo);\n")}, doc.entries),
                 ("Shutdown in a row of REGISTERED in scripts/lint/boundary/doc.py but not registered", {doc.STARTUP: startup.replace("  CCTK_OverloadShutdown(Shutdown);\n", "")}, doc.entries),
@@ -2411,8 +2420,10 @@ class Doc(unittest.TestCase):
                 ("CCTK_ScheduleTraverse not called in CarpetX/src/flesh/startup.cxx, where step 5 starts", {doc.STARTUP: startup.replace("CCTK_ScheduleTraverse(where, cctkGH, CallFunction)", "0")}, doc.the_pass),
                 ("Evolve not called in flesh/, where step 1 starts", {doc.STARTUP: startup.replace("return Evolve(config, writers->clock, writers->structure)", "return 0")}, doc.the_pass),
                 ("structure.regrid not called in schedule/, where step 1 starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  structure.regrid(level, time);\n", "")}, doc.the_regrid),
-                ("structure.regrid not called in schedule/, where step 1 starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  structure.regrid(level, time);\n", "  hierarchy_writer::regrid(level, time);\n")}, doc.the_regrid),
-                ("structure_writer_t::regrid not defined in CarpetX/src/hierarchy/hierarchy.cxx, where step 1 lands", {layer_path("hierarchy", "hierarchy.cxx"): hierarchy_cxx.replace("structure_writer_t::regrid", "hierarchy_writer::regrid")}, doc.the_regrid),
+                ("GroupStorageIncrease not called in flesh/, where step 10 starts", {doc.STARTUP: startup.replace("return GroupStorageIncrease(cctkGH, writers->registry)", "return 0")}, doc.the_pass),
+                ("DisableGroupStorage not defined in CarpetX/src/schedule/storage.cxx, where step 10 lands", {layer_path("schedule", "storage.cxx"): storage_cxx.replace("int DisableGroupStorage(", "int Disable(")}, doc.the_pass),
+                ("structure.regrid not called in schedule/, where step 1 starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  structure.regrid(level, time);\n", "  amrcore->regrid(level, time);\n")}, doc.the_regrid),
+                ("structure_writer_t::regrid not defined in CarpetX/src/hierarchy/hierarchy.cxx, where step 1 lands", {layer_path("hierarchy", "hierarchy.cxx"): hierarchy_cxx.replace("structure_writer_t::regrid", "clock_writer_t::regrid")}, doc.the_regrid),
                 ("amrcore->regrid not called in CarpetX/src/hierarchy/hierarchy.cxx, where step 2 starts", {layer_path("hierarchy", "hierarchy.cxx"): hierarchy_cxx.replace("  ext.amrcore->regrid(base.index(), time);\n", "")}, doc.the_regrid),
                 ("nowhere declared in a public header but defined in no api/ file and in no row of PUBLIC_BODIES", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "int nowhere();\n"}, doc.entries),
                 ("CarpetX/src/include/carpetx_rk.hxx:2 declares something the map cannot name: void (*handler)(int);", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "void (*handler)(int);\n"}, doc.entries),

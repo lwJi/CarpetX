@@ -14,7 +14,8 @@ namespace CarpetX {
 
 namespace {
 int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
-                       const int *requested_tls, int *status, const bool inc) {
+                       const int *requested_tls, int *status, const bool inc,
+                       registry_writer_t &registry) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(cctkGH);
@@ -60,7 +61,7 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
       continue;
     }
 
-    hierarchy_writer::record_storage(gi, ntls);
+    registry.record_storage(gi, ntls);
 
     const int current = ext.active_timelevels(gi);
     min_num_timelevels = std::min(min_num_timelevels, current);
@@ -73,17 +74,21 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
 } // namespace
 
 int GroupStorageIncrease(const cGH *cctkGH, int n_groups, const int *groups,
-                         const int *tls, int *status) {
+                         const int *tls, int *status,
+                         registry_writer_t &registry) {
   DECLARE_CCTK_PARAMETERS;
 
-  return GroupStorageCrease(cctkGH, n_groups, groups, tls, status, true);
+  return GroupStorageCrease(cctkGH, n_groups, groups, tls, status, true,
+                            registry);
 }
 
 int GroupStorageDecrease(const cGH *cctkGH, int n_groups, const int *groups,
-                         const int *tls, int *status) {
+                         const int *tls, int *status,
+                         registry_writer_t &registry) {
   DECLARE_CCTK_PARAMETERS;
 
-  return GroupStorageCrease(cctkGH, n_groups, groups, tls, status, false);
+  return GroupStorageCrease(cctkGH, n_groups, groups, tls, status, false,
+                            registry);
 }
 
 int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {
@@ -106,21 +111,23 @@ int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {
   return ext.record(gi_t{gi}).has_storage() ? 1 : 0;
 }
 
-int EnableGroupStorage(const cGH *cctkGH, const char *groupname) {
+int EnableGroupStorage(const cGH *cctkGH, const char *groupname,
+                       registry_writer_t &registry) {
   const int group = CCTK_GroupIndex(groupname);
   assert(group >= 0 and group < CCTK_NumGroups());
   const int tls = CCTK_DeclaredTimeLevelsGI(group);
   int status;
-  GroupStorageIncrease(cctkGH, 1, &group, &tls, &status);
+  GroupStorageIncrease(cctkGH, 1, &group, &tls, &status, registry);
   return status;
 }
 
-int DisableGroupStorage(const cGH *cctkGH, const char *groupname) {
+int DisableGroupStorage(const cGH *cctkGH, const char *groupname,
+                        registry_writer_t &registry) {
   const int group = CCTK_GroupIndex(groupname);
   assert(group >= 0 and group < CCTK_NumGroups());
   const int tls = 0;
   int status;
-  GroupStorageDecrease(cctkGH, 1, &group, &tls, &status);
+  GroupStorageDecrease(cctkGH, 1, &group, &tls, &status, registry);
   return status;
 }
 
