@@ -230,6 +230,8 @@ public:
   array_write_scope_t &operator=(array_write_scope_t &&) = delete;
   ~array_write_scope_t();
 
+  void *data(std::source_location site = std::source_location::current());
+
 private:
   friend array_write_scope_t open_array_write(write_spec_t spec);
   array_write_scope_t(write_spec_t spec, int iteration);

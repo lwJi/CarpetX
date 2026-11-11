@@ -752,6 +752,19 @@ array_write_scope_t::~array_write_scope_t() {
   }
 }
 
+void *array_write_scope_t::data(const std::source_location site) {
+  if (!live)
+    refuse(site,
+           "a moved-from array write scope on group %s, time level %d hands "
+           "out no data",
+           driver().record(spec.gi).groupname.c_str(), spec.tl.index());
+  return GHExt::mutable_instance()
+      .record(spec.gi)
+      .array(site)
+      .timelevel(spec.tl, site)
+      .data.data_at(0);
+}
+
 void require_array(require_spec_t spec) {
   const auto msg = event_reason(spec.event, "", current_iteration());
   const ArrayGroupData &arraygroupdata = driver().record(spec.gi).array();

@@ -752,14 +752,6 @@ void hierarchy_writer::adopt_flesh_cctkGH(cGH *const cctkGH) {
   ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
 }
 
-void *hierarchy_writer::array_data(const gi_t gi, const tl_t tl) {
-  return GHExt::mutable_instance()
-      .record(gi)
-      .array()
-      .timelevel(tl)
-      .data.data_at(0);
-}
-
 std::size_t hierarchy_writer::acquire_scratch(const group_t group,
                                               const std::source_location site) {
   auto &groupdata = GHExt::mutable_instance().group(group, site);

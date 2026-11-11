@@ -184,6 +184,159 @@ void snapshot_geometry(level_record_t &record, const level_t level) {
   record.vertex_coords = vertex_coords(level);
 }
 
+buffer_id_t buffer_id(const GHExt::GroupRecord &group,
+                      const std::optional<level_t> level,
+                      std::variant<tl_t, std::string> which) {
+  return {.group = group.groupname,
+          .vars = variable_names(group),
+          .level = level,
+          .which = std::move(which)};
+}
+
+std::vector<int>
+array_shape(const GHExt::GlobalData::ArrayGroupData &arraydata) {
+  return {arraydata.gsh[0], arraydata.gsh[1], arraydata.gsh[2]};
+}
+
+struct buffer_visitor_t {
+  virtual void state(const GHExt::PatchData::LevelData::GroupData &groupdata,
+                     tl_t tl) = 0;
+  virtual void bands(level_t level, gi_t gi, rat64 parent_step) = 0;
+  virtual void array(const GHExt::GroupRecord &group) = 0;
+
+protected:
+  ~buffer_visitor_t() = default;
+};
+
+void for_each_buffer(const checkpoint_record_t &record,
+                     const group_selection_t &selection, const bool restartable,
+                     const codec_limits_t &limits, buffer_visitor_t &visitor) {
+  const GHExt &ext = driver();
+  for (const auto &patchdata : ext.patches()) {
+    for (const auto &leveldata : patchdata.levels()) {
+      const level_t level = leveldata.level;
+      const bool bands = restartable && finer_level_is_behind(record, level);
+      for (const auto &groupdata : leveldata.groups()) {
+        const GHExt::GroupRecord &group = groupdata.record;
+        const gi_t gi = group.groupindex;
+        if (!selection.contains(gi))
+          continue;
+
+        const tl_range tls =
+            restartable ? group.timelevels() : tl_range{tl_t{0}, tl_t{1}};
+        for (const tl_t tl : tls)
+          visitor.state(groupdata, tl);
+
+        if (bands)
+          visitor.bands(level, gi, *record.level_record(level).iteration);
+      }
+    }
+  }
+
+  if (!limits.carries_arrays)
+    return;
+  for (const GHExt::GroupRecord &group : selection.records()) {
+    if (group.kind == group_kind::grid_function)
+      continue;
+    assert(!has_ghosts(ext.record(group.groupindex).array().nghostzones));
+    visitor.array(group);
+  }
+}
+
+struct source_sink_t final : buffer_visitor_t {
+  explicit source_sink_t(std::vector<buffer_t> &buffers) : buffers(buffers) {}
+
+  void state(const GHExt::PatchData::LevelData::GroupData &groupdata,
+             const tl_t tl) override {
+    const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+    buffers.push_back({.id = buffer_id(groupdata.record, groupdata.level, tl),
+                       .data = grid_buffer_t{&mfab}});
+  }
+
+  void bands(const level_t level, const gi_t gi,
+             const rat64 parent_step) override {
+    const GHExt::GroupRecord &group = driver().record(gi);
+    for (const auto &[tag, band] : checkpoint_bands(level, gi, parent_step)) {
+      assert(band->nGrowVect() == 0);
+      buffers.push_back(
+          {.id = buffer_id(group, level, tag), .data = grid_buffer_t{band}});
+    }
+  }
+
+  void array(const GHExt::GroupRecord &group) override {
+    const GHExt::GlobalData::ArrayGroupData &arraydata =
+        driver().record(group.groupindex).array();
+    const GHExt::GlobalData::AnyTypeVector &data =
+        arraydata.timelevel(tl_t{0}).data;
+    buffers.push_back(
+        {.id = buffer_id(group, std::nullopt, tl_t{0}),
+         .data = array_buffer_t{.data = data.data_at(0),
+                                .vartype = data.type(),
+                                .shape = array_shape(arraydata)}});
+  }
+
+private:
+  std::vector<buffer_t> &buffers;
+};
+
+struct state_need_t {
+  level_t level;
+  gi_t gi;
+  tl_t tl;
+  valid_t fills;
+};
+
+struct array_need_t {
+  gi_t gi;
+  valid_t fills;
+  var_type vartype;
+  std::vector<int> shape;
+};
+
+struct need_t {
+  buffer_id_t id;
+  std::variant<state_need_t, grid_target_t, array_need_t> from;
+};
+
+struct target_sink_t final : buffer_visitor_t {
+  void state(const GHExt::PatchData::LevelData::GroupData &groupdata,
+             const tl_t tl) override {
+    needs.push_back(
+        {.id = buffer_id(groupdata.record, groupdata.level, tl),
+         .from = state_need_t{.level = groupdata.level,
+                              .gi = groupdata.record.groupindex,
+                              .tl = tl,
+                              .fills = has_ghosts(groupdata.nghostzones)
+                                           ? make_valid_int()
+                                           : make_valid_all()}});
+  }
+
+  void bands(const level_t level, const gi_t gi,
+             const rat64 parent_step) override {
+    const GHExt::GroupRecord &group = driver().record(gi);
+    for (const auto &[tag, band] : restore_bands(level, gi, parent_step)) {
+      assert(band->nGrowVect() == 0);
+      needs.push_back(
+          {.id = buffer_id(group, level, tag), .from = grid_target_t{band}});
+    }
+  }
+
+  void array(const GHExt::GroupRecord &group) override {
+    const GHExt::GlobalData::ArrayGroupData &arraydata =
+        driver().record(group.groupindex).array();
+    needs.push_back(
+        {.id = buffer_id(group, std::nullopt, tl_t{0}),
+         .from = array_need_t{
+             .gi = group.groupindex,
+             .fills = has_ghosts(arraydata.nghostzones) ? make_valid_int()
+                                                        : make_valid_all(),
+             .vartype = arraydata.timelevel(tl_t{0}).data.type(),
+             .shape = array_shape(arraydata)}});
+  }
+
+  std::vector<need_t> needs;
+};
+
 } // namespace
 
 std::unique_ptr<checkpoint_codec_t>
@@ -235,79 +388,11 @@ bool finer_level_is_behind(const checkpoint_record_t &record,
   return false;
 }
 
-void build_buffers(checkpoint_record_t &record,
-                   const group_selection_t &selection,
-                   const record_purpose purpose, const codec_limits_t &limits) {
-  const GHExt &ext = driver();
-  const bool restartable = purpose != record_purpose::output;
-  for (const auto &patchdata : ext.patches()) {
-    for (const auto &leveldata : patchdata.levels()) {
-      const level_t level = leveldata.level;
-      const bool bands = restartable && finer_level_is_behind(record, level);
-      for (const auto &groupdata : leveldata.groups()) {
-        const GHExt::GroupRecord &group = groupdata.record;
-        const gi_t gi = group.groupindex;
-        if (!selection.contains(gi))
-          continue;
-        const std::vector<std::string> vars = variable_names(group);
-
-        const tl_range tls =
-            restartable ? group.timelevels() : tl_range{tl_t{0}, tl_t{1}};
-        for (const tl_t tl : tls)
-          record.buffers.push_back(
-              {.id = {.group = group.groupname,
-                      .vars = vars,
-                      .level = level,
-                      .which = tl},
-               .data = grid_buffer_t{groupdata.timelevel(tl).mfab.get()}});
-
-        if (!bands)
-          continue;
-        const rat64 parent_step = *record.level_record(level).iteration;
-        const std::vector<checkpoint_band_t> listed =
-            purpose == record_purpose::recovery
-                ? restore_bands(level, gi, parent_step)
-                : checkpoint_bands(level, gi, parent_step);
-        for (const auto &[tag, band] : listed) {
-          assert(band->nGrowVect() == 0);
-          record.buffers.push_back({.id = {.group = group.groupname,
-                                           .vars = vars,
-                                           .level = level,
-                                           .which = tag},
-                                    .data = grid_buffer_t{band}});
-        }
-      }
-    }
-  }
-
-  if (!limits.carries_arrays)
-    return;
-  for (const GHExt::GroupRecord &group : selection.records()) {
-    if (group.kind == group_kind::grid_function)
-      continue;
-    const GHExt::GlobalData::ArrayGroupData &arraydata =
-        ext.record(group.groupindex).array();
-    assert(!has_ghosts(arraydata.nghostzones));
-    const GHExt::GlobalData::AnyTypeVector &data =
-        arraydata.timelevel(tl_t{0}).data;
-    record.buffers.push_back(
-        {.id = {.group = group.groupname,
-                .vars = variable_names(group),
-                .level = std::nullopt,
-                .which = tl_t{0}},
-         .data = array_buffer_t{
-             .data = hierarchy_writer::array_data(group.groupindex, tl_t{0}),
-             .vartype = data.type(),
-             .shape = {arraydata.gsh[0], arraydata.gsh[1], arraydata.gsh[2]}}});
-  }
-}
-
 checkpoint_record_t build_record(const cGH *const cctkGH,
                                  const group_selection_t &selection,
                                  const record_purpose purpose,
                                  const codec_limits_t &limits,
                                  const std::source_location site) {
-  assert(purpose != record_purpose::recovery);
   if (purpose == record_purpose::checkpoint)
     refuse_unless_carried(selection, limits, site);
 
@@ -333,7 +418,9 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
     }
   }
 
-  build_buffers(record, selection, purpose, limits);
+  source_sink_t sink(record.buffers);
+  for_each_buffer(record, selection, purpose == record_purpose::checkpoint,
+                  limits, sink);
   return record;
 }
 
@@ -372,24 +459,29 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
 }
 
 void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
+                 const group_selection_t &selection, const bool restartable,
                  const std::string &dir, const std::string &file,
                  const std::string &event, const std::source_location site) {
+  target_sink_t sink;
+  for_each_buffer(record, selection, restartable, codec.limits(), sink);
+  const std::vector<need_t> &needs = sink.needs;
+
   std::ostringstream missing;
   int num_missing = 0;
   bool band_missing = false;
-  for (const buffer_t &buffer : record.buffers) {
-    if (record.present.count(codec.key(buffer.id)))
+  for (const need_t &need : needs) {
+    if (record.present.count(codec.key(need.id)))
       continue;
     ++num_missing;
-    missing << "\n  " << describe(buffer.id);
-    band_missing |= std::holds_alternative<std::string>(buffer.id.which);
+    missing << "\n  " << describe(need.id);
+    band_missing |= std::holds_alternative<std::string>(need.id.which);
   }
   if (num_missing > 0)
     refuse(site,
            "The checkpoint \"%s/%s\" at iteration %d lacks %d of the %d "
            "buffers being read:%s%s",
            dir.c_str(), file.c_str(), record.iteration, num_missing,
-           int(record.buffers.size()), missing.str().c_str(),
+           int(needs.size()), missing.str().c_str(),
            band_missing
                ? "\nA mid-cycle checkpoint holds the bands of every level "
                  "whose finer level is behind. This one was written by a "
@@ -397,40 +489,42 @@ void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
                  "Restart from a time-aligned checkpoint."
                : "");
 
-  std::vector<write_scope_t> scopes;
+  write_scopes_t scopes;
   std::vector<array_write_scope_t> array_scopes;
-  const GHExt &ext = driver();
-  for (const buffer_t &buffer : record.buffers) {
-    const tl_t *const tl = std::get_if<tl_t>(&buffer.id.which);
-    if (!tl)
-      continue;
-    const gi_t gi{CCTK_GroupIndex(buffer.id.group.c_str())};
-    assert(gi.index() >= 0);
-    if (buffer.id.level) {
-      const auto &groupdata = ext.level(*buffer.id.level).group(gi);
-      scopes.push_back(open_write(window_t::one_level(*buffer.id.level),
-                                  {.gi = gi,
-                                   .tl = *tl,
-                                   .fills = has_ghosts(groupdata.nghostzones)
-                                                ? make_valid_int()
-                                                : make_valid_all(),
-                                   .keeps = valid_t(),
-                                   .event = event}));
+  std::vector<target_t> targets;
+  targets.reserve(needs.size());
+  for (const need_t &need : needs) {
+    if (const state_need_t *const state =
+            std::get_if<state_need_t>(&need.from)) {
+      scopes.open(window_t::one_level(state->level), {.gi = state->gi,
+                                                      .tl = state->tl,
+                                                      .fills = state->fills,
+                                                      .keeps = valid_t(),
+                                                      .event = event});
+      targets.push_back({.id = need.id,
+                         .data = grid_target_t{&scopes.mfab(
+                             state->level, state->gi, state->tl, site)}});
+    } else if (const grid_target_t *const band =
+                   std::get_if<grid_target_t>(&need.from)) {
+      targets.push_back({.id = need.id, .data = *band});
     } else {
-      const auto &arraydata = ext.record(gi).array();
-      array_scopes.push_back(open_array_write(
-          {.gi = gi,
-           .tl = *tl,
-           .fills = has_ghosts(arraydata.nghostzones) ? make_valid_int()
-                                                      : make_valid_all(),
-           .keeps = valid_t(),
-           .event = event}));
+      const array_need_t &array = std::get<array_need_t>(need.from);
+      array_scopes.push_back(open_array_write({.gi = array.gi,
+                                               .tl = tl_t{0},
+                                               .fills = array.fills,
+                                               .keeps = valid_t(),
+                                               .event = event}));
+      targets.push_back(
+          {.id = need.id,
+           .data = array_target_t{.data = array_scopes.back().data(site),
+                                  .vartype = array.vartype,
+                                  .shape = array.shape}});
     }
   }
 
-  codec.decode_data(record, dir, file);
+  codec.decode_data(record, targets, dir, file);
 
-  scopes.clear();
+  scopes.close();
   array_scopes.clear();
 }
 

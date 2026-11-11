@@ -39,6 +39,7 @@
 #include <regex>
 #include <set>
 #include <source_location>
+#include <span>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -157,6 +158,19 @@ state_buffers(const checkpoint_record_t &record) {
   return states;
 }
 
+std::map<std::string, const amrex::MultiFab *>
+state_targets(const std::span<const target_t> targets) {
+  std::map<std::string, const amrex::MultiFab *> states;
+  for (const target_t &target : targets) {
+    const grid_target_t *const grid = std::get_if<grid_target_t>(&target.data);
+    if (!grid || band_tag(target.id))
+      continue;
+    assert(std::get<tl_t>(target.id.which) == tl_t{0});
+    states.emplace(target.id.name(), grid->mfab);
+  }
+  return states;
+}
+
 const amrex::MultiFab &
 state_of(const std::map<std::string, const amrex::MultiFab *> &states,
          const buffer_id_t &id) {
@@ -270,8 +284,7 @@ struct writer_t {
       return mfab[component.index()].dataPtr();
     if (proc == myproc) {
       MPI_Send(mfab[component.index()].dataPtr(), count,
-               mpi_datatype_v<CCTK_REAL>,
-               ioproc, tag, mpi_comm);
+               mpi_datatype_v<CCTK_REAL>, ioproc, tag, mpi_comm);
       return nullptr;
     }
     buffer.resize(count);
@@ -1056,7 +1069,8 @@ struct silo_codec_t final : checkpoint_codec_t {
   checkpoint_record_t decode_structure(const std::string &dir,
                                        const std::string &file,
                                        int iteration) override;
-  void decode_data(const checkpoint_record_t &record, const std::string &dir,
+  void decode_data(const checkpoint_record_t &record,
+                   std::span<const target_t> targets, const std::string &dir,
                    const std::string &file) override;
 };
 
@@ -1377,6 +1391,7 @@ checkpoint_record_t silo_codec_t::decode_structure(const std::string &dir,
 }
 
 void silo_codec_t::decode_data(const checkpoint_record_t &record,
+                               const std::span<const target_t> targets,
                                const std::string &dir,
                                const std::string &file) {
   static Timer timer("silo_codec_t::decode_data");
@@ -1394,20 +1409,20 @@ void silo_codec_t::decode_data(const checkpoint_record_t &record,
                   .myproc = myproc,
                   .every = every,
                   .dbfile = {},
-                  .states = state_buffers(record)};
+                  .states = state_targets(targets)};
   if (myproc % every == 0)
     reader.dbfile = open_block_file(filename);
 
-  for (const buffer_t &buffer : record.buffers)
-    std::visit(overloaded{[&](const grid_buffer_t &grid) {
-                            reader.read(buffer.id, *grid.mfab);
+  for (const target_t &target : targets)
+    std::visit(overloaded{[&](const grid_target_t &grid) {
+                            reader.read(target.id, *grid.mfab);
                           },
-                          [&](const array_buffer_t &) {
+                          [&](const array_target_t &) {
                             CCTK_VERROR("A Silo checkpoint cannot carry the "
                                         "grid array or scalar %s",
-                                        buffer.id.group.c_str());
+                                        target.id.group.c_str());
                           }},
-               buffer.data);
+               target.data);
 }
 
 } // namespace

@@ -134,10 +134,9 @@ void RecoverGH(const cGH *restrict cctkGH, const checkpoint_record_t &record) {
   const group_selection_t selection = checkpointed_groups();
 
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
-  checkpoint_record_t recovering = record;
-  build_buffers(recovering, selection, record_purpose::recovery,
-                codec->limits());
-  read_record(*codec, recovering, recover_dir, recover_file, "RecoverGH");
+  const bool restartable = true;
+  read_record(*codec, record, selection, restartable, recover_dir, recover_file,
+              "RecoverGH");
 }
 
 void InputGH(const cGH *restrict cctkGH) {
@@ -172,8 +171,9 @@ void InputGH(const cGH *restrict cctkGH) {
   checkpoint_record_t record =
       build_record(cctkGH, selection, record_purpose::output, limits);
   record.present = std::move(file.present);
-  read_record(*codec, record, filereader_ID_dir, filereader_ID_files,
-              "InputGH");
+  const bool restartable = false;
+  read_record(*codec, record, selection, restartable, filereader_ID_dir,
+              filereader_ID_files, "InputGH");
 }
 
 ////////////////////////////////////////////////////////////////////////////////

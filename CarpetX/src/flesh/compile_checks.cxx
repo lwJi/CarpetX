@@ -292,6 +292,9 @@ static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
 static_assert(std::is_same_v<decltype(group_buffers_t::rk_bands),
                              std::optional<rk_bands_t>>);
 
+static_assert(
+    std::is_same_v<decltype(grid_buffer_t::mfab), const amrex::MultiFab *>);
+
 static_assert(accumulate_fluxes_takes<level_t, stage_t, CCTK_REAL>);
 static_assert(!accumulate_fluxes_takes<level_t, int, CCTK_REAL>);
 static_assert(!accumulate_fluxes_takes<level_t, tl_t, CCTK_REAL>);

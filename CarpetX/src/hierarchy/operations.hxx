@@ -57,7 +57,6 @@ struct hierarchy_writer {
   static void freeze_integrator(
       std::source_location site = std::source_location::current());
   static void adopt_flesh_cctkGH(cGH *cctkGH);
-  static void *array_data(gi_t gi, tl_t tl);
 
   static std::size_t
   acquire_scratch(group_t group,

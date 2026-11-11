@@ -29,6 +29,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -305,7 +306,7 @@ void write_array(openPMD::Iteration &write_iter, const buffer_id_t &id,
 }
 
 void read_grid(openPMD::Iteration &read_iter, const checkpoint_record_t &record,
-               const buffer_id_t &id, const grid_buffer_t &grid,
+               const buffer_id_t &id, const grid_target_t &grid,
                std::vector<std::function<void()> > &tasks) {
   const level_layout_t layout = layout_of(record, *id.level);
 
@@ -356,7 +357,7 @@ void read_grid(openPMD::Iteration &read_iter, const checkpoint_record_t &record,
 }
 
 void read_array(openPMD::Iteration &read_iter, const buffer_id_t &id,
-                const array_buffer_t &array) {
+                const array_target_t &array) {
   const std::string meshname = mesh_name(id);
   if (io_verbose)
     CCTK_VINFO("Reading mesh %s...", meshname.c_str());
@@ -390,7 +391,8 @@ struct openpmd_codec_t final : checkpoint_codec_t {
   checkpoint_record_t decode_structure(const std::string &dir,
                                        const std::string &file,
                                        int iteration) override;
-  void decode_data(const checkpoint_record_t &record, const std::string &dir,
+  void decode_data(const checkpoint_record_t &record,
+                   std::span<const target_t> targets, const std::string &dir,
                    const std::string &file) override;
 };
 
@@ -668,6 +670,7 @@ checkpoint_record_t openpmd_codec_t::decode_structure(const std::string &dir,
 }
 
 void openpmd_codec_t::decode_data(const checkpoint_record_t &record,
+                                  const std::span<const target_t> targets,
                                   const std::string &dir,
                                   const std::string &file) {
   static Timer timer("openpmd_codec_t::decode_data");
@@ -686,15 +689,15 @@ void openpmd_codec_t::decode_data(const checkpoint_record_t &record,
   read_iter.open();
 
   std::vector<std::function<void()> > tasks;
-  for (const buffer_t &buffer : record.buffers)
-    std::visit(overloaded{[&](const grid_buffer_t &grid) {
-                            read_grid(read_iter, record, buffer.id, grid,
+  for (const target_t &target : targets)
+    std::visit(overloaded{[&](const grid_target_t &grid) {
+                            read_grid(read_iter, record, target.id, grid,
                                       tasks);
                           },
-                          [&](const array_buffer_t &array) {
-                            read_array(read_iter, buffer.id, array);
+                          [&](const array_target_t &array) {
+                            read_array(read_iter, target.id, array);
                           }},
-               buffer.data);
+               target.data);
 
   if (io_verbose)
     CCTK_VINFO("Performing all reads...");
