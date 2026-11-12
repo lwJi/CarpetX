@@ -151,7 +151,7 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
                               .make_core = make_cactus_amrcore,
                               .make_buffers = make_level_buffers});
   adopt_writers(writers->registry, writers->scratch);
-  return writers.get();
+  return nullptr;
 }
 
 int InitGH(cGH *restrict cctkGH) {
