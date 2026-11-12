@@ -309,6 +309,9 @@ template <class Writer>
 concept hands_out_levels = requires(Writer &writer) { writer.levels; };
 
 template <class Writer>
+concept hands_out_hierarchy = requires(Writer &writer) { writer.hierarchy; };
+
+template <class Writer>
 concept makes_amrcore =
     std::is_invocable_v<amrcore_factory, Writer &, patch_t,
                         const amrex::RealBox &, int, const amrex::Vector<int> &,
@@ -752,6 +755,9 @@ static_assert(!std::is_constructible_v<level_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<registry_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<scratch_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt &>);
+static_assert(
+    !std::is_constructible_v<hierarchy_writers_t, std::unique_ptr<GHExt>>);
+static_assert(!hands_out_hierarchy<hierarchy_writers_t>);
 
 } // namespace
 } // namespace CarpetX

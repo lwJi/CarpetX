@@ -37,7 +37,7 @@
 namespace CarpetX {
 
 namespace {
-std::unique_ptr<GHExt> ghext;
+GHExt *ghext = nullptr;
 
 GHExt &existing_hierarchy() {
   if (!ghext)
@@ -56,16 +56,23 @@ create_hierarchy(const GHExt::config_t config) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
-  ghext = std::make_unique<GHExt>(config);
-  return std::unique_ptr<hierarchy_writers_t>(new hierarchy_writers_t(*ghext));
+  return std::unique_ptr<hierarchy_writers_t>(
+      new hierarchy_writers_t(std::make_unique<GHExt>(config)));
 }
 
-void destroy_hierarchy() {
-  if (!ghext)
-    CCTK_ERROR("The CarpetX grid hierarchy does not exist: Shutdown destroys "
-               "the hierarchy that SetupGH created");
-  cctkGH_binding::unbind_arrays(ghext->flesh_cctkGH);
+hierarchy_writers_t::hierarchy_writers_t(std::unique_ptr<GHExt> made)
+    : clock(*made), structure(*made), registry(*made), scratch(*made),
+      hierarchy(std::move(made)) {
+  assert(hierarchy);
+  assert(!ghext);
+  ghext = hierarchy.get();
+}
+
+hierarchy_writers_t::~hierarchy_writers_t() {
+  assert(ghext == hierarchy.get());
+  cctkGH_binding::unbind_arrays(hierarchy->flesh_cctkGH);
   ghext = nullptr;
+  hierarchy.reset();
 }
 
 void assert_hierarchy_destroyed() { assert(!ghext); }

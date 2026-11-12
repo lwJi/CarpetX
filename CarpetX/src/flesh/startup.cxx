@@ -205,7 +205,7 @@ extern "C" int CarpetX_Shutdown() {
     assert(iret == 0);
   }
 
-  destroy_hierarchy();
+  assert(writers);
   return_writers();
   writers.reset();
 

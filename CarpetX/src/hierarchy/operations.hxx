@@ -26,7 +26,6 @@ namespace CarpetX {
 struct hierarchy_writers_t;
 [[nodiscard]] std::unique_ptr<hierarchy_writers_t>
 create_hierarchy(GHExt::config_t config);
-void destroy_hierarchy();
 
 class clock_writer_t {
 public:
@@ -137,9 +136,11 @@ struct hierarchy_writers_t {
   registry_writer_t registry;
   scratch_writer_t scratch;
 
+  ~hierarchy_writers_t();
+
 private:
-  explicit hierarchy_writers_t(GHExt &ext)
-      : clock(ext), structure(ext), registry(ext), scratch(ext) {}
+  explicit hierarchy_writers_t(std::unique_ptr<GHExt> made);
+  std::unique_ptr<GHExt> hierarchy;
   friend std::unique_ptr<hierarchy_writers_t>
   create_hierarchy(GHExt::config_t config);
 };
