@@ -290,9 +290,7 @@ concept regrids = requires(Writer &writer, level_t level) {
 
 template <class Writer>
 concept adds_patches =
-    requires(Writer &writer, level_writer_t &levels, patch_t patch) {
-      writer.add_patch(levels, patch);
-    };
+    requires(Writer &writer, patch_t patch) { writer.add_patch(patch); };
 
 template <class Writer>
 concept erases_levels = requires(Writer &writer, level_t level) {
@@ -307,11 +305,7 @@ concept makes_levels =
     };
 
 template <class Writer>
-concept builds_levels_unlent =
-    requires(level_t level, const amrex::BoxArray &ba,
-             const amrex::DistributionMapping &dm) {
-      Writer::make(level, ba, dm, std::string());
-    };
+concept hands_out_levels = requires(Writer &writer) { writer.levels; };
 
 template <class Writer>
 concept makes_amrcore =
@@ -641,8 +635,8 @@ static_assert(std::is_same_v<decltype(hierarchy_writers_t::structure),
 static_assert(!std::is_default_constructible_v<structure_writer_t>);
 static_assert(!std::is_copy_constructible_v<structure_writer_t>);
 static_assert(!std::is_move_constructible_v<structure_writer_t>);
-static_assert(
-    std::is_same_v<decltype(hierarchy_writers_t::levels), level_writer_t>);
+static_assert(!hands_out_levels<hierarchy_writers_t>);
+static_assert(!hands_out_levels<structure_writer_t>);
 static_assert(!std::is_default_constructible_v<level_writer_t>);
 static_assert(!std::is_copy_constructible_v<level_writer_t>);
 static_assert(!std::is_move_constructible_v<level_writer_t>);
@@ -654,7 +648,6 @@ static_assert(erases_levels<level_writer_t>);
 static_assert(!erases_levels<structure_writer_t>);
 static_assert(makes_levels<level_writer_t>);
 static_assert(!makes_levels<structure_writer_t>);
-static_assert(!builds_levels_unlent<level_writer_t>);
 static_assert(makes_amrcore<level_writer_t>);
 static_assert(!makes_amrcore<structure_writer_t>);
 static_assert(std::is_same_v<decltype(&make_cactus_amrcore), amrcore_factory>);

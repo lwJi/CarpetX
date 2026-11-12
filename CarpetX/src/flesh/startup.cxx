@@ -172,7 +172,7 @@ int InitGH(cGH *restrict cctkGH) {
   }
   for (const patch_t patch :
        index_range<patch_t>(patch_t{0}, patch_t{num_patches}))
-    writers->structure.add_patch(writers->levels, patch);
+    writers->structure.add_patch(patch);
 
   return 0;
 }
