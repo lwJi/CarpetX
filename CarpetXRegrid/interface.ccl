@@ -2,7 +2,7 @@ IMPLEMENTS: CarpetXRegrid
 
 PUBLIC:
 
-CCTK_REAL regrid_error TYPE=gf CENTERING={ccc} TAGS='checkpoint="no"'
+CCTK_REAL regrid_error TYPE=gf CENTERING={ccc} TAGS='checkpoint="no" restrict="no"'
 {
   regrid_error
 } "Regridding condition"

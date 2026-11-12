@@ -69,17 +69,10 @@ static void sync_log_groups(const char *label,
 
 static std::vector<gi_t>
 sync_filter_groups(const std::span<const gi_t> groups0) {
-  static const gi_t gi_regrid_error{
-      CCTK_GroupIndex("CarpetXRegrid::regrid_error")};
-  assert(gi_regrid_error.index() >= 0);
-
   std::vector<gi_t> groups;
   for (const gi_t gi : groups0) {
     const auto &group = driver().record(gi);
     if (!group.has_storage() || group.kind != group_kind::grid_function)
-      continue;
-    // Don't restrict the regridding error
-    if (gi == gi_regrid_error)
       continue;
     groups.push_back(gi);
   }
@@ -820,9 +813,6 @@ static void restrict_level(const level_t level,
   static Timer timer("Restrict");
   Interval interval(timer);
 
-  const gi_t gi_regrid_error{CCTK_GroupIndex("CarpetXRegrid::regrid_error")};
-  assert(gi_regrid_error.index() >= 0);
-
   const std::optional<level_t> fine = level.child();
   if (!fine)
     return;
@@ -836,10 +826,6 @@ static void restrict_level(const level_t level,
     const auto &groupdata = leveldata.group(gi);
     const auto &finegroupdata = fineleveldata.group(gi);
     const amrex::IntVect reffact{2, 2, 2};
-
-    // Don't restrict the regridding error
-    if (gi == gi_regrid_error)
-      continue;
 
     for (const tl_t tl :
          timelevels_t::all_but_oldest().range(groupdata.record)) {
