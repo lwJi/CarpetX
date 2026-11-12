@@ -2,6 +2,7 @@
 #include "hierarchy/binding.hxx"
 #include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
 #include "comm/buffers.hxx"
@@ -349,6 +350,19 @@ concept holds_robin_values = requires(const T &t) { t.robin_values; };
 
 template <class T>
 concept holds_fluxes = requires(const T &t) { t.fluxes; };
+
+template <class Group>
+concept parses_layout_tags =
+    requires(Group gi) { get_group_indextype(gi); } ||
+    requires(Group gi) { get_group_nghostzones(gi); } ||
+    requires(Group gi) { get_group_boundaries(gi); } ||
+    requires(Group gi) { get_group_parities(gi); } ||
+    requires(Group gi) { get_group_dirichlet_values(gi); } ||
+    requires(Group gi) { get_group_robin_values(gi); } ||
+    requires(Group gi) { get_group_fluxes(gi); };
+
+template <class Record>
+concept makes_layout = requires(gi_t gi) { Record::make_layout(gi, 0); };
 
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
@@ -797,6 +811,8 @@ static_assert(holds_robin_values<GHExt::GroupRecord::layout_t>);
 static_assert(!holds_robin_values<GHExt::PatchData::LevelData::GroupData>);
 static_assert(holds_fluxes<GHExt::GroupRecord::layout_t>);
 static_assert(!holds_fluxes<GHExt::PatchData::LevelData::GroupData>);
+static_assert(!parses_layout_tags<gi_t>);
+static_assert(!makes_layout<GHExt::GroupRecord>);
 
 } // namespace
 } // namespace CarpetX

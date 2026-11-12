@@ -314,22 +314,6 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
     ghost_masks.emplace(key, std::move(mask));
   }
 
-  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
-    const GHExt::GroupRecord &group = ext.record(gi);
-    if (group.kind != group_kind::grid_function)
-      continue;
-    const std::optional<std::array<gi_t, dim> > fluxes = get_group_fluxes(gi);
-    if (fluxes) {
-      for (int d = 0; d < dim; ++d) {
-        assert((*fluxes)[d] != gi);
-        std::array<int, dim> flux_indextype{1, 1, 1};
-        flux_indextype[d] = 0;
-        assert(get_group_indextype((*fluxes)[d]) == flux_indextype);
-        assert(ext.record((*fluxes)[d]).numvars >= group.numvars);
-      }
-    }
-  }
-
   if (int(ext.level_cctkGHs.size()) <= level.index()) {
     cGH *const cctkGH = ext.get_global_cctkGH();
     enter_level_mode(cctkGH, level);
@@ -411,39 +395,6 @@ void GHExt::PatchData::LevelData::GroupData::rotate_timelevels() {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-namespace {
-GHExt::GroupRecord::layout_t make_layout(const gi_t gi, const int numvars) {
-  GHExt::GroupRecord::layout_t layout;
-  layout.indextype = get_group_indextype(gi);
-  layout.nghostzones = get_group_nghostzones(gi);
-
-  layout.boundaries = get_group_boundaries(gi);
-  layout.parities = get_group_parities(gi);
-  if (layout.parities.empty()) {
-    std::array<int, dim> parity;
-    for (int d = 0; d < dim; ++d)
-      parity[d] = +1;
-    layout.parities.resize(numvars, parity);
-  }
-  assert(int(layout.parities.size()) == numvars);
-  for (const std::array<int, dim> &parity : layout.parities)
-    for (int d = 0; d < dim; ++d)
-      assert(abs(parity[d]) == 1);
-
-  layout.dirichlet_values = get_group_dirichlet_values(gi);
-  if (layout.dirichlet_values.empty())
-    layout.dirichlet_values.resize(numvars, 0);
-  layout.robin_values = get_group_robin_values(gi);
-  if (layout.robin_values.empty())
-    layout.robin_values.resize(numvars, 0);
-
-  layout.fluxes = get_group_fluxes(gi);
-  if (layout.fluxes)
-    assert((layout.indextype == std::array<int, dim>{1, 1, 1}));
-  return layout;
-}
-} // namespace
 
 GHExt::GroupRecord::GroupRecord(const gi_t gi, const int num_timelevels)
     : groupindex(gi), num_timelevels_(num_timelevels) {
@@ -572,6 +523,21 @@ void GHExt::freeze_storage() {
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups}))
     group_records.emplace_back(gi, pending_timelevels_->at(gi.index()));
   pending_timelevels_.reset();
+
+  for (const GroupRecord &group : group_records) {
+    if (group.kind != group_kind::grid_function)
+      continue;
+    const std::optional<std::array<gi_t, dim>> &fluxes = group.layout().fluxes;
+    if (!fluxes)
+      continue;
+    for (int d = 0; d < dim; ++d) {
+      assert((*fluxes)[d] != group.groupindex);
+      std::array<int, dim> flux_indextype{1, 1, 1};
+      flux_indextype[d] = 0;
+      assert(record((*fluxes)[d]).layout().indextype == flux_indextype);
+      assert(record((*fluxes)[d]).numvars >= group.numvars);
+    }
+  }
 
   for (const GroupRecord &group : records()) {
     if (group.kind == group_kind::grid_function)

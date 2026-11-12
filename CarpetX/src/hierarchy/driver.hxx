@@ -464,6 +464,7 @@ struct GHExt {
     int num_timelevels_;
     std::unique_ptr<GlobalData::ArrayGroupData> array_;
     std::optional<layout_t> layout_;
+    static layout_t make_layout(gi_t gi, int numvars);
   };
 
   struct record_filter {
