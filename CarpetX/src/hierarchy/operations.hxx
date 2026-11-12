@@ -42,7 +42,8 @@ public:
   void rotate_array_timelevels(gi_t gi);
 
 private:
-  clock_writer_t() = default;
+  explicit clock_writer_t(GHExt &ext) : ext(ext) {}
+  GHExt &ext;
   friend struct hierarchy_writers_t;
 };
 
@@ -65,7 +66,8 @@ public:
   void erase_levels_from(level_t level);
 
 private:
-  level_writer_t() = default;
+  explicit level_writer_t(GHExt &ext) : ext(ext) {}
+  GHExt &ext;
   friend class structure_writer_t;
 };
 
@@ -84,7 +86,8 @@ public:
   void recover_level(level_t level, amrex::BoxArray ba, bool rechop);
 
 private:
-  structure_writer_t() = default;
+  explicit structure_writer_t(GHExt &ext) : ext(ext), levels(ext) {}
+  GHExt &ext;
   level_writer_t levels;
   friend struct hierarchy_writers_t;
 };
@@ -104,7 +107,8 @@ public:
   void adopt_flesh_cctkGH(cGH *cctkGH);
 
 private:
-  registry_writer_t() = default;
+  explicit registry_writer_t(GHExt &ext) : ext(ext) {}
+  GHExt &ext;
   friend struct hierarchy_writers_t;
 };
 
@@ -122,7 +126,8 @@ public:
        std::source_location site = std::source_location::current());
 
 private:
-  scratch_writer_t() = default;
+  explicit scratch_writer_t(GHExt &ext) : ext(ext) {}
+  GHExt &ext;
   friend struct hierarchy_writers_t;
 };
 
@@ -133,7 +138,8 @@ struct hierarchy_writers_t {
   scratch_writer_t scratch;
 
 private:
-  hierarchy_writers_t() = default;
+  explicit hierarchy_writers_t(GHExt &ext)
+      : clock(ext), structure(ext), registry(ext), scratch(ext) {}
   friend std::unique_ptr<hierarchy_writers_t>
   create_hierarchy(GHExt::config_t config);
 };

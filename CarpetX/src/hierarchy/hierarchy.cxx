@@ -57,7 +57,7 @@ create_hierarchy(const GHExt::config_t config) {
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
   ghext = std::make_unique<GHExt>(config);
-  return std::unique_ptr<hierarchy_writers_t>(new hierarchy_writers_t);
+  return std::unique_ptr<hierarchy_writers_t>(new hierarchy_writers_t(*ghext));
 }
 
 void destroy_hierarchy() {
@@ -607,7 +607,7 @@ GHExt::record_of(const var_t var, const std::source_location site) const {
 ////////////////////////////////////////////////////////////////////////////////
 
 const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
-  return GHExt::mutable_instance().add_patch(levels, patch);
+  return ext.add_patch(levels, patch);
 }
 
 const GHExt::PatchData::LevelData &
@@ -622,9 +622,7 @@ level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
                level.index());
 
   const GHExt::PatchData::LevelData &leveldata =
-      GHExt::mutable_instance()
-          .patch(level.patch())
-          .add_level(level, ba, dm, why);
+      ext.patch(level.patch()).add_level(level, ba, dm, why);
 
   if (verbose)
 #pragma omp critical
@@ -657,42 +655,34 @@ level_writer_t::remake_level(const level_t level, const amrex::BoxArray &ba,
                              const amrex::DistributionMapping &dm,
                              const std::function<std::string()> &why) {
   GHExt::PatchData::LevelData fresh(level, ba, dm, why);
-  return GHExt::mutable_instance()
-      .patch(level.patch())
-      .replace_level(level, std::move(fresh));
+  return ext.patch(level.patch()).replace_level(level, std::move(fresh));
 }
 
 void level_writer_t::erase_levels_from(const level_t level) {
-  GHExt::mutable_instance().patch(level.patch()).erase_levels_from(level);
+  ext.patch(level.patch()).erase_levels_from(level);
 }
 
 void structure_writer_t::set_max_grid_size(
     const patch_t patch, const amrex::Vector<amrex::IntVect> &max_grid_sizes) {
-  GHExt::mutable_instance().patch(patch).amrcore->SetMaxGridSize(
-      max_grid_sizes);
+  ext.patch(patch).amrcore->SetMaxGridSize(max_grid_sizes);
 }
 
 void structure_writer_t::make_new_grids(const patch_t patch,
                                         const CCTK_REAL time) {
-  GHExt::mutable_instance().patch(patch).amrcore->MakeNewGrids(time);
+  ext.patch(patch).amrcore->MakeNewGrids(time);
 }
 
-void structure_writer_t::mark_initialized() {
-  GHExt::mutable_instance().mark_initialized();
-}
+void structure_writer_t::mark_initialized() { ext.mark_initialized(); }
 
 void structure_writer_t::regrid(const level_t base_level,
                                 const CCTK_REAL time) {
-  GHExt::PatchData &patchdata =
-      GHExt::mutable_instance().patch(base_level.patch());
+  GHExt::PatchData &patchdata = ext.patch(base_level.patch());
   patchdata.reset_level_modified();
   patchdata.amrcore->regrid(base_level.index(), time);
 }
 
 void structure_writer_t::set_finest_level(const level_t finest_level) {
-  GHExt::mutable_instance()
-      .patch(finest_level.patch())
-      .amrcore->SetFinestLevel(finest_level.index());
+  ext.patch(finest_level.patch()).amrcore->SetFinestLevel(finest_level.index());
 }
 
 static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
@@ -713,8 +703,7 @@ static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
 
 void structure_writer_t::recover_level(const level_t level, amrex::BoxArray ba,
                                        const bool rechop) {
-  amrex::AmrCore &amrcore =
-      *GHExt::mutable_instance().patch(level.patch()).amrcore;
+  amrex::AmrCore &amrcore = *ext.patch(level.patch()).amrcore;
   const int lev = level.index();
   if (lev > 0) {
     amrex::Geometry geom = amrcore.Geom(lev - 1);
@@ -730,24 +719,21 @@ void structure_writer_t::recover_level(const level_t level, amrex::BoxArray ba,
 }
 
 void registry_writer_t::record_storage(const gi_t gi, const int timelevels) {
-  GHExt::mutable_instance().record_storage(gi, timelevels);
+  ext.record_storage(gi, timelevels);
 }
 
-void registry_writer_t::freeze_storage() {
-  GHExt::mutable_instance().freeze_storage();
-}
+void registry_writer_t::freeze_storage() { ext.freeze_storage(); }
 
 void registry_writer_t::record_integrator(GHExt::integrator_t integrator,
                                           const std::source_location site) {
-  GHExt::mutable_instance().record_integrator(std::move(integrator), site);
+  ext.record_integrator(std::move(integrator), site);
 }
 
 void registry_writer_t::freeze_integrator(const std::source_location site) {
-  GHExt::mutable_instance().freeze_integrator(site);
+  ext.freeze_integrator(site);
 }
 
 void registry_writer_t::adopt_flesh_cctkGH(cGH *const cctkGH) {
-  GHExt &ext = GHExt::mutable_instance();
   assert(cctkGH);
   assert(!ext.flesh_cctkGH);
   assert(!ext.global_cctkGH);
@@ -758,7 +744,7 @@ void registry_writer_t::adopt_flesh_cctkGH(cGH *const cctkGH) {
 
 std::size_t scratch_writer_t::acquire(const group_t group,
                                       const std::source_location site) {
-  auto &groupdata = GHExt::mutable_instance().group(group, site);
+  auto &groupdata = ext.group(group, site);
   auto &pool = groupdata.scratch_pool;
   std::size_t slot = 0;
   while (slot < pool.size() && pool.at(slot).in_use)
@@ -775,7 +761,7 @@ std::size_t scratch_writer_t::acquire(const group_t group,
 }
 
 void scratch_writer_t::release(const group_t group, const std::size_t slot) {
-  auto &pool = GHExt::mutable_instance().group(group).scratch_pool;
+  auto &pool = ext.group(group).scratch_pool;
   assert(slot < pool.size() && pool.at(slot).in_use);
   pool.at(slot).in_use = false;
 }
@@ -783,14 +769,14 @@ void scratch_writer_t::release(const group_t group, const std::size_t slot) {
 amrex::MultiFab &scratch_writer_t::mfab(const group_t group,
                                         const std::size_t slot,
                                         const std::source_location site) {
-  auto &pool = GHExt::mutable_instance().group(group, site).scratch_pool;
+  auto &pool = ext.group(group, site).scratch_pool;
   assert(slot < pool.size() && pool.at(slot).in_use);
   return *pool.at(slot).mfab;
 }
 
 void clock_writer_t::advance_clocks(const window_t window) {
-  loop_serially(window, [](const GHExt::PatchData::LevelData &leveldata) {
-    auto &clock = GHExt::mutable_instance().level(leveldata.level);
+  loop_serially(window, [this](const GHExt::PatchData::LevelData &leveldata) {
+    auto &clock = ext.level(leveldata.level);
     clock.iteration += clock.delta_iteration;
   });
 }
@@ -798,34 +784,32 @@ void clock_writer_t::advance_clocks(const window_t window) {
 void clock_writer_t::stamp_last_step(const window_t window,
                                      const int iteration) {
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    GHExt::mutable_instance().level(leveldata.level).last_step_iteration =
-        iteration;
+    ext.level(leveldata.level).last_step_iteration = iteration;
   });
 }
 
 void clock_writer_t::stamp_last_finalized(const window_t window,
                                           const int iteration) {
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    GHExt::mutable_instance().level(leveldata.level).last_finalized_iteration =
-        iteration;
+    ext.level(leveldata.level).last_finalized_iteration = iteration;
   });
 }
 
 void clock_writer_t::restore_level_clock(
     const level_t level, const rat64 iteration,
     const std::optional<int> last_step_iteration) {
-  auto &leveldata = GHExt::mutable_instance().level(level);
+  auto &leveldata = ext.level(level);
   leveldata.iteration = iteration;
   if (last_step_iteration)
     leveldata.last_step_iteration = *last_step_iteration;
 }
 
 void clock_writer_t::rotate_timelevels(const window_t window, const gi_t gi) {
-  cctkGH_binding::rotate(window, gi);
+  cctkGH_binding::rotate(ext, window, gi);
 }
 
 void clock_writer_t::rotate_array_timelevels(const gi_t gi) {
-  cctkGH_binding::rotate(gi);
+  cctkGH_binding::rotate(ext, gi);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

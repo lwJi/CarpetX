@@ -1,4 +1,5 @@
 #include "io/checkpoint.hxx"
+#include "hierarchy/binding.hxx"
 #include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
@@ -315,6 +316,15 @@ concept makes_amrcore =
 
 template <class Group>
 concept rotates = requires(Group &group) { group.rotate_timelevels(); };
+
+template <class Binding>
+concept rotates_levels_unlent = requires(GHExt &ext, window_t window, gi_t gi) {
+  Binding::rotate(ext, window, gi);
+};
+
+template <class Binding>
+concept rotates_arrays_unlent =
+    requires(GHExt &ext, gi_t gi) { Binding::rotate(ext, gi); };
 
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
@@ -734,6 +744,14 @@ static_assert(!opens_mutable_door<GHExt>);
 
 static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
 static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);
+static_assert(!rotates_levels_unlent<cctkGH_binding>);
+static_assert(!rotates_arrays_unlent<cctkGH_binding>);
+static_assert(!std::is_constructible_v<clock_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<structure_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<level_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<registry_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<scratch_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt &>);
 
 } // namespace
 } // namespace CarpetX
