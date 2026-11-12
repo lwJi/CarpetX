@@ -442,7 +442,7 @@ struct GHExt {
           std::as_const(*this).array(site));
     }
 
-    struct layout_t {
+    struct grid_function_t {
       std::array<int, dim> indextype;
       std::array<int, dim> nghostzones;
       std::array<std::array<boundary_t, dim>, 2> boundaries;
@@ -451,20 +451,21 @@ struct GHExt {
       std::vector<CCTK_REAL> robin_values;
       std::optional<std::array<gi_t, dim>> fluxes;
     };
-    const layout_t &layout(const std::source_location site =
-                               std::source_location::current()) const {
+    const grid_function_t &
+    grid_function(const std::source_location site =
+                      std::source_location::current()) const {
       if (kind != group_kind::grid_function)
         refuse(site, "group %s is not a grid function group",
                groupname.c_str());
-      assert(layout_);
-      return *layout_;
+      assert(grid_function_);
+      return *grid_function_;
     }
 
   private:
     int num_timelevels_;
     std::unique_ptr<GlobalData::ArrayGroupData> array_;
-    std::optional<layout_t> layout_;
-    static layout_t make_layout(gi_t gi, int numvars);
+    std::optional<grid_function_t> grid_function_;
+    static grid_function_t make_grid_function(gi_t gi, int numvars);
   };
 
   struct record_filter {
@@ -599,7 +600,7 @@ struct GHExt {
                   const std::function<std::string()> &why);
 
         const GroupRecord &record;
-        const GroupRecord::layout_t &layout;
+        const GroupRecord::grid_function_t &grid_function;
         const level_t level;
 
         struct timelevel_t {
@@ -706,8 +707,9 @@ struct GHExt {
       }
 
       const amrex::iMultiFab &ghost_mask(const GroupData &groupdata) const {
-        return ghost_masks.at(ghost_mask_key_t{groupdata.layout.indextype,
-                                               groupdata.layout.nghostzones});
+        return ghost_masks.at(
+            ghost_mask_key_t{groupdata.grid_function.indextype,
+                             groupdata.grid_function.nghostzones});
       }
 
     private:

@@ -77,7 +77,7 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
 
     std::size_t npoints_set_local = 0, npoints_clear_local = 0,
                 npoints_total_local = 0;
-    grid.loop_idx(where_t::interior, groupdata.layout.indextype,
+    grid.loop_idx(where_t::interior, groupdata.grid_function.indextype,
                   [&](const Loop::PointDesc &p) {
                     const int tag = err_(p.I) >= regrid_error_threshold
                                         ? amrex::TagBox::SET

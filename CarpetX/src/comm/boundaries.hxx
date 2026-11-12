@@ -32,7 +32,7 @@ loop_region(const F &f, const Arith::vect<int, dim> &imin,
 ////////////////////////////////////////////////////////////////////////////////
 
 struct BoundaryCondition {
-  const GHExt::GroupRecord::layout_t &group_layout;
+  const GHExt::GroupRecord::grid_function_t &grid_function;
   const GHExt::PatchData &patchdata;
   const amrex::Geometry &geom;
   amrex::FArrayBox &dest;

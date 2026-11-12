@@ -175,7 +175,7 @@ void register_integrator(const rk_config_t &config) {
     check_pair(config, index);
   if (ext.do_reflux && max_num_levels > 1 && !config.feeds_flux_registers())
     for (const rk_pair_t &pair : config.integrated)
-      if (ext.record(pair.state).layout().fluxes)
+      if (ext.record(pair.state).grid_function().fluxes)
         CCTK_VERROR("CarpetX::register_integrator: CarpetX::do_reflux = yes "
                     "with CarpetX::max_num_levels = %d needs an integrator "
                     "that feeds the flux registers at every stage (registered "

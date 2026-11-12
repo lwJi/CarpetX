@@ -171,7 +171,8 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
               std::array<CCTK_REAL, dim> x;
               for (int d = 0; d < dim; ++d)
                 x[d] = geom.ProbLo(d) +
-                       (I[d] + CCTK_REAL(0.5) * groupdata.layout.indextype[d]) *
+                       (I[d] +
+                        CCTK_REAL(0.5) * groupdata.grid_function.indextype[d]) *
                            geom.CellSize(d);
               file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time << sep
                    << patchdata.patch << sep << leveldata.level.index() << sep
@@ -442,7 +443,8 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
       vect<CCTK_REAL, dim> x0, dx;
       for (int d = 0; d < dim; ++d) {
         dx[d] = geom.CellSize(d);
-        x0[d] = geom.ProbLo(d) + groupdata.layout.indextype[d] * dx[d] / 2;
+        x0[d] =
+            geom.ProbLo(d) + groupdata.grid_function.indextype[d] * dx[d] / 2;
       }
       vect<int, dim> icoord;
       for (int d = 0; d < dim; ++d)
@@ -469,7 +471,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
             bbox[f][d] =
                 vbx[orient(d, f)] ==
                     domain[orient(d, f)] +
-                        (groupdata.layout.indextype[d] == 0 && f == 1) &&
+                        (groupdata.grid_function.indextype[d] == 0 && f == 1) &&
                 symmetries[f][d] != symmetry_t::none;
 
         const amrex::Dim3 vlo = amrex::lbound(vars);

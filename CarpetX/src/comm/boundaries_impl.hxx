@@ -67,7 +67,7 @@ void BoundaryCondition::apply_on_face() const {
   } else {
     const int f = NI > 0;
     const symmetry_t symmetry_x = patchdata.symmetries[f][0];
-    const boundary_t boundary_x = group_layout.boundaries[f][0];
+    const boundary_t boundary_x = grid_function.boundaries[f][0];
 
     if ((symmetry_x == symmetry_t::none && boundary_x == boundary_t::none) ||
         (symmetry_x == symmetry_t::interpatch &&
@@ -107,7 +107,7 @@ void BoundaryCondition::apply_on_face_symbcx(
   } else {
     const int f = NJ > 0;
     const symmetry_t symmetry_y = patchdata.symmetries[f][1];
-    const boundary_t boundary_y = group_layout.boundaries[f][1];
+    const boundary_t boundary_y = grid_function.boundaries[f][1];
 
     if ((symmetry_y == symmetry_t::none && boundary_y == boundary_t::none) ||
         (symmetry_y == symmetry_t::interpatch &&
@@ -148,7 +148,7 @@ void BoundaryCondition::apply_on_face_symbcxy(
   } else {
     const int f = NK > 0;
     const symmetry_t symmetry_z = patchdata.symmetries[f][2];
-    const boundary_t boundary_z = group_layout.boundaries[f][2];
+    const boundary_t boundary_z = grid_function.boundaries[f][2];
 
     if ((symmetry_z == symmetry_t::none && boundary_z == boundary_t::none) ||
         (symmetry_z == symmetry_t::interpatch &&
@@ -213,7 +213,7 @@ void BoundaryCondition::apply_on_face_symbcxyz(
 
     Arith::vect<CCTK_REAL, maxncomps> dirichlet_values;
     for (int comp = 0; comp < ncomps; ++comp)
-      dirichlet_values[comp] = group_layout.dirichlet_values.at(comp);
+      dirichlet_values[comp] = grid_function.dirichlet_values.at(comp);
 
     Arith::vect<int, dim> neumann_source;
     for (int d = 0; d < dim; ++d) {
@@ -263,15 +263,15 @@ void BoundaryCondition::apply_on_face_symbcxyz(
 
     Arith::vect<CCTK_REAL, maxncomps> robin_values;
     for (int comp = 0; comp < ncomps; ++comp)
-      robin_values[comp] = group_layout.robin_values.at(comp);
+      robin_values[comp] = grid_function.robin_values.at(comp);
 
     Arith::vect<int, dim> reflection_offset;
     for (int d = 0; d < dim; ++d) {
       if (symmetries[d] == symmetry_t::reflection) {
         assert(inormal[d] != 0);
         reflection_offset[d] =
-            inormal[d] < 0 ? 2 * imin[d] - group_layout.indextype.at(d)
-                           : 2 * (imax[d] - 1) + group_layout.indextype.at(d);
+            inormal[d] < 0 ? 2 * imin[d] - grid_function.indextype.at(d)
+                           : 2 * (imax[d] - 1) + grid_function.indextype.at(d);
         if (inormal[d] < 0)
           assert(reflection_offset[d] - bmin[d] < dmax[d]);
         else
@@ -286,7 +286,7 @@ void BoundaryCondition::apply_on_face_symbcxyz(
       CCTK_REAL reflection_parity = +1;
       for (int d = 0; d < dim; ++d)
         if (symmetries[d] == symmetry_t::reflection)
-          reflection_parity *= group_layout.parities.at(comp).at(d);
+          reflection_parity *= grid_function.parities.at(comp).at(d);
       using std::fabs;
       assert(fabs(reflection_parity) == 1);
       reflection_parities[comp] = reflection_parity;

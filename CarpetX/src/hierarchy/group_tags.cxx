@@ -408,7 +408,7 @@ rk_dense_output_t registered_dense_output() {
 
 static bool group_has_flux_tag(const GHExt::GroupRecord &record) {
   return record.kind == group_kind::grid_function &&
-         record.layout().fluxes.has_value();
+         record.grid_function().fluxes.has_value();
 }
 
 bool group_has_flux_register(const gi_t gi) {
@@ -572,36 +572,36 @@ static std::vector<CCTK_REAL> get_group_robin_values(const gi_t gi) {
   return robin_values;
 }
 
-GHExt::GroupRecord::layout_t
-GHExt::GroupRecord::make_layout(const gi_t gi, const int numvars) {
-  layout_t layout;
-  layout.indextype = get_group_indextype(gi);
-  layout.nghostzones = get_group_nghostzones(gi);
+GHExt::GroupRecord::grid_function_t
+GHExt::GroupRecord::make_grid_function(const gi_t gi, const int numvars) {
+  grid_function_t result;
+  result.indextype = get_group_indextype(gi);
+  result.nghostzones = get_group_nghostzones(gi);
 
-  layout.boundaries = get_group_boundaries(gi);
-  layout.parities = get_group_parities(gi);
-  if (layout.parities.empty()) {
+  result.boundaries = get_group_boundaries(gi);
+  result.parities = get_group_parities(gi);
+  if (result.parities.empty()) {
     std::array<int, dim> parity;
     for (int d = 0; d < dim; ++d)
       parity[d] = +1;
-    layout.parities.resize(numvars, parity);
+    result.parities.resize(numvars, parity);
   }
-  assert(int(layout.parities.size()) == numvars);
-  for (const std::array<int, dim> &parity : layout.parities)
+  assert(int(result.parities.size()) == numvars);
+  for (const std::array<int, dim> &parity : result.parities)
     for (int d = 0; d < dim; ++d)
       assert(abs(parity[d]) == 1);
 
-  layout.dirichlet_values = get_group_dirichlet_values(gi);
-  if (layout.dirichlet_values.empty())
-    layout.dirichlet_values.resize(numvars, 0);
-  layout.robin_values = get_group_robin_values(gi);
-  if (layout.robin_values.empty())
-    layout.robin_values.resize(numvars, 0);
+  result.dirichlet_values = get_group_dirichlet_values(gi);
+  if (result.dirichlet_values.empty())
+    result.dirichlet_values.resize(numvars, 0);
+  result.robin_values = get_group_robin_values(gi);
+  if (result.robin_values.empty())
+    result.robin_values.resize(numvars, 0);
 
-  layout.fluxes = get_group_fluxes(gi);
-  if (layout.fluxes)
-    assert((layout.indextype == std::array<int, dim>{1, 1, 1}));
-  return layout;
+  result.fluxes = get_group_fluxes(gi);
+  if (result.fluxes)
+    assert((result.indextype == std::array<int, dim>{1, 1, 1}));
+  return result;
 }
 
 std::string get_group_prolongation_type(const gi_t gi) {

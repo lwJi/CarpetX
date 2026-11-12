@@ -86,7 +86,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
 
   for (const auto &groupdata : leveldata.groups()) {
     const std::optional<std::array<gi_t, dim>> &fluxes =
-        groupdata.layout.fluxes;
+        groupdata.grid_function.fluxes;
     if (!fluxes)
       continue;
     const gi_t gi = groupdata.record.groupindex;

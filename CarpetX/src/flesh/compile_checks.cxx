@@ -352,7 +352,7 @@ template <class T>
 concept holds_fluxes = requires(const T &t) { t.fluxes; };
 
 template <class Group>
-concept parses_layout_tags =
+concept parses_grid_function_tags =
     requires(Group gi) { get_group_indextype(gi); } ||
     requires(Group gi) { get_group_nghostzones(gi); } ||
     requires(Group gi) { get_group_boundaries(gi); } ||
@@ -362,7 +362,8 @@ concept parses_layout_tags =
     requires(Group gi) { get_group_fluxes(gi); };
 
 template <class Record>
-concept makes_layout = requires(gi_t gi) { Record::make_layout(gi, 0); };
+concept makes_grid_function =
+    requires(gi_t gi) { Record::make_grid_function(gi, 0); };
 
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
@@ -794,28 +795,28 @@ static_assert(
     !std::is_constructible_v<hierarchy_writers_t, std::unique_ptr<GHExt>>);
 static_assert(!hands_out_hierarchy<hierarchy_writers_t>);
 
+static_assert(std::is_same_v<decltype(std::declval<const GHExt::GroupRecord &>()
+                                          .grid_function()),
+                             const GHExt::GroupRecord::grid_function_t &>);
 static_assert(std::is_same_v<
-              decltype(std::declval<const GHExt::GroupRecord &>().layout()),
-              const GHExt::GroupRecord::layout_t &>);
-static_assert(
-    std::is_same_v<decltype(GHExt::PatchData::LevelData::GroupData::layout),
-                   const GHExt::GroupRecord::layout_t &>);
-static_assert(holds_indextype<GHExt::GroupRecord::layout_t>);
+              decltype(GHExt::PatchData::LevelData::GroupData::grid_function),
+              const GHExt::GroupRecord::grid_function_t &>);
+static_assert(holds_indextype<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_indextype<GHExt::PatchData::LevelData::GroupData>);
-static_assert(holds_nghostzones<GHExt::GroupRecord::layout_t>);
+static_assert(holds_nghostzones<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_nghostzones<GHExt::PatchData::LevelData::GroupData>);
-static_assert(holds_boundaries<GHExt::GroupRecord::layout_t>);
+static_assert(holds_boundaries<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_boundaries<GHExt::PatchData::LevelData::GroupData>);
-static_assert(holds_parities<GHExt::GroupRecord::layout_t>);
+static_assert(holds_parities<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_parities<GHExt::PatchData::LevelData::GroupData>);
-static_assert(holds_dirichlet_values<GHExt::GroupRecord::layout_t>);
+static_assert(holds_dirichlet_values<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_dirichlet_values<GHExt::PatchData::LevelData::GroupData>);
-static_assert(holds_robin_values<GHExt::GroupRecord::layout_t>);
+static_assert(holds_robin_values<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_robin_values<GHExt::PatchData::LevelData::GroupData>);
-static_assert(holds_fluxes<GHExt::GroupRecord::layout_t>);
+static_assert(holds_fluxes<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_fluxes<GHExt::PatchData::LevelData::GroupData>);
-static_assert(!parses_layout_tags<gi_t>);
-static_assert(!makes_layout<GHExt::GroupRecord>);
+static_assert(!parses_grid_function_tags<gi_t>);
+static_assert(!makes_grid_function<GHExt::GroupRecord>);
 
 } // namespace
 } // namespace CarpetX

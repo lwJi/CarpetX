@@ -150,19 +150,21 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "restrict_on_sync" << YAML::Value
        << group.restrict_on_sync;
   if (group.kind == group_kind::grid_function) {
-    const GHExt::GroupRecord::layout_t &layout = group.layout();
-    yaml << YAML::Key << "layout" << YAML::Value << YAML::BeginMap;
+    const GHExt::GroupRecord::grid_function_t &grid_function =
+        group.grid_function();
+    yaml << YAML::Key << "grid_function" << YAML::Value << YAML::BeginMap;
     yaml << YAML::Key << "indextype" << YAML::Value << YAML::Flow
-         << seq(layout.indextype);
+         << seq(grid_function.indextype);
     yaml << YAML::Key << "nghostzones" << YAML::Value << YAML::Flow
-         << seq(layout.nghostzones);
+         << seq(grid_function.nghostzones);
     yaml << YAML::Key << "parities" << YAML::Value << YAML::Flow
-         << seqs(layout.parities);
+         << seqs(grid_function.parities);
     yaml << YAML::Key << "fluxes" << YAML::Value << YAML::Flow
          << YAML::BeginSeq;
     for (int d = 0; d < dim; ++d)
-      yaml << (layout.fluxes ? CCTK_FullGroupName((*layout.fluxes)[d].index())
-                             : "");
+      yaml << (grid_function.fluxes
+                   ? CCTK_FullGroupName((*grid_function.fluxes)[d].index())
+                   : "");
     yaml << YAML::EndSeq;
     yaml << YAML::EndMap;
   }

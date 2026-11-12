@@ -235,7 +235,8 @@ void write_silo_slice(const cGH *restrict const cctkGH,
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
-          const std::array<int, dim> &nghosts = groupdata.layout.nghostzones;
+          const std::array<int, dim> &nghosts =
+              groupdata.grid_function.nghostzones;
           const mesh_props_t mesh_props{nghosts};
           const bool have_mesh = have_meshes.count(mesh_props);
 
@@ -499,7 +500,8 @@ void write_silo_slice(const cGH *restrict const cctkGH,
       const amrex::MultiFab &mfab0 = *groupdata0.timelevel(tl).mfab;
       const amrex::IndexType &indextype = mfab0.ixType();
 
-      const std::array<int, dim> &nghosts = groupdata0.layout.nghostzones;
+      const std::array<int, dim> &nghosts =
+          groupdata0.grid_function.nghostzones;
       const mesh_props_t mesh_props{nghosts};
       const bool have_mesh = mesh_nblocks.count(mesh_props);
 

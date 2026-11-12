@@ -90,7 +90,7 @@ amrex::Interpolater *get_interpolator(const std::string prolongation_type,
 amrex::Interpolater *interpolator_of(const GHExt::GroupRecord &record) {
   return get_interpolator(get_group_prolongation_type(record.groupindex),
                           get_group_prolongation_order(record.groupindex),
-                          record.layout().indextype);
+                          record.grid_function().indextype);
 }
 
 } // namespace CarpetX
