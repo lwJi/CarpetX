@@ -20,23 +20,23 @@ namespace CarpetX {
 using Loop::GF3D1;
 using Loop::where_t;
 
-CactusAmrCore::CactusAmrCore(structure_writer_t &structure, const patch_t patch,
+CactusAmrCore::CactusAmrCore(level_writer_t &levels, const patch_t patch,
                              const amrex::RealBox &rb, int max_level_in,
                              const amrex::Vector<int> &n_cell_in, int coord,
                              amrex::Vector<amrex::IntVect> const &ref_ratios,
                              amrex::Array<int, AMREX_SPACEDIM> const &is_per)
     : amrex::AmrCore(rb, max_level_in, n_cell_in, coord, ref_ratios, is_per),
-      patch(patch), structure(structure) {}
+      patch(patch), levels(levels) {}
 
 CactusAmrCore::~CactusAmrCore() {}
 
 std::unique_ptr<amrex::AmrCore>
-make_cactus_amrcore(structure_writer_t &structure, const patch_t patch,
+make_cactus_amrcore(level_writer_t &levels, const patch_t patch,
                     const amrex::RealBox &domain, const int max_level_in,
                     const amrex::Vector<int> &ncells,
                     const amrex::Array<int, dim> &is_periodic) {
   return std::make_unique<CactusAmrCore>(
-      structure, patch, domain, max_level_in, ncells, -1,
+      levels, patch, domain, max_level_in, ncells, -1,
       amrex::Vector<amrex::IntVect>(), is_periodic);
 }
 
@@ -116,7 +116,7 @@ void CactusAmrCore::MakeNewLevelFromScratch(
 #pragma omp critical
     CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d", patch.index(), lev);
 
-  structure.make_level(level, ba, dm, "MakeNewLevelFromScratch");
+  levels.make_level(level, ba, dm, "MakeNewLevelFromScratch");
 
   if (verbose)
 #pragma omp critical
@@ -161,7 +161,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 
   assert(lev > 0);
 
-  structure.add_level(level, ba, dm, []() { return "MakeNewLevelFromCoarse"; });
+  levels.add_level(level, ba, dm, []() { return "MakeNewLevelFromCoarse"; });
 
   const auto &patchdata = driver().patch(patch);
   const auto &leveldata = patchdata.level(level);
@@ -301,7 +301,7 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   assert(aligned_with_parent(level));
 
   const GHExt::PatchData::LevelData oldleveldata =
-      structure.remake_level(level, ba, dm, []() { return "RemakeLevel"; });
+      levels.remake_level(level, ba, dm, []() { return "RemakeLevel"; });
 
   for (const auto &groupdata : leveldata.groups()) {
     const gi_t gi = groupdata.record.groupindex;
@@ -352,7 +352,7 @@ void CactusAmrCore::ClearLevel(const int lev) {
   if (verbose)
 #pragma omp critical
     CCTK_VINFO("ClearLevel patch %d level %d", patch.index(), lev);
-  structure.erase_levels_from(level);
+  levels.erase_levels_from(level);
 
   if (verbose)
 #pragma omp critical

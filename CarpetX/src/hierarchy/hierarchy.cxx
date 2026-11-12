@@ -83,10 +83,10 @@ void GHExt::mark_initialized() {
   initialized_ = true;
 }
 
-GHExt::PatchData &GHExt::add_patch(structure_writer_t &structure,
+GHExt::PatchData &GHExt::add_patch(level_writer_t &levels,
                                    const patch_t patch) {
   assert(patch.index() == num_patches());
-  return patchdata.emplace_back(structure, patch, make_core_);
+  return patchdata.emplace_back(levels, patch, make_core_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -112,7 +112,7 @@ GHExt::cctkGHptr::~cctkGHptr() {
   cctkGH = nullptr;
 }
 
-GHExt::PatchData::PatchData(structure_writer_t &structure, const patch_t patch,
+GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
                             const amrcore_factory make_core)
     : patch(patch) {
   DECLARE_CCTK_PARAMETERS;
@@ -160,8 +160,8 @@ GHExt::PatchData::PatchData(structure_writer_t &structure, const patch_t patch,
       symmetries[0][1] == symmetry_t::periodic,
       symmetries[0][2] == symmetry_t::periodic};
 
-  amrcore = make_core(structure, patch, domain, max_num_levels - 1, ncells,
-                      is_periodic);
+  amrcore =
+      make_core(levels, patch, domain, max_num_levels - 1, ncells, is_periodic);
 
   if (verbose) {
 #pragma omp critical
@@ -606,14 +606,15 @@ GHExt::record_of(const var_t var, const std::source_location site) const {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
-  return GHExt::mutable_instance().add_patch(*this, patch);
+const GHExt::PatchData &structure_writer_t::add_patch(level_writer_t &levels,
+                                                      const patch_t patch) {
+  return GHExt::mutable_instance().add_patch(levels, patch);
 }
 
 const GHExt::PatchData::LevelData &
-structure_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
-                              const amrex::DistributionMapping &dm,
-                              const std::function<std::string()> &why) {
+level_writer_t::add(const level_t level, const amrex::BoxArray &ba,
+                    const amrex::DistributionMapping &dm,
+                    const std::function<std::string()> &why) {
   DECLARE_CCTK_PARAMETERS;
 
   if (verbose)
@@ -635,11 +636,11 @@ structure_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
 }
 
 const GHExt::PatchData::LevelData &
-structure_writer_t::make_level(const level_t level, const amrex::BoxArray &ba,
-                               const amrex::DistributionMapping &dm,
-                               const std::string &why) {
+level_writer_t::make(const level_t level, const amrex::BoxArray &ba,
+                     const amrex::DistributionMapping &dm,
+                     const std::string &why) {
   const GHExt::PatchData::LevelData &leveldata =
-      add_level(level, ba, dm, [why]() { return why; });
+      add(level, ba, dm, [why]() { return why; });
 
   const window_t window = window_t::one_level(level);
   for (const auto &groupdata : leveldata.groups()) {
@@ -652,17 +653,31 @@ structure_writer_t::make_level(const level_t level, const amrex::BoxArray &ba,
   return leveldata;
 }
 
+const GHExt::PatchData::LevelData &
+level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
+                          const amrex::DistributionMapping &dm,
+                          const std::function<std::string()> &why) {
+  return add(level, ba, dm, why);
+}
+
+const GHExt::PatchData::LevelData &
+level_writer_t::make_level(const level_t level, const amrex::BoxArray &ba,
+                           const amrex::DistributionMapping &dm,
+                           const std::string &why) {
+  return make(level, ba, dm, why);
+}
+
 GHExt::PatchData::LevelData
-structure_writer_t::remake_level(const level_t level, const amrex::BoxArray &ba,
-                                 const amrex::DistributionMapping &dm,
-                                 const std::function<std::string()> &why) {
+level_writer_t::remake_level(const level_t level, const amrex::BoxArray &ba,
+                             const amrex::DistributionMapping &dm,
+                             const std::function<std::string()> &why) {
   GHExt::PatchData::LevelData fresh(level, ba, dm, why);
   return GHExt::mutable_instance()
       .patch(level.patch())
       .replace_level(level, std::move(fresh));
 }
 
-void structure_writer_t::erase_levels_from(const level_t level) {
+void level_writer_t::erase_levels_from(const level_t level) {
   GHExt::mutable_instance().patch(level.patch()).erase_levels_from(level);
 }
 
@@ -726,7 +741,7 @@ void structure_writer_t::recover_level(const level_t level, amrex::BoxArray ba,
   amrcore.SetBoxArray(lev, ba);
   const amrex::DistributionMapping dm(ba);
   amrcore.SetDistributionMap(lev, dm);
-  make_level(level, ba, dm, "Recovering");
+  level_writer_t::make(level, ba, dm, "Recovering");
 }
 
 void registry_writer_t::record_storage(const gi_t gi, const int timelevels) {

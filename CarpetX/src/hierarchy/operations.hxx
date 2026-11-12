@@ -51,7 +51,25 @@ public:
   structure_writer_t(const structure_writer_t &) = delete;
   structure_writer_t(structure_writer_t &&) = delete;
 
-  const GHExt::PatchData &add_patch(patch_t patch);
+  const GHExt::PatchData &add_patch(level_writer_t &levels, patch_t patch);
+  void set_max_grid_size(patch_t patch,
+                         const amrex::Vector<amrex::IntVect> &max_grid_sizes);
+  void make_new_grids(patch_t patch, CCTK_REAL time);
+  void mark_initialized();
+  void regrid(level_t base_level, CCTK_REAL time);
+  void set_finest_level(level_t finest_level);
+  void recover_level(level_t level, amrex::BoxArray ba, bool rechop);
+
+private:
+  structure_writer_t() = default;
+  friend struct hierarchy_writers_t;
+};
+
+class level_writer_t {
+public:
+  level_writer_t(const level_writer_t &) = delete;
+  level_writer_t(level_writer_t &&) = delete;
+
   const GHExt::PatchData::LevelData &
   add_level(level_t level, const amrex::BoxArray &ba,
             const amrex::DistributionMapping &dm,
@@ -65,17 +83,17 @@ public:
                const std::function<std::string()> &why);
   void erase_levels_from(level_t level);
 
-  void set_max_grid_size(patch_t patch,
-                         const amrex::Vector<amrex::IntVect> &max_grid_sizes);
-  void make_new_grids(patch_t patch, CCTK_REAL time);
-  void mark_initialized();
-  void regrid(level_t base_level, CCTK_REAL time);
-  void set_finest_level(level_t finest_level);
-  void recover_level(level_t level, amrex::BoxArray ba, bool rechop);
-
 private:
-  structure_writer_t() = default;
+  level_writer_t() = default;
+  static const GHExt::PatchData::LevelData &
+  add(level_t level, const amrex::BoxArray &ba,
+      const amrex::DistributionMapping &dm,
+      const std::function<std::string()> &why);
+  static const GHExt::PatchData::LevelData &
+  make(level_t level, const amrex::BoxArray &ba,
+       const amrex::DistributionMapping &dm, const std::string &why);
   friend struct hierarchy_writers_t;
+  friend class structure_writer_t;
 };
 
 class registry_writer_t {
@@ -118,6 +136,7 @@ private:
 struct hierarchy_writers_t {
   clock_writer_t clock;
   structure_writer_t structure;
+  level_writer_t levels;
   registry_writer_t registry;
   scratch_writer_t scratch;
 
