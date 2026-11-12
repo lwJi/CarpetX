@@ -797,6 +797,9 @@ static_assert(!hands_out_hierarchy<hierarchy_writers_t>);
 static_assert(std::is_same_v<
               decltype(std::declval<const GHExt::GroupRecord &>().layout()),
               const GHExt::GroupRecord::layout_t &>);
+static_assert(
+    std::is_same_v<decltype(GHExt::PatchData::LevelData::GroupData::layout),
+                   const GHExt::GroupRecord::layout_t &>);
 static_assert(holds_indextype<GHExt::GroupRecord::layout_t>);
 static_assert(!holds_indextype<GHExt::PatchData::LevelData::GroupData>);
 static_assert(holds_nghostzones<GHExt::GroupRecord::layout_t>);

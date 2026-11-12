@@ -298,7 +298,7 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
   for (const std::unique_ptr<GroupData> &group : groupdata) {
     if (!group)
       continue;
-    const GroupRecord::layout_t &layout = group->record.layout();
+    const GroupRecord::layout_t &layout = group->layout;
     const ghost_mask_key_t key{layout.indextype, layout.nghostzones};
     if (ghost_masks.count(key))
       continue;
@@ -346,13 +346,11 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     const GroupRecord &record, const level_t level, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm,
     const std::function<std::string()> &why)
-    : record(record), level(level) {
+    : record(record), layout(record.layout()), level(level) {
   const int numvars = record.numvars;
 
   assert(record.kind == group_kind::grid_function);
   assert(record.var_type == var_type::real);
-
-  const GroupRecord::layout_t &layout = record.layout();
 
   const GHExt &ext = driver();
   const auto &geom = ext.patch(level.patch()).amrcore->Geom(level.index());
@@ -384,7 +382,7 @@ bool GHExt::PatchData::LevelData::GroupData::
     for (int d = 0; d < dim; ++d)
       res &= symmetries.at(f).at(d) != symmetry_t::none ||
              (symmetries.at(f).at(d) == symmetry_t::none &&
-              record.layout().boundaries.at(f).at(d) != boundary_t::none);
+              layout.boundaries.at(f).at(d) != boundary_t::none);
   return res;
 }
 

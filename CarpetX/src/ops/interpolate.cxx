@@ -613,8 +613,7 @@ void CarpetX::InterpolationSetup::Interpolate(
           const gi_t gi = givis.at(v).gi;
           const vi_t vi = givis.at(v).vi;
           const auto &restrict groupdata = leveldata.group(gi);
-          const GHExt::GroupRecord::layout_t &layout =
-              groupdata.record.layout();
+          const GHExt::GroupRecord::layout_t &layout = groupdata.layout;
           const int centering = layout.indextype[0] * 0b100 +
                                 layout.indextype[1] * 0b010 +
                                 layout.indextype[2] * 0b001;

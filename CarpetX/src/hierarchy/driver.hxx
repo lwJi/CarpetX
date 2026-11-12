@@ -599,6 +599,7 @@ struct GHExt {
                   const std::function<std::string()> &why);
 
         const GroupRecord &record;
+        const GroupRecord::layout_t &layout;
         const level_t level;
 
         struct timelevel_t {
@@ -705,9 +706,8 @@ struct GHExt {
       }
 
       const amrex::iMultiFab &ghost_mask(const GroupData &groupdata) const {
-        const GroupRecord::layout_t &layout = groupdata.record.layout();
-        return ghost_masks.at(
-            ghost_mask_key_t{layout.indextype, layout.nghostzones});
+        return ghost_masks.at(ghost_mask_key_t{groupdata.layout.indextype,
+                                               groupdata.layout.nghostzones});
       }
 
     private:

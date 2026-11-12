@@ -201,19 +201,18 @@ GridPtrDesc1::GridPtrDesc1(
   const amrex::IntVect ng(nghostzones[0], nghostzones[1], nghostzones[2]);
   const amrex::Box &fbx = mfp.fabbox(ng);
   cactus_offset = lbound(fbx);
-  const GHExt::GroupRecord::layout_t &layout = groupdata.record.layout();
   for (int d = 0; d < dim; ++d) {
-    assert(layout.nghostzones.at(d) >= 0);
-    assert(layout.nghostzones.at(d) <= nghostzones[d]);
+    assert(groupdata.layout.nghostzones.at(d) >= 0);
+    assert(groupdata.layout.nghostzones.at(d) <= nghostzones[d]);
   }
   for (int d = 0; d < dim; ++d)
-    gimin[d] = nghostzones[d] - layout.nghostzones.at(d);
+    gimin[d] = nghostzones[d] - groupdata.layout.nghostzones.at(d);
   for (int d = 0; d < dim; ++d)
-    gimax[d] = lsh[d] - layout.indextype.at(d) -
-               (nghostzones[d] - layout.nghostzones.at(d));
+    gimax[d] = lsh[d] - groupdata.layout.indextype.at(d) -
+               (nghostzones[d] - groupdata.layout.nghostzones.at(d));
   for (int d = 0; d < dim; ++d)
-    gash[d] = ash[d] - layout.indextype.at(d) -
-              2 * (nghostzones[d] - layout.nghostzones.at(d));
+    gash[d] = ash[d] - groupdata.layout.indextype.at(d) -
+              2 * (nghostzones[d] - groupdata.layout.nghostzones.at(d));
 }
 
 GridPtrDesc1::GridPtrDesc1(
@@ -223,19 +222,18 @@ GridPtrDesc1::GridPtrDesc1(
     : GridDesc(leveldata, component) {
   const amrex::Box &fbx = leveldata.fab->fabbox(component.index());
   cactus_offset = lbound(fbx);
-  const GHExt::GroupRecord::layout_t &layout = groupdata.record.layout();
   for (int d = 0; d < dim; ++d) {
-    assert(layout.nghostzones.at(d) >= 0);
-    assert(layout.nghostzones.at(d) <= nghostzones[d]);
+    assert(groupdata.layout.nghostzones.at(d) >= 0);
+    assert(groupdata.layout.nghostzones.at(d) <= nghostzones[d]);
   }
   for (int d = 0; d < dim; ++d)
-    gimin[d] = nghostzones[d] - layout.nghostzones.at(d);
+    gimin[d] = nghostzones[d] - groupdata.layout.nghostzones.at(d);
   for (int d = 0; d < dim; ++d)
-    gimax[d] = lsh[d] - layout.indextype.at(d) -
-               (nghostzones[d] - layout.nghostzones.at(d));
+    gimax[d] = lsh[d] - groupdata.layout.indextype.at(d) -
+               (nghostzones[d] - groupdata.layout.nghostzones.at(d));
   for (int d = 0; d < dim; ++d)
-    gash[d] = ash[d] - layout.indextype.at(d) -
-              2 * (nghostzones[d] - layout.nghostzones.at(d));
+    gash[d] = ash[d] - groupdata.layout.indextype.at(d) -
+              2 * (nghostzones[d] - groupdata.layout.nghostzones.at(d));
 }
 
 } // namespace CarpetX
