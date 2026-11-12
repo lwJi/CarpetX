@@ -298,35 +298,24 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
   for (const std::unique_ptr<GroupData> &group : groupdata) {
     if (!group)
       continue;
-    const ghost_mask_key_t key{group->indextype, group->nghostzones};
+    const GroupRecord::grid_function_t &grid_function = group->grid_function;
+    const ghost_mask_key_t key{grid_function.indextype,
+                               grid_function.nghostzones};
     if (ghost_masks.count(key))
       continue;
     const amrex::IndexType ixtype(
-        group->indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
-        group->indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
-        group->indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE);
+        grid_function.indextype[0] ? amrex::IndexType::CELL
+                                   : amrex::IndexType::NODE,
+        grid_function.indextype[1] ? amrex::IndexType::CELL
+                                   : amrex::IndexType::NODE,
+        grid_function.indextype[2] ? amrex::IndexType::CELL
+                                   : amrex::IndexType::NODE);
     amrex::iMultiFab mask(convert(ba, ixtype), dm, 1,
-                          amrex::IntVect(group->nghostzones));
+                          amrex::IntVect(grid_function.nghostzones));
     mask.BuildMask(geom.Domain(), geom.periodicity(), ghost_mask_same_level,
                    ghost_mask_coarse_fine, ghost_mask_physical_boundary,
                    ghost_mask_interior);
     ghost_masks.emplace(key, std::move(mask));
-  }
-
-  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
-    const GHExt::GroupRecord &group = ext.record(gi);
-    if (group.kind != group_kind::grid_function)
-      continue;
-    const std::optional<std::array<gi_t, dim> > fluxes = get_group_fluxes(gi);
-    if (fluxes) {
-      for (int d = 0; d < dim; ++d) {
-        assert((*fluxes)[d] != gi);
-        std::array<int, dim> flux_indextype{1, 1, 1};
-        flux_indextype[d] = 0;
-        assert(get_group_indextype((*fluxes)[d]) == flux_indextype);
-        assert(ext.record((*fluxes)[d]).numvars >= group.numvars);
-      }
-    }
   }
 
   if (int(ext.level_cctkGHs.size()) <= level.index()) {
@@ -361,56 +350,32 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
     const GroupRecord &record, const level_t level, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm,
     const std::function<std::string()> &why)
-    : record(record), level(level) {
+    : record(record), grid_function(record.grid_function()), level(level) {
   const int numvars = record.numvars;
-  const gi_t groupindex = record.groupindex;
 
   assert(record.kind == group_kind::grid_function);
   assert(record.var_type == var_type::real);
-
-  indextype = get_group_indextype(groupindex);
-  nghostzones = get_group_nghostzones(groupindex);
 
   const GHExt &ext = driver();
   const auto &geom = ext.patch(level.patch()).amrcore->Geom(level.index());
   for (int d = 0; d < dim; ++d)
     if (geom.isPeriodic(d))
-      assert(geom.Domain().length(d) >= nghostzones[d]);
-
-  boundaries = get_group_boundaries(groupindex);
-  parities = get_group_parities(groupindex);
-  if (parities.empty()) {
-    std::array<int, dim> parity;
-    for (int d = 0; d < dim; ++d)
-      parity[d] = +1;
-    parities.resize(numvars, parity);
-  }
-  assert(int(parities.size()) == numvars);
-  for (const vi_t vi : record.variables())
-    for (int d = 0; d < dim; ++d)
-      assert(abs(parities.at(vi.index())[d]) == 1);
-
-  dirichlet_values = get_group_dirichlet_values(groupindex);
-  if (dirichlet_values.empty())
-    dirichlet_values.resize(numvars, 0);
-  robin_values = get_group_robin_values(groupindex);
-  if (robin_values.empty())
-    robin_values.resize(numvars, 0);
+      assert(geom.Domain().length(d) >= grid_function.nghostzones[d]);
 
   const amrex::BoxArray &gba = convert(
-      ba, amrex::IndexType(
-              indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
-              indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
-              indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE));
+      ba,
+      amrex::IndexType(grid_function.indextype[0] ? amrex::IndexType::CELL
+                                                  : amrex::IndexType::NODE,
+                       grid_function.indextype[1] ? amrex::IndexType::CELL
+                                                  : amrex::IndexType::NODE,
+                       grid_function.indextype[2] ? amrex::IndexType::CELL
+                                                  : amrex::IndexType::NODE));
   tls.reserve(record.num_timelevels());
   for ([[maybe_unused]] const tl_t tl : record.timelevels())
-    tls.emplace_back(std::make_unique<amrex::MultiFab>(
-                         gba, dm, numvars, amrex::IntVect(nghostzones)),
-                     numvars, why);
-
-  fluxes = get_group_fluxes(groupindex);
-  if (fluxes)
-    assert((indextype == std::array<int, dim>{1, 1, 1}));
+    tls.emplace_back(
+        std::make_unique<amrex::MultiFab>(
+            gba, dm, numvars, amrex::IntVect(grid_function.nghostzones)),
+        numvars, why);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -423,7 +388,7 @@ bool GHExt::PatchData::LevelData::GroupData::
     for (int d = 0; d < dim; ++d)
       res &= symmetries.at(f).at(d) != symmetry_t::none ||
              (symmetries.at(f).at(d) == symmetry_t::none &&
-              boundaries.at(f).at(d) != boundary_t::none);
+              grid_function.boundaries.at(f).at(d) != boundary_t::none);
   return res;
 }
 
@@ -474,6 +439,7 @@ GHExt::GroupRecord::GroupRecord(const gi_t gi, const int num_timelevels)
   if (kind == group_kind::grid_function) {
     assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
     assert(cgroup.dim == dim);
+    grid_function_ = make_grid_function(gi, numvars);
   } else {
     assert(cgroup.disttype == CCTK_DISTRIB_CONSTANT);
     assert(cgroup.dim >= 0);
@@ -561,6 +527,22 @@ void GHExt::freeze_storage() {
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups}))
     group_records.emplace_back(gi, pending_timelevels_->at(gi.index()));
   pending_timelevels_.reset();
+
+  for (const GroupRecord &group : group_records) {
+    if (group.kind != group_kind::grid_function)
+      continue;
+    const std::optional<std::array<gi_t, dim>> &fluxes =
+        group.grid_function().fluxes;
+    if (!fluxes)
+      continue;
+    for (int d = 0; d < dim; ++d) {
+      assert((*fluxes)[d] != group.groupindex);
+      std::array<int, dim> flux_indextype{1, 1, 1};
+      flux_indextype[d] = 0;
+      assert(record((*fluxes)[d]).grid_function().indextype == flux_indextype);
+      assert(record((*fluxes)[d]).numvars >= group.numvars);
+    }
+  }
 
   for (const GroupRecord &group : records()) {
     if (group.kind == group_kind::grid_function)

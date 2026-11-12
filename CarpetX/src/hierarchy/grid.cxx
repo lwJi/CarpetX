@@ -202,17 +202,17 @@ GridPtrDesc1::GridPtrDesc1(
   const amrex::Box &fbx = mfp.fabbox(ng);
   cactus_offset = lbound(fbx);
   for (int d = 0; d < dim; ++d) {
-    assert(groupdata.nghostzones.at(d) >= 0);
-    assert(groupdata.nghostzones.at(d) <= nghostzones[d]);
+    assert(groupdata.grid_function.nghostzones.at(d) >= 0);
+    assert(groupdata.grid_function.nghostzones.at(d) <= nghostzones[d]);
   }
   for (int d = 0; d < dim; ++d)
-    gimin[d] = nghostzones[d] - groupdata.nghostzones.at(d);
+    gimin[d] = nghostzones[d] - groupdata.grid_function.nghostzones.at(d);
   for (int d = 0; d < dim; ++d)
-    gimax[d] = lsh[d] - groupdata.indextype.at(d) -
-               (nghostzones[d] - groupdata.nghostzones.at(d));
+    gimax[d] = lsh[d] - groupdata.grid_function.indextype.at(d) -
+               (nghostzones[d] - groupdata.grid_function.nghostzones.at(d));
   for (int d = 0; d < dim; ++d)
-    gash[d] = ash[d] - groupdata.indextype.at(d) -
-              2 * (nghostzones[d] - groupdata.nghostzones.at(d));
+    gash[d] = ash[d] - groupdata.grid_function.indextype.at(d) -
+              2 * (nghostzones[d] - groupdata.grid_function.nghostzones.at(d));
 }
 
 GridPtrDesc1::GridPtrDesc1(
@@ -223,17 +223,17 @@ GridPtrDesc1::GridPtrDesc1(
   const amrex::Box &fbx = leveldata.fab->fabbox(component.index());
   cactus_offset = lbound(fbx);
   for (int d = 0; d < dim; ++d) {
-    assert(groupdata.nghostzones.at(d) >= 0);
-    assert(groupdata.nghostzones.at(d) <= nghostzones[d]);
+    assert(groupdata.grid_function.nghostzones.at(d) >= 0);
+    assert(groupdata.grid_function.nghostzones.at(d) <= nghostzones[d]);
   }
   for (int d = 0; d < dim; ++d)
-    gimin[d] = nghostzones[d] - groupdata.nghostzones.at(d);
+    gimin[d] = nghostzones[d] - groupdata.grid_function.nghostzones.at(d);
   for (int d = 0; d < dim; ++d)
-    gimax[d] = lsh[d] - groupdata.indextype.at(d) -
-               (nghostzones[d] - groupdata.nghostzones.at(d));
+    gimax[d] = lsh[d] - groupdata.grid_function.indextype.at(d) -
+               (nghostzones[d] - groupdata.grid_function.nghostzones.at(d));
   for (int d = 0; d < dim; ++d)
-    gash[d] = ash[d] - groupdata.indextype.at(d) -
-              2 * (nghostzones[d] - groupdata.nghostzones.at(d));
+    gash[d] = ash[d] - groupdata.grid_function.indextype.at(d) -
+              2 * (nghostzones[d] - groupdata.grid_function.nghostzones.at(d));
 }
 
 } // namespace CarpetX

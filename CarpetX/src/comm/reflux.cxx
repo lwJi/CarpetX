@@ -85,7 +85,9 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
   const window_t this_level = window_t::one_level(level);
 
   for (const auto &groupdata : leveldata.groups()) {
-    if (!groupdata.fluxes)
+    const std::optional<std::array<gi_t, dim>> &fluxes =
+        groupdata.grid_function.fluxes;
+    if (!fluxes)
       continue;
     const gi_t gi = groupdata.record.groupindex;
 
@@ -101,7 +103,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
       std::ostringstream buf;
       buf << "AccumulateFluxes: flux of " << groupdata.record.groupname
           << " in direction " << d << " at RK stage " << stage;
-      require(this_level, {.gi = groupdata.fluxes->at(d),
+      require(this_level, {.gi = fluxes->at(d),
                            .tl = tl,
                            .where = make_valid_int(),
                            .event = buf.str()});
@@ -126,7 +128,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
           face_areas(patchdata.amrcore->Geom(level.index()));
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
-            *leveldata.group(groupdata.fluxes->at(d)).timelevel(tl).mfab;
+            *leveldata.group(fluxes->at(d)).timelevel(tl).mfab;
         const CCTK_REAL area_d = area[d];
         for (const auto side :
              {amrex::Orientation::low, amrex::Orientation::high}) {
@@ -155,7 +157,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
     if (own_freg) {
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
-            *leveldata.group(groupdata.fluxes->at(d)).timelevel(tl).mfab;
+            *leveldata.group(fluxes->at(d)).timelevel(tl).mfab;
         const amrex::MultiFab &area = *buffers_of(leveldata).face_area[d];
         assert(area.ixType() == flux.ixType());
         assert(area.DistributionMap() == flux.DistributionMap());

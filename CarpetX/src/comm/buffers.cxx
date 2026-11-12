@@ -49,11 +49,10 @@ std::optional<rk_bands_t> rk_bands_of(const GHExt::GroupRecord &record,
   const gi_t gi = record.groupindex;
   if (!ext.use_subcycling || level.index() == 0 || !group_is_integrated(gi))
     return std::nullopt;
-  const std::array<int, dim> nghostzones = get_group_nghostzones(gi);
-  const amrex::IntVect nghost(nghostzones);
+  const amrex::IntVect nghost(record.grid_function().nghostzones);
   if (nghost.max() == 0)
     return std::nullopt;
-  const std::array<int, dim> indextype = get_group_indextype(gi);
+  const std::array<int, dim> &indextype = record.grid_function().indextype;
   const amrex::BoxArray gba = convert(
       ba, amrex::IndexType(
               indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,

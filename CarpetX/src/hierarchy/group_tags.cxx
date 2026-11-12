@@ -175,7 +175,8 @@ std::array<std::array<boundary_t, dim>, 2> get_default_boundaries() {
   return boundaries;
 }
 
-std::array<std::array<boundary_t, dim>, 2> get_group_boundaries(const gi_t gi) {
+static std::array<std::array<boundary_t, dim>, 2>
+get_group_boundaries(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
 
   const std::array<std::array<symmetry_t, dim>, 2> symmetries =
@@ -307,7 +308,7 @@ bool get_group_evolve_flag(const gi_t gi) {
   }
 }
 
-std::array<int, dim> get_group_indextype(const gi_t gi) {
+static std::array<int, dim> get_group_indextype(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(gi.index() >= 0);
@@ -341,7 +342,7 @@ std::array<int, dim> get_group_indextype(const gi_t gi) {
   return indextype;
 }
 
-std::optional<std::array<gi_t, dim> > get_group_fluxes(const gi_t gi) {
+static std::optional<std::array<gi_t, dim> > get_group_fluxes(const gi_t gi) {
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
@@ -405,10 +406,15 @@ rk_dense_output_t registered_dense_output() {
   return integrator ? integrator->dense_output : rk_dense_output_t::none;
 }
 
+static bool group_has_flux_tag(const GHExt::GroupRecord &record) {
+  return record.kind == group_kind::grid_function &&
+         record.grid_function().fluxes.has_value();
+}
+
 bool group_has_flux_register(const gi_t gi) {
-  assert(gi.index() >= 0 && gi.index() < CCTK_NumGroups());
-  return driver().do_reflux && CCTK_GroupTypeI(gi.index()) == CCTK_GF &&
-         group_is_integrated(gi) && get_group_fluxes(gi).has_value();
+  const GHExt &ext = driver();
+  return ext.do_reflux && group_is_integrated(gi) &&
+         group_has_flux_tag(ext.record(gi));
 }
 
 void warn_inert_flux_tags() {
@@ -421,8 +427,8 @@ void warn_inert_flux_tags() {
     return;
   if (!ext.do_reflux) {
     for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()})) {
-      if (CCTK_GroupTypeI(gi.index()) == CCTK_GF && integrator &&
-          integrator->rhs.contains(gi) && get_group_fluxes(gi)) {
+      if (integrator && integrator->rhs.contains(gi) &&
+          group_has_flux_tag(ext.record(gi))) {
         CCTK_INFO("Grid functions integrated by ODESolvers carry fluxes= "
                   "tags, but refluxing at coarse-fine boundaries is off; set "
                   "CarpetX::do_reflux = yes to enable it");
@@ -432,8 +438,7 @@ void warn_inert_flux_tags() {
     return;
   }
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()})) {
-    if (CCTK_GroupTypeI(gi.index()) != CCTK_GF || !get_group_fluxes(gi) ||
-        group_has_flux_register(gi))
+    if (!group_has_flux_tag(ext.record(gi)) || group_has_flux_register(gi))
       continue;
     CCTK_VWARN(CCTK_WARN_ALERT,
                "Group \"%s\" has a fluxes= tag but is not integrated by "
@@ -484,7 +489,7 @@ integrated_levels(const window_t window,
   return levels;
 }
 
-std::array<int, dim> get_group_nghostzones(const gi_t gi) {
+static std::array<int, dim> get_group_nghostzones(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
@@ -504,7 +509,7 @@ std::array<int, dim> get_group_nghostzones(const gi_t gi) {
   return nghostzones;
 }
 
-std::vector<std::array<int, dim> > get_group_parities(const gi_t gi) {
+static std::vector<std::array<int, dim> > get_group_parities(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
@@ -528,7 +533,7 @@ std::vector<std::array<int, dim> > get_group_parities(const gi_t gi) {
   return parities;
 }
 
-std::vector<CCTK_REAL> get_group_dirichlet_values(const gi_t gi) {
+static std::vector<CCTK_REAL> get_group_dirichlet_values(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
@@ -548,7 +553,7 @@ std::vector<CCTK_REAL> get_group_dirichlet_values(const gi_t gi) {
   return dirichlet_values;
 }
 
-std::vector<CCTK_REAL> get_group_robin_values(const gi_t gi) {
+static std::vector<CCTK_REAL> get_group_robin_values(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
@@ -565,6 +570,38 @@ std::vector<CCTK_REAL> get_group_robin_values(const gi_t gi) {
       Util_TableGetRealArray(tags, nelems, robin_values.data(), "robin_values");
   assert(iret == nelems);
   return robin_values;
+}
+
+GHExt::GroupRecord::grid_function_t
+GHExt::GroupRecord::make_grid_function(const gi_t gi, const int numvars) {
+  grid_function_t result;
+  result.indextype = get_group_indextype(gi);
+  result.nghostzones = get_group_nghostzones(gi);
+
+  result.boundaries = get_group_boundaries(gi);
+  result.parities = get_group_parities(gi);
+  if (result.parities.empty()) {
+    std::array<int, dim> parity;
+    for (int d = 0; d < dim; ++d)
+      parity[d] = +1;
+    result.parities.resize(numvars, parity);
+  }
+  assert(int(result.parities.size()) == numvars);
+  for (const std::array<int, dim> &parity : result.parities)
+    for (int d = 0; d < dim; ++d)
+      assert(abs(parity[d]) == 1);
+
+  result.dirichlet_values = get_group_dirichlet_values(gi);
+  if (result.dirichlet_values.empty())
+    result.dirichlet_values.resize(numvars, 0);
+  result.robin_values = get_group_robin_values(gi);
+  if (result.robin_values.empty())
+    result.robin_values.resize(numvars, 0);
+
+  result.fluxes = get_group_fluxes(gi);
+  if (result.fluxes)
+    assert((result.indextype == std::array<int, dim>{1, 1, 1}));
+  return result;
 }
 
 std::string get_group_prolongation_type(const gi_t gi) {

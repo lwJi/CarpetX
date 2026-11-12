@@ -303,12 +303,13 @@ struct target_sink_t final : buffer_visitor_t {
              const tl_t tl) override {
     needs.push_back(
         {.id = buffer_id(groupdata.record, groupdata.level, tl),
-         .from = state_need_t{.level = groupdata.level,
-                              .gi = groupdata.record.groupindex,
-                              .tl = tl,
-                              .fills = has_ghosts(groupdata.nghostzones)
-                                           ? make_valid_int()
-                                           : make_valid_all()}});
+         .from = state_need_t{
+             .level = groupdata.level,
+             .gi = groupdata.record.groupindex,
+             .tl = tl,
+             .fills = has_ghosts(groupdata.grid_function.nghostzones)
+                          ? make_valid_int()
+                          : make_valid_all()}});
   }
 
   void bands(const level_t level, const gi_t gi,

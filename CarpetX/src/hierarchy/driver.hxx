@@ -442,9 +442,30 @@ struct GHExt {
           std::as_const(*this).array(site));
     }
 
+    struct grid_function_t {
+      std::array<int, dim> indextype;
+      std::array<int, dim> nghostzones;
+      std::array<std::array<boundary_t, dim>, 2> boundaries;
+      std::vector<std::array<int, dim>> parities;
+      std::vector<CCTK_REAL> dirichlet_values;
+      std::vector<CCTK_REAL> robin_values;
+      std::optional<std::array<gi_t, dim>> fluxes;
+    };
+    const grid_function_t &
+    grid_function(const std::source_location site =
+                      std::source_location::current()) const {
+      if (kind != group_kind::grid_function)
+        refuse(site, "group %s is not a grid function group",
+               groupname.c_str());
+      assert(grid_function_);
+      return *grid_function_;
+    }
+
   private:
     int num_timelevels_;
     std::unique_ptr<GlobalData::ArrayGroupData> array_;
+    std::optional<grid_function_t> grid_function_;
+    static grid_function_t make_grid_function(gi_t gi, int numvars);
   };
 
   struct record_filter {
@@ -579,6 +600,7 @@ struct GHExt {
                   const std::function<std::string()> &why);
 
         const GroupRecord &record;
+        const GroupRecord::grid_function_t &grid_function;
         const level_t level;
 
         struct timelevel_t {
@@ -625,16 +647,7 @@ struct GHExt {
           return count;
         }
 
-        std::array<int, dim> indextype;
-        std::array<int, dim> nghostzones;
-
-        std::array<std::array<boundary_t, dim>, 2> boundaries;
         bool all_faces_have_symmetries_or_boundaries() const;
-        std::vector<std::array<int, dim>> parities;
-        std::vector<CCTK_REAL> dirichlet_values;
-        std::vector<CCTK_REAL> robin_values;
-
-        std::optional<std::array<gi_t, dim>> fluxes;
 
         struct scratch_slot_t {
           const_propagating_ptr<amrex::MultiFab> mfab;
@@ -695,7 +708,8 @@ struct GHExt {
 
       const amrex::iMultiFab &ghost_mask(const GroupData &groupdata) const {
         return ghost_masks.at(
-            ghost_mask_key_t{groupdata.indextype, groupdata.nghostzones});
+            ghost_mask_key_t{groupdata.grid_function.indextype,
+                             groupdata.grid_function.nghostzones});
       }
 
     private:

@@ -149,6 +149,25 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "do_restrict" << YAML::Value << group.do_restrict;
   yaml << YAML::Key << "restrict_on_sync" << YAML::Value
        << group.restrict_on_sync;
+  if (group.kind == group_kind::grid_function) {
+    const GHExt::GroupRecord::grid_function_t &grid_function =
+        group.grid_function();
+    yaml << YAML::Key << "grid_function" << YAML::Value << YAML::BeginMap;
+    yaml << YAML::Key << "indextype" << YAML::Value << YAML::Flow
+         << seq(grid_function.indextype);
+    yaml << YAML::Key << "nghostzones" << YAML::Value << YAML::Flow
+         << seq(grid_function.nghostzones);
+    yaml << YAML::Key << "parities" << YAML::Value << YAML::Flow
+         << seqs(grid_function.parities);
+    yaml << YAML::Key << "fluxes" << YAML::Value << YAML::Flow
+         << YAML::BeginSeq;
+    for (int d = 0; d < dim; ++d)
+      yaml << (grid_function.fluxes
+                   ? CCTK_FullGroupName((*grid_function.fluxes)[d].index())
+                   : "");
+    yaml << YAML::EndSeq;
+    yaml << YAML::EndMap;
+  }
   yaml << YAML::EndMap;
   return yaml;
 }
@@ -221,18 +240,6 @@ operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "patch" << YAML::Value
        << groupdata.level.patch().index();
   yaml << YAML::Key << "level" << YAML::Value << groupdata.level.index();
-  yaml << YAML::Key << "indextype" << YAML::Value << YAML::Flow
-       << seq(groupdata.indextype);
-  yaml << YAML::Key << "nghostzones" << YAML::Value << YAML::Flow
-       << seq(groupdata.nghostzones);
-  yaml << YAML::Key << "parities" << YAML::Value << YAML::Flow
-       << seqs(groupdata.parities);
-  yaml << YAML::Key << "fluxes" << YAML::Value << YAML::Flow << YAML::BeginSeq;
-  for (int d = 0; d < dim; ++d)
-    yaml << (groupdata.fluxes
-                 ? CCTK_FullGroupName((*groupdata.fluxes)[d].index())
-                 : "");
-  yaml << YAML::EndSeq;
   yaml << YAML::EndMap;
   return yaml;
 }

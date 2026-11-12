@@ -83,12 +83,12 @@ int numvars(const group_t group) {
 
 std::array<int, Loop::dim> indextype(const group_t group) {
   const operation_scope_t op("CarpetX::indextype");
-  return driver().group(group).indextype;
+  return driver().group(group).grid_function.indextype;
 }
 
 std::array<int, Loop::dim> nghostzones(const group_t group) {
   const operation_scope_t op("CarpetX::nghostzones");
-  return driver().group(group).nghostzones;
+  return driver().group(group).grid_function.nghostzones;
 }
 
 const amrex::MultiFab &data(const group_t group, const tl_t tl) {

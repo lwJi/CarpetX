@@ -2,6 +2,7 @@
 #include "hierarchy/binding.hxx"
 #include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
 #include "comm/buffers.hxx"
@@ -328,6 +329,41 @@ concept rotates_levels_unlent = requires(GHExt &ext, window_t window, gi_t gi) {
 template <class Binding>
 concept rotates_arrays_unlent =
     requires(GHExt &ext, gi_t gi) { Binding::rotate(ext, gi); };
+
+template <class T>
+concept holds_indextype = requires(const T &t) { t.indextype; };
+
+template <class T>
+concept holds_nghostzones = requires(const T &t) { t.nghostzones; };
+
+template <class T>
+concept holds_boundaries = requires(const T &t) { t.boundaries; };
+
+template <class T>
+concept holds_parities = requires(const T &t) { t.parities; };
+
+template <class T>
+concept holds_dirichlet_values = requires(const T &t) { t.dirichlet_values; };
+
+template <class T>
+concept holds_robin_values = requires(const T &t) { t.robin_values; };
+
+template <class T>
+concept holds_fluxes = requires(const T &t) { t.fluxes; };
+
+template <class Group>
+concept parses_grid_function_tags =
+    requires(Group gi) { get_group_indextype(gi); } ||
+    requires(Group gi) { get_group_nghostzones(gi); } ||
+    requires(Group gi) { get_group_boundaries(gi); } ||
+    requires(Group gi) { get_group_parities(gi); } ||
+    requires(Group gi) { get_group_dirichlet_values(gi); } ||
+    requires(Group gi) { get_group_robin_values(gi); } ||
+    requires(Group gi) { get_group_fluxes(gi); };
+
+template <class Record>
+concept makes_grid_function =
+    requires(gi_t gi) { Record::make_grid_function(gi, 0); };
 
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
@@ -758,6 +794,29 @@ static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt &>);
 static_assert(
     !std::is_constructible_v<hierarchy_writers_t, std::unique_ptr<GHExt>>);
 static_assert(!hands_out_hierarchy<hierarchy_writers_t>);
+
+static_assert(std::is_same_v<decltype(std::declval<const GHExt::GroupRecord &>()
+                                          .grid_function()),
+                             const GHExt::GroupRecord::grid_function_t &>);
+static_assert(std::is_same_v<
+              decltype(GHExt::PatchData::LevelData::GroupData::grid_function),
+              const GHExt::GroupRecord::grid_function_t &>);
+static_assert(holds_indextype<GHExt::GroupRecord::grid_function_t>);
+static_assert(!holds_indextype<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_nghostzones<GHExt::GroupRecord::grid_function_t>);
+static_assert(!holds_nghostzones<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_boundaries<GHExt::GroupRecord::grid_function_t>);
+static_assert(!holds_boundaries<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_parities<GHExt::GroupRecord::grid_function_t>);
+static_assert(!holds_parities<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_dirichlet_values<GHExt::GroupRecord::grid_function_t>);
+static_assert(!holds_dirichlet_values<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_robin_values<GHExt::GroupRecord::grid_function_t>);
+static_assert(!holds_robin_values<GHExt::PatchData::LevelData::GroupData>);
+static_assert(holds_fluxes<GHExt::GroupRecord::grid_function_t>);
+static_assert(!holds_fluxes<GHExt::PatchData::LevelData::GroupData>);
+static_assert(!parses_grid_function_tags<gi_t>);
+static_assert(!makes_grid_function<GHExt::GroupRecord>);
 
 } // namespace
 } // namespace CarpetX
