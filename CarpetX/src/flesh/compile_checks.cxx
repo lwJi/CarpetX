@@ -594,7 +594,7 @@ static_assert(create_hierarchy_takes<GHExt::config_t>);
 static_assert(!create_hierarchy_takes<bool, bool>);
 static_assert(
     std::is_same_v<decltype(create_hierarchy(std::declval<GHExt::config_t>())),
-                   hierarchy_writers_t>);
+                   std::unique_ptr<hierarchy_writers_t>>);
 static_assert(
     std::is_same_v<decltype(hierarchy_writers_t::clock), clock_writer_t>);
 static_assert(!std::is_default_constructible_v<clock_writer_t>);

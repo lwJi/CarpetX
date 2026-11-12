@@ -51,12 +51,14 @@ GHExt &GHExt::mutable_instance() { return existing_hierarchy(); }
 
 const GHExt &driver() { return existing_hierarchy(); }
 
-hierarchy_writers_t create_hierarchy(const GHExt::config_t config) {
+std::unique_ptr<hierarchy_writers_t>
+create_hierarchy(const GHExt::config_t config) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
   ghext = std::make_unique<GHExt>(config);
-  return hierarchy_writers_t{};
+  return std::unique_ptr<hierarchy_writers_t>(
+      new hierarchy_writers_t{{}, {}, {}, {}});
 }
 
 void destroy_hierarchy() {

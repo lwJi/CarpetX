@@ -146,11 +146,10 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
     assert(!ierr);
   }
 
-  writers.reset(new hierarchy_writers_t(
-      create_hierarchy({.use_subcycling = bool(use_subcycling),
-                        .do_reflux = bool(do_reflux),
-                        .make_core = make_cactus_amrcore,
-                        .make_buffers = make_level_buffers})));
+  writers = create_hierarchy({.use_subcycling = bool(use_subcycling),
+                              .do_reflux = bool(do_reflux),
+                              .make_core = make_cactus_amrcore,
+                              .make_buffers = make_level_buffers});
   adopt_writers(writers->registry, writers->scratch);
   return writers.get();
 }

@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <source_location>
 #include <string>
@@ -23,7 +24,8 @@
 namespace CarpetX {
 
 struct hierarchy_writers_t;
-[[nodiscard]] hierarchy_writers_t create_hierarchy(GHExt::config_t config);
+[[nodiscard]] std::unique_ptr<hierarchy_writers_t>
+create_hierarchy(GHExt::config_t config);
 void destroy_hierarchy();
 
 class clock_writer_t {
@@ -41,7 +43,8 @@ public:
 
 private:
   clock_writer_t() = default;
-  friend hierarchy_writers_t create_hierarchy(GHExt::config_t config);
+  friend std::unique_ptr<hierarchy_writers_t>
+  create_hierarchy(GHExt::config_t config);
 };
 
 class structure_writer_t {
@@ -73,7 +76,8 @@ public:
 
 private:
   structure_writer_t() = default;
-  friend hierarchy_writers_t create_hierarchy(GHExt::config_t config);
+  friend std::unique_ptr<hierarchy_writers_t>
+  create_hierarchy(GHExt::config_t config);
 };
 
 class registry_writer_t {
@@ -92,7 +96,8 @@ public:
 
 private:
   registry_writer_t() = default;
-  friend hierarchy_writers_t create_hierarchy(GHExt::config_t config);
+  friend std::unique_ptr<hierarchy_writers_t>
+  create_hierarchy(GHExt::config_t config);
 };
 
 class scratch_writer_t {
@@ -110,7 +115,8 @@ public:
 
 private:
   scratch_writer_t() = default;
-  friend hierarchy_writers_t create_hierarchy(GHExt::config_t config);
+  friend std::unique_ptr<hierarchy_writers_t>
+  create_hierarchy(GHExt::config_t config);
 };
 
 struct hierarchy_writers_t {
