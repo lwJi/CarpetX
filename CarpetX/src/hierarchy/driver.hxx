@@ -147,8 +147,9 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 
 ////////////////////////////////////////////////////////////////////////////////
 
+class level_writer_t;
 using amrcore_factory = std::unique_ptr<amrex::AmrCore> (*)(
-    patch_t patch, const amrex::RealBox &domain, int,
+    level_writer_t &levels, patch_t patch, const amrex::RealBox &domain, int,
     const amrex::Vector<int> &ncells,
     const amrex::Array<int, dim> &is_periodic);
 
@@ -500,7 +501,7 @@ struct GHExt {
     PatchData(PatchData &&) = default;
     PatchData &operator=(PatchData &&) = default;
 
-    PatchData(patch_t patch, amrcore_factory make_core);
+    PatchData(level_writer_t &levels, patch_t patch, amrcore_factory make_core);
 
     patch_t patch;
 
@@ -739,7 +740,8 @@ struct GHExt {
     LevelData replace_level(level_t level, LevelData &&fresh);
     void erase_levels_from(level_t level);
 
-    friend struct hierarchy_writer;
+    friend class structure_writer_t;
+    friend class level_writer_t;
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const PatchData &patchdata);
   };
@@ -831,14 +833,18 @@ private:
   std::vector<PatchData> patchdata;
 
   static GHExt &mutable_instance();
-  PatchData &add_patch(patch_t patch);
+  PatchData &add_patch(level_writer_t &levels, patch_t patch);
   void record_storage(gi_t gi, int timelevels);
   void freeze_storage();
   void record_integrator(integrator_t integrator, std::source_location site);
   void freeze_integrator(std::source_location site);
   void mark_initialized();
 
-  friend struct hierarchy_writer;
+  friend class clock_writer_t;
+  friend class structure_writer_t;
+  friend class level_writer_t;
+  friend class registry_writer_t;
+  friend class scratch_writer_t;
   friend struct cctkGH_binding;
   friend class write_scope_t;
   friend class array_write_scope_t;

@@ -16,9 +16,9 @@ OUTSIDERS = (("cactus", "Cactus flesh"), ("amrex", "AMReX"), ("thorn", "a thorn'
 STARTUP = layer_path("flesh", "startup.cxx")
 REGISTRATION = re.compile(r"\bCCTK_(?:Overload\w+|RegisterGHExtension\w+|InterpRegisterOpLocalUniform)\s*\(\s*(?:ghext_handle\s*,\s*)?(\w+)")
 REGISTERED = (
-    (STARTUP, ("SetupGH", "InitGH", "ScheduleTraverseGH", "MyProc", "nProcs", "Exit", "Abort", "Barrier", "CarpetX_InterpGridArrays", "ArrayGroupSizeB", "GroupDynamicData")),
-    (layer_path("schedule", "evolve.cxx"), ("Initialise", "Evolve", "Shutdown")),
-    (layer_path("schedule", "storage.cxx"), ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease", "QueryGroupStorageB")),
+    (STARTUP, ("SetupGH", "InitGH", "ScheduleTraverseGH", "Initialise_entry", "Evolve_entry", "MyProc", "nProcs", "Exit", "Abort", "Barrier", "EnableGroupStorage_entry", "DisableGroupStorage_entry", "GroupStorageIncrease_entry", "GroupStorageDecrease_entry", "CarpetX_InterpGridArrays", "ArrayGroupSizeB", "GroupDynamicData")),
+    (layer_path("schedule", "evolve.cxx"), ("Shutdown",)),
+    (layer_path("schedule", "storage.cxx"), ("QueryGroupStorageB",)),
     (layer_path("io", "io.cxx"), ("OutputGH",)),
     (layer_path("ops", "interpolate.cxx"), ("InterpLocalUniform",)),
     (layer_path("comm", "sync_restrict.cxx"), (FLESH_SYNC_OVERLOAD,)),
@@ -50,7 +50,9 @@ STEPS = {
     HANDED: "what a routine asks of the flesh, the flesh hands to the layer that owns the work",
 }
 PASS = (
-    ("1", "cactus", "schedule", ("Initialise", "Evolve", "Shutdown"), layer_path("schedule", "evolve.cxx")),
+    ("1", "cactus", "flesh", ("Initialise_entry", "Evolve_entry"), STARTUP),
+    ("1", "flesh", "schedule", ("Initialise", "Evolve"), layer_path("schedule", "evolve.cxx")),
+    ("1", "cactus", "schedule", ("Shutdown",), layer_path("schedule", "evolve.cxx")),
     ("2", "schedule", "cactus", ("CCTK_Traverse", "CCTK_OutputGH"), layer_path("schedule", "evolve.cxx")),
     ("3", "cactus", "flesh", ("ScheduleTraverseGH",), STARTUP),
     ("4", "cactus", "io", ("OutputGH",), layer_path("io", "io.cxx")),
@@ -58,6 +60,8 @@ PASS = (
     ("6", "cactus", "schedule", ("CallFunction",), layer_path("schedule", "callfunction.cxx")),
     ("7", "schedule", "thorn", ("CCTK_CallFunction",), layer_path("schedule", "callfunction.cxx")),
     ("9", "api", "cactus", ("CCTK_ScheduleTraverse",), layer_path("api", "api_rk.cxx")),
+    (HANDED, "cactus", "flesh", ("EnableGroupStorage_entry", "DisableGroupStorage_entry", "GroupStorageIncrease_entry", "GroupStorageDecrease_entry"), STARTUP),
+    (HANDED, "flesh", "schedule", ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease"), layer_path("schedule", "storage.cxx")),
 )
 assert {row[0] for row in PASS} | {BODIES, HANDED} == set(STEPS), PASS
 REGRID_STEPS = {
@@ -66,11 +70,13 @@ REGRID_STEPS = {
     "3": "AMReX calls back into the layer that defines its callbacks",
 }
 REGRID = (
-    ("1", "schedule", "hierarchy", ("hierarchy_writer::regrid",), layer_path("hierarchy", "hierarchy.cxx")),
+    ("1", "schedule", "hierarchy", ("structure_writer_t::regrid",), layer_path("hierarchy", "hierarchy.cxx")),
     ("2", "hierarchy", "amrex", ("amrcore->regrid",), layer_path("hierarchy", "hierarchy.cxx")),
     ("3", "amrex", layer_of(CALLBACKS[0]), CALLBACKS[1], CALLBACKS[0]),
 )
 assert {row[0] for row in REGRID} == set(REGRID_STEPS), REGRID
+CALLED_AS = {"structure_writer_t::regrid": "structure.regrid"}
+assert set(CALLED_AS) <= {name for row in PASS + REGRID for name in row[3]}, CALLED_AS
 BOXES = (("above", f"above {HUB}/"), ("door", "driver() allowed"), ("nodoor", "no driver()"))
 STACK_LEGEND = (
     f"the layer rule holds the order {', '.join(f'{layer}/' for layer in LAYERS)} from the bottom: a file includes only its own layer or a lower one",
@@ -301,7 +307,7 @@ def hold(root: str, row: tuple[str, str, str, tuple[str, ...], str]) -> None:
         if missing:
             raise ValueError(f"{', '.join(missing)} not defined in {file}, where step {step} lands")
         if source in LAYERS:
-            missing = [name for name in names if not layer_calls(root, source, name)]
+            missing = [call for call in (CALLED_AS.get(name, name) for name in names) if not layer_calls(root, source, call)]
             if missing:
                 raise ValueError(f"{', '.join(missing)} not called in {source}/, where step {step} starts")
     else:

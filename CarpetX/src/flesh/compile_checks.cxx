@@ -1,4 +1,5 @@
 #include "io/checkpoint.hxx"
+#include "hierarchy/binding.hxx"
 #include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
@@ -8,6 +9,7 @@
 #include "comm/subcycling.hxx"
 #include "comm/comm.hxx"
 #include "regrid/regrid.hxx"
+#include "schedule/schedule.hxx"
 #include "hierarchy/valid.hxx"
 
 #include <carpetx.hxx>
@@ -282,8 +284,50 @@ concept freezes_integrator = requires(Ext &ext) {
 template <class Ext>
 concept opens_mutable_door = requires { Ext::mutable_instance(); };
 
+template <class Writer>
+concept regrids = requires(Writer &writer, level_t level) {
+  writer.regrid(level, CCTK_REAL{});
+};
+
+template <class Writer>
+concept adds_patches =
+    requires(Writer &writer, patch_t patch) { writer.add_patch(patch); };
+
+template <class Writer>
+concept erases_levels = requires(Writer &writer, level_t level) {
+  writer.erase_levels_from(level);
+};
+
+template <class Writer>
+concept makes_levels =
+    requires(Writer &writer, level_t level, const amrex::BoxArray &ba,
+             const amrex::DistributionMapping &dm) {
+      writer.make_level(level, ba, dm, std::string());
+    };
+
+template <class Writer>
+concept hands_out_levels = requires(Writer &writer) { writer.levels; };
+
+template <class Writer>
+concept hands_out_hierarchy = requires(Writer &writer) { writer.hierarchy; };
+
+template <class Writer>
+concept makes_amrcore =
+    std::is_invocable_v<amrcore_factory, Writer &, patch_t,
+                        const amrex::RealBox &, int, const amrex::Vector<int> &,
+                        const amrex::Array<int, dim> &>;
+
 template <class Group>
 concept rotates = requires(Group &group) { group.rotate_timelevels(); };
+
+template <class Binding>
+concept rotates_levels_unlent = requires(GHExt &ext, window_t window, gi_t gi) {
+  Binding::rotate(ext, window, gi);
+};
+
+template <class Binding>
+concept rotates_arrays_unlent =
+    requires(GHExt &ext, gi_t gi) { Binding::rotate(ext, gi); };
 
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
@@ -591,6 +635,54 @@ static_assert(!std::is_convertible_v<GHExt::config_t, GHExt>);
 static_assert(!std::is_constructible_v<GHExt, bool, bool>);
 static_assert(create_hierarchy_takes<GHExt::config_t>);
 static_assert(!create_hierarchy_takes<bool, bool>);
+static_assert(
+    std::is_same_v<decltype(create_hierarchy(std::declval<GHExt::config_t>())),
+                   std::unique_ptr<hierarchy_writers_t>>);
+static_assert(
+    std::is_same_v<decltype(hierarchy_writers_t::clock), clock_writer_t>);
+static_assert(!std::is_default_constructible_v<clock_writer_t>);
+static_assert(!std::is_copy_constructible_v<clock_writer_t>);
+static_assert(!std::is_move_constructible_v<clock_writer_t>);
+static_assert(std::is_same_v<decltype(hierarchy_writers_t::structure),
+                             structure_writer_t>);
+static_assert(!std::is_default_constructible_v<structure_writer_t>);
+static_assert(!std::is_copy_constructible_v<structure_writer_t>);
+static_assert(!std::is_move_constructible_v<structure_writer_t>);
+static_assert(!hands_out_levels<hierarchy_writers_t>);
+static_assert(!hands_out_levels<structure_writer_t>);
+static_assert(!std::is_default_constructible_v<level_writer_t>);
+static_assert(!std::is_copy_constructible_v<level_writer_t>);
+static_assert(!std::is_move_constructible_v<level_writer_t>);
+static_assert(regrids<structure_writer_t>);
+static_assert(!regrids<level_writer_t>);
+static_assert(adds_patches<structure_writer_t>);
+static_assert(!adds_patches<level_writer_t>);
+static_assert(erases_levels<level_writer_t>);
+static_assert(!erases_levels<structure_writer_t>);
+static_assert(makes_levels<level_writer_t>);
+static_assert(!makes_levels<structure_writer_t>);
+static_assert(makes_amrcore<level_writer_t>);
+static_assert(!makes_amrcore<structure_writer_t>);
+static_assert(std::is_same_v<decltype(&make_cactus_amrcore), amrcore_factory>);
+static_assert(
+    std::is_same_v<decltype(hierarchy_writers_t::registry), registry_writer_t>);
+static_assert(!std::is_default_constructible_v<registry_writer_t>);
+static_assert(!std::is_copy_constructible_v<registry_writer_t>);
+static_assert(!std::is_move_constructible_v<registry_writer_t>);
+static_assert(
+    std::is_same_v<decltype(hierarchy_writers_t::scratch), scratch_writer_t>);
+static_assert(!std::is_default_constructible_v<scratch_writer_t>);
+static_assert(!std::is_copy_constructible_v<scratch_writer_t>);
+static_assert(!std::is_move_constructible_v<scratch_writer_t>);
+static_assert(!std::is_default_constructible_v<hierarchy_writers_t>);
+static_assert(!std::is_copy_constructible_v<hierarchy_writers_t>);
+static_assert(!std::is_move_constructible_v<hierarchy_writers_t>);
+static_assert(std::is_same_v<decltype(Initialise),
+                             int(tFleshConfig *, clock_writer_t &,
+                                 structure_writer_t &, registry_writer_t &)>);
+static_assert(
+    std::is_same_v<decltype(Evolve), int(tFleshConfig *, clock_writer_t &,
+                                         structure_writer_t &)>);
 
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().active_timelevels(
@@ -655,6 +747,17 @@ static_assert(!opens_mutable_door<GHExt>);
 
 static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
 static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);
+static_assert(!rotates_levels_unlent<cctkGH_binding>);
+static_assert(!rotates_arrays_unlent<cctkGH_binding>);
+static_assert(!std::is_constructible_v<clock_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<structure_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<level_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<registry_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<scratch_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt &>);
+static_assert(
+    !std::is_constructible_v<hierarchy_writers_t, std::unique_ptr<GHExt>>);
+static_assert(!hands_out_hierarchy<hierarchy_writers_t>);
 
 } // namespace
 } // namespace CarpetX

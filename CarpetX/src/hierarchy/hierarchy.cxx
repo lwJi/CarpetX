@@ -37,7 +37,7 @@
 namespace CarpetX {
 
 namespace {
-std::unique_ptr<GHExt> ghext;
+GHExt *ghext = nullptr;
 
 GHExt &existing_hierarchy() {
   if (!ghext)
@@ -51,20 +51,28 @@ GHExt &GHExt::mutable_instance() { return existing_hierarchy(); }
 
 const GHExt &driver() { return existing_hierarchy(); }
 
-GHExt &create_hierarchy(const GHExt::config_t config) {
+std::unique_ptr<hierarchy_writers_t>
+create_hierarchy(const GHExt::config_t config) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
-  ghext = std::make_unique<GHExt>(config);
-  return *ghext;
+  return std::unique_ptr<hierarchy_writers_t>(
+      new hierarchy_writers_t(std::make_unique<GHExt>(config)));
 }
 
-void destroy_hierarchy() {
-  if (!ghext)
-    CCTK_ERROR("The CarpetX grid hierarchy does not exist: Shutdown destroys "
-               "the hierarchy that SetupGH created");
-  cctkGH_binding::unbind_arrays(ghext->flesh_cctkGH);
+hierarchy_writers_t::hierarchy_writers_t(std::unique_ptr<GHExt> made)
+    : clock(*made), structure(*made), registry(*made), scratch(*made),
+      hierarchy(std::move(made)) {
+  assert(hierarchy);
+  assert(!ghext);
+  ghext = hierarchy.get();
+}
+
+hierarchy_writers_t::~hierarchy_writers_t() {
+  assert(ghext == hierarchy.get());
+  cctkGH_binding::unbind_arrays(hierarchy->flesh_cctkGH);
   ghext = nullptr;
+  hierarchy.reset();
 }
 
 void assert_hierarchy_destroyed() { assert(!ghext); }
@@ -82,9 +90,10 @@ void GHExt::mark_initialized() {
   initialized_ = true;
 }
 
-GHExt::PatchData &GHExt::add_patch(const patch_t patch) {
+GHExt::PatchData &GHExt::add_patch(level_writer_t &levels,
+                                   const patch_t patch) {
   assert(patch.index() == num_patches());
-  return patchdata.emplace_back(patch, make_core_);
+  return patchdata.emplace_back(levels, patch, make_core_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -110,7 +119,7 @@ GHExt::cctkGHptr::~cctkGHptr() {
   cctkGH = nullptr;
 }
 
-GHExt::PatchData::PatchData(const patch_t patch,
+GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
                             const amrcore_factory make_core)
     : patch(patch) {
   DECLARE_CCTK_PARAMETERS;
@@ -158,7 +167,8 @@ GHExt::PatchData::PatchData(const patch_t patch,
       symmetries[0][1] == symmetry_t::periodic,
       symmetries[0][2] == symmetry_t::periodic};
 
-  amrcore = make_core(patch, domain, max_num_levels - 1, ncells, is_periodic);
+  amrcore =
+      make_core(levels, patch, domain, max_num_levels - 1, ncells, is_periodic);
 
   if (verbose) {
 #pragma omp critical
@@ -603,14 +613,14 @@ GHExt::record_of(const var_t var, const std::source_location site) const {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-const GHExt::PatchData &hierarchy_writer::add_patch(const patch_t patch) {
-  return GHExt::mutable_instance().add_patch(patch);
+const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
+  return ext.add_patch(levels, patch);
 }
 
 const GHExt::PatchData::LevelData &
-hierarchy_writer::add_level(const level_t level, const amrex::BoxArray &ba,
-                            const amrex::DistributionMapping &dm,
-                            const std::function<std::string()> &why) {
+level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
+                          const amrex::DistributionMapping &dm,
+                          const std::function<std::string()> &why) {
   DECLARE_CCTK_PARAMETERS;
 
   if (verbose)
@@ -619,9 +629,7 @@ hierarchy_writer::add_level(const level_t level, const amrex::BoxArray &ba,
                level.index());
 
   const GHExt::PatchData::LevelData &leveldata =
-      GHExt::mutable_instance()
-          .patch(level.patch())
-          .add_level(level, ba, dm, why);
+      ext.patch(level.patch()).add_level(level, ba, dm, why);
 
   if (verbose)
 #pragma omp critical
@@ -632,9 +640,9 @@ hierarchy_writer::add_level(const level_t level, const amrex::BoxArray &ba,
 }
 
 const GHExt::PatchData::LevelData &
-hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
-                             const amrex::DistributionMapping &dm,
-                             const std::string &why) {
+level_writer_t::make_level(const level_t level, const amrex::BoxArray &ba,
+                           const amrex::DistributionMapping &dm,
+                           const std::string &why) {
   const GHExt::PatchData::LevelData &leveldata =
       add_level(level, ba, dm, [why]() { return why; });
 
@@ -650,45 +658,38 @@ hierarchy_writer::make_level(const level_t level, const amrex::BoxArray &ba,
 }
 
 GHExt::PatchData::LevelData
-hierarchy_writer::remake_level(const level_t level, const amrex::BoxArray &ba,
-                               const amrex::DistributionMapping &dm,
-                               const std::function<std::string()> &why) {
+level_writer_t::remake_level(const level_t level, const amrex::BoxArray &ba,
+                             const amrex::DistributionMapping &dm,
+                             const std::function<std::string()> &why) {
   GHExt::PatchData::LevelData fresh(level, ba, dm, why);
-  return GHExt::mutable_instance()
-      .patch(level.patch())
-      .replace_level(level, std::move(fresh));
+  return ext.patch(level.patch()).replace_level(level, std::move(fresh));
 }
 
-void hierarchy_writer::erase_levels_from(const level_t level) {
-  GHExt::mutable_instance().patch(level.patch()).erase_levels_from(level);
+void level_writer_t::erase_levels_from(const level_t level) {
+  ext.patch(level.patch()).erase_levels_from(level);
 }
 
-void hierarchy_writer::set_max_grid_size(
+void structure_writer_t::set_max_grid_size(
     const patch_t patch, const amrex::Vector<amrex::IntVect> &max_grid_sizes) {
-  GHExt::mutable_instance().patch(patch).amrcore->SetMaxGridSize(
-      max_grid_sizes);
+  ext.patch(patch).amrcore->SetMaxGridSize(max_grid_sizes);
 }
 
-void hierarchy_writer::make_new_grids(const patch_t patch,
-                                      const CCTK_REAL time) {
-  GHExt::mutable_instance().patch(patch).amrcore->MakeNewGrids(time);
+void structure_writer_t::make_new_grids(const patch_t patch,
+                                        const CCTK_REAL time) {
+  ext.patch(patch).amrcore->MakeNewGrids(time);
 }
 
-void hierarchy_writer::mark_initialized() {
-  GHExt::mutable_instance().mark_initialized();
-}
+void structure_writer_t::mark_initialized() { ext.mark_initialized(); }
 
-void hierarchy_writer::regrid(const level_t base_level, const CCTK_REAL time) {
-  GHExt::PatchData &patchdata =
-      GHExt::mutable_instance().patch(base_level.patch());
+void structure_writer_t::regrid(const level_t base_level,
+                                const CCTK_REAL time) {
+  GHExt::PatchData &patchdata = ext.patch(base_level.patch());
   patchdata.reset_level_modified();
   patchdata.amrcore->regrid(base_level.index(), time);
 }
 
-void hierarchy_writer::set_finest_level(const level_t finest_level) {
-  GHExt::mutable_instance()
-      .patch(finest_level.patch())
-      .amrcore->SetFinestLevel(finest_level.index());
+void structure_writer_t::set_finest_level(const level_t finest_level) {
+  ext.patch(finest_level.patch()).amrcore->SetFinestLevel(finest_level.index());
 }
 
 static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
@@ -707,10 +708,9 @@ static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
   return ba;
 }
 
-void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
-                                     const bool rechop) {
-  amrex::AmrCore &amrcore =
-      *GHExt::mutable_instance().patch(level.patch()).amrcore;
+void structure_writer_t::recover_level(const level_t level, amrex::BoxArray ba,
+                                       const bool rechop) {
+  amrex::AmrCore &amrcore = *ext.patch(level.patch()).amrcore;
   const int lev = level.index();
   if (lev > 0) {
     amrex::Geometry geom = amrcore.Geom(lev - 1);
@@ -722,28 +722,25 @@ void hierarchy_writer::recover_level(const level_t level, amrex::BoxArray ba,
   amrcore.SetBoxArray(lev, ba);
   const amrex::DistributionMapping dm(ba);
   amrcore.SetDistributionMap(lev, dm);
-  make_level(level, ba, dm, "Recovering");
+  levels.make_level(level, ba, dm, "Recovering");
 }
 
-void hierarchy_writer::record_storage(const gi_t gi, const int timelevels) {
-  GHExt::mutable_instance().record_storage(gi, timelevels);
+void registry_writer_t::record_storage(const gi_t gi, const int timelevels) {
+  ext.record_storage(gi, timelevels);
 }
 
-void hierarchy_writer::freeze_storage() {
-  GHExt::mutable_instance().freeze_storage();
+void registry_writer_t::freeze_storage() { ext.freeze_storage(); }
+
+void registry_writer_t::record_integrator(GHExt::integrator_t integrator,
+                                          const std::source_location site) {
+  ext.record_integrator(std::move(integrator), site);
 }
 
-void hierarchy_writer::record_integrator(GHExt::integrator_t integrator,
-                                         const std::source_location site) {
-  GHExt::mutable_instance().record_integrator(std::move(integrator), site);
+void registry_writer_t::freeze_integrator(const std::source_location site) {
+  ext.freeze_integrator(site);
 }
 
-void hierarchy_writer::freeze_integrator(const std::source_location site) {
-  GHExt::mutable_instance().freeze_integrator(site);
-}
-
-void hierarchy_writer::adopt_flesh_cctkGH(cGH *const cctkGH) {
-  GHExt &ext = GHExt::mutable_instance();
+void registry_writer_t::adopt_flesh_cctkGH(cGH *const cctkGH) {
   assert(cctkGH);
   assert(!ext.flesh_cctkGH);
   assert(!ext.global_cctkGH);
@@ -752,9 +749,9 @@ void hierarchy_writer::adopt_flesh_cctkGH(cGH *const cctkGH) {
   ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
 }
 
-std::size_t hierarchy_writer::acquire_scratch(const group_t group,
-                                              const std::source_location site) {
-  auto &groupdata = GHExt::mutable_instance().group(group, site);
+std::size_t scratch_writer_t::acquire(const group_t group,
+                                      const std::source_location site) {
+  auto &groupdata = ext.group(group, site);
   auto &pool = groupdata.scratch_pool;
   std::size_t slot = 0;
   while (slot < pool.size() && pool.at(slot).in_use)
@@ -770,59 +767,56 @@ std::size_t hierarchy_writer::acquire_scratch(const group_t group,
   return slot;
 }
 
-void hierarchy_writer::release_scratch(const group_t group,
-                                       const std::size_t slot) {
-  auto &pool = GHExt::mutable_instance().group(group).scratch_pool;
+void scratch_writer_t::release(const group_t group, const std::size_t slot) {
+  auto &pool = ext.group(group).scratch_pool;
   assert(slot < pool.size() && pool.at(slot).in_use);
   pool.at(slot).in_use = false;
 }
 
-amrex::MultiFab &
-hierarchy_writer::scratch_mfab(const group_t group, const std::size_t slot,
-                               const std::source_location site) {
-  auto &pool = GHExt::mutable_instance().group(group, site).scratch_pool;
+amrex::MultiFab &scratch_writer_t::mfab(const group_t group,
+                                        const std::size_t slot,
+                                        const std::source_location site) {
+  auto &pool = ext.group(group, site).scratch_pool;
   assert(slot < pool.size() && pool.at(slot).in_use);
   return *pool.at(slot).mfab;
 }
 
-void hierarchy_writer::advance_clocks(const window_t window) {
-  loop_serially(window, [](const GHExt::PatchData::LevelData &leveldata) {
-    auto &clock = GHExt::mutable_instance().level(leveldata.level);
+void clock_writer_t::advance_clocks(const window_t window) {
+  loop_serially(window, [this](const GHExt::PatchData::LevelData &leveldata) {
+    auto &clock = ext.level(leveldata.level);
     clock.iteration += clock.delta_iteration;
   });
 }
 
-void hierarchy_writer::stamp_last_step(const window_t window,
-                                       const int iteration) {
+void clock_writer_t::stamp_last_step(const window_t window,
+                                     const int iteration) {
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    GHExt::mutable_instance().level(leveldata.level).last_step_iteration =
-        iteration;
+    ext.level(leveldata.level).last_step_iteration = iteration;
   });
 }
 
-void hierarchy_writer::stamp_last_finalized(const window_t window,
-                                            const int iteration) {
+void clock_writer_t::stamp_last_finalized(const window_t window,
+                                          const int iteration) {
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    GHExt::mutable_instance().level(leveldata.level).last_finalized_iteration =
-        iteration;
+    ext.level(leveldata.level).last_finalized_iteration = iteration;
   });
 }
 
-void hierarchy_writer::restore_level_clock(
+void clock_writer_t::restore_level_clock(
     const level_t level, const rat64 iteration,
     const std::optional<int> last_step_iteration) {
-  auto &leveldata = GHExt::mutable_instance().level(level);
+  auto &leveldata = ext.level(level);
   leveldata.iteration = iteration;
   if (last_step_iteration)
     leveldata.last_step_iteration = *last_step_iteration;
 }
 
-void hierarchy_writer::rotate_timelevels(const window_t window, const gi_t gi) {
-  cctkGH_binding::rotate(window, gi);
+void clock_writer_t::rotate_timelevels(const window_t window, const gi_t gi) {
+  cctkGH_binding::rotate(ext, window, gi);
 }
 
-void hierarchy_writer::rotate_array_timelevels(const gi_t gi) {
-  cctkGH_binding::rotate(gi);
+void clock_writer_t::rotate_array_timelevels(const gi_t gi) {
+  cctkGH_binding::rotate(ext, gi);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

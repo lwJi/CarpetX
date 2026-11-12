@@ -153,7 +153,8 @@ void SetStepTime(cGH *restrict const cctkGH, const level_t level,
 }
 
 static void RestoreLevelClocks(const cGH *restrict const cctkGH,
-                               const checkpoint_record_t &record) {
+                               const checkpoint_record_t &record,
+                               clock_writer_t &clock) {
   const int checkpoint_iteration = cctkGH->cctk_iteration;
 
   const GHExt &ext = driver();
@@ -162,7 +163,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
   for (const auto &patchdata : ext.patches()) {
     for (const auto &leveldata : patchdata.levels()) {
       const level_record_t &recovered = record.level_record(leveldata.level);
-      hierarchy_writer::restore_level_clock(
+      clock.restore_level_clock(
           leveldata.level,
           recovered.iteration ? *recovered.iteration
                               : rat64(checkpoint_iteration) / iteration_ratio,
@@ -194,8 +195,8 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
         for (const auto &leveldata : patchdata.levels())
           if (leveldata.level.index() >= min_level &&
               leveldata.level.index() < max_level)
-            hierarchy_writer::restore_level_clock(
-                leveldata.level, leveldata.iteration, last_step_iteration);
+            clock.restore_level_clock(leveldata.level, leveldata.iteration,
+                                      last_step_iteration);
     }
     if (num_groups >= 2 && CCTK_MyProc(nullptr) == 0)
       CCTK_VWARN(CCTK_WARN_ALERT,
@@ -231,8 +232,9 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
                 checkpoint_iteration, finest_last_step_iteration);
 }
 
-static void RecoverHierarchy(cGH *restrict const cctkGH) {
-  const checkpoint_record_t record = RecoverGridStructure(cctkGH);
+static void RecoverHierarchy(cGH *restrict const cctkGH, clock_writer_t &clock,
+                             structure_writer_t &structure) {
+  const checkpoint_record_t record = RecoverGridStructure(cctkGH, structure);
 
   {
     const traversal_scope_t scope(all_levels());
@@ -257,9 +259,9 @@ static void RecoverHierarchy(cGH *restrict const cctkGH) {
       assert(leveldata.iteration == 0 &&
              "recovery runs BASEGRID and RECOVER_VARIABLES at clock 0");
 
-  RestoreLevelClocks(cctkGH, record);
+  RestoreLevelClocks(cctkGH, record, clock);
 
-  hierarchy_writer::mark_initialized();
+  structure.mark_initialized();
 
   SetDeltaTime(cctkGH);
 }
@@ -328,13 +330,14 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
   CCTK_VINFO("Recovery does not rerun restriction, POSTSTEP or ANALYSIS");
 }
 
-void RecoverFromCheckpoint(cGH *restrict const cctkGH) {
+void RecoverFromCheckpoint(cGH *restrict const cctkGH, clock_writer_t &clock,
+                           structure_writer_t &structure) {
   DECLARE_CCTK_PARAMETERS;
 
 #pragma omp critical
   CCTK_VINFO("Recovering from checkpoint...");
 
-  RecoverHierarchy(cctkGH);
+  RecoverHierarchy(cctkGH, clock, structure);
 
   RecomputePerClockGroup(cctkGH);
 
@@ -428,7 +431,8 @@ std::vector<seed_run_t> seed_runs(const window_t window, const gi_t gi,
 
 } // namespace
 
-void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
+void CycleTimelevels(const window_t window, cGH *restrict const cctkGH,
+                     clock_writer_t &clock) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("CycleTimelevels");
@@ -448,7 +452,7 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
       continue;
 
     if (group.kind == group_kind::grid_function) {
-      hierarchy_writer::rotate_timelevels(window, gi);
+      clock.rotate_timelevels(window, gi);
       if (ntls0 > 1) {
         if (group.do_evolve) {
           invalidate(window, {.gi = gi,
@@ -493,7 +497,7 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH) {
       }
     } else {
       if (ntls0 > 1) {
-        hierarchy_writer::rotate_array_timelevels(gi);
+        clock.rotate_array_timelevels(gi);
         invalidate_array({.gi = gi,
                           .tl = tl_t{0},
                           .where = make_valid_int(),

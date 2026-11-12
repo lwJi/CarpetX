@@ -1,6 +1,7 @@
 SRCS =							\
 	api.cxx						\
-	api_rk.cxx
+	api_rk.cxx					\
+	writers.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))

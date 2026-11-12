@@ -187,7 +187,7 @@ void register_integrator(const rk_config_t &config) {
   std::map<gi_t, gi_t> rhs;
   for (const rk_pair_t &pair : config.integrated)
     rhs.emplace(pair.state, pair.rhs);
-  hierarchy_writer::record_integrator(
+  registry_writer().record_integrator(
       {config.dense_output, config.b, std::move(rhs)});
   CCTK_VINFO("Registered the time integrator: %d RK stages, dense output %s, "
              "%d integrated group%s, %s",
