@@ -615,6 +615,9 @@ static_assert(
 static_assert(!std::is_default_constructible_v<scratch_writer_t>);
 static_assert(!std::is_copy_constructible_v<scratch_writer_t>);
 static_assert(!std::is_move_constructible_v<scratch_writer_t>);
+static_assert(!std::is_default_constructible_v<hierarchy_writers_t>);
+static_assert(!std::is_copy_constructible_v<hierarchy_writers_t>);
+static_assert(!std::is_move_constructible_v<hierarchy_writers_t>);
 static_assert(std::is_same_v<decltype(Initialise),
                              int(tFleshConfig *, clock_writer_t &,
                                  structure_writer_t &, registry_writer_t &)>);

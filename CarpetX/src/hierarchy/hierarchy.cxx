@@ -57,8 +57,7 @@ create_hierarchy(const GHExt::config_t config) {
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
   ghext = std::make_unique<GHExt>(config);
-  return std::unique_ptr<hierarchy_writers_t>(
-      new hierarchy_writers_t{{}, {}, {}, {}});
+  return std::unique_ptr<hierarchy_writers_t>(new hierarchy_writers_t);
 }
 
 void destroy_hierarchy() {

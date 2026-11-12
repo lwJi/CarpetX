@@ -43,8 +43,7 @@ public:
 
 private:
   clock_writer_t() = default;
-  friend std::unique_ptr<hierarchy_writers_t>
-  create_hierarchy(GHExt::config_t config);
+  friend struct hierarchy_writers_t;
 };
 
 class structure_writer_t {
@@ -76,8 +75,7 @@ public:
 
 private:
   structure_writer_t() = default;
-  friend std::unique_ptr<hierarchy_writers_t>
-  create_hierarchy(GHExt::config_t config);
+  friend struct hierarchy_writers_t;
 };
 
 class registry_writer_t {
@@ -96,8 +94,7 @@ public:
 
 private:
   registry_writer_t() = default;
-  friend std::unique_ptr<hierarchy_writers_t>
-  create_hierarchy(GHExt::config_t config);
+  friend struct hierarchy_writers_t;
 };
 
 class scratch_writer_t {
@@ -115,8 +112,7 @@ public:
 
 private:
   scratch_writer_t() = default;
-  friend std::unique_ptr<hierarchy_writers_t>
-  create_hierarchy(GHExt::config_t config);
+  friend struct hierarchy_writers_t;
 };
 
 struct hierarchy_writers_t {
@@ -124,6 +120,11 @@ struct hierarchy_writers_t {
   structure_writer_t structure;
   registry_writer_t registry;
   scratch_writer_t scratch;
+
+private:
+  hierarchy_writers_t() = default;
+  friend std::unique_ptr<hierarchy_writers_t>
+  create_hierarchy(GHExt::config_t config);
 };
 
 } // namespace CarpetX
