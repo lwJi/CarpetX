@@ -15,7 +15,7 @@ from files import PROJECT, Lang
 from run import check_since
 
 from . import check, doc, guide, rules
-from .rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, RULE, Finding, below, findings, layer_of, layer_path, new_findings, render, summary
+from .rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, READS, RULE, Finding, findings, includable, layer_of, layer_path, linkable, new_findings, render, summary
 
 ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 GUARD = '#ifndef CARPETX_INTERNAL\n#error "CarpetX internal header; include <carpetx.hxx> instead"\n#endif\n'
@@ -1034,7 +1034,7 @@ class Door(unittest.TestCase):
 
 
 class Layer(unittest.TestCase):
-    def test_a_file_includes_its_own_layer_and_the_layers_below_it(self):
+    def test_a_file_includes_its_own_layer_and_the_layers_it_reads(self):
         for line in [
             '#include "comm/comm.hxx"',
             '#include "comm/boundaries_impl.hxx"',
@@ -1059,11 +1059,26 @@ class Layer(unittest.TestCase):
                 self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", line + "\n"), [("layer", line)])
         self.assertEqual(reported("CarpetX/src/api/api.hxx", '#include "flesh/startup.hxx"\n'), [("layer", '#include "flesh/startup.hxx"')])
 
-    def test_each_layer_sees_exactly_the_layers_up_to_its_own(self):
+    def test_an_include_from_a_lower_layer_its_own_does_not_read_is_reported(self):
+        for name, line in [
+            ("CarpetX/src/ops/interpolate.cxx", '#include "comm/comm.hxx"'),
+            ("CarpetX/src/ops/interp.hxx", '#include "regrid/regrid.hxx"'),
+            ("CarpetX/src/io/io.cxx", '#include "regrid/regrid.hxx"'),
+            ("CarpetX/src/schedule/evolve.cxx", '#include "ops/interp.hxx"'),
+            ("CarpetX/src/schedule/evolve.cxx", '#include "regrid/regrid.hxx"'),
+            ("CarpetX/src/api/api.cxx", '#include "io/io.hxx"'),
+            ("CarpetX/src/api/api.cxx", '#include "ops/reduction.hxx"'),
+            ("CarpetX/src/api/api.cxx", "#include <regrid/regrid.hxx>"),
+            ("CarpetX/src/regrid/regrid.cxx", '#include "util/refuse.hxx"'),
+        ]:
+            with self.subTest(name=name, line=line):
+                self.assertEqual(reported(name, line + "\n"), [("layer", line)])
+
+    def test_each_layer_sees_exactly_itself_and_the_layers_it_reads(self):
         for layer in LAYERS:
             for other in LAYERS:
                 line = f'#include "{other}/x.hxx"'
-                expected = [] if LAYERS.index(other) <= LAYERS.index(layer) else [("layer", line)]
+                expected = [] if other == layer or other in READS[layer] else [("layer", line)]
                 for name in [layer_path(layer, "x.cxx"), layer_path(layer, "x.hxx")]:
                     with self.subTest(name=name, line=line):
                         self.assertEqual(reported(name, line + "\n"), expected)
@@ -1550,18 +1565,37 @@ class Layers(unittest.TestCase):
         with self.assertRaises(AssertionError):
             layer_path("loops", "loops.hxx")
 
-    def test_a_layer_sees_itself_and_every_layer_before_it(self):
-        self.assertEqual(below("util"), ("util",))
-        self.assertEqual(below("comm"), ("util", "traversal", "hierarchy", "comm"))
-        self.assertEqual(below("flesh"), LAYERS)
+    def test_a_layer_includes_itself_and_the_layers_its_row_names(self):
+        self.assertEqual(includable("util"), ("util",))
+        self.assertEqual(includable("regrid"), ("hierarchy", "comm", "regrid"))
+        self.assertEqual(includable("flesh"), LAYERS)
         for layer in LAYERS:
             with self.subTest(layer=layer):
-                self.assertEqual(below(layer)[-1], layer)
+                self.assertEqual(includable(layer), READS[layer] + (layer,))
         with self.assertRaises(AssertionError):
-            below("loops")
+            includable("loops")
+
+    def test_every_row_names_only_earlier_layers_in_their_order(self):
+        self.assertEqual(tuple(READS), LAYERS)
+        for layer, targets in READS.items():
+            with self.subTest(layer=layer):
+                self.assertEqual(targets, tuple(target for target in LAYERS[: LAYERS.index(layer)] if target in targets))
+
+    def test_a_layer_links_what_it_reads_and_what_that_reads(self):
+        self.assertEqual(linkable("util"), ("util",))
+        self.assertEqual(linkable("regrid"), ("util", "traversal", "hierarchy", "comm", "regrid"))
+        self.assertEqual(linkable("api"), ("util", "traversal", "hierarchy", "comm", "ops", "io", "schedule", "api"))
+        self.assertEqual(linkable("flesh"), LAYERS)
+        for layer in LAYERS:
+            with self.subTest(layer=layer):
+                self.assertLessEqual(set(includable(layer)), set(linkable(layer)))
+                for target in READS[layer]:
+                    self.assertLessEqual(set(linkable(target)), set(linkable(layer)))
+        with self.assertRaises(AssertionError):
+            linkable("loops")
 
     def test_the_hierarchy_and_the_layers_above_it_may_call_driver(self):
-        self.assertEqual(HIERARCHY_LAYERS, below("flesh")[len(below("traversal")) :])
+        self.assertEqual(HIERARCHY_LAYERS, LAYERS[LAYERS.index("hierarchy") :])
         self.assertEqual(HIERARCHY_LAYERS[0], "hierarchy")
         self.assertEqual(set(LAYERS) - set(HIERARCHY_LAYERS), {"util", "traversal"})
 
@@ -1697,7 +1731,7 @@ class Report(unittest.TestCase):
             "no active_levels outside traversal.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
             "no hierarchy access in a checkpoint codec, "
-            "every internal include at or below its own layer, "
+            "every internal include from its own layer or one it reads, "
             "no prototype in a CarpetX .cxx, "
             "no using-directive in a CarpetX header, "
             "every header opens with its own guard and internal.hxx, "
@@ -1746,11 +1780,11 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([g]), "✗ boundary: 1 hierarchy use the door does not allow")
         self.assertEqual(summary([k, g, g]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 hierarchy uses the door does not allow")
         y = ("CarpetX/src/comm/sync_restrict.cxx", Finding(3, "layer", '#include "schedule/schedule.hxx"'))
-        self.assertEqual(summary([y]), "✗ boundary: 1 include outside the layer order")
-        self.assertEqual(summary([g, y, y, k]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 includes outside the layer order, 1 hierarchy use the door does not allow")
+        self.assertEqual(summary([y]), "✗ boundary: 1 include its layer does not read")
+        self.assertEqual(summary([g, y, y, k]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 includes its layer does not read, 1 hierarchy use the door does not allow")
         p = ("CarpetX/src/flesh/startup.cxx", Finding(36, "prototype", "int InitGH(cGH *cctkGH);"))
         self.assertEqual(summary([p]), "✗ boundary: 1 prototype in a CarpetX .cxx")
-        self.assertEqual(summary([g, p, y, p]), "✗ boundary: 1 include outside the layer order, 2 prototypes in a CarpetX .cxx, 1 hierarchy use the door does not allow")
+        self.assertEqual(summary([g, p, y, p]), "✗ boundary: 1 include its layer does not read, 2 prototypes in a CarpetX .cxx, 1 hierarchy use the door does not allow")
         u = ("CarpetX/src/hierarchy/driver.hxx", Finding(43, "using", "using namespace Arith;"))
         self.assertEqual(summary([u]), "✗ boundary: 1 using-directive in a CarpetX header")
         self.assertEqual(summary([g, u, p, u]), "✗ boundary: 1 prototype in a CarpetX .cxx, 2 using-directives in a CarpetX header, 1 hierarchy use the door does not allow")
@@ -1774,7 +1808,7 @@ PLANT = ("void Evolve() {\n", "void Evolve() {\n  for (auto &p : ghext->patches(
 PLANTED = SOURCE.replace(*PLANT)
 DENIAL = "CarpetX/src/schedule/evolve.cxx:3   door       for (auto &p : ghext->patches())"
 DOOR_SUMMARY = "✗ boundary: 1 hierarchy use the door does not allow"
-LAYER_SUMMARY = "✗ boundary: 1 include outside the layer order"
+LAYER_SUMMARY = "✗ boundary: 1 include its layer does not read"
 SYNC_SOURCE = '#include "comm/comm.hxx"\n#include "hierarchy/driver.hxx"\n\nnamespace CarpetX {\nvoid sync() {\n}\n} // namespace CarpetX\n'
 TRAVERSAL_SOURCE = '#include "traversal/traversal.hxx"\n#include "util/refuse.hxx"\n\nnamespace CarpetX {\nvoid scope() {\n}\n} // namespace CarpetX\n'
 IO_SOURCE = '#include "io/selection.hxx"\n\nnamespace CarpetX {\nvoid OutputTSV(const cGH *cctkGH) {\n}\n} // namespace CarpetX\n'
@@ -2076,6 +2110,21 @@ class Doc(unittest.TestCase):
             text = f.read()
         self.assertEqual(doc.render(), text, "run python3 scripts/lint doc --write")
 
+    def test_the_table_of_reads_is_the_includes_the_tree_has(self):
+        found = doc.reads(PROJECT)
+        self.assertEqual(
+            doc.unread(),
+            [],
+            "each pair is a layer and one READS in scripts/lint/boundary/rules.py says it reads, but no file of the layer includes a header of it: remove the entry",
+        )
+        self.assertEqual({layer: tuple(target for target in LAYERS if (layer, target) in found) for layer in LAYERS}, READS)
+        with mock.patch.dict(READS, {"regrid": ("util", "hierarchy", "comm"), "ops": ("util", "traversal", "hierarchy", "comm")}):
+            self.assertEqual(doc.unread(), [("regrid", "util"), ("ops", "comm")])
+        with mock.patch.dict(READS, {"io": ("util", "traversal", "hierarchy", "comm")}), self.assertRaises(AssertionError):
+            doc.reads(PROJECT)
+        self.assertIn("io/ reads util/, traversal/, hierarchy/, comm/, ops/; ", doc.STACK_LEGEND[0])
+        self.assertIn("util/ reads nothing; traversal/ reads util/; ", doc.STACK_LEGEND[0])
+
     def test_the_stack_is_two_boxes_over_a_floor_with_no_forced_order(self):
         drawn = doc.stack()
         lines = drawn.splitlines()
@@ -2085,6 +2134,7 @@ class Doc(unittest.TestCase):
         for (source, target), headers in doc.includes().items():
             with self.subTest(source=source, target=target):
                 self.assertLess(LAYERS.index(target), LAYERS.index(source))
+                self.assertIn(target, READS[source])
                 self.assertEqual(doc.group_of(source), doc.group_of(target))
                 self.assertIn(f'  {source} -- "{", ".join(headers)}" --> {target}', lines)
         for (box, target), headers in doc.floor().items():
@@ -2237,7 +2287,8 @@ class Doc(unittest.TestCase):
                     self.assertNotRegex(re.sub(r'"[^"]*"', "", line), r"[;\\]|::|[^\x00-\x7f]")
                 for item in texts:
                     self.assertNotIn("\n", item)
-        self.assertIn("util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/", doc.STACK_LEGEND[0])
+        self.assertIn("regrid/ reads hierarchy/, comm/; ops/ reads util/, traversal/, hierarchy/; ", doc.STACK_LEGEND[0])
+        self.assertTrue(doc.STACK_LEGEND[0].endswith(rules.READS_TEXT))
         self.assertIn(("hierarchy", "driver.hxx"), doc.layer_includes(PROJECT, "flesh"))
         self.assertIn(("door", "include"), doc.floor())
 

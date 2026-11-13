@@ -44,7 +44,8 @@ flowchart TB
   nodoor -- "carpetx.hxx" --> include
 ```
 
-- the layer rule holds the order util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/ from the bottom: a file includes only its own layer or a lower one
+- the layer rule holds what each layer reads, the table READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer reads, and util/ reads nothing; traversal/ reads util/; hierarchy/ reads util/, traversal/; comm/ reads util/, traversal/, hierarchy/; regrid/ reads hierarchy/, comm/; ops/ reads util/, traversal/, hierarchy/; io/ reads util/, traversal/, hierarchy/, comm/, ops/; schedule/ reads traversal/, hierarchy/, comm/, io/; api/ reads util/, hierarchy/, comm/, schedule/; flesh/ reads util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/
+- a layer reads only layers before it in that list, an include outside the table is refused, and an entry no file of the layer includes fails the tests, so the table holds exactly the layer-to-layer includes the tree has today
 - a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes
 - an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above hierarchy/, is there for the arrow into hierarchy/
 - the outer boxes are the door rule: driver() is called in the upper box, never in the lower
