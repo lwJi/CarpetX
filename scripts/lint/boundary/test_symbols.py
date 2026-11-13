@@ -107,9 +107,9 @@ class Reaches(unittest.TestCase):
 
 
 class Links(unittest.TestCase):
-    LAYERS = {"regrid/regrid.cxx.o": "regrid", "schedule/evolve.cxx.o": "schedule", "schedule/clocks.cxx.o": "schedule", "util/refuse.cxx.o": "util"}
+    LAYERS = {"writers/writers.cxx.o": "writers", "regrid/regrid.cxx.o": "regrid", "schedule/evolve.cxx.o": "schedule", "schedule/clocks.cxx.o": "schedule", "util/refuse.cxx.o": "util"}
     DEFINED = {REFUSE: "util", STOP: "util", DRIVER: "hierarchy"}
-    IMPORTS = {"regrid/regrid.cxx.o": {REFUSE, DRIVER}, "schedule/evolve.cxx.o": {DRIVER}, "schedule/clocks.cxx.o": {STOP, TIMER}}
+    IMPORTS = {"writers/writers.cxx.o": {REFUSE, DRIVER}, "regrid/regrid.cxx.o": {REFUSE, DRIVER}, "schedule/evolve.cxx.o": {DRIVER}, "schedule/clocks.cxx.o": {STOP, TIMER}}
 
     def test_no_row_of_links_is_a_row_of_reads(self):
         self.assertTrue(rules.LINKS)
@@ -122,21 +122,21 @@ class Links(unittest.TestCase):
         self.assertEqual(idle_links(self.LAYERS, self.DEFINED, self.IMPORTS), [])
 
     def test_an_import_whose_row_of_links_is_deleted_is_a_reach(self):
-        with mock.patch.dict(rules.LINKS, {"schedule": ("util",)}, clear=True):
+        with mock.patch.dict(rules.LINKS, {"writers": ("util",), "schedule": ("util",)}, clear=True):
             self.assertEqual(reaches(self.LAYERS, self.DEFINED, self.IMPORTS), [Reach("regrid/regrid.cxx.o", "regrid", "util", REFUSE)])
             self.assertEqual(idle_links(self.LAYERS, self.DEFINED, self.IMPORTS), [])
         with mock.patch.dict(rules.LINKS, clear=True):
             self.assertEqual(
                 reaches(self.LAYERS, self.DEFINED, self.IMPORTS),
-                [Reach("regrid/regrid.cxx.o", "regrid", "util", REFUSE), Reach("schedule/clocks.cxx.o", "schedule", "util", STOP)],
+                [Reach("regrid/regrid.cxx.o", "regrid", "util", REFUSE), Reach("schedule/clocks.cxx.o", "schedule", "util", STOP), Reach("writers/writers.cxx.o", "writers", "util", REFUSE)],
             )
 
     def test_a_row_of_links_with_no_import_is_reported(self):
         imports = {**self.IMPORTS, "regrid/regrid.cxx.o": {DRIVER}}
         self.assertEqual(idle_links(self.LAYERS, self.DEFINED, imports), [("regrid", "util")])
-        self.assertEqual(idle_links(self.LAYERS, self.DEFINED, {}), [("regrid", "util"), ("schedule", "util")])
-        self.assertEqual(idle_links(self.LAYERS, {DRIVER: "hierarchy"}, self.IMPORTS), [("regrid", "util"), ("schedule", "util")])
-        self.assertEqual(idle_links(self.LAYERS, self.DEFINED, {"util/refuse.cxx.o": {REFUSE, STOP}}), [("regrid", "util"), ("schedule", "util")])
+        self.assertEqual(idle_links(self.LAYERS, self.DEFINED, {}), [("writers", "util"), ("regrid", "util"), ("schedule", "util")])
+        self.assertEqual(idle_links(self.LAYERS, {DRIVER: "hierarchy"}, self.IMPORTS), [("writers", "util"), ("regrid", "util"), ("schedule", "util")])
+        self.assertEqual(idle_links(self.LAYERS, self.DEFINED, {"util/refuse.cxx.o": {REFUSE, STOP}}), [("writers", "util"), ("regrid", "util"), ("schedule", "util")])
         with mock.patch.dict(rules.LINKS, clear=True):
             self.assertEqual(idle_links(self.LAYERS, self.DEFINED, {}), [])
 

@@ -15,6 +15,7 @@ flowchart TB
       ops["ops/"]
       regrid["regrid/"]
       comm["comm/"]
+      writers["writers/"]
     end
     hierarchy["hierarchy/"]
   end
@@ -29,24 +30,29 @@ flowchart TB
   flesh -- "interp.hxx" --> ops
   flesh -- "regrid.hxx" --> regrid
   flesh -- "buffers.hxx, comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  flesh -- "writers.hxx" --> writers
   api -- "schedule.hxx" --> schedule
   api -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  api -- "writers.hxx" --> writers
   schedule -- "io.hxx" --> io
   schedule -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  schedule -- "writers.hxx" --> writers
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
+  io -- "writers.hxx" --> writers
   regrid -- "fillpatch.hxx" --> comm
+  regrid -- "writers.hxx" --> writers
   traversal -- "refuse.hxx" --> util
-  above -- "binding.hxx, clocks.hxx, driver.hxx, grid.hxx, grid_sizes.hxx, group_tags.hxx, indices.hxx, integrator.hxx, loops.hxx, modes.hxx, operations.hxx, rk_levels.hxx, valid.hxx" --> hierarchy
+  above -- "binding.hxx, clocks.hxx, driver.hxx, grid.hxx, grid_sizes.hxx, group_tags.hxx, indices.hxx, integrator.hxx, loops.hxx, modes.hxx, rk_levels.hxx, valid.hxx" --> hierarchy
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
   door -- "carpetx.hxx, carpetx_rk.hxx" --> include
   nodoor -- "carpetx.hxx" --> include
 ```
 
-- the layers are util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/ from the bottom, the order the build lists them in; the layer rule holds a table of which layer reads which, READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer's row names, and no row reads upward
+- the layers are util/, traversal/, hierarchy/, writers/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/ from the bottom, the order the build lists them in; the layer rule holds a table of which layer reads which, READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer's row names, and no row reads upward
 - an arrow between layers is drawn from rows of that table, each an include its layer has today, read from the #include lines, with the headers on it: nothing is drawn while a row has no include or an include has no row, and a layer is drawn above what it includes
-- a pair no #include shows, an import that arrives through another layer's header, is a row of LINKS beside that table, today regrid/ to util/, schedule/ to util/: it has no header to label an arrow, so none is drawn for it alone, and python3 scripts/lint symbols holds it to the objects of a build
+- a pair no #include shows, an import that arrives through another layer's header, is a row of LINKS beside that table, today writers/ to util/, regrid/ to util/, schedule/ to util/: it has no header to label an arrow, so none is drawn for it alone, and python3 scripts/lint symbols holds it to the objects of a build
 - an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above hierarchy/, is there for the arrow into hierarchy/
 - the outer boxes are the door rule: driver() is called in the upper box, never in the lower
 - include/ is the public headers, carpetx.hxx, carpetx_rk.hxx, not a layer: a thorn reads nothing else of CarpetX, and agent_docs/carpetx-public-api.md describes them
@@ -97,13 +103,13 @@ flowchart LR
   amrex["AMReX"]
   schedule["schedule/"]
   regrid["regrid/"]
-  hierarchy["hierarchy/"]
-  schedule -- "1 structure_writer_t::regrid" --> hierarchy
-  hierarchy -- "2 amrcore->regrid" --> amrex
+  writers["writers/"]
+  schedule -- "1 structure_writer_t::regrid" --> writers
+  writers -- "2 amrcore->regrid" --> amrex
   amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
 ```
 
-- the numbered arrows are one regrid: the driver asks the hierarchy (1), the hierarchy asks AMReX (2), AMReX calls back into the layer that defines its callbacks (3)
+- the numbered arrows are one regrid: the driver asks the structure writer (1), the structure writer asks AMReX (2), AMReX calls back into the layer that defines its callbacks (3)
 - the table below lists every entry an outsider calls
 
 ## Who the outsiders call
@@ -135,6 +141,7 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 - `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
 - `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
 - `comm/`: moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions, ghost-only.
-- `hierarchy/`: the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of one of five writers, by what it writes: `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` or `scratch_writer_t`. A writer has no public constructor, copy or move, and writes through the `GHExt &` it holds, so no member can be static. `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy: destroying it is the only way to destroy the hierarchy, and `hierarchy/` keeps none, only the pointer `driver()` reads; the level writer is a private member of the structure writer, which lends it to the AMReX core of each patch it adds and builds a recovered level through it. Rules at home here: validity, binding, varindex, model.
+- `writers/`: the five writers, `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` and `scratch_writer_t`, each with no public constructor, copy or move and each writing through the `GHExt &` it holds, so that a change to the hierarchy a layer above needs is a member of one of them by what it writes, and `create_hierarchy`, which makes them once and returns four in `hierarchy_writers_t`, the owner of the hierarchy; it never decides what a layer above does with a writer it was lent.
+- `hierarchy/`: the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`. It never decides when the hierarchy changes: a change another layer needs is a member of a writer in `writers/`, and `hierarchy/` keeps no writer, only the pointer `driver()` reads. Rules at home here: validity, binding, varindex, model.
 - `traversal/`: the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not. Rules at home here: traversal.
 - `util/`: leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.

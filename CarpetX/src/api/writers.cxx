@@ -1,5 +1,5 @@
 #include "api/api.hxx"
-#include "hierarchy/operations.hxx"
+#include "writers/writers.hxx"
 #include "util/refuse.hxx"
 
 #include <optional>

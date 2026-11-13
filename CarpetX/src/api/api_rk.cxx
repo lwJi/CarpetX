@@ -4,7 +4,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/integrator.hxx"
-#include "hierarchy/operations.hxx"
+#include "writers/writers.hxx"
 #include "hierarchy/rk_levels.hxx"
 #include "schedule/schedule.hxx"
 #include "hierarchy/loops.hxx"

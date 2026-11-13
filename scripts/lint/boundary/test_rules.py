@@ -1046,15 +1046,16 @@ class Layer(unittest.TestCase):
         "util": "",
         "traversal": "util",
         "hierarchy": "util traversal",
+        "writers": "hierarchy",
         "comm": "util traversal hierarchy",
-        "regrid": "hierarchy comm",
+        "regrid": "hierarchy writers comm",
         "ops": "util traversal hierarchy",
-        "io": "util traversal hierarchy comm ops",
-        "schedule": "traversal hierarchy comm io",
-        "api": "util hierarchy comm schedule",
-        "flesh": "util traversal hierarchy comm regrid ops io schedule api",
+        "io": "util traversal hierarchy writers comm ops",
+        "schedule": "traversal hierarchy writers comm io",
+        "api": "util hierarchy writers comm schedule",
+        "flesh": "util traversal hierarchy writers comm regrid ops io schedule api",
     }
-    LINKS = {"regrid": "util", "schedule": "util"}
+    LINKS = {"writers": "util", "regrid": "util", "schedule": "util"}
 
     def test_a_file_includes_its_own_layer_and_the_layers_its_row_names(self):
         for line in [
@@ -1083,7 +1084,10 @@ class Layer(unittest.TestCase):
 
     def test_an_include_of_a_lower_layer_with_no_row_is_reported(self):
         for layer, other in [
+            ("writers", "traversal"),
+            ("comm", "writers"),
             ("regrid", "traversal"),
+            ("ops", "writers"),
             ("ops", "comm"),
             ("ops", "regrid"),
             ("io", "regrid"),
@@ -1609,8 +1613,10 @@ class Layers(unittest.TestCase):
     def test_a_layer_reads_itself_and_the_layers_of_its_row_and_links_those_and_its_link_row(self):
         self.assertEqual(reads("util"), ("util",))
         self.assertEqual(reads("comm"), ("comm", "util", "traversal", "hierarchy"))
-        self.assertEqual(reads("regrid"), ("regrid", "hierarchy", "comm"))
-        self.assertEqual(links("regrid"), ("regrid", "hierarchy", "comm", "util"))
+        self.assertEqual(reads("writers"), ("writers", "hierarchy"))
+        self.assertEqual(links("writers"), ("writers", "hierarchy", "util"))
+        self.assertEqual(reads("regrid"), ("regrid", "hierarchy", "writers", "comm"))
+        self.assertEqual(links("regrid"), ("regrid", "hierarchy", "writers", "comm", "util"))
         self.assertEqual(links("schedule"), reads("schedule") + ("util",))
         self.assertEqual(reads("flesh"), ("flesh",) + LAYERS[:-1])
         for layer in LAYERS:
@@ -2185,10 +2191,13 @@ class Doc(unittest.TestCase):
         self.assertEqual([line.split("[")[0].strip() for line in nodoor], list(reversed(rules.UNDER_HIERARCHY)))
         self.assertIn('  include["include/"]', lines)
         self.assertEqual(doc.box_of("flesh", "hierarchy"), "above")
+        self.assertEqual(doc.box_of("writers", "hierarchy"), "above")
         self.assertEqual(doc.box_of("hierarchy", "util"), "door")
         self.assertEqual(doc.box_of("comm", "include"), "door")
         self.assertEqual(doc.box_of("util", "include"), "nodoor")
         self.assertTrue(doc.is_pair("flesh", "comm"))
+        self.assertTrue(doc.is_pair("regrid", "writers"))
+        self.assertFalse(doc.is_pair("writers", "hierarchy"))
         self.assertTrue(doc.is_pair("traversal", "util"))
         self.assertFalse(doc.is_pair("comm", "hierarchy"))
         self.assertFalse(doc.is_pair("hierarchy", "util"))
@@ -2202,6 +2211,9 @@ class Doc(unittest.TestCase):
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
+        self.assertEqual(rows["- `writers/`"], f"- `writers/`: {rules.OWNS['writers']}")
+        self.assertEqual(rules.OWNS["writers"].count(". "), 0)
+        self.assertNotIn("_writer_t", rules.OWNS["hierarchy"])
         self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "varindex", "model"])
         self.assertEqual(doc.node("flesh", ("regrid", "flesh")), '  flesh["flesh/ no header"]')
         self.assertEqual(doc.node("regrid", ("regrid", "flesh")), '  regrid["regrid/ no header"]')
@@ -2354,8 +2366,8 @@ class Doc(unittest.TestCase):
                     self.assertNotRegex(re.sub(r'"[^"]*"', "", line), r"[;\\]|::|[^\x00-\x7f]")
                 for item in texts:
                     self.assertNotIn("\n", item)
-        self.assertIn("util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/", doc.STACK_LEGEND[0])
-        self.assertIn("today regrid/ to util/, schedule/ to util/:", doc.STACK_LEGEND[2])
+        self.assertIn("util/, traversal/, hierarchy/, writers/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/", doc.STACK_LEGEND[0])
+        self.assertIn("today writers/ to util/, regrid/ to util/, schedule/ to util/:", doc.STACK_LEGEND[2])
         self.assertIn(("hierarchy", "driver.hxx"), doc.layer_includes(PROJECT, "flesh"))
         self.assertIn(("door", "include"), doc.floor())
 
@@ -2437,7 +2449,7 @@ class Doc(unittest.TestCase):
                 layer_path("io", "io.cxx"): '#include "internal.hxx"\n#include <carpetx.hxx>\nint OutputGH(const cGH *cctkGH) {\n  if (Evolve(0)) {\n    return 1;\n  }\n  return 0;\n}\n',
                 layer_path("regrid", "regrid.cxx"): "void CactusAmrCore::ErrorEst(const int lev,\n                             amrex::TagBoxArray &tags) {\n}\n"
                 + "".join(f"void CactusAmrCore::{name}(int lev) {{\n}}\n" for name in doc.AMREX_CALLBACKS[1:]),
-                layer_path("hierarchy", "writers.cxx"): "void structure_writer_t::regrid(const level_t base,\n                                const CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
+                layer_path("writers", "writers.cxx"): "void structure_writer_t::regrid(const level_t base,\n                                const CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
                 layer_path("hierarchy", "hierarchy.cxx"): "std::optional<level_t> level_t::child() const {\n  return std::nullopt;\n}\n",
                 layer_path("hierarchy", "handles.cxx"): "variable_t variable(const var_t var) {\n  return {};\n}\nwindow_t active_window() {\n  return scheduled_window(\"x\");\n}\nwindow_t all_levels() {\n  return window_t::levels(0, 1);\n}\n",
                 layer_path("hierarchy", "loops.cxx"): "void synchronize() {\n}\n",
@@ -2503,9 +2515,9 @@ class Doc(unittest.TestCase):
                     '  amrex["AMReX"]',
                     '  schedule["schedule/"]',
                     '  regrid["regrid/"]',
-                    '  hierarchy["hierarchy/"]',
-                    '  schedule -- "1 structure_writer_t::regrid" --> hierarchy',
-                    '  hierarchy -- "2 amrcore->regrid" --> amrex',
+                    '  writers["writers/"]',
+                    '  schedule -- "1 structure_writer_t::regrid" --> writers',
+                    '  writers -- "2 amrcore->regrid" --> amrex',
                     '  amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
                 ],
             )
@@ -2528,7 +2540,7 @@ class Doc(unittest.TestCase):
             startup = files[doc.STARTUP]
             evolve = files[layer_path("schedule", "evolve.cxx")]
             io_cxx = files[layer_path("io", "io.cxx")]
-            writers_cxx = files[layer_path("hierarchy", "writers.cxx")]
+            writers_cxx = files[layer_path("writers", "writers.cxx")]
             storage_cxx = files[layer_path("schedule", "storage.cxx")]
             for message, changes, draw in [
                 ("Foo registered in CarpetX/src/flesh/startup.cxx but in no row of REGISTERED", {doc.STARTUP: startup.replace("  CCTK_OverloadSetupGH(SetupGH);\n", "  CCTK_OverloadSetupGH(SetupGH);\n  CCTK_OverloadFoo(Foo);\n")}, doc.entries),
@@ -2542,8 +2554,8 @@ class Doc(unittest.TestCase):
                 ("GroupStorageIncrease not called in flesh/, where step 10 starts", {doc.STARTUP: startup.replace("return GroupStorageIncrease(cctkGH, writers->registry)", "return 0")}, doc.the_pass),
                 ("DisableGroupStorage not defined in CarpetX/src/schedule/storage.cxx, where step 10 lands", {layer_path("schedule", "storage.cxx"): storage_cxx.replace("int DisableGroupStorage(", "int Disable(")}, doc.the_pass),
                 ("structure.regrid not called in schedule/, where step 1 starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  structure.regrid(level, time);\n", "  amrcore->regrid(level, time);\n")}, doc.the_regrid),
-                ("structure_writer_t::regrid not defined in CarpetX/src/hierarchy/writers.cxx, where step 1 lands", {layer_path("hierarchy", "writers.cxx"): writers_cxx.replace("structure_writer_t::regrid", "clock_writer_t::regrid")}, doc.the_regrid),
-                ("amrcore->regrid not called in CarpetX/src/hierarchy/writers.cxx, where step 2 starts", {layer_path("hierarchy", "writers.cxx"): writers_cxx.replace("  ext.amrcore->regrid(base.index(), time);\n", "")}, doc.the_regrid),
+                ("structure_writer_t::regrid not defined in CarpetX/src/writers/writers.cxx, where step 1 lands", {layer_path("writers", "writers.cxx"): writers_cxx.replace("structure_writer_t::regrid", "clock_writer_t::regrid")}, doc.the_regrid),
+                ("amrcore->regrid not called in CarpetX/src/writers/writers.cxx, where step 2 starts", {layer_path("writers", "writers.cxx"): writers_cxx.replace("  ext.amrcore->regrid(base.index(), time);\n", "")}, doc.the_regrid),
                 ("nowhere declared in a public header but defined in no api/ file and in no row of PUBLIC_BODIES", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "int nowhere();\n"}, doc.entries),
                 ("CarpetX/src/include/carpetx_rk.hxx:2 declares something the map cannot name: void (*handler)(int);", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "void (*handler)(int);\n"}, doc.entries),
                 ("operator<< not defined in CarpetX/src/hierarchy/group_tags.cxx, where its row of PUBLIC_BODIES", {layer_path("hierarchy", "group_tags.cxx"): "int tags() {\n  return 0;\n}\n"}, doc.the_pass),

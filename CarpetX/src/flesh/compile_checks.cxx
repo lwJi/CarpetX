@@ -6,7 +6,7 @@
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/modes.hxx"
-#include "hierarchy/operations.hxx"
+#include "writers/writers.hxx"
 #include "comm/buffers.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"

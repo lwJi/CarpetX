@@ -5,7 +5,7 @@
 #include "hierarchy/integrator.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/modes.hxx"
-#include "hierarchy/operations.hxx"
+#include "writers/writers.hxx"
 #include "io/io.hxx"
 #include <loop.hxx>
 #include "traversal/traversal.hxx"

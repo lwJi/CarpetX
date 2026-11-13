@@ -12,25 +12,27 @@ MARKER = "CARPETX_INTERNAL"
 PRIVATE_DIR = "CarpetX/src/"
 PUBLIC_DIR = "CarpetX/src/include/"
 MAKE_DEFN = "CarpetX/src/make.code.defn"
-LAYERS = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+LAYERS = ("util", "traversal", "hierarchy", "writers", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
 READS = {
     "util": (),
     "traversal": ("util",),
     "hierarchy": ("util", "traversal"),
+    "writers": ("hierarchy",),
     "comm": ("util", "traversal", "hierarchy"),
-    "regrid": ("hierarchy", "comm"),
+    "regrid": ("hierarchy", "writers", "comm"),
     "ops": ("util", "traversal", "hierarchy"),
-    "io": ("util", "traversal", "hierarchy", "comm", "ops"),
-    "schedule": ("traversal", "hierarchy", "comm", "io"),
-    "api": ("util", "hierarchy", "comm", "schedule"),
-    "flesh": ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
+    "io": ("util", "traversal", "hierarchy", "writers", "comm", "ops"),
+    "schedule": ("traversal", "hierarchy", "writers", "comm", "io"),
+    "api": ("util", "hierarchy", "writers", "comm", "schedule"),
+    "flesh": ("util", "traversal", "hierarchy", "writers", "comm", "regrid", "ops", "io", "schedule", "api"),
 }
-LINKS = {"regrid": ("util",), "schedule": ("util",)}
+LINKS = {"writers": ("util",), "regrid": ("util",), "schedule": ("util",)}
 TABLE = "scripts/lint/boundary/rules.py"
 OWNS = {
     "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
     "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
-    "hierarchy": "the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of one of five writers, by what it writes: `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` or `scratch_writer_t`. A writer has no public constructor, copy or move, and writes through the `GHExt &` it holds, so no member can be static. `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy: destroying it is the only way to destroy the hierarchy, and `hierarchy/` keeps none, only the pointer `driver()` reads; the level writer is a private member of the structure writer, which lends it to the AMReX core of each patch it adds and builds a recovered level through it.",
+    "hierarchy": "the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`. It never decides when the hierarchy changes: a change another layer needs is a member of a writer in `writers/`, and `hierarchy/` keeps no writer, only the pointer `driver()` reads.",
+    "writers": "the five writers, `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` and `scratch_writer_t`, each with no public constructor, copy or move and each writing through the `GHExt &` it holds, so that a change to the hierarchy a layer above needs is a member of one of them by what it writes, and `create_hierarchy`, which makes them once and returns four in `hierarchy_writers_t`, the owner of the hierarchy; it never decides what a layer above does with a writer it was lent.",
     "comm": "moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",

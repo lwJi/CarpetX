@@ -1,6 +1,6 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/grid_sizes.hxx"
-#include "hierarchy/operations.hxx"
+#include "writers/writers.hxx"
 #include "api/api.hxx"
 #include "schedule/schedule.hxx"
 #include "comm/buffers.hxx"

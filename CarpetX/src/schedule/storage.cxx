@@ -1,6 +1,6 @@
 #include "schedule/schedule.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/operations.hxx"
+#include "writers/writers.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>

@@ -3,7 +3,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/operations.hxx"
+#include "writers/writers.hxx"
 #include "hierarchy/valid.hxx"
 #include "comm/comm.hxx"
 #include "comm/reflux.hxx"

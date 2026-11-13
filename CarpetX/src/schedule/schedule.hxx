@@ -3,7 +3,7 @@
 
 #include "internal.hxx"
 
-#include "hierarchy/operations.hxx"
+#include "writers/writers.hxx"
 
 #include <cctk.h>
 #include <cctk_Schedule.h>

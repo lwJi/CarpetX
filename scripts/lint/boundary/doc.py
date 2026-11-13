@@ -66,13 +66,13 @@ PASS = (
 )
 assert {row[0] for row in PASS} | {BODIES, HANDED} == set(STEPS), PASS
 REGRID_STEPS = {
-    "1": "the driver asks the hierarchy",
-    "2": "the hierarchy asks AMReX",
+    "1": "the driver asks the structure writer",
+    "2": "the structure writer asks AMReX",
     "3": "AMReX calls back into the layer that defines its callbacks",
 }
 REGRID = (
-    ("1", "schedule", "hierarchy", ("structure_writer_t::regrid",), layer_path("hierarchy", "writers.cxx")),
-    ("2", "hierarchy", "amrex", ("amrcore->regrid",), layer_path("hierarchy", "writers.cxx")),
+    ("1", "schedule", "writers", ("structure_writer_t::regrid",), layer_path("writers", "writers.cxx")),
+    ("2", "writers", "amrex", ("amrcore->regrid",), layer_path("writers", "writers.cxx")),
     ("3", "amrex", layer_of(CALLBACKS[0]), CALLBACKS[1], CALLBACKS[0]),
 )
 assert {row[0] for row in REGRID} == set(REGRID_STEPS), REGRID
