@@ -7,6 +7,7 @@
 #include "schedule/schedule.hxx"
 #include "hierarchy/loops.hxx"
 #include "comm/comm.hxx"
+#include "comm/integrator.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
 #include "hierarchy/valid.hxx"

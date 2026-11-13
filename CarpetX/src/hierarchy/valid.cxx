@@ -130,7 +130,7 @@ struct ghost_half_t {
   }
 };
 
-ghost_half_t ghost_half(const Loop::GridDescBaseDevice &grid,
+ghost_half_t ghost_half(const Loop::GridDescBase &grid,
                         const GHExt::PatchData::LevelData &leveldata,
                         const GroupData &groupdata, const component_t component,
                         const valid_t where) {
@@ -140,28 +140,6 @@ ghost_half_t ghost_half(const Loop::GridDescBaseDevice &grid,
           where.valid_same_level
               ? GHExt::PatchData::LevelData::ghost_mask_same_level
               : GHExt::PatchData::LevelData::ghost_mask_coarse_fine};
-}
-
-template <typename F>
-void loop_ghost_halves(const Loop::GridDescBaseDevice &grid,
-                       const GHExt::PatchData::LevelData &leveldata,
-                       const GroupData &groupdata, const component_t component,
-                       const valid_t where, const F &kernel) {
-  if (!where.valid_same_level && !where.valid_coarse_fine)
-    return;
-  if (!one_ghost_half(where)) {
-    grid.loop_idx(where_t::ghosts, groupdata.grid_function.indextype,
-                  groupdata.grid_function.nghostzones, kernel);
-    return;
-  }
-  const ghost_half_t half =
-      ghost_half(grid, leveldata, groupdata, component, where);
-  grid.loop_idx(where_t::ghosts, groupdata.grid_function.indextype,
-                groupdata.grid_function.nghostzones,
-                [&](const Loop::PointDesc &p) {
-                  if (half(p))
-                    kernel(p);
-                });
 }
 
 template <typename F>
@@ -420,7 +398,7 @@ void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
                     [&](const Loop::PointDesc &p) {
                       update_nan_count(p, where_t::boundary);
                     });
-    loop_ghost_halves(grid, leveldata, groupdata, tile.component(), where,
+    loop_ghost_halves(grid, leveldata.level, gi, tile.component(), where,
                       [&](const Loop::PointDesc &p) {
                         update_nan_count(p, where_t::ghosts);
                       });
@@ -572,6 +550,29 @@ bool window_contains(const window_t window, const level_t level) {
 }
 
 } // namespace
+
+void loop_ghost_halves(
+    const Loop::GridDescBase &grid, const level_t level, const gi_t gi,
+    const component_t component, const valid_t where,
+    const std::function<void(const Loop::PointDesc &)> &kernel) {
+  if (!where.valid_same_level && !where.valid_coarse_fine)
+    return;
+  const GHExt::PatchData::LevelData &leveldata = driver().level(level);
+  const GroupData &groupdata = leveldata.group(gi);
+  if (!one_ghost_half(where)) {
+    grid.loop_idx(where_t::ghosts, groupdata.grid_function.indextype,
+                  groupdata.grid_function.nghostzones, kernel);
+    return;
+  }
+  const ghost_half_t half =
+      ghost_half(grid, leveldata, groupdata, component, where);
+  grid.loop_idx(where_t::ghosts, groupdata.grid_function.indextype,
+                groupdata.grid_function.nghostzones,
+                [&](const Loop::PointDesc &p) {
+                  if (half(p))
+                    kernel(p);
+                });
+}
 
 int current_iteration() {
   const cGH *const cctkGH = driver().get_global_cctkGH();
@@ -782,152 +783,6 @@ void require_array(require_spec_t spec) {
     error_if_invalid(arraygroupdata, vi, spec.tl, spec.where, msg);
     check_valid_ga(spec.gi, vi, spec.tl, spec.where, msg);
   }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-// Checksums to catch illegal modifications
-
-checksums_t calculate_checksums(
-    const window_t window,
-    const std::vector<std::vector<std::vector<valid_t> > > &will_write) {
-  DECLARE_CCTK_PARAMETERS;
-
-  checksums_t checksums;
-
-  if (!poison_undefined_values)
-    return checksums;
-
-  static Timer timer("calculate_checksums");
-  Interval interval(timer);
-
-  loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
-                            const tile_t tile,
-                            const cGH *restrict const cctkGH) {
-    for (const auto &groupdata : leveldata.groups()) {
-      const Loop::GridDescBaseDevice grid(cctkGH);
-      const Loop::GF3D2layout layout(cctkGH, groupdata.grid_function.indextype);
-
-      for (const vi_t vi : groupdata.record.variables()) {
-        for (const tl_t tl : groupdata.record.timelevels()) {
-          const gi_t gi = groupdata.record.groupindex;
-          const tiletag_t tiletag{leveldata.level, tile, gi, vi, tl};
-
-          const valid_t valid = groupdata.timelevel(tl).valid(vi);
-          if (tl.index() >=
-              int(will_write.at(gi.index()).at(vi.index()).size()))
-            continue;
-          const auto &wr =
-              will_write.at(gi.index()).at(vi.index()).at(tl.index());
-          valid_t to_check = valid & ~wr;
-
-          // Check only those variables which are valid, and where
-          // some part (but not everything) is written
-          if (!(wr.valid_any() && to_check.valid_any()))
-            continue;
-
-          const Loop::GF3D2<const CCTK_REAL> gf(
-              layout,
-              static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(
-                  cctkGH, tl.index(), groupdata.record.var(vi).index())));
-
-          checksum_t checksum(to_check);
-          checksum.add(tiletag);
-          const auto add_point = [&](const Loop::PointDesc &p) {
-            checksum.add(gf(p.I));
-          };
-
-          if (to_check.valid_int)
-            grid.loop_idx(where_t::interior, groupdata.grid_function.indextype,
-                          groupdata.grid_function.nghostzones, add_point);
-
-          if (to_check.valid_outer)
-            grid.loop_idx(where_t::boundary, groupdata.grid_function.indextype,
-                          groupdata.grid_function.nghostzones, add_point);
-
-          loop_ghost_halves(grid, leveldata, groupdata, tile.component(),
-                            to_check, add_point);
-
-#pragma omp critical(CarpetX_calculate_checksums)
-          checksums[tiletag] = checksum;
-        }
-      }
-    }
-  });
-
-  return checksums;
-}
-
-void check_checksums(const window_t window, const checksums_t &checksums,
-                     const std::function<std::string()> &where) {
-  DECLARE_CCTK_PARAMETERS;
-
-  if (!poison_undefined_values)
-    return;
-  if (checksums.empty())
-    return;
-
-  static Timer timer("check_checksums");
-  Interval interval(timer);
-
-  loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
-                            const tile_t tile,
-                            const cGH *restrict const cctkGH) {
-    for (const auto &groupdata : leveldata.groups()) {
-      const Loop::GridDescBaseDevice grid(cctkGH);
-      const Loop::GF3D2layout layout(cctkGH, groupdata.grid_function.indextype);
-
-      for (const vi_t vi : groupdata.record.variables()) {
-        for (const tl_t tl : groupdata.record.timelevels()) {
-          const gi_t gi = groupdata.record.groupindex;
-          const tiletag_t tiletag{leveldata.level, tile, gi, vi, tl};
-
-          if (!checksums.count(tiletag))
-            continue;
-
-          const auto &old_checksum = checksums.at(tiletag);
-          const auto &did_check = old_checksum.where;
-          assert(did_check.valid_any());
-
-          const Loop::GF3D2<const CCTK_REAL> gf(
-              layout,
-              static_cast<const CCTK_REAL *>(CCTK_VarDataPtrI(
-                  cctkGH, tl.index(), groupdata.record.var(vi).index())));
-
-          checksum_t checksum(did_check);
-          checksum.add(tiletag);
-          const auto add_point = [&](const Loop::PointDesc &p) {
-            checksum.add(gf(p.I));
-          };
-
-          if (did_check.valid_int)
-            grid.loop_idx(where_t::interior, groupdata.grid_function.indextype,
-                          groupdata.grid_function.nghostzones, add_point);
-
-          if (did_check.valid_outer)
-            grid.loop_idx(where_t::boundary, groupdata.grid_function.indextype,
-                          groupdata.grid_function.nghostzones, add_point);
-
-          loop_ghost_halves(grid, leveldata, groupdata, tile.component(),
-                            did_check, add_point);
-
-          if (checksum != old_checksum)
-#pragma omp critical
-            CCTK_VERROR(
-                "%s: Checksum mismatch: variable %s, tile %s, "
-                "int:%d,outer:%d,same_level:%d,coarse_fine:%d, old checksum "
-                "%s, new checksum %s",
-                where().c_str(),
-                CCTK_FullVarName(groupdata.record.var(tiletag.vi).index()),
-                std::string(tiletag).c_str(), int(did_check.valid_int),
-                int(did_check.valid_outer), int(did_check.valid_same_level),
-                int(did_check.valid_coarse_fine),
-                std::string(old_checksum).c_str(),
-                std::string(checksum).c_str());
-        }
-      }
-    }
-  });
 }
 
 } // namespace CarpetX

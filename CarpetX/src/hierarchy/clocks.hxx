@@ -21,12 +21,6 @@ struct substep_t {
   constexpr bool aligned() const { return end == 1; }
 };
 
-substep_t substep_of_parent_step(level_t child);
-
-inline bool aligned_with_parent(const level_t child) {
-  return substep_of_parent_step(child).aligned();
-}
-
 } // namespace CarpetX
 
 #endif

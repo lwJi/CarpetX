@@ -11,12 +11,6 @@
 
 namespace CarpetX {
 
-bool window_is_restricted(const window_t window) {
-  const auto [min_level, max_level] = window.level_bounds();
-  assert(min_level < max_level);
-  return max_level == driver().num_levels() && max_level - min_level >= 2;
-}
-
 GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
                    const MFPointer &mfp) {
   DECLARE_CCTK_PARAMETERS;

@@ -43,8 +43,6 @@ void loop_serially(
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
                              tile_t tile, const cGH *cctkGH)> &kernel);
 
-bool window_is_restricted(window_t window);
-
 std::string describe(window_t window);
 
 inline amrex::Orientation orient(int d, int f) {

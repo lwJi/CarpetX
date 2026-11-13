@@ -1,9 +1,9 @@
 #include "comm/reflux.hxx"
 
 #include "hierarchy/driver.hxx"
-#include "hierarchy/group_tags.hxx"
 #include "hierarchy/valid.hxx"
 #include "comm/buffers.hxx"
+#include "comm/integrator.hxx"
 #include "comm/level_pairs.hxx"
 #include <carpetx.hxx>
 
@@ -21,6 +21,49 @@
 #include <sstream>
 
 namespace CarpetX {
+
+static bool group_has_flux_tag(const GHExt::GroupRecord &record) {
+  return record.kind == group_kind::grid_function &&
+         record.grid_function().fluxes.has_value();
+}
+
+bool group_has_flux_register(const gi_t gi) {
+  const GHExt &ext = driver();
+  return ext.do_reflux && group_is_integrated(gi) &&
+         group_has_flux_tag(ext.record(gi));
+}
+
+void warn_inert_flux_tags() {
+  DECLARE_CCTK_PARAMETERS;
+  const GHExt &ext = driver();
+  const std::optional<GHExt::integrator_t> &integrator = ext.integrator();
+  if (max_num_levels <= 1)
+    return;
+  if (CCTK_MyProc(nullptr) != 0)
+    return;
+  if (!ext.do_reflux) {
+    for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()})) {
+      if (integrator && integrator->rhs.contains(gi) &&
+          group_has_flux_tag(ext.record(gi))) {
+        CCTK_INFO("Grid functions integrated by ODESolvers carry fluxes= "
+                  "tags, but refluxing at coarse-fine boundaries is off; set "
+                  "CarpetX::do_reflux = yes to enable it");
+        break;
+      }
+    }
+    return;
+  }
+  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()})) {
+    if (!group_has_flux_tag(ext.record(gi)) || group_has_flux_register(gi))
+      continue;
+    CCTK_VWARN(CCTK_WARN_ALERT,
+               "Group \"%s\" has a fluxes= tag but is not integrated by "
+               "ODESolvers: no flux register is allocated for it, and it is "
+               "not refluxed at coarse-fine boundaries (see "
+               "CarpetX::do_reflux)",
+               CCTK_FullGroupName(gi.index()));
+  }
+}
 
 static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
   const CCTK_REAL *const dx = geom.CellSize();
