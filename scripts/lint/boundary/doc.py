@@ -122,9 +122,11 @@ def node(layer: str, no_header: tuple[str, ...], indent: str = "  ") -> str:
     return f'{indent}{layer}["{label}"]'
 
 
-def layer_includes(root: str, layer: str) -> set[tuple[str, str]]:
+def layer_includes(root: str, layer: str, suffixes: tuple[str, ...] = (".cxx", ".hxx")) -> set[tuple[str, str]]:
     found: set[tuple[str, str]] = set()
     for path in sources(root, layer):
+        if not path.endswith(suffixes):
+            continue
         with open(path) as f:
             for line in f:
                 m = LAYER_INCLUDE.match(line)
@@ -166,6 +168,11 @@ def reads(root: str) -> dict[tuple[str, str], set[str]]:
         for header in public_includes(root, layer):
             found.setdefault((layer, PUBLIC), set()).add(header)
     return found
+
+
+def header_reads(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
+    found = {layer: {target for target, _ in layer_includes(root, layer, (".hxx",))} for layer in LAYERS}
+    return {layer: tuple(target for target in LAYERS if target in found[layer]) for layer in LAYERS}
 
 
 def unread(root: str = PROJECT) -> list[tuple[str, str]]:

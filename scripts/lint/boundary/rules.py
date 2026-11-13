@@ -12,7 +12,6 @@ MARKER = "CARPETX_INTERNAL"
 PRIVATE_DIR = "CarpetX/src/"
 PUBLIC_DIR = "CarpetX/src/include/"
 MAKE_DEFN = "CarpetX/src/make.code.defn"
-LAYERS = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
 READS = {
     "util": (),
     "traversal": ("util",),
@@ -25,7 +24,7 @@ READS = {
     "api": ("util", "hierarchy", "comm", "schedule"),
     "flesh": ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
 }
-assert tuple(READS) == LAYERS, tuple(READS)
+LAYERS = tuple(READS)
 assert all(targets == tuple(target for target in LAYERS[: LAYERS.index(layer)] if target in targets) for layer, targets in READS.items()), READS
 READS_TEXT = "; ".join(f"{layer}/ reads {', '.join(f'{target}/' for target in READS[layer]) or 'nothing'}" for layer in LAYERS)
 READS_HOME = "scripts/lint/boundary/rules.py"
@@ -63,11 +62,19 @@ def includable(layer: str) -> tuple[str, ...]:
     return READS[layer] + (layer,)
 
 
-def linkable(layer: str) -> tuple[str, ...]:
+def carried(layer: str, header_reads: dict[str, tuple[str, ...]]) -> set[str]:
+    found = {layer}
+    for target in header_reads.get(layer, ()):
+        assert target in READS[layer], (layer, target)
+        found.update(carried(target, header_reads))
+    return found
+
+
+def linkable(layer: str, header_reads: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     assert layer in LAYERS, layer
     found = {layer}
     for target in READS[layer]:
-        found.update(linkable(target))
+        found.update(carried(target, header_reads))
     return tuple(target for target in LAYERS if target in found)
 
 

@@ -1438,7 +1438,7 @@ class Tree(unittest.TestCase):
         self.assertEqual(
             tuple(self.SUBDIRS.search(text).group(1).split()),
             LAYERS,
-            f"a new layer is an entry of SUBDIRS in {MAKE_DEFN} and of LAYERS in scripts/lint/boundary/rules.py, at the same place in both; python3 scripts/lint doc --write then redraws the map",
+            f"a new layer is an entry of SUBDIRS in {MAKE_DEFN} and a row of READS in scripts/lint/boundary/rules.py, at the same place in both; python3 scripts/lint doc --write then redraws the map",
         )
         self.assertEqual(sorted(os.listdir(os.path.join(PROJECT, "CarpetX", "src"))), sorted(LAYERS + ("include", "internal.hxx", "make.code.defn")))
 
@@ -1575,24 +1575,23 @@ class Layers(unittest.TestCase):
         with self.assertRaises(AssertionError):
             includable("loops")
 
-    def test_every_row_names_only_earlier_layers_in_their_order(self):
-        self.assertEqual(tuple(READS), LAYERS)
-        for layer, targets in READS.items():
-            with self.subTest(layer=layer):
-                self.assertEqual(targets, tuple(target for target in LAYERS[: LAYERS.index(layer)] if target in targets))
-
-    def test_a_layer_links_what_it_reads_and_what_that_reads(self):
-        self.assertEqual(linkable("util"), ("util",))
-        self.assertEqual(linkable("regrid"), ("util", "traversal", "hierarchy", "comm", "regrid"))
-        self.assertEqual(linkable("api"), ("util", "traversal", "hierarchy", "comm", "ops", "io", "schedule", "api"))
-        self.assertEqual(linkable("flesh"), LAYERS)
+    def test_a_layer_links_what_it_reads_and_what_the_headers_of_those_include(self):
+        headers = {"hierarchy": ("util",), "comm": ("util", "hierarchy"), "io": ("ops",), "schedule": ("hierarchy",)}
+        self.assertEqual(linkable("util", headers), ("util",))
+        self.assertEqual(linkable("regrid", headers), ("util", "hierarchy", "comm", "regrid"))
+        self.assertEqual(linkable("schedule", headers), ("util", "traversal", "hierarchy", "comm", "ops", "io", "schedule"))
+        self.assertEqual(linkable("api", headers), ("util", "hierarchy", "comm", "schedule", "api"))
+        self.assertEqual(linkable("flesh", headers), LAYERS)
         for layer in LAYERS:
             with self.subTest(layer=layer):
-                self.assertLessEqual(set(includable(layer)), set(linkable(layer)))
-                for target in READS[layer]:
-                    self.assertLessEqual(set(linkable(target)), set(linkable(layer)))
+                self.assertEqual(linkable(layer, {}), includable(layer))
+                self.assertLessEqual(set(includable(layer)), set(linkable(layer, headers)))
+                self.assertLessEqual(set(doc.header_reads()[layer]), set(READS[layer]))
+                self.assertLessEqual(set(includable(layer)), set(linkable(layer, doc.header_reads())))
         with self.assertRaises(AssertionError):
-            linkable("loops")
+            linkable("loops", headers)
+        with self.assertRaises(AssertionError):
+            linkable("regrid", {"comm": ("io",)})
 
     def test_the_hierarchy_and_the_layers_above_it_may_call_driver(self):
         self.assertEqual(HIERARCHY_LAYERS, LAYERS[LAYERS.index("hierarchy") :])
@@ -2205,6 +2204,8 @@ class Doc(unittest.TestCase):
             for name, text in files.items():
                 with open(os.path.join(src, name), "w") as f:
                     f.write(text)
+            self.assertEqual(doc.header_reads(root), {layer: ("ops",) if layer == "io" else () for layer in LAYERS})
+            self.assertEqual(doc.layer_includes(root, "flesh", (".hxx",)), set())
             edges = doc.includes(root)
             self.assertEqual(
                 list(edges.items()),

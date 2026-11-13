@@ -73,12 +73,12 @@ class Reaches(unittest.TestCase):
 
     def test_an_import_from_a_lower_layer_or_the_same_one_is_not_a_reach(self):
         imports = {"flesh/startup.cxx.o": {SHUTDOWN, DRIVER}, "io/io.cxx.o": {DRIVER, SHUTDOWN}}
-        self.assertEqual(reaches(self.LAYERS, self.DEFINED, imports), [])
+        self.assertEqual(reaches(self.LAYERS, self.DEFINED, imports, {}), [])
 
     def test_an_import_from_a_higher_layer_is(self):
         imports = {"hierarchy/hierarchy.cxx.o": {SHUTDOWN, PARENT}, "io/io.cxx.o": {PARENT}}
         self.assertEqual(
-            reaches(self.LAYERS, self.DEFINED, imports),
+            reaches(self.LAYERS, self.DEFINED, imports, {}),
             [
                 Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "io", SHUTDOWN),
                 Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "api", PARENT),
@@ -91,17 +91,27 @@ class Reaches(unittest.TestCase):
         defined = {SHUTDOWN: "io", DRIVER: "hierarchy", PARENT: "comm", TIMER: "regrid"}
         imports = {"ops/interpolate.cxx.o": {PARENT, DRIVER}, "api/api.cxx.o": {SHUTDOWN, TIMER, PARENT}, "regrid/regrid.cxx.o": {PARENT, SHUTDOWN}}
         self.assertEqual(
-            reaches(layers, defined, imports),
+            reaches(layers, defined, imports, {"schedule": ("hierarchy",), "io": ("ops",)}),
             [
+                Reach("api/api.cxx.o", "api", "io", SHUTDOWN),
                 Reach("api/api.cxx.o", "api", "regrid", TIMER),
                 Reach("ops/interpolate.cxx.o", "ops", "comm", PARENT),
                 Reach("regrid/regrid.cxx.o", "regrid", "io", SHUTDOWN),
             ],
         )
 
+    def test_an_import_from_a_layer_a_header_carries_in_is_not_a_reach(self):
+        layers = {"regrid/regrid.cxx.o": "regrid", "api/api.cxx.o": "api"}
+        defined = {TIMER: "util", SHUTDOWN: "io"}
+        imports = {"regrid/regrid.cxx.o": {TIMER}, "api/api.cxx.o": {SHUTDOWN}}
+        unread = [Reach("api/api.cxx.o", "api", "io", SHUTDOWN), Reach("regrid/regrid.cxx.o", "regrid", "util", TIMER)]
+        self.assertEqual(reaches(layers, defined, imports, {}), unread)
+        self.assertEqual(reaches(layers, defined, imports, {"hierarchy": ("util",)}), unread[:1])
+        self.assertEqual(reaches(layers, defined, imports, {"hierarchy": ("util",), "schedule": ("io",)}), [])
+
     def test_an_import_nothing_defines_strongly_is_ignored(self):
         imports = {"hierarchy/hierarchy.cxx.o": {TIMER, "_CCTK_VInfo"}}
-        self.assertEqual(reaches(self.LAYERS, self.DEFINED, imports), [])
+        self.assertEqual(reaches(self.LAYERS, self.DEFINED, imports, {}), [])
 
 
 class Objects(unittest.TestCase):
