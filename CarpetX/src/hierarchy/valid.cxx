@@ -1,6 +1,5 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/operations.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/valid.hxx"
 #include "util/var_type.hxx"
@@ -13,10 +12,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <cstring>
 #include <functional>
 #include <limits>
-#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>

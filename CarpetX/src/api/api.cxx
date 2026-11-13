@@ -4,6 +4,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
+#include "hierarchy/valid.hxx"
 #include "comm/comm.hxx"
 
 #include <cctk.h>

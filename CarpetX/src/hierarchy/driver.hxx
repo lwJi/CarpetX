@@ -5,16 +5,13 @@
 
 #include <loop.hxx>
 #include "hierarchy/indices.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/why_valid.hxx"
 #include "util/refuse.hxx"
 #include "util/var_type.hxx"
 
 #include <carpetx.hxx>
-#include <rational.hxx>
-#include <tuple.hxx>
 
 #include <cctk.h>
-#include <cctk_Schedule.h>
 
 #include <AMReX.H>
 #include <AMReX_AmrCore.H>
@@ -26,7 +23,6 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>

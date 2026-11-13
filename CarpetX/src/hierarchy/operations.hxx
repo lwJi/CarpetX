@@ -5,7 +5,6 @@
 
 #include "hierarchy/driver.hxx"
 #include <carpetx.hxx>
-#include <rational.hxx>
 
 #include <cctk.h>
 

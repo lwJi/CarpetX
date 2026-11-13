@@ -7,8 +7,6 @@
 
 #include <carpetx.hxx>
 
-#include <cctk.h>
-
 #include <array>
 #include <optional>
 #include <string>
