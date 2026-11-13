@@ -10,6 +10,9 @@
 
 namespace CarpetX {
 
+bool group_has_flux_register(gi_t gi);
+void warn_inert_flux_tags();
+
 void EnsureFluxGeometry(level_t level);
 
 void AccumulateFluxes(level_t level, stage_t stage, CCTK_REAL weight);

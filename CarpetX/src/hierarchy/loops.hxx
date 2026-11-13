@@ -43,7 +43,12 @@ void loop_serially(
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
                              tile_t tile, const cGH *cctkGH)> &kernel);
 
-bool window_is_restricted(window_t window);
+void loop_ghost_halves(
+    const Loop::GridDescBase &grid,
+    const GHExt::PatchData::LevelData &leveldata,
+    const GHExt::PatchData::LevelData::GroupData &groupdata,
+    component_t component, valid_t where,
+    const std::function<void(const Loop::PointDesc &)> &kernel);
 
 std::string describe(window_t window);
 
@@ -92,8 +97,7 @@ struct GridDesc : Loop::GridDescBase {
 
   GridDesc() = delete;
   GridDesc(const GHExt::PatchData::LevelData &leveldata, const MFPointer &mfp);
-  GridDesc(const GHExt::PatchData::LevelData &leveldata,
-           component_t component);
+  GridDesc(const GHExt::PatchData::LevelData &leveldata, component_t component);
   GridDesc(const cGH *cctkGH) : Loop::GridDescBase(cctkGH) {}
 };
 

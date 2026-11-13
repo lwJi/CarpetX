@@ -8,8 +8,10 @@
 #include "comm/buffers.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
+#include "comm/substeps.hxx"
 #include "comm/comm.hxx"
 #include "regrid/regrid.hxx"
+#include "schedule/checksums.hxx"
 #include "schedule/schedule.hxx"
 #include "hierarchy/valid.hxx"
 

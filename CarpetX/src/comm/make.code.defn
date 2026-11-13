@@ -28,6 +28,7 @@ SRCS =							\
 	boundaries_impl_pos_pos_pos.cxx			\
 	buffers.cxx					\
 	fillpatch.cxx					\
+	integrator.cxx					\
 	prolongate_3d_rf2.cxx				\
 	prolongate_3d_rf2_impl_cons.cxx			\
 	prolongate_3d_rf2_impl_ddf.cxx			\
@@ -40,6 +41,7 @@ SRCS =							\
 	prolongate_3d_rf2_impl_poly_eno3lfb.cxx		\
 	reflux.cxx					\
 	subcycling.cxx					\
+	substeps.cxx					\
 	sync_restrict.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))

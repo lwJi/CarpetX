@@ -25,18 +25,18 @@ flowchart TB
   end
   include["include/"]
   flesh -- "api.hxx" --> api
-  flesh -- "schedule.hxx" --> schedule
+  flesh -- "checksums.hxx, schedule.hxx" --> schedule
   flesh -- "checkpoint.hxx, io.hxx" --> io
   flesh -- "interp.hxx" --> ops
   flesh -- "regrid.hxx" --> regrid
-  flesh -- "buffers.hxx, comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  flesh -- "buffers.hxx, comm.hxx, reflux.hxx, subcycling.hxx, substeps.hxx" --> comm
   api -- "schedule.hxx" --> schedule
-  api -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  api -- "comm.hxx, integrator.hxx, reflux.hxx, subcycling.hxx" --> comm
   schedule -- "io.hxx" --> io
-  schedule -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  schedule -- "comm.hxx, reflux.hxx, subcycling.hxx, substeps.hxx" --> comm
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
-  regrid -- "fillpatch.hxx" --> comm
+  regrid -- "fillpatch.hxx, substeps.hxx" --> comm
   traversal -- "refuse.hxx" --> util
   above -- "binding.hxx, clocks.hxx, driver.hxx, group_tags.hxx, indices.hxx, loops.hxx, operations.hxx, valid.hxx" --> hierarchy
   door -- "grid_sizes.hxx" --> config
@@ -132,11 +132,11 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 
 - `flesh/`: every `extern "C"`, and the four writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its two. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh's arguments and calls the layer that does the work. Rules at home here: entry, ghost-only.
 - `api/`: the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the two writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty. Rules at home here: ghost-only.
-- `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.
+- `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.
 - `io/`: output, checkpoint, recovery and the file reader's input. When to do each is decided by the flesh's bins and by `schedule/`. Rules at home here: records, codec.
 - `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
 - `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
-- `comm/`: moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions, ghost-only.
+- `comm/`: moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions, ghost-only.
 - `hierarchy/`: the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of one of five writers, by what it writes: `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` or `scratch_writer_t`. A writer has no public constructor, copy or move, and writes through the `GHExt &` it holds, so no member can be static. `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy: destroying it is the only way to destroy the hierarchy, and `hierarchy/` keeps none, only the pointer `driver()` reads; the level writer is a private member of the structure writer, which lends it to the AMReX core of each patch it adds and builds a recovered level through it. Rules at home here: validity, binding, varindex, model.
 - `config/`: what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.
   - `grid_sizes`: the largest grid each level may have

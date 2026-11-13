@@ -7,6 +7,7 @@
 #include "comm/comm.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
+#include "comm/substeps.hxx"
 #include "io/io.hxx"
 #include "traversal/traversal.hxx"
 #include <carpetx.hxx>

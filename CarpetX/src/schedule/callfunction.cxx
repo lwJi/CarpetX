@@ -1,4 +1,5 @@
 #include "schedule/schedule.hxx"
+#include "schedule/checksums.hxx"
 #include "schedule/clauses.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
