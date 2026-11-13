@@ -1,8 +1,8 @@
-#include "hierarchy/rk_levels.hxx"
+#include "view/rk_levels.hxx"
 
 #include "hierarchy/driver.hxx"
 #include "hierarchy/integrator.hxx"
-#include "hierarchy/loops.hxx"
+#include "view/loops.hxx"
 
 #include <vector>
 

@@ -1,7 +1,7 @@
 #include <carpetx.hxx>
 
 #include "hierarchy/driver.hxx"
-#include "hierarchy/loops.hxx"
+#include "view/loops.hxx"
 #include "traversal/traversal.hxx"
 #include "util/refuse.hxx"
 

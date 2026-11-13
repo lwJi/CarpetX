@@ -1,4 +1,4 @@
-#include "hierarchy/grid.hxx"
+#include "view/grid.hxx"
 #include "hierarchy/driver.hxx"
 
 #include <cctk.h>

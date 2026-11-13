@@ -17,6 +17,7 @@ flowchart TB
       comm["comm/"]
       writers["writers/"]
       validity["validity/"]
+      view["view/"]
     end
     hierarchy["hierarchy/"]
   end
@@ -33,35 +34,43 @@ flowchart TB
   flesh -- "buffers.hxx, comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   flesh -- "writers.hxx" --> writers
   flesh -- "valid.hxx" --> validity
+  flesh -- "binding.hxx, grid.hxx, loops.hxx, modes.hxx" --> view
   api -- "schedule.hxx" --> schedule
   api -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   api -- "writers.hxx" --> writers
   api -- "valid.hxx" --> validity
+  api -- "loops.hxx, rk_levels.hxx" --> view
   schedule -- "io.hxx" --> io
   schedule -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
   schedule -- "writers.hxx" --> writers
   schedule -- "valid.hxx" --> validity
+  schedule -- "grid.hxx, loops.hxx, modes.hxx" --> view
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
   io -- "writers.hxx" --> writers
   io -- "valid.hxx" --> validity
   ops -- "valid.hxx" --> validity
+  ops -- "grid.hxx, modes.hxx" --> view
   regrid -- "fillpatch.hxx" --> comm
   regrid -- "writers.hxx" --> writers
   regrid -- "valid.hxx" --> validity
+  regrid -- "grid.hxx" --> view
   comm -- "valid.hxx" --> validity
+  comm -- "grid.hxx, loops.hxx, modes.hxx, rk_levels.hxx" --> view
   writers -- "valid.hxx" --> validity
+  writers -- "binding.hxx, loops.hxx, modes.hxx" --> view
+  validity -- "loops.hxx" --> view
   traversal -- "refuse.hxx" --> util
-  above -- "binding.hxx, clocks.hxx, driver.hxx, grid.hxx, grid_sizes.hxx, group_tags.hxx, indices.hxx, integrator.hxx, loops.hxx, modes.hxx, rk_levels.hxx, why_valid.hxx" --> hierarchy
+  above -- "clocks.hxx, driver.hxx, grid_sizes.hxx, group_tags.hxx, indices.hxx, integrator.hxx, why_valid.hxx" --> hierarchy
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
   door -- "carpetx.hxx, carpetx_rk.hxx" --> include
   nodoor -- "carpetx.hxx" --> include
 ```
 
-- the layers are util/, traversal/, hierarchy/, validity/, writers/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/ from the bottom, the order the build lists them in; the layer rule holds a table of which layer reads which, READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer's row names, and no row reads upward
+- the layers are util/, traversal/, hierarchy/, view/, validity/, writers/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/ from the bottom, the order the build lists them in; the layer rule holds a table of which layer reads which, READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer's row names, and no row reads upward
 - an arrow between layers is drawn from rows of that table, each an include its layer has today, read from the #include lines, with the headers on it: nothing is drawn while a row has no include or an include has no row, and a layer is drawn above what it includes
-- a pair no #include shows, an import that arrives through another layer's header, is a row of LINKS beside that table, today writers/ to util/, regrid/ to util/, schedule/ to util/: it has no header to label an arrow, so none is drawn for it alone, and python3 scripts/lint symbols holds it to the objects of a build
+- a pair no #include shows, an import that arrives through another layer's header or a public one, is a row of LINKS beside that table, today writers/ to util/, regrid/ to util/, io/ to view/, schedule/ to util/: it has no header to label an arrow, so none is drawn for it alone, and python3 scripts/lint symbols holds it to the objects of a build
 - an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above hierarchy/, is there for the arrow into hierarchy/
 - the outer boxes are the door rule: driver() is called in the upper box, never in the lower
 - include/ is the public headers, carpetx.hxx, carpetx_rk.hxx, not a layer: a thorn reads nothing else of CarpetX, and agent_docs/carpetx-public-api.md describes them
@@ -79,6 +88,7 @@ flowchart LR
   io["io/"]
   ops["ops/"]
   comm["comm/"]
+  view["view/"]
   hierarchy["hierarchy/"]
   util["util/"]
   cactus -- "1 Initialise_entry, Evolve_entry" --> flesh
@@ -92,7 +102,8 @@ flowchart LR
   schedule -- "7 CCTK_CallFunction" --> thorn
   thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api
   thorn -- "8 reduce" --> ops
-  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t, operator<<, level_t" --> hierarchy
+  thorn -- "8 variable, active_window, all_levels, synchronize" --> view
+  thorn -- "8 valid_t, operator<<, level_t" --> hierarchy
   thorn -- "8 Timer" --> util
   api -- "9 CCTK_ScheduleTraverse" --> cactus
   cactus -- "10 QueryGroupStorageB" --> schedule
@@ -136,7 +147,8 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 | `ops/` | a thorn | reduce |
 | `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |
 | `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |
-| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t, operator<<, level_t |
+| `view/` | a thorn | variable, active_window, all_levels, synchronize |
+| `hierarchy/` | a thorn | valid_t, operator<<, level_t |
 | `util/` | a thorn | Timer |
 
 ## What each layer owns
@@ -152,6 +164,7 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 - `comm/`: moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions, ghost-only.
 - `writers/`: the five writers, `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` and `scratch_writer_t`, each with no public constructor, copy or move and each writing through the `GHExt &` it holds, so that a change to the hierarchy a layer above needs is a member of one of them by what it writes, and `create_hierarchy`, which makes them once and returns four in `hierarchy_writers_t`, the owner of the hierarchy; it never decides what a layer above does with a writer it was lent.
 - `validity/`: judging and recording whether data is valid: the scopes that hand out writable data, `write_scope_t` from `open_write`, `array_write_scope_t` from `open_array_write` and `write_scopes_t`, which holds several, `require` and `invalidate` with their array forms, the poison and NaN scans behind them and the checksums of `calculate_checksums`, so that a validity bit changes only here; it never decides when the hierarchy changes. Rules at home here: validity.
-- `hierarchy/`: the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`. It never decides when the hierarchy changes: a change another layer needs is a member of a writer in `writers/`, and `hierarchy/` keeps no writer, only the pointer `driver()` reads. Rules at home here: binding, varindex, model.
+- `view/`: presenting the hierarchy to the flesh and to a kernel: the copies of a `cGH` that `copy_cctkGH`, `make_level_cctkGH` and `make_level_cctkGHs` make and the mode each is in, the pointer tables `cctkGH_binding` fills, the grid descriptors `GridDesc`, `GridPtrDesc` and `GridPtrDesc1`, the loops that walk a window and hand a kernel a level or a tile with its `cGH`, the bodies of the public `window_t`, `variable`, `active_window`, `all_levels` and `synchronize`, and `integrated_levels`, which is here for the loop it walks with, so that a `cGH` changes mode and a pointer table changes only here; it never decides whether data is valid or when the hierarchy changes. Rules at home here: binding.
+- `hierarchy/`: what the hierarchy holds and the read door: the data model in `GHExt`, where what a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`, and what `comm/` builds on a level is in the slot `buffers`, the tag readers its constructors call, the integrator queries, and the one pointer to the hierarchy, which `driver()` reads, `hierarchy_slot_t` sets for `writers/` and `scope_door_t` opens for `validity/`; it never decides what mode a `cGH` is in, whether data is valid or when the hierarchy changes. Rules at home here: varindex, model.
 - `traversal/`: the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not. Rules at home here: traversal.
 - `util/`: leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.

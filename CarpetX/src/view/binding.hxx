@@ -1,10 +1,10 @@
-#ifndef CARPETX_CARPETX_HIERARCHY_BINDING_HXX
-#define CARPETX_CARPETX_HIERARCHY_BINDING_HXX
+#ifndef CARPETX_CARPETX_VIEW_BINDING_HXX
+#define CARPETX_CARPETX_VIEW_BINDING_HXX
 
 #include "internal.hxx"
 
 #include "hierarchy/driver.hxx"
-#include "hierarchy/grid.hxx"
+#include "view/grid.hxx"
 
 #include <cctk.h>
 

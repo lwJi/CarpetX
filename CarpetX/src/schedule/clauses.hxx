@@ -3,7 +3,7 @@
 
 #include "internal.hxx"
 
-#include "hierarchy/modes.hxx"
+#include "view/modes.hxx"
 
 #include <carpetx.hxx>
 

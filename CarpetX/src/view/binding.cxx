@@ -1,8 +1,8 @@
-#include "hierarchy/binding.hxx"
+#include "view/binding.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/grid.hxx"
-#include "hierarchy/loops.hxx"
-#include "hierarchy/modes.hxx"
+#include "view/grid.hxx"
+#include "view/loops.hxx"
+#include "view/modes.hxx"
 
 #include <cctk.h>
 

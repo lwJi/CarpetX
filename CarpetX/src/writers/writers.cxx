@@ -1,9 +1,9 @@
 #include "writers/writers.hxx"
 
-#include "hierarchy/binding.hxx"
+#include "view/binding.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/loops.hxx"
-#include "hierarchy/modes.hxx"
+#include "view/loops.hxx"
+#include "view/modes.hxx"
 #include "validity/valid.hxx"
 #include <carpetx.hxx>
 

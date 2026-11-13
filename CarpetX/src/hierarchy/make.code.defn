@@ -1,14 +1,8 @@
 SRCS =							\
-	binding.cxx					\
-	grid.cxx					\
 	grid_sizes.cxx					\
 	group_tags.cxx					\
-	handles.cxx					\
 	hierarchy.cxx					\
 	integrator.cxx					\
-	loops.cxx					\
-	modes.cxx					\
-	rk_levels.cxx					\
 	why_valid.cxx					\
 	yaml.cxx
 

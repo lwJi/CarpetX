@@ -28,8 +28,8 @@ PUBLIC_HEADERS = (PUBLIC_DIR + "carpetx.hxx", PUBLIC_DIR + "carpetx_rk.hxx")
 PUBLIC_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"](' + "|".join(re.escape(os.path.basename(header)) for header in PUBLIC_HEADERS) + r')[>"]')
 PUBLIC_LAYER = "api"
 PUBLIC_BODIES = (
-    (layer_path("hierarchy", "handles.cxx"), ("variable", "active_window", "all_levels")),
-    (layer_path("hierarchy", "loops.cxx"), ("synchronize",)),
+    (layer_path("view", "handles.cxx"), ("variable", "active_window", "all_levels")),
+    (layer_path("view", "loops.cxx"), ("synchronize",)),
     (layer_path("hierarchy", "why_valid.cxx"), ("valid_t",)),
     (layer_path("hierarchy", "group_tags.cxx"), ("operator<<",)),
     (layer_path("hierarchy", "hierarchy.cxx"), ("level_t",)),
@@ -82,7 +82,7 @@ BOXES = (("above", f"above {HUB}/"), ("door", "driver() allowed"), ("nodoor", "n
 STACK_LEGEND = (
     f"the layers are {', '.join(f'{layer}/' for layer in LAYERS)} from the bottom, the order the build lists them in; the layer rule holds a table of which layer reads which, READS in {TABLE}: a file includes only its own layer or one its layer's row names, and no row reads upward",
     "an arrow between layers is drawn from rows of that table, each an include its layer has today, read from the #include lines, with the headers on it: nothing is drawn while a row has no include or an include has no row, and a layer is drawn above what it includes",
-    f"a pair no #include shows, an import that arrives through another layer's header, is a row of LINKS beside that table, today {', '.join(f'{layer}/ to {target}/' for layer, targets in LINKS.items() for target in targets) or 'none'}: it has no header to label an arrow, so none is drawn for it alone, and python3 scripts/lint symbols holds it to the objects of a build",
+    f"a pair no #include shows, an import that arrives through another layer's header or a public one, is a row of LINKS beside that table, today {', '.join(f'{layer}/ to {target}/' for layer, targets in LINKS.items() for target in targets) or 'none'}: it has no header to label an arrow, so none is drawn for it alone, and python3 scripts/lint symbols holds it to the objects of a build",
     f"an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above {HUB}/, is there for the arrow into {HUB}/",
     "the outer boxes are the door rule: driver() is called in the upper box, never in the lower",
     f"{PUBLIC}/ is the public headers, {', '.join(os.path.basename(header) for header in PUBLIC_HEADERS)}, not a layer: a thorn reads nothing else of CarpetX, and agent_docs/carpetx-public-api.md describes them",

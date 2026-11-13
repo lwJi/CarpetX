@@ -1,5 +1,5 @@
 #include "hierarchy/driver.hxx"
-#include "hierarchy/loops.hxx"
+#include "view/loops.hxx"
 #include <carpetx.hxx>
 #include "validity/valid.hxx"
 #include "util/var_type.hxx"

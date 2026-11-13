@@ -1,5 +1,5 @@
-#include "hierarchy/loops.hxx"
-#include "hierarchy/modes.hxx"
+#include "view/loops.hxx"
+#include "view/modes.hxx"
 #include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/integrator.hxx"

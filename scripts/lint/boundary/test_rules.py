@@ -191,18 +191,18 @@ class Binding(unittest.TestCase):
 
     def test_writes_are_reported_outside_binding(self):
         for line in self.WRITES:
-            for name in ["CarpetX/src/hierarchy/modes.cxx", "CarpetX/src/hierarchy/hierarchy.cxx", "CarpetX/src/schedule/clocks.cxx"]:
+            for name in ["CarpetX/src/view/modes.cxx", "CarpetX/src/hierarchy/hierarchy.cxx", "CarpetX/src/schedule/clocks.cxx", "CarpetX/src/hierarchy/binding.cxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("binding", line)])
 
     def test_binding_defines_them(self):
         for line in self.WRITES:
             with self.subTest(line=line):
-                self.assertEqual(reported("CarpetX/src/hierarchy/binding.cxx", line + "\n"), [])
+                self.assertEqual(reported("CarpetX/src/view/binding.cxx", line + "\n"), [])
 
     def test_comparisons_and_row_copies_pass(self):
         for line in self.NOT_WRITES:
-            for name in ["CarpetX/src/hierarchy/modes.cxx", "CarpetX/src/io/io_silo_checkpoint.cxx"]:
+            for name in ["CarpetX/src/view/modes.cxx", "CarpetX/src/io/io_silo_checkpoint.cxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [])
 
@@ -685,7 +685,7 @@ class Index(unittest.TestCase):
 
     def test_a_source_in_every_layer_is_judged_like_a_header(self):
         for line in self.COUNTED:
-            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/ops/interpolate.cxx", "CarpetX/src/ops/reduction.cxx", "CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_tsv.cxx", "CarpetX/src/hierarchy/loops.cxx"]:
+            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/ops/interpolate.cxx", "CarpetX/src/ops/reduction.cxx", "CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_tsv.cxx", "CarpetX/src/view/loops.cxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("index", line)])
 
@@ -710,8 +710,8 @@ class Index(unittest.TestCase):
 
     FIXED_DEFINITIONS = [
         ("CarpetX/src/include/carpetx.hxx", "  constexpr tile_t(const component_t component, const int tile)\n      : component_(component), tile_(tile) {}\n"),
-        ("CarpetX/src/hierarchy/handles.cxx", "window_t window_t::levels(const int min_level, const int max_level,\n                          const std::source_location site) {\n"),
-        ("CarpetX/src/hierarchy/handles.cxx", "window_t window_t::narrow(const int min_level, const int max_level,\n                          const std::source_location site) const {\n"),
+        ("CarpetX/src/view/handles.cxx", "window_t window_t::levels(const int min_level, const int max_level,\n                          const std::source_location site) {\n"),
+        ("CarpetX/src/view/handles.cxx", "window_t window_t::narrow(const int min_level, const int max_level,\n                          const std::source_location site) const {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int GroupStorageIncrease(const cGH *cctkGH, int gi, const int *tls) {\n"),
         ("CarpetX/src/schedule/storage.cxx", "int GroupStorageDecrease(const cGH *cctkGH, int gi, const int *tls) {\n"),
@@ -750,7 +750,7 @@ class Index(unittest.TestCase):
         text = "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname) {\n  for (int level = 0; level < 2; ++level)\n"
         self.assertEqual(reported("CarpetX/src/schedule/storage.cxx", text), [("index", "for (int level = 0; level < 2; ++level)")])
         text = "window_t window_t::levels(const int min_level, const int max_level) {\n  const int patch = 0;\n"
-        self.assertEqual(reported("CarpetX/src/hierarchy/handles.cxx", text), [("index", "const int patch = 0;")])
+        self.assertEqual(reported("CarpetX/src/view/handles.cxx", text), [("index", "const int patch = 0;")])
 
     def test_a_fixed_definition_passes_only_in_its_own_file(self):
         for name, text in self.FIXED_DEFINITIONS:
@@ -1045,18 +1045,19 @@ class Layer(unittest.TestCase):
     READS = {
         "util": "",
         "traversal": "util",
-        "hierarchy": "util traversal",
-        "validity": "util hierarchy",
-        "writers": "hierarchy validity",
-        "comm": "util traversal hierarchy validity",
-        "regrid": "hierarchy validity writers comm",
-        "ops": "util traversal hierarchy validity",
+        "hierarchy": "util",
+        "view": "util traversal hierarchy",
+        "validity": "util hierarchy view",
+        "writers": "hierarchy view validity",
+        "comm": "util traversal hierarchy view validity",
+        "regrid": "hierarchy view validity writers comm",
+        "ops": "util traversal hierarchy view validity",
         "io": "util traversal hierarchy validity writers comm ops",
-        "schedule": "traversal hierarchy validity writers comm io",
-        "api": "util hierarchy validity writers comm schedule",
-        "flesh": "util traversal hierarchy validity writers comm regrid ops io schedule api",
+        "schedule": "traversal hierarchy view validity writers comm io",
+        "api": "util hierarchy view validity writers comm schedule",
+        "flesh": "util traversal hierarchy view validity writers comm regrid ops io schedule api",
     }
-    LINKS = {"writers": "util", "regrid": "util", "schedule": "util"}
+    LINKS = {"writers": "util", "regrid": "util", "io": "view", "schedule": "util"}
 
     def test_a_file_includes_its_own_layer_and_the_layers_its_row_names(self):
         for line in [
@@ -1066,7 +1067,7 @@ class Layer(unittest.TestCase):
             '#include "traversal/traversal.hxx"',
             '#include "util/refuse.hxx"',
             '#include "util/typeprops.hh"',
-            '  #  include   "hierarchy/loops.hxx"  // the loops',
+            '  #  include   "view/loops.hxx"  // the loops',
         ]:
             with self.subTest(line=line):
                 self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", line + "\n"), [])
@@ -1085,6 +1086,7 @@ class Layer(unittest.TestCase):
 
     def test_an_include_of_a_lower_layer_with_no_row_is_reported(self):
         for layer, other in [
+            ("hierarchy", "traversal"),
             ("validity", "traversal"),
             ("writers", "traversal"),
             ("comm", "writers"),
@@ -1614,13 +1616,19 @@ class Layers(unittest.TestCase):
 
     def test_a_layer_reads_itself_and_the_layers_of_its_row_and_links_those_and_its_link_row(self):
         self.assertEqual(reads("util"), ("util",))
-        self.assertEqual(reads("comm"), ("comm", "util", "traversal", "hierarchy", "validity"))
-        self.assertEqual(reads("validity"), ("validity", "util", "hierarchy"))
+        self.assertEqual(reads("hierarchy"), ("hierarchy", "util"))
+        self.assertEqual(links("hierarchy"), reads("hierarchy"))
+        self.assertEqual(reads("view"), ("view", "util", "traversal", "hierarchy"))
+        self.assertEqual(links("view"), reads("view"))
+        self.assertEqual(reads("comm"), ("comm", "util", "traversal", "hierarchy", "view", "validity"))
+        self.assertEqual(reads("validity"), ("validity", "util", "hierarchy", "view"))
         self.assertEqual(links("validity"), reads("validity"))
-        self.assertEqual(reads("writers"), ("writers", "hierarchy", "validity"))
-        self.assertEqual(links("writers"), ("writers", "hierarchy", "validity", "util"))
-        self.assertEqual(reads("regrid"), ("regrid", "hierarchy", "validity", "writers", "comm"))
-        self.assertEqual(links("regrid"), ("regrid", "hierarchy", "validity", "writers", "comm", "util"))
+        self.assertEqual(reads("writers"), ("writers", "hierarchy", "view", "validity"))
+        self.assertEqual(links("writers"), ("writers", "hierarchy", "view", "validity", "util"))
+        self.assertEqual(reads("regrid"), ("regrid", "hierarchy", "view", "validity", "writers", "comm"))
+        self.assertEqual(links("regrid"), ("regrid", "hierarchy", "view", "validity", "writers", "comm", "util"))
+        self.assertNotIn("view", reads("io"))
+        self.assertEqual(links("io"), reads("io") + ("view",))
         self.assertEqual(links("schedule"), reads("schedule") + ("util",))
         self.assertEqual(reads("flesh"), ("flesh",) + LAYERS[:-1])
         for layer in LAYERS:
@@ -2198,6 +2206,8 @@ class Doc(unittest.TestCase):
         self.assertEqual(doc.box_of("writers", "hierarchy"), "above")
         self.assertEqual(doc.box_of("validity", "hierarchy"), "above")
         self.assertEqual(doc.box_of("validity", "util"), "door")
+        self.assertEqual(doc.box_of("view", "hierarchy"), "above")
+        self.assertEqual(doc.box_of("view", "traversal"), "door")
         self.assertEqual(doc.box_of("hierarchy", "util"), "door")
         self.assertEqual(doc.box_of("comm", "include"), "door")
         self.assertEqual(doc.box_of("util", "include"), "nodoor")
@@ -2205,8 +2215,12 @@ class Doc(unittest.TestCase):
         self.assertTrue(doc.is_pair("regrid", "writers"))
         self.assertTrue(doc.is_pair("writers", "validity"))
         self.assertTrue(doc.is_pair("comm", "validity"))
+        self.assertTrue(doc.is_pair("validity", "view"))
+        self.assertTrue(doc.is_pair("writers", "view"))
         self.assertFalse(doc.is_pair("writers", "hierarchy"))
         self.assertFalse(doc.is_pair("validity", "hierarchy"))
+        self.assertFalse(doc.is_pair("view", "hierarchy"))
+        self.assertFalse(doc.is_pair("view", "traversal"))
         self.assertTrue(doc.is_pair("traversal", "util"))
         self.assertFalse(doc.is_pair("comm", "hierarchy"))
         self.assertFalse(doc.is_pair("hierarchy", "util"))
@@ -2216,7 +2230,10 @@ class Doc(unittest.TestCase):
     def test_an_owns_row_names_the_rules_at_home_in_its_layer(self):
         rows = {line.split(":")[0]: line for line in doc.owns().splitlines()[4:]}
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
-        self.assertTrue(rows["- `hierarchy/`"].endswith(" Rules at home here: binding, varindex, model."))
+        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: varindex, model.")
+        self.assertEqual(rules.OWNS["hierarchy"].count(". "), 0)
+        self.assertEqual(rows["- `view/`"], f"- `view/`: {rules.OWNS['view']} Rules at home here: binding.")
+        self.assertEqual(rules.OWNS["view"].count(". "), 0)
         self.assertEqual(rows["- `validity/`"], f"- `validity/`: {rules.OWNS['validity']} Rules at home here: validity.")
         self.assertEqual(rules.OWNS["validity"].count(". "), 0)
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
@@ -2225,7 +2242,8 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `writers/`"], f"- `writers/`: {rules.OWNS['writers']}")
         self.assertEqual(rules.OWNS["writers"].count(". "), 0)
         self.assertNotIn("_writer_t", rules.OWNS["hierarchy"])
-        self.assertEqual(doc.rules_of("hierarchy"), ["binding", "varindex", "model"])
+        self.assertEqual(doc.rules_of("hierarchy"), ["varindex", "model"])
+        self.assertEqual(doc.rules_of("view"), ["binding"])
         self.assertEqual(doc.rules_of("validity"), ["validity"])
         self.assertEqual(doc.node("flesh", ("regrid", "flesh")), '  flesh["flesh/ no header"]')
         self.assertEqual(doc.node("regrid", ("regrid", "flesh")), '  regrid["regrid/ no header"]')
@@ -2240,7 +2258,7 @@ class Doc(unittest.TestCase):
         self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "model", "traversal", "records", "codec", "entry", "ghost-only"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("validity",))
-        self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
+        self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("view",))
         self.assertEqual(rules.layers_of(rules.CODEC_FILES + rules.SYNC_FILES), ("io", "comm"))
         with self.assertRaises(AssertionError):
             rules.layers_of((rules.MAKE_DEFN,))
@@ -2378,8 +2396,8 @@ class Doc(unittest.TestCase):
                     self.assertNotRegex(re.sub(r'"[^"]*"', "", line), r"[;\\]|::|[^\x00-\x7f]")
                 for item in texts:
                     self.assertNotIn("\n", item)
-        self.assertIn("util/, traversal/, hierarchy/, validity/, writers/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/", doc.STACK_LEGEND[0])
-        self.assertIn("today writers/ to util/, regrid/ to util/, schedule/ to util/:", doc.STACK_LEGEND[2])
+        self.assertIn("util/, traversal/, hierarchy/, view/, validity/, writers/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/", doc.STACK_LEGEND[0])
+        self.assertIn("today writers/ to util/, regrid/ to util/, io/ to view/, schedule/ to util/:", doc.STACK_LEGEND[2])
         self.assertIn(("hierarchy", "driver.hxx"), doc.layer_includes(PROJECT, "flesh"))
         self.assertIn(("door", "include"), doc.floor())
 
@@ -2463,8 +2481,8 @@ class Doc(unittest.TestCase):
                 + "".join(f"void CactusAmrCore::{name}(int lev) {{\n}}\n" for name in doc.AMREX_CALLBACKS[1:]),
                 layer_path("writers", "writers.cxx"): "void structure_writer_t::regrid(const level_t base,\n                                const CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
                 layer_path("hierarchy", "hierarchy.cxx"): "std::optional<level_t> level_t::child() const {\n  return std::nullopt;\n}\n",
-                layer_path("hierarchy", "handles.cxx"): "variable_t variable(const var_t var) {\n  return {};\n}\nwindow_t active_window() {\n  return scheduled_window(\"x\");\n}\nwindow_t all_levels() {\n  return window_t::levels(0, 1);\n}\n",
-                layer_path("hierarchy", "loops.cxx"): "void synchronize() {\n}\n",
+                layer_path("view", "handles.cxx"): "variable_t variable(const var_t var) {\n  return {};\n}\nwindow_t active_window() {\n  return scheduled_window(\"x\");\n}\nwindow_t all_levels() {\n  return window_t::levels(0, 1);\n}\n",
+                layer_path("view", "loops.cxx"): "void synchronize() {\n}\n",
                 layer_path("hierarchy", "why_valid.cxx"): 'std::string valid_t::explanation() const {\n  return "";\n}\n',
                 layer_path("hierarchy", "group_tags.cxx"): 'std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry) {\n  return os << "none";\n}\n',
                 layer_path("ops", "reduction.cxx"): "reduction<CCTK_REAL, dim> reduce(const gi_t gi) {\n  return {};\n}\n",
@@ -2493,7 +2511,7 @@ class Doc(unittest.TestCase):
             self.assertEqual(doc.registrations(root), [name for _, names in doc.REGISTERED for name in names])
             self.assertEqual(doc.extern_c_files(root), ["startup.cxx"])
             self.assertEqual(doc.prototypes(root), {doc.PUBLIC_HEADERS[0]: ("num_patches", "synchronize", "reduce", "operator<<", "prolongate", "symmetries", "variable", "active_window", "all_levels"), doc.PUBLIC_HEADERS[1]: ("register_integrator",)})
-            self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "symmetries", "register_integrator"), "hierarchy": ("variable", "active_window", "all_levels", "synchronize", "valid_t", "operator<<", "level_t"), "ops": ("reduce",), "util": ("Timer",)})
+            self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "symmetries", "register_integrator"), "view": ("variable", "active_window", "all_levels", "synchronize"), "hierarchy": ("valid_t", "operator<<", "level_t"), "ops": ("reduce",), "util": ("Timer",)})
             lines = doc.the_pass(root).splitlines()
             self.assertEqual(
                 [line for line in lines if " -- " in line],
@@ -2509,7 +2527,8 @@ class Doc(unittest.TestCase):
                     '  schedule -- "7 CCTK_CallFunction" --> thorn',
                     '  thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api',
                     '  thorn -- "8 reduce" --> ops',
-                    '  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t, operator<<, level_t" --> hierarchy',
+                    '  thorn -- "8 variable, active_window, all_levels, synchronize" --> view',
+                    '  thorn -- "8 valid_t, operator<<, level_t" --> hierarchy',
                     '  thorn -- "8 Timer" --> util',
                     '  api -- "9 CCTK_ScheduleTraverse" --> cactus',
                     '  cactus -- "10 QueryGroupStorageB" --> schedule',
@@ -2519,7 +2538,7 @@ class Doc(unittest.TestCase):
                     '  flesh -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease" --> schedule',
                 ],
             )
-            self.assertEqual([line.split("[")[0].strip() for line in lines[3:11]], ["flesh", "api", "schedule", "io", "ops", "comm", "hierarchy", "util"])
+            self.assertEqual([line.split("[")[0].strip() for line in lines[3:12]], ["flesh", "api", "schedule", "io", "ops", "comm", "view", "hierarchy", "util"])
             self.assertEqual(
                 doc.the_regrid(root).splitlines(),
                 [
@@ -2545,7 +2564,8 @@ class Doc(unittest.TestCase):
                     "| `ops/` | a thorn | reduce |",
                     "| `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |",
                     "| `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |",
-                    "| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t, operator<<, level_t |",
+                    "| `view/` | a thorn | variable, active_window, all_levels, synchronize |",
+                    "| `hierarchy/` | a thorn | valid_t, operator<<, level_t |",
                     "| `util/` | a thorn | Timer |",
                 ],
             )

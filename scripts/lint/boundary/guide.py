@@ -74,7 +74,7 @@ SECTIONS: tuple[Section, ...] = (
                 "`window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. "
                 "A window checks its bounds when it is built, so the error names the line that built it. "
                 "`component_t` is a box of a level, AMReX's global box index and the flesh's `cctk_component`; `tile_t` is one tile of the tiled traversal over this rank's boxes and carries the `component_t` it lies in, so `loop_parallel` hands its kernel the `level_t`, the `tile_t` and the local cGH, and a tile is looked up by its slot and checked against its box.",
-                ("hierarchy/handles.cxx:variable", "hierarchy/handles.cxx:levels", "hierarchy/handles.cxx:narrow", "hierarchy/handles.cxx:coarsest", "hierarchy/handles.cxx:finest", "hierarchy/handles.cxx:require_window_bounds", "hierarchy/handles.cxx:loop_parallel", "hierarchy/driver.hxx:level", "hierarchy/driver.hxx:get_local_cctkGH", "hierarchy/indices.hxx:tile_of"),
+                ("view/handles.cxx:variable", "view/handles.cxx:levels", "view/handles.cxx:narrow", "view/handles.cxx:coarsest", "view/handles.cxx:finest", "view/handles.cxx:require_window_bounds", "view/handles.cxx:loop_parallel", "hierarchy/driver.hxx:level", "hierarchy/driver.hxx:get_local_cctkGH", "hierarchy/indices.hxx:tile_of"),
             ),
         ),
         exercised_by=("compile_checks.cxx", "TestCarpetXAPI_Fill"),
@@ -111,7 +111,7 @@ SECTIONS: tuple[Section, ...] = (
                 "`sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the same-level, coarse-fine and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and sets the same-level bit, and `prolongate_ghosts` its coarse-to-fine interpolation alone and sets the coarse-fine bit, neither applying the boundary condition; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. "
                 "`apply_outer_boundary` is the boundary condition alone: it requires the interior and both ghost regions, writes the outer region and sets the outer bit, so a thorn that has written a group everywhere and wants the driver's boundary condition on it calls this and no ghost fill. "
                 "`restrict_no_poison` leaves the coarse ghost and outer regions as they were, where the scheduled restriction invalidates and poisons them. `synchronize` waits for the device.",
-                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "api/api.cxx:apply_outer_boundary", "comm/sync_restrict.cxx:SyncGhostsOnly", "comm/sync_restrict.cxx:ProlongateGhosts_impl", "comm/sync_restrict.cxx:ApplyOuterBoundary", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
+                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "api/api.cxx:apply_outer_boundary", "comm/sync_restrict.cxx:SyncGhostsOnly", "comm/sync_restrict.cxx:ProlongateGhosts_impl", "comm/sync_restrict.cxx:ApplyOuterBoundary", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "view/loops.cxx:synchronize"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),

@@ -1,7 +1,7 @@
-#include "hierarchy/modes.hxx"
-#include "hierarchy/binding.hxx"
+#include "view/modes.hxx"
+#include "view/binding.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/grid.hxx"
+#include "view/grid.hxx"
 
 #include <cctk.h>
 #include <cctk_Parameters.h>

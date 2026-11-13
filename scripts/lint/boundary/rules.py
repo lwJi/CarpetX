@@ -12,27 +12,29 @@ MARKER = "CARPETX_INTERNAL"
 PRIVATE_DIR = "CarpetX/src/"
 PUBLIC_DIR = "CarpetX/src/include/"
 MAKE_DEFN = "CarpetX/src/make.code.defn"
-LAYERS = ("util", "traversal", "hierarchy", "validity", "writers", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+LAYERS = ("util", "traversal", "hierarchy", "view", "validity", "writers", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
 READS = {
     "util": (),
     "traversal": ("util",),
-    "hierarchy": ("util", "traversal"),
-    "validity": ("util", "hierarchy"),
-    "writers": ("hierarchy", "validity"),
-    "comm": ("util", "traversal", "hierarchy", "validity"),
-    "regrid": ("hierarchy", "validity", "writers", "comm"),
-    "ops": ("util", "traversal", "hierarchy", "validity"),
+    "hierarchy": ("util",),
+    "view": ("util", "traversal", "hierarchy"),
+    "validity": ("util", "hierarchy", "view"),
+    "writers": ("hierarchy", "view", "validity"),
+    "comm": ("util", "traversal", "hierarchy", "view", "validity"),
+    "regrid": ("hierarchy", "view", "validity", "writers", "comm"),
+    "ops": ("util", "traversal", "hierarchy", "view", "validity"),
     "io": ("util", "traversal", "hierarchy", "validity", "writers", "comm", "ops"),
-    "schedule": ("traversal", "hierarchy", "validity", "writers", "comm", "io"),
-    "api": ("util", "hierarchy", "validity", "writers", "comm", "schedule"),
-    "flesh": ("util", "traversal", "hierarchy", "validity", "writers", "comm", "regrid", "ops", "io", "schedule", "api"),
+    "schedule": ("traversal", "hierarchy", "view", "validity", "writers", "comm", "io"),
+    "api": ("util", "hierarchy", "view", "validity", "writers", "comm", "schedule"),
+    "flesh": ("util", "traversal", "hierarchy", "view", "validity", "writers", "comm", "regrid", "ops", "io", "schedule", "api"),
 }
-LINKS = {"writers": ("util",), "regrid": ("util",), "schedule": ("util",)}
+LINKS = {"writers": ("util",), "regrid": ("util",), "io": ("view",), "schedule": ("util",)}
 TABLE = "scripts/lint/boundary/rules.py"
 OWNS = {
     "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
     "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
-    "hierarchy": "the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`. It never decides when the hierarchy changes: a change another layer needs is a member of a writer in `writers/`, and `hierarchy/` keeps no writer, only the pointer `driver()` reads.",
+    "hierarchy": "what the hierarchy holds and the read door: the data model in `GHExt`, where what a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`, and what `comm/` builds on a level is in the slot `buffers`, the tag readers its constructors call, the integrator queries, and the one pointer to the hierarchy, which `driver()` reads, `hierarchy_slot_t` sets for `writers/` and `scope_door_t` opens for `validity/`; it never decides what mode a `cGH` is in, whether data is valid or when the hierarchy changes.",
+    "view": "presenting the hierarchy to the flesh and to a kernel: the copies of a `cGH` that `copy_cctkGH`, `make_level_cctkGH` and `make_level_cctkGHs` make and the mode each is in, the pointer tables `cctkGH_binding` fills, the grid descriptors `GridDesc`, `GridPtrDesc` and `GridPtrDesc1`, the loops that walk a window and hand a kernel a level or a tile with its `cGH`, the bodies of the public `window_t`, `variable`, `active_window`, `all_levels` and `synchronize`, and `integrated_levels`, which is here for the loop it walks with, so that a `cGH` changes mode and a pointer table changes only here; it never decides whether data is valid or when the hierarchy changes.",
     "validity": "judging and recording whether data is valid: the scopes that hand out writable data, `write_scope_t` from `open_write`, `array_write_scope_t` from `open_array_write` and `write_scopes_t`, which holds several, `require` and `invalidate` with their array forms, the poison and NaN scans behind them and the checksums of `calculate_checksums`, so that a validity bit changes only here; it never decides when the hierarchy changes.",
     "writers": "the five writers, `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` and `scratch_writer_t`, each with no public constructor, copy or move and each writing through the `GHExt &` it holds, so that a change to the hierarchy a layer above needs is a member of one of them by what it writes, and `create_hierarchy`, which makes them once and returns four in `hierarchy_writers_t`, the owner of the hierarchy; it never decides what a layer above does with a writer it was lent.",
     "comm": "moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.",
@@ -100,7 +102,7 @@ VALIDITY_WORD = re.compile(
     r"(\b(error_if_invalid|warn_if_invalid|poison_invalid_g[fa]|check_valid_g[fa])"
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
 )
-BINDING_FILES = (layer_path("hierarchy", "binding.cxx"),)
+BINDING_FILES = (layer_path("view", "binding.cxx"),)
 BINDING_WORD = re.compile(r"(\.|->)\s*data\s*\[[^\]]*\]\s*\[[^\]]*\]\s*=(?!=)")
 GHOST_ONLY_FILES = (
     layer_path("comm", "comm.hxx"),
@@ -141,7 +143,7 @@ INDEX_FIXED = {
     PUBLIC_DIR + "carpetx.hxx": ("level_t", "tile_t", "window_t", "levels", "narrow"),
     layer_path("schedule", "schedule.hxx"): STORAGE_OVERLOADS,
     layer_path("schedule", "storage.cxx"): STORAGE_OVERLOADS,
-    layer_path("hierarchy", "handles.cxx"): ("levels", "narrow"),
+    layer_path("view", "handles.cxx"): ("levels", "narrow"),
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
     layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
     layer_path("hierarchy", "group_tags.cxx"): ("CCTK_TraverseString",),
@@ -411,7 +413,7 @@ RULES = (
         files=private_cxx,
         word=BINDING_WORD,
         allowed=in_files(BINDING_FILES),
-        text="a cGH data[var][tl] entry is assigned only in CarpetX/src/hierarchy/binding.cxx; every other site calls "
+        text="a cGH data[var][tl] entry is assigned only in CarpetX/src/view/binding.cxx; every other site calls "
         "cctkGH_binding.",
         noun="pointer-table write",
         where="outside binding.cxx",

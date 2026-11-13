@@ -3,8 +3,8 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/grid_sizes.hxx"
 #include "hierarchy/integrator.hxx"
-#include "hierarchy/loops.hxx"
-#include "hierarchy/modes.hxx"
+#include "view/loops.hxx"
+#include "view/modes.hxx"
 #include "writers/writers.hxx"
 #include "io/io.hxx"
 #include <loop.hxx>

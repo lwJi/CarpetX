@@ -2,7 +2,7 @@
 
 #include "api/api.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/loops.hxx"
+#include "view/loops.hxx"
 #include "writers/writers.hxx"
 #include "validity/valid.hxx"
 #include "comm/comm.hxx"

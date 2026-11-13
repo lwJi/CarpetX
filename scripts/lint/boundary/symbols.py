@@ -20,7 +20,7 @@ RULE = wrap(
     "symbols: an object the build made from a CarpetX .cxx imports a symbol of namespace CarpetX only from an "
     f"object of its own layer or of a layer its rows of READS and LINKS in {TABLE} name, whatever declared it: a "
     "header, a prototype, a block-scope declaration or an extern. A row of LINKS is a pair no #include shows, an "
-    "import that arrives through another layer's header, and it is deleted with the last import across it. No reach "
+    "import that arrives through another layer's header or a public one, and it is deleted with the last import across it. No reach "
     "is excepted: a body a lower layer calls moves down to that layer, and a pair in use has its row."
 )
 

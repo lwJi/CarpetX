@@ -2,8 +2,8 @@
 #include "ops/interp.hxx"
 #include "util/mpi_types.hxx"
 #include "ops/reduction.hxx"
-#include "hierarchy/grid.hxx"
-#include "hierarchy/modes.hxx"
+#include "view/grid.hxx"
+#include "view/modes.hxx"
 #include "traversal/traversal.hxx"
 
 #include <defs.hxx>

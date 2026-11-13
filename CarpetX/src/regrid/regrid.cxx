@@ -2,7 +2,7 @@
 
 #include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/grid.hxx"
+#include "view/grid.hxx"
 #include "writers/writers.hxx"
 #include "validity/valid.hxx"
 #include "comm/fillpatch.hxx"
