@@ -4,7 +4,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/modes.hxx"
-#include "hierarchy/valid.hxx"
+#include "validity/valid.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>

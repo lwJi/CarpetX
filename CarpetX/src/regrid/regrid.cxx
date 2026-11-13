@@ -4,7 +4,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/grid.hxx"
 #include "writers/writers.hxx"
-#include "hierarchy/valid.hxx"
+#include "validity/valid.hxx"
 #include "comm/fillpatch.hxx"
 #include <loop_device.hxx>
 

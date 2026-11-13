@@ -2,7 +2,7 @@
 
 #include "hierarchy/driver.hxx"
 #include "writers/writers.hxx"
-#include "hierarchy/valid.hxx"
+#include "validity/valid.hxx"
 #include "io/selection.hxx"
 #include "comm/subcycling.hxx"
 #include "util/refuse.hxx"

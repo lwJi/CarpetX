@@ -12,19 +12,20 @@ MARKER = "CARPETX_INTERNAL"
 PRIVATE_DIR = "CarpetX/src/"
 PUBLIC_DIR = "CarpetX/src/include/"
 MAKE_DEFN = "CarpetX/src/make.code.defn"
-LAYERS = ("util", "traversal", "hierarchy", "writers", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+LAYERS = ("util", "traversal", "hierarchy", "validity", "writers", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
 READS = {
     "util": (),
     "traversal": ("util",),
     "hierarchy": ("util", "traversal"),
-    "writers": ("hierarchy",),
-    "comm": ("util", "traversal", "hierarchy"),
-    "regrid": ("hierarchy", "writers", "comm"),
-    "ops": ("util", "traversal", "hierarchy"),
-    "io": ("util", "traversal", "hierarchy", "writers", "comm", "ops"),
-    "schedule": ("traversal", "hierarchy", "writers", "comm", "io"),
-    "api": ("util", "hierarchy", "writers", "comm", "schedule"),
-    "flesh": ("util", "traversal", "hierarchy", "writers", "comm", "regrid", "ops", "io", "schedule", "api"),
+    "validity": ("util", "hierarchy"),
+    "writers": ("hierarchy", "validity"),
+    "comm": ("util", "traversal", "hierarchy", "validity"),
+    "regrid": ("hierarchy", "validity", "writers", "comm"),
+    "ops": ("util", "traversal", "hierarchy", "validity"),
+    "io": ("util", "traversal", "hierarchy", "validity", "writers", "comm", "ops"),
+    "schedule": ("traversal", "hierarchy", "validity", "writers", "comm", "io"),
+    "api": ("util", "hierarchy", "validity", "writers", "comm", "schedule"),
+    "flesh": ("util", "traversal", "hierarchy", "validity", "writers", "comm", "regrid", "ops", "io", "schedule", "api"),
 }
 LINKS = {"writers": ("util",), "regrid": ("util",), "schedule": ("util",)}
 TABLE = "scripts/lint/boundary/rules.py"
@@ -32,6 +33,7 @@ OWNS = {
     "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
     "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
     "hierarchy": "the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`. It never decides when the hierarchy changes: a change another layer needs is a member of a writer in `writers/`, and `hierarchy/` keeps no writer, only the pointer `driver()` reads.",
+    "validity": "judging and recording whether data is valid: the scopes that hand out writable data, `write_scope_t` from `open_write`, `array_write_scope_t` from `open_array_write` and `write_scopes_t`, which holds several, `require` and `invalidate` with their array forms, the poison and NaN scans behind them and the checksums of `calculate_checksums`, so that a validity bit changes only here; it never decides when the hierarchy changes.",
     "writers": "the five writers, `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` and `scratch_writer_t`, each with no public constructor, copy or move and each writing through the `GHExt &` it holds, so that a change to the hierarchy a layer above needs is a member of one of them by what it writes, and `create_hierarchy`, which makes them once and returns four in `hierarchy_writers_t`, the owner of the hierarchy; it never decides what a layer above does with a writer it was lent.",
     "comm": "moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
@@ -93,7 +95,7 @@ CHECKED = (Lang.CXX, Lang.MAKE)
 MARKER_WORD = re.compile(r"CARPETX_INTERNAL\b")
 GUARD = re.compile(r"^\s*#\s*ifndef\s+CARPETX_INTERNAL\s*$")
 INCLUDE_INTO_SRC = re.compile(r'^\s*#\s*include\s*(?:"[^"]*CarpetX/src[^"]*"|<[^>]*CarpetX/src[^>]*>)')
-VALIDITY_FILES = (layer_path("hierarchy", "valid.cxx"), layer_path("hierarchy", "valid.hxx"))
+VALIDITY_FILES = (layer_path("validity", "valid.cxx"), layer_path("validity", "valid.hxx"))
 VALIDITY_WORD = re.compile(
     r"(\b(error_if_invalid|warn_if_invalid|poison_invalid_g[fa]|check_valid_g[fa])"
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
@@ -397,7 +399,7 @@ RULES = (
         files=private_cxx,
         word=VALIDITY_WORD,
         allowed=in_files(VALIDITY_FILES),
-        text="a validity kernel or a why_valid_t setter is named only in CarpetX/src/hierarchy/valid.cxx and "
+        text="a validity kernel or a why_valid_t setter is named only in CarpetX/src/validity/valid.cxx and "
         "valid.hxx; every other site opens a write scope or calls require or invalidate.",
         noun="validity call",
         where="outside valid.cxx",

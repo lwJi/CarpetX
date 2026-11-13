@@ -3,7 +3,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/modes.hxx"
-#include "hierarchy/valid.hxx"
+#include "validity/valid.hxx"
 #include "comm/comm.hxx"
 #include "traversal/traversal.hxx"
 #include <carpetx.hxx>

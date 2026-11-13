@@ -13,7 +13,7 @@
 #include "comm/comm.hxx"
 #include "regrid/regrid.hxx"
 #include "schedule/schedule.hxx"
-#include "hierarchy/valid.hxx"
+#include "validity/valid.hxx"
 
 #include <carpetx.hxx>
 

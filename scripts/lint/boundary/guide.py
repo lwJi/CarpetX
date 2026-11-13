@@ -87,13 +87,13 @@ SECTIONS: tuple[Section, ...] = (
                 "A write scope sets the validity of the group at `tl` to exactly `leaves_valid` when it opens and poisons the regions it does not promise, so the scope must not read them; when it closes, the promised regions are scanned for poison and NaN. "
                 "While it is open, a communication operation, `invalidate` or a scheduled function touching the group is refused. "
                 "`require_valid` also runs that scan over `where`. A validity bit is set only by a write scope or a communication operation.",
-                ("api/api.cxx:write", "api/api.cxx:require_valid", "api/api.cxx:invalidate", "api/api.cxx:require_no_open_write", "hierarchy/valid.cxx:write_scope_t", "schedule/callfunction.cxx:CallFunction"),
+                ("api/api.cxx:write", "api/api.cxx:require_valid", "api/api.cxx:invalidate", "api/api.cxx:require_no_open_write", "validity/valid.cxx:write_scope_t", "schedule/callfunction.cxx:CallFunction"),
             ),
             Row(
                 "The halo has two ghost regions with a bit each: the same-level ghosts, which another box of the level or a periodic image covers, and the coarse-fine ghosts, which no box of the level covers and only an interpolation from the parent fills. "
                 "A ghost fill marks only the region it copies; the boundary condition reads the interior and both ghost regions, so it runs after the last ghost fill, requires all three valid, and alone marks the outer boundary. "
                 "`make_valid_ghosts()` and a schedule clause's everywhere name both.",
-                ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/hierarchy.cxx:LevelData", "hierarchy/valid.cxx:loop_ghost_halves", "hierarchy/valid.cxx:check_valid_gf", "comm/sync_restrict.cxx:apply_outer_boundary"),
+                ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/hierarchy.cxx:LevelData", "validity/valid.cxx:loop_ghost_halves", "validity/valid.cxx:check_valid_gf", "comm/sync_restrict.cxx:apply_outer_boundary"),
             ),
             Row(
                 "`scratch(group)` is shaped like `data(group, tl_t{0})` and comes from a per-group pool its destructor returns it to; the pool dies with its level on a regrid, after which a `scratch_t` is an error, not a dangling pointer. It has no validity bits.",

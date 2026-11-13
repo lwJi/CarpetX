@@ -11,7 +11,7 @@
 #include "util/refuse.hxx"
 #include "util/task_manager.hxx"
 #include <carpetx.hxx>
-#include "hierarchy/valid.hxx"
+#include "validity/valid.hxx"
 
 #include <cctk.h>
 #include <cctk_Parameters.h>

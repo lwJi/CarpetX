@@ -11,7 +11,7 @@
 #include "comm/comm.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
-#include "hierarchy/valid.hxx"
+#include "validity/valid.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>

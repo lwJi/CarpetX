@@ -2,7 +2,7 @@
 
 #include "hierarchy/driver.hxx"
 #include "hierarchy/integrator.hxx"
-#include "hierarchy/valid.hxx"
+#include "validity/valid.hxx"
 #include "comm/buffers.hxx"
 #include "comm/level_pairs.hxx"
 #include <carpetx.hxx>

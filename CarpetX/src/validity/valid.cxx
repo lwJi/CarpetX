@@ -1,7 +1,7 @@
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include <carpetx.hxx>
-#include "hierarchy/valid.hxx"
+#include "validity/valid.hxx"
 #include "util/var_type.hxx"
 
 #include <loop_device.hxx>

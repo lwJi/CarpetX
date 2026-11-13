@@ -1,7 +1,7 @@
 #include "hierarchy/driver.hxx"
 #include "util/mpi_types.hxx"
 #include "ops/reduction.hxx"
-#include "hierarchy/valid.hxx"
+#include "validity/valid.hxx"
 
 #include <cctk_Parameters.h>
 
