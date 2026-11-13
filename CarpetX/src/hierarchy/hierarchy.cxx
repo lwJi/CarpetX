@@ -5,29 +5,24 @@
 #include "hierarchy/operations.hxx"
 #include "hierarchy/valid.hxx"
 
+#include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
-#include <cctk_Arguments.h>
 #include <cctk_Parameters.h>
-#include <util_Table.h>
 
 #include <AMReX.H>
 #include <AMReX_BoxList.H>
-#include <AMReX_FillPatchUtil.H>
 #include <AMReX_ParallelDescriptor.H>
 #include <AMReX_iMultiFab.H>
 
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <cmath>
-#include <cstdlib>
-#include <cstring>
 #include <memory>
 #include <optional>
-#include <ostream>
 #include <source_location>
 #include <sstream>
 #include <string>

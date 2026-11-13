@@ -2,6 +2,7 @@
 #include "hierarchy/binding.hxx"
 #include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"

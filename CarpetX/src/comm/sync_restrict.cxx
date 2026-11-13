@@ -1,4 +1,5 @@
 #include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
 #include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/group_tags.hxx"
