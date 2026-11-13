@@ -6,8 +6,7 @@ SRCS =							\
 	hierarchy.cxx					\
 	loops.cxx					\
 	modes.cxx					\
-	valid.cxx					\
-	yaml.cxx
+	valid.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))

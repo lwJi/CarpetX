@@ -37,7 +37,7 @@ OWNS = {
     "comm": "moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
-    "io": "output, checkpoint, recovery and the file reader's input. When to do each is decided by the flesh's bins and by `schedule/`.",
+    "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`.",
     "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.",
     "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the two writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty.",
     "flesh": 'every `extern "C"`, and the four writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its two. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
@@ -122,6 +122,8 @@ TRAVERSAL_WORD = re.compile(
 )
 DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
+MODEL_TAG_FILE = layer_path("io", "io_model.cxx")
+MODEL_TAG = re.compile(r'\bYAML::LocalTag\("ghext-[0-9.]+"\)')
 DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
 GHEXT_OR_DRIVER_CALL = re.compile(f"{DOOR_WORD.pattern}|{DRIVER_CALL.pattern}")
 LAYER_INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<((?:' + "|".join(LAYERS) + r')/[^>]*)>)')
@@ -374,7 +376,8 @@ def entry_allowed(name: str, line: str, statement: str) -> bool:
 
 
 def door_allowed(name: str, line: str, statement: str) -> bool:
-    if DOOR_WORD.search(line) and name != DOOR_FILE:
+    named = MODEL_TAG.sub("", line) if name == MODEL_TAG_FILE else line
+    if DOOR_WORD.search(named) and name != DOOR_FILE:
         return False
     return not DRIVER_CALL.search(line) or layer_of(name) in HIERARCHY_LAYERS
 
@@ -617,7 +620,8 @@ RULES = (
         allowed=door_allowed,
         text="the hierarchy pointer ghext is named only in CarpetX/src/hierarchy/hierarchy.cxx; every other file "
         f"calls driver(), and only from {HIERARCHY_LAYERS[0]}/ or a layer above it, never from "
-        f"{dirs(UNDER_HIERARCHY, 'or')}.",
+        f"{dirs(UNDER_HIERARCHY, 'or')}. The format tag YAML::LocalTag(\"ghext-<version>\") that {MODEL_TAG_FILE} "
+        "writes into the metadata is not the pointer.",
         noun="hierarchy use",
         where="the door does not allow",
         clean=f"the hierarchy has one door that {dirs(UNDER_HIERARCHY, 'and')} never use",

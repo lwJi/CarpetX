@@ -55,17 +55,6 @@ valid_t::operator std::string() const {
   return buf.str();
 }
 
-YAML::Emitter &operator<<(YAML::Emitter &yaml, const valid_t v) {
-  yaml << YAML::LocalTag("valid-2.0.0");
-  yaml << YAML::Flow << YAML::BeginMap;
-  yaml << YAML::Key << "int" << YAML::Value << v.valid_int;
-  yaml << YAML::Key << "outer" << YAML::Value << v.valid_outer;
-  yaml << YAML::Key << "same_level" << YAML::Value << v.valid_same_level;
-  yaml << YAML::Key << "coarse_fine" << YAML::Value << v.valid_coarse_fine;
-  yaml << YAML::EndMap;
-  return yaml;
-}
-
 std::string why_valid_t::explanation() const {
   const auto valstr = [](bool v) { return v ? "valid" : "invalid"; };
   std::ostringstream buf;
@@ -93,20 +82,6 @@ why_valid_t::operator std::string() const {
   std::ostringstream buf;
   buf << *this;
   return buf.str();
-}
-
-YAML::Emitter &operator<<(YAML::Emitter &yaml, const why_valid_t &why) {
-  yaml << YAML::LocalTag("why_valid-2.0.0");
-  yaml << YAML::BeginMap;
-  yaml << YAML::Key << "valid" << YAML::Value << why.valid;
-  yaml << YAML::Key << "why" << YAML::Value << YAML::BeginMap;
-  yaml << YAML::Key << "int" << YAML::Value << why.why_int();
-  yaml << YAML::Key << "outer" << YAML::Value << why.why_outer();
-  yaml << YAML::Key << "same_level" << YAML::Value << why.why_same_level();
-  yaml << YAML::Key << "coarse_fine" << YAML::Value << why.why_coarse_fine();
-  yaml << YAML::EndMap;
-  yaml << YAML::EndMap;
-  return yaml;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

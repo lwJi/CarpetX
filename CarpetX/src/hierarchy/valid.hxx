@@ -11,8 +11,6 @@
 #include <AMReX_Box.H>
 #include <AMReX_MultiFab.H>
 
-#include <yaml-cpp/yaml.h>
-
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -26,8 +24,6 @@
 #include <vector>
 
 namespace CarpetX {
-
-YAML::Emitter &operator<<(YAML::Emitter &yaml, valid_t v);
 
 class why_valid_t {
   valid_t valid;
@@ -69,11 +65,17 @@ public:
 
   const valid_t &get() const { return valid; }
 
+  struct reasons_t {
+    std::string interior, outer, same_level, coarse_fine;
+  };
+  reasons_t reasons() const {
+    return {why_int(), why_outer(), why_same_level(), why_coarse_fine()};
+  }
+
   std::string explanation() const;
 
   friend std::ostream &operator<<(std::ostream &os, const why_valid_t &why);
   operator std::string() const;
-  friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const why_valid_t &why);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
