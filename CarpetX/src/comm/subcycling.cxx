@@ -1,7 +1,8 @@
 #include "comm/subcycling.hxx"
 
 #include "hierarchy/driver.hxx"
-#include "hierarchy/group_tags.hxx"
+#include "hierarchy/integrator.hxx"
+#include "hierarchy/rk_levels.hxx"
 #include "comm/buffers.hxx"
 #include "comm/comm.hxx"
 #include "comm/fillpatch.hxx"

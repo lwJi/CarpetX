@@ -2,7 +2,7 @@
 
 #include "comm/prolongate_3d_rf2.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/group_tags.hxx"
+#include "hierarchy/integrator.hxx"
 #include "util/refuse.hxx"
 #include <carpetx.hxx>
 

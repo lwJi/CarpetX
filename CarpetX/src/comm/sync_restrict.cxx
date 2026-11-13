@@ -2,7 +2,7 @@
 #include "hierarchy/modes.hxx"
 #include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/group_tags.hxx"
+#include "hierarchy/integrator.hxx"
 #include "comm/boundaries.hxx"
 #include "comm/fillpatch.hxx"
 #include "comm/level_pairs.hxx"

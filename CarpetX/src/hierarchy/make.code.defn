@@ -5,8 +5,10 @@ SRCS =							\
 	group_tags.cxx					\
 	handles.cxx					\
 	hierarchy.cxx					\
+	integrator.cxx					\
 	loops.cxx					\
 	modes.cxx					\
+	rk_levels.cxx					\
 	valid.cxx					\
 	why_valid.cxx					\
 	yaml.cxx

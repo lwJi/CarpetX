@@ -2,7 +2,7 @@
 #include "schedule/clocks.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/grid_sizes.hxx"
-#include "hierarchy/group_tags.hxx"
+#include "hierarchy/integrator.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/modes.hxx"
 #include "hierarchy/operations.hxx"

@@ -37,7 +37,7 @@ flowchart TB
   io -- "subcycling.hxx" --> comm
   regrid -- "fillpatch.hxx" --> comm
   traversal -- "refuse.hxx" --> util
-  above -- "binding.hxx, clocks.hxx, driver.hxx, grid.hxx, grid_sizes.hxx, group_tags.hxx, indices.hxx, loops.hxx, modes.hxx, operations.hxx, valid.hxx" --> hierarchy
+  above -- "binding.hxx, clocks.hxx, driver.hxx, grid.hxx, grid_sizes.hxx, group_tags.hxx, indices.hxx, integrator.hxx, loops.hxx, modes.hxx, operations.hxx, rk_levels.hxx, valid.hxx" --> hierarchy
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
   door -- "carpetx.hxx, carpetx_rk.hxx" --> include

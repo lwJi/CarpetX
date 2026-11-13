@@ -569,7 +569,7 @@ class Traversal(unittest.TestCase):
             "bool integrator_frozen_early;\n",
             "freeze_integrator();\n",
         ]:
-            for name in ["CarpetX/src/api/api_rk.cxx", "CarpetX/src/hierarchy/group_tags.cxx"]:
+            for name in ["CarpetX/src/api/api_rk.cxx", "CarpetX/src/hierarchy/integrator.cxx"]:
                 with self.subTest(name=name, text=text):
                     self.assertEqual(reported(name, text), [])
 
