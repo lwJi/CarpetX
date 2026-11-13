@@ -188,10 +188,6 @@ struct GHExt {
     cGH *get() const { return cctkGH; }
   };
 
-  cGH *flesh_cctkGH = nullptr;
-  cctkGHptr global_cctkGH;
-  std::vector<cctkGHptr> level_cctkGHs; // [reflevel]
-
   struct GroupRecord;
 
   struct GlobalData {
@@ -844,6 +840,9 @@ struct GHExt {
   }
 
 private:
+  cGH *flesh_cctkGH = nullptr;
+  cctkGHptr global_cctkGH;
+  std::vector<cctkGHptr> level_cctkGHs;
   std::optional<std::vector<int>> pending_timelevels_;
   bool initialized_ = false;
   CCTK_INT epoch_ = 0;
@@ -854,7 +853,6 @@ private:
   bool integrator_open_ = true;
   std::vector<PatchData> patchdata;
 
-  static GHExt &mutable_instance();
   PatchData &add_patch(level_writer_t &levels, patch_t patch);
   PatchData::LevelData &add_level(PatchData::LevelData &&fresh);
   PatchData::LevelData replace_level(PatchData::LevelData &&fresh);
@@ -880,6 +878,18 @@ private:
 
 const GHExt &driver();
 void assert_hierarchy_destroyed();
+
+class scope_door_t {
+  static GHExt &open();
+  friend class write_scope_t;
+  friend class array_write_scope_t;
+};
+
+class hierarchy_slot_t {
+  static void install(GHExt &ext);
+  static void remove(GHExt &ext);
+  friend struct hierarchy_writers_t;
+};
 
 } // namespace CarpetX
 

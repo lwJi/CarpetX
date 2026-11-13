@@ -107,6 +107,7 @@ public:
 
 private:
   explicit registry_writer_t(GHExt &ext) : ext(ext) {}
+  void release_flesh_cctkGH();
   GHExt &ext;
   friend struct hierarchy_writers_t;
 };

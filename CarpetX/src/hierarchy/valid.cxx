@@ -587,7 +587,7 @@ write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
       event_reason(this->spec.event, " not filled", iteration);
   const std::vector<vi_t> vis = variables_of(this->spec.gi, this->spec.vi);
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    GroupData::timelevel_t &timelevel = GHExt::mutable_instance()
+    GroupData::timelevel_t &timelevel = scope_door_t::open()
                                             .level(leveldata.level)
                                             .group(this->spec.gi)
                                             .timelevel(this->spec.tl);
@@ -634,7 +634,7 @@ write_scope_t::~write_scope_t() {
   for (const vi_t vi : vis)
     check_valid_gf(window, spec.gi, vi, spec.tl, spec.fills, msg);
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    GroupData::timelevel_t &timelevel = GHExt::mutable_instance()
+    GroupData::timelevel_t &timelevel = scope_door_t::open()
                                             .level(leveldata.level)
                                             .group(spec.gi)
                                             .timelevel(spec.tl);
@@ -661,7 +661,7 @@ amrex::MultiFab &write_scope_t::mfab(const level_t level,
            spec.tl.index(), patches.min, patches.max, levels.min, levels.max,
            level.patch().index(), level.index());
   }
-  return *GHExt::mutable_instance()
+  return *scope_door_t::open()
               .level(level, site)
               .group(spec.gi, site)
               .timelevel(spec.tl, site)
@@ -721,7 +721,7 @@ array_write_scope_t::array_write_scope_t(write_spec_t spec, const int iteration)
   const auto not_filled =
       event_reason(this->spec.event, " not filled", iteration);
   ArrayGroupData &arraydata =
-      GHExt::mutable_instance().record(this->spec.gi).array();
+      scope_door_t::open().record(this->spec.gi).array();
   ArrayGroupData::timelevel_t &timelevel = arraydata.timelevel(this->spec.tl);
   for (const vi_t vi : variables_of(this->spec.gi, this->spec.vi)) {
     timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
@@ -755,7 +755,7 @@ array_write_scope_t::~array_write_scope_t() {
   const auto msg = event_reason(spec.event, "", iteration);
   const auto filled = event_reason(spec.event, " filled", iteration);
   ArrayGroupData::timelevel_t &timelevel =
-      GHExt::mutable_instance().record(spec.gi).array().timelevel(spec.tl);
+      scope_door_t::open().record(spec.gi).array().timelevel(spec.tl);
   for (const vi_t vi : variables_of(spec.gi, spec.vi)) {
     check_valid_ga(spec.gi, vi, spec.tl, spec.fills, msg);
     timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);
@@ -768,7 +768,7 @@ void *array_write_scope_t::data(const std::source_location site) & {
            "a moved-from array write scope on group %s, time level %d hands "
            "out no data",
            driver().record(spec.gi).groupname.c_str(), spec.tl.index());
-  return GHExt::mutable_instance()
+  return scope_door_t::open()
       .record(spec.gi)
       .array(site)
       .timelevel(spec.tl, site)

@@ -47,15 +47,24 @@ GHExt &existing_hierarchy() {
 }
 } // namespace
 
-GHExt &GHExt::mutable_instance() { return existing_hierarchy(); }
-
 const GHExt &driver() { return existing_hierarchy(); }
 
-std::unique_ptr<hierarchy_writers_t>
-create_hierarchy(const GHExt::config_t config) {
+GHExt &scope_door_t::open() { return existing_hierarchy(); }
+
+void hierarchy_slot_t::install(GHExt &ext) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
+  ghext = &ext;
+}
+
+void hierarchy_slot_t::remove(GHExt &ext) {
+  assert(ghext == &ext);
+  ghext = nullptr;
+}
+
+std::unique_ptr<hierarchy_writers_t>
+create_hierarchy(const GHExt::config_t config) {
   return std::unique_ptr<hierarchy_writers_t>(
       new hierarchy_writers_t(std::make_unique<GHExt>(config)));
 }
@@ -64,14 +73,12 @@ hierarchy_writers_t::hierarchy_writers_t(std::unique_ptr<GHExt> made)
     : clock(*made), structure(*made), registry(*made), scratch(*made),
       hierarchy(std::move(made)) {
   assert(hierarchy);
-  assert(!ghext);
-  ghext = hierarchy.get();
+  hierarchy_slot_t::install(*hierarchy);
 }
 
 hierarchy_writers_t::~hierarchy_writers_t() {
-  assert(ghext == hierarchy.get());
-  cctkGH_binding::unbind_arrays(hierarchy->flesh_cctkGH);
-  ghext = nullptr;
+  registry.release_flesh_cctkGH();
+  hierarchy_slot_t::remove(*hierarchy);
   hierarchy.reset();
 }
 
@@ -741,6 +748,10 @@ void registry_writer_t::adopt_flesh_cctkGH(cGH *const cctkGH) {
   ext.flesh_cctkGH = cctkGH;
   cctkGH_binding::bind_arrays(cctkGH);
   ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
+}
+
+void registry_writer_t::release_flesh_cctkGH() {
+  cctkGH_binding::unbind_arrays(ext.flesh_cctkGH);
 }
 
 std::size_t scratch_writer_t::acquire(const group_t group,

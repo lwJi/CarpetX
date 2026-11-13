@@ -285,6 +285,18 @@ concept freezes_integrator = requires(Ext &ext) {
 template <class Ext>
 concept opens_mutable_door = requires { Ext::mutable_instance(); };
 
+template <class Door>
+concept opens_scope_door = requires { Door::open(); };
+
+template <class Slot>
+concept installs_hierarchy = requires(GHExt &ext) { Slot::install(ext); };
+
+template <class Ext>
+concept assigns_cctkGH_member =
+    requires(Ext &ext, cGH *cctkGH) { ext.flesh_cctkGH = cctkGH; } ||
+    requires(Ext &ext) { ext.global_cctkGH = nullptr; } ||
+    requires(Ext &ext) { ext.level_cctkGHs.clear(); };
+
 template <class Writer>
 concept regrids = requires(Writer &writer, level_t level) {
   writer.regrid(level, CCTK_REAL{});
@@ -779,7 +791,10 @@ static_assert(!hands_out_data<array_write_scope_t>);
 static_assert(!hands_out_data<const array_write_scope_t &>);
 static_assert(!marks_initialized<GHExt>);
 static_assert(!marks_initialized<std::remove_reference_t<decltype(driver())>>);
+static_assert(!opens_scope_door<scope_door_t>);
+static_assert(!installs_hierarchy<hierarchy_slot_t>);
 static_assert(!opens_mutable_door<GHExt>);
+static_assert(!assigns_cctkGH_member<GHExt>);
 
 static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
 static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);
