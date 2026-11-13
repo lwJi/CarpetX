@@ -11,8 +11,7 @@
 
 namespace CarpetX {
 
-cGH *copy_cctkGH(const cGH *restrict const sourceGH);
-void delete_cctkGH(cGH *cctkGH);
+GHExt::cctkGHptr copy_cctkGH(const cGH *restrict const sourceGH);
 
 enum class mode_t { unknown, local, patch, level, global, meta };
 

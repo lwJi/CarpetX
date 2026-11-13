@@ -98,29 +98,6 @@ GHExt::PatchData &GHExt::add_patch(level_writer_t &levels,
   return patchdata.emplace_back(levels, patch, make_core_);
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-GHExt::cctkGHptr &GHExt::cctkGHptr::operator=(cctkGHptr &&ptr) {
-  if (cctkGH)
-    delete_cctkGH(cctkGH);
-  cctkGH = ptr.cctkGH;
-  ptr.cctkGH = nullptr;
-  return *this;
-}
-
-GHExt::cctkGHptr &GHExt::cctkGHptr::operator=(cGH *&&cctkGH) {
-  if (this->cctkGH)
-    delete_cctkGH(this->cctkGH);
-  this->cctkGH = cctkGH;
-  return *this;
-}
-
-GHExt::cctkGHptr::~cctkGHptr() {
-  if (cctkGH)
-    delete_cctkGH(cctkGH);
-  cctkGH = nullptr;
-}
-
 GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
                             const amrcore_factory make_core)
     : patch(patch) {
@@ -742,7 +719,7 @@ void registry_writer_t::adopt_flesh_cctkGH(cGH *const cctkGH) {
   assert(!ext.global_cctkGH);
   ext.flesh_cctkGH = cctkGH;
   cctkGH_binding::bind_arrays(cctkGH);
-  ext.global_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
+  ext.global_cctkGH = copy_cctkGH(cctkGH);
 }
 
 void registry_writer_t::release_flesh_cctkGH() {

@@ -170,19 +170,7 @@ struct GHExt {
   GHExt &operator=(const GHExt &) = delete;
   GHExt &operator=(GHExt &&) = delete;
 
-  struct cctkGHptr {
-    cGH *cctkGH;
-    cctkGHptr(const cctkGHptr &) = delete;
-    cctkGHptr(cctkGHptr &&ptr) : cctkGH(ptr.cctkGH) { ptr.cctkGH = nullptr; }
-    cctkGHptr &operator=(const cctkGHptr &) = delete;
-    cctkGHptr &operator=(cctkGHptr &&ptr);
-    cctkGHptr() : cctkGH(nullptr) {}
-    cctkGHptr(cGH *&&cctkGH) : cctkGH(cctkGH) {}
-    cctkGHptr &operator=(cGH *&&cctkGH);
-    ~cctkGHptr();
-    operator bool() const { return bool(cctkGH); }
-    cGH *get() const { return cctkGH; }
-  };
+  using cctkGHptr = std::unique_ptr<cGH, void (*)(cGH *)>;
 
   struct GroupRecord;
 
@@ -571,7 +559,7 @@ struct GHExt {
 
       level_buffers_ptr buffers;
 
-      cctkGHptr patch_cctkGH;
+      cctkGHptr patch_cctkGH{nullptr, nullptr};
       std::vector<cctkGHptr> local_cctkGHs;
 
       cGH *get_patch_cctkGH() const { return patch_cctkGH.get(); }
@@ -837,7 +825,7 @@ struct GHExt {
 
 private:
   cGH *flesh_cctkGH = nullptr;
-  cctkGHptr global_cctkGH;
+  cctkGHptr global_cctkGH{nullptr, nullptr};
   std::vector<cctkGHptr> level_cctkGHs;
   std::optional<std::vector<int>> pending_timelevels_;
   bool initialized_ = false;

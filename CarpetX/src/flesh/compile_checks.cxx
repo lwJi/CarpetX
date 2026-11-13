@@ -5,6 +5,7 @@
 #include "hierarchy/grid.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
 #include "hierarchy/operations.hxx"
 #include "comm/buffers.hxx"
 #include "comm/reflux.hxx"
@@ -796,6 +797,8 @@ static_assert(!opens_scope_door<scope_door_t>);
 static_assert(!installs_hierarchy<hierarchy_slot_t>);
 static_assert(!opens_mutable_door<GHExt>);
 static_assert(!assigns_cctkGH_member<GHExt>);
+static_assert(std::is_same_v<decltype(copy_cctkGH(nullptr)), GHExt::cctkGHptr>);
+static_assert(std::is_same_v<GHExt::cctkGHptr::deleter_type, void (*)(cGH *)>);
 
 static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
 static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);

@@ -22,7 +22,38 @@ namespace CarpetX {
 
 using Loop::undefined;
 
-cGH *copy_cctkGH(const cGH *restrict const sourceGH) {
+namespace {
+
+void delete_cctkGH(cGH *cctkGH) {
+  delete[] cctkGH->cctk_gsh;
+  delete[] cctkGH->cctk_lsh;
+  delete[] cctkGH->cctk_lbnd;
+  delete[] cctkGH->cctk_ubnd;
+  delete[] cctkGH->cctk_tile_min;
+  delete[] cctkGH->cctk_tile_max;
+  delete[] cctkGH->cctk_ash;
+  delete[] cctkGH->cctk_to;
+  delete[] cctkGH->cctk_from;
+  delete[] cctkGH->cctk_delta_space;
+  delete[] cctkGH->cctk_origin_space;
+  delete[] cctkGH->cctk_bbox;
+  delete[] cctkGH->cctk_levfac;
+  delete[] cctkGH->cctk_levoff;
+  delete[] cctkGH->cctk_levoffdenom;
+  delete[] cctkGH->cctk_nghostzones;
+  const int numvars = CCTK_NumVars();
+  for (const var_t var : index_range<var_t>(var_t{0}, var_t{numvars}))
+    delete[] cctkGH->data[var.index()];
+  delete[] cctkGH->data;
+#ifdef CCTK_DEBUG
+  memset(cctkGH, 0, sizeof *cctkGH);
+#endif
+  delete cctkGH;
+}
+
+} // namespace
+
+GHExt::cctkGHptr copy_cctkGH(const cGH *restrict const sourceGH) {
   cGH *restrict const cctkGH = new cGH;
 
   *cctkGH = *sourceGH;
@@ -56,34 +87,7 @@ cGH *copy_cctkGH(const cGH *restrict const sourceGH) {
     cctkGH->data[var.index()] = copy_array(
         sourceGH->data[var.index()], CCTK_DeclaredTimeLevelsVI(var.index()));
 
-  return cctkGH;
-}
-
-void delete_cctkGH(cGH *cctkGH) {
-  delete[] cctkGH->cctk_gsh;
-  delete[] cctkGH->cctk_lsh;
-  delete[] cctkGH->cctk_lbnd;
-  delete[] cctkGH->cctk_ubnd;
-  delete[] cctkGH->cctk_tile_min;
-  delete[] cctkGH->cctk_tile_max;
-  delete[] cctkGH->cctk_ash;
-  delete[] cctkGH->cctk_to;
-  delete[] cctkGH->cctk_from;
-  delete[] cctkGH->cctk_delta_space;
-  delete[] cctkGH->cctk_origin_space;
-  delete[] cctkGH->cctk_bbox;
-  delete[] cctkGH->cctk_levfac;
-  delete[] cctkGH->cctk_levoff;
-  delete[] cctkGH->cctk_levoffdenom;
-  delete[] cctkGH->cctk_nghostzones;
-  const int numvars = CCTK_NumVars();
-  for (const var_t var : index_range<var_t>(var_t{0}, var_t{numvars}))
-    delete[] cctkGH->data[var.index()];
-  delete[] cctkGH->data;
-#ifdef CCTK_DEBUG
-  memset(cctkGH, 0, sizeof *cctkGH);
-#endif
-  delete cctkGH;
+  return GHExt::cctkGHptr(cctkGH, delete_cctkGH);
 }
 
 mode_t current_mode(const cGH *restrict cctkGH) {
@@ -325,16 +329,15 @@ void leave_local_mode(cGH *restrict cctkGH,
 GHExt::cctkGHptr make_level_cctkGH(cGH *const global_cctkGH,
                                    const level_t level) {
   enter_level_mode(global_cctkGH, level);
-  GHExt::cctkGHptr level_cctkGH(copy_cctkGH(global_cctkGH));
+  GHExt::cctkGHptr level_cctkGH = copy_cctkGH(global_cctkGH);
   leave_level_mode(global_cctkGH, level);
   return level_cctkGH;
 }
 
 level_cctkGHs_t make_level_cctkGHs(cGH *const level_cctkGH,
                                    GHExt::PatchData::LevelData &leveldata) {
-  level_cctkGHs_t made;
   enter_patch_mode(level_cctkGH, leveldata);
-  made.patch = GHExt::cctkGHptr(copy_cctkGH(level_cctkGH));
+  level_cctkGHs_t made{.patch = copy_cctkGH(level_cctkGH), .local = {}};
   const auto mfitinfo = amrex::MFItInfo().EnableTiling();
   for (amrex::MFIter mfi(*leveldata.fab, mfitinfo); mfi.isValid(); ++mfi) {
     const MFPointer mfp(mfi);
