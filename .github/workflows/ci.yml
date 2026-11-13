@@ -121,7 +121,7 @@ jobs:
 
       # The objects know what each file imports, whatever syntax declared it; the
       # text checks of the Lint workflow cannot see that
-      - name: Check the layer order at the symbol level
+      - name: Check what each layer reads at the symbol level
         run: python3 $GITHUB_WORKSPACE/scripts/lint symbols "$GITHUB_WORKSPACE/../workspace/Cactus/configs/sim/build/CarpetX"
 
       # Also after a failed build, so that the next run starts from what did

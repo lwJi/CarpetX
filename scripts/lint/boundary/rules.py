@@ -12,7 +12,22 @@ MARKER = "CARPETX_INTERNAL"
 PRIVATE_DIR = "CarpetX/src/"
 PUBLIC_DIR = "CarpetX/src/include/"
 MAKE_DEFN = "CarpetX/src/make.code.defn"
-LAYERS = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+READS = {
+    "util": (),
+    "traversal": ("util",),
+    "hierarchy": ("util", "traversal"),
+    "comm": ("util", "traversal", "hierarchy"),
+    "regrid": ("hierarchy", "comm"),
+    "ops": ("util", "traversal", "hierarchy"),
+    "io": ("util", "traversal", "hierarchy", "comm", "ops"),
+    "schedule": ("traversal", "hierarchy", "comm", "io"),
+    "api": ("util", "hierarchy", "comm", "schedule"),
+    "flesh": ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
+}
+LAYERS = tuple(READS)
+assert all(targets == tuple(target for target in LAYERS[: LAYERS.index(layer)] if target in targets) for layer, targets in READS.items()), READS
+READS_TEXT = "; ".join(f"{layer}/ reads {', '.join(f'{target}/' for target in READS[layer]) or 'nothing'}" for layer in LAYERS)
+READS_HOME = "scripts/lint/boundary/rules.py"
 OWNS = {
     "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
     "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
@@ -42,9 +57,25 @@ def layer_of(name: str) -> Optional[str]:
     return parts[0] if len(parts) == 2 and parts[0] in LAYERS else None
 
 
-def below(layer: str) -> tuple[str, ...]:
+def includable(layer: str) -> tuple[str, ...]:
     assert layer in LAYERS, layer
-    return LAYERS[: LAYERS.index(layer) + 1]
+    return READS[layer] + (layer,)
+
+
+def carried(layer: str, header_reads: dict[str, tuple[str, ...]]) -> set[str]:
+    found = {layer}
+    for target in header_reads.get(layer, ()):
+        assert target in READS[layer], (layer, target)
+        found.update(carried(target, header_reads))
+    return found
+
+
+def linkable(layer: str, header_reads: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+    assert layer in LAYERS, layer
+    found = {layer}
+    for target in READS[layer]:
+        found.update(carried(target, header_reads))
+    return tuple(target for target in LAYERS if target in found)
 
 
 def layers_of(names: tuple[str, ...]) -> tuple[str, ...]:
@@ -267,7 +298,7 @@ def layer_allowed(name: str, line: str, statement: str) -> bool:
         return True
     parts = path.split("/")
     layer = layer_of(name)
-    return len(parts) > 1 and ".." not in parts and layer is not None and parts[0] in below(layer)
+    return len(parts) > 1 and ".." not in parts and layer is not None and parts[0] in includable(layer)
 
 
 def declaration_head(statement: str) -> str:
@@ -507,11 +538,12 @@ RULES = (
         files=private_cxx,
         word=LAYER_INCLUDE,
         allowed=layer_allowed,
-        text="a private CarpetX file includes internal.hxx and the headers of its own layer or a lower one, each as "
-        f'"<layer>/<name>.hxx"; the layers, lowest first, are {", ".join(LAYERS)}.',
+        text="a private CarpetX file includes internal.hxx and the headers of its own layer or of a layer its own "
+        f'reads, each as "<layer>/<name>.hxx": {READS_TEXT}. A layer reads only layers before it in that list, and a '
+        f"new read is an entry of READS in {READS_HOME}, which holds no entry that no file of the layer includes.",
         noun="include",
-        where="outside the layer order",
-        clean="every internal include at or below its own layer",
+        where="its layer does not read",
+        clean="every internal include from its own layer or one it reads",
     ),
     Rule(
         "prototype",

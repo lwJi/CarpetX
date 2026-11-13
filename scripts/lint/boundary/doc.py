@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PROTOTYPE_END, PUBLIC_DIR, RULES, UNDER_HIERARCHY, declaration_head, declared_function, file_local, layer_of, layer_path, statements
+from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, READS_TEXT, RULES, UNDER_HIERARCHY, declaration_head, declared_function, file_local, layer_of, layer_path, statements
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
@@ -79,7 +79,8 @@ CALLED_AS = {"structure_writer_t::regrid": "structure.regrid"}
 assert set(CALLED_AS) <= {name for row in PASS + REGRID for name in row[3]}, CALLED_AS
 BOXES = (("above", f"above {HUB}/"), ("door", "driver() allowed"), ("nodoor", "no driver()"))
 STACK_LEGEND = (
-    f"the layer rule holds the order {', '.join(f'{layer}/' for layer in LAYERS)} from the bottom: a file includes only its own layer or a lower one",
+    f"the layer rule holds what each layer reads, the table READS in {READS_HOME}: a file includes only its own layer or one its layer reads, and {READS_TEXT}",
+    "a layer reads only layers before it in that list, an include outside the table is refused, and an entry no file of the layer includes fails the tests, so the table holds exactly the layer-to-layer includes the tree has today",
     "a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes",
     f"an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above {HUB}/, is there for the arrow into {HUB}/",
     "the outer boxes are the door rule: driver() is called in the upper box, never in the lower",
@@ -121,9 +122,11 @@ def node(layer: str, no_header: tuple[str, ...], indent: str = "  ") -> str:
     return f'{indent}{layer}["{label}"]'
 
 
-def layer_includes(root: str, layer: str) -> set[tuple[str, str]]:
+def layer_includes(root: str, layer: str, suffixes: tuple[str, ...] = (".cxx", ".hxx")) -> set[tuple[str, str]]:
     found: set[tuple[str, str]] = set()
     for path in sources(root, layer):
+        if not path.endswith(suffixes):
+            continue
         with open(path) as f:
             for line in f:
                 m = LAYER_INCLUDE.match(line)
@@ -160,11 +163,21 @@ def reads(root: str) -> dict[tuple[str, str], set[str]]:
     found: dict[tuple[str, str], set[str]] = {}
     for layer in LAYERS:
         for target, header in layer_includes(root, layer):
-            assert LAYERS.index(target) < LAYERS.index(layer), (layer, target)
+            assert target in READS[layer], (layer, target)
             found.setdefault((layer, target), set()).add(header)
         for header in public_includes(root, layer):
             found.setdefault((layer, PUBLIC), set()).add(header)
     return found
+
+
+def header_reads(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
+    found = {layer: {target for target, _ in layer_includes(root, layer, (".hxx",))} for layer in LAYERS}
+    return {layer: tuple(target for target in LAYERS if target in found[layer]) for layer in LAYERS}
+
+
+def unread(root: str = PROJECT) -> list[tuple[str, str]]:
+    found = reads(root)
+    return [(layer, target) for layer in LAYERS for target in READS[layer] if (layer, target) not in found]
 
 
 def is_pair(reader: str, target: str) -> bool:
