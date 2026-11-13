@@ -13,6 +13,7 @@
 #include <functional>
 #include <ostream>
 #include <string>
+#include <vector>
 
 namespace CarpetX {
 
@@ -169,18 +170,15 @@ void update_cctkGH(cGH *restrict cctkGH, const cGH *restrict sourceGH);
 void update_cctkGHs(cGH *restrict cctkGH);
 void enter_global_mode(cGH *restrict cctkGH);
 void leave_global_mode(cGH *restrict cctkGH);
-void enter_level_mode(cGH *restrict cctkGH, level_t level);
-void leave_level_mode(cGH *restrict cctkGH, level_t level);
-void enter_patch_mode(cGH *restrict cctkGH,
-                      const GHExt::PatchData::LevelData &restrict leveldata);
-void leave_patch_mode(cGH *restrict cctkGH,
-                      const GHExt::PatchData::LevelData &restrict leveldata);
-void enter_local_mode(cGH *restrict cctkGH,
-                      const GHExt::PatchData::LevelData &restrict leveldata,
-                      const MFPointer &mfp);
-void leave_local_mode(cGH *restrict cctkGH,
-                      const GHExt::PatchData::LevelData &restrict leveldata,
-                      const MFPointer &mfp);
+
+GHExt::cctkGHptr make_level_cctkGH(cGH *global_cctkGH, level_t level);
+
+struct level_cctkGHs_t {
+  GHExt::cctkGHptr patch;
+  std::vector<GHExt::cctkGHptr> local;
+};
+level_cctkGHs_t make_level_cctkGHs(cGH *level_cctkGH,
+                                   GHExt::PatchData::LevelData &leveldata);
 
 void synchronize();
 

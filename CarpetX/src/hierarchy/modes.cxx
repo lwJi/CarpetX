@@ -1,4 +1,5 @@
 #include "hierarchy/loops.hxx"
+#include "hierarchy/binding.hxx"
 #include "hierarchy/driver.hxx"
 
 #include <cctk.h>
@@ -6,12 +7,15 @@
 
 #include <AMReX_Box.H>
 #include <AMReX_Geometry.H>
+#include <AMReX_MFIter.H>
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstring>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace CarpetX {
 
@@ -177,6 +181,8 @@ void leave_global_mode(cGH *restrict cctkGH) {
   assert(in_meta_mode(cctkGH));
 }
 
+namespace {
+
 void enter_level_mode(cGH *restrict cctkGH, const level_t level) {
   DECLARE_CCTK_PARAMETERS;
   assert(in_global_mode(cctkGH));
@@ -311,6 +317,36 @@ void leave_local_mode(cGH *restrict cctkGH,
     for (int f = 0; f < 2; ++f)
       cctkGH->cctk_bbox[2 * d + f] = undefined;
   assert(in_patch_mode(cctkGH));
+}
+
+} // namespace
+
+GHExt::cctkGHptr make_level_cctkGH(cGH *const global_cctkGH,
+                                   const level_t level) {
+  enter_level_mode(global_cctkGH, level);
+  GHExt::cctkGHptr level_cctkGH(copy_cctkGH(global_cctkGH));
+  leave_level_mode(global_cctkGH, level);
+  return level_cctkGH;
+}
+
+level_cctkGHs_t make_level_cctkGHs(cGH *const level_cctkGH,
+                                   GHExt::PatchData::LevelData &leveldata) {
+  level_cctkGHs_t made;
+  enter_patch_mode(level_cctkGH, leveldata);
+  made.patch = GHExt::cctkGHptr(copy_cctkGH(level_cctkGH));
+  const auto mfitinfo = amrex::MFItInfo().EnableTiling();
+  for (amrex::MFIter mfi(*leveldata.fab, mfitinfo); mfi.isValid(); ++mfi) {
+    const MFPointer mfp(mfi);
+    enter_local_mode(level_cctkGH, leveldata, mfp);
+    cctkGH_binding::bind_local(level_cctkGH, leveldata, mfp);
+    assert(int(made.local.size()) == tile_of(mfi).index());
+    assert(mfp.index() == tile_of(mfi).component());
+    made.local.emplace_back(copy_cctkGH(level_cctkGH));
+    cctkGH_binding::unbind_local(level_cctkGH, leveldata, mfp);
+    leave_local_mode(level_cctkGH, leveldata, mfp);
+  }
+  leave_patch_mode(level_cctkGH, leveldata);
+  return made;
 }
 
 } // namespace CarpetX

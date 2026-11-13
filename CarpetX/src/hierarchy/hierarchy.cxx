@@ -317,33 +317,6 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
                    ghost_mask_interior);
     ghost_masks.emplace(key, std::move(mask));
   }
-
-  if (int(ext.level_cctkGHs.size()) <= level.index()) {
-    cGH *const cctkGH = ext.get_global_cctkGH();
-    enter_level_mode(cctkGH, level);
-    assert(int(ext.level_cctkGHs.size()) == level.index());
-    ext.level_cctkGHs.emplace_back(copy_cctkGH(cctkGH));
-    leave_level_mode(cctkGH, level);
-  }
-
-  {
-    LevelData &leveldata = *this;
-    cGH *const cctkGH = ext.get_level_cctkGH(level);
-    enter_patch_mode(cctkGH, leveldata);
-    patch_cctkGH = GHExt::cctkGHptr(copy_cctkGH(cctkGH));
-    const auto mfitinfo = amrex::MFItInfo().EnableTiling();
-    for (amrex::MFIter mfi(*leveldata.fab, mfitinfo); mfi.isValid(); ++mfi) {
-      const MFPointer mfp(mfi);
-      enter_local_mode(cctkGH, leveldata, mfp);
-      cctkGH_binding::bind_local(cctkGH, leveldata, mfp);
-      assert(int(local_cctkGHs.size()) == tile_of(mfi).index());
-      assert(mfp.index() == tile_of(mfi).component());
-      local_cctkGHs.emplace_back(copy_cctkGH(cctkGH));
-      cctkGH_binding::unbind_local(cctkGH, leveldata, mfp);
-      leave_local_mode(cctkGH, leveldata, mfp);
-    }
-    leave_patch_mode(cctkGH, leveldata);
-  }
 }
 
 GHExt::PatchData::LevelData::GroupData::GroupData(
@@ -610,8 +583,18 @@ level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
     CCTK_VINFO("SetupLevel patch %d level %d", level.patch().index(),
                level.index());
 
-  const GHExt::PatchData::LevelData &leveldata =
+  GHExt::PatchData::LevelData &leveldata =
       ext.patch(level.patch()).add_level(level, ba, dm, why);
+
+  if (int(ext.level_cctkGHs.size()) <= level.index()) {
+    assert(int(ext.level_cctkGHs.size()) == level.index());
+    ext.level_cctkGHs.push_back(
+        make_level_cctkGH(ext.get_global_cctkGH(), level));
+  }
+  level_cctkGHs_t made =
+      make_level_cctkGHs(ext.get_level_cctkGH(level), leveldata);
+  leveldata.patch_cctkGH = std::move(made.patch);
+  leveldata.local_cctkGHs = std::move(made.local);
 
   if (verbose)
 #pragma omp critical
@@ -644,6 +627,9 @@ level_writer_t::remake_level(const level_t level, const amrex::BoxArray &ba,
                              const amrex::DistributionMapping &dm,
                              const std::function<std::string()> &why) {
   GHExt::PatchData::LevelData fresh(level, ba, dm, why);
+  level_cctkGHs_t made = make_level_cctkGHs(ext.get_level_cctkGH(level), fresh);
+  fresh.patch_cctkGH = std::move(made.patch);
+  fresh.local_cctkGHs = std::move(made.local);
   return ext.patch(level.patch()).replace_level(level, std::move(fresh));
 }
 
