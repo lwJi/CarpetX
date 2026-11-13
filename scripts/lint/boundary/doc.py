@@ -30,8 +30,9 @@ PUBLIC_LAYER = "api"
 PUBLIC_BODIES = (
     (layer_path("hierarchy", "handles.cxx"), ("variable", "active_window", "all_levels")),
     (layer_path("hierarchy", "loops.cxx"), ("synchronize",)),
-    (layer_path("hierarchy", "valid.cxx"), ("valid_t",)),
+    (layer_path("hierarchy", "why_valid.cxx"), ("valid_t",)),
     (layer_path("hierarchy", "group_tags.cxx"), ("operator<<",)),
+    (layer_path("hierarchy", "hierarchy.cxx"), ("level_t",)),
     (layer_path("ops", "reduction.cxx"), ("reduce",)),
     (layer_path("util", "timer.cxx"), ("Timer",)),
 )

@@ -8,7 +8,6 @@
 #include <cctk.h>
 
 #include <functional>
-#include <optional>
 #include <source_location>
 
 namespace CarpetX {
@@ -40,19 +39,6 @@ void require_window_level(const window_t::bounds_t levels,
 }
 
 } // namespace
-
-level_t level_t::parent(const std::source_location site) const {
-  if (level_ == 0)
-    refuse(site, "CarpetX level 0 of patch %d has no parent level",
-           patch_.index());
-  return level_t{patch_, level_ - 1};
-}
-
-std::optional<level_t> level_t::child() const {
-  if (level_ + 1 < driver().num_levels(patch_))
-    return level_t{patch_, level_ + 1};
-  return std::nullopt;
-}
 
 variable_t variable(const var_t var) {
   const gi_t gi{CCTK_GroupIndexFromVarI(var.index())};
@@ -112,10 +98,9 @@ void window_t::loop_parallel(
     const std::function<void(level_t level, tile_t tile, const cGH *cctkGH)>
         &kernel) const {
   CarpetX::loop_parallel(
-      *this, [&](const GHExt::PatchData::LevelData &leveldata,
-                 const tile_t tile, const cGH *const cctkGH) {
-        kernel(leveldata.level, tile, cctkGH);
-      });
+      *this,
+      [&](const GHExt::PatchData::LevelData &leveldata, const tile_t tile,
+          const cGH *const cctkGH) { kernel(leveldata.level, tile, cctkGH); });
 }
 
 window_t active_window() {

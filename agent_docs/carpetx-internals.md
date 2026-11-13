@@ -76,7 +76,7 @@ flowchart LR
   schedule -- "7 CCTK_CallFunction" --> thorn
   thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api
   thorn -- "8 reduce" --> ops
-  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t, operator<<" --> hierarchy
+  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t, operator<<, level_t" --> hierarchy
   thorn -- "8 Timer" --> util
   api -- "9 CCTK_ScheduleTraverse" --> cactus
   cactus -- "10 QueryGroupStorageB" --> schedule
@@ -120,7 +120,7 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 | `ops/` | a thorn | reduce |
 | `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |
 | `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |
-| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t, operator<< |
+| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t, operator<<, level_t |
 | `util/` | a thorn | Timer |
 
 ## What each layer owns

@@ -219,6 +219,19 @@ std::optional<window_t::bounds_t> GHExt::PatchData::modified_levels() const {
   return bounds;
 }
 
+level_t level_t::parent(const std::source_location site) const {
+  if (level_ == 0)
+    refuse(site, "CarpetX level 0 of patch %d has no parent level",
+           patch_.index());
+  return level_t{patch_, level_ - 1};
+}
+
+std::optional<level_t> level_t::child() const {
+  if (level_ + 1 < driver().num_levels(patch_))
+    return level_t{patch_, level_ + 1};
+  return std::nullopt;
+}
+
 substep_t substep_of_parent_step(const level_t child) {
   const GHExt &ext = driver();
   const GHExt::PatchData::LevelData &parentdata = ext.level(child.parent());
@@ -506,16 +519,6 @@ void GHExt::freeze_storage() {
       assert(record((*fluxes)[d]).numvars >= group.numvars);
     }
   }
-
-  for (const GroupRecord &group : records()) {
-    if (group.kind == group_kind::grid_function)
-      continue;
-    for (const tl_t tl : group.timelevels())
-      invalidate_array({.gi = group.groupindex,
-                        .tl = tl,
-                        .where = make_valid_int(),
-                        .event = "freeze_storage"});
-  }
 }
 
 void GHExt::record_integrator(integrator_t integrator,
@@ -702,7 +705,19 @@ void registry_writer_t::record_storage(const gi_t gi, const int timelevels) {
   ext.record_storage(gi, timelevels);
 }
 
-void registry_writer_t::freeze_storage() { ext.freeze_storage(); }
+void registry_writer_t::freeze_storage() {
+  ext.freeze_storage();
+
+  for (const GHExt::GroupRecord &group : ext.records()) {
+    if (group.kind == group_kind::grid_function)
+      continue;
+    for (const tl_t tl : group.timelevels())
+      invalidate_array({.gi = group.groupindex,
+                        .tl = tl,
+                        .where = make_valid_int(),
+                        .event = "freeze_storage"});
+  }
+}
 
 void registry_writer_t::record_integrator(GHExt::integrator_t integrator,
                                           const std::source_location site) {

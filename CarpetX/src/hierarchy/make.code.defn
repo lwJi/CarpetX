@@ -8,6 +8,7 @@ SRCS =							\
 	loops.cxx					\
 	modes.cxx					\
 	valid.cxx					\
+	why_valid.cxx					\
 	yaml.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
