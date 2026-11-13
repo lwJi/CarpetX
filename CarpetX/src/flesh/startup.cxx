@@ -1,5 +1,5 @@
+#include "config/grid_sizes.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/grid_sizes.hxx"
 #include "hierarchy/operations.hxx"
 #include "api/api.hxx"
 #include "schedule/schedule.hxx"

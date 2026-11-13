@@ -32,7 +32,7 @@ Refusals: `sync_during_write`, `prolongate_unwritten_parent`, `sync_invalid_coar
 
 ## The hierarchy and the parameters
 
-The BoxArray and DistributionMapping of a level are those of any group's MultiFab on it, and the refinement ratio is 2. Driver parameters are read through the flesh, `SHARES: Driver` or `CCTK_ParameterGet`, and CarpetX checks its own. Held by `PatchData`, `GroupData` in `hierarchy/hierarchy.cxx`; `per_level_max_grid_sizes` in `hierarchy/grid_sizes.cxx`; `select_groups` in `io/selection.cxx`.
+The BoxArray and DistributionMapping of a level are those of any group's MultiFab on it, and the refinement ratio is 2. Driver parameters are read through the flesh, `SHARES: Driver` or `CCTK_ParameterGet`, and CarpetX checks its own. Held by `PatchData`, `GroupData` in `hierarchy/hierarchy.cxx`; `per_level_max_grid_sizes` in `config/grid_sizes.cxx`; `select_groups` in `io/selection.cxx`.
 
 Refusals: `too_many_levels`, `output_unknown_variable`.
 

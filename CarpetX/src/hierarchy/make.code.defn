@@ -1,7 +1,6 @@
 SRCS =							\
 	binding.cxx					\
 	grid.cxx					\
-	grid_sizes.cxx					\
 	group_tags.cxx					\
 	handles.cxx					\
 	hierarchy.cxx					\

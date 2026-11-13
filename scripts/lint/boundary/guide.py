@@ -123,7 +123,7 @@ SECTIONS: tuple[Section, ...] = (
             Row(
                 "The BoxArray and DistributionMapping of a level are those of any group's MultiFab on it, and the refinement ratio is 2. "
                 "Driver parameters are read through the flesh, `SHARES: Driver` or `CCTK_ParameterGet`, and CarpetX checks its own.",
-                ("hierarchy/hierarchy.cxx:PatchData", "hierarchy/hierarchy.cxx:GroupData", "hierarchy/grid_sizes.cxx:per_level_max_grid_sizes", "io/selection.cxx:select_groups"),
+                ("hierarchy/hierarchy.cxx:PatchData", "hierarchy/hierarchy.cxx:GroupData", "config/grid_sizes.cxx:per_level_max_grid_sizes", "io/selection.cxx:select_groups"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),

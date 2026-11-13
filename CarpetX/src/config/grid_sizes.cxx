@@ -1,4 +1,4 @@
-#include "hierarchy/grid_sizes.hxx"
+#include "config/grid_sizes.hxx"
 
 #include <cctk.h>
 #include <cctk_Parameters.h>

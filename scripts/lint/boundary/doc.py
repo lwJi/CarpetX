@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Callable
+from typing import Callable, Iterator
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, READS_TEXT, RULES, UNDER_HIERARCHY, declaration_head, declared_function, file_local, layer_of, layer_path, statements
+from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, READS_TEXT, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, layer_of, layer_path, statements
+from comments.lex_cxx import lex
+from comments.tokens import Kind
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
@@ -178,6 +180,302 @@ def header_reads(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
 def unread(root: str = PROJECT) -> list[tuple[str, str]]:
     found = reads(root)
     return [(layer, target) for layer in LAYERS for target in READS[layer] if (layer, target) not in found]
+
+
+NAME = re.compile(r"[A-Za-z_]\w*")
+LITERAL = re.compile(r"(?:u8|[uUL])?R?[\"']")
+OPERATOR = "operator"
+OPERATOR_SIGN = re.compile(r"[^\w\s(\"']")
+OPENERS = {"(": ")", "[": "]", "{": "}"}
+CLOSERS = frozenset(OPENERS.values())
+CLASS_KEYS = ("struct", "class", "union", "enum")
+SCOPED_ENUM = ("class", "struct")
+CALLED_SPECIFIERS = ("decltype", "alignas", "noexcept", "explicit", "requires", "__attribute__")
+NOT_A_NAME = frozenset(
+    "auto bool char char8_t char16_t char32_t class const consteval constexpr constinit decltype double enum explicit extern float friend "
+    "inline int long mutable namespace noexcept operator requires short signed static struct template thread_local typedef typename union "
+    "unsigned using virtual void volatile wchar_t".split()
+)
+
+
+def stems(root: str, layer: str) -> set[str]:
+    return {os.path.splitext(os.path.basename(path))[0] for path in sources(root, layer)}
+
+
+def stem_rows(root: str = PROJECT) -> dict[str, dict[str, str]]:
+    for layer, rows in STEMS.items():
+        found = stems(root, layer)
+        unlisted = sorted(found - set(rows))
+        if unlisted:
+            raise ValueError(f"{', '.join(unlisted)} in {PRIVATE_DIR}{layer}/ but in no row of STEMS[{layer!r}] in {STEMS_HOME}: add a row that says the one concern the stem holds")
+        stale = [stem for stem in rows if stem not in found]
+        if stale:
+            raise ValueError(f"{', '.join(stale)} in a row of STEMS[{layer!r}] in {STEMS_HOME} but no file of {PRIVATE_DIR}{layer}/ has that stem: remove the row")
+    return STEMS
+
+
+def lone_sources(root: str = PROJECT) -> list[str]:
+    public = {file for file, _ in PUBLIC_BODIES}
+    found = []
+    for layer in STEMS:
+        names = {os.path.basename(path) for path in sources(root, layer)}
+        found.extend(
+            layer_path(layer, name)
+            for name in sorted(names)
+            if name.endswith(".cxx") and os.path.splitext(name)[0] + ".hxx" not in names and layer_path(layer, name) not in public
+        )
+    return found
+
+
+def spelled(text: str) -> list[tuple[str, int]]:
+    tokens = [token for token in lex(text) if token.kind is Kind.CODE]
+    found = []
+    at = 0
+    while at < len(tokens):
+        word, line = tokens[at].text, tokens[at].line
+        at += 1
+        if word == OPERATOR:
+            if "".join(token.text for token in tokens[at : at + 2]) in ("()", "[]"):
+                word += tokens[at].text + tokens[at + 1].text
+                at += 2
+            while at < len(tokens) and OPERATOR_SIGN.fullmatch(tokens[at].text):
+                word += tokens[at].text
+                at += 1
+        elif word == ":" and at < len(tokens) and tokens[at].text == ":":
+            word = "::"
+            at += 1
+        found.append((word, line))
+    return found
+
+
+def code(text: str) -> str:
+    return " ".join(word for word, _ in spelled(text) if not LITERAL.match(word))
+
+
+def words_in(text: str) -> set[str]:
+    return {token.text for token in lex(text) if token.kind in (Kind.CODE, Kind.DIRECTIVE) and NAME.fullmatch(token.text)}
+
+
+def macros(text: str) -> set[str]:
+    directive = [token.text for token in lex(text) if token.kind is Kind.DIRECTIVE]
+    found = {name for hash_, define, name in zip(directive, directive[1:], directive[2:]) if hash_ in ("#", "%:") and define == "define"}
+    return {name for name in found if not name.startswith(GUARD_PREFIX)}
+
+
+def closing(words: list[str], at: int) -> int:
+    depth = 0
+    for end in range(at, len(words)):
+        depth += words[end] in OPENERS
+        depth -= words[end] in CLOSERS
+        if depth == 0:
+            return end
+    return len(words) - 1
+
+
+def angles_end(words: list[str], at: int) -> int:
+    depth = 0
+    end = at
+    while end < len(words):
+        if words[end] in OPENERS:
+            end = closing(words, end)
+        elif words[end] == "<":
+            depth += 1
+        elif words[end] == ">":
+            depth -= 1
+            if depth == 0:
+                return end
+        end += 1
+    return len(words) - 1
+
+
+def bare(head: list[str]) -> list[str]:
+    words = []
+    at = 0
+    while at < len(head):
+        if head[at : at + 2] == ["[", "["]:
+            at = closing(head, at) + 1
+        else:
+            words.append(head[at])
+            at += 1
+    while words:
+        if words[0] == "extern" and len(words) > 1 and (LITERAL.match(words[1]) or words[1] == "template"):
+            words = words[1 + bool(LITERAL.match(words[1])) :]
+        elif words[0] == "template":
+            words = words[angles_end(words, 1) + 1 :] if words[1:2] == ["<"] else words[1:]
+        else:
+            break
+    return words
+
+
+def declarator_end(words: list[str]) -> int:
+    angles = 0
+    at = 0
+    while at < len(words):
+        word = words[at]
+        if word == "<":
+            angles += 1
+        elif word == ">" and angles:
+            angles -= 1
+        elif word in OPENERS:
+            if angles == 0 and word != "{" and not (word == "(" and at and words[at - 1] in CALLED_SPECIFIERS):
+                return at
+            at = closing(words, at)
+        elif word == "=" and angles == 0:
+            return at
+        at += 1
+    return len(words)
+
+
+def scope_opening(head: list[str]) -> bool:
+    words = [word for word in head if word != "inline"]
+    return (words[:1] == ["namespace"] and "=" not in words) or (len(words) == 2 and words[0] == "extern" and bool(LITERAL.match(words[1])))
+
+
+def function_like(head: list[str]) -> bool:
+    words = bare(head)
+    if not words or words[0] in CLASS_KEYS + ("namespace", "using", "typedef", "static_assert"):
+        return False
+    return words[declarator_end(words) :][:1] == ["("]
+
+
+def declarations(text: str) -> Iterator[tuple[int, list[str], list[str]]]:
+    tokens = spelled(text)
+    head: list[str] = []
+    body: list[str] = []
+    nest: list[str] = []
+    blocks = 0
+    line = 0
+    for at, (word, number) in enumerate(tokens):
+        if nest:
+            in_block = nest[0] == "{"
+            if word in OPENERS:
+                nest.append(word)
+            elif word in CLOSERS:
+                nest.pop()
+            if not in_block:
+                if blocks == 0:
+                    head.append(word)
+            elif nest:
+                if blocks == 0:
+                    body.append(word)
+            else:
+                blocks += 1
+                following = tokens[at + 1][0] if at + 1 < len(tokens) else ""
+                if following not in (";", ",", "{") and function_like(head):
+                    yield line, head, body
+                    head, body, blocks = [], [], 0
+            continue
+        if word == "}":
+            head, body, blocks = [], [], 0
+        elif word == ";":
+            if head:
+                yield line, head, body
+            head, body, blocks = [], [], 0
+        elif word == "{" and blocks == 0 and scope_opening(head):
+            head = []
+        elif word in CLOSERS:
+            continue
+        else:
+            if word in OPENERS:
+                nest.append(word)
+            if word != "{" and blocks == 0:
+                if not head:
+                    line = number
+                head.append(word)
+
+
+def outermost(words: list[str], at: int) -> str:
+    first = at
+    while first >= 2 and words[first - 1] == "::":
+        first -= 2
+        if words[first] == ">":
+            depth = 0
+            while first >= 0:
+                depth += words[first] == ">"
+                depth -= words[first] == "<"
+                first -= 1
+                if depth == 0:
+                    break
+    return words[first] if first >= 0 and NAME.fullmatch(words[first]) and words[first] not in NOT_A_NAME else words[at]
+
+
+def enumerators(body: list[str]) -> set[str]:
+    found = set()
+    at = 0
+    first = True
+    while at < len(body):
+        if body[at] in OPENERS:
+            at = closing(body, at)
+        elif body[at] == ",":
+            first = True
+        elif first:
+            first = False
+            if NAME.fullmatch(body[at]):
+                found.add(body[at])
+        at += 1
+    return found
+
+
+def declared_by(head: list[str], body: list[str]) -> set[str] | None:
+    words = bare(head)
+    if not words or words[0] == "static_assert":
+        return set()
+    if words[0] in CLASS_KEYS:
+        scoped = words[0] == "enum" and words[1:2] and words[1] in SCOPED_ENUM
+        rest = words[1 + bool(scoped) :]
+        found = {rest[0]} if rest and NAME.fullmatch(rest[0]) and rest[0] != "final" else set()
+        if words[0] == "enum" and not scoped:
+            found |= enumerators(body)
+        return found or None
+    if words[0] == "using":
+        if words[1:2] in (["namespace"], ["enum"]):
+            return set()
+        name = words[1] if "=" in words else words[-1]
+        return {name} if NAME.fullmatch(name) or name.startswith(OPERATOR) else None
+    if words[0] == "namespace":
+        return {words[1]} if words[2:3] == ["="] and NAME.fullmatch(words[1]) else None
+    declarator = words[1 : declarator_end(words)] if words[0] == "typedef" else words[: declarator_end(words)]
+    for at, word in enumerate(declarator):
+        if word.startswith(OPERATOR) and (word == OPERATOR or not NAME.fullmatch(word)):
+            name = outermost(declarator, at)
+            return {name} if name != OPERATOR else None
+    if not declarator or not NAME.fullmatch(declarator[-1]) or declarator[-1] in NOT_A_NAME:
+        return None
+    return {outermost(declarator, len(declarator) - 1)}
+
+
+def declared_names(text: str) -> set[str]:
+    found = macros(text)
+    for line, head, body in declarations(text):
+        names = declared_by(head, body)
+        if names is None:
+            raise ValueError(f"line {line} declares something the include-use check cannot name: {' '.join(head[:12])}")
+        found |= names
+    return found
+
+
+def stem_headers(root: str = PROJECT) -> dict[str, str]:
+    return {layer_path(layer, os.path.basename(path)): read(path) for layer in STEMS for path in sources(root, layer) if path.endswith(".hxx")}
+
+
+def unused_includes(root: str = PROJECT) -> list[tuple[str, str]]:
+    declared: dict[str, set[str]] = {}
+    for header, text in stem_headers(root).items():
+        try:
+            declared[header] = declared_names(text)
+        except ValueError as e:
+            raise ValueError(f"{header}: {e}") from None
+    found = []
+    for layer in LAYERS:
+        for path in sources(root, layer):
+            includer = layer_path(layer, os.path.basename(path))
+            text = read(path)
+            included = dict.fromkeys(PRIVATE_DIR + (m.group(1) or m.group(2)) for m in map(LAYER_INCLUDE.match, text.splitlines()) if m)
+            headers = [header for header in included if header in declared and header != includer]
+            if headers:
+                used = words_in(text)
+                found.extend((includer, header) for header in headers if declared[header].isdisjoint(used))
+    return found
 
 
 def is_pair(reader: str, target: str) -> bool:
@@ -389,12 +687,21 @@ def entries(root: str = PROJECT) -> str:
 
 
 OWNS_HEADING = "## What each layer owns"
-OWNS_INTRO = "New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides, then names the rules whose home is in it."
+OWNS_INTRO = (
+    "New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides, then names the rules whose home is in it. "
+    f"Under a layer that the table STEMS in {STEMS_HOME} lists is one row per file stem, a header and its source sharing the stem, that says the one concern the stem holds: "
+    "a stem with no row or a row with no stem fails the generator, `scripts/lint symbols` refuses a definition there that the header of its stem does not name, "
+    "and the tests refuse a source there with no header and an include of one of its headers that uses no name the header declares."
+)
 
 
-def owns() -> str:
+def owns(root: str = PROJECT) -> str:
     assert tuple(OWNS) == LAYERS, tuple(OWNS)
-    rows = [f"- `{layer}/`: {OWNS[layer]}" + (f" Rules at home here: {', '.join(rules_of(layer))}." if rules_of(layer) else "") for layer in reversed(LAYERS)]
+    listed = stem_rows(root)
+    rows = []
+    for layer in reversed(LAYERS):
+        rows.append(f"- `{layer}/`: {OWNS[layer]}" + (f" Rules at home here: {', '.join(rules_of(layer))}." if rules_of(layer) else ""))
+        rows.extend(f"  - `{stem}`: {holds}" for stem, holds in listed.get(layer, {}).items())
     return "\n".join([OWNS_HEADING, "", OWNS_INTRO, ""] + rows) + "\n"
 
 
@@ -422,5 +729,5 @@ def render(root: str = PROJECT) -> str:
     for title, picture, texts in SECTIONS:
         parts.extend([f"## {title}", "", "```mermaid", picture(root).rstrip("\n"), "```", "", legend(texts)])
     parts.append(entries(root))
-    parts.append(owns())
+    parts.append(owns(root))
     return "\n".join(parts)

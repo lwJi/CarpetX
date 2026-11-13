@@ -986,6 +986,8 @@ class Door(unittest.TestCase):
                 "CarpetX/src/traversal/traversal.hxx",
                 "CarpetX/src/util/refuse.cxx",
                 "CarpetX/src/util/task_manager.hxx",
+                "CarpetX/src/config/grid_sizes.cxx",
+                "CarpetX/src/config/grid_sizes.hxx",
             ]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("door", line)])
@@ -1579,7 +1581,8 @@ class Layers(unittest.TestCase):
         headers = {"hierarchy": ("util",), "comm": ("util", "hierarchy"), "io": ("ops",), "schedule": ("hierarchy",)}
         self.assertEqual(linkable("util", headers), ("util",))
         self.assertEqual(linkable("regrid", headers), ("util", "hierarchy", "comm", "regrid"))
-        self.assertEqual(linkable("schedule", headers), ("util", "traversal", "hierarchy", "comm", "ops", "io", "schedule"))
+        self.assertEqual(linkable("schedule", headers), ("util", "traversal", "config", "hierarchy", "comm", "ops", "io", "schedule"))
+        self.assertEqual(linkable("config", headers), ("config",))
         self.assertEqual(linkable("api", headers), ("util", "hierarchy", "comm", "schedule", "api"))
         self.assertEqual(linkable("flesh", headers), LAYERS)
         for layer in LAYERS:
@@ -1596,7 +1599,11 @@ class Layers(unittest.TestCase):
     def test_the_hierarchy_and_the_layers_above_it_may_call_driver(self):
         self.assertEqual(HIERARCHY_LAYERS, LAYERS[LAYERS.index("hierarchy") :])
         self.assertEqual(HIERARCHY_LAYERS[0], "hierarchy")
-        self.assertEqual(set(LAYERS) - set(HIERARCHY_LAYERS), {"util", "traversal"})
+        self.assertEqual(rules.UNDER_HIERARCHY, ("util", "traversal", "config"))
+        self.assertEqual(rules.UNDER_HIERARCHY + HIERARCHY_LAYERS, LAYERS)
+        self.assertEqual(rules.dirs(("io",), "or"), "io/")
+        self.assertEqual(rules.dirs(("util", "traversal"), "and"), "util/ and traversal/")
+        self.assertEqual(rules.dirs(rules.UNDER_HIERARCHY, "or"), "util/, traversal/ or config/")
 
     def test_every_file_a_rule_names_exists(self):
         named = (
@@ -1735,7 +1742,7 @@ class Report(unittest.TestCase):
             "no using-directive in a CarpetX header, "
             "every header opens with its own guard and internal.hxx, "
             "no extern C entry outside flesh/, "
-            "the hierarchy has one door that util/ and traversal/ never use, "
+            "the hierarchy has one door that util/, traversal/ and config/ never use, "
             "and no driver-internal ghost-only sync",
         )
 
@@ -2103,6 +2110,11 @@ class Guide(unittest.TestCase):
                 guide.hold_unexercised(PROJECT, declared, sources)
 
 
+def nodoor_of(lines):
+    nodoor = lines[lines.index('  subgraph nodoor["no driver()"]') + 1 :]
+    return nodoor[: nodoor.index("  end")]
+
+
 class Doc(unittest.TestCase):
     def test_the_map_is_what_doc_writes(self):
         with open(os.path.join(PROJECT, doc.MAP)) as f:
@@ -2140,16 +2152,16 @@ class Doc(unittest.TestCase):
             with self.subTest(box=box, target=target):
                 self.assertIn(box, dict(doc.BOXES))
                 self.assertIn(f'  {box} -- "{", ".join(headers)}" --> {target}', lines)
-        self.assertEqual(list(doc.floor()), [("above", "hierarchy"), ("door", "traversal"), ("door", "util"), ("door", "include"), ("nodoor", "include")])
+        self.assertEqual(list(doc.floor()), [("above", "hierarchy"), ("door", "config"), ("door", "traversal"), ("door", "util"), ("door", "include"), ("nodoor", "include")])
         self.assertIn("driver.hxx", doc.floor()[("above", "hierarchy")])
+        self.assertIn("grid_sizes.hxx", doc.floor()[("door", "config")])
+        self.assertIn('    config["config/"]', nodoor_of(lines))
         self.assertEqual(doc.floor()[("door", "include")], ("carpetx.hxx", "carpetx_rk.hxx"))
         door = lines[lines.index('  subgraph door["driver() allowed"]') + 1 : lines.index("  end")]
         self.assertEqual(door[0], '    subgraph above["above hierarchy/"]')
         self.assertEqual(door[-2:], ["    end", '    hierarchy["hierarchy/"]'])
         self.assertEqual([line.split("[")[0].strip() for line in door[1:-2]], list(reversed(doc.ABOVE)))
-        nodoor = lines[lines.index('  subgraph nodoor["no driver()"]') + 1 :]
-        nodoor = nodoor[: nodoor.index("  end")]
-        self.assertEqual([line.split("[")[0].strip() for line in nodoor], list(reversed(rules.UNDER_HIERARCHY)))
+        self.assertEqual([line.split("[")[0].strip() for line in nodoor_of(lines)], list(reversed(rules.UNDER_HIERARCHY)))
         self.assertIn('  include["include/"]', lines)
         self.assertEqual(doc.box_of("flesh", "hierarchy"), "above")
         self.assertEqual(doc.box_of("hierarchy", "util"), "door")
@@ -2164,6 +2176,8 @@ class Doc(unittest.TestCase):
 
     def test_an_owns_row_names_the_rules_at_home_in_its_layer(self):
         rows = {line.split(":")[0]: line for line in doc.owns().splitlines()[4:]}
+        self.assertEqual(rows["- `config/`"], f"- `config/`: {rules.OWNS['config']}")
+        self.assertTrue(rows["- `config/`"].endswith(" Nothing here calls `driver()`."))
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
         self.assertTrue(rows["- `hierarchy/`"].endswith(" Rules at home here: validity, binding, varindex, model."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
@@ -2264,12 +2278,21 @@ class Doc(unittest.TestCase):
         self.assertEqual(tuple(rules.OWNS), LAYERS, "a new layer is a row of OWNS in scripts/lint/boundary/rules.py: what it owns and what it never decides")
         lines = doc.owns().splitlines()
         self.assertEqual(lines[:4], [doc.OWNS_HEADING, "", doc.OWNS_INTRO, ""])
-        self.assertEqual([line.split(":")[0] for line in lines[4:]], [f"- `{layer}/`" for layer in reversed(LAYERS)])
+        self.assertEqual([line.split(":")[0] for line in lines[4:] if line.startswith("- ")], [f"- `{layer}/`" for layer in reversed(LAYERS)])
+        under = {}
+        for line in lines[4:]:
+            if line.startswith("- "):
+                layer = line.split("`")[1].rstrip("/")
+            else:
+                under.setdefault(layer, []).append(line)
+        self.assertEqual(under, {layer: [f"  - `{stem}`: {holds}" for stem, holds in rows.items()] for layer, rows in rules.STEMS.items()})
+        self.assertEqual(under["config"][0], "  - `grid_sizes`: the largest grid each level may have")
         words = set()
         for layer in LAYERS:
             for path in doc.sources(PROJECT, layer):
                 words.update(re.findall(r"[A-Za-z_]\w+", doc.read(path)))
-        for layer, row in rules.OWNS.items():
+        texts = [(layer, row) for layer, row in rules.OWNS.items()] + [(layer, holds) for layer, rows in rules.STEMS.items() for holds in rows.values()]
+        for layer, row in texts:
             for name in re.findall(r"`([^`]+)`", row):
                 with self.subTest(layer=layer, name=name):
                     if name.endswith("/"):
@@ -2388,6 +2411,7 @@ class Doc(unittest.TestCase):
             }
         )
         files[layer_path("api", "api.cxx")] += "void prolongate(window_t window, std::span<const gi_t> groups) {\n}\nstd::array<std::array<symmetry_t, dim>, 2> symmetries(const level_t level) {\n  return {};\n}\n"
+        files.update({layer_path(layer, stem + ".hxx"): "" for layer, rows in rules.STEMS.items() for stem in rows})
         with tempfile.TemporaryDirectory() as root:
             for layer in LAYERS:
                 os.makedirs(os.path.join(root, "CarpetX", "src", layer))
@@ -2492,6 +2516,182 @@ class Doc(unittest.TestCase):
             with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("api", "api.cxx"), ("num_patches",)),)), self.assertRaisesRegex(ValueError, "in api/, at or above api/"):
                 doc.entries(root)
             self.assertEqual(doc.render(root).count("```"), 6)
+
+
+def tree(root, files):
+    for layer in LAYERS:
+        os.makedirs(os.path.join(root, "CarpetX", "src", layer))
+    for name, text in files.items():
+        write(root, name, text)
+
+
+DECLARING = """\
+#ifndef CARPETX_CARPETX_CONFIG_SAMPLE_HXX
+#define CARPETX_CARPETX_CONFIG_SAMPLE_HXX
+
+#include "internal.hxx"
+#include <carpetx.hxx>
+
+#define SAMPLE_LIMIT 4
+
+namespace CarpetX {
+
+// commented_out_t is gone
+using Loop::dim;
+using tl_range = index_range<tl_t>;
+inline constexpr int time_refinement = 2;
+inline constexpr stage_range all_rk_stages{stage_t{0}, stage_t{max_num_rk_stages}};
+constexpr int substeps_per_coarsest_step(const int level) {
+  int substeps = 1;
+  return substeps << level;
+}
+enum class group_kind { grid_function, array };
+enum symmetry_kind : int { none_kind, periodic_kind = 3 };
+class clock_writer_t;
+struct boundary_t {
+  int member_kind;
+  boundary_t() : member_kind{0} {}
+  void set_member(int value);
+  friend std::ostream &operator<<(std::ostream &os, const boundary_t &b);
+};
+std::ostream &operator<<(std::ostream &os, boundary_t boundary);
+template <typename T> struct ipoison_t;
+template <> struct ipoison_t<CCTK_REAL> {
+  static constexpr const char *text = "text_in_a_string";
+};
+template <typename Index> class index_range {
+public:
+  index_range(Index first, Index last);
+};
+template <typename Index> index_range(Index, Index) -> index_range<Index>;
+template <typename T, int D = (dim > 2 ? 3 : dim)>
+[[nodiscard]] std::array<T, D> components_of(const amrex::FabArrayBase &fab,
+                                              std::source_location site =
+                                                  std::source_location::current());
+[[nodiscard]] inline bool aligned_with_parent(const level_t level) {
+  return substep_of_parent_step(level).is_first;
+}
+inline boundary_t::boundary_t(int value) : member_kind{value}, other{} {}
+static_assert(time_refinement == 2);
+amrex::Vector<amrex::IntVect> per_level_max_grid_sizes();
+using amrcore_factory = std::unique_ptr<amrex::AmrCore> (*)(level_writer_t &levels);
+namespace {
+const int file_local_limit = 3;
+}
+
+} // namespace CarpetX
+
+extern "C" {
+int CarpetX_Sample(const cGH *cctkGH);
+}
+
+#endif
+"""
+DECLARED = {
+    "SAMPLE_LIMIT", "dim", "tl_range", "time_refinement", "all_rk_stages", "substeps_per_coarsest_step", "group_kind", "symmetry_kind", "none_kind",
+    "periodic_kind", "clock_writer_t", "boundary_t", "operator<<", "ipoison_t", "index_range", "components_of", "aligned_with_parent",
+    "per_level_max_grid_sizes", "amrcore_factory", "file_local_limit", "CarpetX_Sample",
+}
+
+
+class Stems(unittest.TestCase):
+    SIZES_HXX = layer_path("config", "grid_sizes.hxx")
+    SIZES_CXX = layer_path("config", "grid_sizes.cxx")
+    DECLARES = "namespace CarpetX {\namrex::Vector<amrex::IntVect> per_level_max_grid_sizes();\n} // namespace CarpetX\n"
+    DEFINES = '#include "config/grid_sizes.hxx"\nnamespace CarpetX {\namrex::Vector<amrex::IntVect> per_level_max_grid_sizes() {\n  return {};\n}\n} // namespace CarpetX\n'
+
+    def test_a_listed_layer_is_a_layer_and_every_stem_in_it_has_a_row(self):
+        self.assertLessEqual(set(rules.STEMS), set(LAYERS))
+        self.assertIn("config", rules.STEMS)
+        self.assertEqual(doc.stem_rows(), rules.STEMS)
+        for layer, rows in rules.STEMS.items():
+            with self.subTest(layer=layer):
+                self.assertEqual(doc.stems(PROJECT, layer), set(rows))
+                for stem, holds in rows.items():
+                    self.assertTrue(holds and not holds.endswith("."), f"the row of {stem} says what the stem holds, as a phrase")
+
+    def test_a_stem_with_no_row_or_a_row_with_no_stem_fails_the_map(self):
+        rows = dict(rules.STEMS["config"])
+        fewer = {stem: holds for stem, holds in rows.items() if stem != "grid_sizes"}
+        with mock.patch.dict(rules.STEMS, {"config": fewer}):
+            with self.assertRaisesRegex(ValueError, r"^grid_sizes in CarpetX/src/config/ but in no row of STEMS\['config'\] in scripts/lint/boundary/rules.py: add a row that says the one concern the stem holds$"):
+                doc.render()
+            with self.assertRaises(ValueError):
+                doc.owns()
+        with mock.patch.dict(rules.STEMS, {"config": {**rows, "nosuch": "nothing on disk"}}):
+            with self.assertRaisesRegex(ValueError, r"^nosuch in a row of STEMS\['config'\] in scripts/lint/boundary/rules.py but no file of CarpetX/src/config/ has that stem: remove the row$"):
+                doc.render()
+        with tempfile.TemporaryDirectory() as root:
+            tree(root, {self.SIZES_HXX: "", self.SIZES_CXX: "", layer_path("config", "readers.hxx"): "", layer_path("hierarchy", "loops.hxx"): ""})
+            with mock.patch.dict(rules.STEMS, {"config": {"grid_sizes": "sizes"}}):
+                self.assertEqual(doc.stems(root, "config"), {"grid_sizes", "readers"})
+                with self.assertRaisesRegex(ValueError, "^readers in CarpetX/src/config/ but in no row"):
+                    doc.stem_rows(root)
+                with self.assertRaisesRegex(ValueError, "^readers in CarpetX/src/config/ but in no row"):
+                    doc.owns(root)
+                os.remove(os.path.join(root, layer_path("config", "readers.hxx")))
+                self.assertEqual(doc.stem_rows(root), {"config": {"grid_sizes": "sizes"}})
+                self.assertIn("\n- `config/`: " + rules.OWNS["config"] + "\n  - `grid_sizes`: sizes\n- `traversal/`: ", doc.owns(root))
+
+    def test_a_source_of_a_listed_layer_has_a_header_of_its_stem_or_a_row_of_public_bodies(self):
+        self.assertEqual(
+            doc.lone_sources(),
+            [],
+            "each is a .cxx of a layer STEMS in scripts/lint/boundary/rules.py lists with no .hxx of its stem beside it: move its bodies to the source of the header that declares them, or give it a header",
+        )
+        with tempfile.TemporaryDirectory() as root:
+            tree(root, {self.SIZES_HXX: "", self.SIZES_CXX: "", layer_path("config", "indices.hxx"): "", layer_path("config", "readers.cxx"): "", layer_path("hierarchy", "handles.cxx"): "", layer_path("hierarchy", "modes.cxx"): ""})
+            self.assertEqual(doc.lone_sources(root), [layer_path("config", "readers.cxx")])
+            with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("config", "readers.cxx"), ("operator<<",)),)):
+                self.assertEqual(doc.lone_sources(root), [])
+            self.assertIn(layer_path("hierarchy", "handles.cxx"), dict(doc.PUBLIC_BODIES))
+            with mock.patch.dict(rules.STEMS, {"hierarchy": {}}):
+                self.assertEqual(doc.lone_sources(root), [layer_path("config", "readers.cxx"), layer_path("hierarchy", "modes.cxx")])
+
+    def test_a_header_declares_its_namespace_scope_types_functions_and_constants(self):
+        self.assertEqual(doc.declared_names(DECLARING), DECLARED)
+        self.assertEqual(doc.declared_names(doc.read(os.path.join(PROJECT, self.SIZES_HXX))), {"per_level_max_grid_sizes"})
+        self.assertEqual(doc.declared_names("namespace fs = std::filesystem;\ntypedef unsigned long size_type;\nusing namespace std;\n"), {"fs", "size_type"})
+        self.assertEqual(doc.declared_names("struct GHExt {\n  struct PatchData {\n    int level_count() const { return 0; }\n  };\n};\nconst GHExt &driver();\n"), {"GHExt", "driver"})
+        self.assertEqual(doc.declared_names("inline valid_t::operator std::string() const { return explanation(); }\nbool operator==(const valid_t &a, const valid_t &b);\n"), {"valid_t", "operator=="})
+        for text, line in [
+            ("int a;\nvoid (*handler)(int);\n", 2),
+            ("\n\nstruct {\n  int x;\n} anonymous;\n", 3),
+            ("namespace CarpetX {\nconst int;\n}\n", 2),
+            ("void *operator new(std::size_t size);\n", 1),
+        ]:
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(ValueError, f"^line {line} declares something the include-use check cannot name: "):
+                    doc.declared_names(text)
+
+    def test_an_include_of_a_listed_header_uses_a_name_it_declares(self):
+        self.assertEqual(
+            doc.unused_includes(),
+            [],
+            "each pair is a file and a header it includes from a layer STEMS in scripts/lint/boundary/rules.py lists, with none of the names the header declares in the file: remove the include",
+        )
+        aliased = layer_path("flesh", "aliased.cxx")
+        evolve = layer_path("schedule", "evolve.cxx")
+        files = {
+            self.SIZES_HXX: guarded(self.SIZES_HXX, self.DECLARES),
+            self.SIZES_CXX: self.DEFINES,
+            layer_path("flesh", "startup.cxx"): '#include "config/grid_sizes.hxx"\nint n = per_level_max_grid_sizes().size();\n',
+            evolve: '#include "config/grid_sizes.hxx"\n#include "hierarchy/loops.hxx"\n// per_level_max_grid_sizes() is called below\nconst char *name = "per_level_max_grid_sizes";\nint all_per_level_max_grid_sizes();\nint n = in_global_mode(cctkGH);\n',
+            layer_path("hierarchy", "loops.hxx"): guarded(layer_path("hierarchy", "loops.hxx"), "namespace CarpetX {\nbool in_global_mode(const cGH *cctkGH);\nstruct MFPointer;\n}\n"),
+            aliased: '#include "hierarchy/loops.hxx"\n#include <loop.hxx>\nLoop::GridDescBase grid;\n',
+        }
+        with tempfile.TemporaryDirectory() as root:
+            tree(root, files)
+            self.assertEqual(doc.stem_headers(root), {self.SIZES_HXX: files[self.SIZES_HXX]})
+            self.assertEqual(doc.unused_includes(root), [(evolve, self.SIZES_HXX)])
+            with mock.patch.dict(rules.STEMS, {"hierarchy": {}}):
+                self.assertEqual(doc.unused_includes(root), [(evolve, self.SIZES_HXX), (aliased, layer_path("hierarchy", "loops.hxx"))])
+            write(root, evolve, files[evolve] + "auto sizes = per_level_max_grid_sizes();\n")
+            self.assertEqual(doc.unused_includes(root), [])
+            write(root, self.SIZES_HXX, files[self.SIZES_HXX] + "void (*handler)(int);\n")
+            with self.assertRaisesRegex(ValueError, "^CarpetX/src/config/grid_sizes.hxx: line 7 declares something the include-use check cannot name: "):
+                doc.unused_includes(root)
+
 
 if __name__ == "__main__":
     unittest.main()

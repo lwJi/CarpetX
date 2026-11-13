@@ -1,7 +1,7 @@
 #include "schedule/schedule.hxx"
 #include "schedule/clocks.hxx"
+#include "config/grid_sizes.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/grid_sizes.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"

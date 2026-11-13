@@ -15,14 +15,15 @@ MAKE_DEFN = "CarpetX/src/make.code.defn"
 READS = {
     "util": (),
     "traversal": ("util",),
+    "config": (),
     "hierarchy": ("util", "traversal"),
     "comm": ("util", "traversal", "hierarchy"),
     "regrid": ("hierarchy", "comm"),
     "ops": ("util", "traversal", "hierarchy"),
     "io": ("util", "traversal", "hierarchy", "comm", "ops"),
-    "schedule": ("traversal", "hierarchy", "comm", "io"),
+    "schedule": ("traversal", "config", "hierarchy", "comm", "io"),
     "api": ("util", "hierarchy", "comm", "schedule"),
-    "flesh": ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
+    "flesh": ("util", "traversal", "config", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
 }
 LAYERS = tuple(READS)
 assert all(targets == tuple(target for target in LAYERS[: LAYERS.index(layer)] if target in targets) for layer, targets in READS.items()), READS
@@ -31,6 +32,7 @@ READS_HOME = "scripts/lint/boundary/rules.py"
 OWNS = {
     "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
     "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
+    "config": "what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.",
     "hierarchy": "the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of one of five writers, by what it writes: `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` or `scratch_writer_t`. A writer has no public constructor, copy or move, and writes through the `GHExt &` it holds, so no member can be static. `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy: destroying it is the only way to destroy the hierarchy, and `hierarchy/` keeps none, only the pointer `driver()` reads; the level writer is a private member of the structure writer, which lends it to the AMReX core of each patch it adds and builds a recovered level through it.",
     "comm": "moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
@@ -40,6 +42,13 @@ OWNS = {
     "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the two writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty.",
     "flesh": 'every `extern "C"`, and the four writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its two. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
+STEMS = {
+    "config": {
+        "grid_sizes": "the largest grid each level may have",
+    },
+}
+assert set(STEMS) <= set(LAYERS), STEMS
+STEMS_HOME = READS_HOME
 HIERARCHY_LAYERS = LAYERS[LAYERS.index("hierarchy") :]
 UNDER_HIERARCHY = LAYERS[: LAYERS.index("hierarchy")]
 ROOT_HEADER = "internal.hxx"
@@ -85,7 +94,8 @@ def layers_of(names: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def dirs(layers: tuple[str, ...], conjunction: str) -> str:
-    return f" {conjunction} ".join(f"{layer}/" for layer in layers)
+    names = [f"{layer}/" for layer in layers]
+    return f" {conjunction} ".join(filter(None, (", ".join(names[:-1]), names[-1])))
 
 
 CHECKED = (Lang.CXX, Lang.MAKE)
