@@ -2319,7 +2319,8 @@ class Doc(unittest.TestCase):
                 layer_path("io", "io.cxx"): '#include "internal.hxx"\n#include <carpetx.hxx>\nint OutputGH(const cGH *cctkGH) {\n  if (Evolve(0)) {\n    return 1;\n  }\n  return 0;\n}\n',
                 layer_path("regrid", "regrid.cxx"): "void CactusAmrCore::ErrorEst(const int lev,\n                             amrex::TagBoxArray &tags) {\n}\n"
                 + "".join(f"void CactusAmrCore::{name}(int lev) {{\n}}\n" for name in doc.AMREX_CALLBACKS[1:]),
-                layer_path("hierarchy", "hierarchy.cxx"): "void structure_writer_t::regrid(const level_t base,\n                                const CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\nstd::optional<level_t> level_t::child() const {\n  return std::nullopt;\n}\n",
+                layer_path("hierarchy", "writers.cxx"): "void structure_writer_t::regrid(const level_t base,\n                                const CCTK_REAL time) {\n  ext.amrcore->regrid(base.index(), time);\n}\n",
+                layer_path("hierarchy", "hierarchy.cxx"): "std::optional<level_t> level_t::child() const {\n  return std::nullopt;\n}\n",
                 layer_path("hierarchy", "handles.cxx"): "variable_t variable(const var_t var) {\n  return {};\n}\nwindow_t active_window() {\n  return scheduled_window(\"x\");\n}\nwindow_t all_levels() {\n  return window_t::levels(0, 1);\n}\n",
                 layer_path("hierarchy", "loops.cxx"): "void synchronize() {\n}\n",
                 layer_path("hierarchy", "why_valid.cxx"): 'std::string valid_t::explanation() const {\n  return "";\n}\n',
@@ -2409,7 +2410,7 @@ class Doc(unittest.TestCase):
             startup = files[doc.STARTUP]
             evolve = files[layer_path("schedule", "evolve.cxx")]
             io_cxx = files[layer_path("io", "io.cxx")]
-            hierarchy_cxx = files[layer_path("hierarchy", "hierarchy.cxx")]
+            writers_cxx = files[layer_path("hierarchy", "writers.cxx")]
             storage_cxx = files[layer_path("schedule", "storage.cxx")]
             for message, changes, draw in [
                 ("Foo registered in CarpetX/src/flesh/startup.cxx but in no row of REGISTERED", {doc.STARTUP: startup.replace("  CCTK_OverloadSetupGH(SetupGH);\n", "  CCTK_OverloadSetupGH(SetupGH);\n  CCTK_OverloadFoo(Foo);\n")}, doc.entries),
@@ -2423,8 +2424,8 @@ class Doc(unittest.TestCase):
                 ("GroupStorageIncrease not called in flesh/, where step 10 starts", {doc.STARTUP: startup.replace("return GroupStorageIncrease(cctkGH, writers->registry)", "return 0")}, doc.the_pass),
                 ("DisableGroupStorage not defined in CarpetX/src/schedule/storage.cxx, where step 10 lands", {layer_path("schedule", "storage.cxx"): storage_cxx.replace("int DisableGroupStorage(", "int Disable(")}, doc.the_pass),
                 ("structure.regrid not called in schedule/, where step 1 starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  structure.regrid(level, time);\n", "  amrcore->regrid(level, time);\n")}, doc.the_regrid),
-                ("structure_writer_t::regrid not defined in CarpetX/src/hierarchy/hierarchy.cxx, where step 1 lands", {layer_path("hierarchy", "hierarchy.cxx"): hierarchy_cxx.replace("structure_writer_t::regrid", "clock_writer_t::regrid")}, doc.the_regrid),
-                ("amrcore->regrid not called in CarpetX/src/hierarchy/hierarchy.cxx, where step 2 starts", {layer_path("hierarchy", "hierarchy.cxx"): hierarchy_cxx.replace("  ext.amrcore->regrid(base.index(), time);\n", "")}, doc.the_regrid),
+                ("structure_writer_t::regrid not defined in CarpetX/src/hierarchy/writers.cxx, where step 1 lands", {layer_path("hierarchy", "writers.cxx"): writers_cxx.replace("structure_writer_t::regrid", "clock_writer_t::regrid")}, doc.the_regrid),
+                ("amrcore->regrid not called in CarpetX/src/hierarchy/writers.cxx, where step 2 starts", {layer_path("hierarchy", "writers.cxx"): writers_cxx.replace("  ext.amrcore->regrid(base.index(), time);\n", "")}, doc.the_regrid),
                 ("nowhere declared in a public header but defined in no api/ file and in no row of PUBLIC_BODIES", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "int nowhere();\n"}, doc.entries),
                 ("CarpetX/src/include/carpetx_rk.hxx:2 declares something the map cannot name: void (*handler)(int);", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "void (*handler)(int);\n"}, doc.entries),
                 ("operator<< not defined in CarpetX/src/hierarchy/group_tags.cxx, where its row of PUBLIC_BODIES", {layer_path("hierarchy", "group_tags.cxx"): "int tags() {\n  return 0;\n}\n"}, doc.the_pass),

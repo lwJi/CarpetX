@@ -71,8 +71,8 @@ REGRID_STEPS = {
     "3": "AMReX calls back into the layer that defines its callbacks",
 }
 REGRID = (
-    ("1", "schedule", "hierarchy", ("structure_writer_t::regrid",), layer_path("hierarchy", "hierarchy.cxx")),
-    ("2", "hierarchy", "amrex", ("amrcore->regrid",), layer_path("hierarchy", "hierarchy.cxx")),
+    ("1", "schedule", "hierarchy", ("structure_writer_t::regrid",), layer_path("hierarchy", "writers.cxx")),
+    ("2", "hierarchy", "amrex", ("amrcore->regrid",), layer_path("hierarchy", "writers.cxx")),
     ("3", "amrex", layer_of(CALLBACKS[0]), CALLBACKS[1], CALLBACKS[0]),
 )
 assert {row[0] for row in REGRID} == set(REGRID_STEPS), REGRID

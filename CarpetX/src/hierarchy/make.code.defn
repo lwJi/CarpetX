@@ -11,6 +11,7 @@ SRCS =							\
 	rk_levels.cxx					\
 	valid.cxx					\
 	why_valid.cxx					\
+	writers.cxx					\
 	yaml.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
