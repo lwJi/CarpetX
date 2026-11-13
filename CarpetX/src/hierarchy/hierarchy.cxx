@@ -183,21 +183,32 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
   }
 }
 
-GHExt::PatchData::LevelData &
-GHExt::PatchData::add_level(const level_t level, const amrex::BoxArray &ba,
-                            const amrex::DistributionMapping &dm,
-                            const std::function<std::string()> &why) {
-  assert(level.patch() == patch && level.index() == num_levels());
+GHExt::PatchData::LevelData &GHExt::add_level(PatchData::LevelData &&fresh) {
+  ++epoch_;
+  return patch(fresh.level.patch()).add_level(std::move(fresh));
+}
+
+GHExt::PatchData::LevelData GHExt::replace_level(PatchData::LevelData &&fresh) {
+  ++epoch_;
+  const level_t level = fresh.level;
+  return patch(level.patch()).replace_level(level, std::move(fresh));
+}
+
+void GHExt::erase_levels_from(const level_t level) {
+  ++epoch_;
+  patch(level.patch()).erase_levels_from(level);
+}
+
+GHExt::PatchData::LevelData &GHExt::PatchData::add_level(LevelData &&fresh) {
+  assert(fresh.level.patch() == patch && fresh.level.index() == num_levels());
   assert(int(level_modified.size()) == num_levels());
-  ++GHExt::mutable_instance().epoch_;
   level_modified.push_back(true);
-  return leveldata.emplace_back(level, ba, dm, why);
+  return leveldata.emplace_back(std::move(fresh));
 }
 
 GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
                                                             LevelData &&fresh) {
   assert(fresh.level == level);
-  ++GHExt::mutable_instance().epoch_;
   using std::swap;
   swap(this->level(level), fresh);
   level_modified.at(level.index()) = true;
@@ -207,7 +218,6 @@ GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
 void GHExt::PatchData::erase_levels_from(const level_t level) {
   assert(level.patch() == patch && level.index() >= 0 &&
          level.index() <= num_levels());
-  ++GHExt::mutable_instance().epoch_;
   leveldata.erase(leveldata.begin() + level.index(), leveldata.end());
   level_modified.resize(level.index());
 }
@@ -245,31 +255,36 @@ substep_t substep_of_parent_step(const level_t child) {
   return {begin, end};
 }
 
-GHExt::PatchData::LevelData::LevelData(const level_t level,
-                                       const amrex::BoxArray &ba,
-                                       const amrex::DistributionMapping &dm,
-                                       const std::function<std::string()> &why)
-    : level(level),
-      buffers(GHExt::mutable_instance().make_buffers_(level, ba, dm)) {
+GHExt::PatchData::LevelData::clock_t
+GHExt::PatchData::LevelData::coarsest_clock() {
+  return {.iteration = 0,
+          .delta_iteration = 1,
+          .last_step_iteration = 0,
+          .last_finalized_iteration = 0};
+}
+
+GHExt::PatchData::LevelData::clock_t
+GHExt::PatchData::LevelData::child_clock(const bool use_subcycling) const {
+  return {.iteration = iteration,
+          .delta_iteration =
+              delta_iteration / (use_subcycling ? time_refinement : 1),
+          .last_step_iteration = last_step_iteration,
+          .last_finalized_iteration = last_finalized_iteration};
+}
+
+GHExt::PatchData::LevelData::LevelData(
+    const level_t level, const amrex::BoxArray &ba,
+    const amrex::DistributionMapping &dm,
+    const std::function<std::string()> &why, const clock_t clock,
+    level_buffers_ptr buffers, const std::span<const GroupRecord> records,
+    const amrex::Geometry &geom)
+    : level(level), iteration(clock.iteration),
+      delta_iteration(clock.delta_iteration),
+      last_step_iteration(clock.last_step_iteration),
+      last_finalized_iteration(clock.last_finalized_iteration),
+      buffers(std::move(buffers)) {
   assert(this->buffers);
   DECLARE_CCTK_PARAMETERS;
-
-  GHExt &ext = GHExt::mutable_instance();
-  if (level.index() == 0) {
-    iteration = 0;
-    delta_iteration = 1;
-    last_step_iteration = 0;
-    last_finalized_iteration = 0;
-  } else {
-    auto &coarseleveldata = ext.level(level.parent());
-    iteration = coarseleveldata.iteration;
-    delta_iteration = coarseleveldata.delta_iteration /
-                      (ext.use_subcycling ? time_refinement : 1);
-    // A level that a regrid creates or remakes shares its parent's clock, and
-    // so the parent's last step and last end-of-step window
-    last_step_iteration = coarseleveldata.last_step_iteration;
-    last_finalized_iteration = coarseleveldata.last_finalized_iteration;
-  }
 
   const amrex::IntVect nghostzones = {
       ghost_size >= 0 ? ghost_size : ghost_size_x,
@@ -281,20 +296,18 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
                                          amrex::IndexType::CELL));
 
   const int numgroups = CCTK_NumGroups();
+  assert(int(records.size()) == numgroups);
   assert(groupdata.empty());
   groupdata.reserve(numgroups);
-  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
-    const GHExt::GroupRecord &group = ext.record(gi);
+  for (const GHExt::GroupRecord &group : records) {
     if (group.kind != group_kind::grid_function)
       groupdata.emplace_back(nullptr);
     else
       groupdata.push_back(
           std::make_unique<GHExt::PatchData::LevelData::GroupData>(
-              group, level, ba, dm, why));
+              group, level, ba, dm, why, geom));
   }
 
-  const amrex::Geometry &geom =
-      ext.patch(level.patch()).amrcore->Geom(level.index());
   for (const std::unique_ptr<GroupData> &group : groupdata) {
     if (!group)
       continue;
@@ -322,15 +335,13 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
 GHExt::PatchData::LevelData::GroupData::GroupData(
     const GroupRecord &record, const level_t level, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm,
-    const std::function<std::string()> &why)
+    const std::function<std::string()> &why, const amrex::Geometry &geom)
     : record(record), grid_function(record.grid_function()), level(level) {
   const int numvars = record.numvars;
 
   assert(record.kind == group_kind::grid_function);
   assert(record.var_type == var_type::real);
 
-  const GHExt &ext = driver();
-  const auto &geom = ext.patch(level.patch()).amrcore->Geom(level.index());
   for (int d = 0; d < dim; ++d)
     if (geom.isPeriodic(d))
       assert(geom.Domain().length(d) >= grid_function.nghostzones[d]);
@@ -572,6 +583,13 @@ const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
   return ext.add_patch(levels, patch);
 }
 
+static GHExt::PatchData::LevelData::clock_t
+new_level_clock(const GHExt &ext, const level_t level) {
+  if (level.index() == 0)
+    return GHExt::PatchData::LevelData::coarsest_clock();
+  return ext.level(level.parent()).child_clock(ext.use_subcycling);
+}
+
 const GHExt::PatchData::LevelData &
 level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
                           const amrex::DistributionMapping &dm,
@@ -583,8 +601,12 @@ level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
     CCTK_VINFO("SetupLevel patch %d level %d", level.patch().index(),
                level.index());
 
-  GHExt::PatchData::LevelData &leveldata =
-      ext.patch(level.patch()).add_level(level, ba, dm, why);
+  const GHExt::PatchData::LevelData::clock_t clock =
+      new_level_clock(ext, level);
+  GHExt::PatchData::LevelData fresh(
+      level, ba, dm, why, clock, ext.make_buffers_(level, ba, dm),
+      ext.group_records, ext.patch(level.patch()).amrcore->Geom(level.index()));
+  GHExt::PatchData::LevelData &leveldata = ext.add_level(std::move(fresh));
 
   if (int(ext.level_cctkGHs.size()) <= level.index()) {
     assert(int(ext.level_cctkGHs.size()) == level.index());
@@ -626,15 +648,19 @@ GHExt::PatchData::LevelData
 level_writer_t::remake_level(const level_t level, const amrex::BoxArray &ba,
                              const amrex::DistributionMapping &dm,
                              const std::function<std::string()> &why) {
-  GHExt::PatchData::LevelData fresh(level, ba, dm, why);
+  const GHExt::PatchData::LevelData::clock_t clock =
+      new_level_clock(ext, level);
+  GHExt::PatchData::LevelData fresh(
+      level, ba, dm, why, clock, ext.make_buffers_(level, ba, dm),
+      ext.group_records, ext.patch(level.patch()).amrcore->Geom(level.index()));
   level_cctkGHs_t made = make_level_cctkGHs(ext.get_level_cctkGH(level), fresh);
   fresh.patch_cctkGH = std::move(made.patch);
   fresh.local_cctkGHs = std::move(made.local);
-  return ext.patch(level.patch()).replace_level(level, std::move(fresh));
+  return ext.replace_level(std::move(fresh));
 }
 
 void level_writer_t::erase_levels_from(const level_t level) {
-  ext.patch(level.patch()).erase_levels_from(level);
+  ext.erase_levels_from(level);
 }
 
 void structure_writer_t::set_max_grid_size(

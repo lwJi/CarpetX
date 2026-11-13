@@ -539,9 +539,18 @@ struct GHExt {
       LevelData(LevelData &&) = default;
       LevelData &operator=(LevelData &&) = default;
 
+      struct clock_t {
+        rat64 iteration, delta_iteration;
+        int last_step_iteration, last_finalized_iteration;
+      };
+      static clock_t coarsest_clock();
+      clock_t child_clock(bool use_subcycling) const;
+
       LevelData(level_t level, const amrex::BoxArray &ba,
                 const amrex::DistributionMapping &dm,
-                const std::function<std::string()> &why);
+                const std::function<std::string()> &why, clock_t clock,
+                level_buffers_ptr buffers, std::span<const GroupRecord> records,
+                const amrex::Geometry &geom);
 
       level_t level;
 
@@ -597,7 +606,8 @@ struct GHExt {
         GroupData(const GroupRecord &record, level_t level,
                   const amrex::BoxArray &ba,
                   const amrex::DistributionMapping &dm,
-                  const std::function<std::string()> &why);
+                  const std::function<std::string()> &why,
+                  const amrex::Geometry &geom);
 
         const GroupRecord &record;
         const GroupRecord::grid_function_t &grid_function;
@@ -748,14 +758,12 @@ struct GHExt {
     std::vector<bool> level_modified;
 
     void reset_level_modified();
-    LevelData &add_level(level_t level, const amrex::BoxArray &ba,
-                         const amrex::DistributionMapping &dm,
-                         const std::function<std::string()> &why);
+    LevelData &add_level(LevelData &&fresh);
     LevelData replace_level(level_t level, LevelData &&fresh);
     void erase_levels_from(level_t level);
 
     friend class structure_writer_t;
-    friend class level_writer_t;
+    friend struct GHExt;
     friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
                                      const PatchData &patchdata);
   };
@@ -848,6 +856,9 @@ private:
 
   static GHExt &mutable_instance();
   PatchData &add_patch(level_writer_t &levels, patch_t patch);
+  PatchData::LevelData &add_level(PatchData::LevelData &&fresh);
+  PatchData::LevelData replace_level(PatchData::LevelData &&fresh);
+  void erase_levels_from(level_t level);
   void record_storage(gi_t gi, int timelevels);
   void freeze_storage();
   void record_integrator(integrator_t integrator, std::source_location site);
