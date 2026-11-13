@@ -3,10 +3,14 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest import mock
 
+from boundary import rules
 from boundary.symbols import (
+    NO_IMPORT,
     Reach,
     SymbolsError,
+    idle_links,
     layer_objects,
     parse_definitions,
     parse_imports,
@@ -20,6 +24,9 @@ SHUTDOWN = "__ZN7CarpetX10ShutdownIOEv"
 DRIVER = "__ZN7CarpetX6driverEv"
 TIMER = "__ZN7CarpetX5TimerD2Ev"
 PARENT = "__ZNK7CarpetX7level_t6parentENSt3__115source_locationE"
+REFUSE = "__ZN7CarpetX6refuseEPKc"
+STOP = "__ZN7CarpetX5Timer4stopEv"
+SYNC = "__ZN7CarpetX10SyncGroupsEv"
 LINUX_DEFINED = (
     "0000000000003428 T _ZN7CarpetX10ShutdownIOEv\n"
     "0000000000000000 W _ZN7CarpetX5TimerD2Ev\n"
@@ -90,6 +97,49 @@ class Reaches(unittest.TestCase):
         imports = {"hierarchy/hierarchy.cxx.o": {TIMER, "_CCTK_VInfo"}}
         self.assertEqual(reaches(self.LAYERS, self.DEFINED, imports), [])
 
+    def test_an_import_from_a_lower_layer_with_no_row_is_a_reach(self):
+        layers = {"ops/reduction.cxx.o": "ops", "api/api.cxx.o": "api", "io/io.cxx.o": "io"}
+        defined = {SYNC: "comm", SHUTDOWN: "io", DRIVER: "hierarchy"}
+        imports = {"ops/reduction.cxx.o": {SYNC, DRIVER}, "api/api.cxx.o": {SHUTDOWN, SYNC}, "io/io.cxx.o": {SYNC, SHUTDOWN}}
+        self.assertEqual(reaches(layers, defined, imports), [Reach("api/api.cxx.o", "api", "io", SHUTDOWN), Reach("ops/reduction.cxx.o", "ops", "comm", SYNC)])
+        with mock.patch.dict(rules.READS, {"ops": rules.READS["ops"] + ("comm",)}):
+            self.assertEqual(reaches(layers, defined, imports), [Reach("api/api.cxx.o", "api", "io", SHUTDOWN)])
+
+
+class Links(unittest.TestCase):
+    LAYERS = {"regrid/regrid.cxx.o": "regrid", "schedule/evolve.cxx.o": "schedule", "schedule/clocks.cxx.o": "schedule", "util/refuse.cxx.o": "util"}
+    DEFINED = {REFUSE: "util", STOP: "util", DRIVER: "hierarchy"}
+    IMPORTS = {"regrid/regrid.cxx.o": {REFUSE, DRIVER}, "schedule/evolve.cxx.o": {DRIVER}, "schedule/clocks.cxx.o": {STOP, TIMER}}
+
+    def test_no_row_of_links_is_a_row_of_reads(self):
+        self.assertTrue(rules.LINKS)
+        for layer, targets in rules.LINKS.items():
+            with self.subTest(layer=layer):
+                self.assertFalse(set(targets) & set(rules.READS[layer]))
+
+    def test_an_import_with_a_row_of_links_is_not_a_reach(self):
+        self.assertEqual(reaches(self.LAYERS, self.DEFINED, self.IMPORTS), [])
+        self.assertEqual(idle_links(self.LAYERS, self.DEFINED, self.IMPORTS), [])
+
+    def test_an_import_whose_row_of_links_is_deleted_is_a_reach(self):
+        with mock.patch.dict(rules.LINKS, {"schedule": ("util",)}, clear=True):
+            self.assertEqual(reaches(self.LAYERS, self.DEFINED, self.IMPORTS), [Reach("regrid/regrid.cxx.o", "regrid", "util", REFUSE)])
+            self.assertEqual(idle_links(self.LAYERS, self.DEFINED, self.IMPORTS), [])
+        with mock.patch.dict(rules.LINKS, clear=True):
+            self.assertEqual(
+                reaches(self.LAYERS, self.DEFINED, self.IMPORTS),
+                [Reach("regrid/regrid.cxx.o", "regrid", "util", REFUSE), Reach("schedule/clocks.cxx.o", "schedule", "util", STOP)],
+            )
+
+    def test_a_row_of_links_with_no_import_is_reported(self):
+        imports = {**self.IMPORTS, "regrid/regrid.cxx.o": {DRIVER}}
+        self.assertEqual(idle_links(self.LAYERS, self.DEFINED, imports), [("regrid", "util")])
+        self.assertEqual(idle_links(self.LAYERS, self.DEFINED, {}), [("regrid", "util"), ("schedule", "util")])
+        self.assertEqual(idle_links(self.LAYERS, {DRIVER: "hierarchy"}, self.IMPORTS), [("regrid", "util"), ("schedule", "util")])
+        self.assertEqual(idle_links(self.LAYERS, self.DEFINED, {"util/refuse.cxx.o": {REFUSE, STOP}}), [("regrid", "util"), ("schedule", "util")])
+        with mock.patch.dict(rules.LINKS, clear=True):
+            self.assertEqual(idle_links(self.LAYERS, self.DEFINED, {}), [])
+
 
 class Objects(unittest.TestCase):
     def test_objects_under_a_layer_directory_and_nothing_else(self):
@@ -121,11 +171,23 @@ class Report(unittest.TestCase):
     READABLE = {UP.symbol: "CarpetX::get_interpolator(std::string)"}
 
     def test_clean(self):
-        self.assertEqual(render([], {}), "✓ symbols: every CarpetX import from the importing object's layer or a lower one")
+        clean = "✓ symbols: every CarpetX import from the importing object's layer or one its rows name, and an import behind every row of LINKS"
+        self.assertEqual(render([], {}), clean)
+        self.assertEqual(render([], {}, []), clean)
 
-    def test_upward(self):
+    def test_an_import_outside_the_table(self):
         lines = render([self.UP], self.READABLE).split("\n")
         self.assertEqual(lines[0], "hierarchy/group_tags.cxx.o   -> comm        CarpetX::get_interpolator(std::string)")
         self.assertTrue(lines[1].startswith("symbols: an object the build made"))
-        self.assertEqual(lines[-1], "✗ symbols: 1 upward import")
-        self.assertEqual(summary([self.UP, self.UP]), "✗ symbols: 2 upward imports")
+        self.assertEqual(lines[-1], "✗ symbols: 1 import outside the layer table")
+        self.assertEqual(summary([self.UP, self.UP]), "✗ symbols: 2 imports outside the layer table")
+
+    def test_a_row_of_links_with_no_import(self):
+        lines = render([], {}, [("regrid", "util")]).split("\n")
+        self.assertEqual(lines[0], f"regrid/   -> util        {NO_IMPORT}")
+        self.assertTrue(lines[1].startswith("symbols: an object the build made"))
+        self.assertEqual(lines[-1], "✗ symbols: 1 row of LINKS with no import")
+        self.assertEqual(summary([], [("regrid", "util"), ("schedule", "util")]), "✗ symbols: 2 rows of LINKS with no import")
+        lines = render([self.UP], self.READABLE, [("regrid", "util")]).split("\n")
+        self.assertEqual(lines[:2], ["hierarchy/group_tags.cxx.o   -> comm        CarpetX::get_interpolator(std::string)", f"regrid/                      -> util        {NO_IMPORT}"])
+        self.assertEqual(lines[-1], "✗ symbols: 1 import outside the layer table, 1 row of LINKS with no import")

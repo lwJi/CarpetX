@@ -44,8 +44,9 @@ flowchart TB
   nodoor -- "carpetx.hxx" --> include
 ```
 
-- the layer rule holds the order util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/ from the bottom: a file includes only its own layer or a lower one
-- a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes
+- the layers are util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/ from the bottom, the order the build lists them in; the layer rule holds a table of which layer reads which, READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer's row names, and no row reads upward
+- an arrow between layers is drawn from rows of that table, each an include its layer has today, read from the #include lines, with the headers on it: nothing is drawn while a row has no include or an include has no row, and a layer is drawn above what it includes
+- a pair no #include shows, an import that arrives through another layer's header, is a row of LINKS beside that table, today regrid/ to util/, schedule/ to util/: it has no header to label an arrow, so none is drawn for it alone, and python3 scripts/lint symbols holds it to the objects of a build
 - an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above hierarchy/, is there for the arrow into hierarchy/
 - the outer boxes are the door rule: driver() is called in the upper box, never in the lower
 - include/ is the public headers, carpetx.hxx, carpetx_rk.hxx, not a layer: a thorn reads nothing else of CarpetX, and agent_docs/carpetx-public-api.md describes them

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import io
 import json
@@ -15,7 +16,7 @@ from files import PROJECT, Lang
 from run import check_since
 
 from . import check, doc, guide, rules
-from .rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, RULE, Finding, below, findings, layer_of, layer_path, new_findings, render, summary
+from .rules import HIERARCHY_LAYERS, LAYERS, MAKE_DEFN, RULE, Finding, findings, layer_of, layer_path, links, new_findings, reads, render, summary
 
 ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 GUARD = '#ifndef CARPETX_INTERNAL\n#error "CarpetX internal header; include <carpetx.hxx> instead"\n#endif\n'
@@ -27,6 +28,13 @@ def reported(name, text, lang=Lang.CXX):
 
 def guarded(name, text):
     return f"#ifndef {rules.guard_of(name)}\n#define {rules.guard_of(name)}\n\n" + text
+
+
+def tables(read, link=None):
+    patched = contextlib.ExitStack()
+    patched.enter_context(mock.patch.dict(rules.READS, {**dict.fromkeys(LAYERS, ()), **read}))
+    patched.enter_context(mock.patch.dict(rules.LINKS, link or {}, clear=True))
+    return patched
 
 
 def since_findings(root, base):
@@ -1034,7 +1042,21 @@ class Door(unittest.TestCase):
 
 
 class Layer(unittest.TestCase):
-    def test_a_file_includes_its_own_layer_and_the_layers_below_it(self):
+    READS = {
+        "util": "",
+        "traversal": "util",
+        "hierarchy": "util traversal",
+        "comm": "util traversal hierarchy",
+        "regrid": "hierarchy comm",
+        "ops": "util traversal hierarchy",
+        "io": "util traversal hierarchy comm ops",
+        "schedule": "traversal hierarchy comm io",
+        "api": "util hierarchy comm schedule",
+        "flesh": "util traversal hierarchy comm regrid ops io schedule api",
+    }
+    LINKS = {"regrid": "util", "schedule": "util"}
+
+    def test_a_file_includes_its_own_layer_and_the_layers_its_row_names(self):
         for line in [
             '#include "comm/comm.hxx"',
             '#include "comm/boundaries_impl.hxx"',
@@ -1059,14 +1081,48 @@ class Layer(unittest.TestCase):
                 self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", line + "\n"), [("layer", line)])
         self.assertEqual(reported("CarpetX/src/api/api.hxx", '#include "flesh/startup.hxx"\n'), [("layer", '#include "flesh/startup.hxx"')])
 
-    def test_each_layer_sees_exactly_the_layers_up_to_its_own(self):
-        for layer in LAYERS:
+    def test_an_include_of_a_lower_layer_with_no_row_is_reported(self):
+        for layer, other in [
+            ("regrid", "traversal"),
+            ("ops", "comm"),
+            ("ops", "regrid"),
+            ("io", "regrid"),
+            ("schedule", "regrid"),
+            ("schedule", "ops"),
+            ("api", "traversal"),
+            ("api", "regrid"),
+            ("api", "ops"),
+            ("api", "io"),
+        ]:
+            line = f'#include "{other}/x.hxx"'
+            with self.subTest(layer=layer, line=line):
+                self.assertLess(LAYERS.index(other), LAYERS.index(layer))
+                self.assertEqual(reported(layer_path(layer, "x.cxx"), line + "\n"), [("layer", line)])
+
+    def test_a_pair_that_only_links_is_no_include(self):
+        for layer, row in self.LINKS.items():
+            for other in row.split():
+                line = f'#include "{other}/x.hxx"'
+                with self.subTest(layer=layer, line=line):
+                    self.assertEqual(reported(layer_path(layer, "x.cxx"), line + "\n"), [("layer", line)])
+
+    def test_each_layer_includes_itself_and_exactly_the_layers_of_its_row(self):
+        self.assertEqual({layer: tuple(row.split()) for layer, row in self.READS.items()}, rules.READS)
+        self.assertEqual({layer: tuple(row.split()) for layer, row in self.LINKS.items()}, rules.LINKS)
+        for layer, row in self.READS.items():
             for other in LAYERS:
                 line = f'#include "{other}/x.hxx"'
-                expected = [] if LAYERS.index(other) <= LAYERS.index(layer) else [("layer", line)]
+                expected = [] if other == layer or other in row.split() else [("layer", line)]
                 for name in [layer_path(layer, "x.cxx"), layer_path(layer, "x.hxx")]:
                     with self.subTest(name=name, line=line):
                         self.assertEqual(reported(name, line + "\n"), expected)
+
+    def test_a_new_row_entry_is_a_new_include(self):
+        line = '#include "comm/comm.hxx"'
+        self.assertEqual(reported("CarpetX/src/ops/reduction.cxx", line + "\n"), [("layer", line)])
+        with mock.patch.dict(rules.READS, {"ops": rules.READS["ops"] + ("comm",)}):
+            self.assertEqual(reported("CarpetX/src/ops/reduction.cxx", line + "\n"), [])
+        self.assertEqual(reported("CarpetX/src/ops/reduction.cxx", line + "\n"), [("layer", line)])
 
     def test_an_unqualified_private_name_is_reported(self):
         for line in ['#include "driver.hxx"', '#include "schedule.hxx"', '#include "valid.hxx"', '#include "loop.hxx"']:
@@ -1550,18 +1606,37 @@ class Layers(unittest.TestCase):
         with self.assertRaises(AssertionError):
             layer_path("loops", "loops.hxx")
 
-    def test_a_layer_sees_itself_and_every_layer_before_it(self):
-        self.assertEqual(below("util"), ("util",))
-        self.assertEqual(below("comm"), ("util", "traversal", "hierarchy", "comm"))
-        self.assertEqual(below("flesh"), LAYERS)
+    def test_a_layer_reads_itself_and_the_layers_of_its_row_and_links_those_and_its_link_row(self):
+        self.assertEqual(reads("util"), ("util",))
+        self.assertEqual(reads("comm"), ("comm", "util", "traversal", "hierarchy"))
+        self.assertEqual(reads("regrid"), ("regrid", "hierarchy", "comm"))
+        self.assertEqual(links("regrid"), ("regrid", "hierarchy", "comm", "util"))
+        self.assertEqual(links("schedule"), reads("schedule") + ("util",))
+        self.assertEqual(reads("flesh"), ("flesh",) + LAYERS[:-1])
         for layer in LAYERS:
             with self.subTest(layer=layer):
-                self.assertEqual(below(layer)[-1], layer)
+                self.assertEqual(reads(layer)[0], layer)
+                self.assertEqual(links(layer)[: len(reads(layer))], reads(layer))
+                self.assertLessEqual(set(links(layer)), set(LAYERS[: LAYERS.index(layer) + 1]))
+                self.assertEqual(len(set(links(layer))), len(links(layer)))
         with self.assertRaises(AssertionError):
-            below("loops")
+            reads("loops")
+        with self.assertRaises(AssertionError):
+            links("loops")
+
+    def test_the_table_has_a_row_for_each_layer_and_no_row_reads_upward(self):
+        self.assertEqual(tuple(rules.READS), LAYERS)
+        self.assertLessEqual(set(rules.LINKS), set(LAYERS))
+        self.assertEqual(rules.not_down(rules.READS), [])
+        self.assertEqual(rules.not_down(rules.LINKS), [])
+        self.assertEqual(rules.not_down({"comm": ("util", "io"), "io": ("comm",)}), [("comm", "io")])
+        self.assertEqual(rules.not_down({"comm": ("comm",)}), [("comm", "comm")])
+        self.assertEqual(rules.not_down({"comm": ("loops",)}), [("comm", "loops")])
+        self.assertEqual(rules.rows({"util": (), "comm": ("util", "hierarchy")}), "util: none; comm: util, hierarchy")
+        self.assertIn(rules.rows(rules.READS), RULE.replace("\n  ", " "))
 
     def test_the_hierarchy_and_the_layers_above_it_may_call_driver(self):
-        self.assertEqual(HIERARCHY_LAYERS, below("flesh")[len(below("traversal")) :])
+        self.assertEqual(rules.UNDER_HIERARCHY + HIERARCHY_LAYERS, LAYERS)
         self.assertEqual(HIERARCHY_LAYERS[0], "hierarchy")
         self.assertEqual(set(LAYERS) - set(HIERARCHY_LAYERS), {"util", "traversal"})
 
@@ -1697,7 +1772,7 @@ class Report(unittest.TestCase):
             "no active_levels outside traversal.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
             "no hierarchy access in a checkpoint codec, "
-            "every internal include at or below its own layer, "
+            "every internal include in its own layer or one its row of READS names, "
             "no prototype in a CarpetX .cxx, "
             "no using-directive in a CarpetX header, "
             "every header opens with its own guard and internal.hxx, "
@@ -1746,11 +1821,11 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([g]), "✗ boundary: 1 hierarchy use the door does not allow")
         self.assertEqual(summary([k, g, g]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 hierarchy uses the door does not allow")
         y = ("CarpetX/src/comm/sync_restrict.cxx", Finding(3, "layer", '#include "schedule/schedule.hxx"'))
-        self.assertEqual(summary([y]), "✗ boundary: 1 include outside the layer order")
-        self.assertEqual(summary([g, y, y, k]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 includes outside the layer order, 1 hierarchy use the door does not allow")
+        self.assertEqual(summary([y]), "✗ boundary: 1 include outside the layer table")
+        self.assertEqual(summary([g, y, y, k]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 includes outside the layer table, 1 hierarchy use the door does not allow")
         p = ("CarpetX/src/flesh/startup.cxx", Finding(36, "prototype", "int InitGH(cGH *cctkGH);"))
         self.assertEqual(summary([p]), "✗ boundary: 1 prototype in a CarpetX .cxx")
-        self.assertEqual(summary([g, p, y, p]), "✗ boundary: 1 include outside the layer order, 2 prototypes in a CarpetX .cxx, 1 hierarchy use the door does not allow")
+        self.assertEqual(summary([g, p, y, p]), "✗ boundary: 1 include outside the layer table, 2 prototypes in a CarpetX .cxx, 1 hierarchy use the door does not allow")
         u = ("CarpetX/src/hierarchy/driver.hxx", Finding(43, "using", "using namespace Arith;"))
         self.assertEqual(summary([u]), "✗ boundary: 1 using-directive in a CarpetX header")
         self.assertEqual(summary([g, u, p, u]), "✗ boundary: 1 prototype in a CarpetX .cxx, 2 using-directives in a CarpetX header, 1 hierarchy use the door does not allow")
@@ -1774,7 +1849,7 @@ PLANT = ("void Evolve() {\n", "void Evolve() {\n  for (auto &p : ghext->patches(
 PLANTED = SOURCE.replace(*PLANT)
 DENIAL = "CarpetX/src/schedule/evolve.cxx:3   door       for (auto &p : ghext->patches())"
 DOOR_SUMMARY = "✗ boundary: 1 hierarchy use the door does not allow"
-LAYER_SUMMARY = "✗ boundary: 1 include outside the layer order"
+LAYER_SUMMARY = "✗ boundary: 1 include outside the layer table"
 SYNC_SOURCE = '#include "comm/comm.hxx"\n#include "hierarchy/driver.hxx"\n\nnamespace CarpetX {\nvoid sync() {\n}\n} // namespace CarpetX\n'
 TRAVERSAL_SOURCE = '#include "traversal/traversal.hxx"\n#include "util/refuse.hxx"\n\nnamespace CarpetX {\nvoid scope() {\n}\n} // namespace CarpetX\n'
 IO_SOURCE = '#include "io/selection.hxx"\n\nnamespace CarpetX {\nvoid OutputTSV(const cGH *cctkGH) {\n}\n} // namespace CarpetX\n'
@@ -1863,6 +1938,13 @@ class Hooks(unittest.TestCase):
         self.assertEqual(lines[0], UPWARD_DENIAL)
         self.assertEqual(lines[1:-1], RULE.split("\n"))
         self.assertEqual(lines[-1], LAYER_SUMMARY)
+
+    def test_an_include_of_a_lower_layer_with_no_row_is_denied_under_layer(self):
+        lines = denial(self, self.edit("CarpetX/src/io/io_tsv.cxx", '#include "io/selection.hxx"\n', '#include "io/selection.hxx"\n#include "regrid/regrid.hxx"\n'))
+        self.assertEqual(lines[0], 'CarpetX/src/io/io_tsv.cxx:2   layer      #include "regrid/regrid.hxx"')
+        self.assertEqual(lines[1:-1], RULE.split("\n"))
+        self.assertEqual(lines[-1], LAYER_SUMMARY)
+        self.assertEqual(self.edit("CarpetX/src/io/io_tsv.cxx", '#include "io/selection.hxx"\n', '#include "io/selection.hxx"\n#include "comm/comm.hxx"\n'), "")
 
     def test_an_unqualified_private_include_is_denied_under_layer_anywhere(self):
         for name, line in [
@@ -2155,40 +2237,75 @@ class Doc(unittest.TestCase):
             for name, text in files.items():
                 with open(os.path.join(src, name), "w") as f:
                     f.write(text)
-            edges = doc.includes(root)
-            self.assertEqual(
-                list(edges.items()),
-                [
-                    (("flesh", "io"), ("checkpoint.hxx", "io.hxx")),
-                    (("flesh", "ops"), ("interp.hxx",)),
-                    (("flesh", "comm"), ("comm.hxx",)),
-                    (("io", "ops"), ("reduction.hxx",)),
-                ],
-            )
-            self.assertEqual(list(doc.floor(root).items()), [(("above", "hierarchy"), ("driver.hxx",)), (("door", "util"), ("refuse.hxx",))])
-            drawn = doc.stack(root)
-            graph = drawn.splitlines()
-            self.assertEqual(graph[-7], '  include["include/"]')
-            self.assertEqual(graph[-6:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops', '  above -- "driver.hxx" --> hierarchy', '  door -- "refuse.hxx" --> util'])
-            self.assertNotIn("%%", drawn)
-            self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("hierarchy", "io", "comm")))
-            self.assertIn('      ops["ops/ no header"]', drawn)
-            self.assertIn('      comm["comm/', drawn)
-            self.assertNotIn('comm["comm/ no header"]', drawn)
-            self.assertIn('      io["io/"]', drawn)
-            self.assertIn('    hierarchy["hierarchy/"]', drawn)
-            self.assertIn('    util["util/ no header"]', drawn)
+            with tables({"flesh": ("util", "hierarchy", "comm", "ops", "io"), "io": ("ops",)}):
+                edges = doc.includes(root)
+                self.assertEqual(
+                    list(edges.items()),
+                    [
+                        (("flesh", "io"), ("checkpoint.hxx", "io.hxx")),
+                        (("flesh", "ops"), ("interp.hxx",)),
+                        (("flesh", "comm"), ("comm.hxx",)),
+                        (("io", "ops"), ("reduction.hxx",)),
+                    ],
+                )
+                self.assertEqual(list(doc.floor(root).items()), [(("above", "hierarchy"), ("driver.hxx",)), (("door", "util"), ("refuse.hxx",))])
+                drawn = doc.stack(root)
+                graph = drawn.splitlines()
+                self.assertEqual(graph[-7], '  include["include/"]')
+                self.assertEqual(graph[-6:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops', '  above -- "driver.hxx" --> hierarchy', '  door -- "refuse.hxx" --> util'])
+                self.assertNotIn("%%", drawn)
+                self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("hierarchy", "io", "comm")))
+                self.assertIn('      ops["ops/ no header"]', drawn)
+                self.assertIn('      comm["comm/', drawn)
+                self.assertNotIn('comm["comm/ no header"]', drawn)
+                self.assertIn('      io["io/"]', drawn)
+                self.assertIn('    hierarchy["hierarchy/"]', drawn)
+                self.assertIn('    util["util/ no header"]', drawn)
             for layer in rules.HIERARCHY_LAYERS[1:]:
                 with open(os.path.join(src, layer, "z.cxx"), "w") as f:
                     f.write('#include "hierarchy/driver.hxx"\n#include "util/refuse.hxx"\n#include <carpetx.hxx>\n' if layer == "io" else '#include "hierarchy/driver.hxx"\n')
             with open(os.path.join(src, "util", "u.cxx"), "w") as f:
                 f.write('#include "carpetx_rk.hxx"\n')
-            self.assertEqual(doc.floor(root)[("above", "hierarchy")], ("driver.hxx",))
-            self.assertEqual(doc.floor(root)[("door", "util")], ("refuse.hxx",))
-            self.assertEqual(doc.floor(root)[("door", "include")], ("carpetx.hxx",))
-            self.assertEqual(doc.floor(root)[("nodoor", "include")], ("carpetx_rk.hxx",))
-            self.assertEqual(doc.public_includes(root, "util"), {"carpetx_rk.hxx"})
-            self.assertEqual(doc.public_includes(root, "flesh"), set())
+            with tables({**{layer: ("hierarchy",) for layer in rules.HIERARCHY_LAYERS[1:]}, "flesh": ("util", "hierarchy", "comm", "ops", "io"), "io": ("util", "hierarchy", "ops")}):
+                self.assertEqual(doc.floor(root)[("above", "hierarchy")], ("driver.hxx",))
+                self.assertEqual(doc.floor(root)[("door", "util")], ("refuse.hxx",))
+                self.assertEqual(doc.floor(root)[("door", "include")], ("carpetx.hxx",))
+                self.assertEqual(doc.floor(root)[("nodoor", "include")], ("carpetx_rk.hxx",))
+                self.assertEqual(doc.public_includes(root, "util"), {"carpetx_rk.hxx"})
+                self.assertEqual(doc.public_includes(root, "flesh"), set())
+
+    def test_a_row_of_the_table_is_an_include_the_tree_has(self):
+        drawn = {edge for edge in doc.reads(PROJECT) if edge[1] != doc.PUBLIC}
+        self.assertEqual(drawn, {(layer, target) for layer, targets in rules.READS.items() for target in targets})
+        self.assertFalse(drawn & {(layer, target) for layer, targets in rules.LINKS.items() for target in targets})
+        with tempfile.TemporaryDirectory() as root:
+            src = os.path.join(root, "CarpetX", "src")
+            for layer in LAYERS:
+                os.makedirs(os.path.join(src, layer))
+            with open(os.path.join(src, "comm", "a.cxx"), "w") as f:
+                f.write('#include "internal.hxx"\n#include "comm/comm.hxx"\n#include "hierarchy/driver.hxx"\n#include <carpetx.hxx>\n')
+            held = {"comm": ("hierarchy",)}
+            with tables(held, {"comm": ("util",)}):
+                self.assertEqual(doc.reads(root), {("comm", "hierarchy"): {"driver.hxx"}, ("comm", "include"): {"carpetx.hxx"}})
+                self.assertIn('  above -- "driver.hxx" --> hierarchy', doc.stack(root).splitlines())
+            for message, read, link in [
+                ("comm/ includes hierarchy/driver.hxx but comm -> hierarchy is not in READS in scripts/lint/boundary/rules.py", {}, {}),
+                ("comm -> util in READS in scripts/lint/boundary/rules.py but no file of the layer includes a header of the target", {"comm": ("util", "hierarchy")}, {}),
+                ("comm -> util, io -> ops in READS in scripts/lint/boundary/rules.py but no file", {"comm": ("util", "hierarchy"), "io": ("ops",)}, {}),
+                ("comm -> hierarchy is in LINKS in scripts/lint/boundary/rules.py but comm/ includes hierarchy/driver.hxx: a pair with an include is a row of READS", held, {"comm": ("hierarchy",)}),
+                ("comm -> hierarchy is in LINKS in scripts/lint/boundary/rules.py but comm/ includes hierarchy/driver.hxx", {}, {"comm": ("hierarchy",)}),
+            ]:
+                for draw in (doc.reads, doc.includes, doc.floor, doc.stack):
+                    with self.subTest(message=message, draw=draw.__name__), tables(read, link), self.assertRaisesRegex(ValueError, re.escape(message)):
+                        draw(root)
+        for read, message in [
+            ({"ops": rules.READS["ops"] + ("comm",)}, "ops -> comm in READS in scripts/lint/boundary/rules.py but no file of the layer includes a header of the target"),
+            ({"ops": rules.READS["ops"][:-1]}, "but ops -> hierarchy is not in READS in scripts/lint/boundary/rules.py"),
+        ]:
+            with self.subTest(message=message), mock.patch.dict(rules.READS, read), self.assertRaisesRegex(ValueError, re.escape(message)):
+                doc.render()
+        with mock.patch.dict(rules.LINKS, {"ops": ("util",)}), self.assertRaisesRegex(ValueError, re.escape("ops -> util is in LINKS in scripts/lint/boundary/rules.py but ops/ includes util/")):
+            doc.render()
 
     def test_render_is_the_whole_map(self):
         text = doc.render()
@@ -2238,6 +2355,7 @@ class Doc(unittest.TestCase):
                 for item in texts:
                     self.assertNotIn("\n", item)
         self.assertIn("util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/, flesh/", doc.STACK_LEGEND[0])
+        self.assertIn("today regrid/ to util/, schedule/ to util/:", doc.STACK_LEGEND[2])
         self.assertIn(("hierarchy", "driver.hxx"), doc.layer_includes(PROJECT, "flesh"))
         self.assertIn(("door", "include"), doc.floor())
 
@@ -2439,7 +2557,8 @@ class Doc(unittest.TestCase):
                 doc.the_pass(root)
             with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("api", "api.cxx"), ("num_patches",)),)), self.assertRaisesRegex(ValueError, "in api/, at or above api/"):
                 doc.entries(root)
-            self.assertEqual(doc.render(root).count("```"), 6)
+            with tables({}):
+                self.assertEqual(doc.render(root).count("```"), 6)
 
 if __name__ == "__main__":
     unittest.main()
