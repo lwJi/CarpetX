@@ -21,8 +21,6 @@
 #include <AMReX_MultiFab.H>
 #include <AMReX_iMultiFab.H>
 
-#include <yaml-cpp/yaml.h>
-
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -199,22 +197,18 @@ struct GHExt {
     class AnyTypeVector {
 
     public:
-      // access to a single element of a AnyTypeVector
       class AnyTypeScalarRef {
       public:
         AnyTypeScalarRef() = delete;
         AnyTypeScalarRef(const AnyTypeVector &vect_, size_t idx_)
             : _vect(vect_), _idx(idx_) {}
 
+        var_type type() const { return _vect.type(); }
+        const void *data() const { return _vect.data_at(_idx); }
+
       private:
         const AnyTypeVector &_vect;
         const size_t _idx;
-
-        friend YAML::Emitter &
-        operator<<(YAML::Emitter &yaml,
-                   const AnyTypeScalarRef &anytypescalarref);
-        friend std::ostream &operator<<(std::ostream &os,
-                                        const AnyTypeScalarRef &scalar);
       };
 
       AnyTypeVector()
@@ -320,9 +314,6 @@ struct GHExt {
 
       size_t size() const { return _count; };
 
-      friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                       const AnyTypeVector &anytypevector);
-
     private:
       std::optional<var_type> _type;
       int _typesize;
@@ -394,9 +385,6 @@ struct GHExt {
       void rotate_timelevels();
 
       friend struct cctkGH_binding;
-
-      friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                       const ArrayGroupData &arraygroupdata);
     };
   };
 
@@ -499,6 +487,9 @@ struct GHExt {
                          std::vector<GroupRecord>::const_iterator,
                          record_filter>(
         group_records.begin(), group_records.end(), record_filter{kind});
+  }
+  index_range<gi_t> group_handles() const {
+    return index_range<gi_t>{gi_t{0}, gi_t{int(group_records.size())}};
   }
   int active_timelevels(gi_t gi) const;
   bool storage_frozen() const { return !pending_timelevels_; }
@@ -660,8 +651,6 @@ struct GHExt {
         void rotate_timelevels();
 
         friend struct cctkGH_binding;
-        friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                         const GroupData &groupdata);
       };
 
       struct group_storage_filter {
@@ -706,6 +695,19 @@ struct GHExt {
             groupdata.begin(), groupdata.end(), group_storage_filter{});
       }
 
+      struct group_present_filter {
+        bool operator()(const std::unique_ptr<GroupData> &groupdata) const {
+          return bool(groupdata);
+        }
+      };
+      auto all_groups() const {
+        return storage_range<
+            const GroupData,
+            std::vector<std::unique_ptr<GroupData>>::const_iterator,
+            group_present_filter>(groupdata.begin(), groupdata.end(),
+                                  group_present_filter{});
+      }
+
       const amrex::iMultiFab &ghost_mask(const GroupData &groupdata) const {
         return ghost_masks.at(
             ghost_mask_key_t{groupdata.grid_function.indextype,
@@ -715,9 +717,6 @@ struct GHExt {
     private:
       std::vector<std::unique_ptr<GroupData>> groupdata;
       std::map<ghost_mask_key_t, amrex::iMultiFab> ghost_masks;
-
-      friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                       const LevelData &leveldata);
     };
 
     int num_levels() const { return leveldata.size(); }
@@ -756,8 +755,6 @@ struct GHExt {
 
     friend class structure_writer_t;
     friend class level_writer_t;
-    friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                     const PatchData &patchdata);
   };
 
   int num_patches() const { return patchdata.size(); }
@@ -862,9 +859,6 @@ private:
   friend struct cctkGH_binding;
   friend class write_scope_t;
   friend class array_write_scope_t;
-
-  friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ext);
-  friend std::ostream &operator<<(std::ostream &os, const GHExt &ext);
 };
 
 const GHExt &driver();

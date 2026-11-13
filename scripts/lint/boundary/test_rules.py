@@ -941,6 +941,15 @@ class Door(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertEqual(reported("CarpetX/src/hierarchy/hierarchy.cxx", line + "\n"), [])
 
+    def test_the_metadata_format_tag_is_not_the_pointer(self):
+        tag = self.USES[3]
+        self.assertEqual(reported(rules.MODEL_TAG_FILE, "  " + tag + "\n"), [])
+        for line in self.USES[:3] + [tag + " assert(ghext);", 'yaml << "ghext-2.0.0";', 'CCTK_VINFO("ghext-2.0.0");']:
+            with self.subTest(line=line):
+                self.assertEqual(reported(rules.MODEL_TAG_FILE, "  " + line + "\n"), [("door", line)])
+        with open(os.path.join(PROJECT, rules.MODEL_TAG_FILE)) as f:
+            self.assertEqual(len(rules.MODEL_TAG.findall(f.read())), 1)
+
     def test_another_thorn_and_the_public_headers_may_use_the_name(self):
         for line in self.USES:
             for name in ["ODESolvers/src/solve.cxx", "CarpetX/src/include/carpetx.hxx"]:
@@ -1609,7 +1618,7 @@ class Layers(unittest.TestCase):
         named = (
             rules.VALIDITY_FILES
             + rules.TRAVERSAL_FILES
-            + (rules.DOOR_FILE, rules.RECORD_VAR_FILE, rules.MODEL_FILE, MAKE_DEFN)
+            + (rules.DOOR_FILE, rules.MODEL_TAG_FILE, rules.RECORD_VAR_FILE, rules.MODEL_FILE, MAKE_DEFN)
             + rules.SYNC_FILES
             + tuple(rules.INDEX_FIXED)
             + rules.CODEC_FILES

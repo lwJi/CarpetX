@@ -3,6 +3,7 @@ SRCS =							\
 	io.cxx						\
 	io_adios2.cxx					\
 	io_meta.cxx					\
+	io_model.cxx					\
 	io_norm.cxx					\
 	io_openpmd.cxx					\
 	io_openpmd_checkpoint.cxx			\

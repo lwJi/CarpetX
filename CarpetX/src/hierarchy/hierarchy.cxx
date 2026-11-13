@@ -786,26 +786,4 @@ void clock_writer_t::rotate_array_timelevels(const gi_t gi) {
   cctkGH_binding::rotate(ext, gi);
 }
 
-////////////////////////////////////////////////////////////////////////////////
-
-YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ext) {
-  yaml << YAML::LocalTag("ghext-2.0.0");
-  yaml << YAML::BeginMap;
-  yaml << YAML::Key << "globaldata" << YAML::Value;
-  yaml << YAML::LocalTag("globaldata-1.0.0");
-  yaml << YAML::BeginMap;
-  yaml << YAML::Key << "arraygroupdata" << YAML::Value << YAML::BeginSeq;
-  for (const auto &group : ext.group_records)
-    if (group.kind != group_kind::grid_function)
-      yaml << group.array();
-  yaml << YAML::EndSeq;
-  yaml << YAML::EndMap;
-  yaml << YAML::Key << "patchdata" << YAML::Value << YAML::BeginSeq;
-  for (const auto &patchdata : ext.patches())
-    yaml << patchdata;
-  yaml << YAML::EndSeq;
-  yaml << YAML::EndMap;
-  return yaml;
-}
-
 } // namespace CarpetX

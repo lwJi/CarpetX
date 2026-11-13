@@ -255,6 +255,21 @@ static std::vector<std::string> column_labels(const GHExt::GroupRecord &group,
   return labels;
 }
 
+static std::ostream &
+operator<<(std::ostream &os,
+           const GHExt::GlobalData::AnyTypeVector::AnyTypeScalarRef &scalar) {
+  const char sep = '\t';
+  visit(scalar.type(), [&](const auto tag) {
+    using T = typename decltype(tag)::type;
+    const T value = *static_cast<const T *>(scalar.data());
+    if constexpr (std::is_same_v<T, CCTK_COMPLEX>)
+      os << value.real() << sep << value.imag();
+    else
+      os << value;
+  });
+  return os;
+}
+
 void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
                      const GHExt::GroupRecord &group, const bool truncate_files,
                      const out_fileinfo_t out_fileinfo,
