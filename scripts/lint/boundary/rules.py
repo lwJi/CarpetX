@@ -13,6 +13,20 @@ PRIVATE_DIR = "CarpetX/src/"
 PUBLIC_DIR = "CarpetX/src/include/"
 MAKE_DEFN = "CarpetX/src/make.code.defn"
 LAYERS = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+READS = {
+    "util": (),
+    "traversal": ("util",),
+    "hierarchy": ("util", "traversal"),
+    "comm": ("util", "traversal", "hierarchy"),
+    "regrid": ("hierarchy", "comm"),
+    "ops": ("util", "traversal", "hierarchy"),
+    "io": ("util", "traversal", "hierarchy", "comm", "ops"),
+    "schedule": ("traversal", "hierarchy", "comm", "io"),
+    "api": ("util", "hierarchy", "comm", "schedule"),
+    "flesh": ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
+}
+LINKS = {"regrid": ("util",), "schedule": ("util",)}
+TABLE = "scripts/lint/boundary/rules.py"
 OWNS = {
     "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
     "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
@@ -42,9 +56,25 @@ def layer_of(name: str) -> Optional[str]:
     return parts[0] if len(parts) == 2 and parts[0] in LAYERS else None
 
 
-def below(layer: str) -> tuple[str, ...]:
+def reads(layer: str) -> tuple[str, ...]:
     assert layer in LAYERS, layer
-    return LAYERS[: LAYERS.index(layer) + 1]
+    return (layer,) + READS[layer]
+
+
+def links(layer: str) -> tuple[str, ...]:
+    return reads(layer) + LINKS.get(layer, ())
+
+
+def not_down(table: dict[str, tuple[str, ...]]) -> list[tuple[str, str]]:
+    return [(layer, target) for layer, targets in table.items() for target in targets if target not in LAYERS[: LAYERS.index(layer)]]
+
+
+def rows(table: dict[str, tuple[str, ...]]) -> str:
+    return "; ".join(f"{layer}: {', '.join(targets) or 'none'}" for layer, targets in table.items())
+
+
+assert tuple(READS) == LAYERS, tuple(READS)
+assert not not_down(READS) and not not_down(LINKS), not_down(READS) + not_down(LINKS)
 
 
 def layers_of(names: tuple[str, ...]) -> tuple[str, ...]:
@@ -267,7 +297,7 @@ def layer_allowed(name: str, line: str, statement: str) -> bool:
         return True
     parts = path.split("/")
     layer = layer_of(name)
-    return len(parts) > 1 and ".." not in parts and layer is not None and parts[0] in below(layer)
+    return len(parts) > 1 and ".." not in parts and layer is not None and parts[0] in reads(layer)
 
 
 def declaration_head(statement: str) -> str:
@@ -507,11 +537,13 @@ RULES = (
         files=private_cxx,
         word=LAYER_INCLUDE,
         allowed=layer_allowed,
-        text="a private CarpetX file includes internal.hxx and the headers of its own layer or a lower one, each as "
-        f'"<layer>/<name>.hxx"; the layers, lowest first, are {", ".join(LAYERS)}.',
+        text="a private CarpetX file includes internal.hxx and the headers of its own layer or of a layer its row of "
+        f'READS in {TABLE} names, each as "<layer>/<name>.hxx"; a row is the layers its layer includes today, and the '
+        f"rows, lowest layer first, are {rows(READS)}. A new pair is a new entry in a row, and python3 scripts/lint doc "
+        "refuses a row no include uses.",
         noun="include",
-        where="outside the layer order",
-        clean="every internal include at or below its own layer",
+        where="outside the layer table",
+        clean="every internal include in its own layer or one its row of READS names",
     ),
     Rule(
         "prototype",

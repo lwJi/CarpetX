@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PROTOTYPE_END, PUBLIC_DIR, RULES, UNDER_HIERARCHY, declaration_head, declared_function, file_local, layer_of, layer_path, statements
+from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, LINKS, OWNS, PROTOTYPE_END, PUBLIC_DIR, READS, RULES, TABLE, UNDER_HIERARCHY, declaration_head, declared_function, file_local, layer_of, layer_path, statements
 from files import PROJECT
 
 MAP = "agent_docs/carpetx-internals.md"
@@ -80,8 +80,9 @@ CALLED_AS = {"structure_writer_t::regrid": "structure.regrid"}
 assert set(CALLED_AS) <= {name for row in PASS + REGRID for name in row[3]}, CALLED_AS
 BOXES = (("above", f"above {HUB}/"), ("door", "driver() allowed"), ("nodoor", "no driver()"))
 STACK_LEGEND = (
-    f"the layer rule holds the order {', '.join(f'{layer}/' for layer in LAYERS)} from the bottom: a file includes only its own layer or a lower one",
-    "a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes",
+    f"the layers are {', '.join(f'{layer}/' for layer in LAYERS)} from the bottom, the order the build lists them in; the layer rule holds a table of which layer reads which, READS in {TABLE}: a file includes only its own layer or one its layer's row names, and no row reads upward",
+    "an arrow between layers is drawn from rows of that table, each an include its layer has today, read from the #include lines, with the headers on it: nothing is drawn while a row has no include or an include has no row, and a layer is drawn above what it includes",
+    f"a pair no #include shows, an import that arrives through another layer's header, is a row of LINKS beside that table, today {', '.join(f'{layer}/ to {target}/' for layer, targets in LINKS.items() for target in targets) or 'none'}: it has no header to label an arrow, so none is drawn for it alone, and python3 scripts/lint symbols holds it to the objects of a build",
     f"an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above {HUB}/, is there for the arrow into {HUB}/",
     "the outer boxes are the door rule: driver() is called in the upper box, never in the lower",
     f"{PUBLIC}/ is the public headers, {', '.join(os.path.basename(header) for header in PUBLIC_HEADERS)}, not a layer: a thorn reads nothing else of CarpetX, and agent_docs/carpetx-public-api.md describes them",
@@ -160,11 +161,17 @@ def box_of(reader: str, target: str) -> str:
 def reads(root: str) -> dict[tuple[str, str], set[str]]:
     found: dict[tuple[str, str], set[str]] = {}
     for layer in LAYERS:
-        for target, header in layer_includes(root, layer):
-            assert LAYERS.index(target) < LAYERS.index(layer), (layer, target)
+        for target, header in sorted(layer_includes(root, layer)):
+            if target in LINKS.get(layer, ()):
+                raise ValueError(f"{layer} -> {target} is in LINKS in {TABLE} but {layer}/ includes {target}/{header}: a pair with an include is a row of READS")
+            if target not in READS[layer]:
+                raise ValueError(f"{layer}/ includes {target}/{header} but {layer} -> {target} is not in READS in {TABLE}")
             found.setdefault((layer, target), set()).add(header)
         for header in public_includes(root, layer):
             found.setdefault((layer, PUBLIC), set()).add(header)
+    stale = [f"{layer} -> {target}" for layer in LAYERS for target in READS[layer] if (layer, target) not in found]
+    if stale:
+        raise ValueError(f"{', '.join(stale)} in READS in {TABLE} but no file of the layer includes a header of the target: a row no include uses is deleted, or moved to LINKS when python3 scripts/lint symbols finds an import behind it")
     return found
 
 
