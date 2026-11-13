@@ -1,6 +1,8 @@
 #include "hierarchy/loops.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/modes.hxx"
 #include "util/task_manager.hxx"
+#include <carpetx.hxx>
 
 #include <cctk.h>
 

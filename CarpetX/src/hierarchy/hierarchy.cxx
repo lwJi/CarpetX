@@ -5,7 +5,9 @@
 #include "hierarchy/operations.hxx"
 #include "hierarchy/valid.hxx"
 
+#include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>

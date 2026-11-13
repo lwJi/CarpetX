@@ -4,6 +4,7 @@
 #include "hierarchy/grid_sizes.hxx"
 #include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
 #include "hierarchy/operations.hxx"
 #include "io/io.hxx"
 #include <loop.hxx>

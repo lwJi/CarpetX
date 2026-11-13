@@ -6,6 +6,7 @@
 #include "comm/comm.hxx"
 #include "comm/fillpatch.hxx"
 #include "comm/prolongate_3d_rf2.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/valid.hxx"
 #include "util/refuse.hxx"

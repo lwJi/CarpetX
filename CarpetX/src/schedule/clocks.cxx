@@ -1,6 +1,7 @@
 #include "schedule/clocks.hxx"
 #include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
 #include "hierarchy/valid.hxx"

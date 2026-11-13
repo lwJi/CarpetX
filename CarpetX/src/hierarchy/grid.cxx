@@ -1,4 +1,4 @@
-#include "hierarchy/loops.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/driver.hxx"
 
 #include <cctk.h>
