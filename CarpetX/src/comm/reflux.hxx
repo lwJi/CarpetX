@@ -3,7 +3,7 @@
 
 #include "internal.hxx"
 
-#include "hierarchy/driver.hxx"
+#include "config/stages.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>

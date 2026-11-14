@@ -12,7 +12,6 @@
 #include <cassert>
 #include <functional>
 #include <ostream>
-#include <string>
 
 namespace CarpetX {
 
@@ -42,8 +41,6 @@ void loop_serially(
     window_t window,
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
                              tile_t tile, const cGH *cctkGH)> &kernel);
-
-std::string describe(window_t window);
 
 inline amrex::Orientation orient(int d, int f) {
   return amrex::Orientation(d, amrex::Orientation::Side(f));
@@ -90,8 +87,7 @@ struct GridDesc : Loop::GridDescBase {
 
   GridDesc() = delete;
   GridDesc(const GHExt::PatchData::LevelData &leveldata, const MFPointer &mfp);
-  GridDesc(const GHExt::PatchData::LevelData &leveldata,
-           component_t component);
+  GridDesc(const GHExt::PatchData::LevelData &leveldata, component_t component);
   GridDesc(const cGH *cctkGH) : Loop::GridDescBase(cctkGH) {}
 };
 

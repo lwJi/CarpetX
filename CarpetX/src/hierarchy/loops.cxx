@@ -23,19 +23,8 @@ static inline int omp_in_parallel() { return 0; }
 
 #include <cassert>
 #include <functional>
-#include <sstream>
-#include <string>
 
 namespace CarpetX {
-
-std::string describe(const window_t window) {
-  const auto levels = window.level_bounds();
-  const auto patches = window.patch_bounds();
-  std::ostringstream buf;
-  buf << "patches [" << patches.min << ", " << patches.max
-      << "), refinement levels [" << levels.min << ", " << levels.max << ")";
-  return buf.str();
-}
 
 template <class Kernel>
 static void loop_patches_at(const window_t window, const int level_index,

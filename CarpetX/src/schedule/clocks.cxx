@@ -1,5 +1,5 @@
 #include "schedule/clocks.hxx"
-#include "hierarchy/clocks.hxx"
+#include "config/stages.hxx"
 #include "hierarchy/driver.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"

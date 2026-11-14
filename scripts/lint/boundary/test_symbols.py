@@ -276,7 +276,7 @@ class Strays(unittest.TestCase):
 
 
 class Report(unittest.TestCase):
-    UP = Reach("hierarchy/group_tags.cxx.o", "hierarchy", "comm", "_ZN7CarpetX16get_interpolatorEv")
+    UP = Reach("config/groups.cxx.o", "config", "comm", "_ZN7CarpetX16get_interpolatorEv")
     OUT = Stray("config/grid_sizes.cxx.o", DEFAULTED, "CarpetX/src/config/grid_sizes.hxx")
     READABLE = {UP.symbol: "CarpetX::get_interpolator(std::string)", OUT.symbol: "CarpetX::size_or_default(int, int)"}
     CLEAN = "✓ symbols: every CarpetX import from the importing object's layer or one it reads"
@@ -290,7 +290,7 @@ class Report(unittest.TestCase):
 
     def test_unread(self):
         lines = render([self.UP], [], self.READABLE).split("\n")
-        self.assertEqual(lines[0], "hierarchy/group_tags.cxx.o   -> comm        CarpetX::get_interpolator(std::string)")
+        self.assertEqual(lines[0], "config/groups.cxx.o   -> comm        CarpetX::get_interpolator(std::string)")
         self.assertTrue(lines[1].startswith("symbols: an object the build made"))
         self.assertFalse(any(line.startswith("stems: ") for line in lines))
         self.assertEqual(lines[-1], "✗ symbols: 1 import from a layer the importing object's layer does not read")

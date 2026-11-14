@@ -1,17 +1,21 @@
-#ifndef CARPETX_CARPETX_HIERARCHY_INDICES_HXX
-#define CARPETX_CARPETX_HIERARCHY_INDICES_HXX
+#ifndef CARPETX_CARPETX_CONFIG_INDICES_HXX
+#define CARPETX_CARPETX_CONFIG_INDICES_HXX
 
 #include "internal.hxx"
 
 #include <carpetx.hxx>
+#include <loop.hxx>
 
 #include <AMReX_FabArrayBase.H>
 #include <AMReX_MFIter.H>
 #include <AMReX_ParallelDescriptor.H>
 
 #include <cassert>
+#include <string>
 
 namespace CarpetX {
+
+using Loop::dim;
 
 template <class Derived>
 constexpr Derived next_index(const index_t<Derived> i) {
@@ -57,6 +61,8 @@ private:
   Index begin_, end_;
 };
 
+using tl_range = index_range<tl_t>;
+using level_range = index_range<level_t>;
 using component_range = index_range<component_t>;
 
 constexpr component_range components_of(const int count) {
@@ -72,6 +78,8 @@ inline tile_t tile_of(const amrex::MFIter &mfi) {
   assert(amrex::ParallelDescriptor::TeamSize() == 1);
   return tile_t{component_t{mfi.index()}, mfi.tileIndex()};
 }
+
+std::string describe(window_t window);
 
 } // namespace CarpetX
 

@@ -1,7 +1,8 @@
+#include "config/boundaries.hxx"
+#include "config/groups.hxx"
+#include "config/stages.hxx"
 #include "hierarchy/binding.hxx"
-#include "hierarchy/clocks.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/group_tags.hxx"
 #include "hierarchy/operations.hxx"
 #include "hierarchy/valid.hxx"
 
@@ -424,7 +425,7 @@ GHExt::GroupRecord::GroupRecord(const gi_t gi, const int num_timelevels)
   if (kind == group_kind::grid_function) {
     assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
     assert(cgroup.dim == dim);
-    grid_function_ = make_grid_function(gi, numvars);
+    grid_function_ = declared_grid_function(gi, numvars);
   } else {
     assert(cgroup.disttype == CCTK_DISTRIB_CONSTANT);
     assert(cgroup.dim >= 0);

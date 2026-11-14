@@ -38,15 +38,15 @@ flowchart TB
   io -- "subcycling.hxx" --> comm
   regrid -- "fillpatch.hxx, substeps.hxx" --> comm
   traversal -- "refuse.hxx" --> util
-  above -- "binding.hxx, clocks.hxx, driver.hxx, group_tags.hxx, indices.hxx, loops.hxx, operations.hxx, valid.hxx" --> hierarchy
-  door -- "grid_sizes.hxx" --> config
+  above -- "binding.hxx, driver.hxx, loops.hxx, operations.hxx, valid.hxx" --> hierarchy
+  door -- "boundaries.hxx, grid_sizes.hxx, groups.hxx, indices.hxx, stages.hxx" --> config
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
   door -- "carpetx.hxx, carpetx_rk.hxx" --> include
   nodoor -- "carpetx.hxx" --> include
 ```
 
-- the layer rule holds what each layer reads, the table READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer reads, and util/ reads nothing; traversal/ reads util/; config/ reads nothing; hierarchy/ reads util/, traversal/; comm/ reads util/, traversal/, hierarchy/; regrid/ reads hierarchy/, comm/; ops/ reads util/, traversal/, hierarchy/; io/ reads util/, traversal/, hierarchy/, comm/, ops/; schedule/ reads traversal/, config/, hierarchy/, comm/, io/; api/ reads util/, hierarchy/, comm/, schedule/; flesh/ reads util/, traversal/, config/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/
+- the layer rule holds what each layer reads, the table READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer reads, and util/ reads nothing; traversal/ reads util/; config/ reads nothing; hierarchy/ reads util/, traversal/, config/; comm/ reads util/, traversal/, config/, hierarchy/; regrid/ reads hierarchy/, comm/; ops/ reads util/, traversal/, hierarchy/; io/ reads util/, traversal/, config/, hierarchy/, comm/, ops/; schedule/ reads traversal/, config/, hierarchy/, comm/, io/; api/ reads util/, config/, hierarchy/, comm/, schedule/; flesh/ reads util/, traversal/, config/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/
 - a layer reads only layers before it in that list, an include outside the table is refused, and an entry no file of the layer includes fails the tests, so the table holds exactly the layer-to-layer includes the tree has today
 - a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes
 - an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above hierarchy/, is there for the arrow into hierarchy/
@@ -67,6 +67,7 @@ flowchart LR
   ops["ops/"]
   comm["comm/"]
   hierarchy["hierarchy/"]
+  config["config/"]
   util["util/"]
   cactus -- "1 Initialise_entry, Evolve_entry" --> flesh
   flesh -- "1 Initialise, Evolve" --> schedule
@@ -79,7 +80,8 @@ flowchart LR
   schedule -- "7 CCTK_CallFunction" --> thorn
   thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api
   thorn -- "8 reduce" --> ops
-  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t, operator<<" --> hierarchy
+  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t" --> hierarchy
+  thorn -- "8 operator<<" --> config
   thorn -- "8 Timer" --> util
   api -- "9 CCTK_ScheduleTraverse" --> cactus
   cactus -- "10 QueryGroupStorageB" --> schedule
@@ -123,7 +125,8 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 | `ops/` | a thorn | reduce |
 | `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |
 | `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |
-| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t, operator<< |
+| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t |
+| `config/` | a thorn | operator<< |
 | `util/` | a thorn | Timer |
 
 ## What each layer owns
@@ -139,6 +142,10 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 - `comm/`: moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions, ghost-only.
 - `hierarchy/`: the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of one of five writers, by what it writes: `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` or `scratch_writer_t`. A writer has no public constructor, copy or move, and writes through the `GHExt &` it holds, so no member can be static. `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy: destroying it is the only way to destroy the hierarchy, and `hierarchy/` keeps none, only the pointer `driver()` reads; the level writer is a private member of the structure writer, which lends it to the AMReX core of each patch it adds and builds a recovered level through it. Rules at home here: validity, binding, varindex, model.
 - `config/`: what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.
+  - `groups`: what a group was declared as: its kind and its tags
+  - `boundaries`: the symmetries and default boundaries the parameters ask for
   - `grid_sizes`: the largest grid each level may have
+  - `indices`: ranges over the public index types
+  - `stages`: RK stages and the refinement of time
 - `traversal/`: the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not. Rules at home here: traversal.
 - `util/`: leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.

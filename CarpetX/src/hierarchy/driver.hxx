@@ -3,8 +3,9 @@
 
 #include "internal.hxx"
 
-#include <loop.hxx>
-#include "hierarchy/indices.hxx"
+#include "config/groups.hxx"
+#include "config/indices.hxx"
+#include "config/stages.hxx"
 #include "hierarchy/valid.hxx"
 #include "util/refuse.hxx"
 #include "util/var_type.hxx"
@@ -29,7 +30,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <ostream>
 #include <source_location>
 #include <span>
 #include <string>
@@ -38,24 +38,6 @@
 #include <vector>
 
 namespace CarpetX {
-
-using Loop::dim;
-
-inline constexpr int max_num_rk_stages = 4;
-
-struct stage_t : index_t<stage_t> {
-  using index_t::index_t;
-};
-
-using tl_range = index_range<tl_t>;
-using level_range = index_range<level_t>;
-
-using stage_range = index_range<stage_t>;
-
-constexpr stage_range rk_stages(const int nstages) {
-  return stage_range{stage_t{1}, stage_t{nstages + 1}};
-}
-inline constexpr stage_range all_rk_stages = rk_stages(max_num_rk_stages);
 
 template <class T> class const_propagating_ptr {
 public:
@@ -76,8 +58,6 @@ public:
 private:
   std::unique_ptr<T> ptr_;
 };
-
-enum class group_kind { grid_function, array, scalar };
 
 template <typename U> U &storage_entry(U &entry) { return entry; }
 template <typename U> U &storage_entry(U *const entry) { return *entry; }
@@ -121,21 +101,6 @@ private:
   Iter first, last;
   Keep keep;
 };
-
-// TODO: It seems that AMReX now also has `RB90`, `RB180`, and
-// `PolarB` boundary conditions. Make these available as well.
-
-// Boundary conditions are group properties. They are valid only for faces where
-// the domain symmetry is `none`.
-enum class boundary_t {
-  none,
-  symmetry_boundary,
-  dirichlet,
-  linear_extrapolation,
-  neumann,
-  robin,
-};
-std::ostream &operator<<(std::ostream &os, const boundary_t boundary);
 
 static_assert(AMREX_SPACEDIM == dim,
               "AMReX's AMREX_SPACEDIM must be the same as Cactus's cctk_dim");
@@ -430,15 +395,7 @@ struct GHExt {
           std::as_const(*this).array(site));
     }
 
-    struct grid_function_t {
-      std::array<int, dim> indextype;
-      std::array<int, dim> nghostzones;
-      std::array<std::array<boundary_t, dim>, 2> boundaries;
-      std::vector<std::array<int, dim>> parities;
-      std::vector<CCTK_REAL> dirichlet_values;
-      std::vector<CCTK_REAL> robin_values;
-      std::optional<std::array<gi_t, dim>> fluxes;
-    };
+    using grid_function_t = CarpetX::grid_function_t;
     const grid_function_t &
     grid_function(const std::source_location site =
                       std::source_location::current()) const {
@@ -453,7 +410,6 @@ struct GHExt {
     int num_timelevels_;
     std::unique_ptr<GlobalData::ArrayGroupData> array_;
     std::optional<grid_function_t> grid_function_;
-    static grid_function_t make_grid_function(gi_t gi, int numvars);
   };
 
   struct record_filter {

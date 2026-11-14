@@ -1,8 +1,7 @@
 #include "io/checkpoint.hxx"
 #include "hierarchy/binding.hxx"
-#include "hierarchy/clocks.hxx"
+#include "config/stages.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/group_tags.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/operations.hxx"
 #include "comm/buffers.hxx"
@@ -362,10 +361,6 @@ concept parses_grid_function_tags =
     requires(Group gi) { get_group_dirichlet_values(gi); } ||
     requires(Group gi) { get_group_robin_values(gi); } ||
     requires(Group gi) { get_group_fluxes(gi); };
-
-template <class Record>
-concept makes_grid_function =
-    requires(gi_t gi) { Record::make_grid_function(gi, 0); };
 
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
@@ -818,7 +813,6 @@ static_assert(!holds_robin_values<GHExt::PatchData::LevelData::GroupData>);
 static_assert(holds_fluxes<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_fluxes<GHExt::PatchData::LevelData::GroupData>);
 static_assert(!parses_grid_function_tags<gi_t>);
-static_assert(!makes_grid_function<GHExt::GroupRecord>);
 
 } // namespace
 } // namespace CarpetX

@@ -3,7 +3,7 @@
 
 #include "internal.hxx"
 
-#include "hierarchy/clocks.hxx"
+#include "config/stages.hxx"
 #include <carpetx.hxx>
 
 namespace CarpetX {
