@@ -38,6 +38,9 @@ LINUX_DEFINED = (
 )
 SIZES = "__ZN7CarpetX24per_level_max_grid_sizesEv"
 DEFAULTED = "__ZN7CarpetX15size_or_defaultEii"
+GCC_UNNAMED = "_ZN7CarpetX12_GLOBAL__N_115size_or_defaultEii"
+NVCC_NAMESPACE = "_GLOBAL__N__21_grid_sizes_cxx_0a1b2c3d"
+NVCC_UNNAMED = f"_ZN7CarpetX{len(NVCC_NAMESPACE)}{NVCC_NAMESPACE}15size_or_defaultEii"
 CURRENT_MODE = "_ZN7CarpetX12current_modeEPK4_cGH"
 GLOBAL_MODE = "_ZN7CarpetX14in_global_modeEPK4_cGH"
 ALL_LEVELS = "_ZN7CarpetX10all_levelsEv"
@@ -220,6 +223,11 @@ class DeclaredName(unittest.TestCase):
             with self.subTest(symbol=symbol):
                 self.assertIsNone(declared_name(symbol))
 
+    def test_a_symbol_of_an_unnamed_namespace_has_no_name_whatever_the_compiler_called_it(self):
+        for symbol in [GCC_UNNAMED, "_" + GCC_UNNAMED, NVCC_UNNAMED, "_ZN7CarpetX12_GLOBAL__N_15ghextE"]:
+            with self.subTest(symbol=symbol):
+                self.assertIsNone(declared_name(symbol))
+
     def test_a_name_is_a_whole_word_of_the_text(self):
         self.assertTrue(names("amrex::Vector<amrex::IntVect> per_level_max_grid_sizes();", "per_level_max_grid_sizes"))
         self.assertFalse(names("int all_per_level_max_grid_sizes();", "per_level_max_grid_sizes"))
@@ -245,6 +253,10 @@ class Strays(unittest.TestCase):
 
     def test_a_weak_or_local_definition_or_one_outside_the_namespace_is_not_judged(self):
         definitions = {self.OBJECT: {("W", DEFAULTED), ("t", DEFAULTED), ("V", "_ZTVN7CarpetX13CactusAmrCoreE"), ("U", CURRENT_MODE), ("T", REALLOCATE), ("T", "CarpetX_Startup")}}
+        self.assertEqual(strays(self.LAYERS, definitions, self.HEADERS, {}), [])
+
+    def test_a_definition_of_an_unnamed_namespace_is_not_judged_though_nvcc_makes_it_strong(self):
+        definitions = {self.OBJECT: {("T", SIZES), ("T", NVCC_UNNAMED), ("T", GCC_UNNAMED), ("B", "_ZN7CarpetX12_GLOBAL__N_15ghextE")}}
         self.assertEqual(strays(self.LAYERS, definitions, self.HEADERS, {}), [])
 
     def test_a_source_with_no_header_of_its_stem_defines_nothing_strong(self):

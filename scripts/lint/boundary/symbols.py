@@ -20,6 +20,7 @@ HEADER_SUFFIX = ".hxx"
 NAMESPACE = "7CarpetX"
 STRONG = frozenset("TDBRSG")
 WEAK = "W"
+UNNAMED_NAMESPACE = "_GLOBAL__N"
 MACH_O = sys.platform == "darwin"
 MACH_O_WEAK = re.compile(r"\)\s+weak\s.*\s(\S+)$")
 MEMBER = re.compile(r"_{1,2}Z(?:T[VTISCWH]|G[VR]|Thn?\d+_|Tvn?\d+_n?\d+_)?Z?N[rVK]*[RO]?" + NAMESPACE + r"(?:(\d+)|L(\d+)|([a-zA-Z]{2}))")
@@ -151,7 +152,8 @@ def declared_name(symbol: str) -> Optional[str]:
     length, local, operator = m.groups()
     if operator is not None:
         return OPERATOR + OPERATORS[operator] if operator in OPERATORS else symbol
-    return symbol[m.end() : m.end() + int(length or local)]
+    name = symbol[m.end() : m.end() + int(length or local)]
+    return None if name.startswith(UNNAMED_NAMESPACE) else name
 
 
 def names(text: str, name: str) -> bool:
