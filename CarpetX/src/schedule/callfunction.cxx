@@ -1,7 +1,7 @@
 #include "schedule/schedule.hxx"
 #include "schedule/checksums.hxx"
 #include "schedule/clauses.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/valid.hxx"
 #include "comm/comm.hxx"

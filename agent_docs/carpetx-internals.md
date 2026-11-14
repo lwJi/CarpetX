@@ -38,7 +38,7 @@ flowchart TB
   io -- "subcycling.hxx" --> comm
   regrid -- "fillpatch.hxx, substeps.hxx" --> comm
   traversal -- "refuse.hxx" --> util
-  above -- "binding.hxx, driver.hxx, loops.hxx, operations.hxx, valid.hxx" --> hierarchy
+  above -- "binding.hxx, loops.hxx, model.hxx, valid.hxx, writers.hxx" --> hierarchy
   door -- "boundaries.hxx, grid_sizes.hxx, groups.hxx, indices.hxx, stages.hxx" --> config
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
@@ -107,7 +107,7 @@ flowchart LR
   amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
 ```
 
-- the numbered arrows are one regrid: the driver asks the hierarchy (1), the hierarchy asks AMReX (2), AMReX calls back into the layer that defines its callbacks (3)
+- the numbered arrows are one regrid: schedule/ asks the hierarchy (1), the hierarchy asks AMReX (2), AMReX calls back into the layer that defines its callbacks (3)
 - the table below lists every entry an outsider calls
 
 ## Who the outsiders call

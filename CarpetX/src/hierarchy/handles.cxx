@@ -1,6 +1,6 @@
 #include <carpetx.hxx>
 
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
 #include "traversal/traversal.hxx"
 #include "util/refuse.hxx"

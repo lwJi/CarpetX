@@ -1,4 +1,4 @@
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "util/mpi_types.hxx"
 #include "ops/reduction.hxx"
 #include "hierarchy/valid.hxx"

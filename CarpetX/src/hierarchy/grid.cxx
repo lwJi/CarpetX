@@ -1,5 +1,5 @@
 #include "hierarchy/loops.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 
 #include <cctk.h>
 #include <cctk_Parameters.h>

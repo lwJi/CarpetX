@@ -74,7 +74,7 @@ SECTIONS: tuple[Section, ...] = (
                 "`window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. "
                 "A window checks its bounds when it is built, so the error names the line that built it. "
                 "`component_t` is a box of a level, AMReX's global box index and the flesh's `cctk_component`; `tile_t` is one tile of the tiled traversal over this rank's boxes and carries the `component_t` it lies in, so `loop_parallel` hands its kernel the `level_t`, the `tile_t` and the local cGH, and a tile is looked up by its slot and checked against its box.",
-                ("hierarchy/handles.cxx:variable", "hierarchy/handles.cxx:levels", "hierarchy/handles.cxx:narrow", "hierarchy/handles.cxx:coarsest", "hierarchy/handles.cxx:finest", "hierarchy/handles.cxx:require_window_bounds", "hierarchy/handles.cxx:loop_parallel", "hierarchy/driver.hxx:level", "hierarchy/driver.hxx:get_local_cctkGH", "config/indices.hxx:tile_of"),
+                ("hierarchy/handles.cxx:variable", "hierarchy/handles.cxx:levels", "hierarchy/handles.cxx:narrow", "hierarchy/handles.cxx:coarsest", "hierarchy/handles.cxx:finest", "hierarchy/handles.cxx:require_window_bounds", "hierarchy/handles.cxx:loop_parallel", "hierarchy/model.hxx:level", "hierarchy/model.hxx:get_local_cctkGH", "config/indices.hxx:tile_of"),
             ),
         ),
         exercised_by=("compile_checks.cxx", "TestCarpetXAPI_Fill"),
@@ -93,7 +93,7 @@ SECTIONS: tuple[Section, ...] = (
                 "The halo has two ghost regions with a bit each: the same-level ghosts, which another box of the level or a periodic image covers, and the coarse-fine ghosts, which no box of the level covers and only an interpolation from the parent fills. "
                 "A ghost fill marks only the region it copies; the boundary condition reads the interior and both ghost regions, so it runs after the last ghost fill, requires all three valid, and alone marks the outer boundary. "
                 "`make_valid_ghosts()` and a schedule clause's everywhere name both.",
-                ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/hierarchy.cxx:LevelData", "hierarchy/valid.cxx:loop_ghost_halves", "hierarchy/valid.cxx:check_valid_gf", "comm/sync_restrict.cxx:apply_outer_boundary"),
+                ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/model.cxx:LevelData", "hierarchy/valid.cxx:loop_ghost_halves", "hierarchy/valid.cxx:check_valid_gf", "comm/sync_restrict.cxx:apply_outer_boundary"),
             ),
             Row(
                 "`scratch(group)` is shaped like `data(group, tl_t{0})` and comes from a per-group pool its destructor returns it to; the pool dies with its level on a regrid, after which a `scratch_t` is an error, not a dangling pointer. It has no validity bits.",
@@ -118,12 +118,12 @@ SECTIONS: tuple[Section, ...] = (
         refusals=("sync_during_write", "prolongate_unwritten_parent", "sync_invalid_coarse", "boundary_before_sync"),
     ),
     Section(
-        "The hierarchy and the parameters",
+        "The level hierarchy and the parameters",
         (
             Row(
                 "The BoxArray and DistributionMapping of a level are those of any group's MultiFab on it, and the refinement ratio is 2. "
                 "Driver parameters are read through the flesh, `SHARES: Driver` or `CCTK_ParameterGet`, and CarpetX checks its own.",
-                ("hierarchy/hierarchy.cxx:PatchData", "hierarchy/hierarchy.cxx:GroupData", "config/grid_sizes.cxx:per_level_max_grid_sizes", "io/selection.cxx:select_groups"),
+                ("hierarchy/model.cxx:PatchData", "hierarchy/model.cxx:GroupData", "config/grid_sizes.cxx:per_level_max_grid_sizes", "io/selection.cxx:select_groups"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
@@ -137,7 +137,7 @@ SECTIONS: tuple[Section, ...] = (
                 "Registration is `AT WRAGH`, once; the record freezes when that traversal ends. "
                 "`dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. "
                 "`b` holds the final-update weight of every stage, all zero for a method that never updates the state.",
-                ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "hierarchy/hierarchy.cxx:record_integrator", "hierarchy/hierarchy.cxx:freeze_integrator"),
+                ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "hierarchy/model.cxx:record_integrator", "hierarchy/model.cxx:freeze_integrator"),
             ),
             Row(
                 "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH for the traversal; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",

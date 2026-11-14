@@ -75,10 +75,10 @@ class Parsing(unittest.TestCase):
 
 
 class Definitions(unittest.TestCase):
-    LAYERS = {"io/io.cxx.o": "io", "flesh/startup.cxx.o": "flesh", "hierarchy/hierarchy.cxx.o": "hierarchy"}
+    LAYERS = {"io/io.cxx.o": "io", "flesh/startup.cxx.o": "flesh", "hierarchy/model.cxx.o": "hierarchy"}
 
     def test_a_strong_symbol_defined_once_has_a_home(self):
-        definitions = {"io/io.cxx.o": {("T", SHUTDOWN)}, "hierarchy/hierarchy.cxx.o": {("T", DRIVER)}}
+        definitions = {"io/io.cxx.o": {("T", SHUTDOWN)}, "hierarchy/model.cxx.o": {("T", DRIVER)}}
         self.assertEqual(strong_definitions(definitions, self.LAYERS), {SHUTDOWN: "io", DRIVER: "hierarchy"})
 
     def test_a_weak_or_local_or_undefined_symbol_has_none(self):
@@ -91,7 +91,7 @@ class Definitions(unittest.TestCase):
 
 
 class Reaches(unittest.TestCase):
-    LAYERS = {"flesh/startup.cxx.o": "flesh", "io/io.cxx.o": "io", "hierarchy/hierarchy.cxx.o": "hierarchy"}
+    LAYERS = {"flesh/startup.cxx.o": "flesh", "io/io.cxx.o": "io", "hierarchy/model.cxx.o": "hierarchy"}
     DEFINED = {SHUTDOWN: "io", DRIVER: "hierarchy", PARENT: "api"}
 
     def test_an_import_from_a_lower_layer_or_the_same_one_is_not_a_reach(self):
@@ -99,12 +99,12 @@ class Reaches(unittest.TestCase):
         self.assertEqual(reaches(self.LAYERS, self.DEFINED, imports, {}), [])
 
     def test_an_import_from_a_higher_layer_is(self):
-        imports = {"hierarchy/hierarchy.cxx.o": {SHUTDOWN, PARENT}, "io/io.cxx.o": {PARENT}}
+        imports = {"hierarchy/model.cxx.o": {SHUTDOWN, PARENT}, "io/io.cxx.o": {PARENT}}
         self.assertEqual(
             reaches(self.LAYERS, self.DEFINED, imports, {}),
             [
-                Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "io", SHUTDOWN),
-                Reach("hierarchy/hierarchy.cxx.o", "hierarchy", "api", PARENT),
+                Reach("hierarchy/model.cxx.o", "hierarchy", "io", SHUTDOWN),
+                Reach("hierarchy/model.cxx.o", "hierarchy", "api", PARENT),
                 Reach("io/io.cxx.o", "io", "api", PARENT),
             ],
         )
@@ -133,7 +133,7 @@ class Reaches(unittest.TestCase):
         self.assertEqual(reaches(layers, defined, imports, {"hierarchy": ("util",), "schedule": ("io",)}), [])
 
     def test_an_import_nothing_defines_strongly_is_ignored(self):
-        imports = {"hierarchy/hierarchy.cxx.o": {TIMER, "_CCTK_VInfo"}}
+        imports = {"hierarchy/model.cxx.o": {TIMER, "_CCTK_VInfo"}}
         self.assertEqual(reaches(self.LAYERS, self.DEFINED, imports, {}), [])
 
 

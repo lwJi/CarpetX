@@ -1,9 +1,9 @@
 #include "io/checkpoint.hxx"
 #include "hierarchy/binding.hxx"
 #include "config/stages.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/operations.hxx"
+#include "hierarchy/writers.hxx"
 #include "comm/buffers.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
@@ -663,7 +663,7 @@ static_assert(std::is_same_v<decltype(GHExt::do_reflux), const bool>);
 static_assert(!assigns_use_subcycling<GHExt>);
 static_assert(!assigns_do_reflux<GHExt>);
 static_assert(!std::is_default_constructible_v<GHExt>);
-static_assert(std::is_constructible_v<GHExt, GHExt::config_t>);
+static_assert(!std::is_constructible_v<GHExt, GHExt::config_t>);
 static_assert(!std::is_convertible_v<GHExt::config_t, GHExt>);
 static_assert(!std::is_constructible_v<GHExt, bool, bool>);
 static_assert(create_hierarchy_takes<GHExt::config_t>);
@@ -777,6 +777,8 @@ static_assert(!hands_out_data<const array_write_scope_t &>);
 static_assert(!marks_initialized<GHExt>);
 static_assert(!marks_initialized<std::remove_reference_t<decltype(driver())>>);
 static_assert(!opens_mutable_door<GHExt>);
+static_assert(!std::is_constructible_v<GHExt::cctkGHptr, cGH *>);
+static_assert(!std::is_assignable_v<GHExt::cctkGHptr &, cGH *>);
 
 static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
 static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);
@@ -790,6 +792,7 @@ static_assert(!std::is_constructible_v<scratch_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt &>);
 static_assert(
     !std::is_constructible_v<hierarchy_writers_t, std::unique_ptr<GHExt>>);
+static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt::config_t>);
 static_assert(!hands_out_hierarchy<hierarchy_writers_t>);
 
 static_assert(std::is_same_v<decltype(std::declval<const GHExt::GroupRecord &>()

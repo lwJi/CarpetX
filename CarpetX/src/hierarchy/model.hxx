@@ -1,5 +1,5 @@
-#ifndef CARPETX_CARPETX_HIERARCHY_DRIVER_HXX
-#define CARPETX_CARPETX_HIERARCHY_DRIVER_HXX
+#ifndef CARPETX_CARPETX_HIERARCHY_MODEL_HXX
+#define CARPETX_CARPETX_HIERARCHY_MODEL_HXX
 
 #include "internal.hxx"
 
@@ -131,11 +131,11 @@ struct GHExt {
     amrcore_factory make_core;
     level_buffers_factory make_buffers;
   };
-  explicit GHExt(config_t config);
   GHExt(const GHExt &) = delete;
   GHExt(GHExt &&) = delete;
   GHExt &operator=(const GHExt &) = delete;
   GHExt &operator=(GHExt &&) = delete;
+  ~GHExt();
 
   struct cctkGHptr {
     cGH *cctkGH;
@@ -144,8 +144,7 @@ struct GHExt {
     cctkGHptr &operator=(const cctkGHptr &) = delete;
     cctkGHptr &operator=(cctkGHptr &&ptr);
     cctkGHptr() : cctkGH(nullptr) {}
-    cctkGHptr(cGH *&&cctkGH) : cctkGH(cctkGH) {}
-    cctkGHptr &operator=(cGH *&&cctkGH);
+    static cctkGHptr copy_of(const cGH *source);
     ~cctkGHptr();
     operator bool() const { return bool(cctkGH); }
     cGH *get() const { return cctkGH; }
@@ -799,6 +798,7 @@ private:
   bool integrator_open_ = true;
   std::vector<PatchData> patchdata;
 
+  explicit GHExt(config_t config);
   static GHExt &mutable_instance();
   PatchData &add_patch(level_writer_t &levels, patch_t patch);
   void record_storage(gi_t gi, int timelevels);
@@ -812,6 +812,7 @@ private:
   friend class level_writer_t;
   friend class registry_writer_t;
   friend class scratch_writer_t;
+  friend struct hierarchy_writers_t;
   friend struct cctkGH_binding;
   friend class write_scope_t;
   friend class array_write_scope_t;
@@ -819,6 +820,7 @@ private:
 
 const GHExt &driver();
 void assert_hierarchy_destroyed();
+int current_iteration();
 
 } // namespace CarpetX
 

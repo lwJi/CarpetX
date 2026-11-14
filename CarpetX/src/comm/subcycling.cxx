@@ -1,7 +1,7 @@
 #include "comm/subcycling.hxx"
 
 #include "config/indices.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "comm/buffers.hxx"
 #include "comm/comm.hxx"
 #include "comm/fillpatch.hxx"

@@ -1,9 +1,9 @@
 #include "schedule/schedule.hxx"
 #include "schedule/clocks.hxx"
 #include "config/grid_sizes.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/operations.hxx"
+#include "hierarchy/writers.hxx"
 #include "comm/reflux.hxx"
 #include "io/io.hxx"
 #include <loop.hxx>

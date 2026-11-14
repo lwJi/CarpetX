@@ -2,10 +2,11 @@ SRCS =							\
 	binding.cxx					\
 	grid.cxx					\
 	handles.cxx					\
-	hierarchy.cxx					\
 	loops.cxx					\
+	model.cxx					\
 	modes.cxx					\
-	valid.cxx
+	valid.cxx					\
+	writers.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))

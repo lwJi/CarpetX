@@ -3,7 +3,7 @@
 
 #include "internal.hxx"
 
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include <carpetx.hxx>
 
 #include <functional>
