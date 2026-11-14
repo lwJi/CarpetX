@@ -1,8 +1,8 @@
 #include "io/checkpoint.hxx"
 
-#include "hierarchy/driver.hxx"
-#include "hierarchy/operations.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/model.hxx"
+#include "hierarchy/writers.hxx"
+#include "hierarchy/scopes.hxx"
 #include "io/selection.hxx"
 #include "comm/subcycling.hxx"
 #include "util/refuse.hxx"

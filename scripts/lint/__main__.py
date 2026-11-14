@@ -147,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
 
     symbols = commands.add_parser(
         "symbols",
-        help="judge what each layer reads over the objects a build made, whatever syntax declared each import",
+        help="judge what each layer reads over the objects a build made, whatever syntax declared each import, and hold each source of a layer STEMS lists to the header of its stem",
         description=symbols_rule,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

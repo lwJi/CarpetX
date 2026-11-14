@@ -3,7 +3,7 @@
 
 #include "internal.hxx"
 
-#include "hierarchy/operations.hxx"
+#include "hierarchy/writers.hxx"
 
 #include <carpetx.hxx>
 

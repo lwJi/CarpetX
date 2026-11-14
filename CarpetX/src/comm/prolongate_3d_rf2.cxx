@@ -1,6 +1,6 @@
 #include "comm/prolongate_3d_rf2.hxx"
 
-#include "hierarchy/group_tags.hxx"
+#include "config/groups.hxx"
 
 #include <cctk.h>
 
@@ -88,9 +88,10 @@ amrex::Interpolater *get_interpolator(const std::string prolongation_type,
 } // namespace
 
 amrex::Interpolater *interpolator_of(const GHExt::GroupRecord &record) {
-  return get_interpolator(get_group_prolongation_type(record.groupindex),
-                          get_group_prolongation_order(record.groupindex),
-                          record.grid_function().indextype);
+  const grid_function_t &grid_function = record.grid_function();
+  return get_interpolator(grid_function.prolongation_type,
+                          grid_function.prolongation_order,
+                          grid_function.indextype);
 }
 
 } // namespace CarpetX

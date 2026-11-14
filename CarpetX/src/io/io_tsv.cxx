@@ -1,7 +1,7 @@
 #include "io/io_tsv.hxx"
 
 #include "io/selection.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "util/mpi_types.hxx"
 #include "util/refuse.hxx"
 #include "util/var_type.hxx"
@@ -253,6 +253,21 @@ static std::vector<std::string> column_labels(const GHExt::GroupRecord &group,
     }
   }
   return labels;
+}
+
+static std::ostream &
+operator<<(std::ostream &os,
+           const GHExt::GlobalData::AnyTypeVector::AnyTypeScalarRef &scalar) {
+  const char sep = '\t';
+  visit(scalar.type(), [&](const auto tag) {
+    using T = typename decltype(tag)::type;
+    const T value = *static_cast<const T *>(scalar.data());
+    if constexpr (std::is_same_v<T, CCTK_COMPLEX>)
+      os << value.real() << sep << value.imag();
+    else
+      os << value;
+  });
+  return os;
 }
 
 void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,

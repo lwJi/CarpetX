@@ -1,10 +1,11 @@
 #include "regrid/regrid.hxx"
 
-#include "hierarchy/clocks.hxx"
-#include "hierarchy/driver.hxx"
-#include "hierarchy/loops.hxx"
-#include "hierarchy/operations.hxx"
+#include "hierarchy/model.hxx"
+#include "hierarchy/grid.hxx"
+#include "hierarchy/scopes.hxx"
+#include "hierarchy/writers.hxx"
 #include "comm/fillpatch.hxx"
+#include "comm/substeps.hxx"
 #include <loop_device.hxx>
 
 #include <cctk_Parameters.h>

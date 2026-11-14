@@ -1,5 +1,5 @@
 #include "schedule/clauses.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>

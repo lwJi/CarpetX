@@ -1,9 +1,9 @@
-#ifndef CARPETX_CARPETX_HIERARCHY_OPERATIONS_HXX
-#define CARPETX_CARPETX_HIERARCHY_OPERATIONS_HXX
+#ifndef CARPETX_CARPETX_HIERARCHY_WRITERS_HXX
+#define CARPETX_CARPETX_HIERARCHY_WRITERS_HXX
 
 #include "internal.hxx"
 
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include <carpetx.hxx>
 #include <rational.hxx>
 
@@ -131,6 +131,10 @@ private:
 };
 
 struct hierarchy_writers_t {
+private:
+  GHExt hierarchy;
+
+public:
   clock_writer_t clock;
   structure_writer_t structure;
   registry_writer_t registry;
@@ -139,8 +143,7 @@ struct hierarchy_writers_t {
   ~hierarchy_writers_t();
 
 private:
-  explicit hierarchy_writers_t(std::unique_ptr<GHExt> made);
-  std::unique_ptr<GHExt> hierarchy;
+  explicit hierarchy_writers_t(GHExt::config_t config);
   friend std::unique_ptr<hierarchy_writers_t>
   create_hierarchy(GHExt::config_t config);
 };

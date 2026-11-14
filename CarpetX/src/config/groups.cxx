@@ -1,179 +1,26 @@
-#include "hierarchy/group_tags.hxx"
+#include "config/groups.hxx"
 
-#include "hierarchy/driver.hxx"
-#include "hierarchy/loops.hxx"
+#include "config/boundaries.hxx"
+#include "config/indices.hxx"
 #include "util/refuse.hxx"
+#include "util/var_type.hxx"
+#include <carpetx.hxx>
 
+#include <cctk.h>
 #include <cctk_Parameters.h>
 #include <util_Table.h>
 
+#include <array>
 #include <cassert>
 #include <cctype>
 #include <cstddef>
-#include <ostream>
+#include <cstdlib>
+#include <optional>
 #include <source_location>
 #include <string>
 #include <vector>
 
 namespace CarpetX {
-
-std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry) {
-  switch (symmetry) {
-  case symmetry_t::none:
-    return os << "none";
-  case symmetry_t::interpatch:
-    return os << "interpatch";
-  case symmetry_t::periodic:
-    return os << "periodic";
-  case symmetry_t::reflection:
-    return os << "reflection";
-  default:
-    assert(0);
-  }
-  return os;
-}
-
-std::ostream &operator<<(std::ostream &os, const boundary_t boundary) {
-  switch (boundary) {
-  case boundary_t::none:
-    return os << "none";
-  case boundary_t::symmetry_boundary:
-    return os << "symmetry_boundary";
-  case boundary_t::dirichlet:
-    return os << "dirichlet";
-  case boundary_t::linear_extrapolation:
-    return os << "linear_extrapolation";
-  case boundary_t::neumann:
-    return os << "neumann";
-  case boundary_t::robin:
-    return os << "robin";
-  default:
-    assert(0);
-  }
-  return os;
-}
-
-std::array<std::array<symmetry_t, dim>, 2>
-get_symmetries(const std::optional<patch_t> patch) {
-  DECLARE_CCTK_PARAMETERS;
-
-  std::array<std::array<bool, 3>, 2> is_interpatch{
-      {{{false, false, false}}, {{false, false, false}}}};
-  if (patch && CCTK_IsFunctionAliased("MultiPatch_GetBoundarySpecification2")) {
-    CCTK_INT is_interpatch_boundary[2 * dim];
-    const int ierr = MultiPatch_GetBoundarySpecification2(
-        patch->index(), 2 * dim, is_interpatch_boundary);
-    assert(!ierr);
-    for (int f = 0; f < 2; ++f)
-      for (int d = 0; d < dim; ++d)
-        is_interpatch[f][d] = is_interpatch_boundary[2 * d + f];
-  }
-  const std::array<std::array<bool, 3>, 2> is_periodic{{
-      {{bool(periodic && periodic_x), bool(periodic && periodic_y),
-        bool(periodic && periodic_z)}},
-      {{bool(periodic && periodic_x), bool(periodic && periodic_y),
-        bool(periodic && periodic_z)}},
-  }};
-  const std::array<std::array<bool, 3>, 2> is_reflection{{
-      {{bool(reflection_x), bool(reflection_y), bool(reflection_z)}},
-      {{bool(reflection_upper_x), bool(reflection_upper_y),
-        bool(reflection_upper_z)}},
-  }};
-
-  for (int f = 0; f < 2; ++f)
-    for (int d = 0; d < dim; ++d)
-      assert(is_interpatch[f][d] + is_periodic[f][d] + is_reflection[f][d] <=
-             1);
-
-  std::array<std::array<symmetry_t, dim>, 2> symmetries;
-  for (int f = 0; f < 2; ++f)
-    for (int d = 0; d < dim; ++d)
-      symmetries[f][d] = is_interpatch[f][d]   ? symmetry_t::interpatch
-                         : is_periodic[f][d]   ? symmetry_t::periodic
-                         : is_reflection[f][d] ? symmetry_t::reflection
-                                               : symmetry_t::none;
-
-  return symmetries;
-}
-
-std::array<std::array<boundary_t, dim>, 2> get_default_boundaries() {
-  DECLARE_CCTK_PARAMETERS;
-
-  const std::array<std::array<symmetry_t, dim>, 2> symmetries =
-      get_symmetries(std::nullopt);
-  std::array<std::array<bool, 3>, 2> is_symmetry;
-  for (int f = 0; f < 2; ++f)
-    for (int d = 0; d < dim; ++d)
-      is_symmetry[f][d] = symmetries[f][d] != symmetry_t::none;
-
-  const std::array<std::array<bool, 3>, 2> is_dirichlet{{
-      {{
-          bool(CCTK_EQUALS(boundary_x, "dirichlet")),
-          bool(CCTK_EQUALS(boundary_y, "dirichlet")),
-          bool(CCTK_EQUALS(boundary_z, "dirichlet")),
-      }},
-      {{
-          bool(CCTK_EQUALS(boundary_upper_x, "dirichlet")),
-          bool(CCTK_EQUALS(boundary_upper_y, "dirichlet")),
-          bool(CCTK_EQUALS(boundary_upper_z, "dirichlet")),
-      }},
-  }};
-  const std::array<std::array<bool, 3>, 2> is_linear_extrapolation{{
-      {{
-          bool(CCTK_EQUALS(boundary_x, "linear extrapolation")),
-          bool(CCTK_EQUALS(boundary_y, "linear extrapolation")),
-          bool(CCTK_EQUALS(boundary_z, "linear extrapolation")),
-      }},
-      {{
-          bool(CCTK_EQUALS(boundary_upper_x, "linear extrapolation")),
-          bool(CCTK_EQUALS(boundary_upper_y, "linear extrapolation")),
-          bool(CCTK_EQUALS(boundary_upper_z, "linear extrapolation")),
-      }},
-  }};
-  const std::array<std::array<bool, 3>, 2> is_neumann{{
-      {{
-          bool(CCTK_EQUALS(boundary_x, "neumann")),
-          bool(CCTK_EQUALS(boundary_y, "neumann")),
-          bool(CCTK_EQUALS(boundary_z, "neumann")),
-      }},
-      {{
-          bool(CCTK_EQUALS(boundary_upper_x, "neumann")),
-          bool(CCTK_EQUALS(boundary_upper_y, "neumann")),
-          bool(CCTK_EQUALS(boundary_upper_z, "neumann")),
-      }},
-  }};
-  const std::array<std::array<bool, 3>, 2> is_robin{{
-      {{
-          bool(CCTK_EQUALS(boundary_x, "robin")),
-          bool(CCTK_EQUALS(boundary_y, "robin")),
-          bool(CCTK_EQUALS(boundary_z, "robin")),
-      }},
-      {{
-          bool(CCTK_EQUALS(boundary_upper_x, "robin")),
-          bool(CCTK_EQUALS(boundary_upper_y, "robin")),
-          bool(CCTK_EQUALS(boundary_upper_z, "robin")),
-      }},
-  }};
-  for (int f = 0; f < 2; ++f)
-    for (int d = 0; d < dim; ++d)
-      assert(is_symmetry[f][d] + is_dirichlet[f][d] +
-                 is_linear_extrapolation[f][d] + is_neumann[f][d] +
-                 is_robin[f][d] <=
-             1);
-
-  std::array<std::array<boundary_t, dim>, 2> boundaries;
-  for (int f = 0; f < 2; ++f)
-    for (int d = 0; d < dim; ++d)
-      boundaries[f][d] = is_symmetry[f][d]    ? boundary_t::symmetry_boundary
-                         : is_dirichlet[f][d] ? boundary_t::dirichlet
-                         : is_linear_extrapolation[f][d]
-                             ? boundary_t::linear_extrapolation
-                         : is_neumann[f][d] ? boundary_t::neumann
-                         : is_robin[f][d]   ? boundary_t::robin
-                                            : boundary_t::none;
-
-  return boundaries;
-}
 
 static std::array<std::array<boundary_t, dim>, 2>
 get_group_boundaries(const gi_t gi) {
@@ -245,7 +92,7 @@ get_group_boundaries(const gi_t gi) {
   return boundaries;
 }
 
-bool get_group_checkpoint_flag(const gi_t gi) {
+static bool get_group_checkpoint_flag(const gi_t gi) {
   int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   char buf[100];
@@ -266,7 +113,7 @@ bool get_group_checkpoint_flag(const gi_t gi) {
   }
 }
 
-std::optional<bool> get_group_restrict_tag(const gi_t gi) {
+static std::optional<bool> get_group_restrict_tag(const gi_t gi) {
   int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   char buf[100];
@@ -287,7 +134,7 @@ std::optional<bool> get_group_restrict_tag(const gi_t gi) {
   }
 }
 
-bool get_group_evolve_flag(const gi_t gi) {
+static bool get_group_evolve_flag(const gi_t gi) {
   int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   char buf[100];
@@ -390,105 +237,6 @@ static std::optional<std::array<gi_t, dim> > get_group_fluxes(const gi_t gi) {
   return fluxes;
 }
 
-bool group_is_integrated(const gi_t gi) {
-  assert(gi.index() >= 0 && gi.index() < CCTK_NumGroups());
-  const std::optional<GHExt::integrator_t> &integrator = driver().integrator();
-  return integrator && integrator->rhs.contains(gi);
-}
-
-stage_range registered_stages() {
-  const std::optional<GHExt::integrator_t> &integrator = driver().integrator();
-  return integrator ? integrator->stages() : all_rk_stages;
-}
-
-rk_dense_output_t registered_dense_output() {
-  const std::optional<GHExt::integrator_t> &integrator = driver().integrator();
-  return integrator ? integrator->dense_output : rk_dense_output_t::none;
-}
-
-static bool group_has_flux_tag(const GHExt::GroupRecord &record) {
-  return record.kind == group_kind::grid_function &&
-         record.grid_function().fluxes.has_value();
-}
-
-bool group_has_flux_register(const gi_t gi) {
-  const GHExt &ext = driver();
-  return ext.do_reflux && group_is_integrated(gi) &&
-         group_has_flux_tag(ext.record(gi));
-}
-
-void warn_inert_flux_tags() {
-  DECLARE_CCTK_PARAMETERS;
-  const GHExt &ext = driver();
-  const std::optional<GHExt::integrator_t> &integrator = ext.integrator();
-  if (max_num_levels <= 1)
-    return;
-  if (CCTK_MyProc(nullptr) != 0)
-    return;
-  if (!ext.do_reflux) {
-    for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()})) {
-      if (integrator && integrator->rhs.contains(gi) &&
-          group_has_flux_tag(ext.record(gi))) {
-        CCTK_INFO("Grid functions integrated by ODESolvers carry fluxes= "
-                  "tags, but refluxing at coarse-fine boundaries is off; set "
-                  "CarpetX::do_reflux = yes to enable it");
-        break;
-      }
-    }
-    return;
-  }
-  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()})) {
-    if (!group_has_flux_tag(ext.record(gi)) || group_has_flux_register(gi))
-      continue;
-    CCTK_VWARN(CCTK_WARN_ALERT,
-               "Group \"%s\" has a fluxes= tag but is not integrated by "
-               "ODESolvers: no flux register is allocated for it, and it is "
-               "not refluxed at coarse-fine boundaries (see "
-               "CarpetX::do_reflux)",
-               CCTK_FullGroupName(gi.index()));
-  }
-}
-
-std::vector<gi_t> integrated_states(const GHExt::integrator_t &integrator) {
-  std::vector<gi_t> states;
-  for (const auto &[state, rhs] : integrator.rhs)
-    states.push_back(state);
-  return states;
-}
-
-integrated_groups_t
-integrated_groups_with_storage(const level_t level,
-                               const GHExt::integrator_t &integrator) {
-  const GHExt &ext = driver();
-  ext.level(level);
-  integrated_groups_t groups;
-  for (const auto &[state, rhs] : integrator.rhs) {
-    if (!ext.record(state).has_storage())
-      continue;
-    if (!ext.record(rhs).has_storage())
-      refuse(std::source_location::current(),
-             "integrated group %s has storage on patch %d, refinement level "
-             "%d, but its right-hand side %s has none",
-             CCTK_FullGroupName(state.index()), level.patch().index(),
-             level.index(), CCTK_FullGroupName(rhs.index()));
-    groups.states.push_back(state);
-    groups.rhss.push_back(rhs);
-  }
-  return groups;
-}
-
-std::vector<rk_level_t>
-integrated_levels(const window_t window,
-                  const GHExt::integrator_t &integrator) {
-  std::vector<rk_level_t> levels;
-  loop_coarse_to_fine(
-      window, [&](const GHExt::PatchData::LevelData &leveldata) {
-        levels.push_back({leveldata.level, integrated_groups_with_storage(
-                                               leveldata.level, integrator)});
-      });
-  return levels;
-}
-
 static std::array<int, dim> get_group_nghostzones(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
   assert(gi.index() >= 0);
@@ -572,39 +320,7 @@ static std::vector<CCTK_REAL> get_group_robin_values(const gi_t gi) {
   return robin_values;
 }
 
-GHExt::GroupRecord::grid_function_t
-GHExt::GroupRecord::make_grid_function(const gi_t gi, const int numvars) {
-  grid_function_t result;
-  result.indextype = get_group_indextype(gi);
-  result.nghostzones = get_group_nghostzones(gi);
-
-  result.boundaries = get_group_boundaries(gi);
-  result.parities = get_group_parities(gi);
-  if (result.parities.empty()) {
-    std::array<int, dim> parity;
-    for (int d = 0; d < dim; ++d)
-      parity[d] = +1;
-    result.parities.resize(numvars, parity);
-  }
-  assert(int(result.parities.size()) == numvars);
-  for (const std::array<int, dim> &parity : result.parities)
-    for (int d = 0; d < dim; ++d)
-      assert(abs(parity[d]) == 1);
-
-  result.dirichlet_values = get_group_dirichlet_values(gi);
-  if (result.dirichlet_values.empty())
-    result.dirichlet_values.resize(numvars, 0);
-  result.robin_values = get_group_robin_values(gi);
-  if (result.robin_values.empty())
-    result.robin_values.resize(numvars, 0);
-
-  result.fluxes = get_group_fluxes(gi);
-  if (result.fluxes)
-    assert((result.indextype == std::array<int, dim>{1, 1, 1}));
-  return result;
-}
-
-std::string get_group_prolongation_type(const gi_t gi) {
+static std::string get_group_prolongation_type(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
@@ -620,7 +336,7 @@ std::string get_group_prolongation_type(const gi_t gi) {
   return group_prolongation_type;
 }
 
-int get_group_prolongation_order(const gi_t gi) {
+static int get_group_prolongation_order(const gi_t gi) {
   DECLARE_CCTK_PARAMETERS;
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
@@ -636,6 +352,83 @@ int get_group_prolongation_order(const gi_t gi) {
     assert(0);
   }
   return group_prolongation_order;
+}
+
+grid_function_t::grid_function_t(const gi_t gi, const int numvars) {
+  indextype = get_group_indextype(gi);
+  nghostzones = get_group_nghostzones(gi);
+
+  boundaries = get_group_boundaries(gi);
+  parities = get_group_parities(gi);
+  if (parities.empty()) {
+    std::array<int, dim> parity;
+    for (int d = 0; d < dim; ++d)
+      parity[d] = +1;
+    parities.resize(numvars, parity);
+  }
+  assert(int(parities.size()) == numvars);
+  for (const std::array<int, dim> &parity : parities)
+    for (int d = 0; d < dim; ++d)
+      assert(abs(parity[d]) == 1);
+
+  dirichlet_values = get_group_dirichlet_values(gi);
+  if (dirichlet_values.empty())
+    dirichlet_values.resize(numvars, 0);
+  robin_values = get_group_robin_values(gi);
+  if (robin_values.empty())
+    robin_values.resize(numvars, 0);
+
+  fluxes = get_group_fluxes(gi);
+  if (fluxes)
+    assert((indextype == std::array<int, dim>{1, 1, 1}));
+
+  prolongation_type = get_group_prolongation_type(gi);
+  prolongation_order = get_group_prolongation_order(gi);
+}
+
+group_declaration_t::group_declaration_t(const gi_t gi) : groupindex(gi) {
+  cGroup cgroup;
+  const int ierr = CCTK_GroupData(gi.index(), &cgroup);
+  assert(!ierr);
+
+  groupname = CCTK_FullGroupName(gi.index());
+  firstvarindex = CCTK_FirstVarIndexI(gi.index());
+  numvars = cgroup.numvars;
+  do_checkpoint = get_group_checkpoint_flag(gi);
+  do_evolve = get_group_evolve_flag(gi);
+  const std::optional<bool> restrict_tag = get_group_restrict_tag(gi);
+  do_restrict = restrict_tag.value_or(do_checkpoint);
+  restrict_on_sync = restrict_tag.value_or(true);
+  switch (cgroup.grouptype) {
+  case CCTK_GF:
+    kind = group_kind::grid_function;
+    break;
+  case CCTK_ARRAY:
+    kind = group_kind::array;
+    break;
+  case CCTK_SCALAR:
+    kind = group_kind::scalar;
+    break;
+  default:
+    CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
+                (int)cgroup.grouptype, groupname.c_str());
+  }
+  const std::optional<CarpetX::var_type> type =
+      var_type_from_cctk(cgroup.vartype);
+  if (!type)
+    refuse(std::source_location::current(),
+           "group %s has variable type %s, which CarpetX does not store",
+           groupname.c_str(), CCTK_VarTypeName(cgroup.vartype));
+  var_type = *type;
+  if (kind == group_kind::grid_function) {
+    assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
+    assert(cgroup.dim == dim);
+    grid_function_ = grid_function_t(gi, numvars);
+  } else {
+    assert(cgroup.disttype == CCTK_DISTRIB_CONSTANT);
+    assert(cgroup.dim >= 0);
+    assert(cgroup.dim <= dim);
+  }
 }
 
 } // namespace CarpetX

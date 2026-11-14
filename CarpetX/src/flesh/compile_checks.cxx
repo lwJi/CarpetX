@@ -1,17 +1,19 @@
 #include "io/checkpoint.hxx"
 #include "hierarchy/binding.hxx"
-#include "hierarchy/clocks.hxx"
-#include "hierarchy/driver.hxx"
-#include "hierarchy/group_tags.hxx"
+#include "config/stages.hxx"
+#include "hierarchy/model.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/operations.hxx"
+#include "hierarchy/writers.hxx"
 #include "comm/buffers.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
+#include "comm/substeps.hxx"
 #include "comm/comm.hxx"
 #include "regrid/regrid.hxx"
+#include "schedule/checksums.hxx"
 #include "schedule/schedule.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/scopes.hxx"
 
 #include <carpetx.hxx>
 
@@ -352,7 +354,12 @@ template <class T>
 concept holds_fluxes = requires(const T &t) { t.fluxes; };
 
 template <class Group>
-concept parses_grid_function_tags =
+concept parses_group_tags =
+    requires(Group gi) { get_group_checkpoint_flag(gi); } ||
+    requires(Group gi) { get_group_restrict_tag(gi); } ||
+    requires(Group gi) { get_group_evolve_flag(gi); } ||
+    requires(Group gi) { get_group_prolongation_type(gi); } ||
+    requires(Group gi) { get_group_prolongation_order(gi); } ||
     requires(Group gi) { get_group_indextype(gi); } ||
     requires(Group gi) { get_group_nghostzones(gi); } ||
     requires(Group gi) { get_group_boundaries(gi); } ||
@@ -360,10 +367,6 @@ concept parses_grid_function_tags =
     requires(Group gi) { get_group_dirichlet_values(gi); } ||
     requires(Group gi) { get_group_robin_values(gi); } ||
     requires(Group gi) { get_group_fluxes(gi); };
-
-template <class Record>
-concept makes_grid_function =
-    requires(gi_t gi) { Record::make_grid_function(gi, 0); };
 
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
@@ -666,7 +669,7 @@ static_assert(std::is_same_v<decltype(GHExt::do_reflux), const bool>);
 static_assert(!assigns_use_subcycling<GHExt>);
 static_assert(!assigns_do_reflux<GHExt>);
 static_assert(!std::is_default_constructible_v<GHExt>);
-static_assert(std::is_constructible_v<GHExt, GHExt::config_t>);
+static_assert(!std::is_constructible_v<GHExt, GHExt::config_t>);
 static_assert(!std::is_convertible_v<GHExt::config_t, GHExt>);
 static_assert(!std::is_constructible_v<GHExt, bool, bool>);
 static_assert(create_hierarchy_takes<GHExt::config_t>);
@@ -780,6 +783,8 @@ static_assert(!hands_out_data<const array_write_scope_t &>);
 static_assert(!marks_initialized<GHExt>);
 static_assert(!marks_initialized<std::remove_reference_t<decltype(driver())>>);
 static_assert(!opens_mutable_door<GHExt>);
+static_assert(!std::is_constructible_v<GHExt::cctkGHptr, cGH *>);
+static_assert(!std::is_assignable_v<GHExt::cctkGHptr &, cGH *>);
 
 static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
 static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);
@@ -791,8 +796,7 @@ static_assert(!std::is_constructible_v<level_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<registry_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<scratch_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt &>);
-static_assert(
-    !std::is_constructible_v<hierarchy_writers_t, std::unique_ptr<GHExt>>);
+static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt::config_t>);
 static_assert(!hands_out_hierarchy<hierarchy_writers_t>);
 
 static_assert(std::is_same_v<decltype(std::declval<const GHExt::GroupRecord &>()
@@ -815,8 +819,12 @@ static_assert(holds_robin_values<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_robin_values<GHExt::PatchData::LevelData::GroupData>);
 static_assert(holds_fluxes<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_fluxes<GHExt::PatchData::LevelData::GroupData>);
-static_assert(!parses_grid_function_tags<gi_t>);
-static_assert(!makes_grid_function<GHExt::GroupRecord>);
+static_assert(!parses_group_tags<gi_t>);
+static_assert(!std::is_constructible_v<grid_function_t, gi_t, int>);
+static_assert(!std::is_default_constructible_v<grid_function_t>);
+static_assert(!std::is_constructible_v<group_declaration_t, gi_t>);
+static_assert(!std::is_default_constructible_v<group_declaration_t>);
+static_assert(std::is_base_of_v<group_declaration_t, GHExt::GroupRecord>);
 
 } // namespace
 } // namespace CarpetX
