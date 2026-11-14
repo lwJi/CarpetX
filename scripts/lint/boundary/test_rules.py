@@ -124,13 +124,14 @@ class Validity(unittest.TestCase):
 
     def test_kernels_and_member_setters_are_reported_in_carpetx_src(self):
         for line in self.KERNELS + self.SETTERS:
-            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/api/api.cxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/comm/valid.cxx"]:
+            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/api/api.cxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/hierarchy/valid.cxx", "CarpetX/src/comm/scopes.cxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("validity", line)])
 
-    def test_the_validity_module_defines_them(self):
+    def test_the_scopes_and_the_state_they_change_define_them(self):
+        self.assertEqual(rules.VALIDITY_FILES, ("CarpetX/src/hierarchy/scopes.cxx", "CarpetX/src/hierarchy/scopes.hxx", "CarpetX/src/hierarchy/valid.hxx"))
         for line in self.KERNELS + self.SETTERS:
-            for name in ["CarpetX/src/hierarchy/valid.cxx", "CarpetX/src/hierarchy/valid.hxx"]:
+            for name in rules.VALIDITY_FILES:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, line + "\n"), [])
 
@@ -297,7 +298,7 @@ class Declared(unittest.TestCase):
                     self.assertEqual(reported(name, "  " + line + "\n"), [])
 
     def test_a_second_reader_is_reported(self):
-        for name in ["CarpetX/src/hierarchy/model.hxx", "CarpetX/src/hierarchy/valid.cxx", "CarpetX/src/config/boundaries.cxx", "CarpetX/src/comm/reflux.cxx", "CarpetX/src/io/io_silo.cxx", "CarpetX/src/flesh/compile_checks.cxx"]:
+        for name in ["CarpetX/src/hierarchy/model.hxx", "CarpetX/src/hierarchy/scopes.cxx", "CarpetX/src/config/boundaries.cxx", "CarpetX/src/comm/reflux.cxx", "CarpetX/src/io/io_silo.cxx", "CarpetX/src/flesh/compile_checks.cxx"]:
             for line in [self.CALL, self.DECLARATION]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("declared", line)])
@@ -336,7 +337,7 @@ class VarIndex(unittest.TestCase):
 
     def test_varindex_reported(self):
         for line in self.ADDITIONS:
-            for name in ["CarpetX/src/hierarchy/valid.cxx", "CarpetX/src/io/io_silo.cxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/include/carpetx.hxx"]:
+            for name in ["CarpetX/src/hierarchy/scopes.cxx", "CarpetX/src/io/io_silo.cxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/include/carpetx.hxx"]:
                 with self.subTest(name=name, line=line):
                     binding = [("binding", line)] if rules.is_private(name) and rules.BINDING_WORD.search(line) else []
                     records = [("records", line)] if layer_of(name) in rules.RECORDS_LAYERS and "CCTK_FirstVarIndexI" in line else []
@@ -359,7 +360,7 @@ class VarIndex(unittest.TestCase):
             "varname = CCTK_FullVarName(driver().record(gi).var(vi_t{vi}).index());\n",
         ]:
             with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/hierarchy/valid.cxx", text), [])
+                self.assertEqual(reported("CarpetX/src/hierarchy/scopes.cxx", text), [])
 
     def test_other_thorns_are_not_checked(self):
         self.assertEqual(reported("PDESolvers/src/solve.cxx", "  " + self.ADDITIONS[2] + "\n"), [])
@@ -389,12 +390,75 @@ class Model(unittest.TestCase):
         "amrex::Interpolater *interpolator;",
         "amrex::Vector<amrex::BCRec> bcrecs;",
         "std::unique_ptr<amrex::FluxRegister> freg;",
+        "#include <yaml-cpp/yaml.h>",
+        "# include  <yaml-cpp/emitter.h>",
+        "#include <zlib.h>",
+    ]
+    STATE = "CarpetX/src/hierarchy/valid.hxx"
+    OTHER_CONCERNS = [
+        '#include "hierarchy/scopes.hxx"',
+        '#include "hierarchy/loops.hxx"',
+        '#include "hierarchy/writers.hxx"',
+        '# include  "hierarchy/binding.hxx"',
+        "#include <hierarchy/scopes.hxx>",
+        '#include "hierarchy/validity.hxx"',
+        '#include "hierarchy/valid.hxx.in"',
+        '#include "hierarchy/model.hxx"',
     ]
 
     def test_a_mutable_an_extern_or_the_integrator_header_is_reported_in_the_data_model(self):
         for line in self.LEAKS:
             with self.subTest(line=line):
                 self.assertEqual(reported(self.MODEL, "  " + line + "\n"), [("model", line)])
+
+    def test_the_data_model_includes_no_other_header_of_its_layer(self):
+        for line in self.OTHER_CONCERNS:
+            with self.subTest(line=line):
+                self.assertEqual(reported(self.MODEL, line + "\n"), [("model", line)])
+
+    def test_the_data_model_includes_the_validity_state_and_the_layers_below(self):
+        for line in [
+            '#include "hierarchy/valid.hxx"',
+            '# include  "hierarchy/valid.hxx"',
+            "#include <hierarchy/valid.hxx>",
+            '#include "internal.hxx"',
+            '#include "config/groups.hxx"',
+            '#include "util/refuse.hxx"',
+            "#include <AMReX_MultiFab.H>",
+            "#include <zlib_ng.h>",
+            "#include <myzlib.h>",
+            "#include <yaml.h>",
+            "struct hierarchy_writers_t;",
+            "friend class write_scope_t;",
+        ]:
+            with self.subTest(line=line):
+                self.assertEqual(reported(self.MODEL, line + "\n"), [])
+
+    def test_the_validity_state_is_held_to_the_same_words(self):
+        self.assertEqual(rules.MODEL_FILES, (self.MODEL, self.STATE))
+        for line in self.LEAKS + self.OTHER_CONCERNS:
+            with self.subTest(line=line):
+                self.assertEqual(reported(self.STATE, "  " + line + "\n"), [("model", line)])
+        self.assertEqual(reported(self.STATE, '#include "internal.hxx"\n\n#include <carpetx.hxx>\n#include <functional>\n'), [])
+
+    def test_a_file_that_uses_another_concern_includes_it(self):
+        for line in self.OTHER_CONCERNS[:5]:
+            for name in [
+                "CarpetX/src/hierarchy/model.cxx",
+                "CarpetX/src/hierarchy/scopes.hxx",
+                "CarpetX/src/hierarchy/scopes.cxx",
+                "CarpetX/src/comm/buffers.hxx",
+                "CarpetX/src/schedule/checksums.cxx",
+                "ODESolvers/src/hierarchy/model.hxx",
+            ]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_the_tree_holds(self):
+        for name in rules.MODEL_FILES:
+            with self.subTest(name=name):
+                with open(os.path.join(PROJECT, name)) as f:
+                    self.assertEqual([found for found in findings(name, f.read(), Lang.CXX) if found.rule == "model"], [])
 
     def test_a_quoted_integrator_header_is_reported_under_model_and_layer(self):
         line = '#include "carpetx_rk.hxx"'
@@ -1041,7 +1105,7 @@ class Door(unittest.TestCase):
     def test_the_hierarchy_and_every_layer_above_it_call_driver(self):
         for line in self.CALLS:
             for name in [layer_path(layer, "x.cxx") for layer in HIERARCHY_LAYERS] + [
-                "CarpetX/src/hierarchy/valid.cxx",
+                "CarpetX/src/hierarchy/scopes.cxx",
                 "CarpetX/src/io/io.cxx",
                 "CarpetX/src/flesh/aliased.cxx",
             ]:
@@ -1656,6 +1720,7 @@ class Layers(unittest.TestCase):
             rules.VALIDITY_FILES
             + rules.TRAVERSAL_FILES
             + (rules.DOOR_FILE, rules.MODEL_TAG_FILE, rules.RECORD_VAR_FILE, rules.MODEL_FILE, MAKE_DEFN)
+            + rules.MODEL_FILES
             + rules.SYNC_FILES
             + tuple(rules.INDEX_FIXED)
             + rules.CODEC_FILES
@@ -1776,11 +1841,11 @@ class Report(unittest.TestCase):
         self.assertEqual(
             render([]),
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
-            "no validity call outside valid.cxx, no pointer-table write outside binding.cxx, "
+            "no validity call outside scopes.cxx, no pointer-table write outside binding.cxx, "
             "no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, "
             "no declared_grid_function outside GroupRecord, "
-            "no mutable, extern, integrator include or comm/ object in the data model's header, no active_levels_t, "
+            "no mutable, extern, comm/ object or other concern's include in the data model's headers, no active_levels_t, "
             "no make_alias in CarpetX, "
             "no active_levels outside traversal.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
@@ -1799,18 +1864,18 @@ class Report(unittest.TestCase):
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
         c = ("CarpetX/src/hierarchy/model.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
         d = ("CarpetX/src/comm/comm.hxx", Finding(2, "directions", "const int *groups, const int *directions);"))
-        e = ("CarpetX/src/hierarchy/valid.cxx", Finding(5, "varindex", "CCTK_FullVarName(groupdata.record.firstvarindex + vi),"))
+        e = ("CarpetX/src/hierarchy/scopes.cxx", Finding(5, "varindex", "CCTK_FullVarName(groupdata.record.firstvarindex + vi),"))
         self.assertEqual(summary([a]), "✗ boundary: 1 private include")
         self.assertEqual(summary([a, a, b]), "✗ boundary: 2 private includes, 1 stray marker")
-        self.assertEqual(summary([c]), "✗ boundary: 1 validity call outside valid.cxx")
-        self.assertEqual(summary([b, c, c]), "✗ boundary: 1 stray marker, 2 validity calls outside valid.cxx")
+        self.assertEqual(summary([c]), "✗ boundary: 1 validity call outside scopes.cxx")
+        self.assertEqual(summary([b, c, c]), "✗ boundary: 1 stray marker, 2 validity calls outside scopes.cxx")
         self.assertEqual(summary([d]), "✗ boundary: 1 directions parameter in the sync layer")
-        self.assertEqual(summary([c, d, d]), "✗ boundary: 1 validity call outside valid.cxx, 2 directions parameters in the sync layer")
+        self.assertEqual(summary([c, d, d]), "✗ boundary: 1 validity call outside scopes.cxx, 2 directions parameters in the sync layer")
         self.assertEqual(summary([e]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var")
         self.assertEqual(summary([d, e, e]), "✗ boundary: 1 directions parameter in the sync layer, 2 firstvarindex additions outside GroupRecord::var")
         m = ("CarpetX/src/hierarchy/model.hxx", Finding(4, "model", "mutable std::unique_ptr<amrex::MultiFab> cell_volume;"))
-        self.assertEqual(summary([m]), "✗ boundary: 1 mutable, extern, integrator include or comm/ object in the data model's header")
-        self.assertEqual(summary([m, e, m]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 mutable, extern, integrator include or comm/ objects in the data model's header")
+        self.assertEqual(summary([m]), "✗ boundary: 1 mutable, extern, comm/ object or other concern's include in the data model's headers")
+        self.assertEqual(summary([m, e, m]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 mutable, extern, comm/ object or other concern's includes in the data model's headers")
         w = ("CarpetX/src/schedule/schedule.hxx", Finding(3, "window", "struct active_levels_t;"))
         i = ("CarpetX/src/comm/subcycling.hxx", Finding(4, "index", "void StoreRKOldState(int patch, int level, std::span<const gi_t> var_groups, tl_t tl);"))
         self.assertEqual(summary([w]), "✗ boundary: 1 active_levels_t use")
@@ -1819,7 +1884,7 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([al, w, al]), "✗ boundary: 1 active_levels_t use, 2 make_alias uses in CarpetX")
         self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in CarpetX")
         self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in CarpetX")
-        self.assertEqual(summary([w, m]), "✗ boundary: 1 mutable, extern, integrator include or comm/ object in the data model's header, 1 active_levels_t use")
+        self.assertEqual(summary([w, m]), "✗ boundary: 1 mutable, extern, comm/ object or other concern's include in the data model's headers, 1 active_levels_t use")
         t = ("CarpetX/src/schedule/evolve.cxx", Finding(9, "traversal", "active_levels = std::nullopt;"))
         self.assertEqual(summary([t]), "✗ boundary: 1 traversal use outside traversal.cxx")
         self.assertEqual(summary([w, t, t, i]), "✗ boundary: 1 active_levels_t use, 2 traversal uses outside traversal.cxx, 1 bare index int in CarpetX")
@@ -1853,7 +1918,7 @@ class Report(unittest.TestCase):
         self.assertEqual(lines[2], "T/src/b.cxx:1                       marker     #define CARPETX_INTERNAL")
         self.assertEqual(
             lines[-1],
-            "✗ boundary: 1 private include, 1 stray marker, 1 validity call outside valid.cxx",
+            "✗ boundary: 1 private include, 1 stray marker, 1 validity call outside scopes.cxx",
         )
 
 
@@ -2137,7 +2202,7 @@ class Guide(unittest.TestCase):
             guide.hold_bound(PROJECT, section, guide.Row("text", ("api/api.cxx",)))
         with self.assertRaisesRegex(ValueError, "^open_rk_step is not defined in CarpetX/src/api/api.cxx, where a row of 'Indices and handles' in scripts/lint/boundary/guide.py says it is$"):
             guide.hold_bound(PROJECT, section, guide.Row("text", ("api/api.cxx:open_rk_step",)))
-        self.assertEqual(guide.held(guide.Row("text", ("api/api.cxx:write", "api/api.cxx:invalidate", "hierarchy/valid.cxx:write_scope_t"))), "Held by `write`, `invalidate` in `api/api.cxx`; `write_scope_t` in `hierarchy/valid.cxx`.")
+        self.assertEqual(guide.held(guide.Row("text", ("api/api.cxx:write", "api/api.cxx:invalidate", "hierarchy/scopes.cxx:write_scope_t"))), "Held by `write`, `invalidate` in `api/api.cxx`; `write_scope_t` in `hierarchy/scopes.cxx`.")
         self.assertIn("its box. Held by `variable`, `levels`, ", guide.render())
 
     def test_an_unexercised_name_is_declared_unused_and_listed_once(self):

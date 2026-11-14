@@ -106,7 +106,7 @@ CHECKED = (Lang.CXX, Lang.MAKE)
 MARKER_WORD = re.compile(r"CARPETX_INTERNAL\b")
 GUARD = re.compile(r"^\s*#\s*ifndef\s+CARPETX_INTERNAL\s*$")
 INCLUDE_INTO_SRC = re.compile(r'^\s*#\s*include\s*(?:"[^"]*CarpetX/src[^"]*"|<[^>]*CarpetX/src[^>]*>)')
-VALIDITY_FILES = (layer_path("hierarchy", "valid.cxx"), layer_path("hierarchy", "valid.hxx"))
+VALIDITY_FILES = (layer_path("hierarchy", "scopes.cxx"), layer_path("hierarchy", "scopes.hxx"), layer_path("hierarchy", "valid.hxx"))
 VALIDITY_WORD = re.compile(
     r"(\b(error_if_invalid|warn_if_invalid|poison_invalid_g[fa]|check_valid_g[fa])"
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
@@ -147,9 +147,13 @@ RECORD_READER_FILES = (
 )
 RECORD_READER_WORD = re.compile(r"\bdeclared_grid_function\b")
 MODEL_FILE = layer_path("hierarchy", "model.hxx")
+MODEL_STATE_FILE = layer_path("hierarchy", "valid.hxx")
+MODEL_FILES = (MODEL_FILE, MODEL_STATE_FILE)
 MODEL_WORD = re.compile(
     r'\bmutable\b|\bextern\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]'
     r"|\bamrex::(Interpolater|BCRec|FluxRegister)\b"
+    r'|^\s*#\s*include\s*[<"]yaml-cpp/|^\s*#\s*include\s*[<"]zlib\.h[>"]'
+    r'|^\s*#\s*include\s*[<"]hierarchy/(?!valid\.hxx[>"])'
 )
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
 ALIAS_WORD = re.compile(r"\bmake_alias\b")
@@ -275,7 +279,7 @@ def carpetx_header(name: str, lang: Lang) -> bool:
 
 
 def model_files(name: str, lang: Lang) -> bool:
-    return lang is Lang.CXX and name == MODEL_FILE
+    return lang is Lang.CXX and name in MODEL_FILES
 
 
 def records_files(name: str, lang: Lang) -> bool:
@@ -423,11 +427,11 @@ RULES = (
         files=private_cxx,
         word=VALIDITY_WORD,
         allowed=in_files(VALIDITY_FILES),
-        text="a validity kernel or a why_valid_t setter is named only in CarpetX/src/hierarchy/valid.cxx and "
+        text="a validity kernel or a why_valid_t setter is named only in CarpetX/src/hierarchy/scopes.cxx, scopes.hxx and "
         "valid.hxx; every other site opens a write scope or calls require or invalidate.",
         noun="validity call",
-        where="outside valid.cxx",
-        clean="no validity call outside valid.cxx",
+        where="outside scopes.cxx",
+        clean="no validity call outside scopes.cxx",
         home=layers_of(VALIDITY_FILES),
     ),
     Rule(
@@ -488,10 +492,13 @@ RULES = (
         "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but comm/'s buffers and what its cGH pointers reach, and every fact "
         "about the hierarchy, the epoch included, is a GHExt member changed through one of the five writers, four lent by flesh/ and the level writer by the structure writer; what comm/ "
         "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to a type it "
-        "only forward-declares, and the integrator record is a GHExt value.",
-        noun="mutable, extern, integrator include or comm/ object",
-        where="in the data model's header",
-        clean="no mutable, extern, integrator include or comm/ object in the data model's header",
+        "only forward-declares, and the integrator record is a GHExt value. It includes no yaml-cpp header, no <zlib.h> and no header of "
+        f"its own layer but {MODEL_STATE_FILE}, the validity state it stores, so that a file that includes the data model receives no other concern with it: "
+        "a file that opens a write scope includes hierarchy/scopes.hxx, and the format of the metadata is in io/. "
+        f"{MODEL_STATE_FILE} is held to the same words.",
+        noun="mutable, extern, comm/ object or other concern's include",
+        where="in the data model's headers",
+        clean="no mutable, extern, comm/ object or other concern's include in the data model's headers",
         home=layers_of((MODEL_FILE,)),
     ),
     Rule(

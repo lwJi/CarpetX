@@ -5,6 +5,7 @@ SRCS =							\
 	loops.cxx					\
 	model.cxx					\
 	modes.cxx					\
+	scopes.cxx					\
 	valid.cxx					\
 	writers.cxx
 

@@ -2,7 +2,7 @@
 
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/scopes.hxx"
 #include <carpetx.hxx>
 
 #include <loop_device.hxx>
@@ -74,7 +74,7 @@ checksums_t calculate_checksums(
             grid.loop_idx(where_t::boundary, groupdata.grid_function.indextype,
                           groupdata.grid_function.nghostzones, add_point);
 
-          loop_ghost_halves(grid, leveldata.level, gi, tile.component(),
+          loop_ghost_halves(grid, leveldata, groupdata, tile.component(),
                             to_check, add_point);
 
 #pragma omp critical(CarpetX_calculate_checksums)
@@ -137,7 +137,7 @@ void check_checksums(const window_t window, const checksums_t &checksums,
             grid.loop_idx(where_t::boundary, groupdata.grid_function.indextype,
                           groupdata.grid_function.nghostzones, add_point);
 
-          loop_ghost_halves(grid, leveldata.level, gi, tile.component(),
+          loop_ghost_halves(grid, leveldata, groupdata, tile.component(),
                             did_check, add_point);
 
           if (checksum != old_checksum)

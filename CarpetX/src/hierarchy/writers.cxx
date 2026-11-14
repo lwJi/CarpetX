@@ -2,7 +2,7 @@
 #include "hierarchy/binding.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/model.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/scopes.hxx"
 
 #include <carpetx.hxx>
 

@@ -1,6 +1,7 @@
 #include "io/io_model.hxx"
 
 #include "hierarchy/model.hxx"
+#include "hierarchy/valid.hxx"
 #include "util/var_type.hxx"
 
 namespace std {

@@ -9,7 +9,7 @@
 #include "comm/prolongate_3d_rf2.hxx"
 #include "comm/substeps.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/scopes.hxx"
 #include "util/refuse.hxx"
 #include "util/task_manager.hxx"
 #include <carpetx.hxx>
