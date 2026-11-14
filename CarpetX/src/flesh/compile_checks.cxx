@@ -354,7 +354,12 @@ template <class T>
 concept holds_fluxes = requires(const T &t) { t.fluxes; };
 
 template <class Group>
-concept parses_grid_function_tags =
+concept parses_group_tags =
+    requires(Group gi) { get_group_checkpoint_flag(gi); } ||
+    requires(Group gi) { get_group_restrict_tag(gi); } ||
+    requires(Group gi) { get_group_evolve_flag(gi); } ||
+    requires(Group gi) { get_group_prolongation_type(gi); } ||
+    requires(Group gi) { get_group_prolongation_order(gi); } ||
     requires(Group gi) { get_group_indextype(gi); } ||
     requires(Group gi) { get_group_nghostzones(gi); } ||
     requires(Group gi) { get_group_boundaries(gi); } ||
@@ -814,9 +819,12 @@ static_assert(holds_robin_values<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_robin_values<GHExt::PatchData::LevelData::GroupData>);
 static_assert(holds_fluxes<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_fluxes<GHExt::PatchData::LevelData::GroupData>);
-static_assert(!parses_grid_function_tags<gi_t>);
+static_assert(!parses_group_tags<gi_t>);
 static_assert(!std::is_constructible_v<grid_function_t, gi_t, int>);
 static_assert(!std::is_default_constructible_v<grid_function_t>);
+static_assert(!std::is_constructible_v<group_declaration_t, gi_t>);
+static_assert(!std::is_default_constructible_v<group_declaration_t>);
+static_assert(std::is_base_of_v<group_declaration_t, GHExt::GroupRecord>);
 
 } // namespace
 } // namespace CarpetX

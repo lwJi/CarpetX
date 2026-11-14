@@ -1611,7 +1611,7 @@ class Layers(unittest.TestCase):
         self.assertEqual(linkable("util", headers), ("util",))
         self.assertEqual(linkable("regrid", headers), ("util", "config", "hierarchy", "comm", "regrid"))
         self.assertEqual(linkable("schedule", headers), ("util", "traversal", "config", "hierarchy", "comm", "ops", "io", "schedule"))
-        self.assertEqual(linkable("config", headers), ("config",))
+        self.assertEqual(linkable("config", headers), ("util", "config"))
         self.assertEqual(linkable("api", headers), ("util", "config", "hierarchy", "comm", "schedule", "api"))
         self.assertEqual(linkable("flesh", headers), LAYERS)
         for layer in LAYERS:

@@ -1,7 +1,6 @@
 #include <carpetx_rk.hxx>
 
 #include "api/api.hxx"
-#include "config/groups.hxx"
 #include "config/indices.hxx"
 #include "hierarchy/model.hxx"
 #include "schedule/schedule.hxx"
@@ -123,13 +122,14 @@ void check_pair(const rk_config_t &config, const std::size_t index) {
                 "but its right-hand side %s has %d",
                 state, state_nvars, CCTK_FullGroupName(pair.rhs.index()),
                 rhs_nvars);
-  if (!get_group_checkpoint_flag(pair.state))
+  const GHExt::GroupRecord &record = driver().record(pair.state);
+  if (!record.do_checkpoint)
     CCTK_VERROR("CarpetX::register_integrator: integrated group %s is tagged "
                 "checkpoint=\"no\"; a checkpoint would omit its state (and, "
                 "under subcycling, its RK source bands), so recovery could "
                 "not restore it; remove the tag",
                 state);
-  if (!get_group_evolve_flag(pair.state))
+  if (!record.do_evolve)
     CCTK_VERROR("CarpetX::register_integrator: integrated group %s is tagged "
                 "evolve=\"no\"; a regrid would not reliably refill its "
                 "state; remove the tag",

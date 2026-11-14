@@ -438,51 +438,9 @@ void GHExt::PatchData::LevelData::GroupData::rotate_timelevels() {
 ////////////////////////////////////////////////////////////////////////////////
 
 GHExt::GroupRecord::GroupRecord(const gi_t gi, const int num_timelevels)
-    : groupindex(gi), num_timelevels_(num_timelevels) {
-  cGroup cgroup;
-  const int ierr = CCTK_GroupData(gi.index(), &cgroup);
-  assert(!ierr);
-  assert(num_timelevels >= 0 and num_timelevels <= cgroup.numtimelevels);
-
-  groupname = CCTK_FullGroupName(gi.index());
-  firstvarindex = CCTK_FirstVarIndexI(gi.index());
-  numvars = cgroup.numvars;
-  do_checkpoint = get_group_checkpoint_flag(gi);
-  do_evolve = get_group_evolve_flag(gi);
-  const std::optional<bool> restrict_tag = get_group_restrict_tag(gi);
-  do_restrict = restrict_tag.value_or(do_checkpoint);
-  restrict_on_sync = restrict_tag.value_or(true);
-  switch (cgroup.grouptype) {
-  case CCTK_GF:
-    kind = group_kind::grid_function;
-    break;
-  case CCTK_ARRAY:
-    kind = group_kind::array;
-    break;
-  case CCTK_SCALAR:
-    kind = group_kind::scalar;
-    break;
-  default:
-    CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
-                (int)cgroup.grouptype, groupname.c_str());
-  }
-  const std::optional<CarpetX::var_type> type =
-      var_type_from_cctk(cgroup.vartype);
-  if (!type)
-    refuse(std::source_location::current(),
-           "group %s has variable type %s, which CarpetX does not store",
-           groupname.c_str(), CCTK_VarTypeName(cgroup.vartype));
-  var_type = *type;
-  if (kind == group_kind::grid_function) {
-    assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
-    assert(cgroup.dim == dim);
-    grid_function_ = grid_function_t(gi, numvars);
-  } else {
-    assert(cgroup.disttype == CCTK_DISTRIB_CONSTANT);
-    assert(cgroup.dim >= 0);
-    assert(cgroup.dim <= dim);
+    : group_declaration_t(gi), num_timelevels_(num_timelevels) {
+  if (kind != group_kind::grid_function)
     array_ = std::make_unique<GlobalData::ArrayGroupData>(*this);
-  }
 }
 
 GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)

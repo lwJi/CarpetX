@@ -37,6 +37,7 @@ flowchart TB
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
   regrid -- "fillpatch.hxx, substeps.hxx" --> comm
+  config -- "refuse.hxx, var_type.hxx" --> util
   traversal -- "refuse.hxx" --> util
   above -- "binding.hxx, grid.hxx, loops.hxx, model.hxx, modes.hxx, scopes.hxx, valid.hxx, writers.hxx" --> hierarchy
   door -- "boundaries.hxx, grid_sizes.hxx, groups.hxx, indices.hxx, stages.hxx" --> config
@@ -46,7 +47,7 @@ flowchart TB
   nodoor -- "carpetx.hxx" --> include
 ```
 
-- the layer rule holds what each layer reads, the table READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer reads, and util/ reads nothing; traversal/ reads util/; config/ reads nothing; hierarchy/ reads util/, traversal/, config/; comm/ reads util/, traversal/, config/, hierarchy/; regrid/ reads hierarchy/, comm/; ops/ reads util/, traversal/, hierarchy/; io/ reads util/, traversal/, config/, hierarchy/, comm/, ops/; schedule/ reads traversal/, config/, hierarchy/, comm/, io/; api/ reads util/, config/, hierarchy/, comm/, schedule/; flesh/ reads util/, traversal/, config/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/
+- the layer rule holds what each layer reads, the table READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer reads, and util/ reads nothing; traversal/ reads util/; config/ reads util/; hierarchy/ reads util/, traversal/, config/; comm/ reads util/, traversal/, config/, hierarchy/; regrid/ reads hierarchy/, comm/; ops/ reads util/, traversal/, hierarchy/; io/ reads util/, traversal/, config/, hierarchy/, comm/, ops/; schedule/ reads traversal/, config/, hierarchy/, comm/, io/; api/ reads util/, config/, hierarchy/, comm/, schedule/; flesh/ reads util/, traversal/, config/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/
 - a layer reads only layers before it in that list, an include outside the table is refused, and an entry no file of the layer includes fails the tests, so the table holds exactly the layer-to-layer includes the tree has today
 - a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes
 - an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above hierarchy/, is there for the arrow into hierarchy/

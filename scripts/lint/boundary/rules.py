@@ -15,7 +15,7 @@ MAKE_DEFN = "CarpetX/src/make.code.defn"
 READS = {
     "util": (),
     "traversal": ("util",),
-    "config": (),
+    "config": ("util",),
     "hierarchy": ("util", "traversal", "config"),
     "comm": ("util", "traversal", "config", "hierarchy"),
     "regrid": ("hierarchy", "comm"),
@@ -541,7 +541,7 @@ RULES = (
         files=records_files,
         word=RECORDS_WORD,
         allowed=never,
-        text=f"the flesh's group table (CCTK_{', '.join(RECORDS_CALLS)}) is read by hierarchy/, which builds the "
+        text=f"the flesh's group table (CCTK_{', '.join(RECORDS_CALLS)}) is read by config/ and hierarchy/, which build the "
         "records from it, and by flesh/, where its ints arrive, never by "
         f"{dirs(RECORDS_LAYERS, 'or')}; a file there asks driver().record(gi), record_of(var) or records().",
         noun="group-table call",

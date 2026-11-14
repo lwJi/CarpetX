@@ -2,6 +2,8 @@
 
 #include "config/boundaries.hxx"
 #include "config/indices.hxx"
+#include "util/refuse.hxx"
+#include "util/var_type.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -14,6 +16,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <optional>
+#include <source_location>
 #include <string>
 #include <vector>
 
@@ -89,7 +92,7 @@ get_group_boundaries(const gi_t gi) {
   return boundaries;
 }
 
-bool get_group_checkpoint_flag(const gi_t gi) {
+static bool get_group_checkpoint_flag(const gi_t gi) {
   int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   char buf[100];
@@ -110,7 +113,7 @@ bool get_group_checkpoint_flag(const gi_t gi) {
   }
 }
 
-std::optional<bool> get_group_restrict_tag(const gi_t gi) {
+static std::optional<bool> get_group_restrict_tag(const gi_t gi) {
   int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   char buf[100];
@@ -131,7 +134,7 @@ std::optional<bool> get_group_restrict_tag(const gi_t gi) {
   }
 }
 
-bool get_group_evolve_flag(const gi_t gi) {
+static bool get_group_evolve_flag(const gi_t gi) {
   int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
   char buf[100];
@@ -317,6 +320,40 @@ static std::vector<CCTK_REAL> get_group_robin_values(const gi_t gi) {
   return robin_values;
 }
 
+static std::string get_group_prolongation_type(const gi_t gi) {
+  DECLARE_CCTK_PARAMETERS;
+  assert(gi.index() >= 0);
+  const int tags = CCTK_GroupTagsTableI(gi.index());
+  assert(tags >= 0);
+  std::vector<char> group_prolongation_type_buf(1000);
+  const int iret = Util_TableGetString(tags, group_prolongation_type_buf.size(),
+                                       group_prolongation_type_buf.data(),
+                                       "prolongation_type");
+  if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY)
+    return prolongation_type;
+  assert(iret >= 0);
+  const std::string group_prolongation_type(group_prolongation_type_buf.data());
+  return group_prolongation_type;
+}
+
+static int get_group_prolongation_order(const gi_t gi) {
+  DECLARE_CCTK_PARAMETERS;
+  assert(gi.index() >= 0);
+  const int tags = CCTK_GroupTagsTableI(gi.index());
+  assert(tags >= 0);
+  CCTK_INT group_prolongation_order;
+  int iret =
+      Util_TableGetInt(tags, &group_prolongation_order, "prolongation_order");
+  if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
+    group_prolongation_order = prolongation_order;
+  } else if (iret >= 0) {
+    assert(iret == 1);
+  } else {
+    assert(0);
+  }
+  return group_prolongation_order;
+}
+
 grid_function_t::grid_function_t(const gi_t gi, const int numvars) {
   indextype = get_group_indextype(gi);
   nghostzones = get_group_nghostzones(gi);
@@ -344,40 +381,54 @@ grid_function_t::grid_function_t(const gi_t gi, const int numvars) {
   fluxes = get_group_fluxes(gi);
   if (fluxes)
     assert((indextype == std::array<int, dim>{1, 1, 1}));
+
+  prolongation_type = get_group_prolongation_type(gi);
+  prolongation_order = get_group_prolongation_order(gi);
 }
 
-std::string get_group_prolongation_type(const gi_t gi) {
-  DECLARE_CCTK_PARAMETERS;
-  assert(gi.index() >= 0);
-  const int tags = CCTK_GroupTagsTableI(gi.index());
-  assert(tags >= 0);
-  std::vector<char> group_prolongation_type_buf(1000);
-  const int iret = Util_TableGetString(tags, group_prolongation_type_buf.size(),
-                                       group_prolongation_type_buf.data(),
-                                       "prolongation_type");
-  if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY)
-    return prolongation_type;
-  assert(iret >= 0);
-  const std::string group_prolongation_type(group_prolongation_type_buf.data());
-  return group_prolongation_type;
-}
+group_declaration_t::group_declaration_t(const gi_t gi) : groupindex(gi) {
+  cGroup cgroup;
+  const int ierr = CCTK_GroupData(gi.index(), &cgroup);
+  assert(!ierr);
 
-int get_group_prolongation_order(const gi_t gi) {
-  DECLARE_CCTK_PARAMETERS;
-  assert(gi.index() >= 0);
-  const int tags = CCTK_GroupTagsTableI(gi.index());
-  assert(tags >= 0);
-  CCTK_INT group_prolongation_order;
-  int iret =
-      Util_TableGetInt(tags, &group_prolongation_order, "prolongation_order");
-  if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
-    group_prolongation_order = prolongation_order;
-  } else if (iret >= 0) {
-    assert(iret == 1);
-  } else {
-    assert(0);
+  groupname = CCTK_FullGroupName(gi.index());
+  firstvarindex = CCTK_FirstVarIndexI(gi.index());
+  numvars = cgroup.numvars;
+  do_checkpoint = get_group_checkpoint_flag(gi);
+  do_evolve = get_group_evolve_flag(gi);
+  const std::optional<bool> restrict_tag = get_group_restrict_tag(gi);
+  do_restrict = restrict_tag.value_or(do_checkpoint);
+  restrict_on_sync = restrict_tag.value_or(true);
+  switch (cgroup.grouptype) {
+  case CCTK_GF:
+    kind = group_kind::grid_function;
+    break;
+  case CCTK_ARRAY:
+    kind = group_kind::array;
+    break;
+  case CCTK_SCALAR:
+    kind = group_kind::scalar;
+    break;
+  default:
+    CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
+                (int)cgroup.grouptype, groupname.c_str());
   }
-  return group_prolongation_order;
+  const std::optional<CarpetX::var_type> type =
+      var_type_from_cctk(cgroup.vartype);
+  if (!type)
+    refuse(std::source_location::current(),
+           "group %s has variable type %s, which CarpetX does not store",
+           groupname.c_str(), CCTK_VarTypeName(cgroup.vartype));
+  var_type = *type;
+  if (kind == group_kind::grid_function) {
+    assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
+    assert(cgroup.dim == dim);
+    grid_function_ = grid_function_t(gi, numvars);
+  } else {
+    assert(cgroup.disttype == CCTK_DISTRIB_CONSTANT);
+    assert(cgroup.dim >= 0);
+    assert(cgroup.dim <= dim);
+  }
 }
 
 } // namespace CarpetX

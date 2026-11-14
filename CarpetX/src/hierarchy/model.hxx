@@ -352,19 +352,8 @@ struct GHExt {
     };
   };
 
-  struct GroupRecord {
+  struct GroupRecord : group_declaration_t {
     GroupRecord(gi_t gi, int num_timelevels);
-
-    std::string groupname;
-    gi_t groupindex;
-    int firstvarindex;
-    int numvars;
-    bool do_checkpoint;
-    bool do_evolve;
-    bool do_restrict;
-    bool restrict_on_sync;
-    group_kind kind;
-    CarpetX::var_type var_type;
 
     int num_timelevels() const { return num_timelevels_; }
     tl_range timelevels() const {
@@ -395,20 +384,10 @@ struct GHExt {
     }
 
     using grid_function_t = CarpetX::grid_function_t;
-    const grid_function_t &
-    grid_function(const std::source_location site =
-                      std::source_location::current()) const {
-      if (kind != group_kind::grid_function)
-        refuse(site, "group %s is not a grid function group",
-               groupname.c_str());
-      assert(grid_function_);
-      return *grid_function_;
-    }
 
   private:
     int num_timelevels_;
     std::unique_ptr<GlobalData::ArrayGroupData> array_;
-    std::optional<grid_function_t> grid_function_;
   };
 
   struct record_filter {
