@@ -2270,8 +2270,7 @@ class Doc(unittest.TestCase):
                 self.assertIn(box, dict(doc.BOXES))
                 self.assertIn(f'  {box} -- "{", ".join(headers)}" --> {target}', lines)
         self.assertEqual(list(doc.floor()), [("above", "hierarchy"), ("door", "config"), ("door", "traversal"), ("door", "util"), ("door", "include"), ("nodoor", "include")])
-        self.assertIn("model.hxx", doc.floor()[("above", "hierarchy")])
-        self.assertIn("writers.hxx", doc.floor()[("above", "hierarchy")])
+        self.assertEqual(doc.floor()[("above", "hierarchy")], ("binding.hxx", "grid.hxx", "loops.hxx", "model.hxx", "modes.hxx", "scopes.hxx", "valid.hxx", "writers.hxx"))
         self.assertEqual(doc.floor()[("door", "config")], ("boundaries.hxx", "grid_sizes.hxx", "groups.hxx", "indices.hxx", "stages.hxx"))
         for header in ("clocks.hxx", "group_tags.hxx", "indices.hxx", "driver.hxx", "operations.hxx"):
             self.assertNotIn(header, doc.floor()[("above", "hierarchy")])
@@ -2299,7 +2298,8 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `config/`"], f"- `config/`: {rules.OWNS['config']}")
         self.assertTrue(rows["- `config/`"].endswith(" Nothing here calls `driver()`."))
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
-        self.assertTrue(rows["- `hierarchy/`"].endswith(" Rules at home here: validity, binding, varindex, declared, model."))
+        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, varindex, declared, model.")
+        self.assertTrue(rules.OWNS["hierarchy"].endswith(" Nothing here only reads the model: a query belongs to the layer that owns its subject."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
@@ -2414,6 +2414,20 @@ class Doc(unittest.TestCase):
                 "  - `grid_sizes`: the largest grid each level may have",
                 "  - `indices`: ranges over the public index types",
                 "  - `stages`: RK stages and the refinement of time",
+            ],
+        )
+        self.assertEqual(
+            under["hierarchy"],
+            [
+                "  - `model`: `GHExt`, its nested types, and the door `driver()`",
+                "  - `writers`: the five writers, by what each writes: `clock_writer_t` the clocks and the rotation of time levels, `structure_writer_t` the grids and which levels exist, `level_writer_t` one level, made, remade or erased, `registry_writer_t` storage and the integrator record, `scratch_writer_t` scratch slots; `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy",
+                "  - `valid`: the validity state a time level stores",
+                "  - `scopes`: the only way to change that state: write, require and invalidate",
+                "  - `binding`: the only writes to the cGH pointer table",
+                "  - `modes`: which cGH a routine sees, and entering and leaving a mode",
+                "  - `loops`: visiting levels and tiles",
+                "  - `grid`: describing one tile to a kernel",
+                "  - `handles`: the bodies of the public handles, all in one place",
             ],
         )
         words = set()
@@ -2733,7 +2747,8 @@ class Stems(unittest.TestCase):
 
     def test_a_listed_layer_is_a_layer_and_every_stem_in_it_has_a_row(self):
         self.assertLessEqual(set(rules.STEMS), set(LAYERS))
-        self.assertIn("config", rules.STEMS)
+        self.assertEqual(tuple(rules.STEMS), ("config", "hierarchy"))
+        self.assertEqual(tuple(rules.STEMS["hierarchy"]), ("model", "writers", "valid", "scopes", "binding", "modes", "loops", "grid", "handles"))
         self.assertEqual(doc.stem_rows(), rules.STEMS)
         for layer, rows in rules.STEMS.items():
             with self.subTest(layer=layer):
@@ -2754,7 +2769,7 @@ class Stems(unittest.TestCase):
                 doc.render()
         with tempfile.TemporaryDirectory() as root:
             tree(root, {self.SIZES_HXX: "", self.SIZES_CXX: "", layer_path("config", "readers.hxx"): "", layer_path("hierarchy", "loops.hxx"): ""})
-            with mock.patch.dict(rules.STEMS, {"config": {"grid_sizes": "sizes"}}):
+            with mock.patch.dict(rules.STEMS, {"config": {"grid_sizes": "sizes"}}, clear=True):
                 self.assertEqual(doc.stems(root, "config"), {"grid_sizes", "readers"})
                 with self.assertRaisesRegex(ValueError, "^readers in CarpetX/src/config/ but in no row"):
                     doc.stem_rows(root)
@@ -2772,12 +2787,14 @@ class Stems(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as root:
             tree(root, {self.SIZES_HXX: "", self.SIZES_CXX: "", layer_path("config", "indices.hxx"): "", layer_path("config", "readers.cxx"): "", layer_path("hierarchy", "handles.cxx"): "", layer_path("hierarchy", "modes.cxx"): ""})
-            self.assertEqual(doc.lone_sources(root), [layer_path("config", "readers.cxx")])
-            with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("config", "readers.cxx"), ("operator<<",)),)):
-                self.assertEqual(doc.lone_sources(root), [])
+            self.assertEqual(doc.lone_sources(root), [layer_path("config", "readers.cxx"), layer_path("hierarchy", "modes.cxx")])
             self.assertIn(layer_path("hierarchy", "handles.cxx"), dict(doc.PUBLIC_BODIES))
-            with mock.patch.dict(rules.STEMS, {"hierarchy": {}}):
-                self.assertEqual(doc.lone_sources(root), [layer_path("config", "readers.cxx"), layer_path("hierarchy", "modes.cxx")])
+            with mock.patch.object(doc, "PUBLIC_BODIES", doc.PUBLIC_BODIES + ((layer_path("config", "readers.cxx"), ("operator<<",)),)):
+                self.assertEqual(doc.lone_sources(root), [layer_path("hierarchy", "modes.cxx")])
+            with mock.patch.object(doc, "PUBLIC_BODIES", ()):
+                self.assertEqual(doc.lone_sources(root), [layer_path("config", "readers.cxx"), layer_path("hierarchy", "handles.cxx"), layer_path("hierarchy", "modes.cxx")])
+            with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"]}, clear=True):
+                self.assertEqual(doc.lone_sources(root), [layer_path("config", "readers.cxx")])
 
     def test_a_header_declares_its_namespace_scope_types_functions_and_constants(self):
         self.assertEqual(doc.declared_names(DECLARING), DECLARED)
@@ -2803,21 +2820,25 @@ class Stems(unittest.TestCase):
         )
         aliased = layer_path("flesh", "aliased.cxx")
         evolve = layer_path("schedule", "evolve.cxx")
+        modes = layer_path("hierarchy", "modes.hxx")
         files = {
             self.SIZES_HXX: guarded(self.SIZES_HXX, self.DECLARES),
             self.SIZES_CXX: self.DEFINES,
             layer_path("flesh", "startup.cxx"): '#include "config/grid_sizes.hxx"\nint n = per_level_max_grid_sizes().size();\n',
-            evolve: '#include "config/grid_sizes.hxx"\n#include "hierarchy/loops.hxx"\n// per_level_max_grid_sizes() is called below\nconst char *name = "per_level_max_grid_sizes";\nint all_per_level_max_grid_sizes();\nint n = in_global_mode(cctkGH);\n',
-            layer_path("hierarchy", "loops.hxx"): guarded(layer_path("hierarchy", "loops.hxx"), "namespace CarpetX {\nbool in_global_mode(const cGH *cctkGH);\nstruct MFPointer;\n}\n"),
-            aliased: '#include "hierarchy/loops.hxx"\n#include <loop.hxx>\nLoop::GridDescBase grid;\n',
+            evolve: '#include "config/grid_sizes.hxx"\n#include "hierarchy/modes.hxx"\n// per_level_max_grid_sizes() is called below\nconst char *name = "per_level_max_grid_sizes";\nint all_per_level_max_grid_sizes();\nint n = in_global_mode(cctkGH);\n',
+            modes: guarded(modes, "namespace CarpetX {\nbool in_global_mode(const cGH *cctkGH);\nstruct MFPointer;\n}\n"),
+            aliased: '#include "hierarchy/modes.hxx"\n#include <loop.hxx>\nLoop::GridDescBase grid;\n',
         }
         with tempfile.TemporaryDirectory() as root:
             tree(root, files)
-            self.assertEqual(doc.stem_headers(root), {self.SIZES_HXX: files[self.SIZES_HXX]})
-            self.assertEqual(doc.unused_includes(root), [(evolve, self.SIZES_HXX)])
-            with mock.patch.dict(rules.STEMS, {"hierarchy": {}}):
-                self.assertEqual(doc.unused_includes(root), [(evolve, self.SIZES_HXX), (aliased, layer_path("hierarchy", "loops.hxx"))])
+            self.assertEqual(doc.stem_headers(root), {self.SIZES_HXX: files[self.SIZES_HXX], modes: files[modes]})
+            self.assertEqual(doc.unused_includes(root), [(evolve, self.SIZES_HXX), (aliased, modes)])
+            with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"]}, clear=True):
+                self.assertEqual(doc.stem_headers(root), {self.SIZES_HXX: files[self.SIZES_HXX]})
+                self.assertEqual(doc.unused_includes(root), [(evolve, self.SIZES_HXX)])
             write(root, evolve, files[evolve] + "auto sizes = per_level_max_grid_sizes();\n")
+            self.assertEqual(doc.unused_includes(root), [(aliased, modes)])
+            write(root, aliased, files[aliased] + "const MFPointer *mfp;\n")
             self.assertEqual(doc.unused_includes(root), [])
             write(root, self.SIZES_HXX, files[self.SIZES_HXX] + "void (*handler)(int);\n")
             with self.assertRaisesRegex(ValueError, "^CarpetX/src/config/grid_sizes.hxx: line 7 declares something the include-use check cannot name: "):

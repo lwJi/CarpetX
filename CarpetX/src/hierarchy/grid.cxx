@@ -1,4 +1,4 @@
-#include "hierarchy/loops.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/model.hxx"
 
 #include <cctk.h>

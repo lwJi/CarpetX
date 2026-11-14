@@ -1,7 +1,7 @@
 #include "regrid/regrid.hxx"
 
 #include "hierarchy/model.hxx"
-#include "hierarchy/loops.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/scopes.hxx"
 #include "hierarchy/writers.hxx"
 #include "comm/fillpatch.hxx"

@@ -38,7 +38,7 @@ flowchart TB
   io -- "subcycling.hxx" --> comm
   regrid -- "fillpatch.hxx, substeps.hxx" --> comm
   traversal -- "refuse.hxx" --> util
-  above -- "binding.hxx, loops.hxx, model.hxx, scopes.hxx, valid.hxx, writers.hxx" --> hierarchy
+  above -- "binding.hxx, grid.hxx, loops.hxx, model.hxx, modes.hxx, scopes.hxx, valid.hxx, writers.hxx" --> hierarchy
   door -- "boundaries.hxx, grid_sizes.hxx, groups.hxx, indices.hxx, stages.hxx" --> config
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
@@ -140,7 +140,16 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 - `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
 - `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
 - `comm/`: moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions, ghost-only.
-- `hierarchy/`: the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of one of five writers, by what it writes: `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` or `scratch_writer_t`. A writer has no public constructor, copy or move, and writes through the `GHExt &` it holds, so no member can be static. `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy: destroying it is the only way to destroy the hierarchy, and `hierarchy/` keeps none, only the pointer `driver()` reads; the level writer is a private member of the structure writer, which lends it to the AMReX core of each patch it adds and builds a recovered level through it. Rules at home here: validity, binding, varindex, declared, model.
+- `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, varindex, declared, model.
+  - `model`: `GHExt`, its nested types, and the door `driver()`
+  - `writers`: the five writers, by what each writes: `clock_writer_t` the clocks and the rotation of time levels, `structure_writer_t` the grids and which levels exist, `level_writer_t` one level, made, remade or erased, `registry_writer_t` storage and the integrator record, `scratch_writer_t` scratch slots; `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy
+  - `valid`: the validity state a time level stores
+  - `scopes`: the only way to change that state: write, require and invalidate
+  - `binding`: the only writes to the cGH pointer table
+  - `modes`: which cGH a routine sees, and entering and leaving a mode
+  - `loops`: visiting levels and tiles
+  - `grid`: describing one tile to a kernel
+  - `handles`: the bodies of the public handles, all in one place
 - `config/`: what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.
   - `groups`: what a group was declared as: its kind and its tags
   - `boundaries`: the symmetries and default boundaries the parameters ask for

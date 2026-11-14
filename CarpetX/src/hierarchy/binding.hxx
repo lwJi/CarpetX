@@ -4,7 +4,7 @@
 #include "internal.hxx"
 
 #include "hierarchy/model.hxx"
-#include "hierarchy/loops.hxx"
+#include "hierarchy/grid.hxx"
 
 #include <cctk.h>
 

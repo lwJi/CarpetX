@@ -2,6 +2,7 @@
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
 #include "hierarchy/writers.hxx"
 #include "hierarchy/scopes.hxx"
 #include "comm/comm.hxx"

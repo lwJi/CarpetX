@@ -1,4 +1,5 @@
-#include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/model.hxx"
 
 #include <cctk.h>
@@ -14,7 +15,7 @@ namespace CarpetX {
 
 using Loop::undefined;
 
-mode_t current_mode(const cGH *restrict cctkGH) {
+static mode_t current_mode(const cGH *restrict cctkGH) {
   const bool have_local = cctkGH->cctk_component != undefined;
   const bool have_patch = cctkGH->cctk_patch != undefined;
   const bool have_level = cctkGH->cctk_level != undefined;
@@ -89,6 +90,11 @@ void update_cctkGH(cGH *const cctkGH, const cGH *const sourceGH) {
   cctkGH->cctk_timefac = sourceGH->cctk_timefac;
   cctkGH->cctk_time = sourceGH->cctk_time;
   cctkGH->cctk_delta_time = sourceGH->cctk_delta_time;
+}
+
+void update_cctkGHs(cGH *restrict const cctkGH) {
+  driver().for_each_cctkGH(
+      [&](cGH *const copy) { update_cctkGH(copy, cctkGH); });
 }
 
 void enter_global_mode(cGH *restrict cctkGH) {

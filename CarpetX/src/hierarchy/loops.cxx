@@ -117,9 +117,4 @@ void synchronize() {
 #endif
 }
 
-void update_cctkGHs(cGH *restrict const cctkGH) {
-  driver().for_each_cctkGH(
-      [&](cGH *const copy) { update_cctkGH(copy, cctkGH); });
-}
-
 } // namespace CarpetX

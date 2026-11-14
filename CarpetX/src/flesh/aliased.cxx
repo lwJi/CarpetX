@@ -1,5 +1,4 @@
 #include "hierarchy/model.hxx"
-#include "hierarchy/loops.hxx"
 #include "schedule/schedule.hxx"
 #include "ops/interp.hxx"
 #include <carpetx.hxx>

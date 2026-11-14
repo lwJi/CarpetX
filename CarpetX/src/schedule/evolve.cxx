@@ -3,6 +3,7 @@
 #include "config/grid_sizes.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
 #include "hierarchy/writers.hxx"
 #include "comm/reflux.hxx"
 #include "io/io.hxx"
