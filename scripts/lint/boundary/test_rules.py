@@ -942,8 +942,7 @@ class Codec(unittest.TestCase):
         for line in self.HIERARCHY:
             for name in self.CODECS:
                 with self.subTest(name=name, line=line):
-                    door = [("door", line)] if "ghext" in line else []
-                    self.assertEqual(reported(name, "  " + line + "\n"), [("codec", line)] + door)
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("codec", line)])
 
     def test_the_record_and_names_header_are_allowed(self):
         text = (
@@ -980,69 +979,28 @@ class Codec(unittest.TestCase):
 
     def test_line_numbers(self):
         text = '#include "io/checkpoint.hxx"\n\n' + self.HIERARCHY[0] + "\n"
-        self.assertEqual(
-            findings(self.CODECS[0], text, Lang.CXX),
-            [Finding(3, "codec", self.HIERARCHY[0]), Finding(3, "door", self.HIERARCHY[0])],
-        )
+        self.assertEqual(findings(self.CODECS[0], text, Lang.CXX), [Finding(3, "codec", self.HIERARCHY[0])])
 
 
 class Door(unittest.TestCase):
-    USES = [
-        "for (auto &p : ghext->patches())",
-        "assert(!ghext);",
-        "// ghext is gone once CarpetX_Shutdown has run",
-        'yaml << YAML::LocalTag("ghext-2.0.0");',
-    ]
+    POINTER = re.compile(r"^GHExt \*(\w+) = nullptr;$", re.M)
+    UNNAMED = re.compile(r"^namespace \{\n(.*?)^\} // namespace$", re.M | re.S)
 
-    def test_door_reported(self):
-        for line in self.USES:
-            for name in ["CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io.cxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/hierarchy/writers.cxx", "CarpetX/src/schedule/model.cxx"]:
+    def test_the_pointer_driver_reads_is_file_local(self):
+        text = doc.read(os.path.join(PROJECT, rules.DOOR_FILE))
+        pointers = self.POINTER.findall(text)
+        self.assertEqual(len(pointers), 1)
+        self.assertEqual([self.POINTER.findall(block) for block in self.UNNAMED.findall(text)], [pointers])
+        self.assertRegex(text, r"const GHExt &driver\(\) \{ return existing_hierarchy\(\); \}")
+
+    def test_the_name_of_the_pointer_is_left_to_the_compiler(self):
+        for line in ["for (auto &p : ghext->patches())", "assert(!ghext);", 'yaml << YAML::LocalTag("ghext-2.0.0");']:
+            for name in ["CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_model.cxx", "CarpetX/src/util/timer.cxx", rules.DOOR_FILE]:
                 with self.subTest(name=name, line=line):
-                    self.assertEqual(reported(name, "  " + line + "\n"), [("door", line)])
-
-    def test_model_cxx_owns_the_pointer(self):
-        for line in self.USES:
-            with self.subTest(line=line):
-                self.assertEqual(reported("CarpetX/src/hierarchy/model.cxx", line + "\n"), [])
-
-    def test_the_metadata_format_tag_is_not_the_pointer(self):
-        tag = self.USES[3]
-        self.assertEqual(reported(rules.MODEL_TAG_FILE, "  " + tag + "\n"), [])
-        for line in self.USES[:3] + [tag + " assert(ghext);", 'yaml << "ghext-2.0.0";', 'CCTK_VINFO("ghext-2.0.0");']:
-            with self.subTest(line=line):
-                self.assertEqual(reported(rules.MODEL_TAG_FILE, "  " + line + "\n"), [("door", line)])
-        with open(os.path.join(PROJECT, rules.MODEL_TAG_FILE)) as f:
-            self.assertEqual(len(rules.MODEL_TAG.findall(f.read())), 1)
-
-    def test_another_thorn_and_the_public_headers_may_use_the_name(self):
-        for line in self.USES:
-            for name in ["ODESolvers/src/solve.cxx", "CarpetX/src/include/carpetx.hxx"]:
-                with self.subTest(name=name, line=line):
-                    self.assertEqual(reported(name, line + "\n"), [])
-
-    def test_a_longer_name_is_not_the_pointer(self):
-        for text in [
-            "const auto &x = my_ghext->patches();\n",
-            "int ghext_handle = -1;\n",
-            "struct GHExtension;\n",
-            "const GHExt &ext = driver();\n",
-            "const int *counts = CountGroups(ngroups);\n",
-        ]:
-            for name in ["CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io.cxx", "CarpetX/src/hierarchy/model.hxx"]:
-                with self.subTest(name=name, text=text):
-                    self.assertEqual(reported(name, text), [])
-
-    def test_a_codec_naming_it_is_reported_under_both_rules(self):
-        line = "for (const auto &patchdata : ghext->patches()) {"
-        self.assertEqual(reported("CarpetX/src/io/io_silo_checkpoint.cxx", line + "\n"), [("codec", line), ("door", line)])
+                    self.assertEqual(reported(name, "  " + line + "\n"), [])
 
     def test_only_c_and_cxx_files_are_checked(self):
-        self.assertEqual(reported("CarpetX/src/make.code.defn", "X = ghext\n", Lang.MAKE), [])
         self.assertEqual(reported("CarpetX/src/traversal/make.code.defn", "X = driver()\n", Lang.MAKE), [])
-
-    def test_line_numbers(self):
-        text = "int a;\n\n" + self.USES[1] + "\n"
-        self.assertEqual(findings("CarpetX/src/schedule/evolve.cxx", text, Lang.CXX), [Finding(3, "door", self.USES[1])])
 
     CALLS = [
         "GHExt &ext = driver();",
@@ -1100,12 +1058,6 @@ class Door(unittest.TestCase):
         ]:
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/traversal/traversal.cxx", text), [])
-
-    def test_a_line_naming_both_is_one_finding(self):
-        line = "assert(ghext.get() == &driver());"
-        self.assertEqual(reported("CarpetX/src/traversal/traversal.cxx", line + "\n"), [("door", line)])
-        self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", line + "\n"), [("door", line)])
-        self.assertEqual(reported("CarpetX/src/hierarchy/model.cxx", line + "\n"), [])
 
     def test_line_numbers_of_a_driver_call(self):
         text = "int a;\n" + self.CALLS[0] + "\n"
@@ -1686,7 +1638,7 @@ class Layers(unittest.TestCase):
         named = (
             rules.VALIDITY_FILES
             + rules.TRAVERSAL_FILES
-            + (rules.DOOR_FILE, rules.MODEL_TAG_FILE, rules.RECORD_VAR_FILE, rules.MODEL_FILE, MAKE_DEFN)
+            + (rules.DOOR_FILE, rules.RECORD_VAR_FILE, rules.MODEL_FILE, MAKE_DEFN)
             + rules.MODEL_FILES
             + rules.SYNC_FILES
             + tuple(rules.INDEX_FIXED)
@@ -1860,7 +1812,7 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([k]), "✗ boundary: 1 hierarchy use in a checkpoint codec")
         self.assertEqual(summary([i, k, k]), "✗ boundary: 1 bare index int in CarpetX, 2 hierarchy uses in a checkpoint codec")
         self.assertEqual(summary([k, r]), "✗ boundary: 1 group-table call in io/, 1 hierarchy use in a checkpoint codec")
-        g = ("CarpetX/src/schedule/evolve.cxx", Finding(12, "door", "for (auto &p : ghext->patches())"))
+        g = ("CarpetX/src/traversal/traversal.cxx", Finding(12, "door", "const GHExt &ext = driver();"))
         self.assertEqual(summary([g]), "✗ boundary: 1 hierarchy use the door does not allow")
         self.assertEqual(summary([k, g, g]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 hierarchy uses the door does not allow")
         y = ("CarpetX/src/comm/sync_restrict.cxx", Finding(3, "layer", '#include "schedule/schedule.hxx"'))
@@ -1888,9 +1840,11 @@ class Report(unittest.TestCase):
 
 
 SOURCE = "namespace CarpetX {\nvoid Evolve() {\n}\n} // namespace CarpetX\n"
-PLANT = ("void Evolve() {\n", "void Evolve() {\n  for (auto &p : ghext->patches())\n")
+PLANT = ("void Evolve() {\n", "void Evolve() {\n  active_levels = std::nullopt;\n")
 PLANTED = SOURCE.replace(*PLANT)
-DENIAL = "CarpetX/src/schedule/evolve.cxx:3   door       for (auto &p : ghext->patches())"
+DENIAL = "CarpetX/src/schedule/evolve.cxx:3   traversal   active_levels = std::nullopt;"
+PLANT_SUMMARY = "✗ boundary: 1 traversal use outside traversal.cxx"
+SLOT_PLANT = ("void scope() {\n", "void scope() {\n  active_levels = std::nullopt;\n")
 DOOR_SUMMARY = "✗ boundary: 1 hierarchy use the door does not allow"
 LAYER_SUMMARY = "✗ boundary: 1 include its layer does not read"
 SYNC_SOURCE = '#include "comm/comm.hxx"\n#include "hierarchy/model.hxx"\n\nnamespace CarpetX {\nvoid sync() {\n}\n} // namespace CarpetX\n'
@@ -1967,14 +1921,15 @@ class Hooks(unittest.TestCase):
         self.assertEqual(hooks.hook_stop(json.dumps(payload), out, root=self.root), 0)
         return out.getvalue()
 
-    def test_a_planted_ghext_is_denied_under_door(self):
+    def test_a_planted_slot_is_denied_under_traversal(self):
         lines = denial(self, self.edit("CarpetX/src/schedule/evolve.cxx", *PLANT))
         self.assertEqual(lines[0], DENIAL)
         self.assertEqual(lines[1:-1], RULE.split("\n"))
-        self.assertEqual(lines[-1], DOOR_SUMMARY)
+        self.assertEqual(lines[-1], PLANT_SUMMARY)
 
-    def test_the_door_file_may_name_it(self):
-        self.assertEqual(self.edit("CarpetX/src/hierarchy/model.cxx", *PLANT), "")
+    def test_the_traversal_file_may_name_it(self):
+        self.assertIn(SLOT_PLANT[0], TRAVERSAL_SOURCE)
+        self.assertEqual(self.edit("CarpetX/src/traversal/traversal.cxx", *SLOT_PLANT), "")
 
     def test_an_upward_include_is_denied_under_layer(self):
         lines = denial(self, self.edit("CarpetX/src/comm/sync_restrict.cxx", *UPWARD_PLANT))
@@ -2017,8 +1972,8 @@ class Hooks(unittest.TestCase):
     def test_only_what_the_edit_adds_is_new(self):
         write(self.root, "CarpetX/src/schedule/evolve.cxx", PLANTED)
         self.assertEqual(self.edit("CarpetX/src/schedule/evolve.cxx", "void Evolve()", "void Initialise()"), "")
-        lines = denial(self, self.edit("CarpetX/src/schedule/evolve.cxx", "}\n} //", "  assert(!ghext);\n}\n} //"))
-        self.assertEqual(lines[0], "CarpetX/src/schedule/evolve.cxx:4   door       assert(!ghext);")
+        lines = denial(self, self.edit("CarpetX/src/schedule/evolve.cxx", "}\n} //", "  tail_bin = false;\n}\n} //"))
+        self.assertEqual(lines[0], "CarpetX/src/schedule/evolve.cxx:4   traversal   tail_bin = false;")
 
     def test_a_write_and_a_new_file_are_judged_whole(self):
         self.assertEqual(denial(self, self.write_tool("CarpetX/src/schedule/evolve.cxx", PLANTED))[0], DENIAL)
@@ -2026,11 +1981,11 @@ class Hooks(unittest.TestCase):
         self.assertEqual(self.write_tool("CarpetX/src/schedule/new.cxx", SOURCE), "")
 
     def test_an_edit_that_does_not_apply_is_left_to_the_edit_tool(self):
-        self.assertEqual(self.edit("CarpetX/src/schedule/evolve.cxx", "int nope;\n", "ghext->patches();\n"), "")
+        self.assertEqual(self.edit("CarpetX/src/schedule/evolve.cxx", "int nope;\n", "active_levels = std::nullopt;\n"), "")
 
     def test_files_the_check_does_not_read_pass(self):
-        self.assertEqual(self.edit("CarpetX/README", "not covered\n", "ghext->patches();\n"), "")
-        self.assertEqual(self.write_tool("CarpetX/schedule.ccl", "STORAGE: ghext\n"), "")
+        self.assertEqual(self.edit("CarpetX/README", "not covered\n", "active_levels = std::nullopt;\n"), "")
+        self.assertEqual(self.write_tool("CarpetX/schedule.ccl", "STORAGE: active_levels\n"), "")
         self.assertEqual(self.write_tool("Other/src/a.cxx", PLANTED), "")
         with tempfile.TemporaryDirectory() as other:
             self.assertEqual(self.run_edit(edit_payload(other, "CarpetX/src/a.cxx", "", PLANTED)), "")
@@ -2063,7 +2018,7 @@ class Hooks(unittest.TestCase):
             self.assertEqual(sorted(decision), ["decision", "reason"])
             self.assertEqual(decision["decision"], "block")
             lines = decision["reason"].split("\n")
-            self.assertEqual((lines[0], lines[-1]), (DENIAL, DOOR_SUMMARY))
+            self.assertEqual((lines[0], lines[-1]), (DENIAL, PLANT_SUMMARY))
             self.assertEqual(self.run_stop({"stop_hook_active": True}), "")
             write(self.root, "CarpetX/src/schedule/evolve.cxx", SOURCE)
             self.assertEqual(self.run_stop({"stop_hook_active": False}), "")

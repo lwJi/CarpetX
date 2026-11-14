@@ -136,11 +136,7 @@ TRAVERSAL_WORD = re.compile(
     r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b"
 )
 DOOR_FILE = layer_path("hierarchy", "model.cxx")
-DOOR_WORD = re.compile(r"\bghext\b")
-MODEL_TAG_FILE = layer_path("io", "io_model.cxx")
-MODEL_TAG = re.compile(r'\bYAML::LocalTag\("ghext-[0-9.]+"\)')
 DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
-GHEXT_OR_DRIVER_CALL = re.compile(f"{DOOR_WORD.pattern}|{DRIVER_CALL.pattern}")
 LAYER_INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<((?:' + "|".join(LAYERS) + r')/[^>]*)>)')
 SYNC_FILES = (
     layer_path("comm", "comm.hxx"),
@@ -395,10 +391,7 @@ def entry_allowed(name: str, line: str, statement: str) -> bool:
 
 
 def door_allowed(name: str, line: str, statement: str) -> bool:
-    named = MODEL_TAG.sub("", line) if name == MODEL_TAG_FILE else line
-    if DOOR_WORD.search(named) and name != DOOR_FILE:
-        return False
-    return not DRIVER_CALL.search(line) or layer_of(name) in HIERARCHY_LAYERS
+    return layer_of(name) in HIERARCHY_LAYERS
 
 
 RULES = (
@@ -638,12 +631,11 @@ RULES = (
     Rule(
         "door",
         files=private_cxx,
-        word=GHEXT_OR_DRIVER_CALL,
+        word=DRIVER_CALL,
         allowed=door_allowed,
-        text=f"the hierarchy pointer ghext is named only in {DOOR_FILE}; every other file "
-        f"calls driver(), and only from {HIERARCHY_LAYERS[0]}/ or a layer above it, never from "
-        f"{dirs(UNDER_HIERARCHY, 'or')}. The format tag YAML::LocalTag(\"ghext-<version>\") that {MODEL_TAG_FILE} "
-        "writes into the metadata is not the pointer.",
+        text=f"driver() is called only from {HIERARCHY_LAYERS[0]}/ or a layer above it, never from "
+        f"{dirs(UNDER_HIERARCHY, 'or')}. The pointer it reads is defined in the unnamed namespace of {DOOR_FILE}, "
+        "so the compiler refuses its name in every other file.",
         noun="hierarchy use",
         where="the door does not allow",
         clean=f"the hierarchy has one door that {dirs(UNDER_HIERARCHY, 'and')} never use",
