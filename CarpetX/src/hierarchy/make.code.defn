@@ -1,14 +1,13 @@
 SRCS =							\
 	binding.cxx					\
 	grid.cxx					\
-	grid_sizes.cxx					\
-	group_tags.cxx					\
 	handles.cxx					\
-	hierarchy.cxx					\
 	loops.cxx					\
+	model.cxx					\
 	modes.cxx					\
+	scopes.cxx					\
 	valid.cxx					\
-	yaml.cxx
+	writers.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))

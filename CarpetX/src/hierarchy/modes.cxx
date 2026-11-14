@@ -1,5 +1,6 @@
-#include "hierarchy/loops.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/modes.hxx"
+#include "hierarchy/grid.hxx"
+#include "hierarchy/model.hxx"
 
 #include <cctk.h>
 #include <cctk_Parameters.h>
@@ -7,81 +8,14 @@
 #include <AMReX_Box.H>
 #include <AMReX_Geometry.H>
 
-#include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <cstring>
-#include <type_traits>
 
 namespace CarpetX {
 
 using Loop::undefined;
 
-cGH *copy_cctkGH(const cGH *restrict const sourceGH) {
-  cGH *restrict const cctkGH = new cGH;
-
-  *cctkGH = *sourceGH;
-
-  const auto copy_array = [](const auto *restrict const srcptr, const int sz) {
-    using T = std::decay_t<decltype(*srcptr)>;
-    T *restrict const ptr = new T[sz];
-    std::copy(srcptr, srcptr + sz, ptr);
-    return ptr;
-  };
-  cctkGH->cctk_gsh = copy_array(sourceGH->cctk_gsh, dim);
-  cctkGH->cctk_lsh = copy_array(sourceGH->cctk_lsh, dim);
-  cctkGH->cctk_lbnd = copy_array(sourceGH->cctk_lbnd, dim);
-  cctkGH->cctk_ubnd = copy_array(sourceGH->cctk_ubnd, dim);
-  cctkGH->cctk_tile_min = copy_array(sourceGH->cctk_tile_min, dim);
-  cctkGH->cctk_tile_max = copy_array(sourceGH->cctk_tile_max, dim);
-  cctkGH->cctk_ash = copy_array(sourceGH->cctk_ash, dim);
-  cctkGH->cctk_to = copy_array(sourceGH->cctk_to, dim);
-  cctkGH->cctk_from = copy_array(sourceGH->cctk_from, dim);
-  cctkGH->cctk_delta_space = copy_array(sourceGH->cctk_delta_space, dim);
-  cctkGH->cctk_origin_space = copy_array(sourceGH->cctk_origin_space, dim);
-  cctkGH->cctk_bbox = copy_array(sourceGH->cctk_bbox, 2 * dim);
-  cctkGH->cctk_levfac = copy_array(sourceGH->cctk_levfac, dim);
-  cctkGH->cctk_levoff = copy_array(sourceGH->cctk_levoff, dim);
-  cctkGH->cctk_levoffdenom = copy_array(sourceGH->cctk_levoffdenom, dim);
-  cctkGH->cctk_nghostzones = copy_array(sourceGH->cctk_nghostzones, dim);
-
-  const int numvars = CCTK_NumVars();
-  cctkGH->data = new void **[numvars];
-  for (const var_t var : index_range<var_t>(var_t{0}, var_t{numvars}))
-    cctkGH->data[var.index()] = copy_array(
-        sourceGH->data[var.index()], CCTK_DeclaredTimeLevelsVI(var.index()));
-
-  return cctkGH;
-}
-
-void delete_cctkGH(cGH *cctkGH) {
-  delete[] cctkGH->cctk_gsh;
-  delete[] cctkGH->cctk_lsh;
-  delete[] cctkGH->cctk_lbnd;
-  delete[] cctkGH->cctk_ubnd;
-  delete[] cctkGH->cctk_tile_min;
-  delete[] cctkGH->cctk_tile_max;
-  delete[] cctkGH->cctk_ash;
-  delete[] cctkGH->cctk_to;
-  delete[] cctkGH->cctk_from;
-  delete[] cctkGH->cctk_delta_space;
-  delete[] cctkGH->cctk_origin_space;
-  delete[] cctkGH->cctk_bbox;
-  delete[] cctkGH->cctk_levfac;
-  delete[] cctkGH->cctk_levoff;
-  delete[] cctkGH->cctk_levoffdenom;
-  delete[] cctkGH->cctk_nghostzones;
-  const int numvars = CCTK_NumVars();
-  for (const var_t var : index_range<var_t>(var_t{0}, var_t{numvars}))
-    delete[] cctkGH->data[var.index()];
-  delete[] cctkGH->data;
-#ifdef CCTK_DEBUG
-  memset(cctkGH, 0, sizeof *cctkGH);
-#endif
-  delete cctkGH;
-}
-
-mode_t current_mode(const cGH *restrict cctkGH) {
+static mode_t current_mode(const cGH *restrict cctkGH) {
   const bool have_local = cctkGH->cctk_component != undefined;
   const bool have_patch = cctkGH->cctk_patch != undefined;
   const bool have_level = cctkGH->cctk_level != undefined;
@@ -156,6 +90,11 @@ void update_cctkGH(cGH *const cctkGH, const cGH *const sourceGH) {
   cctkGH->cctk_timefac = sourceGH->cctk_timefac;
   cctkGH->cctk_time = sourceGH->cctk_time;
   cctkGH->cctk_delta_time = sourceGH->cctk_delta_time;
+}
+
+void update_cctkGHs(cGH *restrict const cctkGH) {
+  driver().for_each_cctkGH(
+      [&](cGH *const copy) { update_cctkGH(copy, cctkGH); });
 }
 
 void enter_global_mode(cGH *restrict cctkGH) {

@@ -1,6 +1,6 @@
 #include "io/io_openpmd.hxx"
 
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "io/io.hxx"
 #include "io/io_meta.hxx"
 #include "io/io_openpmd_names.hxx"

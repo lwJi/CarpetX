@@ -27,6 +27,7 @@ static inline int omp_get_thread_num() { return 0; }
 #include <array>
 #include <cassert>
 #include <cstddef>
+#include <sstream>
 #include <type_traits>
 #include <vector>
 

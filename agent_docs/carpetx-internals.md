@@ -19,32 +19,34 @@ flowchart TB
     hierarchy["hierarchy/"]
   end
   subgraph nodoor["no driver()"]
+    config["config/"]
     traversal["traversal/"]
     util["util/"]
   end
   include["include/"]
   flesh -- "api.hxx" --> api
-  flesh -- "schedule.hxx" --> schedule
+  flesh -- "checksums.hxx, schedule.hxx" --> schedule
   flesh -- "checkpoint.hxx, io.hxx" --> io
   flesh -- "interp.hxx" --> ops
   flesh -- "regrid.hxx" --> regrid
-  flesh -- "buffers.hxx, comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  flesh -- "buffers.hxx, comm.hxx, reflux.hxx, subcycling.hxx, substeps.hxx" --> comm
   api -- "schedule.hxx" --> schedule
-  api -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  api -- "comm.hxx, integrator.hxx, reflux.hxx, subcycling.hxx" --> comm
   schedule -- "io.hxx" --> io
-  schedule -- "comm.hxx, reflux.hxx, subcycling.hxx" --> comm
+  schedule -- "comm.hxx, reflux.hxx, subcycling.hxx, substeps.hxx" --> comm
   io -- "reduction.hxx" --> ops
   io -- "subcycling.hxx" --> comm
-  regrid -- "fillpatch.hxx" --> comm
+  regrid -- "fillpatch.hxx, substeps.hxx" --> comm
   traversal -- "refuse.hxx" --> util
-  above -- "binding.hxx, clocks.hxx, driver.hxx, grid_sizes.hxx, group_tags.hxx, indices.hxx, loops.hxx, operations.hxx, valid.hxx" --> hierarchy
+  above -- "binding.hxx, grid.hxx, loops.hxx, model.hxx, modes.hxx, scopes.hxx, valid.hxx, writers.hxx" --> hierarchy
+  door -- "boundaries.hxx, grid_sizes.hxx, groups.hxx, indices.hxx, stages.hxx" --> config
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
   door -- "carpetx.hxx, carpetx_rk.hxx" --> include
   nodoor -- "carpetx.hxx" --> include
 ```
 
-- the layer rule holds what each layer reads, the table READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer reads, and util/ reads nothing; traversal/ reads util/; hierarchy/ reads util/, traversal/; comm/ reads util/, traversal/, hierarchy/; regrid/ reads hierarchy/, comm/; ops/ reads util/, traversal/, hierarchy/; io/ reads util/, traversal/, hierarchy/, comm/, ops/; schedule/ reads traversal/, hierarchy/, comm/, io/; api/ reads util/, hierarchy/, comm/, schedule/; flesh/ reads util/, traversal/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/
+- the layer rule holds what each layer reads, the table READS in scripts/lint/boundary/rules.py: a file includes only its own layer or one its layer reads, and util/ reads nothing; traversal/ reads util/; config/ reads nothing; hierarchy/ reads util/, traversal/, config/; comm/ reads util/, traversal/, config/, hierarchy/; regrid/ reads hierarchy/, comm/; ops/ reads util/, traversal/, hierarchy/; io/ reads util/, traversal/, config/, hierarchy/, comm/, ops/; schedule/ reads traversal/, config/, hierarchy/, comm/, io/; api/ reads util/, config/, hierarchy/, comm/, schedule/; flesh/ reads util/, traversal/, config/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/
 - a layer reads only layers before it in that list, an include outside the table is refused, and an entry no file of the layer includes fails the tests, so the table holds exactly the layer-to-layer includes the tree has today
 - a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes
 - an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above hierarchy/, is there for the arrow into hierarchy/
@@ -65,6 +67,7 @@ flowchart LR
   ops["ops/"]
   comm["comm/"]
   hierarchy["hierarchy/"]
+  config["config/"]
   util["util/"]
   cactus -- "1 Initialise_entry, Evolve_entry" --> flesh
   flesh -- "1 Initialise, Evolve" --> schedule
@@ -77,7 +80,8 @@ flowchart LR
   schedule -- "7 CCTK_CallFunction" --> thorn
   thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api
   thorn -- "8 reduce" --> ops
-  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t, operator<<" --> hierarchy
+  thorn -- "8 variable, active_window, all_levels, synchronize, valid_t" --> hierarchy
+  thorn -- "8 operator<<" --> config
   thorn -- "8 Timer" --> util
   api -- "9 CCTK_ScheduleTraverse" --> cactus
   cactus -- "10 QueryGroupStorageB" --> schedule
@@ -103,7 +107,7 @@ flowchart LR
   amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
 ```
 
-- the numbered arrows are one regrid: the driver asks the hierarchy (1), the hierarchy asks AMReX (2), AMReX calls back into the layer that defines its callbacks (3)
+- the numbered arrows are one regrid: schedule/ asks the hierarchy (1), the hierarchy asks AMReX (2), AMReX calls back into the layer that defines its callbacks (3)
 - the table below lists every entry an outsider calls
 
 ## Who the outsiders call
@@ -121,20 +125,36 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 | `ops/` | a thorn | reduce |
 | `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |
 | `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |
-| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t, operator<< |
+| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t |
+| `config/` | a thorn | operator<< |
 | `util/` | a thorn | Timer |
 
 ## What each layer owns
 
-New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides, then names the rules whose home is in it.
+New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides, then names the rules whose home is in it. Under a layer that the table STEMS in scripts/lint/boundary/rules.py lists is one row per file stem, a header and its source sharing the stem, that says the one concern the stem holds: a stem with no row or a row with no stem fails the generator, `scripts/lint symbols` refuses a definition there that the header of its stem does not name, and the tests refuse a source there with no header and an include of one of its headers that uses no name the header declares.
 
 - `flesh/`: every `extern "C"`, and the four writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its two. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh's arguments and calls the layer that does the work. Rules at home here: entry, ghost-only.
 - `api/`: the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the two writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty. Rules at home here: ghost-only.
-- `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.
-- `io/`: output, checkpoint, recovery and the file reader's input. When to do each is decided by the flesh's bins and by `schedule/`. Rules at home here: records, codec.
+- `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.
+- `io/`: output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. Rules at home here: records, codec.
 - `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
 - `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
-- `comm/`: moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions, ghost-only.
-- `hierarchy/`: the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of one of five writers, by what it writes: `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` or `scratch_writer_t`. A writer has no public constructor, copy or move, and writes through the `GHExt &` it holds, so no member can be static. `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy: destroying it is the only way to destroy the hierarchy, and `hierarchy/` keeps none, only the pointer `driver()` reads; the level writer is a private member of the structure writer, which lends it to the AMReX core of each patch it adds and builds a recovered level through it. Rules at home here: validity, binding, varindex, model.
+- `comm/`: moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions, ghost-only.
+- `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, varindex, declared, model.
+  - `model`: `GHExt`, its nested types, and the door `driver()`
+  - `writers`: the five writers, by what each writes: `clock_writer_t` the clocks and the rotation of time levels, `structure_writer_t` the grids and which levels exist, `level_writer_t` one level, made, remade or erased, `registry_writer_t` storage and the integrator record, `scratch_writer_t` scratch slots; `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy
+  - `valid`: the validity state a time level stores
+  - `scopes`: the only way to change that state: write, require and invalidate
+  - `binding`: the only writes to the cGH pointer table
+  - `modes`: which cGH a routine sees, and entering and leaving a mode
+  - `loops`: visiting levels and tiles
+  - `grid`: describing one tile to a kernel
+  - `handles`: the bodies of the public handles, all in one place
+- `config/`: what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.
+  - `groups`: what a group was declared as: its kind and its tags
+  - `boundaries`: the symmetries and default boundaries the parameters ask for
+  - `grid_sizes`: the largest grid each level may have
+  - `indices`: ranges over the public index types
+  - `stages`: RK stages and the refinement of time
 - `traversal/`: the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not. Rules at home here: traversal.
 - `util/`: leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.

@@ -1,15 +1,15 @@
 #include <carpetx_rk.hxx>
 
 #include "api/api.hxx"
-#include "hierarchy/driver.hxx"
-#include "hierarchy/group_tags.hxx"
-#include "hierarchy/operations.hxx"
+#include "config/groups.hxx"
+#include "config/indices.hxx"
+#include "hierarchy/model.hxx"
 #include "schedule/schedule.hxx"
-#include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
 #include "comm/comm.hxx"
+#include "comm/integrator.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
-#include "hierarchy/valid.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>

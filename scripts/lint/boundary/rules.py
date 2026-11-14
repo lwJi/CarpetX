@@ -15,14 +15,15 @@ MAKE_DEFN = "CarpetX/src/make.code.defn"
 READS = {
     "util": (),
     "traversal": ("util",),
-    "hierarchy": ("util", "traversal"),
-    "comm": ("util", "traversal", "hierarchy"),
+    "config": (),
+    "hierarchy": ("util", "traversal", "config"),
+    "comm": ("util", "traversal", "config", "hierarchy"),
     "regrid": ("hierarchy", "comm"),
     "ops": ("util", "traversal", "hierarchy"),
-    "io": ("util", "traversal", "hierarchy", "comm", "ops"),
-    "schedule": ("traversal", "hierarchy", "comm", "io"),
-    "api": ("util", "hierarchy", "comm", "schedule"),
-    "flesh": ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
+    "io": ("util", "traversal", "config", "hierarchy", "comm", "ops"),
+    "schedule": ("traversal", "config", "hierarchy", "comm", "io"),
+    "api": ("util", "config", "hierarchy", "comm", "schedule"),
+    "flesh": ("util", "traversal", "config", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
 }
 LAYERS = tuple(READS)
 assert all(targets == tuple(target for target in LAYERS[: LAYERS.index(layer)] if target in targets) for layer, targets in READS.items()), READS
@@ -31,15 +32,38 @@ READS_HOME = "scripts/lint/boundary/rules.py"
 OWNS = {
     "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
     "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
-    "hierarchy": "the data model and the hierarchy's views of itself. What a checkpoint carries is a field of `LevelData` or `GroupData`, or an RK band, which `comm/` owns and hands out through `checkpoint_bands` and `restore_bands`; what `comm/` builds on a level is in the slot `buffers`; a change to the hierarchy that another layer needs is a member of one of five writers, by what it writes: `clock_writer_t`, `structure_writer_t`, `level_writer_t`, `registry_writer_t` or `scratch_writer_t`. A writer has no public constructor, copy or move, and writes through the `GHExt &` it holds, so no member can be static. `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy: destroying it is the only way to destroy the hierarchy, and `hierarchy/` keeps none, only the pointer `driver()` reads; the level writer is a private member of the structure writer, which lends it to the AMReX core of each patch it adds and builds a recovered level through it.",
-    "comm": "moving data between ranks, between levels, and into ghost and boundary zones. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.",
+    "config": "what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.",
+    "hierarchy": "the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject.",
+    "comm": "moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
-    "io": "output, checkpoint, recovery and the file reader's input. When to do each is decided by the flesh's bins and by `schedule/`.",
-    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.",
+    "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`.",
+    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.",
     "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the two writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty.",
     "flesh": 'every `extern "C"`, and the four writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its two. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
+STEMS = {
+    "config": {
+        "groups": "what a group was declared as: its kind and its tags",
+        "boundaries": "the symmetries and default boundaries the parameters ask for",
+        "grid_sizes": "the largest grid each level may have",
+        "indices": "ranges over the public index types",
+        "stages": "RK stages and the refinement of time",
+    },
+    "hierarchy": {
+        "model": "`GHExt`, its nested types, and the door `driver()`",
+        "writers": "the five writers, by what each writes: `clock_writer_t` the clocks and the rotation of time levels, `structure_writer_t` the grids and which levels exist, `level_writer_t` one level, made, remade or erased, `registry_writer_t` storage and the integrator record, `scratch_writer_t` scratch slots; `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy",
+        "valid": "the validity state a time level stores",
+        "scopes": "the only way to change that state: write, require and invalidate",
+        "binding": "the only writes to the cGH pointer table",
+        "modes": "which cGH a routine sees, and entering and leaving a mode",
+        "loops": "visiting levels and tiles",
+        "grid": "describing one tile to a kernel",
+        "handles": "the bodies of the public handles, all in one place",
+    },
+}
+assert set(STEMS) <= set(LAYERS), STEMS
+STEMS_HOME = READS_HOME
 HIERARCHY_LAYERS = LAYERS[LAYERS.index("hierarchy") :]
 UNDER_HIERARCHY = LAYERS[: LAYERS.index("hierarchy")]
 ROOT_HEADER = "internal.hxx"
@@ -85,14 +109,15 @@ def layers_of(names: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def dirs(layers: tuple[str, ...], conjunction: str) -> str:
-    return f" {conjunction} ".join(f"{layer}/" for layer in layers)
+    names = [f"{layer}/" for layer in layers]
+    return f" {conjunction} ".join(filter(None, (", ".join(names[:-1]), names[-1])))
 
 
 CHECKED = (Lang.CXX, Lang.MAKE)
 MARKER_WORD = re.compile(r"CARPETX_INTERNAL\b")
 GUARD = re.compile(r"^\s*#\s*ifndef\s+CARPETX_INTERNAL\s*$")
 INCLUDE_INTO_SRC = re.compile(r'^\s*#\s*include\s*(?:"[^"]*CarpetX/src[^"]*"|<[^>]*CarpetX/src[^>]*>)')
-VALIDITY_FILES = (layer_path("hierarchy", "valid.cxx"), layer_path("hierarchy", "valid.hxx"))
+VALIDITY_FILES = (layer_path("hierarchy", "scopes.cxx"), layer_path("hierarchy", "scopes.hxx"), layer_path("hierarchy", "valid.hxx"))
 VALIDITY_WORD = re.compile(
     r"(\b(error_if_invalid|warn_if_invalid|poison_invalid_g[fa]|check_valid_g[fa])"
     r"|(\.|->)(set_all|set_int|set_outer|set_ghosts|set_invalid|set_valid))\s*\("
@@ -110,8 +135,10 @@ TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("travers
 TRAVERSAL_WORD = re.compile(
     r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b"
 )
-DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
+DOOR_FILE = layer_path("hierarchy", "model.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
+MODEL_TAG_FILE = layer_path("io", "io_model.cxx")
+MODEL_TAG = re.compile(r'\bYAML::LocalTag\("ghext-[0-9.]+"\)')
 DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
 GHEXT_OR_DRIVER_CALL = re.compile(f"{DOOR_WORD.pattern}|{DRIVER_CALL.pattern}")
 LAYER_INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<((?:' + "|".join(LAYERS) + r')/[^>]*)>)')
@@ -122,12 +149,22 @@ SYNC_FILES = (
 DIRECTIONS_WORD = re.compile(r"\bdirections\b")
 FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
 VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\([^()]*\))*\))\s*\+")
-RECORD_VAR_FILE = layer_path("hierarchy", "driver.hxx")
+RECORD_VAR_FILE = layer_path("hierarchy", "model.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
-MODEL_FILE = layer_path("hierarchy", "driver.hxx")
+RECORD_READER_FILES = (
+    layer_path("config", "groups.hxx"),
+    layer_path("config", "groups.cxx"),
+    layer_path("hierarchy", "model.cxx"),
+)
+RECORD_READER_WORD = re.compile(r"\bdeclared_grid_function\b")
+MODEL_FILE = layer_path("hierarchy", "model.hxx")
+MODEL_STATE_FILE = layer_path("hierarchy", "valid.hxx")
+MODEL_FILES = (MODEL_FILE, MODEL_STATE_FILE)
 MODEL_WORD = re.compile(
     r'\bmutable\b|\bextern\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]'
     r"|\bamrex::(Interpolater|BCRec|FluxRegister)\b"
+    r'|^\s*#\s*include\s*[<"]yaml-cpp/|^\s*#\s*include\s*[<"]zlib\.h[>"]'
+    r'|^\s*#\s*include\s*[<"]hierarchy/(?!valid\.hxx[>"])'
 )
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
 ALIAS_WORD = re.compile(r"\bmake_alias\b")
@@ -141,7 +178,7 @@ INDEX_FIXED = {
     layer_path("hierarchy", "handles.cxx"): ("levels", "narrow"),
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
     layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
-    layer_path("hierarchy", "group_tags.cxx"): ("CCTK_TraverseString",),
+    layer_path("config", "groups.cxx"): ("CCTK_TraverseString",),
     layer_path("comm", "comm.hxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("comm", "sync_restrict.cxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("regrid", "regrid.hxx"): AMREX_CALLBACKS,
@@ -166,7 +203,7 @@ CODEC_FILES = (
     layer_path("io", "io_silo_names.hxx"),
 )
 CODEC_WORD = re.compile(
-    r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]hierarchy/driver\.hxx[">]'
+    r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]hierarchy/model\.hxx[">]'
 )
 PROTOTYPE_END = re.compile(r"\)\s*(?:noexcept\s*)?;\s*$")
 NOT_A_DECLARATION = re.compile(r"\s*(?:$|#|//|(?:public|protected|private)\s*:(?!:))")
@@ -253,7 +290,7 @@ def carpetx_header(name: str, lang: Lang) -> bool:
 
 
 def model_files(name: str, lang: Lang) -> bool:
-    return lang is Lang.CXX and name == MODEL_FILE
+    return lang is Lang.CXX and name in MODEL_FILES
 
 
 def records_files(name: str, lang: Lang) -> bool:
@@ -266,6 +303,10 @@ def codec_cxx(name: str, lang: Lang) -> bool:
 
 def in_files(names: tuple[str, ...]) -> Callable[..., bool]:
     return lambda name, *_: name in names
+
+
+def record_reader_allowed(name: str, line: str, statement: str) -> bool:
+    return name in RECORD_READER_FILES
 
 
 def never(name: str, line: str, statement: str) -> bool:
@@ -364,7 +405,8 @@ def entry_allowed(name: str, line: str, statement: str) -> bool:
 
 
 def door_allowed(name: str, line: str, statement: str) -> bool:
-    if DOOR_WORD.search(line) and name != DOOR_FILE:
+    named = MODEL_TAG.sub("", line) if name == MODEL_TAG_FILE else line
+    if DOOR_WORD.search(named) and name != DOOR_FILE:
         return False
     return not DRIVER_CALL.search(line) or layer_of(name) in HIERARCHY_LAYERS
 
@@ -396,11 +438,11 @@ RULES = (
         files=private_cxx,
         word=VALIDITY_WORD,
         allowed=in_files(VALIDITY_FILES),
-        text="a validity kernel or a why_valid_t setter is named only in CarpetX/src/hierarchy/valid.cxx and "
+        text="a validity kernel or a why_valid_t setter is named only in CarpetX/src/hierarchy/scopes.cxx, scopes.hxx and "
         "valid.hxx; every other site opens a write scope or calls require or invalidate.",
         noun="validity call",
-        where="outside valid.cxx",
-        clean="no validity call outside valid.cxx",
+        where="outside scopes.cxx",
+        clean="no validity call outside scopes.cxx",
         home=layers_of(VALIDITY_FILES),
     ),
     Rule(
@@ -440,18 +482,34 @@ RULES = (
         home=layers_of((RECORD_VAR_FILE,)),
     ),
     Rule(
+        "declared",
+        files=carpetx_cxx,
+        word=RECORD_READER_WORD,
+        allowed=record_reader_allowed,
+        text="what a grid function group was declared as is read once, by the constructor of GroupRecord: "
+        f"declared_grid_function is named only in {', '.join(RECORD_READER_FILES[:-1])} and {RECORD_READER_FILES[-1]}; "
+        "every other file calls record.grid_function().",
+        noun="declared_grid_function use",
+        where="outside GroupRecord",
+        clean="no declared_grid_function outside GroupRecord",
+        home=layers_of(RECORD_READER_FILES[-1:]),
+    ),
+    Rule(
         "model",
         files=model_files,
         word=MODEL_WORD,
         allowed=never,
-        text=f"the data model, {MODEL_FILE}, has no mutable member, declares no extern variable, does not include "
+        text=f"{MODEL_FILE}, the header that declares the data model, has no mutable member, declares no extern variable, does not include "
         "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but comm/'s buffers and what its cGH pointers reach, and every fact "
         "about the hierarchy, the epoch included, is a GHExt member changed through one of the five writers, four lent by flesh/ and the level writer by the structure writer; what comm/ "
         "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to a type it "
-        "only forward-declares, and the integrator record is a GHExt value.",
-        noun="mutable, extern, integrator include or comm/ object",
-        where="in the data model",
-        clean="no mutable, extern, integrator include or comm/ object in the data model",
+        "only forward-declares, and the integrator record is a GHExt value. It includes no yaml-cpp header, no <zlib.h> and no header of "
+        f"its own layer but {MODEL_STATE_FILE}, the validity state it stores, so that a file that includes the data model receives no other concern with it: "
+        "a file that opens a write scope includes hierarchy/scopes.hxx, and the format of the metadata is in io/. "
+        f"{MODEL_STATE_FILE} is held to the same words.",
+        noun="mutable, extern, comm/ object or other concern's include",
+        where="in the data model's headers",
+        clean="no mutable, extern, comm/ object or other concern's include in the data model's headers",
         home=layers_of((MODEL_FILE,)),
     ),
     Rule(
@@ -527,7 +585,7 @@ RULES = (
         word=CODEC_WORD,
         allowed=never,
         text="a checkpoint codec (io_*_checkpoint.cxx and its io_*_names.hxx) sees only the checkpoint record and its "
-        "own library: no ghext->, driver(), GHExt, LevelData, GroupData or hierarchy/driver.hxx.",
+        "own library: no ghext->, driver(), GHExt, LevelData, GroupData or hierarchy/model.hxx.",
         noun="hierarchy use",
         where="in a checkpoint codec",
         clean="no hierarchy access in a checkpoint codec",
@@ -567,7 +625,7 @@ RULES = (
         allowed=never,
         text="a CarpetX header adds no using namespace, since every file that includes it, and every layer above its "
         "own, would then see that whole namespace; a header spells what it takes from Arith, Loop or another "
-        "namespace qualified, or declares a name it uses throughout, as driver.hxx declares using Loop::dim;, and a "
+        "namespace qualified, or declares a name it uses throughout, as config/indices.hxx declares using Loop::dim;, and a "
         ".cxx may say using namespace for its own body.",
         noun="using-directive",
         where="in a CarpetX header",
@@ -605,9 +663,10 @@ RULES = (
         files=private_cxx,
         word=GHEXT_OR_DRIVER_CALL,
         allowed=door_allowed,
-        text="the hierarchy pointer ghext is named only in CarpetX/src/hierarchy/hierarchy.cxx; every other file "
+        text=f"the hierarchy pointer ghext is named only in {DOOR_FILE}; every other file "
         f"calls driver(), and only from {HIERARCHY_LAYERS[0]}/ or a layer above it, never from "
-        f"{dirs(UNDER_HIERARCHY, 'or')}.",
+        f"{dirs(UNDER_HIERARCHY, 'or')}. The format tag YAML::LocalTag(\"ghext-<version>\") that {MODEL_TAG_FILE} "
+        "writes into the metadata is not the pointer.",
         noun="hierarchy use",
         where="the door does not allow",
         clean=f"the hierarchy has one door that {dirs(UNDER_HIERARCHY, 'and')} never use",

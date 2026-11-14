@@ -1,8 +1,10 @@
 #include "schedule/schedule.hxx"
+#include "schedule/checksums.hxx"
 #include "schedule/clauses.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/modes.hxx"
+#include "hierarchy/scopes.hxx"
 #include "comm/comm.hxx"
 #include "traversal/traversal.hxx"
 #include <carpetx.hxx>

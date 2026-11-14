@@ -1,7 +1,8 @@
-#include "hierarchy/driver.hxx"
-#include "util/var_type.hxx"
+#include "io/io_model.hxx"
 
-#include <type_traits>
+#include "hierarchy/model.hxx"
+#include "hierarchy/valid.hxx"
+#include "util/var_type.hxx"
 
 namespace std {
 template <typename T, size_t N>
@@ -117,19 +118,30 @@ seqs(const std::vector<std::array<T, N> > &v) {
   return r;
 }
 
-std::ostream &
-operator<<(std::ostream &os,
-           const GHExt::GlobalData::AnyTypeVector::AnyTypeScalarRef &scalar) {
-  const char sep = '\t';
-  visit(scalar._vect.type(), [&](const auto tag) {
-    using T = typename decltype(tag)::type;
-    const T value = *static_cast<const T *>(scalar._vect.data_at(scalar._idx));
-    if constexpr (std::is_same_v<T, CCTK_COMPLEX>)
-      os << value.real() << sep << value.imag();
-    else
-      os << value;
-  });
-  return os;
+YAML::Emitter &operator<<(YAML::Emitter &yaml, const valid_t v) {
+  yaml << YAML::LocalTag("valid-2.0.0");
+  yaml << YAML::Flow << YAML::BeginMap;
+  yaml << YAML::Key << "int" << YAML::Value << v.valid_int;
+  yaml << YAML::Key << "outer" << YAML::Value << v.valid_outer;
+  yaml << YAML::Key << "same_level" << YAML::Value << v.valid_same_level;
+  yaml << YAML::Key << "coarse_fine" << YAML::Value << v.valid_coarse_fine;
+  yaml << YAML::EndMap;
+  return yaml;
+}
+
+YAML::Emitter &operator<<(YAML::Emitter &yaml, const why_valid_t &why) {
+  const why_valid_t::reasons_t reasons = why.reasons();
+  yaml << YAML::LocalTag("why_valid-2.0.0");
+  yaml << YAML::BeginMap;
+  yaml << YAML::Key << "valid" << YAML::Value << why.get();
+  yaml << YAML::Key << "why" << YAML::Value << YAML::BeginMap;
+  yaml << YAML::Key << "int" << YAML::Value << reasons.interior;
+  yaml << YAML::Key << "outer" << YAML::Value << reasons.outer;
+  yaml << YAML::Key << "same_level" << YAML::Value << reasons.same_level;
+  yaml << YAML::Key << "coarse_fine" << YAML::Value << reasons.coarse_fine;
+  yaml << YAML::EndMap;
+  yaml << YAML::EndMap;
+  return yaml;
 }
 
 YAML::Emitter &operator<<(YAML::Emitter &yaml,
@@ -182,10 +194,9 @@ YAML::Emitter &
 operator<<(YAML::Emitter &yaml,
            const GHExt::GlobalData::AnyTypeVector::AnyTypeScalarRef
                &anytypescalarref) {
-  visit(anytypescalarref._vect.type(), [&](const auto tag) {
+  visit(anytypescalarref.type(), [&](const auto tag) {
     using T = typename decltype(tag)::type;
-    yaml << *static_cast<const T *>(
-        anytypescalarref._vect.data_at(anytypescalarref._idx));
+    yaml << *static_cast<const T *>(anytypescalarref.data());
   });
   return yaml;
 }
@@ -208,16 +219,16 @@ operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "commongroupdata" << YAML::Value
        << arraygroupdata.record;
   yaml << YAML::Key << "valid" << YAML::Value << YAML::BeginSeq;
-  for (const auto &timelevel : arraygroupdata.tls) {
+  for (const tl_t tl : arraygroupdata.record.timelevels()) {
     yaml << YAML::BeginSeq;
     for (const vi_t vi : arraygroupdata.record.variables())
-      yaml << timelevel.why_valid(vi);
+      yaml << arraygroupdata.timelevel(tl).why_valid(vi);
     yaml << YAML::EndSeq;
   }
   yaml << YAML::EndSeq;
   yaml << YAML::Key << "data" << YAML::Value << YAML::BeginSeq;
-  for (const auto &timelevel : arraygroupdata.tls)
-    yaml << timelevel.data;
+  for (const tl_t tl : arraygroupdata.record.timelevels())
+    yaml << arraygroupdata.timelevel(tl).data;
   yaml << YAML::EndSeq;
   yaml << YAML::EndMap;
   return yaml;
@@ -230,10 +241,10 @@ operator<<(YAML::Emitter &yaml,
   yaml << YAML::BeginMap;
   yaml << YAML::Key << "commongroupdata" << YAML::Value << groupdata.record;
   yaml << YAML::Key << "valid" << YAML::Value << YAML::BeginSeq;
-  for (const auto &timelevel : groupdata.tls) {
+  for (const tl_t tl : tl_range{tl_t{0}, tl_t{groupdata.num_timelevels()}}) {
     yaml << YAML::BeginSeq;
     for (const vi_t vi : groupdata.record.variables())
-      yaml << timelevel.why_valid(vi);
+      yaml << groupdata.timelevel(tl).why_valid(vi);
     yaml << YAML::EndSeq;
   }
   yaml << YAML::EndSeq;
@@ -258,9 +269,8 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
        << leveldata.delta_iteration;
   yaml << YAML::Key << "fab" << YAML::Value << *leveldata.fab;
   yaml << YAML::Key << "groupdata" << YAML::Value << YAML::BeginSeq;
-  for (const auto &groupdata : leveldata.groupdata)
-    if (groupdata)
-      yaml << *groupdata;
+  for (const auto &groupdata : leveldata.all_groups())
+    yaml << groupdata;
   yaml << YAML::EndSeq;
   yaml << YAML::EndMap;
   return yaml;
@@ -280,11 +290,26 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   return yaml;
 }
 
-std::ostream &operator<<(std::ostream &os, const GHExt &ext) {
-  YAML::Emitter yaml;
-  yaml << ext;
-  os << yaml.c_str() << "\n";
-  return os;
+YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ext) {
+  yaml << YAML::LocalTag("ghext-2.0.0");
+  yaml << YAML::BeginMap;
+  yaml << YAML::Key << "globaldata" << YAML::Value;
+  yaml << YAML::LocalTag("globaldata-1.0.0");
+  yaml << YAML::BeginMap;
+  yaml << YAML::Key << "arraygroupdata" << YAML::Value << YAML::BeginSeq;
+  for (const gi_t gi : ext.group_handles()) {
+    const GHExt::GroupRecord &group = ext.record(gi);
+    if (group.kind != group_kind::grid_function)
+      yaml << group.array();
+  }
+  yaml << YAML::EndSeq;
+  yaml << YAML::EndMap;
+  yaml << YAML::Key << "patchdata" << YAML::Value << YAML::BeginSeq;
+  for (const auto &patchdata : ext.patches())
+    yaml << patchdata;
+  yaml << YAML::EndSeq;
+  yaml << YAML::EndMap;
+  return yaml;
 }
 
 } // namespace CarpetX

@@ -1,10 +1,11 @@
-#ifndef CARPETX_CARPETX_HIERARCHY_DRIVER_HXX
-#define CARPETX_CARPETX_HIERARCHY_DRIVER_HXX
+#ifndef CARPETX_CARPETX_HIERARCHY_MODEL_HXX
+#define CARPETX_CARPETX_HIERARCHY_MODEL_HXX
 
 #include "internal.hxx"
 
-#include <loop.hxx>
-#include "hierarchy/indices.hxx"
+#include "config/groups.hxx"
+#include "config/indices.hxx"
+#include "config/stages.hxx"
 #include "hierarchy/valid.hxx"
 #include "util/refuse.hxx"
 #include "util/var_type.hxx"
@@ -21,8 +22,6 @@
 #include <AMReX_MultiFab.H>
 #include <AMReX_iMultiFab.H>
 
-#include <yaml-cpp/yaml.h>
-
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -31,7 +30,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <ostream>
 #include <source_location>
 #include <span>
 #include <string>
@@ -40,24 +38,6 @@
 #include <vector>
 
 namespace CarpetX {
-
-using Loop::dim;
-
-inline constexpr int max_num_rk_stages = 4;
-
-struct stage_t : index_t<stage_t> {
-  using index_t::index_t;
-};
-
-using tl_range = index_range<tl_t>;
-using level_range = index_range<level_t>;
-
-using stage_range = index_range<stage_t>;
-
-constexpr stage_range rk_stages(const int nstages) {
-  return stage_range{stage_t{1}, stage_t{nstages + 1}};
-}
-inline constexpr stage_range all_rk_stages = rk_stages(max_num_rk_stages);
 
 template <class T> class const_propagating_ptr {
 public:
@@ -78,8 +58,6 @@ public:
 private:
   std::unique_ptr<T> ptr_;
 };
-
-enum class group_kind { grid_function, array, scalar };
 
 template <typename U> U &storage_entry(U &entry) { return entry; }
 template <typename U> U &storage_entry(U *const entry) { return *entry; }
@@ -124,21 +102,6 @@ private:
   Keep keep;
 };
 
-// TODO: It seems that AMReX now also has `RB90`, `RB180`, and
-// `PolarB` boundary conditions. Make these available as well.
-
-// Boundary conditions are group properties. They are valid only for faces where
-// the domain symmetry is `none`.
-enum class boundary_t {
-  none,
-  symmetry_boundary,
-  dirichlet,
-  linear_extrapolation,
-  neumann,
-  robin,
-};
-std::ostream &operator<<(std::ostream &os, const boundary_t boundary);
-
 static_assert(AMREX_SPACEDIM == dim,
               "AMReX's AMREX_SPACEDIM must be the same as Cactus's cctk_dim");
 
@@ -181,8 +144,7 @@ struct GHExt {
     cctkGHptr &operator=(const cctkGHptr &) = delete;
     cctkGHptr &operator=(cctkGHptr &&ptr);
     cctkGHptr() : cctkGH(nullptr) {}
-    cctkGHptr(cGH *&&cctkGH) : cctkGH(cctkGH) {}
-    cctkGHptr &operator=(cGH *&&cctkGH);
+    static cctkGHptr copy_of(const cGH *source);
     ~cctkGHptr();
     operator bool() const { return bool(cctkGH); }
     cGH *get() const { return cctkGH; }
@@ -199,22 +161,18 @@ struct GHExt {
     class AnyTypeVector {
 
     public:
-      // access to a single element of a AnyTypeVector
       class AnyTypeScalarRef {
       public:
         AnyTypeScalarRef() = delete;
         AnyTypeScalarRef(const AnyTypeVector &vect_, size_t idx_)
             : _vect(vect_), _idx(idx_) {}
 
+        var_type type() const { return _vect.type(); }
+        const void *data() const { return _vect.data_at(_idx); }
+
       private:
         const AnyTypeVector &_vect;
         const size_t _idx;
-
-        friend YAML::Emitter &
-        operator<<(YAML::Emitter &yaml,
-                   const AnyTypeScalarRef &anytypescalarref);
-        friend std::ostream &operator<<(std::ostream &os,
-                                        const AnyTypeScalarRef &scalar);
       };
 
       AnyTypeVector()
@@ -320,9 +278,6 @@ struct GHExt {
 
       size_t size() const { return _count; };
 
-      friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                       const AnyTypeVector &anytypevector);
-
     private:
       std::optional<var_type> _type;
       int _typesize;
@@ -394,9 +349,6 @@ struct GHExt {
       void rotate_timelevels();
 
       friend struct cctkGH_binding;
-
-      friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                       const ArrayGroupData &arraygroupdata);
     };
   };
 
@@ -442,15 +394,7 @@ struct GHExt {
           std::as_const(*this).array(site));
     }
 
-    struct grid_function_t {
-      std::array<int, dim> indextype;
-      std::array<int, dim> nghostzones;
-      std::array<std::array<boundary_t, dim>, 2> boundaries;
-      std::vector<std::array<int, dim>> parities;
-      std::vector<CCTK_REAL> dirichlet_values;
-      std::vector<CCTK_REAL> robin_values;
-      std::optional<std::array<gi_t, dim>> fluxes;
-    };
+    using grid_function_t = CarpetX::grid_function_t;
     const grid_function_t &
     grid_function(const std::source_location site =
                       std::source_location::current()) const {
@@ -465,7 +409,6 @@ struct GHExt {
     int num_timelevels_;
     std::unique_ptr<GlobalData::ArrayGroupData> array_;
     std::optional<grid_function_t> grid_function_;
-    static grid_function_t make_grid_function(gi_t gi, int numvars);
   };
 
   struct record_filter {
@@ -499,6 +442,9 @@ struct GHExt {
                          std::vector<GroupRecord>::const_iterator,
                          record_filter>(
         group_records.begin(), group_records.end(), record_filter{kind});
+  }
+  index_range<gi_t> group_handles() const {
+    return index_range<gi_t>{gi_t{0}, gi_t{int(group_records.size())}};
   }
   int active_timelevels(gi_t gi) const;
   bool storage_frozen() const { return !pending_timelevels_; }
@@ -660,8 +606,6 @@ struct GHExt {
         void rotate_timelevels();
 
         friend struct cctkGH_binding;
-        friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                         const GroupData &groupdata);
       };
 
       struct group_storage_filter {
@@ -706,6 +650,19 @@ struct GHExt {
             groupdata.begin(), groupdata.end(), group_storage_filter{});
       }
 
+      struct group_present_filter {
+        bool operator()(const std::unique_ptr<GroupData> &groupdata) const {
+          return bool(groupdata);
+        }
+      };
+      auto all_groups() const {
+        return storage_range<
+            const GroupData,
+            std::vector<std::unique_ptr<GroupData>>::const_iterator,
+            group_present_filter>(groupdata.begin(), groupdata.end(),
+                                  group_present_filter{});
+      }
+
       const amrex::iMultiFab &ghost_mask(const GroupData &groupdata) const {
         return ghost_masks.at(
             ghost_mask_key_t{groupdata.grid_function.indextype,
@@ -715,9 +672,6 @@ struct GHExt {
     private:
       std::vector<std::unique_ptr<GroupData>> groupdata;
       std::map<ghost_mask_key_t, amrex::iMultiFab> ghost_masks;
-
-      friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                       const LevelData &leveldata);
     };
 
     int num_levels() const { return leveldata.size(); }
@@ -756,8 +710,6 @@ struct GHExt {
 
     friend class structure_writer_t;
     friend class level_writer_t;
-    friend YAML::Emitter &operator<<(YAML::Emitter &yaml,
-                                     const PatchData &patchdata);
   };
 
   int num_patches() const { return patchdata.size(); }
@@ -847,6 +799,8 @@ private:
   std::vector<PatchData> patchdata;
 
   static GHExt &mutable_instance();
+  static void open_door(GHExt &hierarchy);
+  static void close_door(const GHExt &hierarchy);
   PatchData &add_patch(level_writer_t &levels, patch_t patch);
   void record_storage(gi_t gi, int timelevels);
   void freeze_storage();
@@ -859,16 +813,15 @@ private:
   friend class level_writer_t;
   friend class registry_writer_t;
   friend class scratch_writer_t;
+  friend struct hierarchy_writers_t;
   friend struct cctkGH_binding;
   friend class write_scope_t;
   friend class array_write_scope_t;
-
-  friend YAML::Emitter &operator<<(YAML::Emitter &yaml, const GHExt &ext);
-  friend std::ostream &operator<<(std::ostream &os, const GHExt &ext);
 };
 
 const GHExt &driver();
 void assert_hierarchy_destroyed();
+int current_iteration();
 
 } // namespace CarpetX
 

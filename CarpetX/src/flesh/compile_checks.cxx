@@ -1,17 +1,19 @@
 #include "io/checkpoint.hxx"
 #include "hierarchy/binding.hxx"
-#include "hierarchy/clocks.hxx"
-#include "hierarchy/driver.hxx"
-#include "hierarchy/group_tags.hxx"
+#include "config/stages.hxx"
+#include "hierarchy/model.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/operations.hxx"
+#include "hierarchy/writers.hxx"
 #include "comm/buffers.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
+#include "comm/substeps.hxx"
 #include "comm/comm.hxx"
 #include "regrid/regrid.hxx"
+#include "schedule/checksums.hxx"
 #include "schedule/schedule.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/scopes.hxx"
 
 #include <carpetx.hxx>
 
@@ -285,6 +287,12 @@ concept freezes_integrator = requires(Ext &ext) {
 template <class Ext>
 concept opens_mutable_door = requires { Ext::mutable_instance(); };
 
+template <class Ext>
+concept opens_door = requires(Ext &ext) { Ext::open_door(ext); };
+
+template <class Ext>
+concept closes_door = requires(const Ext &ext) { Ext::close_door(ext); };
+
 template <class Writer>
 concept regrids = requires(Writer &writer, level_t level) {
   writer.regrid(level, CCTK_REAL{});
@@ -360,10 +368,6 @@ concept parses_grid_function_tags =
     requires(Group gi) { get_group_dirichlet_values(gi); } ||
     requires(Group gi) { get_group_robin_values(gi); } ||
     requires(Group gi) { get_group_fluxes(gi); };
-
-template <class Record>
-concept makes_grid_function =
-    requires(gi_t gi) { Record::make_grid_function(gi, 0); };
 
 static_assert(record_takes<gi_t>);
 static_assert(!record_takes<int>);
@@ -780,6 +784,10 @@ static_assert(!hands_out_data<const array_write_scope_t &>);
 static_assert(!marks_initialized<GHExt>);
 static_assert(!marks_initialized<std::remove_reference_t<decltype(driver())>>);
 static_assert(!opens_mutable_door<GHExt>);
+static_assert(!opens_door<GHExt>);
+static_assert(!closes_door<GHExt>);
+static_assert(!std::is_constructible_v<GHExt::cctkGHptr, cGH *>);
+static_assert(!std::is_assignable_v<GHExt::cctkGHptr &, cGH *>);
 
 static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
 static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);
@@ -816,7 +824,6 @@ static_assert(!holds_robin_values<GHExt::PatchData::LevelData::GroupData>);
 static_assert(holds_fluxes<GHExt::GroupRecord::grid_function_t>);
 static_assert(!holds_fluxes<GHExt::PatchData::LevelData::GroupData>);
 static_assert(!parses_grid_function_tags<gi_t>);
-static_assert(!makes_grid_function<GHExt::GroupRecord>);
 
 } // namespace
 } // namespace CarpetX

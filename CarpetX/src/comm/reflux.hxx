@@ -3,12 +3,15 @@
 
 #include "internal.hxx"
 
-#include "hierarchy/driver.hxx"
+#include "config/stages.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
 
 namespace CarpetX {
+
+bool group_has_flux_register(gi_t gi);
+void warn_inert_flux_tags();
 
 void EnsureFluxGeometry(level_t level);
 

@@ -7,7 +7,7 @@
 
 #ifdef HAVE_CAPABILITY_Silo
 
-#include "hierarchy/indices.hxx"
+#include "config/indices.hxx"
 #include "util/mpi_types.hxx"
 #include "util/refuse.hxx"
 
