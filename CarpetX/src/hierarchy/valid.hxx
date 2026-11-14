@@ -3,7 +3,6 @@
 
 #include "internal.hxx"
 
-#include "hierarchy/indices.hxx"
 #include <carpetx.hxx>
 #include <loop.hxx>
 #include <tuple.hxx>

@@ -1,7 +1,6 @@
 SRCS =							\
 	binding.cxx					\
 	grid.cxx					\
-	group_tags.cxx					\
 	handles.cxx					\
 	hierarchy.cxx					\
 	loops.cxx					\

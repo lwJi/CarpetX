@@ -16,13 +16,13 @@ READS = {
     "util": (),
     "traversal": ("util",),
     "config": (),
-    "hierarchy": ("util", "traversal"),
-    "comm": ("util", "traversal", "hierarchy"),
+    "hierarchy": ("util", "traversal", "config"),
+    "comm": ("util", "traversal", "config", "hierarchy"),
     "regrid": ("hierarchy", "comm"),
     "ops": ("util", "traversal", "hierarchy"),
-    "io": ("util", "traversal", "hierarchy", "comm", "ops"),
+    "io": ("util", "traversal", "config", "hierarchy", "comm", "ops"),
     "schedule": ("traversal", "config", "hierarchy", "comm", "io"),
-    "api": ("util", "hierarchy", "comm", "schedule"),
+    "api": ("util", "config", "hierarchy", "comm", "schedule"),
     "flesh": ("util", "traversal", "config", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
 }
 LAYERS = tuple(READS)
@@ -44,7 +44,11 @@ OWNS = {
 }
 STEMS = {
     "config": {
+        "groups": "what a group was declared as: its kind and its tags",
+        "boundaries": "the symmetries and default boundaries the parameters ask for",
         "grid_sizes": "the largest grid each level may have",
+        "indices": "ranges over the public index types",
+        "stages": "RK stages and the refinement of time",
     },
 }
 assert set(STEMS) <= set(LAYERS), STEMS
@@ -153,7 +157,7 @@ INDEX_FIXED = {
     layer_path("hierarchy", "handles.cxx"): ("levels", "narrow"),
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
     layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
-    layer_path("hierarchy", "group_tags.cxx"): ("CCTK_TraverseString",),
+    layer_path("config", "groups.cxx"): ("CCTK_TraverseString",),
     layer_path("comm", "comm.hxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("comm", "sync_restrict.cxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("regrid", "regrid.hxx"): AMREX_CALLBACKS,
@@ -580,7 +584,7 @@ RULES = (
         allowed=never,
         text="a CarpetX header adds no using namespace, since every file that includes it, and every layer above its "
         "own, would then see that whole namespace; a header spells what it takes from Arith, Loop or another "
-        "namespace qualified, or declares a name it uses throughout, as driver.hxx declares using Loop::dim;, and a "
+        "namespace qualified, or declares a name it uses throughout, as config/indices.hxx declares using Loop::dim;, and a "
         ".cxx may say using namespace for its own body.",
         noun="using-directive",
         where="in a CarpetX header",

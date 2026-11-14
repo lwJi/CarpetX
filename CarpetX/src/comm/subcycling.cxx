@@ -1,5 +1,6 @@
 #include "comm/subcycling.hxx"
 
+#include "config/indices.hxx"
 #include "hierarchy/driver.hxx"
 #include "comm/buffers.hxx"
 #include "comm/comm.hxx"

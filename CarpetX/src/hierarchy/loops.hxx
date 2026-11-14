@@ -12,7 +12,6 @@
 #include <cassert>
 #include <functional>
 #include <ostream>
-#include <string>
 
 namespace CarpetX {
 
@@ -49,8 +48,6 @@ void loop_ghost_halves(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     component_t component, valid_t where,
     const std::function<void(const Loop::PointDesc &)> &kernel);
-
-std::string describe(window_t window);
 
 inline amrex::Orientation orient(int d, int f) {
   return amrex::Orientation(d, amrex::Orientation::Side(f));

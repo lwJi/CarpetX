@@ -1,8 +1,9 @@
 #include <carpetx_rk.hxx>
 
 #include "api/api.hxx"
+#include "config/groups.hxx"
+#include "config/indices.hxx"
 #include "hierarchy/driver.hxx"
-#include "hierarchy/group_tags.hxx"
 #include "hierarchy/operations.hxx"
 #include "schedule/schedule.hxx"
 #include "hierarchy/loops.hxx"
