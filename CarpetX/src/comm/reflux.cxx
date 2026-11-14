@@ -1,7 +1,7 @@
 #include "comm/reflux.hxx"
 
 #include "hierarchy/model.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/scopes.hxx"
 #include "comm/buffers.hxx"
 #include "comm/integrator.hxx"
 #include "comm/level_pairs.hxx"

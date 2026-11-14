@@ -19,6 +19,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <iostream>
 #include <limits>
 #include <utility>
 #include <vector>

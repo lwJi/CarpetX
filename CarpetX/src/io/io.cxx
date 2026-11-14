@@ -30,9 +30,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <memory>
 #include <optional>
 #include <regex>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>

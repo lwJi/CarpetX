@@ -12,7 +12,7 @@
 #include "regrid/regrid.hxx"
 #include "schedule/checksums.hxx"
 #include "schedule/schedule.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/scopes.hxx"
 
 #include <carpetx.hxx>
 

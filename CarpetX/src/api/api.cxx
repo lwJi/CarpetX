@@ -3,6 +3,7 @@
 #include "api/api.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/scopes.hxx"
 #include "hierarchy/writers.hxx"
 #include "comm/comm.hxx"
 

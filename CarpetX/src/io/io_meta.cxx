@@ -9,6 +9,7 @@
 #include <cassert>
 #include <fstream>
 #include <iomanip>
+#include <sstream>
 #include <utility>
 
 namespace CarpetX {

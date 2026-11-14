@@ -11,7 +11,6 @@
 #include "comm/integrator.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
-#include "hierarchy/valid.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>

@@ -43,6 +43,7 @@ static inline int omp_in_parallel() { return 0; }
 #include <array>
 #include <cassert>
 #include <cstring>
+#include <iomanip>
 #include <ios>
 #include <iostream>
 #include <mutex>

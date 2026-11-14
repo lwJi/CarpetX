@@ -3,7 +3,7 @@
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/writers.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/scopes.hxx"
 #include "comm/comm.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"

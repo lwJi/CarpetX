@@ -1,7 +1,7 @@
 #include "hierarchy/model.hxx"
 #include "util/mpi_types.hxx"
 #include "ops/reduction.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/scopes.hxx"
 
 #include <cctk_Parameters.h>
 

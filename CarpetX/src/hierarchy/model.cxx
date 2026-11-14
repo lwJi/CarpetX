@@ -3,7 +3,7 @@
 #include "config/stages.hxx"
 #include "hierarchy/binding.hxx"
 #include "hierarchy/model.hxx"
-#include "hierarchy/valid.hxx"
+#include "hierarchy/scopes.hxx"
 
 #include "hierarchy/loops.hxx"
 #include <carpetx.hxx>

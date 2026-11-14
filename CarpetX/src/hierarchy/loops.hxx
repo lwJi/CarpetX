@@ -42,13 +42,6 @@ void loop_serially(
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
                              tile_t tile, const cGH *cctkGH)> &kernel);
 
-void loop_ghost_halves(
-    const Loop::GridDescBase &grid,
-    const GHExt::PatchData::LevelData &leveldata,
-    const GHExt::PatchData::LevelData::GroupData &groupdata,
-    component_t component, valid_t where,
-    const std::function<void(const Loop::PointDesc &)> &kernel);
-
 inline amrex::Orientation orient(int d, int f) {
   return amrex::Orientation(d, amrex::Orientation::Side(f));
 }
