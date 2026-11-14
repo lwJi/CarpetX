@@ -17,6 +17,7 @@ from boundary.symbols import (
     parse_mach_o_weak,
     reaches,
     render,
+    stem_names,
     strays,
     strong_definitions,
     summary,
@@ -44,6 +45,7 @@ CURRENT_MODE = "_ZN7CarpetX12current_modeEPK4_cGH"
 GLOBAL_MODE = "_ZN7CarpetX14in_global_modeEPK4_cGH"
 RECORD_STORAGE = "_ZN7CarpetX5GHExt14record_storageENS_4gi_tEi"
 ROTATE = "_ZN7CarpetX14clock_writer_t6rotateEv"
+ERASE_LEVELS = "_ZN7CarpetX14level_writer_t17erase_levels_fromENS_7level_tE"
 ALL_LEVELS = "_ZN7CarpetX10all_levelsEv"
 PRINT_SYMMETRY = "_ZN7CarpetXlsERSoNS_10symmetry_tE"
 TO_STRING = "__ZNK7CarpetX7valid_tcvNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEv"
@@ -247,6 +249,30 @@ class Strays(unittest.TestCase):
         }
         definitions = {model: {("T", RECORD_STORAGE), ("T", DRIVER[1:])}, writers: {("T", RECORD_STORAGE), ("T", ROTATE)}}
         self.assertEqual(strays(layers, definitions, headers, {}), [Stray(writers, RECORD_STORAGE, "CarpetX/src/hierarchy/writers.hxx")])
+
+    def test_a_member_of_a_class_the_header_declares_with_no_body_is_a_stray(self):
+        model, writers = "hierarchy/model.cxx.o", "hierarchy/writers.cxx.o"
+        layers = {model: "hierarchy", writers: "hierarchy"}
+        texts = {
+            "CarpetX/src/hierarchy/model.hxx": "namespace CarpetX {\nclass level_writer_t;\nstruct GHExt {\n  void record_storage(gi_t gi, int timelevels);\n  friend class level_writer_t;\n};\n}\n",
+            "CarpetX/src/hierarchy/writers.hxx": "namespace CarpetX {\nclass level_writer_t;\nclass clock_writer_t {\n  void rotate();\n};\nclass level_writer_t {\n  void erase_levels_from(level_t level);\n};\n}\n",
+        }
+        defined = {header: doc.declared_names(text, forward=False) for header, text in texts.items()}
+        self.assertEqual(defined, {"CarpetX/src/hierarchy/model.hxx": {"GHExt"}, "CarpetX/src/hierarchy/writers.hxx": {"clock_writer_t", "level_writer_t"}})
+        definitions = {model: {("T", RECORD_STORAGE), ("T", ERASE_LEVELS)}, writers: {("T", ROTATE), ("T", ERASE_LEVELS)}}
+        self.assertEqual(strays(layers, definitions, defined, {}), [Stray(model, ERASE_LEVELS, "CarpetX/src/hierarchy/model.hxx")])
+        declared = {header: doc.declared_names(text) for header, text in texts.items()}
+        self.assertEqual(strays(layers, definitions, declared, {}), [])
+
+    def test_the_tree_is_held_to_the_header_that_defines_a_class_not_one_that_names_it(self):
+        model, writers, binding = (rules.layer_path("hierarchy", name) for name in ("model.hxx", "writers.hxx", "binding.hxx"))
+        declared, defined = doc.stem_declarations(), stem_names()
+        self.assertLessEqual({"level_writer_t", "level_buffers_t", "GHExt"}, declared[model])
+        self.assertIn("clock_writer_t", declared[binding])
+        self.assertEqual(declared[model] - defined[model], {"level_writer_t", "level_buffers_t"})
+        self.assertEqual(declared[binding] - defined[binding], {"clock_writer_t"})
+        self.assertEqual(declared[writers], defined[writers])
+        self.assertLessEqual({"level_writer_t", "clock_writer_t", "hierarchy_writers_t"}, defined[writers])
 
     def test_a_strong_definition_the_header_of_its_stem_does_not_declare_is(self):
         definitions = {self.OBJECT: {("T", SIZES), ("T", DEFAULTED), ("D", "_ZN7CarpetX11ghext_countE")}}

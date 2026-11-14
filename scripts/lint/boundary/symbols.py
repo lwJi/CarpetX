@@ -43,7 +43,8 @@ STEM_RULE = wrap(
     "build made from <layer>/<stem>.cxx strongly defines in namespace CarpetX only what <layer>/<stem>.hxx declares: a "
     "function, an object or the outermost class of a member that the header declares at namespace scope, or that a public "
     "header declares when PUBLIC_BODIES in scripts/lint/boundary/doc.py lists the source; a header that only uses a "
-    "name does not declare it. A body another header declares moves "
+    "name does not declare it, and one that declares a class with no body leaves the members to the header that "
+    "defines the class. A body another header declares moves "
     "to the source of that header's stem, and one no header declares is declared there or becomes file-local. The "
     f"match is by name, never by signature, and {MAP} says what each stem holds."
 )
@@ -177,7 +178,7 @@ def strays(layers: dict[str, str], definitions: dict[str, set[tuple[str, str]]],
 
 def stem_names(root: str = PROJECT) -> dict[str, set[str]]:
     try:
-        return stem_declarations(root)
+        return stem_declarations(root, forward=False)
     except ValueError as e:
         raise SymbolsError(str(e)) from None
 
@@ -186,7 +187,7 @@ def public_names(root: str = PROJECT) -> dict[str, set[str]]:
     declared: set[str] = set()
     for header in PUBLIC_HEADERS:
         try:
-            declared |= declared_names(read(os.path.join(root, header)))
+            declared |= declared_names(read(os.path.join(root, header)), forward=False)
         except ValueError as e:
             raise SymbolsError(f"{header}: {e}") from None
     return {file[len(PRIVATE_DIR) :] + ".o": declared for file, _ in PUBLIC_BODIES}

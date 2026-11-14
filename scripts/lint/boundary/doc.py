@@ -334,7 +334,7 @@ def function_like(head: list[str]) -> bool:
     return words[declarator_end(words) :][:1] == ["("]
 
 
-def declarations(text: str) -> Iterator[tuple[int, list[str], list[str]]]:
+def declarations(text: str) -> Iterator[tuple[int, list[str], list[str], bool]]:
     tokens = spelled(text)
     head: list[str] = []
     body: list[str] = []
@@ -358,14 +358,14 @@ def declarations(text: str) -> Iterator[tuple[int, list[str], list[str]]]:
                 blocks += 1
                 following = tokens[at + 1][0] if at + 1 < len(tokens) else ""
                 if following not in (";", ",", "{") and function_like(head):
-                    yield line, head, body
+                    yield line, head, body, True
                     head, body, blocks = [], [], 0
             continue
         if word == "}":
             head, body, blocks = [], [], 0
         elif word == ";":
             if head:
-                yield line, head, body
+                yield line, head, body, blocks > 0
             head, body, blocks = [], [], 0
         elif word == "{" and blocks == 0 and scope_opening(head):
             head = []
@@ -440,13 +440,18 @@ def declared_by(head: list[str], body: list[str]) -> set[str] | None:
     return {outermost(declarator, len(declarator) - 1)}
 
 
-def declared_names(text: str) -> set[str]:
+def forward_declaration(head: list[str], has_body: bool) -> bool:
+    return not has_body and bare(head)[:1] in ([key] for key in CLASS_KEYS)
+
+
+def declared_names(text: str, forward: bool = True) -> set[str]:
     found = macros(text)
-    for line, head, body in declarations(text):
+    for line, head, body, has_body in declarations(text):
         names = declared_by(head, body)
         if names is None:
             raise ValueError(f"line {line} declares something the include-use check cannot name: {' '.join(head[:12])}")
-        found |= names
+        if forward or not forward_declaration(head, has_body):
+            found |= names
     return found
 
 
@@ -454,11 +459,11 @@ def stem_headers(root: str = PROJECT) -> dict[str, str]:
     return {layer_path(layer, os.path.basename(path)): read(path) for layer in STEMS for path in sources(root, layer) if path.endswith(".hxx")}
 
 
-def stem_declarations(root: str = PROJECT) -> dict[str, set[str]]:
+def stem_declarations(root: str = PROJECT, forward: bool = True) -> dict[str, set[str]]:
     declared: dict[str, set[str]] = {}
     for header, text in stem_headers(root).items():
         try:
-            declared[header] = declared_names(text)
+            declared[header] = declared_names(text, forward)
         except ValueError as e:
             raise ValueError(f"{header}: {e}") from None
     return declared

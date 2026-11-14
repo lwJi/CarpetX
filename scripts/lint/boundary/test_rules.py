@@ -2767,6 +2767,21 @@ class Stems(unittest.TestCase):
         self.assertEqual(doc.declared_names("namespace fs = std::filesystem;\ntypedef unsigned long size_type;\nusing namespace std;\n"), {"fs", "size_type"})
         self.assertEqual(doc.declared_names("struct GHExt {\n  struct PatchData {\n    int level_count() const { return 0; }\n  };\n};\nconst GHExt &driver();\n"), {"GHExt", "driver"})
         self.assertEqual(doc.declared_names("inline valid_t::operator std::string() const { return explanation(); }\nbool operator==(const valid_t &a, const valid_t &b);\n"), {"valid_t", "operator=="})
+
+    def test_a_class_declared_with_no_body_is_named_but_not_defined(self):
+        for text, declared, defined in [
+            ("class level_writer_t;\nstruct GHExt {\n  friend class level_writer_t;\n};\nconst GHExt &driver();\n", {"level_writer_t", "GHExt", "driver"}, {"GHExt", "driver"}),
+            ("class write_scope_t;\nwrite_scope_t open_write();\nclass write_scope_t {\n};\n", {"write_scope_t", "open_write"}, {"write_scope_t", "open_write"}),
+            ("template <typename T> struct ipoison_t;\n", {"ipoison_t"}, set()),
+            ("template <typename T> struct ipoison_t;\ntemplate <> struct ipoison_t<CCTK_INT> {\n  int value;\n};\n", {"ipoison_t"}, {"ipoison_t"}),
+            ("enum class mode_t;\nenum class group_kind { grid_function, array };\n", {"mode_t", "group_kind"}, {"group_kind"}),
+            ("struct empty_t {};\nextern int count;\nint size_of(empty_t empty);\nusing alias_t = empty_t;\n", {"empty_t", "count", "size_of", "alias_t"}, {"empty_t", "count", "size_of", "alias_t"}),
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(doc.declared_names(text), declared)
+                self.assertEqual(doc.declared_names(text, forward=False), defined)
+        declared, defined = doc.stem_declarations(), doc.stem_declarations(forward=False)
+        self.assertEqual({header for header in declared if declared[header] != defined[header]}, {layer_path("hierarchy", "model.hxx"), layer_path("hierarchy", "binding.hxx")})
         for text, line in [
             ("int a;\nvoid (*handler)(int);\n", 2),
             ("\n\nstruct {\n  int x;\n} anonymous;\n", 3),
