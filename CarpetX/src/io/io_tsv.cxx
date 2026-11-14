@@ -1,7 +1,7 @@
 #include "io/io_tsv.hxx"
 
 #include "io/selection.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "util/mpi_types.hxx"
 #include "util/refuse.hxx"
 #include "util/var_type.hxx"

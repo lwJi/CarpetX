@@ -163,8 +163,6 @@ void loop_ghost_halves(
     component_t component, valid_t where,
     const std::function<void(const Loop::PointDesc &)> &kernel);
 
-int current_iteration();
-
 class array_write_scope_t;
 [[nodiscard]] array_write_scope_t open_array_write(write_spec_t spec);
 

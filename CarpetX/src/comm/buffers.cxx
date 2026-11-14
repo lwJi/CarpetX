@@ -3,7 +3,7 @@
 #include "comm/integrator.hxx"
 #include "comm/prolongate_3d_rf2.hxx"
 #include "comm/reflux.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "util/refuse.hxx"
 #include <carpetx.hxx>
 

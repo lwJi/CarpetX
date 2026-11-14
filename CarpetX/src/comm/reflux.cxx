@@ -1,6 +1,6 @@
 #include "comm/reflux.hxx"
 
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "hierarchy/valid.hxx"
 #include "comm/buffers.hxx"
 #include "comm/integrator.hxx"

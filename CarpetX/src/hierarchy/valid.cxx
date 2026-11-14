@@ -1,6 +1,6 @@
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/operations.hxx"
+#include "hierarchy/writers.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/valid.hxx"
 #include "util/var_type.hxx"
@@ -547,11 +547,6 @@ void loop_ghost_halves(
                   if (half(p))
                     kernel(p);
                 });
-}
-
-int current_iteration() {
-  const cGH *const cctkGH = driver().get_global_cctkGH();
-  return cctkGH ? cctkGH->cctk_iteration : 0;
 }
 
 write_scope_t::write_scope_t(const window_t window, write_spec_t spec,

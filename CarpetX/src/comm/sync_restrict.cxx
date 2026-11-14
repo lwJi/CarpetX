@@ -1,6 +1,6 @@
 #include "hierarchy/loops.hxx"
 #include "config/stages.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "comm/boundaries.hxx"
 #include "comm/fillpatch.hxx"
 #include "comm/integrator.hxx"

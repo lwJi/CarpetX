@@ -1,6 +1,6 @@
 #include "comm/integrator.hxx"
 
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
 #include "util/refuse.hxx"
 #include <carpetx.hxx>

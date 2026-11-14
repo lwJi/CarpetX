@@ -1,5 +1,5 @@
 #include "hierarchy/binding.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
 
 #include <cctk.h>

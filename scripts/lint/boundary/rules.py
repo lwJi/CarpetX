@@ -124,7 +124,7 @@ TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("travers
 TRAVERSAL_WORD = re.compile(
     r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b"
 )
-DOOR_FILE = layer_path("hierarchy", "hierarchy.cxx")
+DOOR_FILE = layer_path("hierarchy", "model.cxx")
 DOOR_WORD = re.compile(r"\bghext\b")
 MODEL_TAG_FILE = layer_path("io", "io_model.cxx")
 MODEL_TAG = re.compile(r'\bYAML::LocalTag\("ghext-[0-9.]+"\)')
@@ -138,15 +138,15 @@ SYNC_FILES = (
 DIRECTIONS_WORD = re.compile(r"\bdirections\b")
 FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
 VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\([^()]*\))*\))\s*\+")
-RECORD_VAR_FILE = layer_path("hierarchy", "driver.hxx")
+RECORD_VAR_FILE = layer_path("hierarchy", "model.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
 RECORD_READER_FILES = (
     layer_path("config", "groups.hxx"),
     layer_path("config", "groups.cxx"),
-    layer_path("hierarchy", "hierarchy.cxx"),
+    layer_path("hierarchy", "model.cxx"),
 )
 RECORD_READER_WORD = re.compile(r"\bdeclared_grid_function\b")
-MODEL_FILE = layer_path("hierarchy", "driver.hxx")
+MODEL_FILE = layer_path("hierarchy", "model.hxx")
 MODEL_WORD = re.compile(
     r'\bmutable\b|\bextern\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]'
     r"|\bamrex::(Interpolater|BCRec|FluxRegister)\b"
@@ -188,7 +188,7 @@ CODEC_FILES = (
     layer_path("io", "io_silo_names.hxx"),
 )
 CODEC_WORD = re.compile(
-    r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]hierarchy/driver\.hxx[">]'
+    r'\bghext->|\bdriver\s*\(\s*\)|\bGHExt\b|\bLevelData\b|\bGroupData\b|^\s*#\s*include\s*["<]hierarchy/model\.hxx[">]'
 )
 PROTOTYPE_END = re.compile(r"\)\s*(?:noexcept\s*)?;\s*$")
 NOT_A_DECLARATION = re.compile(r"\s*(?:$|#|//|(?:public|protected|private)\s*:(?!:))")
@@ -484,14 +484,14 @@ RULES = (
         files=model_files,
         word=MODEL_WORD,
         allowed=never,
-        text=f"the data model, {MODEL_FILE}, has no mutable member, declares no extern variable, does not include "
+        text=f"{MODEL_FILE}, the header that declares the data model, has no mutable member, declares no extern variable, does not include "
         "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but comm/'s buffers and what its cGH pointers reach, and every fact "
         "about the hierarchy, the epoch included, is a GHExt member changed through one of the five writers, four lent by flesh/ and the level writer by the structure writer; what comm/ "
         "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to a type it "
         "only forward-declares, and the integrator record is a GHExt value.",
         noun="mutable, extern, integrator include or comm/ object",
-        where="in the data model",
-        clean="no mutable, extern, integrator include or comm/ object in the data model",
+        where="in the data model's header",
+        clean="no mutable, extern, integrator include or comm/ object in the data model's header",
         home=layers_of((MODEL_FILE,)),
     ),
     Rule(
@@ -567,7 +567,7 @@ RULES = (
         word=CODEC_WORD,
         allowed=never,
         text="a checkpoint codec (io_*_checkpoint.cxx and its io_*_names.hxx) sees only the checkpoint record and its "
-        "own library: no ghext->, driver(), GHExt, LevelData, GroupData or hierarchy/driver.hxx.",
+        "own library: no ghext->, driver(), GHExt, LevelData, GroupData or hierarchy/model.hxx.",
         noun="hierarchy use",
         where="in a checkpoint codec",
         clean="no hierarchy access in a checkpoint codec",
@@ -645,7 +645,7 @@ RULES = (
         files=private_cxx,
         word=GHEXT_OR_DRIVER_CALL,
         allowed=door_allowed,
-        text="the hierarchy pointer ghext is named only in CarpetX/src/hierarchy/hierarchy.cxx; every other file "
+        text=f"the hierarchy pointer ghext is named only in {DOOR_FILE}; every other file "
         f"calls driver(), and only from {HIERARCHY_LAYERS[0]}/ or a layer above it, never from "
         f"{dirs(UNDER_HIERARCHY, 'or')}. The format tag YAML::LocalTag(\"ghext-<version>\") that {MODEL_TAG_FILE} "
         "writes into the metadata is not the pointer.",

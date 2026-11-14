@@ -3,7 +3,7 @@
 
 #include "internal.hxx"
 
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include <loop.hxx>
 
 #include <cctk.h>
@@ -146,9 +146,6 @@ struct GridPtrDesc1 : GridDesc {
     return os;
   }
 };
-
-cGH *copy_cctkGH(const cGH *restrict const sourceGH);
-void delete_cctkGH(cGH *cctkGH);
 
 enum class mode_t { unknown, local, patch, level, global, meta };
 

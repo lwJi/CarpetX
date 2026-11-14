@@ -1,6 +1,6 @@
 #include "io/io_model.hxx"
 
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "util/var_type.hxx"
 
 namespace std {

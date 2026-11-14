@@ -1,9 +1,9 @@
-#ifndef CARPETX_CARPETX_HIERARCHY_OPERATIONS_HXX
-#define CARPETX_CARPETX_HIERARCHY_OPERATIONS_HXX
+#ifndef CARPETX_CARPETX_HIERARCHY_WRITERS_HXX
+#define CARPETX_CARPETX_HIERARCHY_WRITERS_HXX
 
 #include "internal.hxx"
 
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include <carpetx.hxx>
 #include <rational.hxx>
 

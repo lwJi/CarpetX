@@ -1,9 +1,9 @@
 #include "io/checkpoint.hxx"
 #include "hierarchy/binding.hxx"
 #include "config/stages.hxx"
-#include "hierarchy/driver.hxx"
+#include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/operations.hxx"
+#include "hierarchy/writers.hxx"
 #include "comm/buffers.hxx"
 #include "comm/reflux.hxx"
 #include "comm/subcycling.hxx"
@@ -285,6 +285,12 @@ concept freezes_integrator = requires(Ext &ext) {
 
 template <class Ext>
 concept opens_mutable_door = requires { Ext::mutable_instance(); };
+
+template <class Ext>
+concept opens_door = requires(Ext &ext) { Ext::open_door(ext); };
+
+template <class Ext>
+concept closes_door = requires(const Ext &ext) { Ext::close_door(ext); };
 
 template <class Writer>
 concept regrids = requires(Writer &writer, level_t level) {
@@ -777,6 +783,10 @@ static_assert(!hands_out_data<const array_write_scope_t &>);
 static_assert(!marks_initialized<GHExt>);
 static_assert(!marks_initialized<std::remove_reference_t<decltype(driver())>>);
 static_assert(!opens_mutable_door<GHExt>);
+static_assert(!opens_door<GHExt>);
+static_assert(!closes_door<GHExt>);
+static_assert(!std::is_constructible_v<GHExt::cctkGHptr, cGH *>);
+static_assert(!std::is_assignable_v<GHExt::cctkGHptr &, cGH *>);
 
 static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
 static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);
