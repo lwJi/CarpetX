@@ -5,14 +5,13 @@ import tempfile
 import unittest
 from unittest import mock
 
-from boundary import rules
+from boundary import doc, rules
 from boundary.symbols import (
     Reach,
     Stray,
     SymbolsError,
     declared_name,
     layer_objects,
-    names,
     parse_definitions,
     parse_imports,
     parse_mach_o_weak,
@@ -43,6 +42,8 @@ NVCC_NAMESPACE = "_GLOBAL__N__21_grid_sizes_cxx_0a1b2c3d"
 NVCC_UNNAMED = f"_ZN7CarpetX{len(NVCC_NAMESPACE)}{NVCC_NAMESPACE}15size_or_defaultEii"
 CURRENT_MODE = "_ZN7CarpetX12current_modeEPK4_cGH"
 GLOBAL_MODE = "_ZN7CarpetX14in_global_modeEPK4_cGH"
+RECORD_STORAGE = "_ZN7CarpetX5GHExt14record_storageENS_4gi_tEi"
+ROTATE = "_ZN7CarpetX14clock_writer_t6rotateEv"
 ALL_LEVELS = "_ZN7CarpetX10all_levelsEv"
 PRINT_SYMMETRY = "_ZN7CarpetXlsERSoNS_10symmetry_tE"
 TO_STRING = "__ZNK7CarpetX7valid_tcvNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEv"
@@ -210,13 +211,9 @@ class DeclaredName(unittest.TestCase):
         self.assertEqual(declared_name("_ZN7CarpetXeqERKNS_7valid_tES2_"), "operator==")
         self.assertEqual(declared_name("_ZN7CarpetXclEv"), "operator()")
         self.assertEqual(declared_name("_ZN7CarpetXliEy"), "_ZN7CarpetXliEy")
-        self.assertTrue(names("std::ostream & operator<<( std::ostream & os , boundary_t b ) ;", "operator<<"))
-        self.assertTrue(names("std::ostream &operator << (std::ostream &os, boundary_t b);", "operator<<"))
-        self.assertFalse(names("level_t &operator<<=(level_t &level, int by);", "operator<<"))
-        self.assertFalse(names("bool operator<(level_t a, level_t b);", "operator<<"))
-        self.assertTrue(names("bool operator<(level_t a, level_t b);", "operator<"))
-        self.assertFalse(names("bool operator<=(level_t a, level_t b);", "operator<"))
-        self.assertTrue(names("int operator()(int x);", "operator()"))
+        self.assertEqual(doc.declared_names("std::ostream &operator << (std::ostream &os, boundary_t b);\n"), {"operator<<"})
+        self.assertEqual(doc.declared_names("level_t &operator<<=(level_t &level, int by);\nbool operator<(level_t a, level_t b);\n"), {"operator<<=", "operator<"})
+        self.assertEqual(doc.declared_names("struct each_t {\n  int operator()(int x);\n};\nint operator()(int x);\n"), {"each_t", "operator()"})
 
     def test_a_symbol_outside_the_namespace_has_no_name(self):
         for symbol in [REALLOCATE, "_CCTK_VInfo", "CarpetX_Startup", "__ZNSt6vectorIN7CarpetX7valid_tESaIS1_EED1Ev", "_ZN5amrex7CarpetXEv"]:
@@ -228,23 +225,30 @@ class DeclaredName(unittest.TestCase):
             with self.subTest(symbol=symbol):
                 self.assertIsNone(declared_name(symbol))
 
-    def test_a_name_is_a_whole_word_of_the_text(self):
-        self.assertTrue(names("amrex::Vector<amrex::IntVect> per_level_max_grid_sizes();", "per_level_max_grid_sizes"))
-        self.assertFalse(names("int all_per_level_max_grid_sizes();", "per_level_max_grid_sizes"))
-        self.assertFalse(names("int per_level_max_grid_sizes_x;", "per_level_max_grid_sizes"))
-
 
 class Strays(unittest.TestCase):
     OBJECT = "config/grid_sizes.cxx.o"
     HEADER = "CarpetX/src/config/grid_sizes.hxx"
     LAYERS = {OBJECT: "config", "hierarchy/modes.cxx.o": "hierarchy", "hierarchy/handles.cxx.o": "hierarchy", "schedule/evolve.cxx.o": "schedule"}
-    HEADERS = {HEADER: "namespace CarpetX { amrex::Vector<amrex::IntVect> per_level_max_grid_sizes(); }"}
-    PUBLIC = "namespace CarpetX { window_t all_levels(); std::ostream &operator<<(std::ostream &os, symmetry_t symmetry); struct valid_t {}; }"
+    HEADERS = {HEADER: doc.declared_names("namespace CarpetX {\namrex::Vector<amrex::IntVect> per_level_max_grid_sizes();\n}\n")}
+    PUBLIC = doc.declared_names("namespace CarpetX {\nwindow_t all_levels();\nstd::ostream &operator<<(std::ostream &os, symmetry_t symmetry);\nstruct valid_t {};\n}\n")
 
-    def test_a_strong_definition_the_header_of_its_stem_names_is_not_a_stray(self):
+    def test_a_strong_definition_the_header_of_its_stem_declares_is_not_a_stray(self):
+        self.assertEqual(self.HEADERS, {self.HEADER: {"per_level_max_grid_sizes"}})
+        self.assertEqual(self.PUBLIC, {"all_levels", "operator<<", "valid_t"})
         self.assertEqual(strays(self.LAYERS, {self.OBJECT: {("T", SIZES)}}, self.HEADERS, {}), [])
 
-    def test_a_strong_definition_the_header_of_its_stem_does_not_name_is(self):
+    def test_a_member_of_a_class_the_header_uses_but_does_not_declare_is_a_stray(self):
+        model, writers = "hierarchy/model.cxx.o", "hierarchy/writers.cxx.o"
+        layers = {model: "hierarchy", writers: "hierarchy"}
+        headers = {
+            "CarpetX/src/hierarchy/model.hxx": doc.declared_names("namespace CarpetX {\nstruct GHExt {\n  void record_storage(gi_t gi, int timelevels);\n};\nconst GHExt &driver();\n}\n"),
+            "CarpetX/src/hierarchy/writers.hxx": doc.declared_names("namespace CarpetX {\nclass clock_writer_t {\n  explicit clock_writer_t(GHExt &hierarchy);\n  void rotate();\n};\n}\n"),
+        }
+        definitions = {model: {("T", RECORD_STORAGE), ("T", DRIVER[1:])}, writers: {("T", RECORD_STORAGE), ("T", ROTATE)}}
+        self.assertEqual(strays(layers, definitions, headers, {}), [Stray(writers, RECORD_STORAGE, "CarpetX/src/hierarchy/writers.hxx")])
+
+    def test_a_strong_definition_the_header_of_its_stem_does_not_declare_is(self):
         definitions = {self.OBJECT: {("T", SIZES), ("T", DEFAULTED), ("D", "_ZN7CarpetX11ghext_countE")}}
         self.assertEqual(
             strays(self.LAYERS, definitions, self.HEADERS, {}),
@@ -275,7 +279,7 @@ class Strays(unittest.TestCase):
             "hierarchy/modes.cxx.o": {("T", CURRENT_MODE), ("T", GLOBAL_MODE), ("T", ALL_LEVELS)},
             "hierarchy/handles.cxx.o": {("T", ALL_LEVELS), ("T", PRINT_SYMMETRY), ("T", TO_STRING), ("T", GLOBAL_MODE)},
         }
-        headers = {**self.HEADERS, "CarpetX/src/hierarchy/modes.hxx": "bool in_global_mode ( const cGH * cctkGH ) ;"}
+        headers = {**self.HEADERS, "CarpetX/src/hierarchy/modes.hxx": {"in_global_mode"}}
         public = {"hierarchy/handles.cxx.o": self.PUBLIC}
         self.assertEqual(
             strays(self.LAYERS, definitions, headers, public),
@@ -295,9 +299,9 @@ class Report(unittest.TestCase):
     CLEAN = "✓ symbols: every CarpetX import from the importing object's layer or one it reads"
 
     def test_clean(self):
-        self.assertEqual(render([], [], {}), self.CLEAN + ", and every definition of config/ and hierarchy/ named in the header of its stem")
+        self.assertEqual(render([], [], {}), self.CLEAN + ", and every definition of config/ and hierarchy/ declared in the header of its stem")
         with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"]}, clear=True):
-            self.assertEqual(summary([], []), self.CLEAN + ", and every definition of config/ named in the header of its stem")
+            self.assertEqual(summary([], []), self.CLEAN + ", and every definition of config/ declared in the header of its stem")
         with mock.patch.dict(rules.STEMS, clear=True):
             self.assertEqual(summary([], []), self.CLEAN)
 
@@ -314,8 +318,8 @@ class Report(unittest.TestCase):
         self.assertEqual(lines[0], "config/grid_sizes.cxx.o   not in config/grid_sizes.hxx   CarpetX::size_or_default(int, int)")
         self.assertTrue(lines[1].startswith("stems: in a layer that STEMS in scripts/lint/boundary/rules.py lists"))
         self.assertFalse(any(line.startswith("symbols: ") for line in lines))
-        self.assertEqual(lines[-1], "✗ symbols: 1 definition no header of the same stem names")
+        self.assertEqual(lines[-1], "✗ symbols: 1 definition the header of its stem does not declare")
         both = render([self.UP], [self.OUT, self.OUT], self.READABLE).split("\n")
-        self.assertEqual(both[-1], "✗ symbols: 1 import from a layer the importing object's layer does not read, 2 definitions no header of the same stem names")
+        self.assertEqual(both[-1], "✗ symbols: 1 import from a layer the importing object's layer does not read, 2 definitions the header of its stem does not declare")
         self.assertLess(both.index(lines[0]), both.index(lines[1]))
         self.assertLess(both.index(next(line for line in both if line.startswith("symbols: "))), both.index(lines[0]))

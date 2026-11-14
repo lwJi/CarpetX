@@ -12,7 +12,7 @@ from typing import Callable, Iterable, Optional
 from checks import plural, wrap
 from files import PROJECT
 
-from .doc import MAP, PUBLIC_BODIES, PUBLIC_HEADERS, code, header_reads, read, stem_headers
+from .doc import MAP, PUBLIC_BODIES, PUBLIC_HEADERS, declared_names, header_reads, read, stem_declarations
 from .rules import LAYERS, PRIVATE_DIR, READS_HOME, STEMS, STEMS_HOME, dirs, linkable
 
 OBJECT_SUFFIX = ".cxx.o"
@@ -40,9 +40,10 @@ REACH_RULE = wrap(
 )
 STEM_RULE = wrap(
     f"stems: in a layer that STEMS in {STEMS_HOME} lists, a header and its source share a stem, and the object the "
-    "build made from <layer>/<stem>.cxx strongly defines in namespace CarpetX only what <layer>/<stem>.hxx names: a "
-    "function, an object or the outermost class of a member whose name is a word of that header, or of a public "
-    "header when PUBLIC_BODIES in scripts/lint/boundary/doc.py lists the source. A body another header declares moves "
+    "build made from <layer>/<stem>.cxx strongly defines in namespace CarpetX only what <layer>/<stem>.hxx declares: a "
+    "function, an object or the outermost class of a member that the header declares at namespace scope, or that a public "
+    "header declares when PUBLIC_BODIES in scripts/lint/boundary/doc.py lists the source; a header that only uses a "
+    "name does not declare it. A body another header declares moves "
     "to the source of that header's stem, and one no header declares is declared there or becomes file-local. The "
     f"match is by name, never by signature, and {MAP} says what each stem holds."
 )
@@ -156,37 +157,39 @@ def declared_name(symbol: str) -> Optional[str]:
     return None if name.startswith(UNNAMED_NAMESPACE) else name
 
 
-def names(text: str, name: str) -> bool:
-    if name.startswith(OPERATOR) and name[len(OPERATOR) :] in OPERATORS.values():
-        return re.search(rf"\b{OPERATOR}\s*{re.escape(name[len(OPERATOR) :])}(?![^\s\w(])", text) is not None
-    return re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text) is not None
-
-
 def header_of(obj: str) -> str:
     return PRIVATE_DIR + obj[: -len(OBJECT_SUFFIX)] + HEADER_SUFFIX
 
 
-def strays(layers: dict[str, str], definitions: dict[str, set[tuple[str, str]]], headers: dict[str, str], public: dict[str, str]) -> list[Stray]:
+def strays(layers: dict[str, str], definitions: dict[str, set[tuple[str, str]]], headers: dict[str, set[str]], public: dict[str, set[str]]) -> list[Stray]:
     found = []
     for obj in sorted(layers):
         if layers[obj] not in STEMS:
             continue
         header = header_of(obj)
-        texts = [text for text in (headers.get(header), public.get(obj)) if text is not None]
+        declared = headers.get(header, set()) | public.get(obj, set())
         for kind, symbol in sorted(definitions.get(obj, ()), key=lambda definition: definition[1]):
             name = declared_name(symbol) if kind in STRONG else None
-            if name is not None and not any(names(text, name) for text in texts):
+            if name is not None and name not in declared:
                 found.append(Stray(obj, symbol, header))
     return found
 
 
-def stem_texts(root: str = PROJECT) -> dict[str, str]:
-    return {header: code(text) for header, text in stem_headers(root).items()}
+def stem_names(root: str = PROJECT) -> dict[str, set[str]]:
+    try:
+        return stem_declarations(root)
+    except ValueError as e:
+        raise SymbolsError(str(e)) from None
 
 
-def public_texts(root: str = PROJECT) -> dict[str, str]:
-    text = "\n".join(code(read(os.path.join(root, header))) for header in PUBLIC_HEADERS)
-    return {file[len(PRIVATE_DIR) :] + ".o": text for file, _ in PUBLIC_BODIES}
+def public_names(root: str = PROJECT) -> dict[str, set[str]]:
+    declared: set[str] = set()
+    for header in PUBLIC_HEADERS:
+        try:
+            declared |= declared_names(read(os.path.join(root, header)))
+        except ValueError as e:
+            raise SymbolsError(f"{header}: {e}") from None
+    return {file[len(PRIVATE_DIR) :] + ".o": declared for file, _ in PUBLIC_BODIES}
 
 
 def demangle(names: Iterable[str]) -> dict[str, str]:
@@ -201,13 +204,13 @@ def demangle(names: Iterable[str]) -> dict[str, str]:
 
 def summary(unread: list[Reach], stray: list[Stray]) -> str:
     if not unread and not stray:
-        held = f", and every definition of {dirs(tuple(STEMS), 'and')} named in the header of its stem" if STEMS else ""
+        held = f", and every definition of {dirs(tuple(STEMS), 'and')} declared in the header of its stem" if STEMS else ""
         return "✓ symbols: every CarpetX import from the importing object's layer or one it reads" + held
     counts = []
     if unread:
         counts.append(f"{plural(len(unread), 'import')} from a layer the importing object's layer does not read")
     if stray:
-        counts.append(f"{plural(len(stray), 'definition')} no header of the same stem names")
+        counts.append(f"{plural(len(stray), 'definition')} the header of its stem does not declare")
     return "✗ symbols: " + ", ".join(counts)
 
 
@@ -230,6 +233,6 @@ def check(objdir: str, demangler: Optional[Demangle] = None) -> tuple[str, bool]
     definitions = {obj: defined_in(os.path.join(objdir, obj)) for obj in layers}
     imports = {obj: parse_imports(nm(os.path.join(objdir, obj), "--undefined-only")) for obj in layers}
     unread = reaches(layers, strong_definitions(definitions, layers), imports, header_reads())
-    stray = strays(layers, definitions, stem_texts(), public_texts())
+    stray = strays(layers, definitions, stem_names(), public_names())
     readable = (demangler or demangle)([r.symbol for r in unread] + [s.symbol for s in stray])
     return render(unread, stray, readable), not unread and not stray

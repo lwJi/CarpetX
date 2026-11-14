@@ -248,10 +248,6 @@ def spelled(text: str) -> list[tuple[str, int]]:
     return found
 
 
-def code(text: str) -> str:
-    return " ".join(word for word, _ in spelled(text) if not LITERAL.match(word))
-
-
 def words_in(text: str) -> set[str]:
     return {token.text for token in lex(text) if token.kind in (Kind.CODE, Kind.DIRECTIVE) and NAME.fullmatch(token.text)}
 
@@ -458,13 +454,18 @@ def stem_headers(root: str = PROJECT) -> dict[str, str]:
     return {layer_path(layer, os.path.basename(path)): read(path) for layer in STEMS for path in sources(root, layer) if path.endswith(".hxx")}
 
 
-def unused_includes(root: str = PROJECT) -> list[tuple[str, str]]:
+def stem_declarations(root: str = PROJECT) -> dict[str, set[str]]:
     declared: dict[str, set[str]] = {}
     for header, text in stem_headers(root).items():
         try:
             declared[header] = declared_names(text)
         except ValueError as e:
             raise ValueError(f"{header}: {e}") from None
+    return declared
+
+
+def unused_includes(root: str = PROJECT) -> list[tuple[str, str]]:
+    declared = stem_declarations(root)
     found = []
     for layer in LAYERS:
         for path in sources(root, layer):
@@ -690,7 +691,7 @@ OWNS_HEADING = "## What each layer owns"
 OWNS_INTRO = (
     "New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides, then names the rules whose home is in it. "
     f"Under a layer that the table STEMS in {STEMS_HOME} lists is one row per file stem, a header and its source sharing the stem, that says the one concern the stem holds: "
-    "a stem with no row or a row with no stem fails the generator, `scripts/lint symbols` refuses a definition there that the header of its stem does not name, "
+    "a stem with no row or a row with no stem fails the generator, `scripts/lint symbols` refuses a definition there that the header of its stem does not declare, "
     "and the tests refuse a source there with no header and an include of one of its headers that uses no name the header declares."
 )
 
