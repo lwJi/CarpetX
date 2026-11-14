@@ -1,4 +1,5 @@
 #include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
 #include "comm/boundaries.hxx"

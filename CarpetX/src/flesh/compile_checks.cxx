@@ -2,6 +2,7 @@
 #include "hierarchy/binding.hxx"
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/writers.hxx"
 #include "comm/buffers.hxx"

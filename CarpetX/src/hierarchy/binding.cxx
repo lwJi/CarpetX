@@ -1,6 +1,8 @@
 #include "hierarchy/binding.hxx"
 #include "hierarchy/model.hxx"
+#include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
+#include "hierarchy/modes.hxx"
 
 #include <cctk.h>
 

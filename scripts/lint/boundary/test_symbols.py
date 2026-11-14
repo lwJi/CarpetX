@@ -253,8 +253,10 @@ class Strays(unittest.TestCase):
 
     def test_only_an_object_of_a_listed_layer_is_judged(self):
         definitions = {"schedule/evolve.cxx.o": {("T", DEFAULTED)}, "hierarchy/modes.cxx.o": {("T", CURRENT_MODE)}}
-        self.assertEqual(strays(self.LAYERS, definitions, self.HEADERS, {}), [])
-        self.assertNotIn("hierarchy", rules.STEMS)
+        self.assertEqual(set(rules.STEMS), {"config", "hierarchy"})
+        self.assertEqual(strays(self.LAYERS, definitions, self.HEADERS, {}), [Stray("hierarchy/modes.cxx.o", CURRENT_MODE, "CarpetX/src/hierarchy/modes.hxx")])
+        with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"]}, clear=True):
+            self.assertEqual(strays(self.LAYERS, definitions, self.HEADERS, {}), [])
 
     def test_a_listed_layer_holds_each_source_to_its_own_header_and_a_public_body_to_the_public_headers(self):
         definitions = {
@@ -263,16 +265,15 @@ class Strays(unittest.TestCase):
         }
         headers = {**self.HEADERS, "CarpetX/src/hierarchy/modes.hxx": "bool in_global_mode ( const cGH * cctkGH ) ;"}
         public = {"hierarchy/handles.cxx.o": self.PUBLIC}
-        with mock.patch.dict(rules.STEMS, {"hierarchy": {}}):
-            self.assertEqual(
-                strays(self.LAYERS, definitions, headers, public),
-                [
-                    Stray("hierarchy/handles.cxx.o", GLOBAL_MODE, "CarpetX/src/hierarchy/handles.hxx"),
-                    Stray("hierarchy/modes.cxx.o", ALL_LEVELS, "CarpetX/src/hierarchy/modes.hxx"),
-                    Stray("hierarchy/modes.cxx.o", CURRENT_MODE, "CarpetX/src/hierarchy/modes.hxx"),
-                ],
-            )
-            self.assertEqual(len(strays(self.LAYERS, definitions, headers, {})), 6)
+        self.assertEqual(
+            strays(self.LAYERS, definitions, headers, public),
+            [
+                Stray("hierarchy/handles.cxx.o", GLOBAL_MODE, "CarpetX/src/hierarchy/handles.hxx"),
+                Stray("hierarchy/modes.cxx.o", ALL_LEVELS, "CarpetX/src/hierarchy/modes.hxx"),
+                Stray("hierarchy/modes.cxx.o", CURRENT_MODE, "CarpetX/src/hierarchy/modes.hxx"),
+            ],
+        )
+        self.assertEqual(len(strays(self.LAYERS, definitions, headers, {})), 6)
 
 
 class Report(unittest.TestCase):
@@ -282,9 +283,9 @@ class Report(unittest.TestCase):
     CLEAN = "✓ symbols: every CarpetX import from the importing object's layer or one it reads"
 
     def test_clean(self):
-        self.assertEqual(render([], [], {}), self.CLEAN + ", and every definition of config/ named in the header of its stem")
-        with mock.patch.dict(rules.STEMS, {"hierarchy": {}}):
-            self.assertEqual(summary([], []), self.CLEAN + ", and every definition of config/ and hierarchy/ named in the header of its stem")
+        self.assertEqual(render([], [], {}), self.CLEAN + ", and every definition of config/ and hierarchy/ named in the header of its stem")
+        with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"]}, clear=True):
+            self.assertEqual(summary([], []), self.CLEAN + ", and every definition of config/ named in the header of its stem")
         with mock.patch.dict(rules.STEMS, clear=True):
             self.assertEqual(summary([], []), self.CLEAN)
 

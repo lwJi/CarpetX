@@ -1,5 +1,5 @@
-#ifndef CARPETX_CARPETX_HIERARCHY_LOOPS_HXX
-#define CARPETX_CARPETX_HIERARCHY_LOOPS_HXX
+#ifndef CARPETX_CARPETX_HIERARCHY_GRID_HXX
+#define CARPETX_CARPETX_HIERARCHY_GRID_HXX
 
 #include "internal.hxx"
 
@@ -10,37 +10,9 @@
 
 #include <array>
 #include <cassert>
-#include <functional>
 #include <ostream>
 
 namespace CarpetX {
-
-void loop_coarse_to_fine(
-    window_t window,
-    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
-        &kernel);
-
-void loop_fine_to_coarse(
-    window_t window,
-    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
-        &kernel);
-
-inline void loop_serially(
-    const window_t window,
-    const std::function<void(const GHExt::PatchData::LevelData &leveldata)>
-        &kernel) {
-  loop_coarse_to_fine(window, kernel);
-}
-
-void loop_parallel(
-    window_t window,
-    const std::function<void(const GHExt::PatchData::LevelData &leveldata,
-                             tile_t tile, const cGH *cctkGH)> &kernel);
-
-void loop_serially(
-    window_t window,
-    const std::function<void(const GHExt::PatchData::LevelData &leveldata,
-                             tile_t tile, const cGH *cctkGH)> &kernel);
 
 inline amrex::Orientation orient(int d, int f) {
   return amrex::Orientation(d, amrex::Orientation::Side(f));
@@ -146,34 +118,6 @@ struct GridPtrDesc1 : GridDesc {
     return os;
   }
 };
-
-enum class mode_t { unknown, local, patch, level, global, meta };
-
-bool in_local_mode(const cGH *restrict cctkGH);
-bool in_patch_mode(const cGH *restrict cctkGH);
-bool in_level_mode(const cGH *restrict cctkGH);
-bool in_global_mode(const cGH *restrict cctkGH);
-bool in_meta_mode(const cGH *restrict cctkGH);
-
-void setup_cctkGH(cGH *restrict cctkGH);
-void update_cctkGH(cGH *restrict cctkGH, const cGH *restrict sourceGH);
-void update_cctkGHs(cGH *restrict cctkGH);
-void enter_global_mode(cGH *restrict cctkGH);
-void leave_global_mode(cGH *restrict cctkGH);
-void enter_level_mode(cGH *restrict cctkGH, level_t level);
-void leave_level_mode(cGH *restrict cctkGH, level_t level);
-void enter_patch_mode(cGH *restrict cctkGH,
-                      const GHExt::PatchData::LevelData &restrict leveldata);
-void leave_patch_mode(cGH *restrict cctkGH,
-                      const GHExt::PatchData::LevelData &restrict leveldata);
-void enter_local_mode(cGH *restrict cctkGH,
-                      const GHExt::PatchData::LevelData &restrict leveldata,
-                      const MFPointer &mfp);
-void leave_local_mode(cGH *restrict cctkGH,
-                      const GHExt::PatchData::LevelData &restrict leveldata,
-                      const MFPointer &mfp);
-
-void synchronize();
 
 } // namespace CarpetX
 
