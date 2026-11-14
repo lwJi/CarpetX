@@ -791,8 +791,6 @@ static_assert(!std::is_constructible_v<level_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<registry_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<scratch_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt &>);
-static_assert(
-    !std::is_constructible_v<hierarchy_writers_t, std::unique_ptr<GHExt>>);
 static_assert(!std::is_constructible_v<hierarchy_writers_t, GHExt::config_t>);
 static_assert(!hands_out_hierarchy<hierarchy_writers_t>);
 

@@ -131,6 +131,10 @@ private:
 };
 
 struct hierarchy_writers_t {
+private:
+  GHExt hierarchy;
+
+public:
   clock_writer_t clock;
   structure_writer_t structure;
   registry_writer_t registry;
@@ -140,8 +144,6 @@ struct hierarchy_writers_t {
 
 private:
   explicit hierarchy_writers_t(GHExt::config_t config);
-  explicit hierarchy_writers_t(std::unique_ptr<GHExt> made);
-  std::unique_ptr<GHExt> hierarchy;
   friend std::unique_ptr<hierarchy_writers_t>
   create_hierarchy(GHExt::config_t config);
 };

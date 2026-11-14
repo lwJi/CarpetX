@@ -34,17 +34,11 @@ create_hierarchy(const GHExt::config_t config) {
 }
 
 hierarchy_writers_t::hierarchy_writers_t(const GHExt::config_t config)
-    : hierarchy_writers_t(std::unique_ptr<GHExt>(new GHExt(config))) {}
-
-hierarchy_writers_t::hierarchy_writers_t(std::unique_ptr<GHExt> made)
-    : clock(*made), structure(*made), registry(*made), scratch(*made),
-      hierarchy(std::move(made)) {
-  assert(hierarchy);
-}
+    : hierarchy(config), clock(hierarchy), structure(hierarchy),
+      registry(hierarchy), scratch(hierarchy) {}
 
 hierarchy_writers_t::~hierarchy_writers_t() {
-  cctkGH_binding::unbind_arrays(hierarchy->flesh_cctkGH);
-  hierarchy.reset();
+  cctkGH_binding::unbind_arrays(hierarchy.flesh_cctkGH);
 }
 
 const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
