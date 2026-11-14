@@ -140,6 +140,12 @@ FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
 VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\([^()]*\))*\))\s*\+")
 RECORD_VAR_FILE = layer_path("hierarchy", "driver.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
+RECORD_READER_FILES = (
+    layer_path("config", "groups.hxx"),
+    layer_path("config", "groups.cxx"),
+    layer_path("hierarchy", "hierarchy.cxx"),
+)
+RECORD_READER_WORD = re.compile(r"\bdeclared_grid_function\b")
 MODEL_FILE = layer_path("hierarchy", "driver.hxx")
 MODEL_WORD = re.compile(
     r'\bmutable\b|\bextern\b|^\s*#\s*include\s*[<"]carpetx_rk\.hxx[>"]'
@@ -282,6 +288,10 @@ def codec_cxx(name: str, lang: Lang) -> bool:
 
 def in_files(names: tuple[str, ...]) -> Callable[..., bool]:
     return lambda name, *_: name in names
+
+
+def record_reader_allowed(name: str, line: str, statement: str) -> bool:
+    return name in RECORD_READER_FILES
 
 
 def never(name: str, line: str, statement: str) -> bool:
@@ -455,6 +465,19 @@ RULES = (
         where="outside GroupRecord::var",
         clean="no firstvarindex addition outside GroupRecord::var",
         home=layers_of((RECORD_VAR_FILE,)),
+    ),
+    Rule(
+        "declared",
+        files=carpetx_cxx,
+        word=RECORD_READER_WORD,
+        allowed=record_reader_allowed,
+        text="what a grid function group was declared as is read once, by the constructor of GroupRecord: "
+        f"declared_grid_function is named only in {', '.join(RECORD_READER_FILES[:-1])} and {RECORD_READER_FILES[-1]}; "
+        "every other file calls record.grid_function().",
+        noun="declared_grid_function use",
+        where="outside GroupRecord",
+        clean="no declared_grid_function outside GroupRecord",
+        home=layers_of(RECORD_READER_FILES[-1:]),
     ),
     Rule(
         "model",

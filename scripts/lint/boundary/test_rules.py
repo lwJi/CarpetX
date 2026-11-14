@@ -285,6 +285,39 @@ class Directions(unittest.TestCase):
         self.assertEqual(findings("CarpetX/src/comm/comm.hxx", text, Lang.CXX), [Finding(4, "directions", "const int *groups, const int *directions);")])
 
 
+class Declared(unittest.TestCase):
+    CALL = "grid_function_ = declared_grid_function(gi, numvars);"
+    DECLARATION = "grid_function_t declared_grid_function(gi_t gi, int numvars);"
+
+    def test_the_record_and_its_reader_name_it(self):
+        self.assertEqual(rules.RECORD_READER_FILES, ("CarpetX/src/config/groups.hxx", "CarpetX/src/config/groups.cxx", "CarpetX/src/hierarchy/hierarchy.cxx"))
+        for name in rules.RECORD_READER_FILES:
+            for line in [self.CALL, self.DECLARATION]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [])
+
+    def test_a_second_reader_is_reported(self):
+        for name in ["CarpetX/src/hierarchy/driver.hxx", "CarpetX/src/hierarchy/valid.cxx", "CarpetX/src/config/boundaries.cxx", "CarpetX/src/comm/reflux.cxx", "CarpetX/src/io/io_silo.cxx", "CarpetX/src/flesh/compile_checks.cxx"]:
+            for line in [self.CALL, self.DECLARATION]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("declared", line)])
+
+    def test_a_longer_name_is_not_the_reader(self):
+        self.assertEqual(reported("CarpetX/src/comm/reflux.cxx", "int declared_grid_function_count;\nint undeclared_grid_function;\n"), [])
+
+    def test_the_tree_has_one_caller(self):
+        src = os.path.join(PROJECT, "CarpetX", "src")
+        callers = []
+        for folder, _, names in os.walk(src):
+            for basename in names:
+                name = os.path.relpath(os.path.join(folder, basename), PROJECT)
+                if basename.endswith((".hxx", ".cxx")) and name not in rules.RECORD_READER_FILES[:-1]:
+                    with open(os.path.join(folder, basename)) as file:
+                        if rules.RECORD_READER_WORD.search(file.read()):
+                            callers.append(name)
+        self.assertEqual(callers, list(rules.RECORD_READER_FILES[-1:]))
+
+
 class VarIndex(unittest.TestCase):
     ADDITIONS = [
         "cctkGH->data[group.firstvarindex + vi][tl.index()] = nullptr;",
@@ -1626,6 +1659,7 @@ class Layers(unittest.TestCase):
             + rules.SYNC_FILES
             + tuple(rules.INDEX_FIXED)
             + rules.CODEC_FILES
+            + rules.RECORD_READER_FILES
         )
         for name in named:
             with self.subTest(name=name):
@@ -1745,6 +1779,7 @@ class Report(unittest.TestCase):
             "no validity call outside valid.cxx, no pointer-table write outside binding.cxx, "
             "no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, "
+            "no declared_grid_function outside GroupRecord, "
             "no mutable, extern, integrator include or comm/ object in the data model, no active_levels_t, "
             "no make_alias in CarpetX, "
             "no active_levels outside traversal.cxx, "
@@ -2198,11 +2233,11 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `config/`"], f"- `config/`: {rules.OWNS['config']}")
         self.assertTrue(rows["- `config/`"].endswith(" Nothing here calls `driver()`."))
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
-        self.assertTrue(rows["- `hierarchy/`"].endswith(" Rules at home here: validity, binding, varindex, model."))
+        self.assertTrue(rows["- `hierarchy/`"].endswith(" Rules at home here: validity, binding, varindex, declared, model."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
-        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "varindex", "model"])
+        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "varindex", "declared", "model"])
         self.assertEqual(doc.node("flesh", ("regrid", "flesh")), '  flesh["flesh/ no header"]')
         self.assertEqual(doc.node("regrid", ("regrid", "flesh")), '  regrid["regrid/ no header"]')
         self.assertEqual(doc.node("ops", ("regrid", "flesh")), '  ops["ops/"]')
@@ -2213,7 +2248,7 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "model", "traversal", "records", "codec", "entry", "ghost-only"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "declared", "model", "traversal", "records", "codec", "entry", "ghost-only"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
