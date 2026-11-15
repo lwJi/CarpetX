@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 import hooks
-from files import PROJECT, Lang
+from files import PROJECT, Lang, lang_of
 from run import check_since
 
 from . import check, doc, guide, rules
@@ -201,6 +201,67 @@ class Binding(unittest.TestCase):
 
     def test_another_thorn_may_write_a_table(self):
         self.assertEqual(reported("TestCarpetXAPI/src/api.cxx", self.WRITES[2] + "\n"), [])
+
+
+class Clock(unittest.TestCase):
+    WRITES = [
+        "cctkGH->cctk_time = 0;",
+        "cctkGH->cctk_iteration += 1;",
+        "cctkGH->cctk_iteration++;",
+        "++cctkGH->cctk_iteration;",
+        "--ext.flesh_cctkGH()->cctk_iteration;",
+        "cctkGH->cctk_delta_time *= 0.5;",
+        "copy.cctk_timefac= 2;",
+        "cctkGH->cctk_time -= cctkGH->cctk_delta_time;",
+    ]
+    NOT_WRITES = [
+        "assert(cctkGH->cctk_iteration == recovered_iteration());",
+        "const int checkpoint_iteration = cctkGH->cctk_iteration;",
+        "? cctkGH->cctk_time >= cctk_final_time : cctkGH->cctk_time <= cctk_final_time;",
+        "if (cctkGH->cctk_time != time)",
+        "record.time = cctkGH->cctk_time;",
+        "f(cctkGH->cctk_iteration + 1, cctkGH->cctk_delta_time - dt);",
+        "cctkGH->cctk_time_offset = 0;",
+    ]
+
+    def test_writes_are_reported_outside_clock(self):
+        for line in self.WRITES:
+            for name in ["CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/checkpoint.cxx", "CarpetX/src/api/api_rk.cxx", "CarpetX/src/hierarchy/modes.cxx", "CarpetX/src/hierarchy/writers.cxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("clock", line)])
+
+    def test_clock_defines_them(self):
+        self.assertEqual(rules.CLOCK_FILES, ("CarpetX/src/hierarchy/clock.cxx",))
+        for line in self.WRITES:
+            with self.subTest(line=line):
+                self.assertEqual(reported("CarpetX/src/hierarchy/clock.cxx", line + "\n"), [])
+
+    def test_comparisons_and_reads_pass(self):
+        for line in self.NOT_WRITES:
+            for name in ["CarpetX/src/schedule/clocks.cxx", "CarpetX/src/io/checkpoint.cxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [])
+
+    def test_another_thorn_is_not_judged(self):
+        for name in ["TestCarpetXAPI/src/api_test.cxx", "CarpetX/src/include/carpetx.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.WRITES[0] + "\n"), [])
+
+    def test_the_tree_holds_it(self):
+        found = []
+        for root, _, files in os.walk(os.path.join(PROJECT, rules.PRIVATE_DIR)):
+            for base in files:
+                path = os.path.join(root, base)
+                name = os.path.relpath(path, PROJECT)
+                lang = lang_of(name)
+                if lang is not Lang.CXX:
+                    continue
+                with open(path) as f:
+                    text = f.read()
+                found.extend((name, f.line) for f in findings(name, text, lang) if f.rule == "clock")
+                if name in rules.CLOCK_FILES:
+                    self.assertTrue(rules.CLOCK_WORD.search(text), name)
+        self.assertEqual(found, [])
 
 
 class GhostOnly(unittest.TestCase):
@@ -1998,6 +2059,7 @@ class Report(unittest.TestCase):
             render([]),
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
             "no validity call outside scopes.cxx, no pointer-table write outside binding.cxx, "
+            "no clock-field write outside clock.cxx, "
             "no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, "
             "no mutable, extern, comm/ object or other concern's include in the data model's headers, "
@@ -2495,12 +2557,12 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `config/`"], f"- `config/`: {rules.OWNS['config']}")
         self.assertTrue(rows["- `config/`"].endswith(" Nothing here calls `driver()`."))
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
-        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, varindex, model, grant.")
+        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant.")
         self.assertTrue(rules.OWNS["hierarchy"].endswith(" Nothing here only reads the model: a query belongs to the layer that owns its subject."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
-        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "varindex", "model", "grant"])
+        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "clock", "varindex", "model", "grant"])
         self.assertEqual(doc.node("flesh", ("regrid", "flesh")), '  flesh["flesh/ no header"]')
         self.assertEqual(doc.node("regrid", ("regrid", "flesh")), '  regrid["regrid/ no header"]')
         self.assertEqual(doc.node("ops", ("regrid", "flesh")), '  ops["ops/"]')
@@ -2511,10 +2573,11 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "model", "grant", "traversal", "records", "codec", "entry", "ghost-only"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "directions", "varindex", "model", "grant", "traversal", "records", "codec", "entry", "ghost-only"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
+        self.assertEqual(rules.layers_of(rules.CLOCK_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.CODEC_FILES + rules.SYNC_FILES), ("io", "comm"))
         with self.assertRaises(AssertionError):
             rules.layers_of((rules.MAKE_DEFN,))
@@ -2618,7 +2681,7 @@ class Doc(unittest.TestCase):
             [
                 "  - `model`: `GHExt`, its nested types, and the door `driver()`",
                 "  - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
-                "  - `clock`: publishing the model's run clock to the flesh's cGH and to every copy of it, and the check that a cGH handed to code shows it",
+                "  - `clock`: the only writes to the cGH clock fields, which publish the model's run clock to the flesh's cGH and to every copy of it, and the check that a cGH handed to code shows it",
                 "  - `valid`: the validity state a time level stores",
                 "  - `scopes`: the only way to change that state: write, require and invalidate",
                 "  - `binding`: the only writes to the cGH pointer table",

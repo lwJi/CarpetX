@@ -36,11 +36,11 @@ OWNS = {
     "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
     "config": "what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.",
     "hierarchy": "the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject.",
-    "comm": "moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`.",
+    "comm": "moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, takes the iteration from `current_iteration()` and the step from `driver().run_clock()`, and changes nothing of the clock.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`.",
-    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.",
+    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls. It is passed the whole clock as `clock_writer_t`: every change of the run's iteration, time, step or time factor is one operation of that writer, which shows it on every cGH, so the iteration and step `schedule/` reads from the cGH it is handed are the model's.",
     "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the writers it uses, `registry_writer_t`, `scratch_writer_t` and the `stage_writer_t` that `clock_writer_t` owns, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer`, `scratch_writer` and `stage_writer` refuse while it is empty. Of the clock it changes only a stage time and step, for the length of one `run_at`.",
     "flesh": 'every `extern "C"`, and the writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its writers. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
@@ -55,7 +55,7 @@ STEMS = {
     "hierarchy": {
         "model": "`GHExt`, its nested types, and the door `driver()`",
         "writers": "the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
-        "clock": "publishing the model's run clock to the flesh's cGH and to every copy of it, and the check that a cGH handed to code shows it",
+        "clock": "the only writes to the cGH clock fields, which publish the model's run clock to the flesh's cGH and to every copy of it, and the check that a cGH handed to code shows it",
         "valid": "the validity state a time level stores",
         "scopes": "the only way to change that state: write, require and invalidate",
         "binding": "the only writes to the cGH pointer table",
@@ -159,6 +159,9 @@ VALIDITY_WORD = re.compile(
 )
 BINDING_FILES = (layer_path("hierarchy", "binding.cxx"),)
 BINDING_WORD = re.compile(r"(\.|->)\s*data\s*\[[^\]]*\]\s*\[[^\]]*\]\s*=(?!=)")
+CLOCK_FILES = (layer_path("hierarchy", "clock.cxx"),)
+CLOCK_FIELD = r"(\.|->)\s*cctk_(iteration|time|delta_time|timefac)\b"
+CLOCK_WORD = re.compile(rf"{CLOCK_FIELD}\s*([-+*/]?=(?!=)|\+\+|--)|(\+\+|--)\s*[\w.()\->]*{CLOCK_FIELD}")
 GHOST_ONLY_FILES = (
     layer_path("comm", "comm.hxx"),
     layer_path("comm", "sync_restrict.cxx"),
@@ -579,6 +582,19 @@ RULES = (
         home=layers_of(BINDING_FILES),
     ),
     Rule(
+        "clock",
+        files=private_cxx,
+        word=CLOCK_WORD,
+        allowed=in_files(CLOCK_FILES),
+        text="a cGH clock field (cctk_iteration, cctk_time, cctk_delta_time, cctk_timefac) is assigned only in "
+        "CarpetX/src/hierarchy/clock.cxx, which publishes the model's run clock to every cGH; every other site asks "
+        "clock_writer_t, or the stage_writer_t it lends api/, and reads the fields.",
+        noun="clock-field write",
+        where="outside clock.cxx",
+        clean="no clock-field write outside clock.cxx",
+        home=layers_of(CLOCK_FILES),
+    ),
+    Rule(
         "directions",
         files=in_files(SYNC_FILES),
         word=DIRECTIONS_WORD,
@@ -608,7 +624,7 @@ RULES = (
         word=MODEL_WORD,
         allowed=never,
         text=f"{MODEL_FILE}, the header that declares the data model, has no mutable member, declares no extern variable, does not include "
-        "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but comm/'s buffers and what its cGH pointers reach, and every fact "
+        "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but comm/'s buffers and what its cGH pointers reach, of which the rules binding and clock leave the pointer table and the clock fields to one file each, and every fact "
         f"about the hierarchy, the epoch included, is a GHExt member changed only by a holder the table GRANTS in {GRANTS_HOME} names; what comm/ "
         "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to a type it "
         "only forward-declares, and the integrator record is a GHExt value. It includes no yaml-cpp header, no <zlib.h> and no header of "
