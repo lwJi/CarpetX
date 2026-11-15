@@ -45,13 +45,13 @@ void require_current_clock(const GHExt &ext, const cGH *const cctkGH,
   const GHExt::run_clock_t &clock = ext.run_clock();
   const auto refuse_int = [&](const char *const field, const int shown,
                               const int held) {
-    CCTK_VERROR("%s is handed a cGH whose %s is %d, but the run clock's is %d; "
+    CCTK_VERROR("%s returned a cGH whose %s is %d, but the run clock's is %d; "
                 "%s",
                 who().c_str(), field, shown, held, clock_stale_reason);
   };
   const auto refuse_real = [&](const char *const field, const CCTK_REAL shown,
                                const CCTK_REAL held) {
-    CCTK_VERROR("%s is handed a cGH whose %s is %.17g, but the run clock's is "
+    CCTK_VERROR("%s returned a cGH whose %s is %.17g, but the run clock's is "
                 "%.17g; %s",
                 who().c_str(), field, double(shown), double(held),
                 clock_stale_reason);

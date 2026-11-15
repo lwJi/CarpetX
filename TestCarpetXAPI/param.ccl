@@ -39,7 +39,7 @@ KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Regist
   "rhs-invalid"        :: "register a valid integrator, fill state, open an RK step and report the right-hand side computed while nothing has written state_rhs; CarpetX aborts the run"
   "state-before-rhs"   :: "open an RK step on level 0 and report the state updated before any right-hand side; CarpetX aborts the run"
   "rhs-after-last-stage" :: "open an RK step on level 0, run all four stages, and report a fifth right-hand side; CarpetX aborts the run"
-  "clock-stale"        :: "assign 1 to cctk_time of the cGH TestCarpetXAPI_Fill is handed, in a run that starts at time 0; CarpetX aborts the next routine call"
+  "clock-stale"        :: "assign 1 to cctk_time of the cGH TestCarpetXAPI_Fill is handed, in a run that starts at time 0; CarpetX aborts the run when TestCarpetXAPI_Fill returns"
 } "write-scope"
 
 CCTK_REAL tolerance "Largest absolute difference between state and the function the fill wrote that TestCarpetXAPI_Check accepts"

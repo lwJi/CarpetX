@@ -55,7 +55,7 @@ STEMS = {
     "hierarchy": {
         "model": "`GHExt`, its nested types, and the door `driver()`",
         "writers": "the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
-        "clock": "the only writes to the cGH clock fields, which publish the model's run clock to the flesh's cGH and to every copy of it, and the check that a cGH handed to code shows it",
+        "clock": "the only writes to the cGH clock fields, which publish the model's run clock to the flesh's cGH and to every copy of it, and the check that a cGH a scheduled function returns still shows it",
         "valid": "the validity state a time level stores",
         "scopes": "the only way to change that state: write, require and invalidate",
         "binding": "the only writes to the cGH pointer table",

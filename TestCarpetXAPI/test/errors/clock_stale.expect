@@ -1,1 +1,1 @@
-TestCarpetXAPI::TestCarpetXAPI_Check in TestCarpetXAPI_CheckGroup is handed a cGH whose cctk_time is 1, but the run clock's is 0
+TestCarpetXAPI::TestCarpetXAPI_Fill in CCTK_INITIAL returned a cGH whose cctk_time is 1, but the run clock's is 0

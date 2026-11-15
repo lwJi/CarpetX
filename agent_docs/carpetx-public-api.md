@@ -38,7 +38,7 @@ Refusals: `too_many_levels`, `output_unknown_variable`.
 
 ## The clock a routine sees
 
-`cctk_iteration`, `cctk_time`, `cctk_delta_time` and `cctk_timefac` are the run clock that CarpetX holds, and every cGH shows it: the flesh's, and each level, patch and tile copy. A thorn reads them and never assigns them; CarpetX compares the cGH it hands to a scheduled function, and the tile cGH it hands to a `loop_parallel` kernel, with the run clock in every build, and a cGH that disagrees stops the run, naming the field, the cGH's value and the run clock's. Held by `publish_clock`, `require_current_clock` in `hierarchy/clock.cxx`; `CallFunction` in `schedule/callfunction.cxx`; `loop_parallel` in `hierarchy/loops.cxx`.
+`cctk_iteration`, `cctk_time`, `cctk_delta_time` and `cctk_timefac` are the run clock that CarpetX holds, and every cGH shows it: the flesh's, and each level, patch and tile copy. A thorn reads them and never assigns them; when a scheduled function returns, CarpetX compares the cGH it was handed, the flesh's or for a local-mode function each tile copy, with the run clock in every build, and a cGH that disagrees stops the run, naming the function, the field, the cGH's value and the run clock's. Held by `publish_clock`, `require_current_clock` in `hierarchy/clock.cxx`; `CallFunction` in `schedule/callfunction.cxx`.
 
 Refusals: `clock_stale`.
 

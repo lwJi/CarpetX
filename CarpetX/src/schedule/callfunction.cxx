@@ -46,10 +46,12 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   const std::string event =
       std::string("CallFunction ") + attribute->where + ": " + routine;
 
-  if (hierarchy_exists())
-    require_current_clock(driver(), cctkGH, [&routine, attribute]() {
-      return routine + " in " + attribute->where;
-    });
+  const auto require_clock_kept = [&routine, attribute](const cGH *const lent) {
+    if (hierarchy_exists())
+      require_current_clock(driver(), lent, [&routine, attribute]() {
+        return routine + " in " + attribute->where;
+      });
+  };
 
   static std::map<cFunctionData *restrict, Timer> timers;
 
@@ -214,6 +216,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
                               tile_t, const cGH *local_cctkGH) {
       CCTK_CallFunction(function, attribute, const_cast<cGH *>(local_cctkGH));
+      require_clock_kept(local_cctkGH);
     });
     synchronize();
     break;
@@ -222,6 +225,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   case mode_t::global:
   case mode_t::level:
     CCTK_CallFunction(function, attribute, cctkGH);
+    require_clock_kept(cctkGH);
     break;
 
   default:

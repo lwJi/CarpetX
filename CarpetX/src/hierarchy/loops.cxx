@@ -1,5 +1,4 @@
 #include "hierarchy/loops.hxx"
-#include "hierarchy/clock.hxx"
 #include "hierarchy/model.hxx"
 #include "util/task_manager.hxx"
 
@@ -24,7 +23,6 @@ static inline int omp_in_parallel() { return 0; }
 
 #include <cassert>
 #include <functional>
-#include <string>
 
 namespace CarpetX {
 
@@ -74,18 +72,6 @@ void loop_fine_to_coarse(
     loop_patches_at(window, level_index, kernel);
 }
 
-static void require_current_tile_clock(
-    const GHExt::PatchData::LevelData &leveldata, const tile_t tile,
-    const cGH *const cctkGH) {
-  require_current_clock(driver(), cctkGH, [&leveldata, tile]() {
-    return "The kernel on patch " +
-           std::to_string(leveldata.level.patch().index()) +
-           ", refinement level " + std::to_string(leveldata.level.index()) +
-           ", component " + std::to_string(tile.component().index()) +
-           ", tile " + std::to_string(tile.index());
-  });
-}
-
 void loop_parallel(
     const window_t window,
     const std::function<void(const GHExt::PatchData::LevelData &leveldata,
@@ -100,7 +86,6 @@ void loop_parallel(
       const tile_t tile = tile_of(mfi);
       tasks.submit_serially([&kernel, &leveldata, tile]() {
         cGH *restrict const localGH = leveldata.get_local_cctkGH(tile);
-        require_current_tile_clock(leveldata, tile, localGH);
         kernel(leveldata, tile, localGH);
       });
     }
@@ -120,7 +105,6 @@ void loop_serially(
     for (amrex::MFIter mfi(fab0, mfitinfo); mfi.isValid(); ++mfi) {
       const tile_t tile = tile_of(mfi);
       cGH *restrict const localGH = leveldata.get_local_cctkGH(tile);
-      require_current_tile_clock(leveldata, tile, localGH);
       kernel(leveldata, tile, localGH);
     }
   });
