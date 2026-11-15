@@ -2,7 +2,6 @@
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
-#include "hierarchy/modes.hxx"
 #include "hierarchy/writers.hxx"
 #include "hierarchy/scopes.hxx"
 #include "comm/comm.hxx"
@@ -128,33 +127,20 @@ std::vector<window_t> StepGroups() {
   return groups;
 }
 
-void SetDeltaTime(cGH *restrict const cctkGH) {
+void SetDeltaTime(clock_writer_t &clock) {
   DECLARE_CCTK_PARAMETERS;
+  CCTK_REAL delta_time;
   if (CCTK_EQUALS(timestep_choice, "timestep")) {
-    cctkGH->cctk_delta_time = timestep;
+    delta_time = timestep;
   } else if (CCTK_EQUALS(timestep_choice, "dtfac")) {
-    cctkGH->cctk_delta_time =
+    delta_time =
         dtfac *
         (driver().use_subcycling ? get_coarse_mindx() : get_finest_mindx());
   } else {
     CCTK_ERROR("Unexpected value for 'CarpetX::timestep_choice'");
     abort();
   }
-  using std::isfinite;
-  assert(isfinite(cctkGH->cctk_delta_time));
-  update_cctkGHs(cctkGH);
-}
-
-void SetStepTime(cGH *restrict const cctkGH, const level_t level,
-                 const rat64 clock) {
-  DECLARE_CCTK_PARAMETERS;
-  if (driver().use_subcycling) {
-    cctkGH->cctk_timefac = substeps_per_coarsest_step(level.index());
-    cctkGH->cctk_time =
-        cctk_initial_time + cctkGH->cctk_delta_time * double(clock);
-  } else {
-    cctkGH->cctk_timefac = 1;
-  }
+  clock.set_delta_time(delta_time);
 }
 
 static void RestoreLevelClocks(const cGH *restrict const cctkGH,
@@ -239,7 +225,8 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
 
 static void RecoverHierarchy(cGH *restrict const cctkGH, clock_writer_t &clock,
                              structure_writer_t &structure) {
-  const checkpoint_record_t record = RecoverGridStructure(cctkGH, structure);
+  const checkpoint_record_t record = RecoverGridStructure(structure);
+  clock.resume_run(record.iteration, record.time);
 
   {
     const traversal_scope_t scope(all_levels());
@@ -268,7 +255,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH, clock_writer_t &clock,
 
   structure.mark_initialized();
 
-  SetDeltaTime(cctkGH);
+  SetDeltaTime(clock);
 }
 
 void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
@@ -277,13 +264,12 @@ void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
 }
 
 void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
-                    const bool reflux) {
+                    clock_writer_t &clock, const bool reflux) {
   DECLARE_CCTK_PARAMETERS;
 
   assert(FinestClockGroup() == window);
   const GHExt &ext = driver();
-  const auto &finest = ext.level(window.finest());
-  SetStepTime(cctkGH, finest.level, finest.iteration());
+  clock.show_level(window.finest());
   loop_serially(window, [&](auto &restrict leveldata) {
     assert(leveldata.last_step_iteration() == cctkGH->cctk_iteration);
   });
@@ -309,17 +295,16 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
   }
 }
 
-static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
+static void RecomputePerClockGroup(cGH *restrict const cctkGH,
+                                   clock_writer_t &clock) {
   const recovery_scope_t scope;
 
   for (const window_t &group : ClockGroups()) {
     const auto [min_level, max_level] = group.level_bounds();
-    const auto &finest = driver().level(group.finest());
 
     const traversal_scope_t window_scope(group);
 
-    cctkGH->cctk_iteration = finest.last_step_iteration();
-    SetStepTime(cctkGH, finest.level, finest.iteration());
+    clock.replay_last_step(group.finest());
 
 #pragma omp critical
     CCTK_VINFO("POST_RECOVER_VARIABLES on levels [%d,%d): iteration %d, "
@@ -344,7 +329,7 @@ void RecoverFromCheckpoint(cGH *restrict const cctkGH, clock_writer_t &clock,
 
   RecoverHierarchy(cctkGH, clock, structure);
 
-  RecomputePerClockGroup(cctkGH);
+  RecomputePerClockGroup(cctkGH, clock);
 
   assert(cctkGH->cctk_iteration == recovered_iteration());
 
@@ -436,14 +421,11 @@ std::vector<seed_run_t> seed_runs(const window_t window, const gi_t gi,
 
 } // namespace
 
-void CycleTimelevels(const window_t window, cGH *restrict const cctkGH,
-                     clock_writer_t &clock) {
+void CycleTimelevels(const window_t window, clock_writer_t &clock) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("CycleTimelevels");
   Interval interval(timer);
-
-  update_cctkGHs(cctkGH);
 
   const GHExt &ext = driver();
   const int num_groups = CCTK_NumGroups();

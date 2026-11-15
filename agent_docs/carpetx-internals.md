@@ -144,6 +144,7 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 - `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, varindex, model, grant.
   - `model`: `GHExt`, its nested types, and the door `driver()`
   - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy
+  - `clock`: publishing the model's run clock to the flesh's cGH and to every copy of it
   - `valid`: the validity state a time level stores
   - `scopes`: the only way to change that state: write, require and invalidate
   - `binding`: the only writes to the cGH pointer table
@@ -168,10 +169,10 @@ Each row is a name that a `friend` line in a header of `hierarchy/` grants, and 
 | --- | --- |
 | `Writer` | `written_by` |
 | `hierarchy_writers_t` | `GHExt`, `clock_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t` |
+| `clock_writer_t` | `GHExt::run_clock_t`, `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding` |
 | `registry_writer_t` | `GHExt::registry_t` |
 | `level_writer_t` | `GHExt::level_set_t`, `GHExt::PatchData::levels_t` |
 | `structure_writer_t` | `GHExt::patches_t`, `GHExt::PatchData::core_t`, `level_writer_t` |
-| `clock_writer_t` | `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding` |
 | `write_scope_t` | `GHExt::PatchData::LevelData::GroupData::timelevel_t`, `why_valid_t` |
 | `scratch_writer_t` | `GHExt::PatchData::LevelData::GroupData::scratch_pool_t` |
 | `cctkGH_binding` | `GHExt::PatchData::LevelData::GroupData::ring_t`, `GHExt::GlobalData::ArrayGroupData::ring_t` |

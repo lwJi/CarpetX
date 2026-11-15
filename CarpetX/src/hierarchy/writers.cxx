@@ -1,5 +1,7 @@
 #include "hierarchy/writers.hxx"
+#include "config/stages.hxx"
 #include "hierarchy/binding.hxx"
+#include "hierarchy/clock.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/modes.hxx"
@@ -19,6 +21,7 @@
 #include <AMReX_ParallelDescriptor.H>
 
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -246,22 +249,80 @@ amrex::MultiFab &scratch_writer_t::mfab(const group_t group,
   return *pool.at(slot).mfab;
 }
 
-void clock_writer_t::advance_clocks(const window_t window) {
+namespace {
+void show_level_clock(GHExt::run_clock_t &clock, const GHExt &ext,
+                      const level_t level) {
+  if (ext.use_subcycling) {
+    clock.timefac = substeps_per_coarsest_step(level.index());
+    clock.time = clock.initial_time +
+                 clock.delta_time * double(ext.level(level).iteration());
+  } else {
+    clock.timefac = 1;
+  }
+}
+} // namespace
+
+void clock_writer_t::start_run(const CCTK_REAL initial_time) {
+  ext.sealed_run_clock().open(*this) = {.iteration = 0,
+                                        .time = initial_time,
+                                        .delta_time = NAN,
+                                        .timefac = 1,
+                                        .initial_time = initial_time};
+  publish_clock(ext);
+}
+
+void clock_writer_t::resume_run(const int iteration, const CCTK_REAL time) {
+  auto &clock = ext.sealed_run_clock().open(*this);
+  clock.iteration = iteration;
+  clock.time = time;
+  publish_clock(ext);
+}
+
+void clock_writer_t::set_delta_time(const CCTK_REAL delta_time) {
+  using std::isfinite;
+  assert(isfinite(delta_time));
+  ext.sealed_run_clock().open(*this).delta_time = delta_time;
+  publish_clock(ext);
+}
+
+void clock_writer_t::begin_iteration() {
+  ++ext.sealed_run_clock().open(*this).iteration;
+  publish_clock(ext);
+}
+
+void clock_writer_t::begin_step(const window_t window) {
   loop_serially(window, [this](const GHExt::PatchData::LevelData &leveldata) {
     auto &clock = leveldata.sealed_clock().open(*this);
     clock.iteration += clock.delta_iteration;
   });
+  auto &clock = ext.sealed_run_clock().open(*this);
+  if (!ext.use_subcycling)
+    clock.time += clock.delta_time;
+  show_level_clock(clock, ext, window.coarsest());
+  publish_clock(ext);
 }
 
-void clock_writer_t::stamp_last_step(const window_t window,
-                                     const int iteration) {
+void clock_writer_t::show_level(const level_t level) {
+  show_level_clock(ext.sealed_run_clock().open(*this), ext, level);
+  publish_clock(ext);
+}
+
+void clock_writer_t::replay_last_step(const level_t level) {
+  auto &clock = ext.sealed_run_clock().open(*this);
+  clock.iteration = ext.level(level).last_step_iteration();
+  show_level_clock(clock, ext, level);
+  publish_clock(ext);
+}
+
+void clock_writer_t::stamp_last_step(const window_t window) {
+  const int iteration = ext.run_clock().iteration;
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     leveldata.sealed_clock().open(*this).last_step_iteration = iteration;
   });
 }
 
-void clock_writer_t::stamp_last_finalized(const window_t window,
-                                          const int iteration) {
+void clock_writer_t::stamp_last_finalized(const window_t window) {
+  const int iteration = ext.run_clock().iteration;
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     leveldata.sealed_clock().open(*this).last_finalized_iteration = iteration;
   });

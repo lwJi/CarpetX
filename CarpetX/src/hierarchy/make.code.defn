@@ -1,5 +1,6 @@
 SRCS =							\
 	binding.cxx					\
+	clock.cxx					\
 	grid.cxx					\
 	handles.cxx					\
 	loops.cxx					\

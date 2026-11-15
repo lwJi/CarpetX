@@ -32,9 +32,15 @@ public:
   clock_writer_t(const clock_writer_t &) = delete;
   clock_writer_t(clock_writer_t &&) = delete;
 
-  void advance_clocks(window_t window);
-  void stamp_last_step(window_t window, int iteration);
-  void stamp_last_finalized(window_t window, int iteration);
+  void start_run(CCTK_REAL initial_time);
+  void resume_run(int iteration, CCTK_REAL time);
+  void set_delta_time(CCTK_REAL delta_time);
+  void begin_iteration();
+  void begin_step(window_t window);
+  void show_level(level_t level);
+  void replay_last_step(level_t level);
+  void stamp_last_step(window_t window);
+  void stamp_last_finalized(window_t window);
   void restore_level_clock(level_t level, rat64 iteration,
                            std::optional<int> last_step_iteration);
   void rotate_timelevels(window_t window, gi_t gi);

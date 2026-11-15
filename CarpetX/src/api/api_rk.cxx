@@ -290,7 +290,7 @@ void rk_step_t::rhs_computed() {
   p->have_rhs = true;
   const stage_t stage = *p->stage;
   const CCTK_REAL weight = p->b.at(p->stages.offset(stage));
-  const CCTK_REAL delta_time = driver().get_global_cctkGH()->cctk_delta_time;
+  const CCTK_REAL delta_time = driver().run_clock().delta_time;
   using std::isfinite;
   if (!(isfinite(delta_time) && delta_time != 0))
     CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s, RK stage %d of %d: "

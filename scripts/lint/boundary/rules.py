@@ -55,6 +55,7 @@ STEMS = {
     "hierarchy": {
         "model": "`GHExt`, its nested types, and the door `driver()`",
         "writers": "the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
+        "clock": "publishing the model's run clock to the flesh's cGH and to every copy of it",
         "valid": "the validity state a time level stores",
         "scopes": "the only way to change that state: write, require and invalidate",
         "binding": "the only writes to the cGH pointer table",
@@ -69,6 +70,7 @@ STEMS_HOME = READS_HOME
 GRANTS = {
     "written_by": ("Writer",),
     "GHExt": ("hierarchy_writers_t",),
+    "GHExt::run_clock_t": ("clock_writer_t",),
     "GHExt::registry_t": ("registry_writer_t",),
     "GHExt::level_set_t": ("level_writer_t",),
     "GHExt::patches_t": ("structure_writer_t",),

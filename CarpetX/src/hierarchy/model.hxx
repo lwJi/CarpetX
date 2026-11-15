@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -174,6 +175,16 @@ struct GHExt {
     operator bool() const { return bool(cctkGH); }
     cGH *get() const { return cctkGH; }
   };
+
+  struct run_clock_t {
+    int iteration = 0;
+    CCTK_REAL time = 0, delta_time = NAN;
+    int timefac = 1;
+    CCTK_REAL initial_time = 0;
+  };
+  using sealed_run_clock_t = written_by<run_clock_t, clock_writer_t>;
+  const sealed_run_clock_t &sealed_run_clock() const { return run_clock_; }
+  const run_clock_t &run_clock() const { return run_clock_.get(); }
 
   struct level_set_t {
     CCTK_INT epoch = 0;
@@ -878,6 +889,7 @@ struct GHExt {
   }
 
 private:
+  sealed_run_clock_t run_clock_;
   sealed_level_set_t level_set_;
   const amrcore_factory make_core_;
   const level_buffers_factory make_buffers_;

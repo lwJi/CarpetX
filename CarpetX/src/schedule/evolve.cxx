@@ -116,11 +116,6 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
     CCTK_ERROR("CarpetX requires Cactus::presync_mode = \"mixed-error\" when "
                "CarpetX::use_subcycling = \"yes\"");
 
-  // Initialise iteration and time
-  cctkGH->cctk_iteration = 0;
-  cctkGH->cctk_time = *static_cast<const CCTK_REAL *>(
-      CCTK_ParameterGet("cctk_initial_time", "Cactus", nullptr));
-
   // Initialise schedule
   CCTKi_ScheduleGHInit(cctkGH);
 
@@ -133,6 +128,7 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
   setup_cctkGH(cctkGH);
   enter_global_mode(cctkGH);
   registry.adopt_flesh_cctkGH(cctkGH);
+  clock.start_run(cctk_initial_time);
 
   for (const auto &patchdata : ext.patches())
     assert(patchdata.num_levels() == 0);
@@ -166,7 +162,7 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
       for (const auto &patchdata : ext.patches())
         structure.make_new_grids(patchdata.patch, time);
 
-      SetDeltaTime(cctkGH);
+      SetDeltaTime(clock);
 #pragma omp critical
       CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                  cctkGH->cctk_iteration, double(cctkGH->cctk_time),
@@ -283,7 +279,7 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
         did_modify_any_level = modified.has_value();
 
         if (did_modify_any_level) {
-          SetDeltaTime(cctkGH);
+          SetDeltaTime(clock);
 #pragma omp critical
           CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                      cctkGH->cctk_iteration, double(cctkGH->cctk_time),
@@ -305,7 +301,7 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
 
   const window_t window = FinestClockGroup();
   const traversal_scope_t scope(window);
-  FinalizeWindow(window, cctkGH, false);
+  FinalizeWindow(window, cctkGH, clock, false);
 
   // Checkpoint, analysis, output. The end-of-step bins are marked as in
   // Evolve; their window here holds every level, so a sync in them is legal
@@ -424,7 +420,7 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
       const bool did_modify_any_level = modified.has_value();
 
       if (did_modify_any_level) {
-        SetDeltaTime(cctkGH);
+        SetDeltaTime(clock);
 #pragma omp critical
         CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
                    cctkGH->cctk_iteration, double(cctkGH->cctk_time),
@@ -443,7 +439,7 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
       for (const auto &leveldata : patchdata.levels())
         delta_iteration = min(delta_iteration, leveldata.delta_iteration());
 
-    cctkGH->cctk_iteration += 1;
+    clock.begin_iteration();
 
     for (const window_t window : StepGroups()) {
       const auto &coarsest = ext.level(window.coarsest());
@@ -458,17 +454,13 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
         const traversal_scope_t scope(window);
 
         level_iteration += level_delta_iteration;
-        clock.advance_clocks(window);
+        clock.begin_step(window);
         loop_serially(window, [&](const auto &leveldata) {
           assert(level_iteration == leveldata.iteration());
           assert(level_delta_iteration == leveldata.delta_iteration());
         });
 
-        CycleTimelevels(window, cctkGH, clock);
-
-        if (!ext.use_subcycling)
-          cctkGH->cctk_time += cctkGH->cctk_delta_time;
-        SetStepTime(cctkGH, window.coarsest(), level_iteration);
+        CycleTimelevels(window, clock);
 
         CCTK_Traverse(cctkGH, "CCTK_PRESTEP");
         CCTK_Traverse(cctkGH, "CCTK_EVOL");
@@ -477,17 +469,17 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
       assert(coarsest.iteration() == level_iteration);
       const window_t widened = window_t::levels(
           WidenMinLevel(window.coarsest()).index(), window.level_bounds().max);
-      clock.stamp_last_step(widened, cctkGH->cctk_iteration);
+      clock.stamp_last_step(widened);
     }
 
     {
       const window_t window = FinestClockGroup();
       const traversal_scope_t scope(window);
-      FinalizeWindow(window, cctkGH, ext.use_subcycling);
+      FinalizeWindow(window, cctkGH, clock, ext.use_subcycling);
       TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
       TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
 
-      clock.stamp_last_finalized(window, cctkGH->cctk_iteration);
+      clock.stamp_last_finalized(window);
 
       TraverseTailBin(cctkGH, "CCTK_CHECKPOINT");
       const double output_start_time = gettime();

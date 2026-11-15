@@ -2421,7 +2421,7 @@ class Doc(unittest.TestCase):
                 self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
         found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
         self.assertEqual(found, sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
-        self.assertEqual(len(found), 27)
+        self.assertEqual(len(found), 28)
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):
@@ -2441,7 +2441,7 @@ class Doc(unittest.TestCase):
         self.assertEqual(lines[:6], [doc.GRANTS_HEADING, "", doc.GRANTS_INTRO, "", "| Granted | Private members of |", "| --- | --- |"])
         rows = {line.split(" | ")[0].strip("|` "): line.split(" | ")[1].rstrip(" |") for line in lines[6:]}
         self.assertEqual(set(rows), {friend for granted in rules.GRANTS.values() for friend in granted})
-        self.assertEqual(rows["clock_writer_t"], "`GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding`")
+        self.assertEqual(rows["clock_writer_t"], "`GHExt::run_clock_t`, `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding`")
         self.assertEqual(rows["operator<<"], "`why_valid_t`, `GridPtrDesc1`")
         self.assertEqual(rows["hierarchy_writers_t"], "`GHExt`, `clock_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t`")
         for friend, owners in rows.items():
@@ -2617,6 +2617,7 @@ class Doc(unittest.TestCase):
             [
                 "  - `model`: `GHExt`, its nested types, and the door `driver()`",
                 "  - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
+                "  - `clock`: publishing the model's run clock to the flesh's cGH and to every copy of it",
                 "  - `valid`: the validity state a time level stores",
                 "  - `scopes`: the only way to change that state: write, require and invalidate",
                 "  - `binding`: the only writes to the cGH pointer table",
@@ -2953,7 +2954,7 @@ class Stems(unittest.TestCase):
     def test_a_listed_layer_is_a_layer_and_every_stem_in_it_has_a_row(self):
         self.assertLessEqual(set(rules.STEMS), set(LAYERS))
         self.assertEqual(tuple(rules.STEMS), ("config", "hierarchy"))
-        self.assertEqual(tuple(rules.STEMS["hierarchy"]), ("model", "writers", "valid", "scopes", "binding", "modes", "loops", "grid", "handles"))
+        self.assertEqual(tuple(rules.STEMS["hierarchy"]), ("model", "writers", "clock", "valid", "scopes", "binding", "modes", "loops", "grid", "handles"))
         self.assertEqual(doc.stem_rows(), rules.STEMS)
         for layer, rows in rules.STEMS.items():
             with self.subTest(layer=layer):

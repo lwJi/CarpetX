@@ -62,8 +62,6 @@ void setup_cctkGH(cGH *restrict cctkGH) {
   cctkGH->cctk_alignment = 1;
   cctkGH->cctk_alignment_offset = 0;
 
-  cctkGH->cctk_timefac = 1;
-
   cctkGH->cctk_npatches = driver().num_patches();
 
   cctkGH->cctk_convlevel = 0;
@@ -72,8 +70,6 @@ void setup_cctkGH(cGH *restrict cctkGH) {
     cctkGH->cctk_origin_space[d] = NAN;
     cctkGH->cctk_delta_space[d] = NAN;
   }
-
-  cctkGH->cctk_delta_time = NAN;
 
   cctkGH->cctk_component = undefined;
   cctkGH->cctk_level = undefined;

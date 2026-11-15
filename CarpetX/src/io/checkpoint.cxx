@@ -425,7 +425,7 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
   return record;
 }
 
-void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
+void apply_structure(checkpoint_record_t &record,
                      structure_writer_t &structure,
                      const std::source_location site) {
   DECLARE_CCTK_PARAMETERS;
@@ -437,9 +437,6 @@ void apply_structure(cGH *const cctkGH, checkpoint_record_t &record,
            "Wrong number of patches: Expected %d, found %d in the checkpoint "
            "file",
            ext.num_patches(), npatches);
-
-  cctkGH->cctk_iteration = record.iteration;
-  cctkGH->cctk_time = record.time;
 
   for (const auto &patchdata : ext.patches()) {
     const int nlevels = record.num_levels(patchdata.patch);

@@ -146,7 +146,7 @@ build_record(const cGH *cctkGH, const group_selection_t &selection,
              std::source_location site = std::source_location::current());
 
 void apply_structure(
-    cGH *cctkGH, checkpoint_record_t &record, structure_writer_t &structure,
+    checkpoint_record_t &record, structure_writer_t &structure,
     std::source_location site = std::source_location::current());
 
 void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,

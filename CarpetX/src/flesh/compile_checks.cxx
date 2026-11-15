@@ -937,6 +937,11 @@ static_assert(
 static_assert(sealed_for<decltype(std::declval<GHExt::PatchData::LevelData &>()
                                       .sealed_clock()),
                          GHExt::PatchData::LevelData::clock_t, clock_writer_t>);
+static_assert(sealed_for<decltype(std::declval<GHExt &>().sealed_run_clock()),
+                         GHExt::run_clock_t, clock_writer_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().run_clock()),
+                   const GHExt::run_clock_t &>);
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt::PatchData::LevelData &>()
                                 .iteration()),
