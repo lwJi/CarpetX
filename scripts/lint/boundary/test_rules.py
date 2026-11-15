@@ -512,7 +512,7 @@ class Grant(unittest.TestCase):
             "        friend class array_write_scope_t;\n"
             "        friend class write_scope_t;\n"
             "      };\n"
-            "      friend struct cctkGH_binding;\n"
+            "      class ring_t { friend struct cctkGH_binding; };\n"
             "    };\n"
             "  };\n"
             "};\n"
@@ -526,7 +526,7 @@ class Grant(unittest.TestCase):
                 (7, "GHExt", "clock_writer_t"),
                 (11, "GHExt::GlobalData::ArrayGroupData::timelevel_t", "array_write_scope_t"),
                 (12, "GHExt::GlobalData::ArrayGroupData::timelevel_t", "write_scope_t"),
-                (14, "GHExt::GlobalData::ArrayGroupData", "cctkGH_binding"),
+                (14, "GHExt::GlobalData::ArrayGroupData::ring_t", "cctkGH_binding"),
             ],
         )
         self.assertEqual(rules.ungranted(self.MODEL, text), [5, 12])
@@ -2322,17 +2322,17 @@ class Doc(unittest.TestCase):
                 self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
         found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
         self.assertEqual(found, sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
-        self.assertEqual(len(found), 28)
+        self.assertEqual(len(found), 27)
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):
                 doc.grants()
         text = headers[Grant.MODEL]
         scratch = text.splitlines().index("          friend class scratch_writer_t;") + 1
-        binding = text.splitlines().index("        friend struct cctkGH_binding;") + 1
-        with mock.patch.dict(rules.GRANTS, {"GHExt::PatchData::LevelData::GroupData::scratch_pool_t": (), "GHExt::PatchData::LevelData::GroupData": ()}):
-            self.assertEqual(rules.ungranted(Grant.MODEL, text), [scratch, binding])
-            self.assertEqual([(f.line, f.rule) for f in findings(Grant.MODEL, text, Lang.CXX) if f.rule == "grant"], [(scratch, "grant"), (binding, "grant")])
+        binding = text.splitlines().index("          friend struct cctkGH_binding;") + 1
+        with mock.patch.dict(rules.GRANTS, {"GHExt::PatchData::LevelData::GroupData::scratch_pool_t": (), "GHExt::PatchData::LevelData::GroupData::ring_t": ()}):
+            self.assertEqual(rules.ungranted(Grant.MODEL, text), [binding, scratch])
+            self.assertEqual([(f.line, f.rule) for f in findings(Grant.MODEL, text, Lang.CXX) if f.rule == "grant"], [(binding, "grant"), (scratch, "grant")])
             self.assertEqual(doc.unbacked(), [])
             with self.assertRaises(ValueError):
                 doc.grants()

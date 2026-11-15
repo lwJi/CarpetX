@@ -338,15 +338,31 @@ struct GHExt {
       int bbox[2 * dim];
       int nghostzones[dim];
 
+      class ring_t {
+      public:
+        ring_t() = default;
+        explicit ring_t(std::vector<timelevel_t> tls) : tls(std::move(tls)) {}
+        int size() const { return tls.size(); }
+        const timelevel_t &operator[](const tl_t tl) const {
+          return tls[tl.index()];
+        }
+
+      private:
+        std::vector<timelevel_t> tls;
+        void rotate_timelevels();
+        static ring_t &of(GHExt &ext, gi_t gi);
+        friend struct cctkGH_binding;
+      };
+
       const timelevel_t &timelevel(const tl_t tl,
                                    const std::source_location site =
                                        std::source_location::current()) const {
-        if (tl.index() < 0 || tl.index() >= int(tls.size()))
+        if (tl.index() < 0 || tl.index() >= ring_.size())
           refuse(site,
                  "time level %d of group %s does not exist: it has %d time "
                  "levels",
-                 tl.index(), record.groupname.c_str(), int(tls.size()));
-        return tls[tl.index()];
+                 tl.index(), record.groupname.c_str(), ring_.size());
+        return ring_[tl];
       }
       timelevel_t &timelevel(
           const tl_t tl,
@@ -356,10 +372,7 @@ struct GHExt {
       }
 
     private:
-      std::vector<timelevel_t> tls;
-      void rotate_timelevels();
-
-      friend struct cctkGH_binding;
+      ring_t ring_;
     };
   };
 
@@ -602,16 +615,39 @@ struct GHExt {
           std::vector<why_valid_t> valid_;
           friend class write_scope_t;
         };
+
+        class ring_t {
+        public:
+          ring_t() = default;
+          explicit ring_t(std::vector<timelevel_t> tls) : tls(std::move(tls)) {}
+          int size() const { return tls.size(); }
+          const timelevel_t &operator[](const tl_t tl) const {
+            return tls[tl.index()];
+          }
+          int open_write_count() const {
+            int count = 0;
+            for (const timelevel_t &tl : tls)
+              count += tl.open_writes;
+            return count;
+          }
+
+        private:
+          std::vector<timelevel_t> tls;
+          void rotate_timelevels();
+          static ring_t &of(GHExt &ext, level_t level, gi_t gi);
+          friend struct cctkGH_binding;
+        };
+
         const timelevel_t &
         timelevel(const tl_t tl, const std::source_location site =
                                      std::source_location::current()) const {
-          if (tl.index() < 0 || tl.index() >= int(tls.size()))
+          if (tl.index() < 0 || tl.index() >= ring_.size())
             refuse(site,
                    "time level %d of group %s does not exist on patch %d, "
                    "refinement level %d: it has %d time levels",
                    tl.index(), record.groupname.c_str(), level.patch().index(),
-                   level.index(), int(tls.size()));
-          return tls[tl.index()];
+                   level.index(), ring_.size());
+          return ring_[tl];
         }
         timelevel_t &timelevel(
             const tl_t tl,
@@ -619,13 +655,8 @@ struct GHExt {
           return const_cast<timelevel_t &>(
               std::as_const(*this).timelevel(tl, site));
         }
-        int num_timelevels() const { return tls.size(); }
-        int open_write_count() const {
-          int count = 0;
-          for (const timelevel_t &tl : tls)
-            count += tl.open_writes;
-          return count;
-        }
+        int num_timelevels() const { return ring_.size(); }
+        int open_write_count() const { return ring_.open_write_count(); }
 
         bool all_faces_have_symmetries_or_boundaries() const;
 
@@ -653,10 +684,7 @@ struct GHExt {
 
       private:
         scratch_pool_t scratch_pool_;
-        std::vector<timelevel_t> tls;
-        void rotate_timelevels();
-
-        friend struct cctkGH_binding;
+        ring_t ring_;
       };
 
       struct group_storage_filter {
@@ -883,7 +911,6 @@ private:
 
   friend class clock_writer_t;
   friend struct hierarchy_writers_t;
-  friend struct cctkGH_binding;
   friend class write_scope_t;
   friend class array_write_scope_t;
 };

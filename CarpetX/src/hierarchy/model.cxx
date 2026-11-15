@@ -416,12 +416,14 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
                                                   : amrex::IndexType::NODE,
                        grid_function.indextype[2] ? amrex::IndexType::CELL
                                                   : amrex::IndexType::NODE));
+  std::vector<timelevel_t> tls;
   tls.reserve(record.num_timelevels());
   for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(
         std::make_unique<amrex::MultiFab>(
             gba, dm, numvars, amrex::IntVect(grid_function.nghostzones)),
         numvars, why);
+  ring_ = ring_t(std::move(tls));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -438,10 +440,17 @@ bool GHExt::PatchData::LevelData::GroupData::
   return res;
 }
 
-void GHExt::PatchData::LevelData::GroupData::rotate_timelevels() {
-  assert(num_timelevels() > 1);
+void GHExt::PatchData::LevelData::GroupData::ring_t::rotate_timelevels() {
+  assert(size() > 1);
   assert(open_write_count() == 0);
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
+}
+
+GHExt::PatchData::LevelData::GroupData::ring_t &
+GHExt::PatchData::LevelData::GroupData::ring_t::of(GHExt &ext,
+                                                   const level_t level,
+                                                   const gi_t gi) {
+  return const_cast<ring_t &>(std::as_const(ext).level(level).group(gi).ring_);
 }
 
 GHExt::PatchData::LevelData::GroupData::scratch_pool_t &
@@ -488,16 +497,23 @@ GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
     bbox[2 * d] = bbox[2 * d + 1] = 1;
   }
 
+  std::vector<timelevel_t> tls;
   tls.reserve(record.num_timelevels());
   for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(
         AnyTypeVector(record.var_type, record.numvars * array_size),
         record.numvars, []() { return "freeze_storage"; });
+  ring_ = ring_t(std::move(tls));
 }
 
-void GHExt::GlobalData::ArrayGroupData::rotate_timelevels() {
-  assert(record.num_timelevels() > 1);
+void GHExt::GlobalData::ArrayGroupData::ring_t::rotate_timelevels() {
+  assert(size() > 1);
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
+}
+
+GHExt::GlobalData::ArrayGroupData::ring_t &
+GHExt::GlobalData::ArrayGroupData::ring_t::of(GHExt &ext, const gi_t gi) {
+  return const_cast<ring_t &>(std::as_const(ext).record(gi).array().ring_);
 }
 
 GHExt::registry_t::registry_t(const int numgroups)

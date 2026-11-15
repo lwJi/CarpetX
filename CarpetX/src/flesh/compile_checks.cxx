@@ -383,8 +383,18 @@ concept makes_amrcore =
                         const amrex::RealBox &, int, const amrex::Vector<int> &,
                         const amrex::Array<int, dim> &>;
 
-template <class Group>
-concept rotates = requires(Group &group) { group.rotate_timelevels(); };
+template <class Ring>
+concept rotates = requires(Ring &ring) { ring.rotate_timelevels(); };
+
+template <class Ring>
+concept writes_ring = requires(Ring &ring) { ring.tls.clear(); };
+
+template <class Ring>
+concept opens_ring =
+    requires(GHExt &ext, level_t level, gi_t gi) { Ring::of(ext, level, gi); };
+
+template <class Ring>
+concept opens_array_ring = requires(GHExt &ext, gi_t gi) { Ring::of(ext, gi); };
 
 template <class Binding>
 concept rotates_levels_unlent = requires(GHExt &ext, window_t window, gi_t gi) {
@@ -866,8 +876,12 @@ static_assert(!opens_mutable_door<GHExt>);
 static_assert(!std::is_constructible_v<GHExt::cctkGHptr, cGH *>);
 static_assert(!std::is_assignable_v<GHExt::cctkGHptr &, cGH *>);
 
-static_assert(!rotates<GHExt::PatchData::LevelData::GroupData>);
-static_assert(!rotates<GHExt::GlobalData::ArrayGroupData>);
+static_assert(!rotates<GHExt::PatchData::LevelData::GroupData::ring_t>);
+static_assert(!writes_ring<GHExt::PatchData::LevelData::GroupData::ring_t>);
+static_assert(!opens_ring<GHExt::PatchData::LevelData::GroupData::ring_t>);
+static_assert(!rotates<GHExt::GlobalData::ArrayGroupData::ring_t>);
+static_assert(!writes_ring<GHExt::GlobalData::ArrayGroupData::ring_t>);
+static_assert(!opens_array_ring<GHExt::GlobalData::ArrayGroupData::ring_t>);
 static_assert(!rotates_levels_unlent<cctkGH_binding>);
 static_assert(!rotates_arrays_unlent<cctkGH_binding>);
 static_assert(!std::is_constructible_v<clock_writer_t, GHExt &>);
