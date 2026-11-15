@@ -39,7 +39,7 @@ flowchart TB
   regrid -- "fillpatch.hxx, substeps.hxx" --> comm
   config -- "refuse.hxx, var_type.hxx" --> util
   traversal -- "refuse.hxx" --> util
-  above -- "binding.hxx, grid.hxx, loops.hxx, model.hxx, modes.hxx, scopes.hxx, valid.hxx, writers.hxx" --> hierarchy
+  above -- "binding.hxx, clock.hxx, grid.hxx, loops.hxx, model.hxx, modes.hxx, scopes.hxx, valid.hxx, writers.hxx" --> hierarchy
   door -- "boundaries.hxx, grid_sizes.hxx, groups.hxx, indices.hxx, stages.hxx" --> config
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
@@ -144,7 +144,7 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 - `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, varindex, model, grant.
   - `model`: `GHExt`, its nested types, and the door `driver()`
   - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy
-  - `clock`: publishing the model's run clock to the flesh's cGH and to every copy of it
+  - `clock`: publishing the model's run clock to the flesh's cGH and to every copy of it, and the check that a cGH handed to code shows it
   - `valid`: the validity state a time level stores
   - `scopes`: the only way to change that state: write, require and invalidate
   - `binding`: the only writes to the cGH pointer table

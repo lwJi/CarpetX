@@ -2467,7 +2467,7 @@ class Doc(unittest.TestCase):
                 self.assertIn(box, dict(doc.BOXES))
                 self.assertIn(f'  {box} -- "{", ".join(headers)}" --> {target}', lines)
         self.assertEqual(list(doc.floor()), [("above", "hierarchy"), ("door", "config"), ("door", "traversal"), ("door", "util"), ("door", "include"), ("nodoor", "include")])
-        self.assertEqual(doc.floor()[("above", "hierarchy")], ("binding.hxx", "grid.hxx", "loops.hxx", "model.hxx", "modes.hxx", "scopes.hxx", "valid.hxx", "writers.hxx"))
+        self.assertEqual(doc.floor()[("above", "hierarchy")], ("binding.hxx", "clock.hxx", "grid.hxx", "loops.hxx", "model.hxx", "modes.hxx", "scopes.hxx", "valid.hxx", "writers.hxx"))
         self.assertEqual(doc.floor()[("door", "config")], ("boundaries.hxx", "grid_sizes.hxx", "groups.hxx", "indices.hxx", "stages.hxx"))
         for header in ("clocks.hxx", "group_tags.hxx", "indices.hxx", "driver.hxx", "operations.hxx"):
             self.assertNotIn(header, doc.floor()[("above", "hierarchy")])
@@ -2618,7 +2618,7 @@ class Doc(unittest.TestCase):
             [
                 "  - `model`: `GHExt`, its nested types, and the door `driver()`",
                 "  - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
-                "  - `clock`: publishing the model's run clock to the flesh's cGH and to every copy of it",
+                "  - `clock`: publishing the model's run clock to the flesh's cGH and to every copy of it, and the check that a cGH handed to code shows it",
                 "  - `valid`: the validity state a time level stores",
                 "  - `scopes`: the only way to change that state: write, require and invalidate",
                 "  - `binding`: the only writes to the cGH pointer table",

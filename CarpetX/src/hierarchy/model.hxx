@@ -902,6 +902,7 @@ private:
 };
 
 const GHExt &driver();
+bool hierarchy_exists();
 void assert_hierarchy_destroyed();
 int current_iteration();
 

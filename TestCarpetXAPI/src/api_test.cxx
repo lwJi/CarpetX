@@ -223,6 +223,10 @@ void fill_interiors(const CarpetX::window_t levels, const CarpetX::gi_t filled,
 extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 
+  if (CCTK_EQUALS(mode, "clock-stale")) {
+    cctkGH->cctk_time = 1;
+    return;
+  }
   if (CCTK_EQUALS(mode, "register-after-use")) {
     CarpetX::register_integrator(valid_integrator());
     CCTK_ERROR("CarpetX::register_integrator accepted a registration at "

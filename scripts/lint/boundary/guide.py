@@ -130,6 +130,18 @@ SECTIONS: tuple[Section, ...] = (
         refusals=("too_many_levels", "output_unknown_variable"),
     ),
     Section(
+        "The clock a routine sees",
+        (
+            Row(
+                "`cctk_iteration`, `cctk_time`, `cctk_delta_time` and `cctk_timefac` are the run clock that CarpetX holds, and every cGH shows it: the flesh's, and each level, patch and tile copy. "
+                "A thorn reads them and never assigns them; CarpetX compares the cGH it hands to a scheduled function, and the tile cGH it hands to a `loop_parallel` kernel, with the run clock in every build, and a cGH that disagrees stops the run, naming the field, the cGH's value and the run clock's.",
+                ("hierarchy/clock.cxx:publish_clock", "hierarchy/clock.cxx:require_current_clock", "schedule/callfunction.cxx:CallFunction", "hierarchy/loops.cxx:loop_parallel"),
+            ),
+        ),
+        exercised_by=("TestCarpetXAPI_Fill",),
+        refusals=("clock_stale",),
+    ),
+    Section(
         "The integrator's contract: `carpetx_rk.hxx`",
         (
             Row(

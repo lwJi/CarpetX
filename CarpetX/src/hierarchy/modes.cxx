@@ -78,15 +78,6 @@ void setup_cctkGH(cGH *restrict cctkGH) {
   assert(in_meta_mode(cctkGH));
 }
 
-void update_cctkGH(cGH *const cctkGH, const cGH *const sourceGH) {
-  if (cctkGH == sourceGH)
-    return;
-  cctkGH->cctk_iteration = sourceGH->cctk_iteration;
-  cctkGH->cctk_timefac = sourceGH->cctk_timefac;
-  cctkGH->cctk_time = sourceGH->cctk_time;
-  cctkGH->cctk_delta_time = sourceGH->cctk_delta_time;
-}
-
 void enter_global_mode(cGH *restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
   assert(in_meta_mode(cctkGH));

@@ -1,6 +1,7 @@
 #include "schedule/schedule.hxx"
 #include "schedule/checksums.hxx"
 #include "schedule/clauses.hxx"
+#include "hierarchy/clock.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/modes.hxx"
@@ -44,6 +45,11 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
       std::string(attribute->thorn) + "::" + attribute->routine;
   const std::string event =
       std::string("CallFunction ") + attribute->where + ": " + routine;
+
+  if (hierarchy_exists())
+    require_current_clock(driver(), cctkGH, [&routine, attribute]() {
+      return routine + " in " + attribute->where;
+    });
 
   static std::map<cFunctionData *restrict, Timer> timers;
 
@@ -207,7 +213,6 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   case mode_t::local:
     loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
                               tile_t, const cGH *local_cctkGH) {
-      update_cctkGH(const_cast<cGH *>(local_cctkGH), cctkGH);
       CCTK_CallFunction(function, attribute, const_cast<cGH *>(local_cctkGH));
     });
     synchronize();

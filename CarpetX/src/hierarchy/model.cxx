@@ -114,6 +114,8 @@ const GHExt &driver() { return existing_hierarchy(); }
 
 int current_iteration() { return driver().run_clock().iteration; }
 
+bool hierarchy_exists() { return ghext != nullptr; }
+
 void assert_hierarchy_destroyed() { assert(!ghext); }
 
 GHExt::GHExt(const config_t config)

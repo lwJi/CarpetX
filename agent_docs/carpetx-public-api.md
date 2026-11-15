@@ -36,6 +36,12 @@ The BoxArray and DistributionMapping of a level are those of any group's MultiFa
 
 Refusals: `too_many_levels`, `output_unknown_variable`.
 
+## The clock a routine sees
+
+`cctk_iteration`, `cctk_time`, `cctk_delta_time` and `cctk_timefac` are the run clock that CarpetX holds, and every cGH shows it: the flesh's, and each level, patch and tile copy. A thorn reads them and never assigns them; CarpetX compares the cGH it hands to a scheduled function, and the tile cGH it hands to a `loop_parallel` kernel, with the run clock in every build, and a cGH that disagrees stops the run, naming the field, the cGH's value and the run clock's. Held by `publish_clock`, `require_current_clock` in `hierarchy/clock.cxx`; `CallFunction` in `schedule/callfunction.cxx`; `loop_parallel` in `hierarchy/loops.cxx`.
+
+Refusals: `clock_stale`.
+
 ## The integrator's contract: `carpetx_rk.hxx`
 
 Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step; CarpetX derives everything else, and runs without a registration until `open_rk_step`. Registration is `AT WRAGH`, once; the record freezes when that traversal ends. `dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. `b` holds the final-update weight of every stage, all zero for a method that never updates the state. Held by `register_integrator`, `require_integrator`, `check_weights`, `check_pair` in `api/api_rk.cxx`; `record_integrator`, `freeze_integrator` in `hierarchy/model.cxx`.
