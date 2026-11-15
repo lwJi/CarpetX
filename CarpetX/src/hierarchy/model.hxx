@@ -480,7 +480,7 @@ struct GHExt {
     return registry_.integrator(site);
   }
 
-  bool is_initialized() const { return initialized_; }
+  bool is_initialized() const { return patches_.is_initialized(); }
   CCTK_INT epoch() const { return epoch_; }
 
   struct PatchData {
@@ -751,7 +751,23 @@ struct GHExt {
     friend class level_writer_t;
   };
 
-  int num_patches() const { return patchdata.size(); }
+  class patches_t {
+  public:
+    std::span<const PatchData> patches() const { return patchdata; }
+    bool is_initialized() const { return initialized_; }
+
+  private:
+    std::vector<PatchData> patchdata;
+    bool initialized_ = false;
+
+    static PatchData &add_patch(GHExt &ext, level_writer_t &levels,
+                                patch_t patch);
+    void mark_initialized();
+    static patches_t &of(GHExt &ext);
+    friend class structure_writer_t;
+  };
+
+  int num_patches() const { return patches().size(); }
   index_range<patch_t> patch_handles() const {
     return index_range<patch_t>{patch_t{0}, patch_t{num_patches()}};
   }
@@ -761,7 +777,7 @@ struct GHExt {
     if (patch.index() < 0 || patch.index() >= num_patches())
       refuse(site, "CarpetX patch %d does not exist: there are %d patches",
              patch.index(), num_patches());
-    return patchdata[patch.index()];
+    return patches()[patch.index()];
   }
   PatchData &
   patch(const patch_t patch,
@@ -790,8 +806,11 @@ struct GHExt {
     return const_cast<PatchData::LevelData::GroupData &>(
         std::as_const(*this).group(group, site));
   }
-  std::span<const PatchData> patches() const { return patchdata; }
-  std::span<PatchData> patches() { return patchdata; }
+  std::span<const PatchData> patches() const { return patches_.patches(); }
+  std::span<PatchData> patches() {
+    const std::span<const PatchData> readonly = std::as_const(*this).patches();
+    return {const_cast<PatchData *>(readonly.data()), readonly.size()};
+  }
 
   const bool use_subcycling;
 
@@ -828,20 +847,16 @@ struct GHExt {
   }
 
 private:
-  bool initialized_ = false;
   CCTK_INT epoch_ = 0;
   const amrcore_factory make_core_;
   const level_buffers_factory make_buffers_;
   registry_t registry_;
-  std::vector<PatchData> patchdata;
+  patches_t patches_;
 
   explicit GHExt(config_t config);
   static GHExt &mutable_instance();
-  PatchData &add_patch(level_writer_t &levels, patch_t patch);
-  void mark_initialized();
 
   friend class clock_writer_t;
-  friend class structure_writer_t;
   friend class level_writer_t;
   friend struct hierarchy_writers_t;
   friend struct cctkGH_binding;

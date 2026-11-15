@@ -208,8 +208,13 @@ template <class Ext>
 concept assigns_storage_frozen =
     requires(Ext &ext) { ext.storage_frozen() = true; };
 
-template <class Ext>
-concept assigns_initialized = requires(Ext &ext) { ext.initialized_ = true; };
+template <class Patches>
+concept assigns_initialized =
+    requires(Patches &patches) { patches.initialized_ = true; };
+
+template <class Patches>
+concept assigns_patchdata =
+    requires(Patches &patches) { patches.patchdata.clear(); };
 
 template <class Ext>
 concept assigns_is_initialized =
@@ -267,8 +272,18 @@ template <class Scope>
 concept hands_out_data =
     requires(Scope scope) { std::forward<Scope>(scope).data(); };
 
-template <class Ext>
-concept marks_initialized = requires(Ext &ext) { ext.mark_initialized(); };
+template <class Patches>
+concept marks_initialized =
+    requires(Patches &patches) { patches.mark_initialized(); };
+
+template <class Patches>
+concept appends_patch =
+    requires(GHExt &ext, level_writer_t &levels, patch_t patch) {
+      Patches::add_patch(ext, levels, patch);
+    };
+
+template <class Patches>
+concept opens_patches = requires(GHExt &ext) { Patches::of(ext); };
 
 template <class Registry>
 concept assigns_integrator =
@@ -765,8 +780,11 @@ static_assert(!opens_registry<GHExt::registry_t>);
 
 static_assert(std::is_same_v<
               decltype(std::declval<const GHExt &>().is_initialized()), bool>);
-static_assert(!assigns_initialized<GHExt>);
+static_assert(!assigns_initialized<GHExt::patches_t>);
+static_assert(!assigns_patchdata<GHExt::patches_t>);
 static_assert(!assigns_is_initialized<GHExt>);
+static_assert(!appends_patch<GHExt::patches_t>);
+static_assert(!opens_patches<GHExt::patches_t>);
 
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().epoch()), CCTK_INT>);
@@ -801,8 +819,8 @@ static_assert(!hands_out_mfab<const write_scopes_t &, level_t, gi_t, tl_t>);
 static_assert(hands_out_data<array_write_scope_t &>);
 static_assert(!hands_out_data<array_write_scope_t>);
 static_assert(!hands_out_data<const array_write_scope_t &>);
-static_assert(!marks_initialized<GHExt>);
-static_assert(!marks_initialized<std::remove_reference_t<decltype(driver())>>);
+static_assert(!marks_initialized<GHExt::patches_t>);
+static_assert(!marks_initialized<const GHExt::patches_t>);
 static_assert(!opens_mutable_door<GHExt>);
 static_assert(!std::is_constructible_v<GHExt::cctkGHptr, cGH *>);
 static_assert(!std::is_assignable_v<GHExt::cctkGHptr &, cGH *>);

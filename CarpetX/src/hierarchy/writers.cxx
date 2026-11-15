@@ -42,7 +42,7 @@ hierarchy_writers_t::~hierarchy_writers_t() {
 }
 
 const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
-  return ext.add_patch(levels, patch);
+  return GHExt::patches_t::add_patch(ext, levels, patch);
 }
 
 const GHExt::PatchData::LevelData &
@@ -107,7 +107,9 @@ void structure_writer_t::make_new_grids(const patch_t patch,
   ext.patch(patch).amrcore->MakeNewGrids(time);
 }
 
-void structure_writer_t::mark_initialized() { ext.mark_initialized(); }
+void structure_writer_t::mark_initialized() {
+  GHExt::patches_t::of(ext).mark_initialized();
+}
 
 void structure_writer_t::regrid(const level_t base_level,
                                 const CCTK_REAL time) {

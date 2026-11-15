@@ -138,15 +138,20 @@ GHExt::~GHExt() {
   ghext = nullptr;
 }
 
-void GHExt::mark_initialized() {
+GHExt::patches_t &GHExt::patches_t::of(GHExt &ext) {
+  return const_cast<patches_t &>(std::as_const(ext).patches_);
+}
+
+void GHExt::patches_t::mark_initialized() {
   assert(!initialized_);
   initialized_ = true;
 }
 
-GHExt::PatchData &GHExt::add_patch(level_writer_t &levels,
-                                   const patch_t patch) {
-  assert(patch.index() == num_patches());
-  return patchdata.emplace_back(levels, patch, make_core_);
+GHExt::PatchData &GHExt::patches_t::add_patch(GHExt &ext,
+                                              level_writer_t &levels,
+                                              const patch_t patch) {
+  assert(patch.index() == ext.num_patches());
+  return of(ext).patchdata.emplace_back(levels, patch, ext.make_core_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

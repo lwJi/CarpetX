@@ -69,7 +69,6 @@ STEMS_HOME = READS_HOME
 GRANTS = {
     "GHExt": (
         "clock_writer_t",
-        "structure_writer_t",
         "level_writer_t",
         "hierarchy_writers_t",
         "cctkGH_binding",
@@ -77,6 +76,7 @@ GRANTS = {
         "array_write_scope_t",
     ),
     "GHExt::registry_t": ("registry_writer_t",),
+    "GHExt::patches_t": ("structure_writer_t",),
     "GHExt::PatchData": ("structure_writer_t", "level_writer_t"),
     "GHExt::PatchData::LevelData::GroupData": ("cctkGH_binding",),
     "GHExt::PatchData::LevelData::GroupData::timelevel_t": ("write_scope_t",),
