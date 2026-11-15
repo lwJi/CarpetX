@@ -221,14 +221,11 @@ concept assigns_is_initialized =
     requires(Ext &ext) { ext.is_initialized() = true; };
 
 template <class Set>
-concept assigns_epoch_member = requires(Set &set) { set.epoch_ = 0; };
+concept assigns_epoch_member = requires(Set &set) { set.epoch = 0; };
 
 template <class Set>
 concept assigns_level_cctkGHs =
-    requires(Set &set) { set.level_cctkGHs_.clear(); };
-
-template <class Set>
-concept opens_level_set = requires(GHExt &ext) { Set::of(ext); };
+    requires(Set &set) { set.level_cctkGHs.clear(); };
 
 template <class Ext>
 concept assigns_epoch = requires(Ext &ext) { ext.epoch() = 0; };
@@ -261,13 +258,8 @@ concept replaces_level = requires(Levels &levels, level_t level) {
 };
 
 template <class Levels>
-concept resets_level_modified = requires(GHExt &ext, patch_t patch) {
-  Levels::reset_level_modified(ext, patch);
-};
-
-template <class Levels>
-concept opens_levels =
-    requires(GHExt &ext, patch_t patch) { Levels::of(ext, patch); };
+concept resets_level_modified =
+    requires(Levels &levels) { levels.reset_level_modified(); };
 
 template <class Writer>
 concept resets_modified =
@@ -278,10 +270,6 @@ concept regrids_amrcore = requires(Core &core) {
   core.amrcore_->regrid(0, 0.0);
 } || requires(Core &core) { core.amrcore_.reset(); };
 
-template <class Core>
-concept opens_core =
-    requires(GHExt &ext, patch_t patch) { Core::of(ext, patch); };
-
 template <class Timelevel>
 concept writes_timelevel =
     requires(Timelevel &timelevel) { timelevel.mfab_->setVal(0); } ||
@@ -289,31 +277,26 @@ concept writes_timelevel =
     requires(Timelevel &timelevel) { timelevel.valid_.clear(); };
 
 template <class Timelevel>
-concept opens_timelevel = requires(level_t level, gi_t gi, tl_t tl) {
-  Timelevel::of(level, gi, tl, std::source_location::current());
-};
-
-template <class Timelevel>
 concept writes_array_timelevel = requires(Timelevel &timelevel) {
   timelevel.data_.free();
 } || requires(Timelevel &timelevel) { timelevel.valid_.clear(); };
 
-template <class Timelevel>
-concept opens_array_timelevel = requires(gi_t gi, tl_t tl) {
-  Timelevel::of(gi, tl, std::source_location::current());
-};
-
 template <class Pool>
-concept writes_scratch = requires(Pool &pool) { pool.slots_.clear(); };
-
-template <class Pool>
-concept opens_scratch = requires(GHExt &ext, group_t group) {
-  Pool::of(ext, group, std::source_location::current());
-};
+concept writes_scratch =
+    requires(Pool &pool) { pool.slots.clear(); } || requires(Pool &pool) {
+      pool.slots.at(0).in_use = true;
+    } || requires(Pool &pool) { pool.slots.at(0).mfab->setVal(0); };
 
 template <class Row, class Writer>
 concept opens_row =
     requires(const Row &row, const Writer &writer) { row.open(writer); };
+
+template <class Accessor, class T, class Writer>
+concept row_written_by =
+    std::is_same_v<Accessor, const written_by<T, Writer> &> &&
+    std::is_same_v<decltype(std::declval<written_by<T, Writer> &>().get()),
+                   const T &> &&
+    !opens_row<written_by<T, Writer>, Writer>;
 
 template <class Scope, class... Args>
 concept hands_out_mfab = requires(Scope scope, Args... args) {
@@ -330,12 +313,8 @@ concept marks_initialized =
 
 template <class Patches>
 concept appends_patch =
-    requires(GHExt &ext, level_writer_t &levels, patch_t patch) {
-      Patches::add_patch(ext, levels, patch);
-    };
-
-template <class Patches>
-concept opens_patches = requires(GHExt &ext) { Patches::of(ext); };
+    requires(Patches &patches, const GHExt &ext, level_writer_t &levels,
+             patch_t patch) { patches.add_patch(ext, levels, patch); };
 
 template <class Registry>
 concept assigns_integrator =
@@ -365,7 +344,11 @@ concept assigns_flesh_cctkGH =
     requires(Registry &registry) { registry.flesh_cctkGH_ = nullptr; };
 
 template <class Registry>
-concept opens_registry = requires(GHExt &ext) { Registry::of(ext); };
+concept adopts_cctkGH = requires(Registry &registry, cGH *cctkGH) {
+  registry.adopt_flesh_cctkGH(cctkGH);
+} || requires(Registry &registry) {
+  registry.adopt_global_cctkGH(GHExt::cctkGHptr());
+};
 
 template <class Writer>
 concept regrids = requires(Writer &writer, level_t level) {
@@ -405,13 +388,6 @@ concept rotates = requires(Ring &ring) { ring.rotate_timelevels(); };
 
 template <class Ring>
 concept writes_ring = requires(Ring &ring) { ring.tls.clear(); };
-
-template <class Ring>
-concept opens_ring =
-    requires(GHExt &ext, level_t level, gi_t gi) { Ring::of(ext, level, gi); };
-
-template <class Ring>
-concept opens_array_ring = requires(GHExt &ext, gi_t gi) { Ring::of(ext, gi); };
 
 template <class Binding>
 concept rotates_levels_unlent = requires(GHExt &ext, window_t window, gi_t gi) {
@@ -831,39 +807,44 @@ static_assert(std::is_same_v<
               stage_range>);
 static_assert(!assigns_integrator<GHExt::registry_t>);
 static_assert(!assigns_integrator_open<GHExt::registry_t>);
-static_assert(!records_integrator<GHExt::registry_t>);
-static_assert(!freezes_integrator<GHExt::registry_t>);
-static_assert(!freezes_storage<GHExt::registry_t>);
+static_assert(!records_integrator<const GHExt::registry_t>);
+static_assert(!freezes_integrator<const GHExt::registry_t>);
+static_assert(!freezes_storage<const GHExt::registry_t>);
 static_assert(!assigns_flesh_cctkGH<GHExt::registry_t>);
-static_assert(!opens_registry<GHExt::registry_t>);
+static_assert(!adopts_cctkGH<const GHExt::registry_t>);
+static_assert(row_written_by<decltype(std::declval<GHExt &>().registry_row()),
+                             GHExt::registry_t, registry_writer_t>);
 
 static_assert(std::is_same_v<
               decltype(std::declval<const GHExt &>().is_initialized()), bool>);
 static_assert(!assigns_initialized<GHExt::patches_t>);
 static_assert(!assigns_patchdata<GHExt::patches_t>);
 static_assert(!assigns_is_initialized<GHExt>);
-static_assert(!appends_patch<GHExt::patches_t>);
-static_assert(!opens_patches<GHExt::patches_t>);
+static_assert(!appends_patch<const GHExt::patches_t>);
+static_assert(row_written_by<decltype(std::declval<GHExt &>().patches_row()),
+                             GHExt::patches_t, structure_writer_t>);
 
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().epoch()), CCTK_INT>);
-static_assert(!assigns_epoch_member<GHExt::level_set_t>);
+static_assert(!assigns_epoch_member<const GHExt::level_set_t>);
 static_assert(!assigns_epoch<GHExt>);
 static_assert(!bumps_epoch<GHExt>);
-static_assert(!bumps_epoch<GHExt::level_set_t>);
-static_assert(!assigns_level_cctkGHs<GHExt::level_set_t>);
-static_assert(!opens_level_set<GHExt::level_set_t>);
+static_assert(!assigns_level_cctkGHs<const GHExt::level_set_t>);
+static_assert(row_written_by<decltype(std::declval<GHExt &>().level_set_row()),
+                             GHExt::level_set_t, level_writer_t>);
 
 static_assert(std::is_same_v<decltype(std::declval<const GHExt::PatchData &>()
                                           .modified_levels()),
                              std::optional<window_t::bounds_t>>);
 static_assert(!assigns_level_modified<GHExt::PatchData::levels_t>);
 static_assert(!assigns_leveldata<GHExt::PatchData::levels_t>);
-static_assert(!appends_level<GHExt::PatchData::levels_t>);
-static_assert(!replaces_level<GHExt::PatchData::levels_t>);
-static_assert(!resets_level_modified<GHExt::PatchData::levels_t>);
-static_assert(!erases_levels<GHExt::PatchData::levels_t>);
-static_assert(!opens_levels<GHExt::PatchData::levels_t>);
+static_assert(!appends_level<const GHExt::PatchData::levels_t>);
+static_assert(!replaces_level<const GHExt::PatchData::levels_t>);
+static_assert(!resets_level_modified<const GHExt::PatchData::levels_t>);
+static_assert(!erases_levels<const GHExt::PatchData::levels_t>);
+static_assert(
+    row_written_by<decltype(std::declval<GHExt::PatchData &>().levels_row()),
+                   GHExt::PatchData::levels_t, level_writer_t>);
 static_assert(!resets_modified<level_writer_t>);
 
 static_assert(std::is_same_v<decltype(driver()), const GHExt &>);
@@ -907,16 +888,21 @@ static_assert(std::is_same_v<
               const GHExt::PatchData::LevelData::GroupData &>);
 static_assert(std::is_same_v<decltype(std::declval<GHExt &>().patches()),
                              std::span<const GHExt::PatchData>>);
-static_assert(!regrids_amrcore<GHExt::PatchData::core_t>);
-static_assert(!opens_core<GHExt::PatchData::core_t>);
+static_assert(!regrids_amrcore<const GHExt::PatchData::core_t>);
+static_assert(
+    row_written_by<decltype(std::declval<GHExt::PatchData &>().core_row()),
+                   GHExt::PatchData::core_t, structure_writer_t>);
 static_assert(std::is_same_v<decltype(std::declval<GHExt &>()
                                           .patch(std::declval<patch_t>())
                                           .amrcore()),
                              const amrex::AmrCore &>);
+static_assert(!writes_timelevel<
+              const GHExt::PatchData::LevelData::GroupData::timelevel_t>);
 static_assert(
-    !writes_timelevel<GHExt::PatchData::LevelData::GroupData::timelevel_t>);
-static_assert(
-    !opens_timelevel<GHExt::PatchData::LevelData::GroupData::timelevel_t>);
+    row_written_by<
+        decltype(std::declval<GHExt::PatchData::LevelData::GroupData &>()
+                     .timelevel_row(std::declval<tl_t>())),
+        GHExt::PatchData::LevelData::GroupData::timelevel_t, write_scope_t>);
 static_assert(std::is_same_v<decltype(std::declval<GHExt &>()
                                           .group(std::declval<group_t>())
                                           .timelevel(std::declval<tl_t>())
@@ -927,31 +913,30 @@ static_assert(std::is_same_v<decltype(std::declval<GHExt &>()
                                           .timelevel(std::declval<tl_t>())
                                           .open_writes()),
                              int>);
+static_assert(!writes_array_timelevel<
+              const GHExt::GlobalData::ArrayGroupData::timelevel_t>);
 static_assert(
-    !writes_array_timelevel<GHExt::GlobalData::ArrayGroupData::timelevel_t>);
-static_assert(
-    !opens_array_timelevel<GHExt::GlobalData::ArrayGroupData::timelevel_t>);
+    row_written_by<decltype(std::declval<GHExt::GlobalData::ArrayGroupData &>()
+                                .timelevel_row(std::declval<tl_t>())),
+                   GHExt::GlobalData::ArrayGroupData::timelevel_t,
+                   array_write_scope_t>);
 static_assert(std::is_same_v<decltype(std::declval<GHExt &>()
                                           .record(std::declval<gi_t>())
                                           .array()
                                           .timelevel(std::declval<tl_t>())
                                           .data()),
                              const GHExt::GlobalData::AnyTypeVector &>);
+static_assert(!writes_scratch<
+              const GHExt::PatchData::LevelData::GroupData::scratch_pool_t>);
+static_assert(row_written_by<
+              decltype(std::declval<GHExt::PatchData::LevelData::GroupData &>()
+                           .scratch_pool_row()),
+              GHExt::PatchData::LevelData::GroupData::scratch_pool_t,
+              scratch_writer_t>);
 static_assert(
-    !writes_scratch<GHExt::PatchData::LevelData::GroupData::scratch_pool_t>);
-static_assert(
-    !opens_scratch<GHExt::PatchData::LevelData::GroupData::scratch_pool_t>);
-static_assert(std::is_same_v<
-              decltype(std::declval<GHExt::PatchData::LevelData &>().clock()),
-              const written_by<GHExt::PatchData::LevelData::clock_t,
-                               clock_writer_t> &>);
-static_assert(
-    std::is_same_v<
-        decltype(std::declval<GHExt::PatchData::LevelData &>().clock().get()),
-        const GHExt::PatchData::LevelData::clock_t &>);
-static_assert(
-    !opens_row<written_by<GHExt::PatchData::LevelData::clock_t, clock_writer_t>,
-               clock_writer_t>);
+    row_written_by<
+        decltype(std::declval<GHExt::PatchData::LevelData &>().clock_row()),
+        GHExt::PatchData::LevelData::clock_t, clock_writer_t>);
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt::PatchData::LevelData &>()
                                 .iteration()),
@@ -971,17 +956,22 @@ static_assert(!hands_out_mfab<const write_scopes_t &, level_t, gi_t, tl_t>);
 static_assert(hands_out_data<array_write_scope_t &>);
 static_assert(!hands_out_data<array_write_scope_t>);
 static_assert(!hands_out_data<const array_write_scope_t &>);
-static_assert(!marks_initialized<GHExt::patches_t>);
 static_assert(!marks_initialized<const GHExt::patches_t>);
 static_assert(!std::is_constructible_v<GHExt::cctkGHptr, cGH *>);
 static_assert(!std::is_assignable_v<GHExt::cctkGHptr &, cGH *>);
 
-static_assert(!rotates<GHExt::PatchData::LevelData::GroupData::ring_t>);
+static_assert(!rotates<const GHExt::PatchData::LevelData::GroupData::ring_t>);
 static_assert(!writes_ring<GHExt::PatchData::LevelData::GroupData::ring_t>);
-static_assert(!opens_ring<GHExt::PatchData::LevelData::GroupData::ring_t>);
-static_assert(!rotates<GHExt::GlobalData::ArrayGroupData::ring_t>);
+static_assert(row_written_by<
+              decltype(std::declval<GHExt::PatchData::LevelData::GroupData &>()
+                           .ring_row()),
+              GHExt::PatchData::LevelData::GroupData::ring_t, cctkGH_binding>);
+static_assert(!rotates<const GHExt::GlobalData::ArrayGroupData::ring_t>);
 static_assert(!writes_ring<GHExt::GlobalData::ArrayGroupData::ring_t>);
-static_assert(!opens_array_ring<GHExt::GlobalData::ArrayGroupData::ring_t>);
+static_assert(
+    row_written_by<decltype(std::declval<GHExt::GlobalData::ArrayGroupData &>()
+                                .ring_row()),
+                   GHExt::GlobalData::ArrayGroupData::ring_t, cctkGH_binding>);
 static_assert(!rotates_levels_unlent<cctkGH_binding>);
 static_assert(!rotates_arrays_unlent<cctkGH_binding>);
 static_assert(!std::is_constructible_v<clock_writer_t, GHExt &>);

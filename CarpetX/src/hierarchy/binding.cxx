@@ -112,15 +112,13 @@ void cctkGH_binding::unbind_local(cGH *const cctkGH,
 }
 
 void cctkGH_binding::rotate(GHExt &ext, const window_t window, const gi_t gi) {
-  const int ntls0 = driver().record(gi).num_timelevels();
+  const int ntls0 = ext.record(gi).num_timelevels();
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     const auto &restrict groupdata = leveldata.group(gi);
     const int ntls = groupdata.num_timelevels();
     assert(ntls == ntls0);
     if (ntls > 1) {
-      GHExt::PatchData::LevelData::GroupData::ring_t::of(ext, leveldata.level,
-                                                         gi)
-          .rotate_timelevels();
+      groupdata.ring_row().open(cctkGH_binding{}).rotate_timelevels();
       for (const auto &local_cctkGH_ptr : leveldata.local_cctkGHs) {
         cGH *const local_cctkGH = local_cctkGH_ptr.get();
         const component_t component{local_cctkGH->cctk_component};
@@ -134,7 +132,7 @@ void cctkGH_binding::rotate(GHExt &ext, const window_t window, const gi_t gi) {
 
 void cctkGH_binding::rotate(GHExt &ext, const gi_t gi) {
   assert(ext.flesh_cctkGH());
-  GHExt::GlobalData::ArrayGroupData::ring_t::of(ext, gi).rotate_timelevels();
+  ext.record(gi).array().ring_row().open(cctkGH_binding{}).rotate_timelevels();
   bind_array_group(ext.flesh_cctkGH(), gi);
   ext.for_each_cctkGH([&](cGH *const copy) { bind_array_group(copy, gi); });
   assert_array_group_bound(ext.flesh_cctkGH(), gi);

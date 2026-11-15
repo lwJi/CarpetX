@@ -269,7 +269,10 @@ class Strays(unittest.TestCase):
         declared, defined = doc.stem_declarations(), stem_names()
         self.assertLessEqual({"level_writer_t", "level_buffers_t", "GHExt"}, declared[model])
         self.assertIn("clock_writer_t", declared[binding])
-        self.assertEqual(declared[model] - defined[model], {"clock_writer_t", "level_writer_t", "level_buffers_t"})
+        self.assertEqual(
+            declared[model] - defined[model],
+            {"clock_writer_t", "level_writer_t", "structure_writer_t", "registry_writer_t", "scratch_writer_t", "write_scope_t", "array_write_scope_t", "cctkGH_binding", "level_buffers_t"},
+        )
         self.assertEqual(declared[binding] - defined[binding], {"clock_writer_t"})
         self.assertEqual(declared[writers], defined[writers])
         self.assertLessEqual({"level_writer_t", "clock_writer_t", "hierarchy_writers_t"}, defined[writers])

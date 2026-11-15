@@ -480,11 +480,14 @@ def class_named(head: list[tuple[str, int]]) -> Optional[str]:
 
 
 def wrapped(words: list[str]) -> Optional[tuple[str, str]]:
-    if words[:2] != [GRANT_WRAPPER, "<"]:
+    if "(" in words or GRANT_WRAPPER not in words:
+        return None
+    at = words.index(GRANT_WRAPPER)
+    if words[at + 1 : at + 2] != ["<"]:
         return None
     arguments: list[list[str]] = [[]]
     depth = 0
-    for word in words[1:]:
+    for word in words[at + 1 :]:
         depth += word == "<"
         depth -= word == ">"
         if depth == 0:
@@ -510,7 +513,7 @@ def friends(text: str) -> Iterator[tuple[int, str, str]]:
             member = wrapped([w for w, _ in declaration])
             if declaration[:1] and declaration[0][0] == "friend":
                 yield declaration[0][1], "::".join(scope for scope in scopes if scope), friend_name([w for w, _ in declaration[1:]])
-            elif member:
+            elif member and word == ";":
                 yield declaration[0][1], "::".join([scope for scope in scopes if scope] + [member[0]]), member[1]
             if word == "{":
                 scopes.append(class_named(declaration))
@@ -626,7 +629,7 @@ RULES = (
         allowed=granted,
         text=f"a friend line in a header of {GRANT_LAYER}/ is an entry of the table GRANTS in {GRANTS_HOME}, under the type it "
         "sits in, spelled with the types that type is nested in, and naming the class or function it befriends, so that "
-        f"granting a holder the private members of a type is an edit of that table; a member declared {GRANT_WRAPPER}<T, W> is the "
+        f"granting a holder the private members of a type is an edit of that table; a member or alias declared with {GRANT_WRAPPER}<T, W> is the "
         "friend line of W under T, spelled the same way, because only W opens it for writing; the tests refuse an entry no friend "
         "line backs, and agent_docs/carpetx-internals.md lists the table.",
         noun="friend line",

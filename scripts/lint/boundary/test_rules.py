@@ -532,7 +532,7 @@ class Grant(unittest.TestCase):
         self.assertEqual(rules.ungranted(self.MODEL, text), [5, 12])
         self.assertEqual(reported(self.MODEL, text), [("grant", "friend class clock_writer_t;"), ("grant", "friend class write_scope_t;")])
 
-    def test_a_written_by_member_is_the_friend_line_of_its_writer_under_its_row(self):
+    def test_a_written_by_declaration_is_the_friend_line_of_its_writer_under_its_row(self):
         text = (
             "template <class T, class Writer> class written_by {\n"
             "public:\n"
@@ -546,10 +546,13 @@ class Grant(unittest.TestCase):
             "  struct PatchData {\n"
             "    struct LevelData {\n"
             "      struct clock_t {};\n"
-            "      const written_by<clock_t, clock_writer_t> &clock() const { return clock_; }\n"
+            "      using clock_row_t = written_by<clock_t, clock_writer_t>;\n"
+            "      const clock_row_t &clock_row() const { return clock_; }\n"
+            "      const written_by<clock_t, scratch_writer_t> &other_row() const;\n"
             "    private:\n"
-            "      written_by<clock_t, clock_writer_t> clock_;\n"
+            "      clock_row_t clock_;\n"
             "      written_by<const_propagating_ptr<amrex::MultiFab>, scratch_writer_t> held_;\n"
+            "      std::vector<written_by<timelevel_t, write_scope_t>> tls;\n"
             "    };\n"
             "  };\n"
             "};\n"
@@ -558,14 +561,18 @@ class Grant(unittest.TestCase):
             list(rules.friends(text)),
             [
                 (7, "written_by", "Writer"),
-                (15, "GHExt::PatchData::LevelData::clock_t", "clock_writer_t"),
-                (16, "GHExt::PatchData::LevelData::const_propagating_ptr", "scratch_writer_t"),
+                (13, "GHExt::PatchData::LevelData::clock_t", "clock_writer_t"),
+                (18, "GHExt::PatchData::LevelData::const_propagating_ptr", "scratch_writer_t"),
+                (19, "GHExt::PatchData::LevelData::timelevel_t", "write_scope_t"),
             ],
         )
-        self.assertEqual(rules.ungranted(self.MODEL, text), [16])
-        self.assertEqual(reported(self.MODEL, text), [("grant", "written_by<const_propagating_ptr<amrex::MultiFab>, scratch_writer_t> held_;")])
+        self.assertEqual(rules.ungranted(self.MODEL, text), [18, 19])
+        self.assertEqual(
+            reported(self.MODEL, text),
+            [("grant", "written_by<const_propagating_ptr<amrex::MultiFab>, scratch_writer_t> held_;"), ("grant", "std::vector<written_by<timelevel_t, write_scope_t>> tls;")],
+        )
         with mock.patch.dict(rules.GRANTS, {"GHExt::PatchData::LevelData::clock_t": ("scratch_writer_t",)}):
-            self.assertEqual(rules.ungranted(self.MODEL, text), [15, 16])
+            self.assertEqual(rules.ungranted(self.MODEL, text), [13, 18, 19])
 
     def test_a_body_an_enum_or_a_member_initialiser_opens_no_type(self):
         text = (
@@ -2363,8 +2370,8 @@ class Doc(unittest.TestCase):
             with self.assertRaises(ValueError):
                 doc.grants()
         text = headers[Grant.MODEL]
-        scratch = text.splitlines().index("          friend class scratch_writer_t;") + 1
-        binding = text.splitlines().index("          friend struct cctkGH_binding;") + 1
+        scratch = text.splitlines().index("        using scratch_pool_row_t = written_by<scratch_pool_t, scratch_writer_t>;") + 1
+        binding = text.splitlines().index("        using ring_row_t = written_by<ring_t, cctkGH_binding>;") + 1
         with mock.patch.dict(rules.GRANTS, {"GHExt::PatchData::LevelData::GroupData::scratch_pool_t": (), "GHExt::PatchData::LevelData::GroupData::ring_t": ()}):
             self.assertEqual(rules.ungranted(Grant.MODEL, text), [binding, scratch])
             self.assertEqual([(f.line, f.rule) for f in findings(Grant.MODEL, text, Lang.CXX) if f.rule == "grant"], [(binding, "grant"), (scratch, "grant")])

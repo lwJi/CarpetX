@@ -502,8 +502,8 @@ write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
       event_reason(this->spec.event, " not filled", iteration);
   const std::vector<vi_t> vis = variables_of(this->spec.gi, this->spec.vi);
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    GroupData::timelevel_t &timelevel = GroupData::timelevel_t::of(
-        leveldata.level, this->spec.gi, this->spec.tl);
+    GroupData::timelevel_t &timelevel =
+        leveldata.group(this->spec.gi).timelevel_row(this->spec.tl).open(*this);
     ++timelevel.open_writes_;
     for (const vi_t vi : vis)
       timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
@@ -548,7 +548,7 @@ write_scope_t::~write_scope_t() {
     check_valid_gf(window, spec.gi, vi, spec.tl, spec.fills, msg);
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     GroupData::timelevel_t &timelevel =
-        GroupData::timelevel_t::of(leveldata.level, spec.gi, spec.tl);
+        leveldata.group(spec.gi).timelevel_row(spec.tl).open(*this);
     for (const vi_t vi : vis)
       timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);
     --timelevel.open_writes_;
@@ -572,7 +572,12 @@ amrex::MultiFab &write_scope_t::mfab(const level_t level,
            spec.tl.index(), patches.min, patches.max, levels.min, levels.max,
            level.patch().index(), level.index());
   }
-  return *GroupData::timelevel_t::of(level, spec.gi, spec.tl, site).mfab_;
+  return *driver()
+              .level(level, site)
+              .group(spec.gi, site)
+              .timelevel_row(spec.tl, site)
+              .open(*this)
+              .mfab_;
 }
 
 write_scopes_t::~write_scopes_t() { close(); }
@@ -629,7 +634,7 @@ array_write_scope_t::array_write_scope_t(write_spec_t spec, const int iteration)
       event_reason(this->spec.event, " not filled", iteration);
   const ArrayGroupData &arraydata = driver().record(this->spec.gi).array();
   ArrayGroupData::timelevel_t &timelevel =
-      ArrayGroupData::timelevel_t::of(this->spec.gi, this->spec.tl);
+      arraydata.timelevel_row(this->spec.tl).open(*this);
   for (const vi_t vi : variables_of(this->spec.gi, this->spec.vi)) {
     timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
     poison_invalid_ga(arraydata, timelevel.data_, vi, destroys);
@@ -662,7 +667,7 @@ array_write_scope_t::~array_write_scope_t() {
   const auto msg = event_reason(spec.event, "", iteration);
   const auto filled = event_reason(spec.event, " filled", iteration);
   ArrayGroupData::timelevel_t &timelevel =
-      ArrayGroupData::timelevel_t::of(spec.gi, spec.tl);
+      driver().record(spec.gi).array().timelevel_row(spec.tl).open(*this);
   for (const vi_t vi : variables_of(spec.gi, spec.vi)) {
     check_valid_ga(spec.gi, vi, spec.tl, spec.fills, msg);
     timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);
@@ -675,7 +680,11 @@ void *array_write_scope_t::data(const std::source_location site) & {
            "a moved-from array write scope on group %s, time level %d hands "
            "out no data",
            driver().record(spec.gi).groupname.c_str(), spec.tl.index());
-  return ArrayGroupData::timelevel_t::of(spec.gi, spec.tl, site)
+  return driver()
+      .record(spec.gi)
+      .array(site)
+      .timelevel_row(spec.tl, site)
+      .open(*this)
       .data_.data_at(0);
 }
 

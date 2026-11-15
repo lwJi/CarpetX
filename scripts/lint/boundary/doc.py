@@ -714,7 +714,7 @@ def owns(root: str = PROJECT) -> str:
 GRANTS_HEADING = "## Who is granted what"
 GRANTS_INTRO = (
     f"Each row is a name that a `friend` line in a header of `{GRANT_LAYER}/` grants, and the types whose private members it reaches. "
-    f"A member declared `{GRANT_WRAPPER}<T, W>` is the friend line of `W` under `T`: every holder reads `T` through it, and only `W` opens it for writing. "
+    f"A member or alias declared with `{GRANT_WRAPPER}<T, W>` is the friend line of `W` under `T`: every holder reads `T` through it, and only `W` opens it for writing. "
     f"The table GRANTS in {GRANTS_HOME} is those lines: the grant rule refuses a friend line the table lacks, and the tests refuse an entry no line backs."
 )
 

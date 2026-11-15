@@ -122,7 +122,7 @@ void assert_hierarchy_destroyed() { assert(!ghext); }
 GHExt::GHExt(const config_t config)
     : use_subcycling(config.use_subcycling), do_reflux(config.do_reflux),
       make_core_(config.make_core), make_buffers_(config.make_buffers),
-      registry_(CCTK_NumGroups()) {
+      registry_(std::in_place, CCTK_NumGroups()) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
@@ -136,24 +136,16 @@ GHExt::~GHExt() {
   ghext = nullptr;
 }
 
-GHExt::level_set_t &GHExt::level_set_t::of(GHExt &ext) {
-  return const_cast<level_set_t &>(std::as_const(ext).level_set_);
-}
-
-GHExt::patches_t &GHExt::patches_t::of(GHExt &ext) {
-  return const_cast<patches_t &>(std::as_const(ext).patches_);
-}
-
 void GHExt::patches_t::mark_initialized() {
   assert(!initialized_);
   initialized_ = true;
 }
 
-GHExt::PatchData &GHExt::patches_t::add_patch(GHExt &ext,
+GHExt::PatchData &GHExt::patches_t::add_patch(const GHExt &ext,
                                               level_writer_t &levels,
                                               const patch_t patch) {
-  assert(patch.index() == ext.num_patches());
-  return of(ext).patchdata.emplace_back(levels, patch, ext.make_core_);
+  assert(patch.index() == int(patchdata.size()));
+  return patchdata.emplace_back(levels, patch, ext.make_core_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -226,8 +218,8 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
       symmetries[0][1] == symmetry_t::periodic,
       symmetries[0][2] == symmetry_t::periodic};
 
-  core_ = core_t(make_core(levels, patch, domain, max_num_levels - 1, ncells,
-                           is_periodic));
+  core_ = core_row_t(core_t{make_core(levels, patch, domain, max_num_levels - 1,
+                                      ncells, is_periodic)});
 
   if (verbose) {
 #pragma omp critical
@@ -240,16 +232,6 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
       }
     }
   }
-}
-
-GHExt::PatchData::core_t &GHExt::PatchData::core_t::of(GHExt &ext,
-                                                       const patch_t patch) {
-  return const_cast<core_t &>(std::as_const(ext).patch(patch).core_);
-}
-
-GHExt::PatchData::levels_t &
-GHExt::PatchData::levels_t::of(GHExt &ext, const patch_t patch) {
-  return const_cast<levels_t &>(std::as_const(ext).patch(patch).levels_);
 }
 
 GHExt::PatchData::LevelData &
@@ -280,11 +262,8 @@ void GHExt::PatchData::levels_t::erase_levels_from(const level_t level) {
   level_modified.resize(level.index());
 }
 
-void GHExt::PatchData::levels_t::reset_level_modified(GHExt &ext,
-                                                      const patch_t patch) {
-  const PatchData &patchdata = std::as_const(ext).patch(patch);
-  assert(patchdata.num_levels() == patchdata.amrcore().finestLevel() + 1);
-  of(ext, patch).level_modified.assign(patchdata.num_levels(), false);
+void GHExt::PatchData::levels_t::reset_level_modified() {
+  level_modified.assign(leveldata.size(), false);
 }
 
 std::optional<window_t::bounds_t>
@@ -311,10 +290,10 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
 
   const GHExt &ext = driver();
   if (level.index() == 0) {
-    clock_ = decltype(clock_)(clock_t{0, 1, 0, 0});
+    clock_ = clock_row_t(clock_t{0, 1, 0, 0});
   } else {
-    const clock_t &coarse = ext.level(level.parent()).clock().get();
-    clock_ = decltype(clock_)(clock_t{
+    const clock_t &coarse = ext.level(level.parent()).clock_row().get();
+    clock_ = clock_row_t(clock_t{
         coarse.iteration,
         coarse.delta_iteration / (ext.use_subcycling ? time_refinement : 1),
         coarse.last_step_iteration, coarse.last_finalized_iteration});
@@ -367,7 +346,7 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
     ghost_masks.emplace(key, std::move(mask));
   }
 
-  assert(level.index() < int(ext.level_set_.level_cctkGHs().size()));
+  assert(level.index() < int(ext.level_set_->level_cctkGHs.size()));
 
   {
     LevelData &leveldata = *this;
@@ -413,14 +392,15 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
                                                   : amrex::IndexType::NODE,
                        grid_function.indextype[2] ? amrex::IndexType::CELL
                                                   : amrex::IndexType::NODE));
-  std::vector<timelevel_t> tls;
+  std::vector<timelevel_row_t> tls;
   tls.reserve(record.num_timelevels());
   for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(
+        std::in_place,
         std::make_unique<amrex::MultiFab>(
             gba, dm, numvars, amrex::IntVect(grid_function.nghostzones)),
         numvars, why);
-  ring_ = ring_t(std::move(tls));
+  ring_ = ring_row_t(ring_t(std::move(tls)));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -441,28 +421,6 @@ void GHExt::PatchData::LevelData::GroupData::ring_t::rotate_timelevels() {
   assert(size() > 1);
   assert(open_write_count() == 0);
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
-}
-
-GHExt::PatchData::LevelData::GroupData::ring_t &
-GHExt::PatchData::LevelData::GroupData::ring_t::of(GHExt &ext,
-                                                   const level_t level,
-                                                   const gi_t gi) {
-  return const_cast<ring_t &>(std::as_const(ext).level(level).group(gi).ring_);
-}
-
-GHExt::PatchData::LevelData::GroupData::timelevel_t &
-GHExt::PatchData::LevelData::GroupData::timelevel_t::of(
-    const level_t level, const gi_t gi, const tl_t tl,
-    const std::source_location site) {
-  return const_cast<timelevel_t &>(
-      driver().level(level, site).group(gi, site).timelevel(tl, site));
-}
-
-GHExt::PatchData::LevelData::GroupData::scratch_pool_t &
-GHExt::PatchData::LevelData::GroupData::scratch_pool_t::of(
-    GHExt &ext, const group_t group, const std::source_location site) {
-  return const_cast<scratch_pool_t &>(
-      std::as_const(ext).group(group, site).scratch_pool_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -502,13 +460,14 @@ GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
     bbox[2 * d] = bbox[2 * d + 1] = 1;
   }
 
-  std::vector<timelevel_t> tls;
+  std::vector<timelevel_row_t> tls;
   tls.reserve(record.num_timelevels());
   for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(
+        std::in_place,
         AnyTypeVector(record.var_type, record.numvars * array_size),
         record.numvars, []() { return "freeze_storage"; });
-  ring_ = ring_t(std::move(tls));
+  ring_ = ring_row_t(ring_t(std::move(tls)));
 }
 
 void GHExt::GlobalData::ArrayGroupData::ring_t::rotate_timelevels() {
@@ -516,24 +475,8 @@ void GHExt::GlobalData::ArrayGroupData::ring_t::rotate_timelevels() {
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
 }
 
-GHExt::GlobalData::ArrayGroupData::ring_t &
-GHExt::GlobalData::ArrayGroupData::ring_t::of(GHExt &ext, const gi_t gi) {
-  return const_cast<ring_t &>(std::as_const(ext).record(gi).array().ring_);
-}
-
-GHExt::GlobalData::ArrayGroupData::timelevel_t &
-GHExt::GlobalData::ArrayGroupData::timelevel_t::of(
-    const gi_t gi, const tl_t tl, const std::source_location site) {
-  return const_cast<timelevel_t &>(
-      driver().record(gi, site).array(site).timelevel(tl, site));
-}
-
 GHExt::registry_t::registry_t(const int numgroups)
     : pending_timelevels_(std::in_place, numgroups, 0) {}
-
-GHExt::registry_t &GHExt::registry_t::of(GHExt &ext) {
-  return const_cast<registry_t &>(std::as_const(ext).registry_);
-}
 
 int GHExt::registry_t::active_timelevels(const gi_t gi) const {
   if (pending_timelevels_)
