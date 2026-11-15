@@ -131,11 +131,11 @@ void cctkGH_binding::rotate(GHExt &ext, const window_t window, const gi_t gi) {
 }
 
 void cctkGH_binding::rotate(GHExt &ext, const gi_t gi) {
-  assert(ext.flesh_cctkGH);
+  assert(ext.flesh_cctkGH());
   ext.record(gi).array().rotate_timelevels();
-  bind_array_group(ext.flesh_cctkGH, gi);
+  bind_array_group(ext.flesh_cctkGH(), gi);
   ext.for_each_cctkGH([&](cGH *const copy) { bind_array_group(copy, gi); });
-  assert_array_group_bound(ext.flesh_cctkGH, gi);
+  assert_array_group_bound(ext.flesh_cctkGH(), gi);
   ext.for_each_cctkGH(
       [&](const cGH *const copy) { assert_array_group_bound(copy, gi); });
 }

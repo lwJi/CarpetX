@@ -151,8 +151,6 @@ struct GHExt {
     cGH *get() const { return cctkGH; }
   };
 
-  cGH *flesh_cctkGH = nullptr;
-  cctkGHptr global_cctkGH;
   std::vector<cctkGHptr> level_cctkGHs; // [reflevel]
 
   struct GroupRecord;
@@ -398,16 +396,67 @@ struct GHExt {
     }
   };
 
+  struct integrator_t {
+    rk_dense_output_t dense_output;
+    std::vector<CCTK_REAL> weights;
+    std::map<gi_t, gi_t> rhs;
+    stage_range stages() const { return rk_stages(int(weights.size())); }
+  };
+
+  class registry_t {
+  public:
+    explicit registry_t(int numgroups);
+    registry_t(const registry_t &) = delete;
+    registry_t &operator=(const registry_t &) = delete;
+
+    const GroupRecord &record(const gi_t gi,
+                              const std::source_location site =
+                                  std::source_location::current()) const {
+      if (!storage_frozen())
+        refuse(site,
+               "CarpetX group %d has no record yet: storage is not frozen",
+               gi.index());
+      if (gi.index() < 0 || gi.index() >= int(group_records.size()))
+        refuse(site, "group index %d does not exist: there are %d groups",
+               gi.index(), int(group_records.size()));
+      return group_records[gi.index()];
+    }
+    auto records(const std::optional<group_kind> kind = std::nullopt) const {
+      return storage_range<const GroupRecord,
+                           std::vector<GroupRecord>::const_iterator,
+                           record_filter>(
+          group_records.begin(), group_records.end(), record_filter{kind});
+    }
+    index_range<gi_t> group_handles() const {
+      return index_range<gi_t>{gi_t{0}, gi_t{int(group_records.size())}};
+    }
+    int active_timelevels(gi_t gi) const;
+    bool storage_frozen() const { return !pending_timelevels_; }
+    const std::optional<integrator_t> &
+    integrator(std::source_location site) const;
+    cGH *flesh_cctkGH() const { return flesh_cctkGH_; }
+    cGH *global_cctkGH() const { return global_cctkGH_.get(); }
+
+  private:
+    cGH *flesh_cctkGH_ = nullptr;
+    cctkGHptr global_cctkGH_;
+    std::optional<std::vector<int>> pending_timelevels_;
+    std::vector<GroupRecord> group_records;
+    std::optional<integrator_t> integrator_;
+    bool integrator_open_ = true;
+
+    void record_storage(gi_t gi, int timelevels);
+    void freeze_storage();
+    void record_integrator(integrator_t integrator, std::source_location site);
+    void freeze_integrator(std::source_location site);
+    static registry_t &of(GHExt &ext);
+    friend class registry_writer_t;
+  };
+
   const GroupRecord &record(
       const gi_t gi,
       const std::source_location site = std::source_location::current()) const {
-    if (!storage_frozen())
-      refuse(site, "CarpetX group %d has no record yet: storage is not frozen",
-             gi.index());
-    if (gi.index() < 0 || gi.index() >= int(group_records.size()))
-      refuse(site, "group index %d does not exist: there are %d groups",
-             gi.index(), int(group_records.size()));
-    return group_records[gi.index()];
+    return registry_.record(gi, site);
   }
   GroupRecord &
   record(const gi_t gi,
@@ -418,25 +467,18 @@ struct GHExt {
   record_of(var_t var,
             std::source_location site = std::source_location::current()) const;
   auto records(const std::optional<group_kind> kind = std::nullopt) const {
-    return storage_range<const GroupRecord,
-                         std::vector<GroupRecord>::const_iterator,
-                         record_filter>(
-        group_records.begin(), group_records.end(), record_filter{kind});
+    return registry_.records(kind);
   }
-  index_range<gi_t> group_handles() const {
-    return index_range<gi_t>{gi_t{0}, gi_t{int(group_records.size())}};
+  index_range<gi_t> group_handles() const { return registry_.group_handles(); }
+  int active_timelevels(const gi_t gi) const {
+    return registry_.active_timelevels(gi);
   }
-  int active_timelevels(gi_t gi) const;
-  bool storage_frozen() const { return !pending_timelevels_; }
+  bool storage_frozen() const { return registry_.storage_frozen(); }
 
-  struct integrator_t {
-    rk_dense_output_t dense_output;
-    std::vector<CCTK_REAL> weights;
-    std::map<gi_t, gi_t> rhs;
-    stage_range stages() const { return rk_stages(int(weights.size())); }
-  };
-  const std::optional<integrator_t> &
-  integrator(std::source_location site = std::source_location::current()) const;
+  const std::optional<integrator_t> &integrator(
+      const std::source_location site = std::source_location::current()) const {
+    return registry_.integrator(site);
+  }
 
   bool is_initialized() const { return initialized_; }
   CCTK_INT epoch() const { return epoch_; }
@@ -766,13 +808,14 @@ struct GHExt {
     return nlevels;
   }
 
-  cGH *get_global_cctkGH() const { return global_cctkGH.get(); }
+  cGH *flesh_cctkGH() const { return registry_.flesh_cctkGH(); }
+  cGH *get_global_cctkGH() const { return registry_.global_cctkGH(); }
   cGH *get_level_cctkGH(const level_t level) const {
     return level_cctkGHs.at(level.index()).get();
   }
 
   template <typename F> void for_each_cctkGH(F &&f) const {
-    f(global_cctkGH.get());
+    f(get_global_cctkGH());
     for (const auto &level_cctkGH : level_cctkGHs)
       f(level_cctkGH.get());
     for (const auto &patch : patches())
@@ -785,29 +828,21 @@ struct GHExt {
   }
 
 private:
-  std::optional<std::vector<int>> pending_timelevels_;
   bool initialized_ = false;
   CCTK_INT epoch_ = 0;
   const amrcore_factory make_core_;
   const level_buffers_factory make_buffers_;
-  std::vector<GroupRecord> group_records;
-  std::optional<integrator_t> integrator_;
-  bool integrator_open_ = true;
+  registry_t registry_;
   std::vector<PatchData> patchdata;
 
   explicit GHExt(config_t config);
   static GHExt &mutable_instance();
   PatchData &add_patch(level_writer_t &levels, patch_t patch);
-  void record_storage(gi_t gi, int timelevels);
-  void freeze_storage();
-  void record_integrator(integrator_t integrator, std::source_location site);
-  void freeze_integrator(std::source_location site);
   void mark_initialized();
 
   friend class clock_writer_t;
   friend class structure_writer_t;
   friend class level_writer_t;
-  friend class registry_writer_t;
   friend struct hierarchy_writers_t;
   friend struct cctkGH_binding;
   friend class write_scope_t;

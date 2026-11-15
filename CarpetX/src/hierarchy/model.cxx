@@ -123,8 +123,8 @@ void assert_hierarchy_destroyed() { assert(!ghext); }
 
 GHExt::GHExt(const config_t config)
     : use_subcycling(config.use_subcycling), do_reflux(config.do_reflux),
-      pending_timelevels_(std::in_place, CCTK_NumGroups(), 0),
-      make_core_(config.make_core), make_buffers_(config.make_buffers) {
+      make_core_(config.make_core), make_buffers_(config.make_buffers),
+      registry_(CCTK_NumGroups()) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
@@ -491,13 +491,20 @@ void GHExt::GlobalData::ArrayGroupData::rotate_timelevels() {
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
 }
 
-int GHExt::active_timelevels(const gi_t gi) const {
+GHExt::registry_t::registry_t(const int numgroups)
+    : pending_timelevels_(std::in_place, numgroups, 0) {}
+
+GHExt::registry_t &GHExt::registry_t::of(GHExt &ext) {
+  return const_cast<registry_t &>(std::as_const(ext).registry_);
+}
+
+int GHExt::registry_t::active_timelevels(const gi_t gi) const {
   if (pending_timelevels_)
     return pending_timelevels_->at(gi.index());
   return record(gi).num_timelevels();
 }
 
-void GHExt::record_storage(const gi_t gi, const int timelevels) {
+void GHExt::registry_t::record_storage(const gi_t gi, const int timelevels) {
   assert(timelevels >= 0 &&
          timelevels <= CCTK_DeclaredTimeLevelsGI(gi.index()));
   if (pending_timelevels_) {
@@ -514,7 +521,7 @@ void GHExt::record_storage(const gi_t gi, const int timelevels) {
                CCTK_FullGroupName(gi.index()), active, timelevels);
 }
 
-void GHExt::freeze_storage() {
+void GHExt::registry_t::freeze_storage() {
   DECLARE_CCTK_PARAMETERS;
 
   if (verbose)
@@ -557,8 +564,8 @@ void GHExt::freeze_storage() {
   }
 }
 
-void GHExt::record_integrator(integrator_t integrator,
-                              const std::source_location site) {
+void GHExt::registry_t::record_integrator(integrator_t integrator,
+                                          const std::source_location site) {
   if (!integrator_open_)
     refuse(site, "the driver froze its integrator record after the WRAGH "
                  "traversal; schedule the registration AT WRAGH");
@@ -571,7 +578,7 @@ void GHExt::record_integrator(integrator_t integrator,
   integrator_ = std::move(integrator);
 }
 
-void GHExt::freeze_integrator(const std::source_location site) {
+void GHExt::registry_t::freeze_integrator(const std::source_location site) {
   if (!integrator_open_)
     refuse(site, "the integrator record is already frozen: the driver freezes "
                  "it once, after its WRAGH traversal");
@@ -579,7 +586,7 @@ void GHExt::freeze_integrator(const std::source_location site) {
 }
 
 const std::optional<GHExt::integrator_t> &
-GHExt::integrator(const std::source_location site) const {
+GHExt::registry_t::integrator(const std::source_location site) const {
   if (integrator_open_)
     refuse(site, "the integrator record is read before the driver froze it; "
                  "a reader runs after the WRAGH traversal");

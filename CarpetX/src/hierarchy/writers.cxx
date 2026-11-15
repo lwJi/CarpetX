@@ -38,7 +38,7 @@ hierarchy_writers_t::hierarchy_writers_t(const GHExt::config_t config)
       registry(hierarchy), scratch(hierarchy) {}
 
 hierarchy_writers_t::~hierarchy_writers_t() {
-  cctkGH_binding::unbind_arrays(hierarchy.flesh_cctkGH);
+  cctkGH_binding::unbind_arrays(hierarchy.flesh_cctkGH());
 }
 
 const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
@@ -154,27 +154,30 @@ void structure_writer_t::recover_level(const level_t level, amrex::BoxArray ba,
 }
 
 void registry_writer_t::record_storage(const gi_t gi, const int timelevels) {
-  ext.record_storage(gi, timelevels);
+  GHExt::registry_t::of(ext).record_storage(gi, timelevels);
 }
 
-void registry_writer_t::freeze_storage() { ext.freeze_storage(); }
+void registry_writer_t::freeze_storage() {
+  GHExt::registry_t::of(ext).freeze_storage();
+}
 
 void registry_writer_t::record_integrator(GHExt::integrator_t integrator,
                                           const std::source_location site) {
-  ext.record_integrator(std::move(integrator), site);
+  GHExt::registry_t::of(ext).record_integrator(std::move(integrator), site);
 }
 
 void registry_writer_t::freeze_integrator(const std::source_location site) {
-  ext.freeze_integrator(site);
+  GHExt::registry_t::of(ext).freeze_integrator(site);
 }
 
 void registry_writer_t::adopt_flesh_cctkGH(cGH *const cctkGH) {
+  auto &registry = GHExt::registry_t::of(ext);
   assert(cctkGH);
-  assert(!ext.flesh_cctkGH);
-  assert(!ext.global_cctkGH);
-  ext.flesh_cctkGH = cctkGH;
+  assert(!registry.flesh_cctkGH_);
+  assert(!registry.global_cctkGH_);
+  registry.flesh_cctkGH_ = cctkGH;
   cctkGH_binding::bind_arrays(cctkGH);
-  ext.global_cctkGH = GHExt::cctkGHptr::copy_of(cctkGH);
+  registry.global_cctkGH_ = GHExt::cctkGHptr::copy_of(cctkGH);
 }
 
 std::size_t scratch_writer_t::acquire(const group_t group,

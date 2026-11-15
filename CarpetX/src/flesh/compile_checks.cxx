@@ -200,9 +200,9 @@ template <class Ext>
 concept assigns_active_timelevels =
     requires(Ext &ext, gi_t gi) { ext.active_timelevels(gi) = 0; };
 
-template <class Ext>
+template <class Registry>
 concept assigns_pending_timelevels =
-    requires(Ext &ext) { ext.pending_timelevels_->at(0) = 0; };
+    requires(Registry &registry) { registry.pending_timelevels_->at(0) = 0; };
 
 template <class Ext>
 concept assigns_storage_frozen =
@@ -270,22 +270,35 @@ concept hands_out_data =
 template <class Ext>
 concept marks_initialized = requires(Ext &ext) { ext.mark_initialized(); };
 
-template <class Ext>
-concept assigns_integrator = requires(Ext &ext) { ext.integrator_.reset(); };
+template <class Registry>
+concept assigns_integrator =
+    requires(Registry &registry) { registry.integrator_.reset(); };
 
-template <class Ext>
+template <class Registry>
 concept assigns_integrator_open =
-    requires(Ext &ext) { ext.integrator_open_ = true; };
+    requires(Registry &registry) { registry.integrator_open_ = true; };
 
-template <class Ext>
-concept records_integrator = requires(Ext &ext) {
-  ext.record_integrator(GHExt::integrator_t{}, std::source_location::current());
+template <class Registry>
+concept records_integrator = requires(Registry &registry) {
+  registry.record_integrator(GHExt::integrator_t{},
+                             std::source_location::current());
 };
 
-template <class Ext>
-concept freezes_integrator = requires(Ext &ext) {
-  ext.freeze_integrator(std::source_location::current());
+template <class Registry>
+concept freezes_integrator = requires(Registry &registry) {
+  registry.freeze_integrator(std::source_location::current());
 };
+
+template <class Registry>
+concept freezes_storage =
+    requires(Registry &registry) { registry.freeze_storage(); };
+
+template <class Registry>
+concept assigns_flesh_cctkGH =
+    requires(Registry &registry) { registry.flesh_cctkGH_ = nullptr; };
+
+template <class Registry>
+concept opens_registry = requires(GHExt &ext) { Registry::of(ext); };
 
 template <class Ext>
 concept opens_mutable_door = requires { Ext::mutable_instance(); };
@@ -733,7 +746,7 @@ static_assert(
 static_assert(std::is_same_v<
               decltype(std::declval<const GHExt &>().storage_frozen()), bool>);
 static_assert(!assigns_active_timelevels<GHExt>);
-static_assert(!assigns_pending_timelevels<GHExt>);
+static_assert(!assigns_pending_timelevels<GHExt::registry_t>);
 static_assert(!assigns_storage_frozen<GHExt>);
 
 static_assert(
@@ -742,10 +755,13 @@ static_assert(
 static_assert(std::is_same_v<
               decltype(std::declval<const GHExt::integrator_t &>().stages()),
               stage_range>);
-static_assert(!assigns_integrator<GHExt>);
-static_assert(!assigns_integrator_open<GHExt>);
-static_assert(!records_integrator<GHExt>);
-static_assert(!freezes_integrator<GHExt>);
+static_assert(!assigns_integrator<GHExt::registry_t>);
+static_assert(!assigns_integrator_open<GHExt::registry_t>);
+static_assert(!records_integrator<GHExt::registry_t>);
+static_assert(!freezes_integrator<GHExt::registry_t>);
+static_assert(!freezes_storage<GHExt::registry_t>);
+static_assert(!assigns_flesh_cctkGH<GHExt::registry_t>);
+static_assert(!opens_registry<GHExt::registry_t>);
 
 static_assert(std::is_same_v<
               decltype(std::declval<const GHExt &>().is_initialized()), bool>);

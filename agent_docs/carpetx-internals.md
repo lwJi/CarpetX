@@ -169,11 +169,11 @@ Each row is a name that a `friend` line in a header of `hierarchy/` grants, and 
 | `clock_writer_t` | `GHExt`, `cctkGH_binding` |
 | `structure_writer_t` | `GHExt`, `GHExt::PatchData`, `level_writer_t` |
 | `level_writer_t` | `GHExt`, `GHExt::PatchData` |
-| `registry_writer_t` | `GHExt` |
 | `hierarchy_writers_t` | `GHExt`, `clock_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t` |
 | `cctkGH_binding` | `GHExt`, `GHExt::PatchData::LevelData::GroupData`, `GHExt::GlobalData::ArrayGroupData` |
 | `write_scope_t` | `GHExt`, `GHExt::PatchData::LevelData::GroupData::timelevel_t`, `why_valid_t` |
 | `array_write_scope_t` | `GHExt`, `GHExt::GlobalData::ArrayGroupData::timelevel_t`, `why_valid_t` |
+| `registry_writer_t` | `GHExt::registry_t` |
 | `scratch_writer_t` | `GHExt::PatchData::LevelData::GroupData::scratch_pool_t` |
 | `create_hierarchy` | `hierarchy_writers_t` |
 | `operator<<` | `why_valid_t`, `GridPtrDesc1` |
