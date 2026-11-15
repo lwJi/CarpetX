@@ -479,32 +479,13 @@ def class_named(head: list[tuple[str, int]]) -> Optional[str]:
     return None
 
 
-def wrapped(words: list[str]) -> Optional[tuple[str, str]]:
-    named = [at for at, word in enumerate(words) if word == GRANT_WRAPPER and words[at + 1 : at + 2] == ["<"]]
-    if not named or "operator" in words:
+def aliased(words: list[str]) -> Optional[tuple[str, str]]:
+    name, row, writer = words[1:2], words[5:6], words[7:8]
+    if words[:1] + words[2:5] + words[6:7] + words[8:] != ["using", "=", GRANT_WRAPPER, "<", ",", ">"]:
         return None
-    declarator = words[: words.index("=")] if "=" in words else words
-    depth = 0
-    for word in declarator:
-        depth += word == "<"
-        depth -= word == ">"
-        if depth == 0 and word == "(":
-            return None
-    at = named[0]
-    arguments: list[list[str]] = [[]]
-    depth = 0
-    for word in words[at + 1 :]:
-        depth += word == "<"
-        depth -= word == ">"
-        if depth == 0:
-            break
-        if depth == 1 and word == ",":
-            arguments.append([])
-        elif (depth, word) != (1, "<"):
-            arguments[-1].append(word)
-    if len(arguments) != 2:
+    if not all(IDENTIFIER.fullmatch(word) for word in name + row + writer):
         return None
-    return friend_name(arguments[0]), friend_name(arguments[1])
+    return row[0], writer[0]
 
 
 def friends(text: str) -> Iterator[tuple[int, str, str]]:
@@ -516,11 +497,11 @@ def friends(text: str) -> Iterator[tuple[int, str, str]]:
         word = token.text
         if word in (";", "{"):
             declaration = unqualified(head)
-            member = wrapped([w for w, _ in declaration])
+            alias = aliased([w for w, _ in declaration]) if word == ";" else None
             if declaration[:1] and declaration[0][0] == "friend":
                 yield declaration[0][1], "::".join(scope for scope in scopes if scope), friend_name([w for w, _ in declaration[1:]])
-            elif member:
-                yield declaration[0][1], "::".join([scope for scope in scopes if scope] + [member[0]]), member[1]
+            elif alias:
+                yield declaration[0][1], "::".join([scope for scope in scopes if scope] + [alias[0]]), alias[1]
             if word == "{":
                 scopes.append(class_named(declaration))
             head = []
@@ -532,8 +513,16 @@ def friends(text: str) -> Iterator[tuple[int, str, str]]:
             head.append((word, token.line))
 
 
+def misspelled(text: str) -> list[int]:
+    words = [(token.text, token.line) for token in lex(text) if token.kind is Kind.CODE]
+    named = [at for at, (word, _) in enumerate(words[:-1]) if word == GRANT_WRAPPER and words[at + 1][0] == "<"]
+    spelled = [[word for word, _ in words[max(at - 3, 0) : at + 7]] for at in named]
+    return [words[at][1] for at, around in zip(named, spelled) if around[9:] != [";"] or not aliased(around[:9])]
+
+
 def ungranted(name: str, text: str) -> list[int]:
-    return [line for line, owner, friend in friends(text) if friend not in GRANTS.get(owner, ())]
+    unlisted = [line for line, owner, friend in friends(text) if friend not in GRANTS.get(owner, ())]
+    return sorted(unlisted + [line for line in misspelled(text) if line not in unlisted])
 
 
 def granted(name: str, line: str, statement: str) -> bool:
@@ -635,8 +624,9 @@ RULES = (
         allowed=granted,
         text=f"a friend line in a header of {GRANT_LAYER}/ is an entry of the table GRANTS in {GRANTS_HOME}, under the type it "
         "sits in, spelled with the types that type is nested in, and naming the class or function it befriends, so that "
-        f"granting a holder the private members of a type is an edit of that table; a member, alias or base declared with {GRANT_WRAPPER}<T, W> is the "
-        "friend line of W under T, spelled the same way, because only W opens it for writing; the tests refuse an entry no friend "
+        f"granting a holder the private members of a type is an edit of that table; an alias using name = {GRANT_WRAPPER}<T, W>; is the "
+        f"friend line of W under T, spelled the same way, because only W opens it for writing, and {GRANT_WRAPPER} is given arguments in no other form "
+        "in such a header, so that no spelling hides a writer; the tests refuse an entry no friend "
         "line backs, and agent_docs/carpetx-internals.md lists the table.",
         noun="friend line",
         where="GRANTS does not list",

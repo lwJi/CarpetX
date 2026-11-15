@@ -532,7 +532,7 @@ class Grant(unittest.TestCase):
         self.assertEqual(rules.ungranted(self.MODEL, text), [5, 12])
         self.assertEqual(reported(self.MODEL, text), [("grant", "friend class clock_writer_t;"), ("grant", "friend class write_scope_t;")])
 
-    def test_a_written_by_declaration_is_the_friend_line_of_its_writer_under_its_row(self):
+    def test_a_written_by_alias_is_the_friend_line_of_its_writer_under_its_row(self):
         text = (
             "template <class T, class Writer> class written_by {\n"
             "public:\n"
@@ -548,11 +548,16 @@ class Grant(unittest.TestCase):
             "      struct clock_t {};\n"
             "      using clock_row_t = written_by<clock_t, clock_writer_t>;\n"
             "      const clock_row_t &clock_row() const { return clock_; }\n"
-            "      const written_by<clock_t, scratch_writer_t> &other_row() const;\n"
+            "      struct GroupData {\n"
+            "        struct timelevel_t {};\n"
+            "        using timelevel_row_t =\n"
+            "            written_by<timelevel_t, write_scope_t>;\n"
+            "        class ring_t {\n"
+            "          std::vector<timelevel_row_t> tls;\n"
+            "        };\n"
+            "      };\n"
             "    private:\n"
             "      clock_row_t clock_;\n"
-            "      written_by<const_propagating_ptr<amrex::MultiFab>, scratch_writer_t> held_;\n"
-            "      std::vector<written_by<timelevel_t, write_scope_t>> tls;\n"
             "    };\n"
             "  };\n"
             "};\n"
@@ -562,48 +567,69 @@ class Grant(unittest.TestCase):
             [
                 (7, "written_by", "Writer"),
                 (13, "GHExt::PatchData::LevelData::clock_t", "clock_writer_t"),
-                (18, "GHExt::PatchData::LevelData::const_propagating_ptr", "scratch_writer_t"),
-                (19, "GHExt::PatchData::LevelData::timelevel_t", "write_scope_t"),
+                (17, "GHExt::PatchData::LevelData::GroupData::timelevel_t", "write_scope_t"),
             ],
         )
-        self.assertEqual(rules.ungranted(self.MODEL, text), [18, 19])
-        self.assertEqual(
-            reported(self.MODEL, text),
-            [("grant", "written_by<const_propagating_ptr<amrex::MultiFab>, scratch_writer_t> held_;"), ("grant", "std::vector<written_by<timelevel_t, write_scope_t>> tls;")],
-        )
+        self.assertEqual(rules.misspelled(text), [])
+        self.assertEqual(rules.ungranted(self.MODEL, text), [])
+        self.assertEqual(reported(self.MODEL, text), [])
         with mock.patch.dict(rules.GRANTS, {"GHExt::PatchData::LevelData::clock_t": ("scratch_writer_t",)}):
-            self.assertEqual(rules.ungranted(self.MODEL, text), [13, 18, 19])
+            self.assertEqual(rules.ungranted(self.MODEL, text), [13])
+            self.assertEqual(reported(self.MODEL, text), [("grant", "using clock_row_t = written_by<clock_t, clock_writer_t>;")])
+        alias_template = text.replace("using clock_row_t = written_by<clock_t, clock_writer_t>;", "template <class W> using clock_row_t = written_by<clock_t, W>;")
+        self.assertIn((13, "GHExt::PatchData::LevelData::clock_t", "W"), list(rules.friends(alias_template)))
+        self.assertEqual(rules.ungranted(self.MODEL, alias_template), [13])
 
-    def test_an_initialised_written_by_member_or_a_written_by_base_names_its_writer_too(self):
-        spelled = "written_by<clock_t, scratch_writer_t>"
+    def test_written_by_with_arguments_in_any_form_but_the_alias_is_reported(self):
+        listed, rogue = "written_by<clock_t, clock_writer_t>", "written_by<clock_t, scratch_writer_t>"
         for declaration in [
-            f"{spelled} rogue_;",
-            f"{spelled} rogue_{{}};",
-            f"{spelled} rogue_ = {{}};",
-            f"{spelled} rogue_ = {spelled}(clock_t());",
-            f"{spelled} rogue_ = {spelled}(clock_t{{}});",
-            f"static inline {spelled} rogue_{{clock_t{{}}}};",
-            f"struct rogue_t : {spelled} {{}};",
-            f"struct rogue_t : other_t, private {spelled} {{\n      int x;\n    }};",
-            f"template <class W> using rogue_row_t = written_by<clock_t, W>;",
-            f"typedef {spelled} rogue_row_t;",
+            f"{rogue} rogue_;",
+            f"{listed} second_clock_;",
+            f"{rogue} rogue_{{}};",
+            f"{rogue} rogue_ = {{}};",
+            f"{rogue} rogue_ = clock_t();",
+            f"static inline {rogue} rogue_{{clock_t{{}}}};",
+            f"struct rogue_t : {rogue} {{}};",
+            f"struct rogue_t : other_t, private {rogue} {{\n        int x;\n      }};",
+            f"using rows = std::pair<clock_row_t, {rogue}>;",
+            f"std::vector<{rogue}> rows_;",
+            f"typedef {rogue} rogue_row_t;",
+            f"using rogue_row_t = const {rogue};",
+            f"using rogue_row_t = written_by<clock_t, ns::scratch_writer_t>;",
+            f"using rogue_row_t = written_by<const_propagating_ptr<clock_t>, scratch_writer_t>;",
+            f"using rogue_row_t = {rogue}, other_t = int;",
+            f"const {rogue} &rogue_row() const;",
+            f"const {rogue} &rogue_row() const {{ return rogue_; }}",
+            f"void take({rogue} row);",
+            f"int size() const {{ return sizeof({rogue}); }}",
+            f"enum {{ size = sizeof({rogue}) }};",
         ]:
-            text = "struct GHExt {\n  struct LevelData {\n    struct clock_t {};\n    " + declaration + "\n    friend class clock_writer_t;\n  };\n};\n"
+            text = (
+                "struct GHExt {\n  struct PatchData {\n    struct LevelData {\n      struct clock_t {};\n"
+                "      using clock_row_t = written_by<clock_t, clock_writer_t>;\n      " + declaration + "\n    };\n  };\n};\n"
+            )
             with self.subTest(declaration=declaration):
-                found = list(rules.friends(text))
-                self.assertEqual([(line, owner) for line, owner, _ in found], [(4, "GHExt::LevelData::clock_t"), (len(text.splitlines()) - 2, "GHExt::LevelData")])
-                self.assertEqual(rules.ungranted(self.MODEL, text), [4, len(text.splitlines()) - 2])
+                self.assertEqual(rules.misspelled(text), [6])
+                self.assertEqual(rules.ungranted(self.MODEL, text), [6])
+                self.assertEqual([rule for rule, _ in reported(self.MODEL, text)], ["grant"])
+        pair = (
+            "struct GHExt {\n  struct PatchData {\n    struct LevelData {\n      struct clock_t {};\n"
+            f"      std::pair<{listed},\n                {rogue}> rows_;\n    }};\n  }};\n}};\n"
+        )
+        self.assertEqual(rules.misspelled(pair), [5, 6])
+        self.assertEqual(rules.ungranted(self.MODEL, pair), [5, 6])
         for declaration in [
-            f"const {spelled} &rogue_row() const;",
-            f"const {spelled} &rogue_row() const {{ return rogue_; }}",
-            f"void take({spelled} row = {{}});",
-            f"{spelled} &operator=(const {spelled} &) = default;",
             "written_by() = default;",
             "explicit written_by(T value) : value_(std::move(value)) {}",
+            "const clock_row_t &clock_row() const { return clock_; }",
+            "clock_row_t clock_{};",
+            "std::vector<clock_row_t> clocks_;",
+            "bool written_by_nobody = 1 < 2;",
         ]:
-            text = "struct GHExt {\n  struct LevelData {\n    " + declaration + "\n  };\n};\n"
+            text = "struct GHExt {\n  struct PatchData {\n    struct LevelData {\n      " + declaration + "\n    };\n  };\n};\n"
             with self.subTest(declaration=declaration):
-                self.assertEqual(list(rules.friends(text)), [])
+                self.assertEqual(rules.misspelled(text), [])
+                self.assertEqual(rules.ungranted(self.MODEL, text), [])
 
     def test_a_body_an_enum_or_a_member_initialiser_opens_no_type(self):
         text = (
