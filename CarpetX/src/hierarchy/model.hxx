@@ -368,12 +368,6 @@ struct GHExt {
                  tl.index(), record.groupname.c_str(), ring_.size());
         return ring_[tl];
       }
-      timelevel_t &timelevel(
-          const tl_t tl,
-          const std::source_location site = std::source_location::current()) {
-        return const_cast<timelevel_t &>(
-            std::as_const(*this).timelevel(tl, site));
-      }
 
     private:
       ring_t ring_;
@@ -404,11 +398,6 @@ struct GHExt {
                groupname.c_str());
       assert(array_);
       return *array_;
-    }
-    GlobalData::ArrayGroupData &
-    array(const std::source_location site = std::source_location::current()) {
-      return const_cast<GlobalData::ArrayGroupData &>(
-          std::as_const(*this).array(site));
     }
 
     using grid_function_t = CarpetX::grid_function_t;
@@ -486,11 +475,6 @@ struct GHExt {
       const gi_t gi,
       const std::source_location site = std::source_location::current()) const {
     return registry_.record(gi, site);
-  }
-  GroupRecord &
-  record(const gi_t gi,
-         const std::source_location site = std::source_location::current()) {
-    return const_cast<GroupRecord &>(std::as_const(*this).record(gi, site));
   }
   const GroupRecord &
   record_of(var_t var,
@@ -682,12 +666,6 @@ struct GHExt {
                    level.index(), ring_.size());
           return ring_[tl];
         }
-        timelevel_t &timelevel(
-            const tl_t tl,
-            const std::source_location site = std::source_location::current()) {
-          return const_cast<timelevel_t &>(
-              std::as_const(*this).timelevel(tl, site));
-        }
         int num_timelevels() const { return ring_.size(); }
         int open_write_count() const { return ring_.open_write_count(); }
 
@@ -743,23 +721,12 @@ struct GHExt {
                  level.index());
         return *gd;
       }
-      GroupData &
-      group(const gi_t gi,
-            const std::source_location site = std::source_location::current()) {
-        return const_cast<GroupData &>(std::as_const(*this).group(gi, site));
-      }
       auto groups() const {
         return storage_range<
             const GroupData,
             std::vector<std::unique_ptr<GroupData>>::const_iterator,
             group_storage_filter>(groupdata.begin(), groupdata.end(),
                                   group_storage_filter{});
-      }
-      auto groups() {
-        return storage_range<GroupData,
-                             std::vector<std::unique_ptr<GroupData>>::iterator,
-                             group_storage_filter>(
-            groupdata.begin(), groupdata.end(), group_storage_filter{});
       }
 
       struct group_present_filter {
@@ -820,16 +787,7 @@ struct GHExt {
                level.index(), patch.index(), num_levels());
       return levels()[level.index()];
     }
-    LevelData &
-    level(const level_t level,
-          const std::source_location site = std::source_location::current()) {
-      return const_cast<LevelData &>(std::as_const(*this).level(level, site));
-    }
     std::span<const LevelData> levels() const { return levels_.levels(); }
-    std::span<LevelData> levels() {
-      const std::span<const LevelData> readonly = std::as_const(*this).levels();
-      return {const_cast<LevelData *>(readonly.data()), readonly.size()};
-    }
     std::optional<window_t::bounds_t> modified_levels() const {
       return levels_.modified_levels();
     }
@@ -867,38 +825,17 @@ struct GHExt {
              patch.index(), num_patches());
     return patches()[patch.index()];
   }
-  PatchData &
-  patch(const patch_t patch,
-        const std::source_location site = std::source_location::current()) {
-    return const_cast<PatchData &>(std::as_const(*this).patch(patch, site));
-  }
   const PatchData::LevelData &level(
       const level_t level,
       const std::source_location site = std::source_location::current()) const {
     return this->patch(level.patch(), site).level(level, site);
-  }
-  PatchData::LevelData &
-  level(const level_t level,
-        const std::source_location site = std::source_location::current()) {
-    return const_cast<PatchData::LevelData &>(
-        std::as_const(*this).level(level, site));
   }
   const PatchData::LevelData::GroupData &group(
       const group_t group,
       const std::source_location site = std::source_location::current()) const {
     return this->level(group.level, site).group(group.gi, site);
   }
-  PatchData::LevelData::GroupData &
-  group(const group_t group,
-        const std::source_location site = std::source_location::current()) {
-    return const_cast<PatchData::LevelData::GroupData &>(
-        std::as_const(*this).group(group, site));
-  }
   std::span<const PatchData> patches() const { return patches_.patches(); }
-  std::span<PatchData> patches() {
-    const std::span<const PatchData> readonly = std::as_const(*this).patches();
-    return {const_cast<PatchData *>(readonly.data()), readonly.size()};
-  }
 
   const bool use_subcycling;
 
@@ -942,7 +879,6 @@ private:
   patches_t patches_;
 
   explicit GHExt(config_t config);
-  static GHExt &mutable_instance();
 
   friend struct hierarchy_writers_t;
 };

@@ -248,10 +248,6 @@ template <class Levels>
 concept assigns_leveldata =
     requires(Levels &levels) { levels.leveldata.clear(); };
 
-template <class Patch>
-concept marks_level_modified =
-    requires(Patch &patch, level_t level) { patch.mark_level_modified(level); };
-
 template <class Levels>
 concept appends_level =
     requires(Levels &levels, level_t level, const amrex::BoxArray &ba,
@@ -377,9 +373,6 @@ concept assigns_flesh_cctkGH =
 
 template <class Registry>
 concept opens_registry = requires(GHExt &ext) { Registry::of(ext); };
-
-template <class Ext>
-concept opens_mutable_door = requires { Ext::mutable_instance(); };
 
 template <class Writer>
 concept regrids = requires(Writer &writer, level_t level) {
@@ -873,7 +866,6 @@ static_assert(std::is_same_v<decltype(std::declval<const GHExt::PatchData &>()
                              std::optional<window_t::bounds_t>>);
 static_assert(!assigns_level_modified<GHExt::PatchData::levels_t>);
 static_assert(!assigns_leveldata<GHExt::PatchData::levels_t>);
-static_assert(!marks_level_modified<GHExt::PatchData::levels_t>);
 static_assert(!appends_level<GHExt::PatchData::levels_t>);
 static_assert(!replaces_level<GHExt::PatchData::levels_t>);
 static_assert(!resets_level_modified<GHExt::PatchData::levels_t>);
@@ -882,6 +874,46 @@ static_assert(!opens_levels<GHExt::PatchData::levels_t>);
 static_assert(!resets_modified<level_writer_t>);
 
 static_assert(std::is_same_v<decltype(driver()), const GHExt &>);
+static_assert(std::is_same_v<
+              decltype(std::declval<GHExt &>().record(std::declval<gi_t>())),
+              const GHExt::GroupRecord &>);
+static_assert(
+    std::is_same_v<decltype(std::declval<GHExt::GroupRecord &>().array()),
+                   const GHExt::GlobalData::ArrayGroupData &>);
+static_assert(
+    std::is_same_v<decltype(std::declval<GHExt::GlobalData::ArrayGroupData &>()
+                                .timelevel(std::declval<tl_t>())),
+                   const GHExt::GlobalData::ArrayGroupData::timelevel_t &>);
+static_assert(std::is_same_v<
+              decltype(std::declval<GHExt::PatchData::LevelData::GroupData &>()
+                           .timelevel(std::declval<tl_t>())),
+              const GHExt::PatchData::LevelData::GroupData::timelevel_t &>);
+static_assert(
+    std::is_same_v<decltype(std::declval<GHExt::PatchData::LevelData &>().group(
+                       std::declval<gi_t>())),
+                   const GHExt::PatchData::LevelData::GroupData &>);
+static_assert(
+    std::is_same_v<decltype(*std::declval<GHExt::PatchData::LevelData &>()
+                                 .groups()
+                                 .begin()),
+                   const GHExt::PatchData::LevelData::GroupData &>);
+static_assert(std::is_same_v<decltype(std::declval<GHExt::PatchData &>().level(
+                                 std::declval<level_t>())),
+                             const GHExt::PatchData::LevelData &>);
+static_assert(
+    std::is_same_v<decltype(std::declval<GHExt::PatchData &>().levels()),
+                   std::span<const GHExt::PatchData::LevelData>>);
+static_assert(std::is_same_v<
+              decltype(std::declval<GHExt &>().patch(std::declval<patch_t>())),
+              const GHExt::PatchData &>);
+static_assert(std::is_same_v<
+              decltype(std::declval<GHExt &>().level(std::declval<level_t>())),
+              const GHExt::PatchData::LevelData &>);
+static_assert(std::is_same_v<
+              decltype(std::declval<GHExt &>().group(std::declval<group_t>())),
+              const GHExt::PatchData::LevelData::GroupData &>);
+static_assert(std::is_same_v<decltype(std::declval<GHExt &>().patches()),
+                             std::span<const GHExt::PatchData>>);
 static_assert(!regrids_amrcore<GHExt::PatchData::core_t>);
 static_assert(!opens_core<GHExt::PatchData::core_t>);
 static_assert(std::is_same_v<decltype(std::declval<GHExt &>()
@@ -939,7 +971,6 @@ static_assert(!hands_out_data<array_write_scope_t>);
 static_assert(!hands_out_data<const array_write_scope_t &>);
 static_assert(!marks_initialized<GHExt::patches_t>);
 static_assert(!marks_initialized<const GHExt::patches_t>);
-static_assert(!opens_mutable_door<GHExt>);
 static_assert(!std::is_constructible_v<GHExt::cctkGHptr, cGH *>);
 static_assert(!std::is_assignable_v<GHExt::cctkGHptr &, cGH *>);
 

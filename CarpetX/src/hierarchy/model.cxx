@@ -110,8 +110,6 @@ void delete_cctkGH(cGH *cctkGH) {
 }
 } // namespace
 
-GHExt &GHExt::mutable_instance() { return existing_hierarchy(); }
-
 const GHExt &driver() { return existing_hierarchy(); }
 
 int current_iteration() {
