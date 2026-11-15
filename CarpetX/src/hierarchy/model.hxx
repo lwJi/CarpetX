@@ -151,7 +151,19 @@ struct GHExt {
     cGH *get() const { return cctkGH; }
   };
 
-  std::vector<cctkGHptr> level_cctkGHs; // [reflevel]
+  class level_set_t {
+  public:
+    CCTK_INT epoch() const { return epoch_; }
+    const std::vector<cctkGHptr> &level_cctkGHs() const {
+      return level_cctkGHs_;
+    }
+
+  private:
+    CCTK_INT epoch_ = 0;
+    std::vector<cctkGHptr> level_cctkGHs_;
+    static level_set_t &of(GHExt &ext);
+    friend class level_writer_t;
+  };
 
   struct GroupRecord;
 
@@ -481,7 +493,7 @@ struct GHExt {
   }
 
   bool is_initialized() const { return patches_.is_initialized(); }
-  CCTK_INT epoch() const { return epoch_; }
+  CCTK_INT epoch() const { return level_set_.epoch(); }
 
   struct PatchData {
     PatchData() = delete;
@@ -713,7 +725,26 @@ struct GHExt {
       std::map<ghost_mask_key_t, amrex::iMultiFab> ghost_masks;
     };
 
-    int num_levels() const { return leveldata.size(); }
+    class levels_t {
+    public:
+      std::span<const LevelData> levels() const { return leveldata; }
+      std::optional<window_t::bounds_t> modified_levels() const;
+
+    private:
+      std::vector<LevelData> leveldata;
+      std::vector<bool> level_modified;
+
+      static void reset_level_modified(GHExt &ext, patch_t patch);
+      LevelData &add_level(level_t level, const amrex::BoxArray &ba,
+                           const amrex::DistributionMapping &dm,
+                           const std::function<std::string()> &why);
+      LevelData replace_level(level_t level, LevelData &&fresh);
+      void erase_levels_from(level_t level);
+      static levels_t &of(GHExt &ext, patch_t patch);
+      friend class level_writer_t;
+    };
+
+    int num_levels() const { return levels().size(); }
     level_range level_handles() const {
       return level_range{level_t{patch, 0}, level_t{patch, num_levels()}};
     }
@@ -725,30 +756,24 @@ struct GHExt {
         refuse(site,
                "CarpetX level %d does not exist on patch %d: it has %d levels",
                level.index(), patch.index(), num_levels());
-      return leveldata[level.index()];
+      return levels()[level.index()];
     }
     LevelData &
     level(const level_t level,
           const std::source_location site = std::source_location::current()) {
       return const_cast<LevelData &>(std::as_const(*this).level(level, site));
     }
-    std::span<const LevelData> levels() const { return leveldata; }
-    std::span<LevelData> levels() { return leveldata; }
-    std::optional<window_t::bounds_t> modified_levels() const;
+    std::span<const LevelData> levels() const { return levels_.levels(); }
+    std::span<LevelData> levels() {
+      const std::span<const LevelData> readonly = std::as_const(*this).levels();
+      return {const_cast<LevelData *>(readonly.data()), readonly.size()};
+    }
+    std::optional<window_t::bounds_t> modified_levels() const {
+      return levels_.modified_levels();
+    }
 
   private:
-    std::vector<LevelData> leveldata;
-    std::vector<bool> level_modified;
-
-    void reset_level_modified();
-    LevelData &add_level(level_t level, const amrex::BoxArray &ba,
-                         const amrex::DistributionMapping &dm,
-                         const std::function<std::string()> &why);
-    LevelData replace_level(level_t level, LevelData &&fresh);
-    void erase_levels_from(level_t level);
-
-    friend class structure_writer_t;
-    friend class level_writer_t;
+    levels_t levels_;
   };
 
   class patches_t {
@@ -830,12 +855,12 @@ struct GHExt {
   cGH *flesh_cctkGH() const { return registry_.flesh_cctkGH(); }
   cGH *get_global_cctkGH() const { return registry_.global_cctkGH(); }
   cGH *get_level_cctkGH(const level_t level) const {
-    return level_cctkGHs.at(level.index()).get();
+    return level_set_.level_cctkGHs().at(level.index()).get();
   }
 
   template <typename F> void for_each_cctkGH(F &&f) const {
     f(get_global_cctkGH());
-    for (const auto &level_cctkGH : level_cctkGHs)
+    for (const auto &level_cctkGH : level_set_.level_cctkGHs())
       f(level_cctkGH.get());
     for (const auto &patch : patches())
       for (const auto &level : patch.levels())
@@ -847,7 +872,7 @@ struct GHExt {
   }
 
 private:
-  CCTK_INT epoch_ = 0;
+  level_set_t level_set_;
   const amrcore_factory make_core_;
   const level_buffers_factory make_buffers_;
   registry_t registry_;
@@ -857,7 +882,6 @@ private:
   static GHExt &mutable_instance();
 
   friend class clock_writer_t;
-  friend class level_writer_t;
   friend struct hierarchy_writers_t;
   friend struct cctkGH_binding;
   friend class write_scope_t;

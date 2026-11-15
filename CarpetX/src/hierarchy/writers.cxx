@@ -2,6 +2,7 @@
 #include "hierarchy/binding.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/model.hxx"
+#include "hierarchy/modes.hxx"
 #include "hierarchy/scopes.hxx"
 
 #include <carpetx.hxx>
@@ -45,6 +46,26 @@ const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
   return GHExt::patches_t::add_patch(ext, levels, patch);
 }
 
+GHExt::PatchData::levels_t &level_writer_t::changing(const patch_t patch) {
+  ++GHExt::level_set_t::of(ext).epoch_;
+  return GHExt::PatchData::levels_t::of(ext, patch);
+}
+
+void level_writer_t::ensure_level_cctkGH(const level_t level) {
+  auto &level_set = GHExt::level_set_t::of(ext);
+  if (int(level_set.level_cctkGHs_.size()) > level.index())
+    return;
+  cGH *const cctkGH = ext.get_global_cctkGH();
+  enter_level_mode(cctkGH, level);
+  assert(int(level_set.level_cctkGHs_.size()) == level.index());
+  level_set.level_cctkGHs_.push_back(GHExt::cctkGHptr::copy_of(cctkGH));
+  leave_level_mode(cctkGH, level);
+}
+
+void level_writer_t::reset_modified(const patch_t patch) {
+  GHExt::PatchData::levels_t::reset_level_modified(ext, patch);
+}
+
 const GHExt::PatchData::LevelData &
 level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
                           const amrex::DistributionMapping &dm,
@@ -56,8 +77,9 @@ level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
     CCTK_VINFO("SetupLevel patch %d level %d", level.patch().index(),
                level.index());
 
+  ensure_level_cctkGH(level);
   const GHExt::PatchData::LevelData &leveldata =
-      ext.patch(level.patch()).add_level(level, ba, dm, why);
+      changing(level.patch()).add_level(level, ba, dm, why);
 
   if (verbose)
 #pragma omp critical
@@ -90,11 +112,11 @@ level_writer_t::remake_level(const level_t level, const amrex::BoxArray &ba,
                              const amrex::DistributionMapping &dm,
                              const std::function<std::string()> &why) {
   GHExt::PatchData::LevelData fresh(level, ba, dm, why);
-  return ext.patch(level.patch()).replace_level(level, std::move(fresh));
+  return changing(level.patch()).replace_level(level, std::move(fresh));
 }
 
 void level_writer_t::erase_levels_from(const level_t level) {
-  ext.patch(level.patch()).erase_levels_from(level);
+  changing(level.patch()).erase_levels_from(level);
 }
 
 void structure_writer_t::set_max_grid_size(
@@ -113,9 +135,8 @@ void structure_writer_t::mark_initialized() {
 
 void structure_writer_t::regrid(const level_t base_level,
                                 const CCTK_REAL time) {
-  GHExt::PatchData &patchdata = ext.patch(base_level.patch());
-  patchdata.reset_level_modified();
-  patchdata.amrcore->regrid(base_level.index(), time);
+  levels.reset_modified(base_level.patch());
+  ext.patch(base_level.patch()).amrcore->regrid(base_level.index(), time);
 }
 
 void structure_writer_t::set_finest_level(const level_t finest_level) {

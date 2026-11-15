@@ -138,6 +138,10 @@ GHExt::~GHExt() {
   ghext = nullptr;
 }
 
+GHExt::level_set_t &GHExt::level_set_t::of(GHExt &ext) {
+  return const_cast<level_set_t &>(std::as_const(ext).level_set_);
+}
+
 GHExt::patches_t &GHExt::patches_t::of(GHExt &ext) {
   return const_cast<patches_t &>(std::as_const(ext).patches_);
 }
@@ -240,41 +244,48 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
   }
 }
 
+GHExt::PatchData::levels_t &
+GHExt::PatchData::levels_t::of(GHExt &ext, const patch_t patch) {
+  return const_cast<levels_t &>(std::as_const(ext).patch(patch).levels_);
+}
+
 GHExt::PatchData::LevelData &
-GHExt::PatchData::add_level(const level_t level, const amrex::BoxArray &ba,
-                            const amrex::DistributionMapping &dm,
-                            const std::function<std::string()> &why) {
-  assert(level.patch() == patch && level.index() == num_levels());
-  assert(int(level_modified.size()) == num_levels());
-  ++GHExt::mutable_instance().epoch_;
+GHExt::PatchData::levels_t::add_level(const level_t level,
+                                      const amrex::BoxArray &ba,
+                                      const amrex::DistributionMapping &dm,
+                                      const std::function<std::string()> &why) {
+  assert(level.index() == int(leveldata.size()));
+  assert(level_modified.size() == leveldata.size());
   level_modified.push_back(true);
   return leveldata.emplace_back(level, ba, dm, why);
 }
 
-GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
-                                                            LevelData &&fresh) {
+GHExt::PatchData::LevelData
+GHExt::PatchData::levels_t::replace_level(const level_t level,
+                                          LevelData &&fresh) {
   assert(fresh.level == level);
-  ++GHExt::mutable_instance().epoch_;
+  assert(level.index() >= 0 && level.index() < int(leveldata.size()));
   using std::swap;
-  swap(this->level(level), fresh);
+  swap(leveldata[level.index()], fresh);
   level_modified.at(level.index()) = true;
   return std::move(fresh);
 }
 
-void GHExt::PatchData::erase_levels_from(const level_t level) {
-  assert(level.patch() == patch && level.index() >= 0 &&
-         level.index() <= num_levels());
-  ++GHExt::mutable_instance().epoch_;
+void GHExt::PatchData::levels_t::erase_levels_from(const level_t level) {
+  assert(level.index() >= 0 && level.index() <= int(leveldata.size()));
   leveldata.erase(leveldata.begin() + level.index(), leveldata.end());
   level_modified.resize(level.index());
 }
 
-void GHExt::PatchData::reset_level_modified() {
-  assert(num_levels() == amrcore->finestLevel() + 1);
-  level_modified.assign(num_levels(), false);
+void GHExt::PatchData::levels_t::reset_level_modified(GHExt &ext,
+                                                      const patch_t patch) {
+  const PatchData &patchdata = std::as_const(ext).patch(patch);
+  assert(patchdata.num_levels() == patchdata.amrcore->finestLevel() + 1);
+  of(ext, patch).level_modified.assign(patchdata.num_levels(), false);
 }
 
-std::optional<window_t::bounds_t> GHExt::PatchData::modified_levels() const {
+std::optional<window_t::bounds_t>
+GHExt::PatchData::levels_t::modified_levels() const {
   std::optional<window_t::bounds_t> bounds;
   for (int lev = 0; lev < int(level_modified.size()); ++lev) {
     if (!level_modified.at(lev))
@@ -291,19 +302,18 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
                                        const amrex::BoxArray &ba,
                                        const amrex::DistributionMapping &dm,
                                        const std::function<std::string()> &why)
-    : level(level),
-      buffers(GHExt::mutable_instance().make_buffers_(level, ba, dm)) {
+    : level(level), buffers(driver().make_buffers_(level, ba, dm)) {
   assert(this->buffers);
   DECLARE_CCTK_PARAMETERS;
 
-  GHExt &ext = GHExt::mutable_instance();
+  const GHExt &ext = driver();
   if (level.index() == 0) {
     iteration = 0;
     delta_iteration = 1;
     last_step_iteration = 0;
     last_finalized_iteration = 0;
   } else {
-    auto &coarseleveldata = ext.level(level.parent());
+    const auto &coarseleveldata = ext.level(level.parent());
     iteration = coarseleveldata.iteration;
     delta_iteration = coarseleveldata.delta_iteration /
                       (ext.use_subcycling ? time_refinement : 1);
@@ -360,13 +370,7 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
     ghost_masks.emplace(key, std::move(mask));
   }
 
-  if (int(ext.level_cctkGHs.size()) <= level.index()) {
-    cGH *const cctkGH = ext.get_global_cctkGH();
-    enter_level_mode(cctkGH, level);
-    assert(int(ext.level_cctkGHs.size()) == level.index());
-    ext.level_cctkGHs.push_back(GHExt::cctkGHptr::copy_of(cctkGH));
-    leave_level_mode(cctkGH, level);
-  }
+  assert(level.index() < int(ext.level_set_.level_cctkGHs().size()));
 
   {
     LevelData &leveldata = *this;

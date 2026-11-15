@@ -220,8 +220,15 @@ template <class Ext>
 concept assigns_is_initialized =
     requires(Ext &ext) { ext.is_initialized() = true; };
 
-template <class Ext>
-concept assigns_epoch_member = requires(Ext &ext) { ext.epoch_ = 0; };
+template <class Set>
+concept assigns_epoch_member = requires(Set &set) { set.epoch_ = 0; };
+
+template <class Set>
+concept assigns_level_cctkGHs =
+    requires(Set &set) { set.level_cctkGHs_.clear(); };
+
+template <class Set>
+concept opens_level_set = requires(GHExt &ext) { Set::of(ext); };
 
 template <class Ext>
 concept assigns_epoch = requires(Ext &ext) { ext.epoch() = 0; };
@@ -233,17 +240,42 @@ template <class... Args>
 concept create_hierarchy_takes =
     requires(Args... args) { create_hierarchy(args...); };
 
-template <class Patch>
+template <class Levels>
 concept assigns_level_modified =
-    requires(Patch &patch) { patch.level_modified.at(0) = true; };
+    requires(Levels &levels) { levels.level_modified.at(0) = true; };
+
+template <class Levels>
+concept assigns_leveldata =
+    requires(Levels &levels) { levels.leveldata.clear(); };
 
 template <class Patch>
 concept marks_level_modified =
     requires(Patch &patch, level_t level) { patch.mark_level_modified(level); };
 
-template <class Patch>
-concept resets_level_modified =
-    requires(Patch &patch) { patch.reset_level_modified(); };
+template <class Levels>
+concept appends_level =
+    requires(Levels &levels, level_t level, const amrex::BoxArray &ba,
+             const amrex::DistributionMapping &dm) {
+      levels.add_level(level, ba, dm, std::function<std::string()>());
+    };
+
+template <class Levels>
+concept replaces_level = requires(Levels &levels, level_t level) {
+  levels.replace_level(level, std::declval<GHExt::PatchData::LevelData &&>());
+};
+
+template <class Levels>
+concept resets_level_modified = requires(GHExt &ext, patch_t patch) {
+  Levels::reset_level_modified(ext, patch);
+};
+
+template <class Levels>
+concept opens_levels =
+    requires(GHExt &ext, patch_t patch) { Levels::of(ext, patch); };
+
+template <class Writer>
+concept resets_modified =
+    requires(Writer &writer, patch_t patch) { writer.reset_modified(patch); };
 
 template <class Ext>
 concept regrids_amrcore = requires(Ext &ext, patch_t patch) {
@@ -788,16 +820,25 @@ static_assert(!opens_patches<GHExt::patches_t>);
 
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().epoch()), CCTK_INT>);
-static_assert(!assigns_epoch_member<GHExt>);
+static_assert(!assigns_epoch_member<GHExt::level_set_t>);
 static_assert(!assigns_epoch<GHExt>);
 static_assert(!bumps_epoch<GHExt>);
+static_assert(!bumps_epoch<GHExt::level_set_t>);
+static_assert(!assigns_level_cctkGHs<GHExt::level_set_t>);
+static_assert(!opens_level_set<GHExt::level_set_t>);
 
 static_assert(std::is_same_v<decltype(std::declval<const GHExt::PatchData &>()
                                           .modified_levels()),
                              std::optional<window_t::bounds_t>>);
-static_assert(!assigns_level_modified<GHExt::PatchData>);
-static_assert(!marks_level_modified<GHExt::PatchData>);
-static_assert(!resets_level_modified<GHExt::PatchData>);
+static_assert(!assigns_level_modified<GHExt::PatchData::levels_t>);
+static_assert(!assigns_leveldata<GHExt::PatchData::levels_t>);
+static_assert(!marks_level_modified<GHExt::PatchData::levels_t>);
+static_assert(!appends_level<GHExt::PatchData::levels_t>);
+static_assert(!replaces_level<GHExt::PatchData::levels_t>);
+static_assert(!resets_level_modified<GHExt::PatchData::levels_t>);
+static_assert(!erases_levels<GHExt::PatchData::levels_t>);
+static_assert(!opens_levels<GHExt::PatchData::levels_t>);
+static_assert(!resets_modified<level_writer_t>);
 
 static_assert(std::is_same_v<decltype(driver()), const GHExt &>);
 static_assert(regrids_amrcore<GHExt>);

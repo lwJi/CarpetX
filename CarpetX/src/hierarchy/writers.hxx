@@ -67,6 +67,9 @@ public:
 private:
   explicit level_writer_t(GHExt &ext) : ext(ext) {}
   GHExt &ext;
+  GHExt::PatchData::levels_t &changing(patch_t patch);
+  void ensure_level_cctkGH(level_t level);
+  void reset_modified(patch_t patch);
   friend class structure_writer_t;
 };
 

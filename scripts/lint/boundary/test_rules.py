@@ -501,7 +501,7 @@ class Grant(unittest.TestCase):
         text = (
             "namespace CarpetX {\n"
             "struct GHExt {\n"
-            "  struct PatchData {\n"
+            "  class patches_t {\n"
             "    friend class structure_writer_t;\n"
             "    friend class clock_writer_t;\n"
             "  };\n"
@@ -521,8 +521,8 @@ class Grant(unittest.TestCase):
         self.assertEqual(
             list(rules.friends(text)),
             [
-                (4, "GHExt::PatchData", "structure_writer_t"),
-                (5, "GHExt::PatchData", "clock_writer_t"),
+                (4, "GHExt::patches_t", "structure_writer_t"),
+                (5, "GHExt::patches_t", "clock_writer_t"),
                 (7, "GHExt", "clock_writer_t"),
                 (11, "GHExt::GlobalData::ArrayGroupData::timelevel_t", "array_write_scope_t"),
                 (12, "GHExt::GlobalData::ArrayGroupData::timelevel_t", "write_scope_t"),
@@ -2322,7 +2322,7 @@ class Doc(unittest.TestCase):
                 self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
         found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
         self.assertEqual(found, sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
-        self.assertEqual(len(found), 29)
+        self.assertEqual(len(found), 28)
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):
