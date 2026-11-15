@@ -67,6 +67,7 @@ public:
 private:
   explicit clock_writer_t(const GHExt &ext) : stage(*this), ext(ext) {}
   const GHExt &ext;
+  template <class Change> void change(Change &&change_clock);
   void set_stage(CCTK_REAL time, CCTK_REAL delta_time);
   friend struct hierarchy_writers_t;
   friend class stage_writer_t;
