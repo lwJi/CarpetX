@@ -532,6 +532,41 @@ class Grant(unittest.TestCase):
         self.assertEqual(rules.ungranted(self.MODEL, text), [5, 12])
         self.assertEqual(reported(self.MODEL, text), [("grant", "friend class clock_writer_t;"), ("grant", "friend class write_scope_t;")])
 
+    def test_a_written_by_member_is_the_friend_line_of_its_writer_under_its_row(self):
+        text = (
+            "template <class T, class Writer> class written_by {\n"
+            "public:\n"
+            "  written_by() = default;\n"
+            "  explicit written_by(T value) : value_(std::move(value)) {}\n"
+            "private:\n"
+            "  T &open(const Writer &) const { return const_cast<T &>(value_); }\n"
+            "  friend Writer;\n"
+            "};\n"
+            "struct GHExt {\n"
+            "  struct PatchData {\n"
+            "    struct LevelData {\n"
+            "      struct clock_t {};\n"
+            "      const written_by<clock_t, clock_writer_t> &clock() const { return clock_; }\n"
+            "    private:\n"
+            "      written_by<clock_t, clock_writer_t> clock_;\n"
+            "      written_by<const_propagating_ptr<amrex::MultiFab>, scratch_writer_t> held_;\n"
+            "    };\n"
+            "  };\n"
+            "};\n"
+        )
+        self.assertEqual(
+            list(rules.friends(text)),
+            [
+                (7, "written_by", "Writer"),
+                (15, "GHExt::PatchData::LevelData::clock_t", "clock_writer_t"),
+                (16, "GHExt::PatchData::LevelData::const_propagating_ptr", "scratch_writer_t"),
+            ],
+        )
+        self.assertEqual(rules.ungranted(self.MODEL, text), [16])
+        self.assertEqual(reported(self.MODEL, text), [("grant", "written_by<const_propagating_ptr<amrex::MultiFab>, scratch_writer_t> held_;")])
+        with mock.patch.dict(rules.GRANTS, {"GHExt::PatchData::LevelData::clock_t": ("scratch_writer_t",)}):
+            self.assertEqual(rules.ungranted(self.MODEL, text), [15, 16])
+
     def test_a_body_an_enum_or_a_member_initialiser_opens_no_type(self):
         text = (
             "struct GHExt {\n"
@@ -2322,7 +2357,7 @@ class Doc(unittest.TestCase):
                 self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
         found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
         self.assertEqual(found, sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
-        self.assertEqual(len(found), 26)
+        self.assertEqual(len(found), 27)
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):

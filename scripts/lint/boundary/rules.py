@@ -67,6 +67,7 @@ STEMS = {
 assert set(STEMS) <= set(LAYERS), STEMS
 STEMS_HOME = READS_HOME
 GRANTS = {
+    "written_by": ("Writer",),
     "GHExt": ("hierarchy_writers_t",),
     "GHExt::registry_t": ("registry_writer_t",),
     "GHExt::level_set_t": ("level_writer_t",),
@@ -93,6 +94,8 @@ GRANTS = {
 }
 GRANTS_HOME = READS_HOME
 GRANT_LAYER = "hierarchy"
+GRANT_WRAPPER = "written_by"
+assert GRANT_WRAPPER in GRANTS, GRANTS
 HIERARCHY_LAYERS = LAYERS[LAYERS.index("hierarchy") :]
 UNDER_HIERARCHY = LAYERS[: LAYERS.index("hierarchy")]
 ROOT_HEADER = "internal.hxx"
@@ -476,6 +479,25 @@ def class_named(head: list[tuple[str, int]]) -> Optional[str]:
     return None
 
 
+def wrapped(words: list[str]) -> Optional[tuple[str, str]]:
+    if words[:2] != [GRANT_WRAPPER, "<"]:
+        return None
+    arguments: list[list[str]] = [[]]
+    depth = 0
+    for word in words[1:]:
+        depth += word == "<"
+        depth -= word == ">"
+        if depth == 0:
+            break
+        if depth == 1 and word == ",":
+            arguments.append([])
+        elif (depth, word) != (1, "<"):
+            arguments[-1].append(word)
+    if len(arguments) != 2:
+        return None
+    return friend_name(arguments[0]), friend_name(arguments[1])
+
+
 def friends(text: str) -> Iterator[tuple[int, str, str]]:
     scopes: list[Optional[str]] = []
     head: list[tuple[str, int]] = []
@@ -485,8 +507,11 @@ def friends(text: str) -> Iterator[tuple[int, str, str]]:
         word = token.text
         if word in (";", "{"):
             declaration = unqualified(head)
+            member = wrapped([w for w, _ in declaration])
             if declaration[:1] and declaration[0][0] == "friend":
                 yield declaration[0][1], "::".join(scope for scope in scopes if scope), friend_name([w for w, _ in declaration[1:]])
+            elif member:
+                yield declaration[0][1], "::".join([scope for scope in scopes if scope] + [member[0]]), member[1]
             if word == "{":
                 scopes.append(class_named(declaration))
             head = []
@@ -601,7 +626,8 @@ RULES = (
         allowed=granted,
         text=f"a friend line in a header of {GRANT_LAYER}/ is an entry of the table GRANTS in {GRANTS_HOME}, under the type it "
         "sits in, spelled with the types that type is nested in, and naming the class or function it befriends, so that "
-        "granting a holder the private members of a type is an edit of that table; the tests refuse an entry no friend "
+        f"granting a holder the private members of a type is an edit of that table; a member declared {GRANT_WRAPPER}<T, W> is the "
+        "friend line of W under T, spelled the same way, because only W opens it for writing; the tests refuse an entry no friend "
         "line backs, and agent_docs/carpetx-internals.md lists the table.",
         noun="friend line",
         where="GRANTS does not list",

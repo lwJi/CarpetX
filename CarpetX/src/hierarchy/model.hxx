@@ -60,6 +60,20 @@ private:
   std::unique_ptr<T> ptr_;
 };
 
+template <class T, class Writer> class written_by {
+public:
+  written_by() = default;
+  explicit written_by(T value) : value_(std::move(value)) {}
+
+  const T &get() const { return value_; }
+  const T *operator->() const { return &value_; }
+
+private:
+  T value_;
+  T &open(const Writer &) const { return const_cast<T &>(value_); }
+  friend Writer;
+};
+
 template <typename U> U &storage_entry(U &entry) { return entry; }
 template <typename U> U &storage_entry(U *const entry) { return *entry; }
 template <typename U> U &storage_entry(std::unique_ptr<U> &entry) {
@@ -111,6 +125,7 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 
 ////////////////////////////////////////////////////////////////////////////////
 
+class clock_writer_t;
 class level_writer_t;
 using amrcore_factory = std::unique_ptr<amrex::AmrCore> (*)(
     level_writer_t &levels, patch_t patch, const amrex::RealBox &domain, int,
@@ -538,34 +553,19 @@ struct GHExt {
 
       level_t level;
 
-      class clock_t {
-      public:
-        clock_t() = default;
-        clock_t(const rat64 iteration, const rat64 delta_iteration,
-                const int last_step_iteration,
-                const int last_finalized_iteration)
-            : iteration_(iteration), delta_iteration_(delta_iteration),
-              last_step_iteration_(last_step_iteration),
-              last_finalized_iteration_(last_finalized_iteration) {}
-        rat64 iteration() const { return iteration_; }
-        rat64 delta_iteration() const { return delta_iteration_; }
-        int last_step_iteration() const { return last_step_iteration_; }
-        int last_finalized_iteration() const {
-          return last_finalized_iteration_;
-        }
-
-      private:
-        rat64 iteration_, delta_iteration_;
-        int last_step_iteration_ = 0, last_finalized_iteration_ = 0;
-        static clock_t &of(GHExt &ext, level_t level);
-        friend class clock_writer_t;
+      struct clock_t {
+        rat64 iteration, delta_iteration;
+        int last_step_iteration = 0, last_finalized_iteration = 0;
       };
+      const written_by<clock_t, clock_writer_t> &clock() const {
+        return clock_;
+      }
 
-      rat64 iteration() const { return clock_.iteration(); }
-      rat64 delta_iteration() const { return clock_.delta_iteration(); }
-      int last_step_iteration() const { return clock_.last_step_iteration(); }
+      rat64 iteration() const { return clock_->iteration; }
+      rat64 delta_iteration() const { return clock_->delta_iteration; }
+      int last_step_iteration() const { return clock_->last_step_iteration; }
       int last_finalized_iteration() const {
-        return clock_.last_finalized_iteration();
+        return clock_->last_finalized_iteration;
       }
 
       // Fabamrex::ArrayBase object holding a cell-centred BoxArray for
@@ -749,7 +749,7 @@ struct GHExt {
       }
 
     private:
-      clock_t clock_;
+      written_by<clock_t, clock_writer_t> clock_;
       std::vector<std::unique_ptr<GroupData>> groupdata;
       std::map<ghost_mask_key_t, amrex::iMultiFab> ghost_masks;
     };

@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable, Iterator
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, GRANT_LAYER, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, READS_TEXT, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, statements, ungranted
+from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, GRANT_LAYER, GRANT_WRAPPER, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, READS_TEXT, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, statements, ungranted
 from comments.lex_cxx import lex
 from comments.tokens import Kind
 from files import PROJECT
@@ -714,6 +714,7 @@ def owns(root: str = PROJECT) -> str:
 GRANTS_HEADING = "## Who is granted what"
 GRANTS_INTRO = (
     f"Each row is a name that a `friend` line in a header of `{GRANT_LAYER}/` grants, and the types whose private members it reaches. "
+    f"A member declared `{GRANT_WRAPPER}<T, W>` is the friend line of `W` under `T`: every holder reads `T` through it, and only `W` opens it for writing. "
     f"The table GRANTS in {GRANTS_HOME} is those lines: the grant rule refuses a friend line the table lacks, and the tests refuse an entry no line backs."
 )
 

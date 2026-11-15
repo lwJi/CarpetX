@@ -311,14 +311,13 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
 
   const GHExt &ext = driver();
   if (level.index() == 0) {
-    clock_ = clock_t(0, 1, 0, 0);
+    clock_ = decltype(clock_)(clock_t{0, 1, 0, 0});
   } else {
-    const auto &coarseleveldata = ext.level(level.parent());
-    clock_ = clock_t(coarseleveldata.iteration(),
-                     coarseleveldata.delta_iteration() /
-                         (ext.use_subcycling ? time_refinement : 1),
-                     coarseleveldata.last_step_iteration(),
-                     coarseleveldata.last_finalized_iteration());
+    const clock_t &coarse = ext.level(level.parent()).clock().get();
+    clock_ = decltype(clock_)(clock_t{
+        coarse.iteration,
+        coarse.delta_iteration / (ext.use_subcycling ? time_refinement : 1),
+        coarse.last_step_iteration, coarse.last_finalized_iteration});
   }
 
   const amrex::IntVect nghostzones = {
@@ -388,11 +387,6 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
     }
     leave_patch_mode(cctkGH, leveldata);
   }
-}
-
-GHExt::PatchData::LevelData::clock_t &
-GHExt::PatchData::LevelData::clock_t::of(GHExt &ext, const level_t level) {
-  return const_cast<clock_t &>(std::as_const(ext).level(level).clock_);
 }
 
 GHExt::PatchData::LevelData::GroupData::GroupData(
