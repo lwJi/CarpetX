@@ -413,8 +413,8 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
       const amrex::FabArrayBase &fab = *leveldata.fab;
       for (const component_t component : components_of(fab))
         levelrecord.boxes.push_back(fab.box(component.index()));
-      levelrecord.iteration = leveldata.iteration;
-      levelrecord.last_step_iteration = leveldata.last_step_iteration;
+      levelrecord.iteration = leveldata.iteration();
+      levelrecord.last_step_iteration = leveldata.last_step_iteration();
       snapshot_geometry(levelrecord, leveldata.level);
     }
   }

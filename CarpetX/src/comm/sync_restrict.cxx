@@ -195,7 +195,7 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
   const auto &restrict coarsegroupdata = coarseleveldata.group(gi);
   const bool recovering =
       recovered_iteration() >= 0 &&
-      coarseleveldata.last_finalized_iteration <= recovered_iteration();
+      coarseleveldata.last_finalized_iteration() <= recovered_iteration();
 
   const std::function<std::string()> hint = [&coarsegroupdata, tl,
                                              recovering]() -> std::string {
@@ -529,7 +529,7 @@ static bool
 integrator_owns_coarse_fine_ghosts(const GHExt::PatchData::LevelData &leveldata,
                                    const gi_t gi) {
   return leveldata.level.index() > 0 && group_is_integrated(gi) &&
-         leveldata.iteration > 0;
+         leveldata.iteration() > 0;
 }
 
 static void SyncGroupsSubcycling(const window_t window,

@@ -538,23 +538,35 @@ struct GHExt {
 
       level_t level;
 
-      // Iteration and time at which this cycle level is valid
-      rat64 iteration, delta_iteration;
+      class clock_t {
+      public:
+        clock_t() = default;
+        clock_t(const rat64 iteration, const rat64 delta_iteration,
+                const int last_step_iteration,
+                const int last_finalized_iteration)
+            : iteration_(iteration), delta_iteration_(delta_iteration),
+              last_step_iteration_(last_step_iteration),
+              last_finalized_iteration_(last_finalized_iteration) {}
+        rat64 iteration() const { return iteration_; }
+        rat64 delta_iteration() const { return delta_iteration_; }
+        int last_step_iteration() const { return last_step_iteration_; }
+        int last_finalized_iteration() const {
+          return last_finalized_iteration_;
+        }
 
-      // The cctk_iteration in which this level's clock group reached its
-      // current clock: stamped by Evolve after every batch's EVOL on the
-      // widened window, 0 on a fresh start, the parent's value when a regrid
-      // creates or remakes the level, and the checkpointed value on
-      // recovery. Recovery replays CCTK_POST_RECOVER_VARIABLES in this
-      // context. Checkpointed next to the level's clock.
-      int last_step_iteration;
+      private:
+        rat64 iteration_, delta_iteration_;
+        int last_step_iteration_ = 0, last_finalized_iteration_ = 0;
+        static clock_t &of(GHExt &ext, level_t level);
+        friend class clock_writer_t;
+      };
 
-      // The cctk_iteration of the last end-of-step window (POSTSTEP,
-      // ANALYSIS) that covered this level, i.e. when it was last finalized:
-      // stamped by Evolve after each such window, 0 on a fresh start and on
-      // recovery, the parent's value when a regrid creates or remakes the
-      // level. Not checkpointed.
-      int last_finalized_iteration;
+      rat64 iteration() const { return clock_.iteration(); }
+      rat64 delta_iteration() const { return clock_.delta_iteration(); }
+      int last_step_iteration() const { return clock_.last_step_iteration(); }
+      int last_finalized_iteration() const {
+        return clock_.last_finalized_iteration();
+      }
 
       // Fabamrex::ArrayBase object holding a cell-centred BoxArray for
       // iterating over grid functions. This stores the grid structure
@@ -749,6 +761,7 @@ struct GHExt {
       }
 
     private:
+      clock_t clock_;
       std::vector<std::unique_ptr<GroupData>> groupdata;
       std::map<ghost_mask_key_t, amrex::iMultiFab> ghost_masks;
     };
@@ -909,7 +922,6 @@ private:
   explicit GHExt(config_t config);
   static GHExt &mutable_instance();
 
-  friend class clock_writer_t;
   friend struct hierarchy_writers_t;
   friend class write_scope_t;
   friend class array_write_scope_t;

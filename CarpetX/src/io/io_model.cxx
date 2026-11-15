@@ -264,9 +264,9 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::Key << "level" << YAML::Value << leveldata.level.index();
   yaml << YAML::Key << "is_subcycling_level" << YAML::Value
        << (driver().use_subcycling && leveldata.level.index() > 0);
-  yaml << YAML::Key << "iteration" << YAML::Value << leveldata.iteration;
+  yaml << YAML::Key << "iteration" << YAML::Value << leveldata.iteration();
   yaml << YAML::Key << "delta_iteration" << YAML::Value
-       << leveldata.delta_iteration;
+       << leveldata.delta_iteration();
   yaml << YAML::Key << "fab" << YAML::Value << *leveldata.fab;
   yaml << YAML::Key << "groupdata" << YAML::Value << YAML::BeginSeq;
   for (const auto &groupdata : leveldata.all_groups())

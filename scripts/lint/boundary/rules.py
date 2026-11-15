@@ -68,7 +68,6 @@ assert set(STEMS) <= set(LAYERS), STEMS
 STEMS_HOME = READS_HOME
 GRANTS = {
     "GHExt": (
-        "clock_writer_t",
         "hierarchy_writers_t",
         "write_scope_t",
         "array_write_scope_t",
@@ -77,6 +76,7 @@ GRANTS = {
     "GHExt::level_set_t": ("level_writer_t",),
     "GHExt::patches_t": ("structure_writer_t",),
     "GHExt::PatchData::levels_t": ("level_writer_t",),
+    "GHExt::PatchData::LevelData::clock_t": ("clock_writer_t",),
     "GHExt::PatchData::LevelData::GroupData::timelevel_t": ("write_scope_t",),
     "GHExt::PatchData::LevelData::GroupData::scratch_pool_t": ("scratch_writer_t",),
     "GHExt::PatchData::LevelData::GroupData::ring_t": ("cctkGH_binding",),

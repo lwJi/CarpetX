@@ -243,32 +243,35 @@ amrex::MultiFab &scratch_writer_t::mfab(const group_t group,
 
 void clock_writer_t::advance_clocks(const window_t window) {
   loop_serially(window, [this](const GHExt::PatchData::LevelData &leveldata) {
-    auto &clock = ext.level(leveldata.level);
-    clock.iteration += clock.delta_iteration;
+    auto &clock =
+        GHExt::PatchData::LevelData::clock_t::of(ext, leveldata.level);
+    clock.iteration_ += clock.delta_iteration_;
   });
 }
 
 void clock_writer_t::stamp_last_step(const window_t window,
                                      const int iteration) {
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    ext.level(leveldata.level).last_step_iteration = iteration;
+    GHExt::PatchData::LevelData::clock_t::of(ext, leveldata.level)
+        .last_step_iteration_ = iteration;
   });
 }
 
 void clock_writer_t::stamp_last_finalized(const window_t window,
                                           const int iteration) {
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    ext.level(leveldata.level).last_finalized_iteration = iteration;
+    GHExt::PatchData::LevelData::clock_t::of(ext, leveldata.level)
+        .last_finalized_iteration_ = iteration;
   });
 }
 
 void clock_writer_t::restore_level_clock(
     const level_t level, const rat64 iteration,
     const std::optional<int> last_step_iteration) {
-  auto &leveldata = ext.level(level);
-  leveldata.iteration = iteration;
+  auto &clock = GHExt::PatchData::LevelData::clock_t::of(ext, level);
+  clock.iteration_ = iteration;
   if (last_step_iteration)
-    leveldata.last_step_iteration = *last_step_iteration;
+    clock.last_step_iteration_ = *last_step_iteration;
 }
 
 void clock_writer_t::rotate_timelevels(const window_t window, const gi_t gi) {

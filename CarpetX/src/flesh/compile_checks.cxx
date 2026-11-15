@@ -295,6 +295,17 @@ concept opens_scratch = requires(GHExt &ext, group_t group) {
   Pool::of(ext, group, std::source_location::current());
 };
 
+template <class Clock>
+concept writes_clock =
+    requires(Clock &clock) { clock.iteration_ = rat64(0); } ||
+    requires(Clock &clock) { clock.delta_iteration_ = rat64(1); } ||
+    requires(Clock &clock) { clock.last_step_iteration_ = 0; } ||
+    requires(Clock &clock) { clock.last_finalized_iteration_ = 0; };
+
+template <class Clock>
+concept opens_clock =
+    requires(GHExt &ext, level_t level) { Clock::of(ext, level); };
+
 template <class Scope, class... Args>
 concept hands_out_mfab = requires(Scope scope, Args... args) {
   std::forward<Scope>(scope).mfab(args...);
@@ -859,6 +870,16 @@ static_assert(
     !writes_scratch<GHExt::PatchData::LevelData::GroupData::scratch_pool_t>);
 static_assert(
     !opens_scratch<GHExt::PatchData::LevelData::GroupData::scratch_pool_t>);
+static_assert(!writes_clock<GHExt::PatchData::LevelData::clock_t>);
+static_assert(!opens_clock<GHExt::PatchData::LevelData::clock_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt::PatchData::LevelData &>()
+                                .iteration()),
+                   rat64>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt::PatchData::LevelData &>()
+                                .last_finalized_iteration()),
+                   int>);
 static_assert(!std::is_copy_constructible_v<write_scope_t>);
 static_assert(!std::is_copy_assignable_v<write_scope_t>);
 static_assert(hands_out_mfab<write_scope_t &, level_t>);

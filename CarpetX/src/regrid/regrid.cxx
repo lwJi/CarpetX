@@ -175,8 +175,8 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
   if (!aligned_with_parent(level)) {
     std::ostringstream msg;
     msg << "Coarse (rl=" << coarse.index()
-        << ", it=" << coarseleveldata.iteration << ") and fine (rl=" << lev
-        << ", it=" << leveldata.iteration
+        << ", it=" << coarseleveldata.iteration() << ") and fine (rl=" << lev
+        << ", it=" << leveldata.iteration()
         << ") grid do not align in time when regridding";
 #pragma omp critical
     CCTK_VERROR(msg.str().c_str());
@@ -260,8 +260,8 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   if (!aligned_with_parent(level)) {
     std::ostringstream msg;
     msg << "Coarse (rl=" << coarse.index()
-        << ", it=" << coarseleveldata.iteration << ") and fine (rl=" << lev
-        << ", it=" << leveldata.iteration
+        << ", it=" << coarseleveldata.iteration() << ") and fine (rl=" << lev
+        << ", it=" << leveldata.iteration()
         << ") grid do not align in time when regridding";
 #pragma omp critical
     CCTK_VERROR(msg.str().c_str());

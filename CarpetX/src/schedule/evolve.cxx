@@ -359,10 +359,10 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
 
     const double start_time = gettime();
 
-    rat64 iteration = ext.patches().front().levels().front().iteration;
+    rat64 iteration = ext.patches().front().levels().front().iteration();
     for (const auto &patchdata : ext.patches())
       for (const auto &leveldata : patchdata.levels())
-        iteration = min(iteration, leveldata.iteration);
+        iteration = min(iteration, leveldata.iteration());
 
     if (regrid_every > 0 && cctkGH->cctk_iteration % regrid_every == 0) {
 #pragma omp critical
@@ -373,7 +373,7 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
       for (const auto &patchdata : ext.patches()) {
 
         const level_t finest{patchdata.patch, patchdata.num_levels() - 1};
-        assert(patchdata.level(finest).iteration == iteration);
+        assert(patchdata.level(finest).iteration() == iteration);
         const level_t min_active_level = WidenMinLevel(finest);
 
         const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
@@ -438,17 +438,17 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
     } // Regrid
 
     rat64 delta_iteration =
-        ext.patches().front().levels().front().delta_iteration;
+        ext.patches().front().levels().front().delta_iteration();
     for (const auto &patchdata : ext.patches())
       for (const auto &leveldata : patchdata.levels())
-        delta_iteration = min(delta_iteration, leveldata.delta_iteration);
+        delta_iteration = min(delta_iteration, leveldata.delta_iteration());
 
     cctkGH->cctk_iteration += 1;
 
     for (const window_t window : StepGroups()) {
       const auto &coarsest = ext.level(window.coarsest());
-      rat64 level_iteration = coarsest.iteration;
-      const rat64 level_delta_iteration = coarsest.delta_iteration;
+      rat64 level_iteration = coarsest.iteration();
+      const rat64 level_delta_iteration = coarsest.delta_iteration();
       // Skip those evolved coarse levels while evolving the fine levels to
       // catch up
       if (level_iteration > iteration)
@@ -460,8 +460,8 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
         level_iteration += level_delta_iteration;
         clock.advance_clocks(window);
         loop_serially(window, [&](const auto &leveldata) {
-          assert(level_iteration == leveldata.iteration);
-          assert(level_delta_iteration == leveldata.delta_iteration);
+          assert(level_iteration == leveldata.iteration());
+          assert(level_delta_iteration == leveldata.delta_iteration());
         });
 
         CycleTimelevels(window, cctkGH, clock);
@@ -474,7 +474,7 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
         CCTK_Traverse(cctkGH, "CCTK_EVOL");
       }
 
-      assert(coarsest.iteration == level_iteration);
+      assert(coarsest.iteration() == level_iteration);
       const window_t widened = window_t::levels(
           WidenMinLevel(window.coarsest()).index(), window.level_bounds().max);
       clock.stamp_last_step(widened, cctkGH->cctk_iteration);

@@ -166,13 +166,13 @@ Each row is a name that a `friend` line in a header of `hierarchy/` grants, and 
 
 | Granted | Private members of |
 | --- | --- |
-| `clock_writer_t` | `GHExt`, `cctkGH_binding` |
 | `hierarchy_writers_t` | `GHExt`, `clock_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t` |
 | `write_scope_t` | `GHExt`, `GHExt::PatchData::LevelData::GroupData::timelevel_t`, `why_valid_t` |
 | `array_write_scope_t` | `GHExt`, `GHExt::GlobalData::ArrayGroupData::timelevel_t`, `why_valid_t` |
 | `registry_writer_t` | `GHExt::registry_t` |
 | `level_writer_t` | `GHExt::level_set_t`, `GHExt::PatchData::levels_t` |
 | `structure_writer_t` | `GHExt::patches_t`, `level_writer_t` |
+| `clock_writer_t` | `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding` |
 | `scratch_writer_t` | `GHExt::PatchData::LevelData::GroupData::scratch_pool_t` |
 | `cctkGH_binding` | `GHExt::PatchData::LevelData::GroupData::ring_t`, `GHExt::GlobalData::ArrayGroupData::ring_t` |
 | `create_hierarchy` | `hierarchy_writers_t` |

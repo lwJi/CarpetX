@@ -786,7 +786,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                                   std::to_string(patchdata.patch.index()) +
                                   ".rl" +
                                   std::to_string(leveldata.level.index()));
-            long long val = leveldata.iteration.num;
+            long long val = leveldata.iteration().num;
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
                            DB_LONG_LONG);
@@ -799,7 +799,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                                   std::to_string(patchdata.patch.index()) +
                                   ".rl" +
                                   std::to_string(leveldata.level.index()));
-            long long val = leveldata.iteration.den;
+            long long val = leveldata.iteration().den;
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
                            DB_LONG_LONG);
@@ -812,7 +812,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                                   std::to_string(patchdata.patch.index()) +
                                   ".rl" +
                                   std::to_string(leveldata.level.index()));
-            long long val = leveldata.last_step_iteration;
+            long long val = leveldata.last_step_iteration();
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
                            DB_LONG_LONG);

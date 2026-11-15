@@ -592,12 +592,12 @@ void CarpetX::InterpolationSetup::Interpolate(
 
         min_level_iteration_used =
             min_level_iteration_used != -1
-                ? std::min(min_level_iteration_used, leveldata.iteration)
-                : leveldata.iteration;
+                ? std::min(min_level_iteration_used, leveldata.iteration())
+                : leveldata.iteration();
         max_level_iteration_used =
             max_level_iteration_used != -1
-                ? std::max(max_level_iteration_used, leveldata.iteration)
-                : leveldata.iteration;
+                ? std::max(max_level_iteration_used, leveldata.iteration())
+                : leveldata.iteration();
 
         vect<vect<bool, dim>, 2> patch_allowed_boundaries;
         for (int f = 0; f < 2; ++f)

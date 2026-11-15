@@ -319,7 +319,7 @@ void StoreRKOldState(const level_t level,
     if (!bands)
       continue;
     bands->store_old(*groupdata.timelevel(tl).mfab, period,
-                     leveldata.iteration);
+                     leveldata.iteration());
   }
 }
 
@@ -368,7 +368,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   const stage_t stage = substep_done ? stages.first() : next_index(completed);
   const CCTK_REAL xsi = CCTK_REAL(substep_done ? substep.end : substep.begin);
   const CCTK_REAL dtc = ext.get_global_cctkGH()->cctk_delta_time *
-                        CCTK_REAL(coarseleveldata.delta_iteration);
+                        CCTK_REAL(coarseleveldata.delta_iteration());
   assert(std::isfinite(dtc) && dtc > 0);
 
   const window_t window = window_t::one_level(child);
@@ -406,7 +406,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
     if (!bands)
       continue;
     const rk_bands_t::sources_t src =
-        bands->sources(coarseleveldata.iteration, {child, gi});
+        bands->sources(coarseleveldata.iteration(), {child, gi});
     amrex::MultiFab &crse_patch = bands->crse_patch();
     amrex::MultiFab &fine_patch = bands->fine_patch();
 

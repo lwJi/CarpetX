@@ -72,8 +72,9 @@ int LastStepIteration(const level_t level, const int current_iteration) {
   const auto &finest = ext.level(all_levels().finest());
   const auto &leveldata = ext.level(level);
   const rat64 steps_since =
-      (finest.iteration - (leveldata.iteration - leveldata.delta_iteration)) /
-      finest.delta_iteration;
+      (finest.iteration() -
+       (leveldata.iteration() - leveldata.delta_iteration())) /
+      finest.delta_iteration();
   assert(steps_since.den == 1 && steps_since.num >= 1);
   const int iteration = current_iteration + 1 - int(steps_since.num);
   assert(iteration >= 0 && iteration <= current_iteration);
@@ -182,7 +183,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
   for (const auto &leveldata : ext.patch(patch_t{0}).levels())
     clocks_buf << (leveldata.level.index() == 0 ? "" : ", ") << "L"
                << leveldata.level.index() << " "
-               << format_clock(leveldata.iteration);
+               << format_clock(leveldata.iteration());
   const std::string clocks = clocks_buf.str();
 #pragma omp critical
   CCTK_VINFO("Level clocks (coarse steps): %s -> %d clock group%s",
@@ -197,7 +198,7 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
         for (const auto &leveldata : patchdata.levels())
           if (leveldata.level.index() >= min_level &&
               leveldata.level.index() < max_level)
-            clock.restore_level_clock(leveldata.level, leveldata.iteration,
+            clock.restore_level_clock(leveldata.level, leveldata.iteration(),
                                       last_step_iteration);
     }
     if (num_groups >= 2 && CCTK_MyProc(nullptr) == 0)
@@ -212,22 +213,22 @@ static void RestoreLevelClocks(const cGH *restrict const cctkGH,
   for (const window_t &group : clock_groups) {
     const auto [min_level, max_level] = group.level_bounds();
     const int group_last_step_iteration =
-        ext.level(group.finest()).last_step_iteration;
+        ext.level(group.finest()).last_step_iteration();
     for (const auto &patchdata : ext.patches())
       for (const auto &leveldata : patchdata.levels())
         if (leveldata.level.index() >= min_level &&
             leveldata.level.index() < max_level &&
-            leveldata.last_step_iteration != group_last_step_iteration)
+            leveldata.last_step_iteration() != group_last_step_iteration)
           CCTK_VERROR("Checkpoint at iteration %d is inconsistent: patch %d "
                       "level %d has last-step iteration %d, but its "
                       "clock group [%d,%d) has %d",
                       checkpoint_iteration, leveldata.level.patch().index(),
-                      leveldata.level.index(), leveldata.last_step_iteration,
+                      leveldata.level.index(), leveldata.last_step_iteration(),
                       min_level, max_level, group_last_step_iteration);
   }
 
   const int finest_last_step_iteration =
-      ext.level(all_levels().finest()).last_step_iteration;
+      ext.level(all_levels().finest()).last_step_iteration();
   if (finest_last_step_iteration != checkpoint_iteration)
     CCTK_VERROR("Checkpoint at iteration %d is inconsistent: its finest clock "
                 "group has last-step iteration %d",
@@ -258,7 +259,7 @@ static void RecoverHierarchy(cGH *restrict const cctkGH, clock_writer_t &clock,
   const GHExt &ext = driver();
   for (const auto &patchdata : ext.patches())
     for (const auto &leveldata : patchdata.levels())
-      assert(leveldata.iteration == 0 &&
+      assert(leveldata.iteration() == 0 &&
              "recovery runs BASEGRID and RECOVER_VARIABLES at clock 0");
 
   RestoreLevelClocks(cctkGH, record, clock);
@@ -280,9 +281,9 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
   assert(FinestClockGroup() == window);
   const GHExt &ext = driver();
   const auto &finest = ext.level(window.finest());
-  SetStepTime(cctkGH, finest.level, finest.iteration);
+  SetStepTime(cctkGH, finest.level, finest.iteration());
   loop_serially(window, [&](auto &restrict leveldata) {
-    assert(leveldata.last_step_iteration == cctkGH->cctk_iteration);
+    assert(leveldata.last_step_iteration() == cctkGH->cctk_iteration);
   });
 
   if (!window_is_restricted(window)) {
@@ -315,8 +316,8 @@ static void RecomputePerClockGroup(cGH *restrict const cctkGH) {
 
     const traversal_scope_t window_scope(group);
 
-    cctkGH->cctk_iteration = finest.last_step_iteration;
-    SetStepTime(cctkGH, finest.level, finest.iteration);
+    cctkGH->cctk_iteration = finest.last_step_iteration();
+    SetStepTime(cctkGH, finest.level, finest.iteration());
 
 #pragma omp critical
     CCTK_VINFO("POST_RECOVER_VARIABLES on levels [%d,%d): iteration %d, "

@@ -55,12 +55,12 @@ int num_levels(const patch_t patch) {
 
 rat64 iteration(const level_t level) {
   const operation_scope_t op("CarpetX::iteration");
-  return driver().level(level).iteration;
+  return driver().level(level).iteration();
 }
 
 rat64 delta_iteration(const level_t level) {
   const operation_scope_t op("CarpetX::delta_iteration");
-  return driver().level(level).delta_iteration;
+  return driver().level(level).delta_iteration();
 }
 
 const amrex::Geometry &geometry(const level_t level) {

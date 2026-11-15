@@ -482,14 +482,14 @@ class Grant(unittest.TestCase):
     ]
 
     def test_a_friend_the_table_lacks_is_reported_in_a_hierarchy_header(self):
-        text = "struct GHExt {\n  friend class io_writer_t;\n  friend class clock_writer_t;\n};\n"
+        text = "struct GHExt {\n  friend class io_writer_t;\n  friend struct hierarchy_writers_t;\n};\n"
         for name in self.HEADERS:
             with self.subTest(name=name):
                 self.assertEqual(reported(name, text), [("grant", "friend class io_writer_t;")])
 
     def test_a_friend_the_table_lists_is_clean(self):
         for text in [
-            "struct GHExt {\n  friend class clock_writer_t;\n  friend struct hierarchy_writers_t;\n};\n",
+            "struct GHExt {\n  struct PatchData {\n    struct LevelData {\n      class clock_t {\n        friend class clock_writer_t;\n      };\n    };\n  };\n  friend struct hierarchy_writers_t;\n};\n",
             "class clock_writer_t {\nprivate:\n  explicit clock_writer_t(GHExt &ext);\n  friend struct hierarchy_writers_t;\n};\n",
             "class level_writer_t {\n  private: friend class structure_writer_t;\n};\n",
             "struct cctkGH_binding {\nprivate:\n  static void rotate(GHExt &ext, gi_t gi);\n  friend class clock_writer_t;\n};\n",
@@ -505,7 +505,7 @@ class Grant(unittest.TestCase):
             "    friend class structure_writer_t;\n"
             "    friend class clock_writer_t;\n"
             "  };\n"
-            "  friend class clock_writer_t;\n"
+            "  friend struct hierarchy_writers_t;\n"
             "  struct GlobalData {\n"
             "    struct ArrayGroupData {\n"
             "      struct timelevel_t {\n"
@@ -523,7 +523,7 @@ class Grant(unittest.TestCase):
             [
                 (4, "GHExt::patches_t", "structure_writer_t"),
                 (5, "GHExt::patches_t", "clock_writer_t"),
-                (7, "GHExt", "clock_writer_t"),
+                (7, "GHExt", "hierarchy_writers_t"),
                 (11, "GHExt::GlobalData::ArrayGroupData::timelevel_t", "array_write_scope_t"),
                 (12, "GHExt::GlobalData::ArrayGroupData::timelevel_t", "write_scope_t"),
                 (14, "GHExt::GlobalData::ArrayGroupData::ring_t", "cctkGH_binding"),
@@ -607,7 +607,7 @@ class Grant(unittest.TestCase):
         self.assertEqual(reported(self.MODEL, text, Lang.MAKE), [])
 
     def test_line_numbers(self):
-        text = "struct GHExt {\n\n  friend class clock_writer_t;\n  friend class\n      io_writer_t;\n};\n"
+        text = "struct GHExt {\n\n  friend struct hierarchy_writers_t;\n  friend class\n      io_writer_t;\n};\n"
         self.assertEqual(findings(self.MODEL, text, Lang.CXX), [Finding(4, "grant", "friend class")])
 
 
@@ -2342,7 +2342,7 @@ class Doc(unittest.TestCase):
         self.assertEqual(lines[:6], [doc.GRANTS_HEADING, "", doc.GRANTS_INTRO, "", "| Granted | Private members of |", "| --- | --- |"])
         rows = {line.split(" | ")[0].strip("|` "): line.split(" | ")[1].rstrip(" |") for line in lines[6:]}
         self.assertEqual(set(rows), {friend for granted in rules.GRANTS.values() for friend in granted})
-        self.assertEqual(rows["clock_writer_t"], "`GHExt`, `cctkGH_binding`")
+        self.assertEqual(rows["clock_writer_t"], "`GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding`")
         self.assertEqual(rows["operator<<"], "`why_valid_t`, `GridPtrDesc1`")
         self.assertEqual(rows["hierarchy_writers_t"], "`GHExt`, `clock_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t`")
         for friend, owners in rows.items():
