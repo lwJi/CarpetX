@@ -399,7 +399,7 @@ class Model(unittest.TestCase):
             "friend class write_scope_t;",
         ]:
             with self.subTest(line=line):
-                self.assertEqual(reported(self.MODEL, line + "\n"), [])
+                self.assertEqual([found for found in reported(self.MODEL, line + "\n") if found[0] == "model"], [])
 
     def test_the_validity_state_is_held_to_the_same_words(self):
         self.assertEqual(rules.MODEL_FILES, (self.MODEL, self.STATE))
@@ -470,6 +470,145 @@ class Model(unittest.TestCase):
     def test_line_numbers(self):
         text = "#include <carpetx.hxx>\n\n" + self.LEAKS[4] + "\n"
         self.assertEqual(findings(self.MODEL, text, Lang.CXX), [Finding(3, "model", self.LEAKS[4])])
+
+
+class Grant(unittest.TestCase):
+    MODEL = "CarpetX/src/hierarchy/model.hxx"
+    HEADERS = [
+        "CarpetX/src/hierarchy/model.hxx",
+        "CarpetX/src/hierarchy/writers.hxx",
+        "CarpetX/src/hierarchy/scopes.hxx",
+        "CarpetX/src/hierarchy/loops.hxx",
+    ]
+
+    def test_a_friend_the_table_lacks_is_reported_in_a_hierarchy_header(self):
+        text = "struct GHExt {\n  friend class io_writer_t;\n  friend class clock_writer_t;\n};\n"
+        for name in self.HEADERS:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, text), [("grant", "friend class io_writer_t;")])
+
+    def test_a_friend_the_table_lists_is_clean(self):
+        for text in [
+            "struct GHExt {\n  friend class clock_writer_t;\n  friend struct hierarchy_writers_t;\n};\n",
+            "class clock_writer_t {\nprivate:\n  explicit clock_writer_t(GHExt &ext);\n  friend struct hierarchy_writers_t;\n};\n",
+            "class level_writer_t {\n  private: friend class structure_writer_t;\n};\n",
+            "struct cctkGH_binding {\nprivate:\n  static void rotate(GHExt &ext, gi_t gi);\n  friend class clock_writer_t;\n};\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported(self.MODEL, text), [])
+
+    def test_a_friend_is_judged_under_the_type_it_sits_in(self):
+        text = (
+            "namespace CarpetX {\n"
+            "struct GHExt {\n"
+            "  struct PatchData {\n"
+            "    friend class structure_writer_t;\n"
+            "    friend class clock_writer_t;\n"
+            "  };\n"
+            "  friend class clock_writer_t;\n"
+            "  struct GlobalData {\n"
+            "    struct ArrayGroupData {\n"
+            "      struct timelevel_t {\n"
+            "        friend class array_write_scope_t;\n"
+            "        friend class write_scope_t;\n"
+            "      };\n"
+            "      friend struct cctkGH_binding;\n"
+            "    };\n"
+            "  };\n"
+            "};\n"
+            "} // namespace CarpetX\n"
+        )
+        self.assertEqual(
+            list(rules.friends(text)),
+            [
+                (4, "GHExt::PatchData", "structure_writer_t"),
+                (5, "GHExt::PatchData", "clock_writer_t"),
+                (7, "GHExt", "clock_writer_t"),
+                (11, "GHExt::GlobalData::ArrayGroupData::timelevel_t", "array_write_scope_t"),
+                (12, "GHExt::GlobalData::ArrayGroupData::timelevel_t", "write_scope_t"),
+                (14, "GHExt::GlobalData::ArrayGroupData", "cctkGH_binding"),
+            ],
+        )
+        self.assertEqual(rules.ungranted(self.MODEL, text), [5, 12])
+        self.assertEqual(reported(self.MODEL, text), [("grant", "friend class clock_writer_t;"), ("grant", "friend class write_scope_t;")])
+
+    def test_a_body_an_enum_or_a_member_initialiser_opens_no_type(self):
+        text = (
+            "struct GHExt {\n"
+            "  enum class kind_t { a, b };\n"
+            "  int epoch_{0};\n"
+            "  explicit GHExt(config_t config) : epoch_(0) {\n"
+            "    struct local_t {};\n"
+            "  }\n"
+            "  template <typename F> void for_each_cctkGH(F &&f) const {\n"
+            "    for (auto x : {1, 2}) { f(x); }\n"
+            "  }\n"
+            "  friend class clock_writer_t;\n"
+            "};\n"
+            "template <class T> class const_propagating_ptr {\n"
+            "  friend class clock_writer_t;\n"
+            "};\n"
+            "struct GroupRecord : group_declaration_t {\n"
+            "  friend class clock_writer_t;\n"
+            "};\n"
+        )
+        self.assertEqual(
+            list(rules.friends(text)),
+            [(10, "GHExt", "clock_writer_t"), (13, "const_propagating_ptr", "clock_writer_t"), (16, "GroupRecord", "clock_writer_t")],
+        )
+
+    def test_a_friend_function_is_named_by_its_function_name(self):
+        text = (
+            "class write_scope_t {\n"
+            "  friend write_scope_t open_write(window_t window, write_spec_t spec);\n"
+            "  friend write_scope_t open_read(window_t window, write_spec_t spec);\n"
+            "  friend class write_scopes_t;\n"
+            "};\n"
+            "struct hierarchy_writers_t {\n"
+            "  friend std::unique_ptr<hierarchy_writers_t>\n"
+            "  create_hierarchy(GHExt::config_t config);\n"
+            "};\n"
+            "struct GridPtrDesc1 : GridDesc {\n"
+            "  friend std::ostream &operator<<(std::ostream &os, const GridPtrDesc1 &p) {\n"
+            "    return os << p.x;\n"
+            "  }\n"
+            "  friend bool operator==(const GridPtrDesc1 &a, const GridPtrDesc1 &b);\n"
+            "};\n"
+        )
+        self.assertEqual(
+            list(rules.friends(text)),
+            [
+                (2, "write_scope_t", "open_write"),
+                (3, "write_scope_t", "open_read"),
+                (4, "write_scope_t", "write_scopes_t"),
+                (7, "hierarchy_writers_t", "create_hierarchy"),
+                (11, "GridPtrDesc1", "operator<<"),
+                (14, "GridPtrDesc1", "operator=="),
+            ],
+        )
+        self.assertEqual(rules.ungranted(self.MODEL, text), [3, 14])
+
+    def test_a_comment_or_a_longer_name_is_not_a_friend(self):
+        text = "struct GHExt {\n  // friend class io_writer_t;\n  int befriended;\n  bool friendly() const;\n};\n"
+        self.assertEqual(list(rules.friends(text)), [])
+        self.assertEqual(reported(self.MODEL, text), [])
+
+    def test_sources_other_layers_and_other_thorns_are_not_judged(self):
+        text = "struct GHExt {\n  friend class io_writer_t;\n};\n"
+        for name in [
+            "CarpetX/src/hierarchy/model.cxx",
+            "CarpetX/src/comm/buffers.hxx",
+            "CarpetX/src/schedule/checksums.hxx",
+            "CarpetX/src/include/carpetx.hxx",
+            "ODESolvers/src/hierarchy/model.hxx",
+        ]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, text), [])
+        self.assertEqual(reported(self.MODEL, text, Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "struct GHExt {\n\n  friend class clock_writer_t;\n  friend class\n      io_writer_t;\n};\n"
+        self.assertEqual(findings(self.MODEL, text, Lang.CXX), [Finding(4, "grant", "friend class")])
 
 
 class Window(unittest.TestCase):
@@ -1762,7 +1901,8 @@ class Report(unittest.TestCase):
             "no validity call outside scopes.cxx, no pointer-table write outside binding.cxx, "
             "no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, "
-            "no mutable, extern, comm/ object or other concern's include in the data model's headers, no active_levels_t, "
+            "no mutable, extern, comm/ object or other concern's include in the data model's headers, "
+            "every friend line in hierarchy/ listed in GRANTS, no active_levels_t, "
             "no make_alias in CarpetX, "
             "no active_levels outside traversal.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
@@ -2173,6 +2313,43 @@ class Doc(unittest.TestCase):
         self.assertIn("io/ reads util/, traversal/, config/, hierarchy/, comm/, ops/; ", doc.STACK_LEGEND[0])
         self.assertIn("util/ reads nothing; traversal/ reads util/; ", doc.STACK_LEGEND[0])
 
+    def test_the_table_of_grants_is_the_friend_lines_the_tree_has(self):
+        headers = doc.grant_headers()
+        self.assertIn(Grant.MODEL, headers)
+        self.assertEqual(doc.unbacked(), [], "each pair is a type and a friend that GRANTS in scripts/lint/boundary/rules.py lists, but no friend line in a header of hierarchy/ backs: remove the entry")
+        for header, text in headers.items():
+            with self.subTest(header=header):
+                self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
+        found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
+        self.assertEqual(found, sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
+        self.assertEqual(len(found), 29)
+        with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
+            self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
+            with self.assertRaises(ValueError):
+                doc.grants()
+        text = headers[Grant.MODEL]
+        scratch = text.splitlines().index("  friend class scratch_writer_t;") + 1
+        binding = text.splitlines().index("        friend struct cctkGH_binding;") + 1
+        with mock.patch.dict(rules.GRANTS, {"GHExt": tuple(friend for friend in rules.GRANTS["GHExt"] if friend != "scratch_writer_t"), "GHExt::PatchData::LevelData::GroupData": ()}):
+            self.assertEqual(rules.ungranted(Grant.MODEL, text), [binding, scratch])
+            self.assertEqual([(f.line, f.rule) for f in findings(Grant.MODEL, text, Lang.CXX) if f.rule == "grant"], [(binding, "grant"), (scratch, "grant")])
+            self.assertEqual(doc.unbacked(), [])
+            with self.assertRaises(ValueError):
+                doc.grants()
+
+    def test_the_grants_table_is_grants_inverted(self):
+        lines = doc.grants().splitlines()
+        self.assertEqual(lines[:6], [doc.GRANTS_HEADING, "", doc.GRANTS_INTRO, "", "| Granted | Private members of |", "| --- | --- |"])
+        rows = {line.split(" | ")[0].strip("|` "): line.split(" | ")[1].rstrip(" |") for line in lines[6:]}
+        self.assertEqual(set(rows), {friend for granted in rules.GRANTS.values() for friend in granted})
+        self.assertEqual(rows["clock_writer_t"], "`GHExt`, `cctkGH_binding`")
+        self.assertEqual(rows["operator<<"], "`why_valid_t`, `GridPtrDesc1`")
+        self.assertEqual(rows["hierarchy_writers_t"], "`GHExt`, `clock_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t`")
+        for friend, owners in rows.items():
+            with self.subTest(friend=friend):
+                self.assertEqual(owners, ", ".join(f"`{owner}`" for owner, granted in rules.GRANTS.items() if friend in granted))
+        self.assertNotRegex(doc.render(), r"\b(two|three|four|five|six|seven|eight|nine) (writers|holders)\b")
+
     def test_the_stack_is_two_boxes_over_a_floor_with_no_forced_order(self):
         drawn = doc.stack()
         lines = drawn.splitlines()
@@ -2218,12 +2395,12 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `config/`"], f"- `config/`: {rules.OWNS['config']}")
         self.assertTrue(rows["- `config/`"].endswith(" Nothing here calls `driver()`."))
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
-        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, varindex, model.")
+        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, varindex, model, grant.")
         self.assertTrue(rules.OWNS["hierarchy"].endswith(" Nothing here only reads the model: a query belongs to the layer that owns its subject."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
-        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "varindex", "model"])
+        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "varindex", "model", "grant"])
         self.assertEqual(doc.node("flesh", ("regrid", "flesh")), '  flesh["flesh/ no header"]')
         self.assertEqual(doc.node("regrid", ("regrid", "flesh")), '  regrid["regrid/ no header"]')
         self.assertEqual(doc.node("ops", ("regrid", "flesh")), '  ops["ops/"]')
@@ -2234,7 +2411,7 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "model", "traversal", "records", "codec", "entry", "ghost-only"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "directions", "varindex", "model", "grant", "traversal", "records", "codec", "entry", "ghost-only"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
@@ -2298,11 +2475,11 @@ class Doc(unittest.TestCase):
     def test_render_is_the_whole_map(self):
         text = doc.render()
         self.assertTrue(text.startswith(doc.TITLE + "\n\n" + doc.PREAMBLE + "\n\n## The stack\n\n```mermaid\n" + doc.stack() + "```\n\n" + doc.legend(doc.STACK_LEGEND) + "\n## "))
-        self.assertTrue(text.endswith(doc.legend(doc.REGRID_LEGEND) + "\n" + doc.entries() + "\n" + doc.owns()))
+        self.assertTrue(text.endswith(doc.legend(doc.REGRID_LEGEND) + "\n" + doc.entries() + "\n" + doc.owns() + "\n" + doc.grants()))
         for title, picture, texts in doc.SECTIONS:
             with self.subTest(title=title):
                 self.assertIn(f"\n## {title}\n\n```mermaid\n" + picture(PROJECT) + "```\n\n" + doc.legend(texts) + "\n", text)
-        self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), ["## The stack", "## One pass of the schedule", "## One regrid", doc.ENTRIES_HEADING, doc.OWNS_HEADING])
+        self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), ["## The stack", "## One pass of the schedule", "## One regrid", doc.ENTRIES_HEADING, doc.OWNS_HEADING, doc.GRANTS_HEADING])
         self.assertEqual(text.count("```"), 6)
         self.assertEqual(doc.legend(("a", "b")), "- a\n- b\n")
         for name in re.findall(r"`([^`\n]+)`", doc.PREAMBLE):
@@ -2340,7 +2517,7 @@ class Doc(unittest.TestCase):
             under["hierarchy"],
             [
                 "  - `model`: `GHExt`, its nested types, and the door `driver()`",
-                "  - `writers`: the five writers, by what each writes: `clock_writer_t` the clocks and the rotation of time levels, `structure_writer_t` the grids and which levels exist, `level_writer_t` one level, made, remade or erased, `registry_writer_t` storage and the integrator record, `scratch_writer_t` scratch slots; `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy",
+                "  - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
                 "  - `valid`: the validity state a time level stores",
                 "  - `scopes`: the only way to change that state: write, require and invalidate",
                 "  - `binding`: the only writes to the cGH pointer table",
@@ -2580,7 +2757,16 @@ class Doc(unittest.TestCase):
                 doc.the_pass(root)
             with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("api", "api.cxx"), ("num_patches",)),)), self.assertRaisesRegex(ValueError, "in api/, at or above api/"):
                 doc.entries(root)
-            self.assertEqual(doc.render(root).count("```"), 6)
+            with mock.patch.dict(rules.GRANTS, {}, clear=True):
+                self.assertEqual(doc.render(root).count("```"), 6)
+                write({layer_path("hierarchy", "model.hxx"): "struct GHExt {\n  friend class clock_writer_t;\n};\n"})
+                with self.assertRaisesRegex(ValueError, re.escape("CarpetX/src/hierarchy/model.hxx:2: a friend line that no entry of GRANTS in scripts/lint/boundary/rules.py lists")):
+                    doc.render(root)
+                rules.GRANTS["GHExt"] = ("clock_writer_t",)
+                self.assertTrue(doc.render(root).endswith("| --- | --- |\n| `clock_writer_t` | `GHExt` |\n"))
+                rules.GRANTS["GHExt"] = ("clock_writer_t", "scratch_writer_t")
+                with self.assertRaisesRegex(ValueError, re.escape("scratch_writer_t in GHExt: an entry of GRANTS in scripts/lint/boundary/rules.py that no friend line backs")):
+                    doc.render(root)
 
 
 def tree(root, files):
