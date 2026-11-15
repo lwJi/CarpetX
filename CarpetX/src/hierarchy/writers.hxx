@@ -38,7 +38,6 @@ public:
 private:
   explicit stage_writer_t(const GHExt &ext) : ext(ext) {}
   const GHExt &ext;
-  void show(std::optional<GHExt::stage_clock_t> stage);
   friend struct hierarchy_writers_t;
 };
 

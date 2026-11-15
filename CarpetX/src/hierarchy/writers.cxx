@@ -264,8 +264,7 @@ void show_level_clock(GHExt::run_clock_t &clock, const GHExt &ext,
 
 template <class Change>
 void clock_writer_t::change(Change &&change_clock) {
-  change_clock(ext.sealed_run_clock().open(*this));
-  publish_clock(ext);
+  cctkGH_clock::change_run(*this, ext, change_clock);
 }
 
 void clock_writer_t::start_run(const CCTK_REAL initial_time) {
@@ -320,17 +319,12 @@ void clock_writer_t::replay_last_step(const level_t level) {
   });
 }
 
-void stage_writer_t::show(const std::optional<GHExt::stage_clock_t> stage) {
-  ext.sealed_shown_stage().open(*this).stage = stage;
-  publish_clock(ext);
-}
-
 void stage_writer_t::run_at(const CCTK_REAL time, const CCTK_REAL delta_time,
                             const std::function<void()> &body) {
   const std::optional<GHExt::stage_clock_t> outer = ext.shown_stage();
-  show(GHExt::stage_clock_t{time, delta_time});
+  cctkGH_clock::show_stage(*this, ext, GHExt::stage_clock_t{time, delta_time});
   body();
-  show(outer);
+  cctkGH_clock::show_stage(*this, ext, outer);
 }
 
 void clock_writer_t::stamp_last_step(const window_t window) {

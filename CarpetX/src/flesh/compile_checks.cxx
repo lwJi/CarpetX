@@ -1,5 +1,6 @@
 #include "io/checkpoint.hxx"
 #include "hierarchy/binding.hxx"
+#include "hierarchy/clock.hxx"
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/grid.hxx"
@@ -410,6 +411,20 @@ concept rotates_levels_unlent = requires(GHExt &ext, window_t window, gi_t gi) {
 template <class Binding>
 concept rotates_arrays_unlent =
     requires(GHExt &ext, gi_t gi) { Binding::rotate(ext, gi); };
+
+template <class Clock>
+concept changes_run_unlent =
+    requires(const clock_writer_t &writer, const GHExt &ext,
+             const std::function<void(GHExt::run_clock_t &)> &change) {
+      Clock::change_run(writer, ext, change);
+    };
+
+template <class Clock>
+concept shows_stage_unlent =
+    requires(const stage_writer_t &writer, const GHExt &ext,
+             std::optional<GHExt::stage_clock_t> stage) {
+      Clock::show_stage(writer, ext, stage);
+    };
 
 template <class T>
 concept holds_indextype = requires(const T &t) { t.indextype; };
@@ -958,12 +973,16 @@ static_assert(sealed_for<decltype(std::declval<GHExt::PatchData::LevelData &>()
                                       .sealed_clock()),
                          GHExt::PatchData::LevelData::clock_t, clock_writer_t>);
 static_assert(sealed_for<decltype(std::declval<GHExt &>().sealed_run_clock()),
-                         GHExt::run_clock_t, clock_writer_t>);
+                         GHExt::run_clock_t, cctkGH_clock>);
+static_assert(!can_open<GHExt::sealed_run_clock_t, clock_writer_t>);
+static_assert(!changes_run_unlent<cctkGH_clock>);
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().run_clock()),
                    const GHExt::run_clock_t &>);
 static_assert(sealed_for<decltype(std::declval<GHExt &>().sealed_shown_stage()),
-                         GHExt::shown_stage_t, stage_writer_t>);
+                         GHExt::shown_stage_t, cctkGH_clock>);
+static_assert(!can_open<GHExt::sealed_shown_stage_t, stage_writer_t>);
+static_assert(!shows_stage_unlent<cctkGH_clock>);
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().shown_stage()),
                    const std::optional<GHExt::stage_clock_t> &>);

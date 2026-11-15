@@ -144,7 +144,7 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 - `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, clock, varindex, model, grant.
   - `model`: `GHExt`, its nested types, and the door `driver()`
   - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy
-  - `clock`: the only writes to the cGH clock fields, which publish the model's run clock, or in its place the time and step of the stage it shows, to the flesh's cGH and to every copy of it, and the check that a cGH a scheduled function returns still shows it
+  - `clock`: the only place the model's run clock and the stage it shows are opened, and the only writes to the cGH clock fields: `cctkGH_clock` applies a change a clock or stage writer asks for and publishes the run clock, or in its place the time and step of the shown stage, to the flesh's cGH and to every copy of it, so no change goes unpublished; and the check that a cGH a scheduled function returns still shows it
   - `valid`: the validity state a time level stores
   - `scopes`: the only way to change that state: write, require and invalidate
   - `binding`: the only writes to the cGH pointer table
@@ -169,16 +169,17 @@ Each row is a name that a `friend` line in a header of `hierarchy/` grants, and 
 | --- | --- |
 | `Writer` | `written_by` |
 | `hierarchy_writers_t` | `GHExt`, `clock_writer_t`, `stage_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t` |
-| `clock_writer_t` | `GHExt::run_clock_t`, `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding` |
-| `stage_writer_t` | `GHExt::shown_stage_t` |
+| `cctkGH_clock` | `GHExt::run_clock_t`, `GHExt::shown_stage_t` |
 | `registry_writer_t` | `GHExt::registry_t` |
 | `level_writer_t` | `GHExt::level_set_t`, `GHExt::PatchData::levels_t` |
 | `structure_writer_t` | `GHExt::patches_t`, `GHExt::PatchData::core_t`, `level_writer_t` |
+| `clock_writer_t` | `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding`, `cctkGH_clock` |
 | `write_scope_t` | `GHExt::PatchData::LevelData::GroupData::timelevel_t`, `why_valid_t` |
 | `scratch_writer_t` | `GHExt::PatchData::LevelData::GroupData::scratch_pool_t` |
 | `cctkGH_binding` | `GHExt::PatchData::LevelData::GroupData::ring_t`, `GHExt::GlobalData::ArrayGroupData::ring_t` |
 | `array_write_scope_t` | `GHExt::GlobalData::ArrayGroupData::timelevel_t`, `why_valid_t` |
 | `create_hierarchy` | `hierarchy_writers_t` |
+| `stage_writer_t` | `cctkGH_clock` |
 | `operator<<` | `why_valid_t`, `GridPtrDesc1` |
 | `open_write` | `write_scope_t` |
 | `write_scopes_t` | `write_scope_t` |

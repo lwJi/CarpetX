@@ -271,7 +271,7 @@ class Strays(unittest.TestCase):
         self.assertIn("clock_writer_t", declared[binding])
         self.assertEqual(
             declared[model] - defined[model],
-            {"clock_writer_t", "stage_writer_t", "level_writer_t", "structure_writer_t", "registry_writer_t", "scratch_writer_t", "write_scope_t", "array_write_scope_t", "cctkGH_binding", "level_buffers_t"},
+            {"clock_writer_t", "stage_writer_t", "level_writer_t", "structure_writer_t", "registry_writer_t", "scratch_writer_t", "write_scope_t", "array_write_scope_t", "cctkGH_binding", "cctkGH_clock", "level_buffers_t"},
         )
         self.assertEqual(declared[binding] - defined[binding], {"clock_writer_t"})
         self.assertEqual(declared[writers], defined[writers])

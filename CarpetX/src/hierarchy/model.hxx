@@ -138,6 +138,7 @@ class scratch_writer_t;
 class write_scope_t;
 class array_write_scope_t;
 struct cctkGH_binding;
+struct cctkGH_clock;
 using amrcore_factory = std::unique_ptr<amrex::AmrCore> (*)(
     level_writer_t &levels, patch_t patch, const amrex::RealBox &domain, int,
     const amrex::Vector<int> &ncells,
@@ -183,7 +184,7 @@ struct GHExt {
     int timefac = 1;
     CCTK_REAL initial_time = 0;
   };
-  using sealed_run_clock_t = written_by<run_clock_t, clock_writer_t>;
+  using sealed_run_clock_t = written_by<run_clock_t, cctkGH_clock>;
   const sealed_run_clock_t &sealed_run_clock() const { return run_clock_; }
   const run_clock_t &run_clock() const { return run_clock_.get(); }
 
@@ -193,7 +194,7 @@ struct GHExt {
   struct shown_stage_t {
     std::optional<stage_clock_t> stage;
   };
-  using sealed_shown_stage_t = written_by<shown_stage_t, stage_writer_t>;
+  using sealed_shown_stage_t = written_by<shown_stage_t, cctkGH_clock>;
   const sealed_shown_stage_t &sealed_shown_stage() const {
     return shown_stage_;
   }

@@ -55,7 +55,7 @@ STEMS = {
     "hierarchy": {
         "model": "`GHExt`, its nested types, and the door `driver()`",
         "writers": "the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
-        "clock": "the only writes to the cGH clock fields, which publish the model's run clock, or in its place the time and step of the stage it shows, to the flesh's cGH and to every copy of it, and the check that a cGH a scheduled function returns still shows it",
+        "clock": "the only place the model's run clock and the stage it shows are opened, and the only writes to the cGH clock fields: `cctkGH_clock` applies a change a clock or stage writer asks for and publishes the run clock, or in its place the time and step of the shown stage, to the flesh's cGH and to every copy of it, so no change goes unpublished; and the check that a cGH a scheduled function returns still shows it",
         "valid": "the validity state a time level stores",
         "scopes": "the only way to change that state: write, require and invalidate",
         "binding": "the only writes to the cGH pointer table",
@@ -70,8 +70,8 @@ STEMS_HOME = READS_HOME
 GRANTS = {
     "written_by": ("Writer",),
     "GHExt": ("hierarchy_writers_t",),
-    "GHExt::run_clock_t": ("clock_writer_t",),
-    "GHExt::shown_stage_t": ("stage_writer_t",),
+    "GHExt::run_clock_t": ("cctkGH_clock",),
+    "GHExt::shown_stage_t": ("cctkGH_clock",),
     "GHExt::registry_t": ("registry_writer_t",),
     "GHExt::level_set_t": ("level_writer_t",),
     "GHExt::patches_t": ("structure_writer_t",),
@@ -91,6 +91,7 @@ GRANTS = {
     "scratch_writer_t": ("hierarchy_writers_t",),
     "hierarchy_writers_t": ("create_hierarchy",),
     "cctkGH_binding": ("clock_writer_t",),
+    "cctkGH_clock": ("clock_writer_t", "stage_writer_t"),
     "why_valid_t": ("write_scope_t", "array_write_scope_t", "operator<<"),
     "write_scope_t": ("open_write", "write_scopes_t"),
     "array_write_scope_t": ("open_array_write",),

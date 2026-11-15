@@ -8,11 +8,21 @@
 #include <cctk.h>
 
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace CarpetX {
 
-void publish_clock(const GHExt &ext);
+struct cctkGH_clock {
+private:
+  static void
+  change_run(const clock_writer_t &writer, const GHExt &ext,
+             const std::function<void(GHExt::run_clock_t &)> &change);
+  static void show_stage(const stage_writer_t &writer, const GHExt &ext,
+                         std::optional<GHExt::stage_clock_t> stage);
+  friend class clock_writer_t;
+  friend class stage_writer_t;
+};
 
 void require_current_clock(const GHExt &ext, const cGH *cctkGH,
                            const std::function<std::string()> &who);

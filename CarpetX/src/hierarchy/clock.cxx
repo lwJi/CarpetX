@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <type_traits>
 
@@ -21,7 +22,6 @@ GHExt::run_clock_t shown_clock(const GHExt &ext) {
   }
   return clock;
 }
-} // namespace
 
 void publish_clock(const GHExt &ext) {
   const GHExt::run_clock_t clock = shown_clock(ext);
@@ -34,6 +34,20 @@ void publish_clock(const GHExt &ext) {
   };
   publish(ext.flesh_cctkGH());
   ext.for_each_cctkGH(publish);
+}
+} // namespace
+
+void cctkGH_clock::change_run(
+    const clock_writer_t &, const GHExt &ext,
+    const std::function<void(GHExt::run_clock_t &)> &change) {
+  change(ext.sealed_run_clock().open(cctkGH_clock{}));
+  publish_clock(ext);
+}
+
+void cctkGH_clock::show_stage(const stage_writer_t &, const GHExt &ext,
+                              const std::optional<GHExt::stage_clock_t> stage) {
+  ext.sealed_shown_stage().open(cctkGH_clock{}).stage = stage;
+  publish_clock(ext);
 }
 
 namespace {
