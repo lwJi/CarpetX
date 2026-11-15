@@ -1221,7 +1221,7 @@ class Codec(unittest.TestCase):
 
 
 class Door(unittest.TestCase):
-    POINTER = re.compile(r"^GHExt \*(\w+) = nullptr;$", re.M)
+    POINTER = re.compile(r"^const GHExt \*(\w+) = nullptr;$", re.M)
     UNNAMED = re.compile(r"^namespace \{\n(.*?)^\} // namespace$", re.M | re.S)
 
     def test_the_pointer_driver_reads_is_file_local(self):
