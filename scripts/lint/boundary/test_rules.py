@@ -532,7 +532,7 @@ class Grant(unittest.TestCase):
         self.assertEqual(rules.ungranted(self.MODEL, text), [5, 12])
         self.assertEqual(reported(self.MODEL, text), [("grant", "friend class clock_writer_t;"), ("grant", "friend class write_scope_t;")])
 
-    def test_a_written_by_alias_is_the_friend_line_of_its_writer_under_its_row(self):
+    def test_a_written_by_alias_is_the_friend_line_of_its_writer_under_its_type(self):
         text = (
             "template <class T, class Writer> class written_by {\n"
             "public:\n"
@@ -546,18 +546,18 @@ class Grant(unittest.TestCase):
             "  struct PatchData {\n"
             "    struct LevelData {\n"
             "      struct clock_t {};\n"
-            "      using clock_row_t = written_by<clock_t, clock_writer_t>;\n"
-            "      const clock_row_t &clock_row() const { return clock_; }\n"
+            "      using sealed_clock_t = written_by<clock_t, clock_writer_t>;\n"
+            "      const sealed_clock_t &sealed_clock() const { return clock_; }\n"
             "      struct GroupData {\n"
             "        struct timelevel_t {};\n"
-            "        using timelevel_row_t =\n"
+            "        using sealed_timelevel_t =\n"
             "            written_by<timelevel_t, write_scope_t>;\n"
             "        class ring_t {\n"
-            "          std::vector<timelevel_row_t> tls;\n"
+            "          std::vector<sealed_timelevel_t> tls;\n"
             "        };\n"
             "      };\n"
             "    private:\n"
-            "      clock_row_t clock_;\n"
+            "      sealed_clock_t clock_;\n"
             "    };\n"
             "  };\n"
             "};\n"
@@ -575,8 +575,8 @@ class Grant(unittest.TestCase):
         self.assertEqual(reported(self.MODEL, text), [])
         with mock.patch.dict(rules.GRANTS, {"GHExt::PatchData::LevelData::clock_t": ("scratch_writer_t",)}):
             self.assertEqual(rules.ungranted(self.MODEL, text), [13])
-            self.assertEqual(reported(self.MODEL, text), [("grant", "using clock_row_t = written_by<clock_t, clock_writer_t>;")])
-        alias_template = text.replace("using clock_row_t = written_by<clock_t, clock_writer_t>;", "template <class W> using clock_row_t = written_by<clock_t, W>;")
+            self.assertEqual(reported(self.MODEL, text), [("grant", "using sealed_clock_t = written_by<clock_t, clock_writer_t>;")])
+        alias_template = text.replace("using sealed_clock_t = written_by<clock_t, clock_writer_t>;", "template <class W> using sealed_clock_t = written_by<clock_t, W>;")
         self.assertIn((13, "GHExt::PatchData::LevelData::clock_t", "W"), list(rules.friends(alias_template)))
         self.assertEqual(rules.ungranted(self.MODEL, alias_template), [13])
 
@@ -591,22 +591,22 @@ class Grant(unittest.TestCase):
             f"static inline {rogue} rogue_{{clock_t{{}}}};",
             f"struct rogue_t : {rogue} {{}};",
             f"struct rogue_t : other_t, private {rogue} {{\n        int x;\n      }};",
-            f"using rows = std::pair<clock_row_t, {rogue}>;",
+            f"using sealed_pair_t = std::pair<sealed_clock_t, {rogue}>;",
             f"std::vector<{rogue}> rows_;",
-            f"typedef {rogue} rogue_row_t;",
-            f"using rogue_row_t = const {rogue};",
-            f"using rogue_row_t = written_by<clock_t, ns::scratch_writer_t>;",
-            f"using rogue_row_t = written_by<const_propagating_ptr<clock_t>, scratch_writer_t>;",
-            f"using rogue_row_t = {rogue}, other_t = int;",
-            f"const {rogue} &rogue_row() const;",
-            f"const {rogue} &rogue_row() const {{ return rogue_; }}",
+            f"typedef {rogue} sealed_rogue_t;",
+            f"using sealed_rogue_t = const {rogue};",
+            f"using sealed_rogue_t = written_by<clock_t, ns::scratch_writer_t>;",
+            f"using sealed_rogue_t = written_by<const_propagating_ptr<clock_t>, scratch_writer_t>;",
+            f"using sealed_rogue_t = {rogue}, other_t = int;",
+            f"const {rogue} &sealed_rogue() const;",
+            f"const {rogue} &sealed_rogue() const {{ return rogue_; }}",
             f"void take({rogue} row);",
             f"int size() const {{ return sizeof({rogue}); }}",
             f"enum {{ size = sizeof({rogue}) }};",
         ]:
             text = (
                 "struct GHExt {\n  struct PatchData {\n    struct LevelData {\n      struct clock_t {};\n"
-                "      using clock_row_t = written_by<clock_t, clock_writer_t>;\n      " + declaration + "\n    };\n  };\n};\n"
+                "      using sealed_clock_t = written_by<clock_t, clock_writer_t>;\n      " + declaration + "\n    };\n  };\n};\n"
             )
             with self.subTest(declaration=declaration):
                 self.assertEqual(rules.misspelled(text), [6])
@@ -621,9 +621,9 @@ class Grant(unittest.TestCase):
         for declaration in [
             "written_by() = default;",
             "explicit written_by(T value) : value_(std::move(value)) {}",
-            "const clock_row_t &clock_row() const { return clock_; }",
-            "clock_row_t clock_{};",
-            "std::vector<clock_row_t> clocks_;",
+            "const sealed_clock_t &sealed_clock() const { return clock_; }",
+            "sealed_clock_t clock_{};",
+            "std::vector<sealed_clock_t> clocks_;",
             "bool written_by_nobody = 1 < 2;",
         ]:
             text = "struct GHExt {\n  struct PatchData {\n    struct LevelData {\n      " + declaration + "\n    };\n  };\n};\n"
@@ -2427,8 +2427,8 @@ class Doc(unittest.TestCase):
             with self.assertRaises(ValueError):
                 doc.grants()
         text = headers[Grant.MODEL]
-        scratch = text.splitlines().index("        using scratch_pool_row_t = written_by<scratch_pool_t, scratch_writer_t>;") + 1
-        binding = text.splitlines().index("        using ring_row_t = written_by<ring_t, cctkGH_binding>;") + 1
+        scratch = text.splitlines().index("        using sealed_scratch_pool_t =") + 1
+        binding = text.splitlines().index("        using sealed_ring_t = written_by<ring_t, cctkGH_binding>;") + 1
         with mock.patch.dict(rules.GRANTS, {"GHExt::PatchData::LevelData::GroupData::scratch_pool_t": (), "GHExt::PatchData::LevelData::GroupData::ring_t": ()}):
             self.assertEqual(rules.ungranted(Grant.MODEL, text), [binding, scratch])
             self.assertEqual([(f.line, f.rule) for f in findings(Grant.MODEL, text, Lang.CXX) if f.rule == "grant"], [(binding, "grant"), (scratch, "grant")])

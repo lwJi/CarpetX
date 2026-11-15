@@ -480,12 +480,12 @@ def class_named(head: list[tuple[str, int]]) -> Optional[str]:
 
 
 def aliased(words: list[str]) -> Optional[tuple[str, str]]:
-    name, row, writer = words[1:2], words[5:6], words[7:8]
+    name, wrapped, writer = words[1:2], words[5:6], words[7:8]
     if words[:1] + words[2:5] + words[6:7] + words[8:] != ["using", "=", GRANT_WRAPPER, "<", ",", ">"]:
         return None
-    if not all(IDENTIFIER.fullmatch(word) for word in name + row + writer):
+    if not all(IDENTIFIER.fullmatch(word) for word in name + wrapped + writer):
         return None
-    return row[0], writer[0]
+    return wrapped[0], writer[0]
 
 
 def friends(text: str) -> Iterator[tuple[int, str, str]]:

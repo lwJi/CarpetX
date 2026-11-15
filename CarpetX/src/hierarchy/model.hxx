@@ -179,8 +179,8 @@ struct GHExt {
     CCTK_INT epoch = 0;
     std::vector<cctkGHptr> level_cctkGHs;
   };
-  using level_set_row_t = written_by<level_set_t, level_writer_t>;
-  const level_set_row_t &level_set_row() const { return level_set_; }
+  using sealed_level_set_t = written_by<level_set_t, level_writer_t>;
+  const sealed_level_set_t &sealed_level_set() const { return level_set_; }
 
   struct GroupRecord;
 
@@ -344,7 +344,7 @@ struct GHExt {
         AnyTypeVector data_;
         std::vector<why_valid_t> valid_;
       };
-      using timelevel_row_t = written_by<timelevel_t, array_write_scope_t>;
+      using sealed_timelevel_t = written_by<timelevel_t, array_write_scope_t>;
       int array_size;
       int dimension;
       int lsh[dim];
@@ -358,23 +358,24 @@ struct GHExt {
       class ring_t {
       public:
         ring_t() = default;
-        explicit ring_t(std::vector<timelevel_row_t> tls)
+        explicit ring_t(std::vector<sealed_timelevel_t> tls)
             : tls(std::move(tls)) {}
         int size() const { return tls.size(); }
-        const timelevel_row_t &operator[](const tl_t tl) const {
+        const sealed_timelevel_t &operator[](const tl_t tl) const {
           return tls[tl.index()];
         }
         void rotate_timelevels();
 
       private:
-        std::vector<timelevel_row_t> tls;
+        std::vector<sealed_timelevel_t> tls;
       };
-      using ring_row_t = written_by<ring_t, cctkGH_binding>;
-      const ring_row_t &ring_row() const { return ring_; }
+      using sealed_ring_t = written_by<ring_t, cctkGH_binding>;
+      const sealed_ring_t &sealed_ring() const { return ring_; }
 
-      const timelevel_row_t &
-      timelevel_row(const tl_t tl, const std::source_location site =
-                                       std::source_location::current()) const {
+      const sealed_timelevel_t &
+      sealed_timelevel(const tl_t tl,
+                       const std::source_location site =
+                           std::source_location::current()) const {
         if (tl.index() < 0 || tl.index() >= ring_->size())
           refuse(site,
                  "time level %d of group %s does not exist: it has %d time "
@@ -385,11 +386,11 @@ struct GHExt {
       const timelevel_t &timelevel(const tl_t tl,
                                    const std::source_location site =
                                        std::source_location::current()) const {
-        return timelevel_row(tl, site).get();
+        return sealed_timelevel(tl, site).get();
       }
 
     private:
-      ring_row_t ring_;
+      sealed_ring_t ring_;
     };
   };
 
@@ -491,8 +492,8 @@ struct GHExt {
     std::optional<integrator_t> integrator_;
     bool integrator_open_ = true;
   };
-  using registry_row_t = written_by<registry_t, registry_writer_t>;
-  const registry_row_t &registry_row() const { return registry_; }
+  using sealed_registry_t = written_by<registry_t, registry_writer_t>;
+  const sealed_registry_t &sealed_registry() const { return registry_; }
 
   const GroupRecord &record(
       const gi_t gi,
@@ -537,8 +538,8 @@ struct GHExt {
     struct core_t {
       const_propagating_ptr<amrex::AmrCore> amrcore_;
     };
-    using core_row_t = written_by<core_t, structure_writer_t>;
-    const core_row_t &core_row() const { return core_; }
+    using sealed_core_t = written_by<core_t, structure_writer_t>;
+    const sealed_core_t &sealed_core() const { return core_; }
     const amrex::AmrCore &amrcore() const { return *core_->amrcore_; }
 
     struct LevelData {
@@ -558,8 +559,8 @@ struct GHExt {
         rat64 iteration, delta_iteration;
         int last_step_iteration = 0, last_finalized_iteration = 0;
       };
-      using clock_row_t = written_by<clock_t, clock_writer_t>;
-      const clock_row_t &clock_row() const { return clock_; }
+      using sealed_clock_t = written_by<clock_t, clock_writer_t>;
+      const sealed_clock_t &sealed_clock() const { return clock_; }
 
       rat64 iteration() const { return clock_->iteration; }
       rat64 delta_iteration() const { return clock_->delta_iteration; }
@@ -627,35 +628,35 @@ struct GHExt {
           int open_writes_ = 0;
           std::vector<why_valid_t> valid_;
         };
-        using timelevel_row_t = written_by<timelevel_t, write_scope_t>;
+        using sealed_timelevel_t = written_by<timelevel_t, write_scope_t>;
 
         class ring_t {
         public:
           ring_t() = default;
-          explicit ring_t(std::vector<timelevel_row_t> tls)
+          explicit ring_t(std::vector<sealed_timelevel_t> tls)
               : tls(std::move(tls)) {}
           int size() const { return tls.size(); }
-          const timelevel_row_t &operator[](const tl_t tl) const {
+          const sealed_timelevel_t &operator[](const tl_t tl) const {
             return tls[tl.index()];
           }
           int open_write_count() const {
             int count = 0;
-            for (const timelevel_row_t &tl : tls)
+            for (const sealed_timelevel_t &tl : tls)
               count += tl->open_writes();
             return count;
           }
           void rotate_timelevels();
 
         private:
-          std::vector<timelevel_row_t> tls;
+          std::vector<sealed_timelevel_t> tls;
         };
-        using ring_row_t = written_by<ring_t, cctkGH_binding>;
-        const ring_row_t &ring_row() const { return ring_; }
+        using sealed_ring_t = written_by<ring_t, cctkGH_binding>;
+        const sealed_ring_t &sealed_ring() const { return ring_; }
 
-        const timelevel_row_t &
-        timelevel_row(const tl_t tl,
-                      const std::source_location site =
-                          std::source_location::current()) const {
+        const sealed_timelevel_t &
+        sealed_timelevel(const tl_t tl,
+                         const std::source_location site =
+                             std::source_location::current()) const {
           if (tl.index() < 0 || tl.index() >= ring_->size())
             refuse(site,
                    "time level %d of group %s does not exist on patch %d, "
@@ -667,7 +668,7 @@ struct GHExt {
         const timelevel_t &
         timelevel(const tl_t tl, const std::source_location site =
                                      std::source_location::current()) const {
-          return timelevel_row(tl, site).get();
+          return sealed_timelevel(tl, site).get();
         }
         int num_timelevels() const { return ring_->size(); }
         int open_write_count() const { return ring_->open_write_count(); }
@@ -689,8 +690,9 @@ struct GHExt {
             return *slots.at(slot).mfab;
           }
         };
-        using scratch_pool_row_t = written_by<scratch_pool_t, scratch_writer_t>;
-        const scratch_pool_row_t &scratch_pool_row() const {
+        using sealed_scratch_pool_t =
+            written_by<scratch_pool_t, scratch_writer_t>;
+        const sealed_scratch_pool_t &sealed_scratch_pool() const {
           return scratch_pool_;
         }
         const scratch_pool_t &scratch_pool() const {
@@ -698,8 +700,8 @@ struct GHExt {
         }
 
       private:
-        scratch_pool_row_t scratch_pool_;
-        ring_row_t ring_;
+        sealed_scratch_pool_t scratch_pool_;
+        sealed_ring_t ring_;
       };
 
       struct group_storage_filter {
@@ -753,7 +755,7 @@ struct GHExt {
       }
 
     private:
-      clock_row_t clock_;
+      sealed_clock_t clock_;
       std::vector<std::unique_ptr<GroupData>> groupdata;
       std::map<ghost_mask_key_t, amrex::iMultiFab> ghost_masks;
     };
@@ -774,8 +776,8 @@ struct GHExt {
       std::vector<LevelData> leveldata;
       std::vector<bool> level_modified;
     };
-    using levels_row_t = written_by<levels_t, level_writer_t>;
-    const levels_row_t &levels_row() const { return levels_; }
+    using sealed_levels_t = written_by<levels_t, level_writer_t>;
+    const sealed_levels_t &sealed_levels() const { return levels_; }
 
     int num_levels() const { return levels().size(); }
     level_range level_handles() const {
@@ -797,8 +799,8 @@ struct GHExt {
     }
 
   private:
-    core_row_t core_;
-    levels_row_t levels_;
+    sealed_core_t core_;
+    sealed_levels_t levels_;
   };
 
   class patches_t {
@@ -814,8 +816,8 @@ struct GHExt {
     std::vector<PatchData> patchdata;
     bool initialized_ = false;
   };
-  using patches_row_t = written_by<patches_t, structure_writer_t>;
-  const patches_row_t &patches_row() const { return patches_; }
+  using sealed_patches_t = written_by<patches_t, structure_writer_t>;
+  const sealed_patches_t &sealed_patches() const { return patches_; }
 
   int num_patches() const { return patches().size(); }
   index_range<patch_t> patch_handles() const {
@@ -876,11 +878,11 @@ struct GHExt {
   }
 
 private:
-  level_set_row_t level_set_;
+  sealed_level_set_t level_set_;
   const amrcore_factory make_core_;
   const level_buffers_factory make_buffers_;
-  registry_row_t registry_;
-  patches_row_t patches_;
+  sealed_registry_t registry_;
+  sealed_patches_t patches_;
 
   explicit GHExt(config_t config);
 

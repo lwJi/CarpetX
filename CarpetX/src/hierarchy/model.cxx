@@ -218,8 +218,8 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
       symmetries[0][1] == symmetry_t::periodic,
       symmetries[0][2] == symmetry_t::periodic};
 
-  core_ = core_row_t(core_t{make_core(levels, patch, domain, max_num_levels - 1,
-                                      ncells, is_periodic)});
+  core_ = sealed_core_t(core_t{make_core(
+      levels, patch, domain, max_num_levels - 1, ncells, is_periodic)});
 
   if (verbose) {
 #pragma omp critical
@@ -290,10 +290,10 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
 
   const GHExt &ext = driver();
   if (level.index() == 0) {
-    clock_ = clock_row_t(clock_t{0, 1, 0, 0});
+    clock_ = sealed_clock_t(clock_t{0, 1, 0, 0});
   } else {
-    const clock_t &coarse = ext.level(level.parent()).clock_row().get();
-    clock_ = clock_row_t(clock_t{
+    const clock_t &coarse = ext.level(level.parent()).sealed_clock().get();
+    clock_ = sealed_clock_t(clock_t{
         coarse.iteration,
         coarse.delta_iteration / (ext.use_subcycling ? time_refinement : 1),
         coarse.last_step_iteration, coarse.last_finalized_iteration});
@@ -392,7 +392,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
                                                   : amrex::IndexType::NODE,
                        grid_function.indextype[2] ? amrex::IndexType::CELL
                                                   : amrex::IndexType::NODE));
-  std::vector<timelevel_row_t> tls;
+  std::vector<sealed_timelevel_t> tls;
   tls.reserve(record.num_timelevels());
   for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(
@@ -400,7 +400,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
         std::make_unique<amrex::MultiFab>(
             gba, dm, numvars, amrex::IntVect(grid_function.nghostzones)),
         numvars, why);
-  ring_ = ring_row_t(ring_t(std::move(tls)));
+  ring_ = sealed_ring_t(ring_t(std::move(tls)));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -460,14 +460,14 @@ GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
     bbox[2 * d] = bbox[2 * d + 1] = 1;
   }
 
-  std::vector<timelevel_row_t> tls;
+  std::vector<sealed_timelevel_t> tls;
   tls.reserve(record.num_timelevels());
   for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(
         std::in_place,
         AnyTypeVector(record.var_type, record.numvars * array_size),
         record.numvars, []() { return "freeze_storage"; });
-  ring_ = ring_row_t(ring_t(std::move(tls)));
+  ring_ = sealed_ring_t(ring_t(std::move(tls)));
 }
 
 void GHExt::GlobalData::ArrayGroupData::ring_t::rotate_timelevels() {

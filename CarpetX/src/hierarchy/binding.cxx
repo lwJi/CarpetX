@@ -118,7 +118,7 @@ void cctkGH_binding::rotate(GHExt &ext, const window_t window, const gi_t gi) {
     const int ntls = groupdata.num_timelevels();
     assert(ntls == ntls0);
     if (ntls > 1) {
-      groupdata.ring_row().open(cctkGH_binding{}).rotate_timelevels();
+      groupdata.sealed_ring().open(cctkGH_binding{}).rotate_timelevels();
       for (const auto &local_cctkGH_ptr : leveldata.local_cctkGHs) {
         cGH *const local_cctkGH = local_cctkGH_ptr.get();
         const component_t component{local_cctkGH->cctk_component};
@@ -132,7 +132,11 @@ void cctkGH_binding::rotate(GHExt &ext, const window_t window, const gi_t gi) {
 
 void cctkGH_binding::rotate(GHExt &ext, const gi_t gi) {
   assert(ext.flesh_cctkGH());
-  ext.record(gi).array().ring_row().open(cctkGH_binding{}).rotate_timelevels();
+  ext.record(gi)
+      .array()
+      .sealed_ring()
+      .open(cctkGH_binding{})
+      .rotate_timelevels();
   bind_array_group(ext.flesh_cctkGH(), gi);
   ext.for_each_cctkGH([&](cGH *const copy) { bind_array_group(copy, gi); });
   assert_array_group_bound(ext.flesh_cctkGH(), gi);
