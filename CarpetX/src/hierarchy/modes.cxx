@@ -73,7 +73,6 @@ void setup_cctkGH(cGH *restrict cctkGH) {
     cctkGH->cctk_delta_space[d] = NAN;
   }
 
-  cctkGH->cctk_time = 0;
   cctkGH->cctk_delta_time = NAN;
 
   cctkGH->cctk_component = undefined;

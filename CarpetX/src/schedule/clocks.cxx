@@ -147,9 +147,11 @@ void SetDeltaTime(cGH *restrict const cctkGH) {
 
 void SetStepTime(cGH *restrict const cctkGH, const level_t level,
                  const rat64 clock) {
+  DECLARE_CCTK_PARAMETERS;
   if (driver().use_subcycling) {
     cctkGH->cctk_timefac = substeps_per_coarsest_step(level.index());
-    cctkGH->cctk_time = cctkGH->cctk_delta_time * double(clock);
+    cctkGH->cctk_time =
+        cctk_initial_time + cctkGH->cctk_delta_time * double(clock);
   } else {
     cctkGH->cctk_timefac = 1;
   }

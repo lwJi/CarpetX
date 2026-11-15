@@ -3,6 +3,10 @@
 #include "cctk_Parameters.h"
 #include "loop.hxx"
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 extern "C"
 void TestSubcycleStepping_Init(CCTK_ARGUMENTS)
 {
@@ -165,4 +169,26 @@ extern "C"
 void TestSubcycleStepping_SyncInTail(CCTK_ARGUMENTS)
 {
   // do nothing: the SYNC clause on this routine is the test
+}
+
+extern "C"
+void TestSubcycleStepping_CheckTime(CCTK_ARGUMENTS)
+{
+  DECLARE_CCTK_PARAMETERS;
+  DECLARE_CCTK_ARGUMENTSX_TestSubcycleStepping_CheckTime;
+
+  const CCTK_REAL expected =
+      cctk_initial_time + cctk_iteration * CCTK_DELTA_TIME;
+  const CCTK_REAL tolerance =
+      16 * std::numeric_limits<CCTK_REAL>::epsilon() *
+      std::max({CCTK_REAL(1), std::fabs(cctk_initial_time),
+                std::fabs(expected)});
+  if (!(std::fabs(cctk_time - expected) <= tolerance))
+    CCTK_VERROR("At iteration %d level %d, cctk_time is %.17g but "
+                "cctk_initial_time + cctk_iteration * CCTK_DELTA_TIME is "
+                "%.17g (cctk_initial_time %.17g, cctk_delta_time %.17g, "
+                "cctk_timefac %d)",
+                cctk_iteration, cctk_level, double(cctk_time),
+                double(expected), double(cctk_initial_time),
+                double(cctk_delta_time), cctk_timefac);
 }
