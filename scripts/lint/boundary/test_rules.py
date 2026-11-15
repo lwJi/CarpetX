@@ -574,6 +574,37 @@ class Grant(unittest.TestCase):
         with mock.patch.dict(rules.GRANTS, {"GHExt::PatchData::LevelData::clock_t": ("scratch_writer_t",)}):
             self.assertEqual(rules.ungranted(self.MODEL, text), [13, 18, 19])
 
+    def test_an_initialised_written_by_member_or_a_written_by_base_names_its_writer_too(self):
+        spelled = "written_by<clock_t, scratch_writer_t>"
+        for declaration in [
+            f"{spelled} rogue_;",
+            f"{spelled} rogue_{{}};",
+            f"{spelled} rogue_ = {{}};",
+            f"{spelled} rogue_ = {spelled}(clock_t());",
+            f"{spelled} rogue_ = {spelled}(clock_t{{}});",
+            f"static inline {spelled} rogue_{{clock_t{{}}}};",
+            f"struct rogue_t : {spelled} {{}};",
+            f"struct rogue_t : other_t, private {spelled} {{\n      int x;\n    }};",
+            f"template <class W> using rogue_row_t = written_by<clock_t, W>;",
+            f"typedef {spelled} rogue_row_t;",
+        ]:
+            text = "struct GHExt {\n  struct LevelData {\n    struct clock_t {};\n    " + declaration + "\n    friend class clock_writer_t;\n  };\n};\n"
+            with self.subTest(declaration=declaration):
+                found = list(rules.friends(text))
+                self.assertEqual([(line, owner) for line, owner, _ in found], [(4, "GHExt::LevelData::clock_t"), (len(text.splitlines()) - 2, "GHExt::LevelData")])
+                self.assertEqual(rules.ungranted(self.MODEL, text), [4, len(text.splitlines()) - 2])
+        for declaration in [
+            f"const {spelled} &rogue_row() const;",
+            f"const {spelled} &rogue_row() const {{ return rogue_; }}",
+            f"void take({spelled} row = {{}});",
+            f"{spelled} &operator=(const {spelled} &) = default;",
+            "written_by() = default;",
+            "explicit written_by(T value) : value_(std::move(value)) {}",
+        ]:
+            text = "struct GHExt {\n  struct LevelData {\n    " + declaration + "\n  };\n};\n"
+            with self.subTest(declaration=declaration):
+                self.assertEqual(list(rules.friends(text)), [])
+
     def test_a_body_an_enum_or_a_member_initialiser_opens_no_type(self):
         text = (
             "struct GHExt {\n"

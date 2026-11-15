@@ -162,7 +162,7 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 
 ## Who is granted what
 
-Each row is a name that a `friend` line in a header of `hierarchy/` grants, and the types whose private members it reaches. A member or alias declared with `written_by<T, W>` is the friend line of `W` under `T`: every holder reads `T` through it, and only `W` opens it for writing. The table GRANTS in scripts/lint/boundary/rules.py is those lines: the grant rule refuses a friend line the table lacks, and the tests refuse an entry no line backs.
+Each row is a name that a `friend` line in a header of `hierarchy/` grants, and the types whose private members it reaches. A member, alias or base declared with `written_by<T, W>` is the friend line of `W` under `T`: every holder reads `T` through it, and only `W` opens it for writing. The table GRANTS in scripts/lint/boundary/rules.py is those lines: the grant rule refuses a friend line the table lacks, and the tests refuse an entry no line backs.
 
 | Granted | Private members of |
 | --- | --- |
