@@ -346,7 +346,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             const amrex::IndexType &indextype = mfab.ixType();
 
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level.index());
+                patchdata.amrcore().Geom(leveldata.level.index());
             const amrex::Real *const xlo = geom.ProbLo();
             const amrex::Real *const xhi = geom.ProbHi();
             const box_t<CCTK_REAL, 3> rdomain{.lo = {xlo[0], xlo[1], xlo[2]},

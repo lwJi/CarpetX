@@ -194,9 +194,9 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
           CCTK_VINFO("Patch %d:", patchdata.patch.index());
           CCTK_VINFO("  Grid extent:");
           CCTK_VINFO("    gsh=[%d,%d,%d]", gsh[0], gsh[1], gsh[2]);
-          const auto &bf = patchdata.amrcore->blockingFactor(0);
+          const auto &bf = patchdata.amrcore().blockingFactor(0);
           CCTK_VINFO("    blocking_factor=[%d,%d,%d]", bf[0], bf[1], bf[2]);
-          const auto &mgs = patchdata.amrcore->maxGridSize(0);
+          const auto &mgs = patchdata.amrcore().maxGridSize(0);
           CCTK_VINFO("    max_grid_size=[%d,%d,%d]", mgs[0], mgs[1], mgs[2]);
           const auto mfitinfo = amrex::MFItInfo().EnableTiling();
           const auto &ts = mfitinfo.tilesize;
@@ -220,7 +220,7 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
       CCTK_VINFO("Initializing level %d...", level.index());
 
       for (const auto &patchdata : ext.patches())
-        assert(patchdata.amrcore->finestLevel() <= level.index());
+        assert(patchdata.amrcore().finestLevel() <= level.index());
 
       {
         const traversal_scope_t scope(all_levels());
@@ -239,12 +239,12 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
 
         for (const auto &patchdata : ext.patches()) {
 
-          const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
+          const int old_numlevels = patchdata.amrcore().finestLevel() + 1;
           const CCTK_REAL time = 0; // dummy time
           structure.regrid(level_t{patchdata.patch, 0}, time);
 
-          const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
-          const int max_numlevels = patchdata.amrcore->maxLevel() + 1;
+          const int new_numlevels = patchdata.amrcore().finestLevel() + 1;
+          const int max_numlevels = patchdata.amrcore().maxLevel() + 1;
           assert(new_numlevels >= 0 && new_numlevels <= max_numlevels);
           assert(new_numlevels == old_numlevels ||
                  new_numlevels == old_numlevels + 1);
@@ -376,7 +376,7 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
         assert(patchdata.level(finest).iteration() == iteration);
         const level_t min_active_level = WidenMinLevel(finest);
 
-        const int old_numlevels = patchdata.amrcore->finestLevel() + 1;
+        const int old_numlevels = patchdata.amrcore().finestLevel() + 1;
         const CCTK_REAL time = 0; // dummy time
 
         CCTK_VINFO(
@@ -386,8 +386,8 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
 
         structure.regrid(min_active_level, time);
 
-        const int new_numlevels = patchdata.amrcore->finestLevel() + 1;
-        const int max_numlevels = patchdata.amrcore->maxLevel() + 1;
+        const int new_numlevels = patchdata.amrcore().finestLevel() + 1;
+        const int max_numlevels = patchdata.amrcore().maxLevel() + 1;
         assert(new_numlevels >= 0 && new_numlevels <= max_numlevels);
 
 #pragma omp critical

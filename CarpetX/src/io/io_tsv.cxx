@@ -158,7 +158,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
     for (const auto &leveldata : patchdata.levels()) {
       const auto &groupdata = leveldata.group(gi);
       const tl_t tl{0};
-      const auto &geom = patchdata.amrcore->Geom(leveldata.level.index());
+      const auto &geom = patchdata.amrcore().Geom(leveldata.level.index());
       const auto &mfab = groupdata.timelevel(tl).mfab();
       for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
         const amrex::Array4<const CCTK_REAL> &vars = mfab.array(mfi);
@@ -452,9 +452,9 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
         return amrex::Orientation(d, amrex::Orientation::Side(f));
       };
 
-      const auto &geom = patchdata.amrcore->Geom(leveldata.level.index());
+      const auto &geom = patchdata.amrcore().Geom(leveldata.level.index());
       const amrex::Box &domain =
-          patchdata.amrcore->Geom(leveldata.level.index()).Domain();
+          patchdata.amrcore().Geom(leveldata.level.index()).Domain();
       vect<CCTK_REAL, dim> x0, dx;
       for (int d = 0; d < dim; ++d) {
         dx[d] = geom.CellSize(d);

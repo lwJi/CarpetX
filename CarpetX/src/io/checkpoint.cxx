@@ -180,7 +180,7 @@ const amrex::MultiFab *vertex_coords(const level_t level) {
 }
 
 void snapshot_geometry(level_record_t &record, const level_t level) {
-  record.geom = driver().patch(level.patch()).amrcore->Geom(level.index());
+  record.geom = driver().patch(level.patch()).amrcore().Geom(level.index());
   record.vertex_coords = vertex_coords(level);
 }
 

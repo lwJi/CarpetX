@@ -35,7 +35,7 @@ flux_register_of(const GHExt::GroupRecord &record, const level_t level,
   if (level.index() == 0 || !group_has_flux_register(record.groupindex))
     return nullptr;
   const amrex::IntVect ratio =
-      driver().patch(level.patch()).amrcore->refRatio(level.parent().index());
+      driver().patch(level.patch()).amrcore().refRatio(level.parent().index());
   auto freg = std::make_unique<amrex::FluxRegister>(
       ba, dm, ratio, level.index(), record.numvars);
   freg->setVal(0);
@@ -61,10 +61,10 @@ std::optional<rk_bands_t> rk_bands_of(const GHExt::GroupRecord &record,
               indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE));
   const amrex::MultiFab probe(gba, dm, record.numvars, nghost,
                               amrex::MFInfo().SetAlloc(false));
-  const auto &amrcore = ext.patch(level.patch()).amrcore;
+  const amrex::AmrCore &amrcore = ext.patch(level.patch()).amrcore();
   const amrex::FabArrayBase::FPinfo &fp = rk_fill_fpinfo(
-      probe, interpolator_of(record), amrcore->Geom(level.index()),
-      amrcore->Geom(level.parent().index()));
+      probe, interpolator_of(record), amrcore.Geom(level.index()),
+      amrcore.Geom(level.parent().index()));
   if (fp.ba_crse_patch.empty())
     return std::nullopt;
   return std::optional<rk_bands_t>(std::in_place, fp, record.numvars,

@@ -228,20 +228,25 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
       symmetries[0][1] == symmetry_t::periodic,
       symmetries[0][2] == symmetry_t::periodic};
 
-  amrcore =
-      make_core(levels, patch, domain, max_num_levels - 1, ncells, is_periodic);
+  core_ = core_t(make_core(levels, patch, domain, max_num_levels - 1, ncells,
+                           is_periodic));
 
   if (verbose) {
 #pragma omp critical
     {
-      const int maxnumlevels = amrcore->maxLevel() + 1;
+      const int maxnumlevels = amrcore().maxLevel() + 1;
       for (const level_t level :
            level_range(level_t{patch, 0}, level_t{patch, maxnumlevels})) {
         CCTK_VINFO("amrex::Geometry level %d:", level.index());
-        std::cout << amrcore->Geom(level.index()) << "\n";
+        std::cout << amrcore().Geom(level.index()) << "\n";
       }
     }
   }
+}
+
+GHExt::PatchData::core_t &GHExt::PatchData::core_t::of(GHExt &ext,
+                                                       const patch_t patch) {
+  return const_cast<core_t &>(std::as_const(ext).patch(patch).core_);
 }
 
 GHExt::PatchData::levels_t &
@@ -280,7 +285,7 @@ void GHExt::PatchData::levels_t::erase_levels_from(const level_t level) {
 void GHExt::PatchData::levels_t::reset_level_modified(GHExt &ext,
                                                       const patch_t patch) {
   const PatchData &patchdata = std::as_const(ext).patch(patch);
-  assert(patchdata.num_levels() == patchdata.amrcore->finestLevel() + 1);
+  assert(patchdata.num_levels() == patchdata.amrcore().finestLevel() + 1);
   of(ext, patch).level_modified.assign(patchdata.num_levels(), false);
 }
 
@@ -341,7 +346,7 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
   }
 
   const amrex::Geometry &geom =
-      ext.patch(level.patch()).amrcore->Geom(level.index());
+      ext.patch(level.patch()).amrcore().Geom(level.index());
   for (const std::unique_ptr<GroupData> &group : groupdata) {
     if (!group)
       continue;
@@ -403,7 +408,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   assert(record.var_type == var_type::real);
 
   const GHExt &ext = driver();
-  const auto &geom = ext.patch(level.patch()).amrcore->Geom(level.index());
+  const auto &geom = ext.patch(level.patch()).amrcore().Geom(level.index());
   for (int d = 0; d < dim; ++d)
     if (geom.isPeriodic(d))
       assert(geom.Domain().length(d) >= grid_function.nghostzones[d]);

@@ -93,7 +93,7 @@ std::string format_clock(const rat64 &clock) {
 CCTK_REAL get_coarse_mindx() {
   CCTK_REAL mindx = std::numeric_limits<CCTK_REAL>::infinity();
   for (const auto &patchdata : driver().patches()) {
-    const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
+    const amrex::Geometry &geom = patchdata.amrcore().Geom(0);
     const CCTK_REAL *restrict const dx = geom.CellSize();
     for (int d = 0; d < dim; ++d)
       mindx = fmin(mindx, dx[d]);
@@ -104,7 +104,7 @@ CCTK_REAL get_coarse_mindx() {
 CCTK_REAL get_finest_mindx() {
   CCTK_REAL mindx = std::numeric_limits<CCTK_REAL>::infinity();
   for (const auto &patchdata : driver().patches()) {
-    const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
+    const amrex::Geometry &geom = patchdata.amrcore().Geom(0);
     const CCTK_REAL *restrict const dx = geom.CellSize();
     CCTK_REAL mindx1 = std::numeric_limits<CCTK_REAL>::infinity();
     for (int d = 0; d < dim; ++d)

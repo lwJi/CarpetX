@@ -277,10 +277,14 @@ template <class Writer>
 concept resets_modified =
     requires(Writer &writer, patch_t patch) { writer.reset_modified(patch); };
 
-template <class Ext>
-concept regrids_amrcore = requires(Ext &ext, patch_t patch) {
-  ext.patch(patch).amrcore->regrid(0, 0.0);
-};
+template <class Core>
+concept regrids_amrcore = requires(Core &core) {
+  core.amrcore_->regrid(0, 0.0);
+} || requires(Core &core) { core.amrcore_.reset(); };
+
+template <class Core>
+concept opens_core =
+    requires(GHExt &ext, patch_t patch) { Core::of(ext, patch); };
 
 template <class Timelevel>
 concept writes_timelevel =
@@ -878,8 +882,12 @@ static_assert(!opens_levels<GHExt::PatchData::levels_t>);
 static_assert(!resets_modified<level_writer_t>);
 
 static_assert(std::is_same_v<decltype(driver()), const GHExt &>);
-static_assert(regrids_amrcore<GHExt>);
-static_assert(!regrids_amrcore<std::remove_reference_t<decltype(driver())>>);
+static_assert(!regrids_amrcore<GHExt::PatchData::core_t>);
+static_assert(!opens_core<GHExt::PatchData::core_t>);
+static_assert(std::is_same_v<decltype(std::declval<GHExt &>()
+                                          .patch(std::declval<patch_t>())
+                                          .amrcore()),
+                             const amrex::AmrCore &>);
 static_assert(
     !writes_timelevel<GHExt::PatchData::LevelData::GroupData::timelevel_t>);
 static_assert(

@@ -209,8 +209,8 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
                .event = "MakeNewLevelFromCoarse after prolongation"});
           FillPatch_NewLevel(groupdata, coarsegroupdata, scope.mfab(level),
                              coarsegroupdata.timelevel(tl).mfab(),
-                             patchdata.amrcore->Geom(coarse.index()),
-                             patchdata.amrcore->Geom(lev));
+                             patchdata.amrcore().Geom(coarse.index()),
+                             patchdata.amrcore().Geom(lev));
         } else {
           invalidate(fine_levels,
                      {.gi = gi,
@@ -327,8 +327,8 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
         FillPatch_RemakeLevel(groupdata, coarsegroupdata, scope.mfab(level),
                               coarsegroupdata.timelevel(tl).mfab(),
                               oldgroupdata.timelevel(tl).mfab(),
-                              patchdata.amrcore->Geom(coarse.index()),
-                              patchdata.amrcore->Geom(lev));
+                              patchdata.amrcore().Geom(coarse.index()),
+                              patchdata.amrcore().Geom(lev));
       } else {
         invalidate(fine_levels,
                    {.gi = gi,

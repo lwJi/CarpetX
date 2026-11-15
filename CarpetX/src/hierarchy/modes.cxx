@@ -153,8 +153,8 @@ void enter_patch_mode(cGH *restrict cctkGH,
 
   cctkGH->cctk_patch = leveldata.level.patch().index();
   const amrex::Box &domain =
-      patchdata.amrcore->Geom(leveldata.level.index()).Domain();
-  const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
+      patchdata.amrcore().Geom(leveldata.level.index()).Domain();
+  const amrex::Geometry &geom = patchdata.amrcore().Geom(0);
   const CCTK_REAL *restrict const global_x0 = geom.ProbLo();
   const CCTK_REAL *restrict const global_dx = geom.CellSize();
   for (int d = 0; d < dim; ++d) {

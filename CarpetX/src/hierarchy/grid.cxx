@@ -22,7 +22,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
   const auto &patchdata = driver().patch(leveldata.level.patch());
   const amrex::IntVect ng(nghostzones[0], nghostzones[1], nghostzones[2]);
   const amrex::Box &domain =
-      patchdata.amrcore->Geom(leveldata.level.index()).Domain();
+      patchdata.amrcore().Geom(leveldata.level.index()).Domain();
   const amrex::Box &vbx = mfp.validbox();
   const amrex::Box &fbx = mfp.fabbox(ng);
   const amrex::Box &gbx = mfp.growntilebox(ng);
@@ -60,7 +60,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
               (gbx[orient(d, 1)] == fbx[orient(d, 1)]);
   }
 
-  const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
+  const amrex::Geometry &geom = patchdata.amrcore().Geom(0);
   const CCTK_REAL *restrict const global_x0 = geom.ProbLo();
   const CCTK_REAL *restrict const global_dx = geom.CellSize();
   for (int d = 0; d < dim; ++d) {
@@ -104,7 +104,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
   const amrex::Box &vbx = fab.box(component.index());
   const amrex::Box &gbx = fbx;
   const amrex::Box &domain =
-      patchdata.amrcore->Geom(leveldata.level.index()).Domain();
+      patchdata.amrcore().Geom(leveldata.level.index()).Domain();
 
   for (int d = 0; d < dim; ++d)
     assert(domain.type(d) == amrex::IndexType::CELL);
@@ -144,7 +144,7 @@ GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
               (gbx[orient(d, 1)] == fbx[orient(d, 1)]);
   }
 
-  const amrex::Geometry &geom = patchdata.amrcore->Geom(0);
+  const amrex::Geometry &geom = patchdata.amrcore().Geom(0);
   const CCTK_REAL *restrict const global_x0 = geom.ProbLo();
   const CCTK_REAL *restrict const global_dx = geom.CellSize();
   for (int d = 0; d < dim; ++d) {

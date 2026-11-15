@@ -121,12 +121,13 @@ void level_writer_t::erase_levels_from(const level_t level) {
 
 void structure_writer_t::set_max_grid_size(
     const patch_t patch, const amrex::Vector<amrex::IntVect> &max_grid_sizes) {
-  ext.patch(patch).amrcore->SetMaxGridSize(max_grid_sizes);
+  GHExt::PatchData::core_t::of(ext, patch)
+      .amrcore_->SetMaxGridSize(max_grid_sizes);
 }
 
 void structure_writer_t::make_new_grids(const patch_t patch,
                                         const CCTK_REAL time) {
-  ext.patch(patch).amrcore->MakeNewGrids(time);
+  GHExt::PatchData::core_t::of(ext, patch).amrcore_->MakeNewGrids(time);
 }
 
 void structure_writer_t::mark_initialized() {
@@ -136,11 +137,13 @@ void structure_writer_t::mark_initialized() {
 void structure_writer_t::regrid(const level_t base_level,
                                 const CCTK_REAL time) {
   levels.reset_modified(base_level.patch());
-  ext.patch(base_level.patch()).amrcore->regrid(base_level.index(), time);
+  GHExt::PatchData::core_t::of(ext, base_level.patch())
+      .amrcore_->regrid(base_level.index(), time);
 }
 
 void structure_writer_t::set_finest_level(const level_t finest_level) {
-  ext.patch(finest_level.patch()).amrcore->SetFinestLevel(finest_level.index());
+  GHExt::PatchData::core_t::of(ext, finest_level.patch())
+      .amrcore_->SetFinestLevel(finest_level.index());
 }
 
 static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
@@ -161,7 +164,8 @@ static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
 
 void structure_writer_t::recover_level(const level_t level, amrex::BoxArray ba,
                                        const bool rechop) {
-  amrex::AmrCore &amrcore = *ext.patch(level.patch()).amrcore;
+  amrex::AmrCore &amrcore =
+      *GHExt::PatchData::core_t::of(ext, level.patch()).amrcore_;
   const int lev = level.index();
   if (lev > 0) {
     amrex::Geometry geom = amrcore.Geom(lev - 1);

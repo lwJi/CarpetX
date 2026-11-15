@@ -303,7 +303,7 @@ void StoreRKOldState(const level_t level,
   const auto &leveldata = patchdata.level(level);
   const std::optional<level_t> child = level.child();
   const amrex::Periodicity &period =
-      patchdata.amrcore->Geom(level.index()).periodicity();
+      patchdata.amrcore().Geom(level.index()).periodicity();
 
   for (const gi_t gi : var_groups) {
     const GroupData &groupdata = leveldata.group(gi);
@@ -335,7 +335,7 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
   const auto &leveldata = patchdata.level(level);
   const auto &childleveldata = patchdata.level(*child);
   const amrex::Periodicity &period =
-      patchdata.amrcore->Geom(level.index()).periodicity();
+      patchdata.amrcore().Geom(level.index()).periodicity();
 
   for (size_t i = 0; i < var_groups.size(); ++i) {
     std::optional<rk_bands_t> &bands =
@@ -358,8 +358,8 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   auto &leveldata = patchdata.level(child);
   const level_t parent = child.parent();
   const auto &coarseleveldata = patchdata.level(parent);
-  const auto &fgeom = patchdata.amrcore->Geom(child.index());
-  const auto &cgeom = patchdata.amrcore->Geom(parent.index());
+  const auto &fgeom = patchdata.amrcore().Geom(child.index());
+  const auto &cgeom = patchdata.amrcore().Geom(parent.index());
   const rk_dense_output_t dense_output = registered_dense_output();
   const stage_range stages = registered_stages();
   assert(stages.contains(completed));

@@ -71,6 +71,7 @@ GRANTS = {
     "GHExt::registry_t": ("registry_writer_t",),
     "GHExt::level_set_t": ("level_writer_t",),
     "GHExt::patches_t": ("structure_writer_t",),
+    "GHExt::PatchData::core_t": ("structure_writer_t",),
     "GHExt::PatchData::levels_t": ("level_writer_t",),
     "GHExt::PatchData::LevelData::clock_t": ("clock_writer_t",),
     "GHExt::PatchData::LevelData::GroupData::timelevel_t": ("write_scope_t",),

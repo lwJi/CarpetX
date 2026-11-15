@@ -93,7 +93,7 @@ void EnsureFluxGeometry(const level_t level) {
   if (buffers.cell_volume)
     return;
 
-  const amrex::Geometry &geom = patchdata.amrcore->Geom(level.index());
+  const amrex::Geometry &geom = patchdata.amrcore().Geom(level.index());
   assert(leveldata.fab);
   const amrex::BoxArray &ba = leveldata.fab->boxArray();
   const amrex::DistributionMapping &dm = leveldata.fab->DistributionMap();
@@ -168,7 +168,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
       const int numvars = groupdata.record.numvars;
       const CCTK_REAL mult = -weight;
       const std::array<CCTK_REAL, dim> area =
-          face_areas(patchdata.amrcore->Geom(level.index()));
+          face_areas(patchdata.amrcore().Geom(level.index()));
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
             leveldata.group(fluxes->at(d)).timelevel(tl).mfab();
@@ -223,7 +223,7 @@ static void reflux_level(const level_t level) {
   const auto &patchdata = driver().patch(level.patch());
   const auto &leveldata = patchdata.level(level);
   const auto &fineleveldata = patchdata.level(*fine);
-  const amrex::Geometry &geom = patchdata.amrcore->Geom(level.index());
+  const amrex::Geometry &geom = patchdata.amrcore().Geom(level.index());
   const window_t coarse_level = window_t::one_level(level);
   const tl_t tl{0};
 

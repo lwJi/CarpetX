@@ -267,7 +267,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
             assert(src_zonecount >= 0 && src_zonecount <= INT_MAX);
 
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level.index());
+                patchdata.amrcore().Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
 
@@ -518,7 +518,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
             const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level.index());
+                patchdata.amrcore().Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
             for (const component_t c : components_of(ncomponents)) {
@@ -548,7 +548,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
             const amrex::DistributionMapping &dm = mfab.DistributionMap();
             const int ncomponents = dm.size();
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level.index());
+                patchdata.amrcore().Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
             for (const component_t c : components_of(ncomponents)) {
@@ -619,7 +619,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
             const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level.index());
+                patchdata.amrcore().Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
             for (const component_t c : components_of(ncomponents)) {
@@ -690,7 +690,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
               const amrex::DistributionMapping &dm = mfab.DistributionMap();
               const int ncomponents = dm.size();
               const amrex::Geometry &geom =
-                  patchdata.amrcore->Geom(leveldata.level.index());
+                  patchdata.amrcore().Geom(leveldata.level.index());
               const amrex::Real *const x0 = geom.ProbLo();
               const amrex::Real *const dx = geom.CellSize();
               for (const component_t c : components_of(ncomponents)) {

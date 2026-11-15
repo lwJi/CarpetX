@@ -281,7 +281,7 @@ YAML::Emitter &operator<<(YAML::Emitter &yaml,
   yaml << YAML::LocalTag("patchdata-1.0.0");
   yaml << YAML::BeginMap;
   yaml << YAML::Key << "patch" << YAML::Value << patchdata.patch.index();
-  yaml << YAML::Key << "amrcore" << YAML::Value << *patchdata.amrcore;
+  yaml << YAML::Key << "amrcore" << YAML::Value << patchdata.amrcore();
   yaml << YAML::Key << "leveldata" << YAML::Value << YAML::BeginSeq;
   for (const auto &leveldata : patchdata.levels())
     yaml << leveldata;

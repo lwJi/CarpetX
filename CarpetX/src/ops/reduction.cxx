@@ -227,7 +227,7 @@ reduction<CCTK_REAL, dim> reduce(const gi_t gi, const vi_t vi, const tl_t tl) {
       const vect<int, dim> indextype = groupdata.grid_function.indextype;
 
       const auto &restrict geom =
-          patchdata.amrcore->Geom(leveldata.level.index());
+          patchdata.amrcore().Geom(leveldata.level.index());
       const CCTK_REAL *restrict const x01 = geom.ProbLo();
       const CCTK_REAL *restrict const dx1 = geom.CellSize();
       const vect<CCTK_REAL, dim> dx = {dx1[0], dx1[1], dx1[2]};

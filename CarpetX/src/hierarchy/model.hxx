@@ -527,7 +527,19 @@ struct GHExt {
 
     std::array<std::array<symmetry_t, dim>, 2> symmetries;
 
-    const_propagating_ptr<amrex::AmrCore> amrcore;
+    class core_t {
+    public:
+      core_t() = default;
+      explicit core_t(std::unique_ptr<amrex::AmrCore> amrcore)
+          : amrcore_(std::move(amrcore)) {}
+      const amrex::AmrCore &get() const { return *amrcore_; }
+
+    private:
+      std::unique_ptr<amrex::AmrCore> amrcore_;
+      static core_t &of(GHExt &ext, patch_t patch);
+      friend class structure_writer_t;
+    };
+    const amrex::AmrCore &amrcore() const { return core_.get(); }
 
     struct LevelData {
       LevelData() = delete;
@@ -823,6 +835,7 @@ struct GHExt {
     }
 
   private:
+    core_t core_;
     levels_t levels_;
   };
 

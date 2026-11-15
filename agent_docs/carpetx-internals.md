@@ -104,7 +104,7 @@ flowchart LR
   regrid["regrid/"]
   hierarchy["hierarchy/"]
   schedule -- "1 structure_writer_t::regrid" --> hierarchy
-  hierarchy -- "2 amrcore->regrid" --> amrex
+  hierarchy -- "2 amrcore_->regrid" --> amrex
   amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
 ```
 
@@ -169,7 +169,7 @@ Each row is a name that a `friend` line in a header of `hierarchy/` grants, and 
 | `hierarchy_writers_t` | `GHExt`, `clock_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t` |
 | `registry_writer_t` | `GHExt::registry_t` |
 | `level_writer_t` | `GHExt::level_set_t`, `GHExt::PatchData::levels_t` |
-| `structure_writer_t` | `GHExt::patches_t`, `level_writer_t` |
+| `structure_writer_t` | `GHExt::patches_t`, `GHExt::PatchData::core_t`, `level_writer_t` |
 | `clock_writer_t` | `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding` |
 | `write_scope_t` | `GHExt::PatchData::LevelData::GroupData::timelevel_t`, `why_valid_t` |
 | `scratch_writer_t` | `GHExt::PatchData::LevelData::GroupData::scratch_pool_t` |
