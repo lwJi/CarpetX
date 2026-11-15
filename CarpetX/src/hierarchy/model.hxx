@@ -130,6 +130,7 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 ////////////////////////////////////////////////////////////////////////////////
 
 class clock_writer_t;
+class stage_writer_t;
 class level_writer_t;
 class structure_writer_t;
 class registry_writer_t;
@@ -185,6 +186,20 @@ struct GHExt {
   using sealed_run_clock_t = written_by<run_clock_t, clock_writer_t>;
   const sealed_run_clock_t &sealed_run_clock() const { return run_clock_; }
   const run_clock_t &run_clock() const { return run_clock_.get(); }
+
+  struct stage_clock_t {
+    CCTK_REAL time, delta_time;
+  };
+  struct shown_stage_t {
+    std::optional<stage_clock_t> stage;
+  };
+  using sealed_shown_stage_t = written_by<shown_stage_t, stage_writer_t>;
+  const sealed_shown_stage_t &sealed_shown_stage() const {
+    return shown_stage_;
+  }
+  const std::optional<stage_clock_t> &shown_stage() const {
+    return shown_stage_->stage;
+  }
 
   struct level_set_t {
     CCTK_INT epoch = 0;
@@ -890,6 +905,7 @@ struct GHExt {
 
 private:
   sealed_run_clock_t run_clock_;
+  sealed_shown_stage_t shown_stage_;
   sealed_level_set_t level_set_;
   const amrcore_factory make_core_;
   const level_buffers_factory make_buffers_;

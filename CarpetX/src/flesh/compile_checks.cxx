@@ -382,14 +382,13 @@ template <class Writer>
 concept hands_out_clock = requires(Writer &writer) { writer.clock; };
 
 template <class Writer>
+concept hands_out_stage = requires(Writer &writer) { writer.stage; };
+
+template <class Writer>
 concept runs_stage =
     requires(Writer &writer, const std::function<void()> &body) {
       writer.run_at(CCTK_REAL{}, CCTK_REAL{}, body);
     };
-
-template <class Writer>
-concept sets_stage =
-    requires(Writer &writer) { writer.set_stage(CCTK_REAL{}, CCTK_REAL{}); };
 
 template <class Writer>
 concept makes_amrcore =
@@ -762,14 +761,14 @@ static_assert(
 static_assert(!std::is_default_constructible_v<clock_writer_t>);
 static_assert(!std::is_copy_constructible_v<clock_writer_t>);
 static_assert(!std::is_move_constructible_v<clock_writer_t>);
-static_assert(std::is_same_v<decltype(clock_writer_t::stage), stage_writer_t>);
+static_assert(
+    std::is_same_v<decltype(hierarchy_writers_t::stage), stage_writer_t>);
 static_assert(!std::is_default_constructible_v<stage_writer_t>);
 static_assert(!std::is_copy_constructible_v<stage_writer_t>);
 static_assert(!std::is_move_constructible_v<stage_writer_t>);
-static_assert(!std::is_constructible_v<stage_writer_t, clock_writer_t &>);
 static_assert(runs_stage<stage_writer_t>);
 static_assert(!hands_out_clock<stage_writer_t>);
-static_assert(!sets_stage<clock_writer_t>);
+static_assert(!hands_out_stage<clock_writer_t>);
 static_assert(std::is_same_v<decltype(hierarchy_writers_t::structure),
                              structure_writer_t>);
 static_assert(!std::is_default_constructible_v<structure_writer_t>);
@@ -963,6 +962,11 @@ static_assert(sealed_for<decltype(std::declval<GHExt &>().sealed_run_clock()),
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().run_clock()),
                    const GHExt::run_clock_t &>);
+static_assert(sealed_for<decltype(std::declval<GHExt &>().sealed_shown_stage()),
+                         GHExt::shown_stage_t, stage_writer_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().shown_stage()),
+                   const std::optional<GHExt::stage_clock_t> &>);
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt::PatchData::LevelData &>()
                                 .iteration()),
@@ -1001,6 +1005,7 @@ static_assert(
 static_assert(!rotates_levels_unlent<cctkGH_binding>);
 static_assert(!rotates_arrays_unlent<cctkGH_binding>);
 static_assert(!std::is_constructible_v<clock_writer_t, GHExt &>);
+static_assert(!std::is_constructible_v<stage_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<structure_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<level_writer_t, GHExt &>);
 static_assert(!std::is_constructible_v<registry_writer_t, GHExt &>);

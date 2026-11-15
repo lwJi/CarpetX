@@ -27,8 +27,6 @@ struct hierarchy_writers_t;
 [[nodiscard]] std::unique_ptr<hierarchy_writers_t>
 create_hierarchy(GHExt::config_t config);
 
-class clock_writer_t;
-
 class stage_writer_t {
 public:
   stage_writer_t(const stage_writer_t &) = delete;
@@ -38,9 +36,10 @@ public:
               const std::function<void()> &body);
 
 private:
-  explicit stage_writer_t(clock_writer_t &clock) : clock(clock) {}
-  clock_writer_t &clock;
-  friend class clock_writer_t;
+  explicit stage_writer_t(const GHExt &ext) : ext(ext) {}
+  const GHExt &ext;
+  void show(std::optional<GHExt::stage_clock_t> stage);
+  friend struct hierarchy_writers_t;
 };
 
 class clock_writer_t {
@@ -62,15 +61,11 @@ public:
   void rotate_timelevels(window_t window, gi_t gi);
   void rotate_array_timelevels(gi_t gi);
 
-  stage_writer_t stage;
-
 private:
-  explicit clock_writer_t(const GHExt &ext) : stage(*this), ext(ext) {}
+  explicit clock_writer_t(const GHExt &ext) : ext(ext) {}
   const GHExt &ext;
   template <class Change> void change(Change &&change_clock);
-  void set_stage(CCTK_REAL time, CCTK_REAL delta_time);
   friend struct hierarchy_writers_t;
-  friend class stage_writer_t;
 };
 
 class level_writer_t {
@@ -166,6 +161,7 @@ private:
 
 public:
   clock_writer_t clock;
+  stage_writer_t stage;
   structure_writer_t structure;
   registry_writer_t registry;
   scratch_writer_t scratch;

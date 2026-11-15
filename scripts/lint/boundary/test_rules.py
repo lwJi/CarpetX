@@ -2503,10 +2503,10 @@ class Doc(unittest.TestCase):
         self.assertEqual(lines[:6], [doc.GRANTS_HEADING, "", doc.GRANTS_INTRO, "", "| Granted | Private members of |", "| --- | --- |"])
         rows = {line.split(" | ")[0].strip("|` "): line.split(" | ")[1].rstrip(" |") for line in lines[6:]}
         self.assertEqual(set(rows), {friend for granted in rules.GRANTS.values() for friend in granted})
-        self.assertEqual(rows["clock_writer_t"], "`GHExt::run_clock_t`, `GHExt::PatchData::LevelData::clock_t`, `stage_writer_t`, `cctkGH_binding`")
-        self.assertEqual(rows["stage_writer_t"], "`clock_writer_t`")
+        self.assertEqual(rows["clock_writer_t"], "`GHExt::run_clock_t`, `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding`")
+        self.assertEqual(rows["stage_writer_t"], "`GHExt::shown_stage_t`")
         self.assertEqual(rows["operator<<"], "`why_valid_t`, `GridPtrDesc1`")
-        self.assertEqual(rows["hierarchy_writers_t"], "`GHExt`, `clock_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t`")
+        self.assertEqual(rows["hierarchy_writers_t"], "`GHExt`, `clock_writer_t`, `stage_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t`")
         for friend, owners in rows.items():
             with self.subTest(friend=friend):
                 self.assertEqual(owners, ", ".join(f"`{owner}`" for owner, granted in rules.GRANTS.items() if friend in granted))
@@ -2681,7 +2681,7 @@ class Doc(unittest.TestCase):
             [
                 "  - `model`: `GHExt`, its nested types, and the door `driver()`",
                 "  - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
-                "  - `clock`: the only writes to the cGH clock fields, which publish the model's run clock to the flesh's cGH and to every copy of it, and the check that a cGH a scheduled function returns still shows it",
+                "  - `clock`: the only writes to the cGH clock fields, which publish the model's run clock, or in its place the time and step of the stage it shows, to the flesh's cGH and to every copy of it, and the check that a cGH a scheduled function returns still shows it",
                 "  - `valid`: the validity state a time level stores",
                 "  - `scopes`: the only way to change that state: write, require and invalidate",
                 "  - `binding`: the only writes to the cGH pointer table",

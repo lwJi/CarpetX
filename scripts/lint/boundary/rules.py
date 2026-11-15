@@ -41,7 +41,7 @@ OWNS = {
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`.",
     "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls. It is passed the whole clock as `clock_writer_t`: every change of the run's iteration, time, step or time factor is one operation of that writer, which shows it on every cGH, so the iteration and step `schedule/` reads from the cGH it is handed are the model's.",
-    "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the writers it uses, `registry_writer_t`, `scratch_writer_t` and the `stage_writer_t` that `clock_writer_t` owns, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer`, `scratch_writer` and `stage_writer` refuse while it is empty. Of the clock it changes only a stage time and step, for the length of one `run_at`.",
+    "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the writers it uses, `registry_writer_t`, `scratch_writer_t` and `stage_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer`, `scratch_writer` and `stage_writer` refuse while it is empty. Of the clock it changes only the stage time and step every cGH shows in place of the run's, for the length of one `run_at`.",
     "flesh": 'every `extern "C"`, and the writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its writers. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
 STEMS = {
@@ -55,7 +55,7 @@ STEMS = {
     "hierarchy": {
         "model": "`GHExt`, its nested types, and the door `driver()`",
         "writers": "the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
-        "clock": "the only writes to the cGH clock fields, which publish the model's run clock to the flesh's cGH and to every copy of it, and the check that a cGH a scheduled function returns still shows it",
+        "clock": "the only writes to the cGH clock fields, which publish the model's run clock, or in its place the time and step of the stage it shows, to the flesh's cGH and to every copy of it, and the check that a cGH a scheduled function returns still shows it",
         "valid": "the validity state a time level stores",
         "scopes": "the only way to change that state: write, require and invalidate",
         "binding": "the only writes to the cGH pointer table",
@@ -71,6 +71,7 @@ GRANTS = {
     "written_by": ("Writer",),
     "GHExt": ("hierarchy_writers_t",),
     "GHExt::run_clock_t": ("clock_writer_t",),
+    "GHExt::shown_stage_t": ("stage_writer_t",),
     "GHExt::registry_t": ("registry_writer_t",),
     "GHExt::level_set_t": ("level_writer_t",),
     "GHExt::patches_t": ("structure_writer_t",),
@@ -82,8 +83,8 @@ GRANTS = {
     "GHExt::PatchData::LevelData::GroupData::ring_t": ("cctkGH_binding",),
     "GHExt::GlobalData::ArrayGroupData::ring_t": ("cctkGH_binding",),
     "GHExt::GlobalData::ArrayGroupData::timelevel_t": ("array_write_scope_t",),
-    "stage_writer_t": ("clock_writer_t",),
-    "clock_writer_t": ("hierarchy_writers_t", "stage_writer_t"),
+    "clock_writer_t": ("hierarchy_writers_t",),
+    "stage_writer_t": ("hierarchy_writers_t",),
     "level_writer_t": ("structure_writer_t",),
     "structure_writer_t": ("hierarchy_writers_t",),
     "registry_writer_t": ("hierarchy_writers_t",),
@@ -588,7 +589,7 @@ RULES = (
         allowed=in_files(CLOCK_FILES),
         text="a cGH clock field (cctk_iteration, cctk_time, cctk_delta_time, cctk_timefac) is assigned only in "
         "CarpetX/src/hierarchy/clock.cxx, which publishes the model's run clock to every cGH; every other site asks "
-        "clock_writer_t, or the stage_writer_t it lends api/, and reads the fields.",
+        "clock_writer_t, or the stage_writer_t lent to api/, and reads the fields.",
         noun="clock-field write",
         where="outside clock.cxx",
         clean="no clock-field write outside clock.cxx",

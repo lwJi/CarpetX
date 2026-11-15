@@ -12,8 +12,19 @@
 
 namespace CarpetX {
 
+namespace {
+GHExt::run_clock_t shown_clock(const GHExt &ext) {
+  GHExt::run_clock_t clock = ext.run_clock();
+  if (const auto &stage = ext.shown_stage()) {
+    clock.time = stage->time;
+    clock.delta_time = stage->delta_time;
+  }
+  return clock;
+}
+} // namespace
+
 void publish_clock(const GHExt &ext) {
-  const GHExt::run_clock_t &clock = ext.run_clock();
+  const GHExt::run_clock_t clock = shown_clock(ext);
   const auto publish = [&clock](cGH *const cctkGH) {
     assert(cctkGH);
     cctkGH->cctk_iteration = clock.iteration;
@@ -42,7 +53,7 @@ constexpr const char *clock_stale_reason =
 void require_current_clock(const GHExt &ext, const cGH *const cctkGH,
                            const std::function<std::string()> &who) {
   assert(cctkGH);
-  const GHExt::run_clock_t &clock = ext.run_clock();
+  const GHExt::run_clock_t clock = shown_clock(ext);
   const auto refuse_int = [&](const char *const field, const int shown,
                               const int held) {
     CCTK_VERROR("%s returned a cGH whose %s is %d, but the run clock's is %d; "

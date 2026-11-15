@@ -38,8 +38,8 @@ create_hierarchy(const GHExt::config_t config) {
 }
 
 hierarchy_writers_t::hierarchy_writers_t(const GHExt::config_t config)
-    : hierarchy(config), clock(hierarchy), structure(hierarchy),
-      registry(hierarchy), scratch(hierarchy) {}
+    : hierarchy(config), clock(hierarchy), stage(hierarchy),
+      structure(hierarchy), registry(hierarchy), scratch(hierarchy) {}
 
 hierarchy_writers_t::~hierarchy_writers_t() {
   cctkGH_binding::unbind_arrays(hierarchy.flesh_cctkGH());
@@ -320,21 +320,17 @@ void clock_writer_t::replay_last_step(const level_t level) {
   });
 }
 
-void clock_writer_t::set_stage(const CCTK_REAL time,
-                               const CCTK_REAL delta_time) {
-  change([&](GHExt::run_clock_t &clock) {
-    clock.time = time;
-    clock.delta_time = delta_time;
-  });
+void stage_writer_t::show(const std::optional<GHExt::stage_clock_t> stage) {
+  ext.sealed_shown_stage().open(*this).stage = stage;
+  publish_clock(ext);
 }
 
 void stage_writer_t::run_at(const CCTK_REAL time, const CCTK_REAL delta_time,
                             const std::function<void()> &body) {
-  const CCTK_REAL saved_time = clock.ext.run_clock().time;
-  const CCTK_REAL saved_delta_time = clock.ext.run_clock().delta_time;
-  clock.set_stage(time, delta_time);
+  const std::optional<GHExt::stage_clock_t> outer = ext.shown_stage();
+  show(GHExt::stage_clock_t{time, delta_time});
   body();
-  clock.set_stage(saved_time, saved_delta_time);
+  show(outer);
 }
 
 void clock_writer_t::stamp_last_step(const window_t window) {
