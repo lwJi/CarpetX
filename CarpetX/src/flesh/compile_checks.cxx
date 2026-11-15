@@ -379,6 +379,19 @@ template <class Writer>
 concept hands_out_hierarchy = requires(Writer &writer) { writer.hierarchy; };
 
 template <class Writer>
+concept hands_out_clock = requires(Writer &writer) { writer.clock; };
+
+template <class Writer>
+concept runs_stage =
+    requires(Writer &writer, const std::function<void()> &body) {
+      writer.run_at(CCTK_REAL{}, CCTK_REAL{}, body);
+    };
+
+template <class Writer>
+concept sets_stage =
+    requires(Writer &writer) { writer.set_stage(CCTK_REAL{}, CCTK_REAL{}); };
+
+template <class Writer>
 concept makes_amrcore =
     std::is_invocable_v<amrcore_factory, Writer &, patch_t,
                         const amrex::RealBox &, int, const amrex::Vector<int> &,
@@ -749,6 +762,14 @@ static_assert(
 static_assert(!std::is_default_constructible_v<clock_writer_t>);
 static_assert(!std::is_copy_constructible_v<clock_writer_t>);
 static_assert(!std::is_move_constructible_v<clock_writer_t>);
+static_assert(std::is_same_v<decltype(clock_writer_t::stage), stage_writer_t>);
+static_assert(!std::is_default_constructible_v<stage_writer_t>);
+static_assert(!std::is_copy_constructible_v<stage_writer_t>);
+static_assert(!std::is_move_constructible_v<stage_writer_t>);
+static_assert(!std::is_constructible_v<stage_writer_t, clock_writer_t &>);
+static_assert(runs_stage<stage_writer_t>);
+static_assert(!hands_out_clock<stage_writer_t>);
+static_assert(!sets_stage<clock_writer_t>);
 static_assert(std::is_same_v<decltype(hierarchy_writers_t::structure),
                              structure_writer_t>);
 static_assert(!std::is_default_constructible_v<structure_writer_t>);

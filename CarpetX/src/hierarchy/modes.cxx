@@ -87,11 +87,6 @@ void update_cctkGH(cGH *const cctkGH, const cGH *const sourceGH) {
   cctkGH->cctk_delta_time = sourceGH->cctk_delta_time;
 }
 
-void update_cctkGHs(cGH *restrict const cctkGH) {
-  driver().for_each_cctkGH(
-      [&](cGH *const copy) { update_cctkGH(copy, cctkGH); });
-}
-
 void enter_global_mode(cGH *restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
   assert(in_meta_mode(cctkGH));

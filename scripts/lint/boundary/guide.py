@@ -140,7 +140,7 @@ SECTIONS: tuple[Section, ...] = (
                 ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "hierarchy/model.cxx:record_integrator", "hierarchy/model.cxx:freeze_integrator"),
             ),
             Row(
-                "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH for the traversal; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
+                "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on every cGH for the traversal and then restores both, whichever cGH is passed; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
                 ("api/api_rk.cxx:run_schedule_group_at",),
             ),
             Row(

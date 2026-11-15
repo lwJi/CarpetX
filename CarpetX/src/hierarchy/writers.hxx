@@ -27,6 +27,22 @@ struct hierarchy_writers_t;
 [[nodiscard]] std::unique_ptr<hierarchy_writers_t>
 create_hierarchy(GHExt::config_t config);
 
+class clock_writer_t;
+
+class stage_writer_t {
+public:
+  stage_writer_t(const stage_writer_t &) = delete;
+  stage_writer_t(stage_writer_t &&) = delete;
+
+  void run_at(CCTK_REAL time, CCTK_REAL delta_time,
+              const std::function<void()> &body);
+
+private:
+  explicit stage_writer_t(clock_writer_t &clock) : clock(clock) {}
+  clock_writer_t &clock;
+  friend class clock_writer_t;
+};
+
 class clock_writer_t {
 public:
   clock_writer_t(const clock_writer_t &) = delete;
@@ -46,10 +62,14 @@ public:
   void rotate_timelevels(window_t window, gi_t gi);
   void rotate_array_timelevels(gi_t gi);
 
+  stage_writer_t stage;
+
 private:
-  explicit clock_writer_t(const GHExt &ext) : ext(ext) {}
+  explicit clock_writer_t(const GHExt &ext) : stage(*this), ext(ext) {}
   const GHExt &ext;
+  void set_stage(CCTK_REAL time, CCTK_REAL delta_time);
   friend struct hierarchy_writers_t;
+  friend class stage_writer_t;
 };
 
 class level_writer_t {

@@ -314,6 +314,23 @@ void clock_writer_t::replay_last_step(const level_t level) {
   publish_clock(ext);
 }
 
+void clock_writer_t::set_stage(const CCTK_REAL time,
+                               const CCTK_REAL delta_time) {
+  auto &clock = ext.sealed_run_clock().open(*this);
+  clock.time = time;
+  clock.delta_time = delta_time;
+  publish_clock(ext);
+}
+
+void stage_writer_t::run_at(const CCTK_REAL time, const CCTK_REAL delta_time,
+                            const std::function<void()> &body) {
+  const CCTK_REAL saved_time = clock.ext.run_clock().time;
+  const CCTK_REAL saved_delta_time = clock.ext.run_clock().delta_time;
+  clock.set_stage(time, delta_time);
+  body();
+  clock.set_stage(saved_time, saved_delta_time);
+}
+
 void clock_writer_t::stamp_last_step(const window_t window) {
   const int iteration = ext.run_clock().iteration;
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {

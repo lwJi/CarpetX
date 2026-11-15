@@ -41,7 +41,7 @@ OWNS = {
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`.",
     "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.",
-    "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty.",
+    "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the writers it uses, `registry_writer_t`, `scratch_writer_t` and the `stage_writer_t` that `clock_writer_t` owns, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer`, `scratch_writer` and `stage_writer` refuse while it is empty. Of the clock it changes only a stage time and step, for the length of one `run_at`.",
     "flesh": 'every `extern "C"`, and the writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its writers. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
 STEMS = {
@@ -82,7 +82,8 @@ GRANTS = {
     "GHExt::PatchData::LevelData::GroupData::ring_t": ("cctkGH_binding",),
     "GHExt::GlobalData::ArrayGroupData::ring_t": ("cctkGH_binding",),
     "GHExt::GlobalData::ArrayGroupData::timelevel_t": ("array_write_scope_t",),
-    "clock_writer_t": ("hierarchy_writers_t",),
+    "stage_writer_t": ("clock_writer_t",),
+    "clock_writer_t": ("hierarchy_writers_t", "stage_writer_t"),
     "level_writer_t": ("structure_writer_t",),
     "structure_writer_t": ("hierarchy_writers_t",),
     "registry_writer_t": ("hierarchy_writers_t",),
