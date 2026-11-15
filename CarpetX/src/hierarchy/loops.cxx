@@ -45,8 +45,8 @@ static void assert_consistent_iterations(const window_t window) {
   for (int level_index = min_level; level_index < max_level; ++level_index)
     loop_patches_at(window, level_index, [&](const auto &leveldata) {
       if (good_iteration == -1)
-        good_iteration = leveldata.iteration;
-      assert(leveldata.iteration == good_iteration);
+        good_iteration = leveldata.iteration();
+      assert(leveldata.iteration() == good_iteration);
     });
 }
 

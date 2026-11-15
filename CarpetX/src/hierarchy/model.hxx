@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -57,6 +58,23 @@ public:
 
 private:
   std::unique_ptr<T> ptr_;
+};
+
+template <class T, class Writer> class written_by {
+public:
+  written_by() = default;
+  explicit written_by(T value) : value_(std::move(value)) {}
+  template <class... Args>
+  explicit written_by(std::in_place_t, Args &&...args)
+      : value_(std::forward<Args>(args)...) {}
+
+  const T &get() const { return value_; }
+  const T *operator->() const { return &value_; }
+
+private:
+  T value_;
+  T &open(const Writer &) const { return const_cast<T &>(value_); }
+  friend Writer;
 };
 
 template <typename U> U &storage_entry(U &entry) { return entry; }
@@ -110,7 +128,14 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 
 ////////////////////////////////////////////////////////////////////////////////
 
+class clock_writer_t;
 class level_writer_t;
+class structure_writer_t;
+class registry_writer_t;
+class scratch_writer_t;
+class write_scope_t;
+class array_write_scope_t;
+struct cctkGH_binding;
 using amrcore_factory = std::unique_ptr<amrex::AmrCore> (*)(
     level_writer_t &levels, patch_t patch, const amrex::RealBox &domain, int,
     const amrex::Vector<int> &ncells,
@@ -150,9 +175,12 @@ struct GHExt {
     cGH *get() const { return cctkGH; }
   };
 
-  cGH *flesh_cctkGH = nullptr;
-  cctkGHptr global_cctkGH;
-  std::vector<cctkGHptr> level_cctkGHs; // [reflevel]
+  struct level_set_t {
+    CCTK_INT epoch = 0;
+    std::vector<cctkGHptr> level_cctkGHs;
+  };
+  using sealed_level_set_t = written_by<level_set_t, level_writer_t>;
+  const sealed_level_set_t &sealed_level_set() const { return level_set_; }
 
   struct GroupRecord;
 
@@ -299,12 +327,12 @@ struct GHExt {
       struct timelevel_t {
         timelevel_t(AnyTypeVector data, int numvars,
                     const std::function<std::string()> &why)
-            : data(std::move(data)),
+            : data_(std::move(data)),
               valid_(
                   numvars,
                   why_valid_t(make_valid_outer() | make_valid_ghosts(), why)) {}
 
-        AnyTypeVector data;
+        const AnyTypeVector &data() const { return data_; }
 
         valid_t valid(const vi_t vi) const {
           return valid_.at(vi.index()).get();
@@ -313,10 +341,10 @@ struct GHExt {
           return valid_.at(vi.index());
         }
 
-      private:
+        AnyTypeVector data_;
         std::vector<why_valid_t> valid_;
-        friend class array_write_scope_t;
       };
+      using sealed_timelevel_t = written_by<timelevel_t, array_write_scope_t>;
       int array_size;
       int dimension;
       int lsh[dim];
@@ -327,28 +355,42 @@ struct GHExt {
       int bbox[2 * dim];
       int nghostzones[dim];
 
-      const timelevel_t &timelevel(const tl_t tl,
-                                   const std::source_location site =
-                                       std::source_location::current()) const {
-        if (tl.index() < 0 || tl.index() >= int(tls.size()))
+      class ring_t {
+      public:
+        ring_t() = default;
+        explicit ring_t(std::vector<sealed_timelevel_t> tls)
+            : tls(std::move(tls)) {}
+        int size() const { return tls.size(); }
+        const sealed_timelevel_t &operator[](const tl_t tl) const {
+          return tls[tl.index()];
+        }
+        void rotate_timelevels();
+
+      private:
+        std::vector<sealed_timelevel_t> tls;
+      };
+      using sealed_ring_t = written_by<ring_t, cctkGH_binding>;
+      const sealed_ring_t &sealed_ring() const { return ring_; }
+
+      const sealed_timelevel_t &
+      sealed_timelevel(const tl_t tl,
+                       const std::source_location site =
+                           std::source_location::current()) const {
+        if (tl.index() < 0 || tl.index() >= ring_->size())
           refuse(site,
                  "time level %d of group %s does not exist: it has %d time "
                  "levels",
-                 tl.index(), record.groupname.c_str(), int(tls.size()));
-        return tls[tl.index()];
+                 tl.index(), record.groupname.c_str(), ring_->size());
+        return ring_.get()[tl];
       }
-      timelevel_t &timelevel(
-          const tl_t tl,
-          const std::source_location site = std::source_location::current()) {
-        return const_cast<timelevel_t &>(
-            std::as_const(*this).timelevel(tl, site));
+      const timelevel_t &timelevel(const tl_t tl,
+                                   const std::source_location site =
+                                       std::source_location::current()) const {
+        return sealed_timelevel(tl, site).get();
       }
 
     private:
-      std::vector<timelevel_t> tls;
-      void rotate_timelevels();
-
-      friend struct cctkGH_binding;
+      sealed_ring_t ring_;
     };
   };
 
@@ -377,11 +419,6 @@ struct GHExt {
       assert(array_);
       return *array_;
     }
-    GlobalData::ArrayGroupData &
-    array(const std::source_location site = std::source_location::current()) {
-      return const_cast<GlobalData::ArrayGroupData &>(
-          std::as_const(*this).array(site));
-    }
 
     using grid_function_t = CarpetX::grid_function_t;
 
@@ -397,48 +434,91 @@ struct GHExt {
     }
   };
 
-  const GroupRecord &record(
-      const gi_t gi,
-      const std::source_location site = std::source_location::current()) const {
-    if (!storage_frozen())
-      refuse(site, "CarpetX group %d has no record yet: storage is not frozen",
-             gi.index());
-    if (gi.index() < 0 || gi.index() >= int(group_records.size()))
-      refuse(site, "group index %d does not exist: there are %d groups",
-             gi.index(), int(group_records.size()));
-    return group_records[gi.index()];
-  }
-  GroupRecord &
-  record(const gi_t gi,
-         const std::source_location site = std::source_location::current()) {
-    return const_cast<GroupRecord &>(std::as_const(*this).record(gi, site));
-  }
-  const GroupRecord &
-  record_of(var_t var,
-            std::source_location site = std::source_location::current()) const;
-  auto records(const std::optional<group_kind> kind = std::nullopt) const {
-    return storage_range<const GroupRecord,
-                         std::vector<GroupRecord>::const_iterator,
-                         record_filter>(
-        group_records.begin(), group_records.end(), record_filter{kind});
-  }
-  index_range<gi_t> group_handles() const {
-    return index_range<gi_t>{gi_t{0}, gi_t{int(group_records.size())}};
-  }
-  int active_timelevels(gi_t gi) const;
-  bool storage_frozen() const { return !pending_timelevels_; }
-
   struct integrator_t {
     rk_dense_output_t dense_output;
     std::vector<CCTK_REAL> weights;
     std::map<gi_t, gi_t> rhs;
     stage_range stages() const { return rk_stages(int(weights.size())); }
   };
-  const std::optional<integrator_t> &
-  integrator(std::source_location site = std::source_location::current()) const;
 
-  bool is_initialized() const { return initialized_; }
-  CCTK_INT epoch() const { return epoch_; }
+  class registry_t {
+  public:
+    explicit registry_t(int numgroups);
+    registry_t(const registry_t &) = delete;
+    registry_t &operator=(const registry_t &) = delete;
+
+    const GroupRecord &record(const gi_t gi,
+                              const std::source_location site =
+                                  std::source_location::current()) const {
+      if (!storage_frozen())
+        refuse(site,
+               "CarpetX group %d has no record yet: storage is not frozen",
+               gi.index());
+      if (gi.index() < 0 || gi.index() >= int(group_records.size()))
+        refuse(site, "group index %d does not exist: there are %d groups",
+               gi.index(), int(group_records.size()));
+      return group_records[gi.index()];
+    }
+    auto records(const std::optional<group_kind> kind = std::nullopt) const {
+      return storage_range<const GroupRecord,
+                           std::vector<GroupRecord>::const_iterator,
+                           record_filter>(
+          group_records.begin(), group_records.end(), record_filter{kind});
+    }
+    index_range<gi_t> group_handles() const {
+      return index_range<gi_t>{gi_t{0}, gi_t{int(group_records.size())}};
+    }
+    int active_timelevels(gi_t gi) const;
+    bool storage_frozen() const { return !pending_timelevels_; }
+    const std::optional<integrator_t> &
+    integrator(std::source_location site) const;
+    cGH *flesh_cctkGH() const { return flesh_cctkGH_; }
+    cGH *global_cctkGH() const { return global_cctkGH_.get(); }
+
+    void record_storage(gi_t gi, int timelevels);
+    void freeze_storage();
+    void record_integrator(integrator_t integrator, std::source_location site);
+    void freeze_integrator(std::source_location site);
+    void adopt_flesh_cctkGH(cGH *const cctkGH) { flesh_cctkGH_ = cctkGH; }
+    void adopt_global_cctkGH(cctkGHptr copy) {
+      global_cctkGH_ = std::move(copy);
+    }
+
+  private:
+    cGH *flesh_cctkGH_ = nullptr;
+    cctkGHptr global_cctkGH_;
+    std::optional<std::vector<int>> pending_timelevels_;
+    std::vector<GroupRecord> group_records;
+    std::optional<integrator_t> integrator_;
+    bool integrator_open_ = true;
+  };
+  using sealed_registry_t = written_by<registry_t, registry_writer_t>;
+  const sealed_registry_t &sealed_registry() const { return registry_; }
+
+  const GroupRecord &record(
+      const gi_t gi,
+      const std::source_location site = std::source_location::current()) const {
+    return registry_->record(gi, site);
+  }
+  const GroupRecord &
+  record_of(var_t var,
+            std::source_location site = std::source_location::current()) const;
+  auto records(const std::optional<group_kind> kind = std::nullopt) const {
+    return registry_->records(kind);
+  }
+  index_range<gi_t> group_handles() const { return registry_->group_handles(); }
+  int active_timelevels(const gi_t gi) const {
+    return registry_->active_timelevels(gi);
+  }
+  bool storage_frozen() const { return registry_->storage_frozen(); }
+
+  const std::optional<integrator_t> &integrator(
+      const std::source_location site = std::source_location::current()) const {
+    return registry_->integrator(site);
+  }
+
+  bool is_initialized() const { return patches_->is_initialized(); }
+  CCTK_INT epoch() const { return level_set_->epoch; }
 
   struct PatchData {
     PatchData() = delete;
@@ -455,7 +535,12 @@ struct GHExt {
 
     std::array<std::array<symmetry_t, dim>, 2> symmetries;
 
-    const_propagating_ptr<amrex::AmrCore> amrcore;
+    struct core_t {
+      const_propagating_ptr<amrex::AmrCore> amrcore_;
+    };
+    using sealed_core_t = written_by<core_t, structure_writer_t>;
+    const sealed_core_t &sealed_core() const { return core_; }
+    const amrex::AmrCore &amrcore() const { return *core_->amrcore_; }
 
     struct LevelData {
       LevelData() = delete;
@@ -470,23 +555,19 @@ struct GHExt {
 
       level_t level;
 
-      // Iteration and time at which this cycle level is valid
-      rat64 iteration, delta_iteration;
+      struct clock_t {
+        rat64 iteration, delta_iteration;
+        int last_step_iteration = 0, last_finalized_iteration = 0;
+      };
+      using sealed_clock_t = written_by<clock_t, clock_writer_t>;
+      const sealed_clock_t &sealed_clock() const { return clock_; }
 
-      // The cctk_iteration in which this level's clock group reached its
-      // current clock: stamped by Evolve after every batch's EVOL on the
-      // widened window, 0 on a fresh start, the parent's value when a regrid
-      // creates or remakes the level, and the checkpointed value on
-      // recovery. Recovery replays CCTK_POST_RECOVER_VARIABLES in this
-      // context. Checkpointed next to the level's clock.
-      int last_step_iteration;
-
-      // The cctk_iteration of the last end-of-step window (POSTSTEP,
-      // ANALYSIS) that covered this level, i.e. when it was last finalized:
-      // stamped by Evolve after each such window, 0 on a fresh start and on
-      // recovery, the parent's value when a regrid creates or remakes the
-      // level. Not checkpointed.
-      int last_finalized_iteration;
+      rat64 iteration() const { return clock_->iteration; }
+      rat64 delta_iteration() const { return clock_->delta_iteration; }
+      int last_step_iteration() const { return clock_->last_step_iteration; }
+      int last_finalized_iteration() const {
+        return clock_->last_finalized_iteration;
+      }
 
       // Fabamrex::ArrayBase object holding a cell-centred BoxArray for
       // iterating over grid functions. This stores the grid structure
@@ -531,10 +612,10 @@ struct GHExt {
         struct timelevel_t {
           timelevel_t(std::unique_ptr<amrex::MultiFab> mfab, int numvars,
                       const std::function<std::string()> &why)
-              : mfab(std::move(mfab)), valid_(numvars, why_valid_t(why)) {}
+              : mfab_(std::move(mfab)), valid_(numvars, why_valid_t(why)) {}
 
-          const_propagating_ptr<amrex::MultiFab> mfab;
-          int open_writes = 0;
+          const amrex::MultiFab &mfab() const { return *mfab_; }
+          int open_writes() const { return open_writes_; }
 
           valid_t valid(const vi_t vi) const {
             return valid_.at(vi.index()).get();
@@ -543,48 +624,84 @@ struct GHExt {
             return valid_.at(vi.index());
           }
 
-        private:
+          const_propagating_ptr<amrex::MultiFab> mfab_;
+          int open_writes_ = 0;
           std::vector<why_valid_t> valid_;
-          friend class write_scope_t;
         };
-        const timelevel_t &
-        timelevel(const tl_t tl, const std::source_location site =
-                                     std::source_location::current()) const {
-          if (tl.index() < 0 || tl.index() >= int(tls.size()))
+        using sealed_timelevel_t = written_by<timelevel_t, write_scope_t>;
+
+        class ring_t {
+        public:
+          ring_t() = default;
+          explicit ring_t(std::vector<sealed_timelevel_t> tls)
+              : tls(std::move(tls)) {}
+          int size() const { return tls.size(); }
+          const sealed_timelevel_t &operator[](const tl_t tl) const {
+            return tls[tl.index()];
+          }
+          int open_write_count() const {
+            int count = 0;
+            for (const sealed_timelevel_t &tl : tls)
+              count += tl->open_writes();
+            return count;
+          }
+          void rotate_timelevels();
+
+        private:
+          std::vector<sealed_timelevel_t> tls;
+        };
+        using sealed_ring_t = written_by<ring_t, cctkGH_binding>;
+        const sealed_ring_t &sealed_ring() const { return ring_; }
+
+        const sealed_timelevel_t &
+        sealed_timelevel(const tl_t tl,
+                         const std::source_location site =
+                             std::source_location::current()) const {
+          if (tl.index() < 0 || tl.index() >= ring_->size())
             refuse(site,
                    "time level %d of group %s does not exist on patch %d, "
                    "refinement level %d: it has %d time levels",
                    tl.index(), record.groupname.c_str(), level.patch().index(),
-                   level.index(), int(tls.size()));
-          return tls[tl.index()];
+                   level.index(), ring_->size());
+          return ring_.get()[tl];
         }
-        timelevel_t &timelevel(
-            const tl_t tl,
-            const std::source_location site = std::source_location::current()) {
-          return const_cast<timelevel_t &>(
-              std::as_const(*this).timelevel(tl, site));
+        const timelevel_t &
+        timelevel(const tl_t tl, const std::source_location site =
+                                     std::source_location::current()) const {
+          return sealed_timelevel(tl, site).get();
         }
-        int num_timelevels() const { return tls.size(); }
-        int open_write_count() const {
-          int count = 0;
-          for (const timelevel_t &tl : tls)
-            count += tl.open_writes;
-          return count;
-        }
+        int num_timelevels() const { return ring_->size(); }
+        int open_write_count() const { return ring_->open_write_count(); }
 
         bool all_faces_have_symmetries_or_boundaries() const;
 
-        struct scratch_slot_t {
-          const_propagating_ptr<amrex::MultiFab> mfab;
-          bool in_use = false;
+        struct scratch_pool_t {
+          struct slot_t {
+            const_propagating_ptr<amrex::MultiFab> mfab;
+            bool in_use = false;
+          };
+          std::vector<slot_t> slots;
+
+          std::size_t size() const { return slots.size(); }
+          bool in_use(const std::size_t slot) const {
+            return slots.at(slot).in_use;
+          }
+          const amrex::MultiFab &mfab(const std::size_t slot) const {
+            return *slots.at(slot).mfab;
+          }
         };
-        std::vector<scratch_slot_t> scratch_pool;
+        using sealed_scratch_pool_t =
+            written_by<scratch_pool_t, scratch_writer_t>;
+        const sealed_scratch_pool_t &sealed_scratch_pool() const {
+          return scratch_pool_;
+        }
+        const scratch_pool_t &scratch_pool() const {
+          return scratch_pool_.get();
+        }
 
       private:
-        std::vector<timelevel_t> tls;
-        void rotate_timelevels();
-
-        friend struct cctkGH_binding;
+        sealed_scratch_pool_t scratch_pool_;
+        sealed_ring_t ring_;
       };
 
       struct group_storage_filter {
@@ -610,23 +727,12 @@ struct GHExt {
                  level.index());
         return *gd;
       }
-      GroupData &
-      group(const gi_t gi,
-            const std::source_location site = std::source_location::current()) {
-        return const_cast<GroupData &>(std::as_const(*this).group(gi, site));
-      }
       auto groups() const {
         return storage_range<
             const GroupData,
             std::vector<std::unique_ptr<GroupData>>::const_iterator,
             group_storage_filter>(groupdata.begin(), groupdata.end(),
                                   group_storage_filter{});
-      }
-      auto groups() {
-        return storage_range<GroupData,
-                             std::vector<std::unique_ptr<GroupData>>::iterator,
-                             group_storage_filter>(
-            groupdata.begin(), groupdata.end(), group_storage_filter{});
       }
 
       struct group_present_filter {
@@ -649,11 +755,31 @@ struct GHExt {
       }
 
     private:
+      sealed_clock_t clock_;
       std::vector<std::unique_ptr<GroupData>> groupdata;
       std::map<ghost_mask_key_t, amrex::iMultiFab> ghost_masks;
     };
 
-    int num_levels() const { return leveldata.size(); }
+    class levels_t {
+    public:
+      std::span<const LevelData> levels() const { return leveldata; }
+      std::optional<window_t::bounds_t> modified_levels() const;
+
+      void reset_level_modified();
+      LevelData &add_level(level_t level, const amrex::BoxArray &ba,
+                           const amrex::DistributionMapping &dm,
+                           const std::function<std::string()> &why);
+      LevelData replace_level(level_t level, LevelData &&fresh);
+      void erase_levels_from(level_t level);
+
+    private:
+      std::vector<LevelData> leveldata;
+      std::vector<bool> level_modified;
+    };
+    using sealed_levels_t = written_by<levels_t, level_writer_t>;
+    const sealed_levels_t &sealed_levels() const { return levels_; }
+
+    int num_levels() const { return levels().size(); }
     level_range level_handles() const {
       return level_range{level_t{patch, 0}, level_t{patch, num_levels()}};
     }
@@ -665,33 +791,35 @@ struct GHExt {
         refuse(site,
                "CarpetX level %d does not exist on patch %d: it has %d levels",
                level.index(), patch.index(), num_levels());
-      return leveldata[level.index()];
+      return levels()[level.index()];
     }
-    LevelData &
-    level(const level_t level,
-          const std::source_location site = std::source_location::current()) {
-      return const_cast<LevelData &>(std::as_const(*this).level(level, site));
+    std::span<const LevelData> levels() const { return levels_->levels(); }
+    std::optional<window_t::bounds_t> modified_levels() const {
+      return levels_->modified_levels();
     }
-    std::span<const LevelData> levels() const { return leveldata; }
-    std::span<LevelData> levels() { return leveldata; }
-    std::optional<window_t::bounds_t> modified_levels() const;
 
   private:
-    std::vector<LevelData> leveldata;
-    std::vector<bool> level_modified;
-
-    void reset_level_modified();
-    LevelData &add_level(level_t level, const amrex::BoxArray &ba,
-                         const amrex::DistributionMapping &dm,
-                         const std::function<std::string()> &why);
-    LevelData replace_level(level_t level, LevelData &&fresh);
-    void erase_levels_from(level_t level);
-
-    friend class structure_writer_t;
-    friend class level_writer_t;
+    sealed_core_t core_;
+    sealed_levels_t levels_;
   };
 
-  int num_patches() const { return patchdata.size(); }
+  class patches_t {
+  public:
+    std::span<const PatchData> patches() const { return patchdata; }
+    bool is_initialized() const { return initialized_; }
+
+    PatchData &add_patch(const GHExt &ext, level_writer_t &levels,
+                         patch_t patch);
+    void mark_initialized();
+
+  private:
+    std::vector<PatchData> patchdata;
+    bool initialized_ = false;
+  };
+  using sealed_patches_t = written_by<patches_t, structure_writer_t>;
+  const sealed_patches_t &sealed_patches() const { return patches_; }
+
+  int num_patches() const { return patches().size(); }
   index_range<patch_t> patch_handles() const {
     return index_range<patch_t>{patch_t{0}, patch_t{num_patches()}};
   }
@@ -701,37 +829,19 @@ struct GHExt {
     if (patch.index() < 0 || patch.index() >= num_patches())
       refuse(site, "CarpetX patch %d does not exist: there are %d patches",
              patch.index(), num_patches());
-    return patchdata[patch.index()];
-  }
-  PatchData &
-  patch(const patch_t patch,
-        const std::source_location site = std::source_location::current()) {
-    return const_cast<PatchData &>(std::as_const(*this).patch(patch, site));
+    return patches()[patch.index()];
   }
   const PatchData::LevelData &level(
       const level_t level,
       const std::source_location site = std::source_location::current()) const {
     return this->patch(level.patch(), site).level(level, site);
   }
-  PatchData::LevelData &
-  level(const level_t level,
-        const std::source_location site = std::source_location::current()) {
-    return const_cast<PatchData::LevelData &>(
-        std::as_const(*this).level(level, site));
-  }
   const PatchData::LevelData::GroupData &group(
       const group_t group,
       const std::source_location site = std::source_location::current()) const {
     return this->level(group.level, site).group(group.gi, site);
   }
-  PatchData::LevelData::GroupData &
-  group(const group_t group,
-        const std::source_location site = std::source_location::current()) {
-    return const_cast<PatchData::LevelData::GroupData &>(
-        std::as_const(*this).group(group, site));
-  }
-  std::span<const PatchData> patches() const { return patchdata; }
-  std::span<PatchData> patches() { return patchdata; }
+  std::span<const PatchData> patches() const { return patches_->patches(); }
 
   const bool use_subcycling;
 
@@ -748,14 +858,15 @@ struct GHExt {
     return nlevels;
   }
 
-  cGH *get_global_cctkGH() const { return global_cctkGH.get(); }
+  cGH *flesh_cctkGH() const { return registry_->flesh_cctkGH(); }
+  cGH *get_global_cctkGH() const { return registry_->global_cctkGH(); }
   cGH *get_level_cctkGH(const level_t level) const {
-    return level_cctkGHs.at(level.index()).get();
+    return level_set_->level_cctkGHs.at(level.index()).get();
   }
 
   template <typename F> void for_each_cctkGH(F &&f) const {
-    f(global_cctkGH.get());
-    for (const auto &level_cctkGH : level_cctkGHs)
+    f(get_global_cctkGH());
+    for (const auto &level_cctkGH : level_set_->level_cctkGHs)
       f(level_cctkGH.get());
     for (const auto &patch : patches())
       for (const auto &level : patch.levels())
@@ -767,34 +878,15 @@ struct GHExt {
   }
 
 private:
-  std::optional<std::vector<int>> pending_timelevels_;
-  bool initialized_ = false;
-  CCTK_INT epoch_ = 0;
+  sealed_level_set_t level_set_;
   const amrcore_factory make_core_;
   const level_buffers_factory make_buffers_;
-  std::vector<GroupRecord> group_records;
-  std::optional<integrator_t> integrator_;
-  bool integrator_open_ = true;
-  std::vector<PatchData> patchdata;
+  sealed_registry_t registry_;
+  sealed_patches_t patches_;
 
   explicit GHExt(config_t config);
-  static GHExt &mutable_instance();
-  PatchData &add_patch(level_writer_t &levels, patch_t patch);
-  void record_storage(gi_t gi, int timelevels);
-  void freeze_storage();
-  void record_integrator(integrator_t integrator, std::source_location site);
-  void freeze_integrator(std::source_location site);
-  void mark_initialized();
 
-  friend class clock_writer_t;
-  friend class structure_writer_t;
-  friend class level_writer_t;
-  friend class registry_writer_t;
-  friend class scratch_writer_t;
   friend struct hierarchy_writers_t;
-  friend struct cctkGH_binding;
-  friend class write_scope_t;
-  friend class array_write_scope_t;
 };
 
 const GHExt &driver();

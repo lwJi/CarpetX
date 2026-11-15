@@ -308,7 +308,7 @@ void rk_step_t::rhs_computed() {
                     why.c_str());
   for (const rk_level_t &entry : p->levels) {
     const CCTK_REAL dt =
-        delta_time * CCTK_REAL(driver().level(entry.level).delta_iteration);
+        delta_time * CCTK_REAL(driver().level(entry.level).delta_iteration());
     AccumulateFluxes(entry.level, stage, weight * dt);
     StoreRKStage(entry.level, entry.groups.states, entry.groups.rhss, stage);
   }

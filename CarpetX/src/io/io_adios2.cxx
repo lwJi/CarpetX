@@ -276,7 +276,7 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
             if (selection.contains(groupdata.record.groupindex)) {
 
               const tl_t tl{0};
-              const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+              const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
               const int num_local_components = mfab.local_size();
 
               for (const vi_t vi : groupdata.record.variables()) {
@@ -342,11 +342,11 @@ void carpetx_adios2_t::OutputADIOS2(const cGH *const cctkGH,
                          groupdata.record.groupname.c_str());
 
             const tl_t tl{0};
-            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+            const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
             const amrex::IndexType &indextype = mfab.ixType();
 
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level.index());
+                patchdata.amrcore().Geom(leveldata.level.index());
             const amrex::Real *const xlo = geom.ProbLo();
             const amrex::Real *const xhi = geom.ProbHi();
             const box_t<CCTK_REAL, 3> rdomain{.lo = {xlo[0], xlo[1], xlo[2]},

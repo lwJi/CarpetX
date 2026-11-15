@@ -36,9 +36,9 @@
 namespace CarpetX {
 
 namespace {
-GHExt *ghext = nullptr;
+const GHExt *ghext = nullptr;
 
-GHExt &existing_hierarchy() {
+const GHExt &existing_hierarchy() {
   if (!ghext)
     CCTK_ERROR("The CarpetX grid hierarchy does not exist: the public API is "
                "available between the driver's SetupGH and its Shutdown");
@@ -110,8 +110,6 @@ void delete_cctkGH(cGH *cctkGH) {
 }
 } // namespace
 
-GHExt &GHExt::mutable_instance() { return existing_hierarchy(); }
-
 const GHExt &driver() { return existing_hierarchy(); }
 
 int current_iteration() {
@@ -123,8 +121,8 @@ void assert_hierarchy_destroyed() { assert(!ghext); }
 
 GHExt::GHExt(const config_t config)
     : use_subcycling(config.use_subcycling), do_reflux(config.do_reflux),
-      pending_timelevels_(std::in_place, CCTK_NumGroups(), 0),
-      make_core_(config.make_core), make_buffers_(config.make_buffers) {
+      make_core_(config.make_core), make_buffers_(config.make_buffers),
+      registry_(std::in_place, CCTK_NumGroups()) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
                "once per run");
@@ -138,15 +136,16 @@ GHExt::~GHExt() {
   ghext = nullptr;
 }
 
-void GHExt::mark_initialized() {
+void GHExt::patches_t::mark_initialized() {
   assert(!initialized_);
   initialized_ = true;
 }
 
-GHExt::PatchData &GHExt::add_patch(level_writer_t &levels,
-                                   const patch_t patch) {
-  assert(patch.index() == num_patches());
-  return patchdata.emplace_back(levels, patch, make_core_);
+GHExt::PatchData &GHExt::patches_t::add_patch(const GHExt &ext,
+                                              level_writer_t &levels,
+                                              const patch_t patch) {
+  assert(patch.index() == int(patchdata.size()));
+  return patchdata.emplace_back(levels, patch, ext.make_core_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -219,57 +218,56 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
       symmetries[0][1] == symmetry_t::periodic,
       symmetries[0][2] == symmetry_t::periodic};
 
-  amrcore =
-      make_core(levels, patch, domain, max_num_levels - 1, ncells, is_periodic);
+  core_ = sealed_core_t(core_t{make_core(
+      levels, patch, domain, max_num_levels - 1, ncells, is_periodic)});
 
   if (verbose) {
 #pragma omp critical
     {
-      const int maxnumlevels = amrcore->maxLevel() + 1;
+      const int maxnumlevels = amrcore().maxLevel() + 1;
       for (const level_t level :
            level_range(level_t{patch, 0}, level_t{patch, maxnumlevels})) {
         CCTK_VINFO("amrex::Geometry level %d:", level.index());
-        std::cout << amrcore->Geom(level.index()) << "\n";
+        std::cout << amrcore().Geom(level.index()) << "\n";
       }
     }
   }
 }
 
 GHExt::PatchData::LevelData &
-GHExt::PatchData::add_level(const level_t level, const amrex::BoxArray &ba,
-                            const amrex::DistributionMapping &dm,
-                            const std::function<std::string()> &why) {
-  assert(level.patch() == patch && level.index() == num_levels());
-  assert(int(level_modified.size()) == num_levels());
-  ++GHExt::mutable_instance().epoch_;
+GHExt::PatchData::levels_t::add_level(const level_t level,
+                                      const amrex::BoxArray &ba,
+                                      const amrex::DistributionMapping &dm,
+                                      const std::function<std::string()> &why) {
+  assert(level.index() == int(leveldata.size()));
+  assert(level_modified.size() == leveldata.size());
   level_modified.push_back(true);
   return leveldata.emplace_back(level, ba, dm, why);
 }
 
-GHExt::PatchData::LevelData GHExt::PatchData::replace_level(const level_t level,
-                                                            LevelData &&fresh) {
+GHExt::PatchData::LevelData
+GHExt::PatchData::levels_t::replace_level(const level_t level,
+                                          LevelData &&fresh) {
   assert(fresh.level == level);
-  ++GHExt::mutable_instance().epoch_;
+  assert(level.index() >= 0 && level.index() < int(leveldata.size()));
   using std::swap;
-  swap(this->level(level), fresh);
+  swap(leveldata[level.index()], fresh);
   level_modified.at(level.index()) = true;
   return std::move(fresh);
 }
 
-void GHExt::PatchData::erase_levels_from(const level_t level) {
-  assert(level.patch() == patch && level.index() >= 0 &&
-         level.index() <= num_levels());
-  ++GHExt::mutable_instance().epoch_;
+void GHExt::PatchData::levels_t::erase_levels_from(const level_t level) {
+  assert(level.index() >= 0 && level.index() <= int(leveldata.size()));
   leveldata.erase(leveldata.begin() + level.index(), leveldata.end());
   level_modified.resize(level.index());
 }
 
-void GHExt::PatchData::reset_level_modified() {
-  assert(num_levels() == amrcore->finestLevel() + 1);
-  level_modified.assign(num_levels(), false);
+void GHExt::PatchData::levels_t::reset_level_modified() {
+  level_modified.assign(leveldata.size(), false);
 }
 
-std::optional<window_t::bounds_t> GHExt::PatchData::modified_levels() const {
+std::optional<window_t::bounds_t>
+GHExt::PatchData::levels_t::modified_levels() const {
   std::optional<window_t::bounds_t> bounds;
   for (int lev = 0; lev < int(level_modified.size()); ++lev) {
     if (!level_modified.at(lev))
@@ -286,26 +284,19 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
                                        const amrex::BoxArray &ba,
                                        const amrex::DistributionMapping &dm,
                                        const std::function<std::string()> &why)
-    : level(level),
-      buffers(GHExt::mutable_instance().make_buffers_(level, ba, dm)) {
+    : level(level), buffers(driver().make_buffers_(level, ba, dm)) {
   assert(this->buffers);
   DECLARE_CCTK_PARAMETERS;
 
-  GHExt &ext = GHExt::mutable_instance();
+  const GHExt &ext = driver();
   if (level.index() == 0) {
-    iteration = 0;
-    delta_iteration = 1;
-    last_step_iteration = 0;
-    last_finalized_iteration = 0;
+    clock_ = sealed_clock_t(clock_t{0, 1, 0, 0});
   } else {
-    auto &coarseleveldata = ext.level(level.parent());
-    iteration = coarseleveldata.iteration;
-    delta_iteration = coarseleveldata.delta_iteration /
-                      (ext.use_subcycling ? time_refinement : 1);
-    // A level that a regrid creates or remakes shares its parent's clock, and
-    // so the parent's last step and last end-of-step window
-    last_step_iteration = coarseleveldata.last_step_iteration;
-    last_finalized_iteration = coarseleveldata.last_finalized_iteration;
+    const clock_t &coarse = ext.level(level.parent()).sealed_clock().get();
+    clock_ = sealed_clock_t(clock_t{
+        coarse.iteration,
+        coarse.delta_iteration / (ext.use_subcycling ? time_refinement : 1),
+        coarse.last_step_iteration, coarse.last_finalized_iteration});
   }
 
   const amrex::IntVect nghostzones = {
@@ -331,7 +322,7 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
   }
 
   const amrex::Geometry &geom =
-      ext.patch(level.patch()).amrcore->Geom(level.index());
+      ext.patch(level.patch()).amrcore().Geom(level.index());
   for (const std::unique_ptr<GroupData> &group : groupdata) {
     if (!group)
       continue;
@@ -355,13 +346,7 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
     ghost_masks.emplace(key, std::move(mask));
   }
 
-  if (int(ext.level_cctkGHs.size()) <= level.index()) {
-    cGH *const cctkGH = ext.get_global_cctkGH();
-    enter_level_mode(cctkGH, level);
-    assert(int(ext.level_cctkGHs.size()) == level.index());
-    ext.level_cctkGHs.push_back(GHExt::cctkGHptr::copy_of(cctkGH));
-    leave_level_mode(cctkGH, level);
-  }
+  assert(level.index() < int(ext.level_set_->level_cctkGHs.size()));
 
   {
     LevelData &leveldata = *this;
@@ -394,7 +379,7 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
   assert(record.var_type == var_type::real);
 
   const GHExt &ext = driver();
-  const auto &geom = ext.patch(level.patch()).amrcore->Geom(level.index());
+  const auto &geom = ext.patch(level.patch()).amrcore().Geom(level.index());
   for (int d = 0; d < dim; ++d)
     if (geom.isPeriodic(d))
       assert(geom.Domain().length(d) >= grid_function.nghostzones[d]);
@@ -407,12 +392,15 @@ GHExt::PatchData::LevelData::GroupData::GroupData(
                                                   : amrex::IndexType::NODE,
                        grid_function.indextype[2] ? amrex::IndexType::CELL
                                                   : amrex::IndexType::NODE));
+  std::vector<sealed_timelevel_t> tls;
   tls.reserve(record.num_timelevels());
   for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(
+        std::in_place,
         std::make_unique<amrex::MultiFab>(
             gba, dm, numvars, amrex::IntVect(grid_function.nghostzones)),
         numvars, why);
+  ring_ = sealed_ring_t(ring_t(std::move(tls)));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -429,8 +417,8 @@ bool GHExt::PatchData::LevelData::GroupData::
   return res;
 }
 
-void GHExt::PatchData::LevelData::GroupData::rotate_timelevels() {
-  assert(num_timelevels() > 1);
+void GHExt::PatchData::LevelData::GroupData::ring_t::rotate_timelevels() {
+  assert(size() > 1);
   assert(open_write_count() == 0);
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
 }
@@ -472,25 +460,31 @@ GHExt::GlobalData::ArrayGroupData::ArrayGroupData(const GroupRecord &record)
     bbox[2 * d] = bbox[2 * d + 1] = 1;
   }
 
+  std::vector<sealed_timelevel_t> tls;
   tls.reserve(record.num_timelevels());
   for ([[maybe_unused]] const tl_t tl : record.timelevels())
     tls.emplace_back(
+        std::in_place,
         AnyTypeVector(record.var_type, record.numvars * array_size),
         record.numvars, []() { return "freeze_storage"; });
+  ring_ = sealed_ring_t(ring_t(std::move(tls)));
 }
 
-void GHExt::GlobalData::ArrayGroupData::rotate_timelevels() {
-  assert(record.num_timelevels() > 1);
+void GHExt::GlobalData::ArrayGroupData::ring_t::rotate_timelevels() {
+  assert(size() > 1);
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
 }
 
-int GHExt::active_timelevels(const gi_t gi) const {
+GHExt::registry_t::registry_t(const int numgroups)
+    : pending_timelevels_(std::in_place, numgroups, 0) {}
+
+int GHExt::registry_t::active_timelevels(const gi_t gi) const {
   if (pending_timelevels_)
     return pending_timelevels_->at(gi.index());
   return record(gi).num_timelevels();
 }
 
-void GHExt::record_storage(const gi_t gi, const int timelevels) {
+void GHExt::registry_t::record_storage(const gi_t gi, const int timelevels) {
   assert(timelevels >= 0 &&
          timelevels <= CCTK_DeclaredTimeLevelsGI(gi.index()));
   if (pending_timelevels_) {
@@ -507,7 +501,7 @@ void GHExt::record_storage(const gi_t gi, const int timelevels) {
                CCTK_FullGroupName(gi.index()), active, timelevels);
 }
 
-void GHExt::freeze_storage() {
+void GHExt::registry_t::freeze_storage() {
   DECLARE_CCTK_PARAMETERS;
 
   if (verbose)
@@ -550,8 +544,8 @@ void GHExt::freeze_storage() {
   }
 }
 
-void GHExt::record_integrator(integrator_t integrator,
-                              const std::source_location site) {
+void GHExt::registry_t::record_integrator(integrator_t integrator,
+                                          const std::source_location site) {
   if (!integrator_open_)
     refuse(site, "the driver froze its integrator record after the WRAGH "
                  "traversal; schedule the registration AT WRAGH");
@@ -564,7 +558,7 @@ void GHExt::record_integrator(integrator_t integrator,
   integrator_ = std::move(integrator);
 }
 
-void GHExt::freeze_integrator(const std::source_location site) {
+void GHExt::registry_t::freeze_integrator(const std::source_location site) {
   if (!integrator_open_)
     refuse(site, "the integrator record is already frozen: the driver freezes "
                  "it once, after its WRAGH traversal");
@@ -572,7 +566,7 @@ void GHExt::freeze_integrator(const std::source_location site) {
 }
 
 const std::optional<GHExt::integrator_t> &
-GHExt::integrator(const std::source_location site) const {
+GHExt::registry_t::integrator(const std::source_location site) const {
   if (integrator_open_)
     refuse(site, "the integrator record is read before the driver froze it; "
                  "a reader runs after the WRAGH traversal");

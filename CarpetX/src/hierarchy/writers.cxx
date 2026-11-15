@@ -2,6 +2,7 @@
 #include "hierarchy/binding.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/model.hxx"
+#include "hierarchy/modes.hxx"
 #include "hierarchy/scopes.hxx"
 
 #include <carpetx.hxx>
@@ -38,11 +39,33 @@ hierarchy_writers_t::hierarchy_writers_t(const GHExt::config_t config)
       registry(hierarchy), scratch(hierarchy) {}
 
 hierarchy_writers_t::~hierarchy_writers_t() {
-  cctkGH_binding::unbind_arrays(hierarchy.flesh_cctkGH);
+  cctkGH_binding::unbind_arrays(hierarchy.flesh_cctkGH());
 }
 
 const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
-  return ext.add_patch(levels, patch);
+  return ext.sealed_patches().open(*this).add_patch(ext, levels, patch);
+}
+
+GHExt::PatchData::levels_t &level_writer_t::changing(const patch_t patch) {
+  ++ext.sealed_level_set().open(*this).epoch;
+  return ext.patch(patch).sealed_levels().open(*this);
+}
+
+void level_writer_t::ensure_level_cctkGH(const level_t level) {
+  auto &level_set = ext.sealed_level_set().open(*this);
+  if (int(level_set.level_cctkGHs.size()) > level.index())
+    return;
+  cGH *const cctkGH = ext.get_global_cctkGH();
+  enter_level_mode(cctkGH, level);
+  assert(int(level_set.level_cctkGHs.size()) == level.index());
+  level_set.level_cctkGHs.push_back(GHExt::cctkGHptr::copy_of(cctkGH));
+  leave_level_mode(cctkGH, level);
+}
+
+void level_writer_t::reset_modified(const patch_t patch) {
+  const GHExt::PatchData &patchdata = ext.patch(patch);
+  assert(patchdata.num_levels() == patchdata.amrcore().finestLevel() + 1);
+  patchdata.sealed_levels().open(*this).reset_level_modified();
 }
 
 const GHExt::PatchData::LevelData &
@@ -56,8 +79,9 @@ level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
     CCTK_VINFO("SetupLevel patch %d level %d", level.patch().index(),
                level.index());
 
+  ensure_level_cctkGH(level);
   const GHExt::PatchData::LevelData &leveldata =
-      ext.patch(level.patch()).add_level(level, ba, dm, why);
+      changing(level.patch()).add_level(level, ba, dm, why);
 
   if (verbose)
 #pragma omp critical
@@ -90,34 +114,42 @@ level_writer_t::remake_level(const level_t level, const amrex::BoxArray &ba,
                              const amrex::DistributionMapping &dm,
                              const std::function<std::string()> &why) {
   GHExt::PatchData::LevelData fresh(level, ba, dm, why);
-  return ext.patch(level.patch()).replace_level(level, std::move(fresh));
+  return changing(level.patch()).replace_level(level, std::move(fresh));
 }
 
 void level_writer_t::erase_levels_from(const level_t level) {
-  ext.patch(level.patch()).erase_levels_from(level);
+  changing(level.patch()).erase_levels_from(level);
 }
 
 void structure_writer_t::set_max_grid_size(
     const patch_t patch, const amrex::Vector<amrex::IntVect> &max_grid_sizes) {
-  ext.patch(patch).amrcore->SetMaxGridSize(max_grid_sizes);
+  ext.patch(patch).sealed_core().open(*this).amrcore_->SetMaxGridSize(
+      max_grid_sizes);
 }
 
 void structure_writer_t::make_new_grids(const patch_t patch,
                                         const CCTK_REAL time) {
-  ext.patch(patch).amrcore->MakeNewGrids(time);
+  ext.patch(patch).sealed_core().open(*this).amrcore_->MakeNewGrids(time);
 }
 
-void structure_writer_t::mark_initialized() { ext.mark_initialized(); }
+void structure_writer_t::mark_initialized() {
+  ext.sealed_patches().open(*this).mark_initialized();
+}
 
 void structure_writer_t::regrid(const level_t base_level,
                                 const CCTK_REAL time) {
-  GHExt::PatchData &patchdata = ext.patch(base_level.patch());
-  patchdata.reset_level_modified();
-  patchdata.amrcore->regrid(base_level.index(), time);
+  levels.reset_modified(base_level.patch());
+  ext.patch(base_level.patch())
+      .sealed_core()
+      .open(*this)
+      .amrcore_->regrid(base_level.index(), time);
 }
 
 void structure_writer_t::set_finest_level(const level_t finest_level) {
-  ext.patch(finest_level.patch()).amrcore->SetFinestLevel(finest_level.index());
+  ext.patch(finest_level.patch())
+      .sealed_core()
+      .open(*this)
+      .amrcore_->SetFinestLevel(finest_level.index());
 }
 
 static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
@@ -138,7 +170,8 @@ static amrex::BoxArray rechop_level(const amrex::AmrMesh &mesh,
 
 void structure_writer_t::recover_level(const level_t level, amrex::BoxArray ba,
                                        const bool rechop) {
-  amrex::AmrCore &amrcore = *ext.patch(level.patch()).amrcore;
+  amrex::AmrCore &amrcore =
+      *ext.patch(level.patch()).sealed_core().open(*this).amrcore_;
   const int lev = level.index();
   if (lev > 0) {
     amrex::Geometry geom = amrcore.Geom(lev - 1);
@@ -154,38 +187,42 @@ void structure_writer_t::recover_level(const level_t level, amrex::BoxArray ba,
 }
 
 void registry_writer_t::record_storage(const gi_t gi, const int timelevels) {
-  ext.record_storage(gi, timelevels);
+  ext.sealed_registry().open(*this).record_storage(gi, timelevels);
 }
 
-void registry_writer_t::freeze_storage() { ext.freeze_storage(); }
+void registry_writer_t::freeze_storage() {
+  ext.sealed_registry().open(*this).freeze_storage();
+}
 
 void registry_writer_t::record_integrator(GHExt::integrator_t integrator,
                                           const std::source_location site) {
-  ext.record_integrator(std::move(integrator), site);
+  ext.sealed_registry().open(*this).record_integrator(std::move(integrator),
+                                                      site);
 }
 
 void registry_writer_t::freeze_integrator(const std::source_location site) {
-  ext.freeze_integrator(site);
+  ext.sealed_registry().open(*this).freeze_integrator(site);
 }
 
 void registry_writer_t::adopt_flesh_cctkGH(cGH *const cctkGH) {
+  auto &registry = ext.sealed_registry().open(*this);
   assert(cctkGH);
-  assert(!ext.flesh_cctkGH);
-  assert(!ext.global_cctkGH);
-  ext.flesh_cctkGH = cctkGH;
+  assert(!registry.flesh_cctkGH());
+  assert(!registry.global_cctkGH());
+  registry.adopt_flesh_cctkGH(cctkGH);
   cctkGH_binding::bind_arrays(cctkGH);
-  ext.global_cctkGH = GHExt::cctkGHptr::copy_of(cctkGH);
+  registry.adopt_global_cctkGH(GHExt::cctkGHptr::copy_of(cctkGH));
 }
 
 std::size_t scratch_writer_t::acquire(const group_t group,
                                       const std::source_location site) {
-  auto &groupdata = ext.group(group, site);
-  auto &pool = groupdata.scratch_pool;
+  const auto &groupdata = ext.group(group, site);
+  auto &pool = groupdata.sealed_scratch_pool().open(*this).slots;
   std::size_t slot = 0;
   while (slot < pool.size() && pool.at(slot).in_use)
     ++slot;
   if (slot == pool.size()) {
-    const amrex::MultiFab &mfab0 = *groupdata.timelevel(tl_t{0}).mfab;
+    const amrex::MultiFab &mfab0 = groupdata.timelevel(tl_t{0}).mfab();
     pool.push_back({std::make_unique<amrex::MultiFab>(
                         mfab0.boxArray(), mfab0.DistributionMap(),
                         mfab0.nComp(), mfab0.nGrowVect()),
@@ -196,7 +233,7 @@ std::size_t scratch_writer_t::acquire(const group_t group,
 }
 
 void scratch_writer_t::release(const group_t group, const std::size_t slot) {
-  auto &pool = ext.group(group).scratch_pool;
+  auto &pool = ext.group(group).sealed_scratch_pool().open(*this).slots;
   assert(slot < pool.size() && pool.at(slot).in_use);
   pool.at(slot).in_use = false;
 }
@@ -204,14 +241,14 @@ void scratch_writer_t::release(const group_t group, const std::size_t slot) {
 amrex::MultiFab &scratch_writer_t::mfab(const group_t group,
                                         const std::size_t slot,
                                         const std::source_location site) {
-  auto &pool = ext.group(group, site).scratch_pool;
+  auto &pool = ext.group(group, site).sealed_scratch_pool().open(*this).slots;
   assert(slot < pool.size() && pool.at(slot).in_use);
   return *pool.at(slot).mfab;
 }
 
 void clock_writer_t::advance_clocks(const window_t window) {
   loop_serially(window, [this](const GHExt::PatchData::LevelData &leveldata) {
-    auto &clock = ext.level(leveldata.level);
+    auto &clock = leveldata.sealed_clock().open(*this);
     clock.iteration += clock.delta_iteration;
   });
 }
@@ -219,24 +256,24 @@ void clock_writer_t::advance_clocks(const window_t window) {
 void clock_writer_t::stamp_last_step(const window_t window,
                                      const int iteration) {
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    ext.level(leveldata.level).last_step_iteration = iteration;
+    leveldata.sealed_clock().open(*this).last_step_iteration = iteration;
   });
 }
 
 void clock_writer_t::stamp_last_finalized(const window_t window,
                                           const int iteration) {
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    ext.level(leveldata.level).last_finalized_iteration = iteration;
+    leveldata.sealed_clock().open(*this).last_finalized_iteration = iteration;
   });
 }
 
 void clock_writer_t::restore_level_clock(
     const level_t level, const rat64 iteration,
     const std::optional<int> last_step_iteration) {
-  auto &leveldata = ext.level(level);
-  leveldata.iteration = iteration;
+  auto &clock = ext.level(level).sealed_clock().open(*this);
+  clock.iteration = iteration;
   if (last_step_iteration)
-    leveldata.last_step_iteration = *last_step_iteration;
+    clock.last_step_iteration = *last_step_iteration;
 }
 
 void clock_writer_t::rotate_timelevels(const window_t window, const gi_t gi) {

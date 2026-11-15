@@ -72,7 +72,7 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
     GridPtrDesc1 grid(leveldata, groupdata, mfi);
 
     const amrex::Array4<const CCTK_REAL> &err_array4 =
-        groupdata.timelevel(tl).mfab->array(mfi);
+        groupdata.timelevel(tl).mfab().array(mfi);
     const GF3D1<const CCTK_REAL> &err_ = grid.gf3d(err_array4, vi);
     const amrex::Array4<char> &tags_array4 = tags.array(mfi);
 
@@ -175,8 +175,8 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
   if (!aligned_with_parent(level)) {
     std::ostringstream msg;
     msg << "Coarse (rl=" << coarse.index()
-        << ", it=" << coarseleveldata.iteration << ") and fine (rl=" << lev
-        << ", it=" << leveldata.iteration
+        << ", it=" << coarseleveldata.iteration() << ") and fine (rl=" << lev
+        << ", it=" << leveldata.iteration()
         << ") grid do not align in time when regridding";
 #pragma omp critical
     CCTK_VERROR(msg.str().c_str());
@@ -208,9 +208,9 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
                .keeps = {},
                .event = "MakeNewLevelFromCoarse after prolongation"});
           FillPatch_NewLevel(groupdata, coarsegroupdata, scope.mfab(level),
-                             *coarsegroupdata.timelevel(tl).mfab,
-                             patchdata.amrcore->Geom(coarse.index()),
-                             patchdata.amrcore->Geom(lev));
+                             coarsegroupdata.timelevel(tl).mfab(),
+                             patchdata.amrcore().Geom(coarse.index()),
+                             patchdata.amrcore().Geom(lev));
         } else {
           invalidate(fine_levels,
                      {.gi = gi,
@@ -260,8 +260,8 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
   if (!aligned_with_parent(level)) {
     std::ostringstream msg;
     msg << "Coarse (rl=" << coarse.index()
-        << ", it=" << coarseleveldata.iteration << ") and fine (rl=" << lev
-        << ", it=" << leveldata.iteration
+        << ", it=" << coarseleveldata.iteration() << ") and fine (rl=" << lev
+        << ", it=" << leveldata.iteration()
         << ") grid do not align in time when regridding";
 #pragma omp critical
     CCTK_VERROR(msg.str().c_str());
@@ -325,10 +325,10 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
                           .keeps = {},
                           .event = "RemakeLevel after prolongation"});
         FillPatch_RemakeLevel(groupdata, coarsegroupdata, scope.mfab(level),
-                              *coarsegroupdata.timelevel(tl).mfab,
-                              *oldgroupdata.timelevel(tl).mfab,
-                              patchdata.amrcore->Geom(coarse.index()),
-                              patchdata.amrcore->Geom(lev));
+                              coarsegroupdata.timelevel(tl).mfab(),
+                              oldgroupdata.timelevel(tl).mfab(),
+                              patchdata.amrcore().Geom(coarse.index()),
+                              patchdata.amrcore().Geom(lev));
       } else {
         invalidate(fine_levels,
                    {.gi = gi,

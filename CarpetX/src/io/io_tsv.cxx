@@ -158,8 +158,8 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
     for (const auto &leveldata : patchdata.levels()) {
       const auto &groupdata = leveldata.group(gi);
       const tl_t tl{0};
-      const auto &geom = patchdata.amrcore->Geom(leveldata.level.index());
-      const auto &mfab = *groupdata.timelevel(tl).mfab;
+      const auto &geom = patchdata.amrcore().Geom(leveldata.level.index());
+      const auto &mfab = groupdata.timelevel(tl).mfab();
       for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
         const amrex::Array4<const CCTK_REAL> &vars = mfab.array(mfi);
         const amrex::Dim3 imin = amrex::lbound(vars);
@@ -332,7 +332,7 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
 
   file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time;
   const tl_t tl{0};
-  const auto &data = arraygroupdata.timelevel(tl).data;
+  const auto &data = arraygroupdata.timelevel(tl).data();
   for (const vi_t vi : group.variables())
     file << sep << data[vi.index()];
   file << "\n";
@@ -420,7 +420,7 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
     for (int dir = 0; dir < arraygroupdata.dimension; ++dir)
       file << sep << (dir == out_dir ? i : 0);
     const tl_t tl{0};
-    const auto &data = arraygroupdata.timelevel(tl).data;
+    const auto &data = arraygroupdata.timelevel(tl).data();
     for (const vi_t vi : group.variables())
       file << sep << data[np * vi.index() + DI[out_dir] * i];
     file << "\n";
@@ -452,9 +452,9 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
         return amrex::Orientation(d, amrex::Orientation::Side(f));
       };
 
-      const auto &geom = patchdata.amrcore->Geom(leveldata.level.index());
+      const auto &geom = patchdata.amrcore().Geom(leveldata.level.index());
       const amrex::Box &domain =
-          patchdata.amrcore->Geom(leveldata.level.index()).Domain();
+          patchdata.amrcore().Geom(leveldata.level.index()).Domain();
       vect<CCTK_REAL, dim> x0, dx;
       for (int d = 0; d < dim; ++d) {
         dx[d] = geom.CellSize(d);
@@ -470,7 +470,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
 
       const auto &symmetries = patchdata.symmetries;
 
-      const auto &mfab = *groupdata.timelevel(tl).mfab;
+      const auto &mfab = groupdata.timelevel(tl).mfab();
 
       const vect<int, dim> nghosts = {mfab.nGrow(0), mfab.nGrow(1),
                                       mfab.nGrow(2)};

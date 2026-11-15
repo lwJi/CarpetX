@@ -371,16 +371,16 @@ int array_elements(const ArrayGroupData &arraygroupdata) {
   return n_elems;
 }
 
-void poison_ga_interior(ArrayGroupData &arraygroupdata, const vi_t vi,
-                        const tl_t tl) {
+void poison_ga_interior(const ArrayGroupData &arraygroupdata,
+                        GHExt::GlobalData::AnyTypeVector &data, const vi_t vi) {
   static Timer timer("poison_invalid<GA>");
   Interval interval(timer);
 
   const int n_elems = array_elements(arraygroupdata);
   visit(arraygroupdata.record.var_type, [&](const auto tag) {
     using T = typename decltype(tag)::type;
-    T *restrict const ptr = static_cast<T *>(
-        arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
+    T *restrict const ptr =
+        static_cast<T *>(data.data_at(vi.index() * n_elems));
     const poison_value_t<T> poison_value;
     poison_value.set_to_poison(ptr, n_elems);
   });
@@ -406,7 +406,7 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const vi_t vi,
     using T = typename decltype(tag)::type;
     const poison_value_t<T> poison_value;
     const T *restrict const ptr = static_cast<const T *>(
-        arraygroupdata.timelevel(tl).data.data_at(vi.index() * n_elems));
+        arraygroupdata.timelevel(tl).data().data_at(vi.index() * n_elems));
     std::size_t nan_count{0};
     for (int i = 0; i < n_elems; i++)
       if (CCTK_BUILTIN_EXPECT(poison_value.is_poison(ptr[i]) || has_nan(ptr[i]),
@@ -416,12 +416,13 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const vi_t vi,
   });
 }
 
-void poison_invalid_ga(ArrayGroupData &arraydata, const vi_t vi, const tl_t tl,
+void poison_invalid_ga(const ArrayGroupData &arraydata,
+                       GHExt::GlobalData::AnyTypeVector &data, const vi_t vi,
                        const valid_t where) {
   DECLARE_CCTK_PARAMETERS;
   if (!poison_undefined_arrays || !where.valid_int)
     return;
-  poison_ga_interior(arraydata, vi, tl);
+  poison_ga_interior(arraydata, data, vi);
 }
 
 void check_valid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
@@ -501,11 +502,10 @@ write_scope_t::write_scope_t(const window_t window, write_spec_t spec,
       event_reason(this->spec.event, " not filled", iteration);
   const std::vector<vi_t> vis = variables_of(this->spec.gi, this->spec.vi);
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    GroupData::timelevel_t &timelevel = GHExt::mutable_instance()
-                                            .level(leveldata.level)
-                                            .group(this->spec.gi)
-                                            .timelevel(this->spec.tl);
-    ++timelevel.open_writes;
+    GroupData::timelevel_t &timelevel = leveldata.group(this->spec.gi)
+                                            .sealed_timelevel(this->spec.tl)
+                                            .open(*this);
+    ++timelevel.open_writes_;
     for (const vi_t vi : vis)
       timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
   });
@@ -548,13 +548,11 @@ write_scope_t::~write_scope_t() {
   for (const vi_t vi : vis)
     check_valid_gf(window, spec.gi, vi, spec.tl, spec.fills, msg);
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    GroupData::timelevel_t &timelevel = GHExt::mutable_instance()
-                                            .level(leveldata.level)
-                                            .group(spec.gi)
-                                            .timelevel(spec.tl);
+    GroupData::timelevel_t &timelevel =
+        leveldata.group(spec.gi).sealed_timelevel(spec.tl).open(*this);
     for (const vi_t vi : vis)
       timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);
-    --timelevel.open_writes;
+    --timelevel.open_writes_;
   });
 }
 
@@ -575,11 +573,12 @@ amrex::MultiFab &write_scope_t::mfab(const level_t level,
            spec.tl.index(), patches.min, patches.max, levels.min, levels.max,
            level.patch().index(), level.index());
   }
-  return *GHExt::mutable_instance()
+  return *driver()
               .level(level, site)
               .group(spec.gi, site)
-              .timelevel(spec.tl, site)
-              .mfab;
+              .sealed_timelevel(spec.tl, site)
+              .open(*this)
+              .mfab_;
 }
 
 write_scopes_t::~write_scopes_t() { close(); }
@@ -634,12 +633,12 @@ array_write_scope_t::array_write_scope_t(write_spec_t spec, const int iteration)
   const valid_t destroys = ~this->spec.keeps;
   const auto not_filled =
       event_reason(this->spec.event, " not filled", iteration);
-  ArrayGroupData &arraydata =
-      GHExt::mutable_instance().record(this->spec.gi).array();
-  ArrayGroupData::timelevel_t &timelevel = arraydata.timelevel(this->spec.tl);
+  const ArrayGroupData &arraydata = driver().record(this->spec.gi).array();
+  ArrayGroupData::timelevel_t &timelevel =
+      arraydata.sealed_timelevel(this->spec.tl).open(*this);
   for (const vi_t vi : variables_of(this->spec.gi, this->spec.vi)) {
     timelevel.valid_.at(vi.index()).set_invalid(destroys, not_filled);
-    poison_invalid_ga(arraydata, vi, this->spec.tl, destroys);
+    poison_invalid_ga(arraydata, timelevel.data_, vi, destroys);
   }
 }
 
@@ -669,7 +668,7 @@ array_write_scope_t::~array_write_scope_t() {
   const auto msg = event_reason(spec.event, "", iteration);
   const auto filled = event_reason(spec.event, " filled", iteration);
   ArrayGroupData::timelevel_t &timelevel =
-      GHExt::mutable_instance().record(spec.gi).array().timelevel(spec.tl);
+      driver().record(spec.gi).array().sealed_timelevel(spec.tl).open(*this);
   for (const vi_t vi : variables_of(spec.gi, spec.vi)) {
     check_valid_ga(spec.gi, vi, spec.tl, spec.fills, msg);
     timelevel.valid_.at(vi.index()).set_valid(spec.fills, filled);
@@ -682,11 +681,12 @@ void *array_write_scope_t::data(const std::source_location site) & {
            "a moved-from array write scope on group %s, time level %d hands "
            "out no data",
            driver().record(spec.gi).groupname.c_str(), spec.tl.index());
-  return GHExt::mutable_instance()
+  return driver()
       .record(spec.gi)
       .array(site)
-      .timelevel(spec.tl, site)
-      .data.data_at(0);
+      .sealed_timelevel(spec.tl, site)
+      .open(*this)
+      .data_.data_at(0);
 }
 
 void require_array(require_spec_t spec) {

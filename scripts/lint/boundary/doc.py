@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable, Iterator
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, READS_TEXT, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, layer_of, layer_path, statements
+from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, GRANT_LAYER, GRANT_WRAPPER, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, READS_TEXT, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, statements, ungranted
 from comments.lex_cxx import lex
 from comments.tokens import Kind
 from files import PROJECT
@@ -73,7 +73,7 @@ REGRID_STEPS = {
 }
 REGRID = (
     ("1", "schedule", "hierarchy", ("structure_writer_t::regrid",), layer_path("hierarchy", "writers.cxx")),
-    ("2", "hierarchy", "amrex", ("amrcore->regrid",), layer_path("hierarchy", "writers.cxx")),
+    ("2", "hierarchy", "amrex", ("amrcore_->regrid",), layer_path("hierarchy", "writers.cxx")),
     ("3", "amrex", layer_of(CALLBACKS[0]), CALLBACKS[1], CALLBACKS[0]),
 )
 assert {row[0] for row in REGRID} == set(REGRID_STEPS), REGRID
@@ -711,6 +711,39 @@ def owns(root: str = PROJECT) -> str:
     return "\n".join([OWNS_HEADING, "", OWNS_INTRO, ""] + rows) + "\n"
 
 
+GRANTS_HEADING = "## Who is granted what"
+GRANTS_INTRO = (
+    f"Each row is a name that a `friend` line in a header of `{GRANT_LAYER}/` grants, and the types whose private members it reaches. "
+    f"An alias `using name = {GRANT_WRAPPER}<T, W>;` is the friend line of `W` under `T`: every holder reads `T` through it, only `W` opens it for writing, and the rule refuses `{GRANT_WRAPPER}` with arguments in any other form. "
+    f"The table GRANTS in {GRANTS_HOME} is those lines: the grant rule refuses a friend line the table lacks, and the tests refuse an entry no line backs."
+)
+
+
+def grant_headers(root: str = PROJECT) -> dict[str, str]:
+    return {layer_path(GRANT_LAYER, os.path.basename(path)): read(path) for path in sources(root, GRANT_LAYER) if path.endswith(".hxx")}
+
+
+def unbacked(root: str = PROJECT) -> list[tuple[str, str]]:
+    found = {(owner, friend) for text in grant_headers(root).values() for _, owner, friend in friends(text)}
+    return [(owner, friend) for owner, granted in GRANTS.items() for friend in granted if (owner, friend) not in found]
+
+
+def grants(root: str = PROJECT) -> str:
+    stray = [f"{header}:{line}" for header, text in grant_headers(root).items() for line in ungranted(header, text)]
+    if stray:
+        raise ValueError(f"{', '.join(stray)}: a friend line that no entry of GRANTS in {GRANTS_HOME} lists: add the entry")
+    stale = unbacked(root)
+    if stale:
+        raise ValueError(f"{', '.join(f'{friend} in {owner}' for owner, friend in stale)}: an entry of GRANTS in {GRANTS_HOME} that no friend line backs: remove it")
+    reaches: dict[str, list[str]] = {}
+    for owner, granted in GRANTS.items():
+        for friend in granted:
+            reaches.setdefault(friend, []).append(owner)
+    lines = [GRANTS_HEADING, "", GRANTS_INTRO, "", "| Granted | Private members of |", "| --- | --- |"]
+    lines.extend(f"| `{friend}` | {', '.join(f'`{owner}`' for owner in owners)} |" for friend, owners in reaches.items())
+    return "\n".join(lines) + "\n"
+
+
 TITLE = "# CarpetX's internals"
 PREAMBLE = (
     "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, "
@@ -736,4 +769,5 @@ def render(root: str = PROJECT) -> str:
         parts.extend([f"## {title}", "", "```mermaid", picture(root).rstrip("\n"), "```", "", legend(texts)])
     parts.append(entries(root))
     parts.append(owns(root))
+    parts.append(grants(root))
     return "\n".join(parts)

@@ -14,7 +14,7 @@ namespace {
 
 void *array_ptr(const GHExt::GroupRecord &group, const tl_t tl, const vi_t vi) {
   const auto &restrict arraygroupdata = group.array();
-  return const_cast<void *>(arraygroupdata.timelevel(tl).data.data_at(
+  return const_cast<void *>(arraygroupdata.timelevel(tl).data().data_at(
       vi.index() * arraygroupdata.array_size));
 }
 
@@ -45,15 +45,15 @@ void assert_array_group_bound(const cGH *const cctkGH, const gi_t gi) {
 }
 
 void bind_grid_group(cGH *const cctkGH,
-                     GHExt::PatchData::LevelData::GroupData &groupdata,
+                     const GHExt::PatchData::LevelData::GroupData &groupdata,
                      const GridPtrDesc1 &grid1, const component_t component) {
   assert(cctkGH);
   for (const tl_t tl : groupdata.record.timelevels()) {
-    const amrex::Array4<CCTK_REAL> vars =
-        groupdata.timelevel(tl).mfab->array(component.index());
+    const amrex::Array4<const CCTK_REAL> vars =
+        groupdata.timelevel(tl).mfab().array(component.index());
     for (const vi_t vi : groupdata.record.variables())
       cctkGH->data[groupdata.record.var(vi).index()][tl.index()] =
-          grid1.ptr(vars, vi);
+          const_cast<CCTK_REAL *>(grid1.ptr(vars, vi));
   }
 }
 
@@ -64,7 +64,7 @@ void assert_grid_group_bound(
   assert(cctkGH);
   for (const tl_t tl : groupdata.record.timelevels()) {
     const amrex::Array4<const CCTK_REAL> vars =
-        groupdata.timelevel(tl).mfab->array(component.index());
+        groupdata.timelevel(tl).mfab().array(component.index());
     for (const vi_t vi : groupdata.record.variables())
       assert(cctkGH->data[groupdata.record.var(vi).index()][tl.index()] ==
              grid1.ptr(vars, vi));
@@ -90,11 +90,11 @@ void cctkGH_binding::unbind_arrays(cGH *const cctkGH) {
 }
 
 void cctkGH_binding::bind_local(cGH *const cctkGH,
-                                GHExt::PatchData::LevelData &leveldata,
+                                const GHExt::PatchData::LevelData &leveldata,
                                 const MFPointer &mfp) {
   assert(in_local_mode(cctkGH));
   assert(cctkGH->cctk_component == mfp.index().index());
-  for (auto &groupdata : leveldata.groups()) {
+  for (const auto &groupdata : leveldata.groups()) {
     const GridPtrDesc1 grid1(leveldata, groupdata, mfp);
     bind_grid_group(cctkGH, groupdata, grid1, mfp.index());
   }
@@ -111,14 +111,15 @@ void cctkGH_binding::unbind_local(cGH *const cctkGH,
         cctkGH->data[groupdata.record.var(vi).index()][tl.index()] = nullptr;
 }
 
-void cctkGH_binding::rotate(GHExt &ext, const window_t window, const gi_t gi) {
-  const int ntls0 = driver().record(gi).num_timelevels();
+void cctkGH_binding::rotate(const GHExt &ext, const window_t window,
+                            const gi_t gi) {
+  const int ntls0 = ext.record(gi).num_timelevels();
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
-    auto &restrict groupdata = ext.level(leveldata.level).group(gi);
+    const auto &restrict groupdata = leveldata.group(gi);
     const int ntls = groupdata.num_timelevels();
     assert(ntls == ntls0);
     if (ntls > 1) {
-      groupdata.rotate_timelevels();
+      groupdata.sealed_ring().open(cctkGH_binding{}).rotate_timelevels();
       for (const auto &local_cctkGH_ptr : leveldata.local_cctkGHs) {
         cGH *const local_cctkGH = local_cctkGH_ptr.get();
         const component_t component{local_cctkGH->cctk_component};
@@ -130,12 +131,16 @@ void cctkGH_binding::rotate(GHExt &ext, const window_t window, const gi_t gi) {
   });
 }
 
-void cctkGH_binding::rotate(GHExt &ext, const gi_t gi) {
-  assert(ext.flesh_cctkGH);
-  ext.record(gi).array().rotate_timelevels();
-  bind_array_group(ext.flesh_cctkGH, gi);
+void cctkGH_binding::rotate(const GHExt &ext, const gi_t gi) {
+  assert(ext.flesh_cctkGH());
+  ext.record(gi)
+      .array()
+      .sealed_ring()
+      .open(cctkGH_binding{})
+      .rotate_timelevels();
+  bind_array_group(ext.flesh_cctkGH(), gi);
   ext.for_each_cctkGH([&](cGH *const copy) { bind_array_group(copy, gi); });
-  assert_array_group_bound(ext.flesh_cctkGH, gi);
+  assert_array_group_bound(ext.flesh_cctkGH(), gi);
   ext.for_each_cctkGH(
       [&](const cGH *const copy) { assert_array_group_bound(copy, gi); });
 }

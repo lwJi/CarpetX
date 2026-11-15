@@ -104,7 +104,7 @@ flowchart LR
   regrid["regrid/"]
   hierarchy["hierarchy/"]
   schedule -- "1 structure_writer_t::regrid" --> hierarchy
-  hierarchy -- "2 amrcore->regrid" --> amrex
+  hierarchy -- "2 amrcore_->regrid" --> amrex
   amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid
 ```
 
@@ -134,16 +134,16 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 
 New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides, then names the rules whose home is in it. Under a layer that the table STEMS in scripts/lint/boundary/rules.py lists is one row per file stem, a header and its source sharing the stem, that says the one concern the stem holds: a stem with no row or a row with no stem fails the generator, `scripts/lint symbols` refuses a definition there that the header of its stem does not declare, and the tests refuse a source there with no header and an include of one of its headers that uses no name the header declares.
 
-- `flesh/`: every `extern "C"`, and the four writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its two. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh's arguments and calls the layer that does the work. Rules at home here: entry, ghost-only.
-- `api/`: the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the two writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty. Rules at home here: ghost-only.
+- `flesh/`: every `extern "C"`, and the writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its writers. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh's arguments and calls the layer that does the work. Rules at home here: entry, ghost-only.
+- `api/`: the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty. Rules at home here: ghost-only.
 - `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.
 - `io/`: output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. Rules at home here: records, codec.
 - `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
 - `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
 - `comm/`: moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions, ghost-only.
-- `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, varindex, model.
+- `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, varindex, model, grant.
   - `model`: `GHExt`, its nested types, and the door `driver()`
-  - `writers`: the five writers, by what each writes: `clock_writer_t` the clocks and the rotation of time levels, `structure_writer_t` the grids and which levels exist, `level_writer_t` one level, made, remade or erased, `registry_writer_t` storage and the integrator record, `scratch_writer_t` scratch slots; `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy
+  - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy
   - `valid`: the validity state a time level stores
   - `scopes`: the only way to change that state: write, require and invalidate
   - `binding`: the only writes to the cGH pointer table
@@ -159,3 +159,25 @@ New code goes in the layer that owns what it works on, and a lower layer never d
   - `stages`: RK stages and the refinement of time
 - `traversal/`: the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not. Rules at home here: traversal.
 - `util/`: leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.
+
+## Who is granted what
+
+Each row is a name that a `friend` line in a header of `hierarchy/` grants, and the types whose private members it reaches. An alias `using name = written_by<T, W>;` is the friend line of `W` under `T`: every holder reads `T` through it, only `W` opens it for writing, and the rule refuses `written_by` with arguments in any other form. The table GRANTS in scripts/lint/boundary/rules.py is those lines: the grant rule refuses a friend line the table lacks, and the tests refuse an entry no line backs.
+
+| Granted | Private members of |
+| --- | --- |
+| `Writer` | `written_by` |
+| `hierarchy_writers_t` | `GHExt`, `clock_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t` |
+| `registry_writer_t` | `GHExt::registry_t` |
+| `level_writer_t` | `GHExt::level_set_t`, `GHExt::PatchData::levels_t` |
+| `structure_writer_t` | `GHExt::patches_t`, `GHExt::PatchData::core_t`, `level_writer_t` |
+| `clock_writer_t` | `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding` |
+| `write_scope_t` | `GHExt::PatchData::LevelData::GroupData::timelevel_t`, `why_valid_t` |
+| `scratch_writer_t` | `GHExt::PatchData::LevelData::GroupData::scratch_pool_t` |
+| `cctkGH_binding` | `GHExt::PatchData::LevelData::GroupData::ring_t`, `GHExt::GlobalData::ArrayGroupData::ring_t` |
+| `array_write_scope_t` | `GHExt::GlobalData::ArrayGroupData::timelevel_t`, `why_valid_t` |
+| `create_hierarchy` | `hierarchy_writers_t` |
+| `operator<<` | `why_valid_t`, `GridPtrDesc1` |
+| `open_write` | `write_scope_t` |
+| `write_scopes_t` | `write_scope_t` |
+| `open_array_write` | `array_write_scope_t` |

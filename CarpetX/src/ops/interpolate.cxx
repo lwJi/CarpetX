@@ -388,7 +388,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     symmetry_reflected_z.resize(npoints);
     assert(ext.num_patches() == 1);
     constexpr patch_t patch{0};
-    const amrex::Geometry &geom = ext.patch(patch).amrcore->Geom(0);
+    const amrex::Geometry &geom = ext.patch(patch).amrcore().Geom(0);
     const CCTK_REAL *restrict const xmin = geom.ProbLo();
 #pragma omp simd
     for (int n = 0; n < npoints; ++n) {
@@ -413,7 +413,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
 #pragma omp simd
   for (int n = 0; n < npoints; ++n) {
     const patch_t patch{patches.at(n)};
-    const amrex::Geometry &geom = ext.patch(patch).amrcore->Geom(0);
+    const amrex::Geometry &geom = ext.patch(patch).amrcore().Geom(0);
     const CCTK_REAL *restrict const xmin = geom.ProbLo();
     const CCTK_REAL *restrict const xmax = geom.ProbHi();
     const CCTK_REAL *restrict const dx = geom.CellSize();
@@ -457,7 +457,7 @@ CarpetX::InterpolationSetup::InterpolationSetup(
         pinned_particle_tiles.at(patch.index());
 
     const auto &restrict patchdata = ext.patch(patch);
-    const amrex::AmrCore &core = *patchdata.amrcore;
+    const amrex::AmrCore &core = patchdata.amrcore();
     const int nlevels = core.finestLevel() + 1;
     amrex::Vector<amrex::Geometry> geoms;
     amrex::Vector<amrex::DistributionMapping> dms;
@@ -592,12 +592,12 @@ void CarpetX::InterpolationSetup::Interpolate(
 
         min_level_iteration_used =
             min_level_iteration_used != -1
-                ? std::min(min_level_iteration_used, leveldata.iteration)
-                : leveldata.iteration;
+                ? std::min(min_level_iteration_used, leveldata.iteration())
+                : leveldata.iteration();
         max_level_iteration_used =
             max_level_iteration_used != -1
-                ? std::max(max_level_iteration_used, leveldata.iteration)
-                : leveldata.iteration;
+                ? std::max(max_level_iteration_used, leveldata.iteration())
+                : leveldata.iteration();
 
         vect<vect<bool, dim>, 2> patch_allowed_boundaries;
         for (int f = 0; f < 2; ++f)
@@ -622,7 +622,7 @@ void CarpetX::InterpolationSetup::Interpolate(
                                 grid_function.indextype[2] * 0b001;
           assert(all(grid_function.nghostzones == grid.nghostzones));
           const amrex::Array4<const CCTK_REAL> &vars =
-              groupdata.timelevel(tl).mfab->array(pti);
+              groupdata.timelevel(tl).mfab().array(pti);
           vect<int, dim> derivs;
           int op = operations[v];
           while (op > 0) {

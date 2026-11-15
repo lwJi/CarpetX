@@ -15,15 +15,16 @@ class clock_writer_t;
 struct cctkGH_binding {
   static void bind_arrays(cGH *cctkGH);
   static void unbind_arrays(cGH *cctkGH);
-  static void bind_local(cGH *cctkGH, GHExt::PatchData::LevelData &leveldata,
+  static void bind_local(cGH *cctkGH,
+                         const GHExt::PatchData::LevelData &leveldata,
                          const MFPointer &mfp);
   static void unbind_local(cGH *cctkGH,
                            const GHExt::PatchData::LevelData &leveldata,
                            const MFPointer &mfp);
 
 private:
-  static void rotate(GHExt &ext, window_t window, gi_t gi);
-  static void rotate(GHExt &ext, gi_t gi);
+  static void rotate(const GHExt &ext, window_t window, gi_t gi);
+  static void rotate(const GHExt &ext, gi_t gi);
   friend class clock_writer_t;
 };
 

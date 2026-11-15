@@ -55,18 +55,18 @@ int num_levels(const patch_t patch) {
 
 rat64 iteration(const level_t level) {
   const operation_scope_t op("CarpetX::iteration");
-  return driver().level(level).iteration;
+  return driver().level(level).iteration();
 }
 
 rat64 delta_iteration(const level_t level) {
   const operation_scope_t op("CarpetX::delta_iteration");
-  return driver().level(level).delta_iteration;
+  return driver().level(level).delta_iteration();
 }
 
 const amrex::Geometry &geometry(const level_t level) {
   const operation_scope_t op("CarpetX::geometry");
   driver().level(level);
-  return driver().patch(level.patch()).amrcore->Geom(level.index());
+  return driver().patch(level.patch()).amrcore().Geom(level.index());
 }
 
 std::array<std::array<symmetry_t, Loop::dim>, 2>
@@ -93,7 +93,7 @@ std::array<int, Loop::dim> nghostzones(const group_t group) {
 
 const amrex::MultiFab &data(const group_t group, const tl_t tl) {
   const operation_scope_t op("CarpetX::data");
-  return *driver().group(group).timelevel(tl).mfab;
+  return driver().group(group).timelevel(tl).mfab();
 }
 
 struct write_t::impl {
@@ -118,7 +118,7 @@ write_t write(const group_t group, const tl_t tl, const valid_t leaves_valid,
               const char *const what) {
   const operation_scope_t op("CarpetX::write");
   auto &groupdata = driver().group(group);
-  const int open_writes = groupdata.timelevel(tl).open_writes;
+  const int open_writes = groupdata.timelevel(tl).open_writes();
   if (open_writes > 0)
     CCTK_VERROR("CarpetX::write: time level %d of group %s has %d open write "
                 "scope%s (CarpetX::write) on patch %d, refinement level %d; "
@@ -142,16 +142,16 @@ struct scratch_t::impl {
 
 namespace {
 
-const GHExt::PatchData::LevelData::GroupData::scratch_slot_t &
-resolve_scratch(const group_t group, const std::size_t slot) {
-  auto &pool = driver().group(group).scratch_pool;
-  if (slot >= pool.size() || !pool.at(slot).in_use)
+const amrex::MultiFab &resolve_scratch(const group_t group,
+                                       const std::size_t slot) {
+  const auto &pool = driver().group(group).scratch_pool();
+  if (slot >= pool.size() || !pool.in_use(slot))
     refuse(std::source_location::current(),
            "scratch buffer %d of group %s on patch %d, refinement level %d no "
            "longer exists: the level was remade while the scratch_t was held",
            int(slot), CCTK_FullGroupName(group.gi.index()),
            group.level.patch().index(), group.level.index());
-  return pool.at(slot);
+  return pool.mfab(slot);
 }
 
 } // namespace
@@ -174,7 +174,7 @@ const amrex::MultiFab &scratch_t::mfab() const & {
   if (!p)
     CCTK_ERROR("CarpetX::scratch_t::mfab() called on a moved-from scratch "
                "buffer");
-  return *resolve_scratch(p->group, p->slot).mfab;
+  return resolve_scratch(p->group, p->slot);
 }
 
 scratch_t::~scratch_t() {

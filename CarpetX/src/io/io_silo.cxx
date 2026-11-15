@@ -231,7 +231,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
 
           const int numvars = groupdata.record.numvars;
           const tl_t tl{0};
-          const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+          const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
@@ -267,7 +267,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
             assert(src_zonecount >= 0 && src_zonecount <= INT_MAX);
 
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level.index());
+                patchdata.amrcore().Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
 
@@ -497,7 +497,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
       const auto &groupdata0 =
           ext.level(level_t{patch_t{0}, 0}).group(group.groupindex);
       const tl_t tl{0};
-      const amrex::MultiFab &mfab0 = *groupdata0.timelevel(tl).mfab;
+      const amrex::MultiFab &mfab0 = groupdata0.timelevel(tl).mfab();
       const amrex::IndexType &indextype = mfab0.ixType();
 
       const std::array<int, dim> &nghosts =
@@ -515,10 +515,10 @@ void write_silo_slice(const cGH *restrict const cctkGH,
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(group.groupindex);
             const tl_t tl{0};
-            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+            const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level.index());
+                patchdata.amrcore().Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
             for (const component_t c : components_of(ncomponents)) {
@@ -544,11 +544,11 @@ void write_silo_slice(const cGH *restrict const cctkGH,
         for (const auto &patchdata : ext.patches()) {
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(group.groupindex);
-            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+            const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
             const amrex::DistributionMapping &dm = mfab.DistributionMap();
             const int ncomponents = dm.size();
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level.index());
+                patchdata.amrcore().Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
             for (const component_t c : components_of(ncomponents)) {
@@ -616,10 +616,10 @@ void write_silo_slice(const cGH *restrict const cctkGH,
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(group.groupindex);
             const tl_t tl{0};
-            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+            const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
-                patchdata.amrcore->Geom(leveldata.level.index());
+                patchdata.amrcore().Geom(leveldata.level.index());
             const amrex::Real *const x0 = geom.ProbLo();
             const amrex::Real *const dx = geom.CellSize();
             for (const component_t c : components_of(ncomponents)) {
@@ -686,11 +686,11 @@ void write_silo_slice(const cGH *restrict const cctkGH,
             for (const auto &leveldata : patchdata.levels()) {
               const auto &groupdata = leveldata.group(group.groupindex);
               const tl_t tl{0};
-              const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+              const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
               const amrex::DistributionMapping &dm = mfab.DistributionMap();
               const int ncomponents = dm.size();
               const amrex::Geometry &geom =
-                  patchdata.amrcore->Geom(leveldata.level.index());
+                  patchdata.amrcore().Geom(leveldata.level.index());
               const amrex::Real *const x0 = geom.ProbLo();
               const amrex::Real *const dx = geom.CellSize();
               for (const component_t c : components_of(ncomponents)) {
@@ -786,7 +786,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                                   std::to_string(patchdata.patch.index()) +
                                   ".rl" +
                                   std::to_string(leveldata.level.index()));
-            long long val = leveldata.iteration.num;
+            long long val = leveldata.iteration().num;
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
                            DB_LONG_LONG);
@@ -799,7 +799,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                                   std::to_string(patchdata.patch.index()) +
                                   ".rl" +
                                   std::to_string(leveldata.level.index()));
-            long long val = leveldata.iteration.den;
+            long long val = leveldata.iteration().den;
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
                            DB_LONG_LONG);
@@ -812,7 +812,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
                                   std::to_string(patchdata.patch.index()) +
                                   ".rl" +
                                   std::to_string(leveldata.level.index()));
-            long long val = leveldata.last_step_iteration;
+            long long val = leveldata.last_step_iteration();
             int dims = 1;
             ierr = DBWrite(metafile.get(), varname.c_str(), &val, &dims, 1,
                            DB_LONG_LONG);

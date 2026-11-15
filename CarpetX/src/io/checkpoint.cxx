@@ -176,11 +176,11 @@ const amrex::MultiFab *vertex_coords(const level_t level) {
   const gi_t gi{CCTK_GroupIndex("CoordinatesX::vertex_coords")};
   if (gi.index() < 0 || !ext.record(gi).has_storage())
     return nullptr;
-  return ext.level(level).group(gi).timelevel(tl_t{0}).mfab.get();
+  return &ext.level(level).group(gi).timelevel(tl_t{0}).mfab();
 }
 
 void snapshot_geometry(level_record_t &record, const level_t level) {
-  record.geom = driver().patch(level.patch()).amrcore->Geom(level.index());
+  record.geom = driver().patch(level.patch()).amrcore().Geom(level.index());
   record.vertex_coords = vertex_coords(level);
 }
 
@@ -248,7 +248,7 @@ struct source_sink_t final : buffer_visitor_t {
 
   void state(const GHExt::PatchData::LevelData::GroupData &groupdata,
              const tl_t tl) override {
-    const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+    const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
     buffers.push_back({.id = buffer_id(groupdata.record, groupdata.level, tl),
                        .data = grid_buffer_t{&mfab}});
   }
@@ -267,7 +267,7 @@ struct source_sink_t final : buffer_visitor_t {
     const GHExt::GlobalData::ArrayGroupData &arraydata =
         driver().record(group.groupindex).array();
     const GHExt::GlobalData::AnyTypeVector &data =
-        arraydata.timelevel(tl_t{0}).data;
+        arraydata.timelevel(tl_t{0}).data();
     buffers.push_back(
         {.id = buffer_id(group, std::nullopt, tl_t{0}),
          .data = array_buffer_t{.data = data.data_at(0),
@@ -331,7 +331,7 @@ struct target_sink_t final : buffer_visitor_t {
              .gi = group.groupindex,
              .fills = has_ghosts(arraydata.nghostzones) ? make_valid_int()
                                                         : make_valid_all(),
-             .vartype = arraydata.timelevel(tl_t{0}).data.type(),
+             .vartype = arraydata.timelevel(tl_t{0}).data().type(),
              .shape = array_shape(arraydata)}});
   }
 
@@ -413,8 +413,8 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
       const amrex::FabArrayBase &fab = *leveldata.fab;
       for (const component_t component : components_of(fab))
         levelrecord.boxes.push_back(fab.box(component.index()));
-      levelrecord.iteration = leveldata.iteration;
-      levelrecord.last_step_iteration = leveldata.last_step_iteration;
+      levelrecord.iteration = leveldata.iteration();
+      levelrecord.last_step_iteration = leveldata.last_step_iteration();
       snapshot_geometry(levelrecord, leveldata.level);
     }
   }

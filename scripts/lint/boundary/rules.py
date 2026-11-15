@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Callable, Iterator, Optional
 
 from checks import excerpt, plural, wrap
+from comments.lex_cxx import lex
+from comments.tokens import Kind
 from files import Lang, lang_of
 
 MARKER = "CARPETX_INTERNAL"
@@ -39,8 +41,8 @@ OWNS = {
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`.",
     "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.",
-    "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the two writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty.",
-    "flesh": 'every `extern "C"`, and the four writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its two. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
+    "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty.",
+    "flesh": 'every `extern "C"`, and the writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its writers. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
 STEMS = {
     "config": {
@@ -52,7 +54,7 @@ STEMS = {
     },
     "hierarchy": {
         "model": "`GHExt`, its nested types, and the door `driver()`",
-        "writers": "the five writers, by what each writes: `clock_writer_t` the clocks and the rotation of time levels, `structure_writer_t` the grids and which levels exist, `level_writer_t` one level, made, remade or erased, `registry_writer_t` storage and the integrator record, `scratch_writer_t` scratch slots; `create_hierarchy` makes them once and returns four in `hierarchy_writers_t`, which owns the hierarchy",
+        "writers": "the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
         "valid": "the validity state a time level stores",
         "scopes": "the only way to change that state: write, require and invalidate",
         "binding": "the only writes to the cGH pointer table",
@@ -64,6 +66,36 @@ STEMS = {
 }
 assert set(STEMS) <= set(LAYERS), STEMS
 STEMS_HOME = READS_HOME
+GRANTS = {
+    "written_by": ("Writer",),
+    "GHExt": ("hierarchy_writers_t",),
+    "GHExt::registry_t": ("registry_writer_t",),
+    "GHExt::level_set_t": ("level_writer_t",),
+    "GHExt::patches_t": ("structure_writer_t",),
+    "GHExt::PatchData::core_t": ("structure_writer_t",),
+    "GHExt::PatchData::levels_t": ("level_writer_t",),
+    "GHExt::PatchData::LevelData::clock_t": ("clock_writer_t",),
+    "GHExt::PatchData::LevelData::GroupData::timelevel_t": ("write_scope_t",),
+    "GHExt::PatchData::LevelData::GroupData::scratch_pool_t": ("scratch_writer_t",),
+    "GHExt::PatchData::LevelData::GroupData::ring_t": ("cctkGH_binding",),
+    "GHExt::GlobalData::ArrayGroupData::ring_t": ("cctkGH_binding",),
+    "GHExt::GlobalData::ArrayGroupData::timelevel_t": ("array_write_scope_t",),
+    "clock_writer_t": ("hierarchy_writers_t",),
+    "level_writer_t": ("structure_writer_t",),
+    "structure_writer_t": ("hierarchy_writers_t",),
+    "registry_writer_t": ("hierarchy_writers_t",),
+    "scratch_writer_t": ("hierarchy_writers_t",),
+    "hierarchy_writers_t": ("create_hierarchy",),
+    "cctkGH_binding": ("clock_writer_t",),
+    "why_valid_t": ("write_scope_t", "array_write_scope_t", "operator<<"),
+    "write_scope_t": ("open_write", "write_scopes_t"),
+    "array_write_scope_t": ("open_array_write",),
+    "GridPtrDesc1": ("operator<<",),
+}
+GRANTS_HOME = READS_HOME
+GRANT_LAYER = "hierarchy"
+GRANT_WRAPPER = "written_by"
+assert GRANT_WRAPPER in GRANTS, GRANTS
 HIERARCHY_LAYERS = LAYERS[LAYERS.index("hierarchy") :]
 UNDER_HIERARCHY = LAYERS[: LAYERS.index("hierarchy")]
 ROOT_HEADER = "internal.hxx"
@@ -215,6 +247,10 @@ DIRECTIVE = re.compile(r"^\s*#")
 GUARD_WORD = re.compile(f"{GUARD_MACRO.pattern}|{INCLUDE_LINE.pattern}")
 ENTRY_LAYER = "flesh"
 STATEMENT_END = re.compile(r"[;{}]")
+FRIEND = re.compile(r"\bfriend\b")
+CLASS_KEYWORDS = ("struct", "class", "union")
+ACCESS_KEYWORDS = ("public", "protected", "private")
+IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
 
 Files = Callable[[str, Lang], bool]
@@ -289,6 +325,10 @@ def records_files(name: str, lang: Lang) -> bool:
 
 def codec_cxx(name: str, lang: Lang) -> bool:
     return lang is Lang.CXX and name in CODEC_FILES
+
+
+def hierarchy_header(name: str, lang: Lang) -> bool:
+    return carpetx_header(name, lang) and layer_of(name) == GRANT_LAYER
 
 
 def in_files(names: tuple[str, ...]) -> Callable[..., bool]:
@@ -394,6 +434,101 @@ def door_allowed(name: str, line: str, statement: str) -> bool:
     return layer_of(name) in HIERARCHY_LAYERS
 
 
+def unqualified(head: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    while head:
+        if head[0][0] in ACCESS_KEYWORDS and head[1:2] and head[1][0] == ":":
+            head = head[2:]
+        elif head[0][0] == "template":
+            at = 1
+            depth = 0
+            while at < len(head) and head[1][0] == "<":
+                depth += head[at][0] == "<"
+                depth -= head[at][0] == ">"
+                at += 1
+                if depth <= 0:
+                    break
+            head = head[at:]
+        else:
+            break
+    return head
+
+
+def friend_name(words: list[str]) -> str:
+    if "(" in words:
+        call = words.index("(")
+        if "operator" in words[:call]:
+            at = words.index("operator") + 1
+            if words[at : at + 2] == ["(", ")"]:
+                return "operator()"
+            return "operator" + "".join(words[at : words.index("(", at)])
+        return words[call - 1]
+    depth = 0
+    name = ""
+    for word in words:
+        depth += word == "<"
+        depth -= word == ">"
+        if depth == 0 and IDENTIFIER.fullmatch(word):
+            name = word
+    return name
+
+
+def class_named(head: list[tuple[str, int]]) -> Optional[str]:
+    words = [word for word, _ in head]
+    if words[:1] and words[0] in CLASS_KEYWORDS and words[1:2] and IDENTIFIER.fullmatch(words[1]) and "(" not in words:
+        return words[1]
+    return None
+
+
+def aliased(words: list[str]) -> Optional[tuple[str, str]]:
+    name, wrapped, writer = words[1:2], words[5:6], words[7:8]
+    if words[:1] + words[2:5] + words[6:7] + words[8:] != ["using", "=", GRANT_WRAPPER, "<", ",", ">"]:
+        return None
+    if not all(IDENTIFIER.fullmatch(word) for word in name + wrapped + writer):
+        return None
+    return wrapped[0], writer[0]
+
+
+def friends(text: str) -> Iterator[tuple[int, str, str]]:
+    scopes: list[Optional[str]] = []
+    head: list[tuple[str, int]] = []
+    for token in lex(text):
+        if token.kind is not Kind.CODE:
+            continue
+        word = token.text
+        if word in (";", "{"):
+            declaration = unqualified(head)
+            alias = aliased([w for w, _ in declaration]) if word == ";" else None
+            if declaration[:1] and declaration[0][0] == "friend":
+                yield declaration[0][1], "::".join(scope for scope in scopes if scope), friend_name([w for w, _ in declaration[1:]])
+            elif alias:
+                yield declaration[0][1], "::".join([scope for scope in scopes if scope] + [alias[0]]), alias[1]
+            if word == "{":
+                scopes.append(class_named(declaration))
+            head = []
+        elif word == "}":
+            if scopes:
+                scopes.pop()
+            head = []
+        else:
+            head.append((word, token.line))
+
+
+def misspelled(text: str) -> list[int]:
+    words = [(token.text, token.line) for token in lex(text) if token.kind is Kind.CODE]
+    named = [at for at, (word, _) in enumerate(words[:-1]) if word == GRANT_WRAPPER and words[at + 1][0] == "<"]
+    spelled = [[word for word, _ in words[max(at - 3, 0) : at + 7]] for at in named]
+    return [words[at][1] for at, around in zip(named, spelled) if around[9:] != [";"] or not aliased(around[:9])]
+
+
+def ungranted(name: str, text: str) -> list[int]:
+    unlisted = [line for line, owner, friend in friends(text) if friend not in GRANTS.get(owner, ())]
+    return sorted(unlisted + [line for line in misspelled(text) if line not in unlisted])
+
+
+def granted(name: str, line: str, statement: str) -> bool:
+    return True
+
+
 RULES = (
     Rule(
         "include",
@@ -471,7 +606,7 @@ RULES = (
         allowed=never,
         text=f"{MODEL_FILE}, the header that declares the data model, has no mutable member, declares no extern variable, does not include "
         "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but comm/'s buffers and what its cGH pointers reach, and every fact "
-        "about the hierarchy, the epoch included, is a GHExt member changed through one of the five writers, four lent by flesh/ and the level writer by the structure writer; what comm/ "
+        f"about the hierarchy, the epoch included, is a GHExt member changed only by a holder the table GRANTS in {GRANTS_HOME} names; what comm/ "
         "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to a type it "
         "only forward-declares, and the integrator record is a GHExt value. It includes no yaml-cpp header, no <zlib.h> and no header of "
         f"its own layer but {MODEL_STATE_FILE}, the validity state it stores, so that a file that includes the data model receives no other concern with it: "
@@ -481,6 +616,23 @@ RULES = (
         where="in the data model's headers",
         clean="no mutable, extern, comm/ object or other concern's include in the data model's headers",
         home=layers_of((MODEL_FILE,)),
+    ),
+    Rule(
+        "grant",
+        files=hierarchy_header,
+        word=FRIEND,
+        allowed=granted,
+        text=f"a friend line in a header of {GRANT_LAYER}/ is an entry of the table GRANTS in {GRANTS_HOME}, under the type it "
+        "sits in, spelled with the types that type is nested in, and naming the class or function it befriends, so that "
+        f"granting a holder the private members of a type is an edit of that table; an alias using name = {GRANT_WRAPPER}<T, W>; is the "
+        f"friend line of W under T, spelled the same way, because only W opens it for writing, and {GRANT_WRAPPER} is given arguments in no other form "
+        "in such a header, so that no spelling hides a writer; the tests refuse an entry no friend "
+        "line backs, and agent_docs/carpetx-internals.md lists the table.",
+        noun="friend line",
+        where="GRANTS does not list",
+        clean=f"every friend line in {GRANT_LAYER}/ listed in GRANTS",
+        home=(GRANT_LAYER,),
+        whole=ungranted,
     ),
     Rule(
         "window",

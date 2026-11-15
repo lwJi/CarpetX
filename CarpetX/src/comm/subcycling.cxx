@@ -303,7 +303,7 @@ void StoreRKOldState(const level_t level,
   const auto &leveldata = patchdata.level(level);
   const std::optional<level_t> child = level.child();
   const amrex::Periodicity &period =
-      patchdata.amrcore->Geom(level.index()).periodicity();
+      patchdata.amrcore().Geom(level.index()).periodicity();
 
   for (const gi_t gi : var_groups) {
     const GroupData &groupdata = leveldata.group(gi);
@@ -318,8 +318,8 @@ void StoreRKOldState(const level_t level,
         buffers_of(patchdata.level(*child), gi).rk_bands;
     if (!bands)
       continue;
-    bands->store_old(*groupdata.timelevel(tl).mfab, period,
-                     leveldata.iteration);
+    bands->store_old(groupdata.timelevel(tl).mfab(), period,
+                     leveldata.iteration());
   }
 }
 
@@ -335,7 +335,7 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
   const auto &leveldata = patchdata.level(level);
   const auto &childleveldata = patchdata.level(*child);
   const amrex::Periodicity &period =
-      patchdata.amrcore->Geom(level.index()).periodicity();
+      patchdata.amrcore().Geom(level.index()).periodicity();
 
   for (size_t i = 0; i < var_groups.size(); ++i) {
     std::optional<rk_bands_t> &bands =
@@ -343,7 +343,7 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
     const GroupData &rhs_groupdata = leveldata.group(rhs_groups[i]);
     if (!bands)
       continue;
-    bands->store_stage(stage, *rhs_groupdata.timelevel(tl_t{0}).mfab, period,
+    bands->store_stage(stage, rhs_groupdata.timelevel(tl_t{0}).mfab(), period,
                        std::source_location::current());
   }
 }
@@ -358,8 +358,8 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   auto &leveldata = patchdata.level(child);
   const level_t parent = child.parent();
   const auto &coarseleveldata = patchdata.level(parent);
-  const auto &fgeom = patchdata.amrcore->Geom(child.index());
-  const auto &cgeom = patchdata.amrcore->Geom(parent.index());
+  const auto &fgeom = patchdata.amrcore().Geom(child.index());
+  const auto &cgeom = patchdata.amrcore().Geom(parent.index());
   const rk_dense_output_t dense_output = registered_dense_output();
   const stage_range stages = registered_stages();
   assert(stages.contains(completed));
@@ -368,7 +368,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   const stage_t stage = substep_done ? stages.first() : next_index(completed);
   const CCTK_REAL xsi = CCTK_REAL(substep_done ? substep.end : substep.begin);
   const CCTK_REAL dtc = ext.get_global_cctkGH()->cctk_delta_time *
-                        CCTK_REAL(coarseleveldata.delta_iteration);
+                        CCTK_REAL(coarseleveldata.delta_iteration());
   assert(std::isfinite(dtc) && dtc > 0);
 
   const window_t window = window_t::one_level(child);
@@ -406,7 +406,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
     if (!bands)
       continue;
     const rk_bands_t::sources_t src =
-        bands->sources(coarseleveldata.iteration, {child, gi});
+        bands->sources(coarseleveldata.iteration(), {child, gi});
     amrex::MultiFab &crse_patch = bands->crse_patch();
     amrex::MultiFab &fine_patch = bands->fine_patch();
 

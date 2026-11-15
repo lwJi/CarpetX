@@ -389,7 +389,7 @@ void carpetx_openpmd_t::write_openpmd_slice(const cGH *const cctkGH,
 
       const int *const nghosts = cctkGH->cctk_nghostzones;
       const amrex::Geometry &geom =
-          patchdata.amrcore->Geom(leveldata.level.index());
+          patchdata.amrcore().Geom(leveldata.level.index());
       const amrex::Real *const xlo = geom.ProbLo();
       const amrex::Real *const xhi = geom.ProbHi();
       const amrex::Real *const dx = geom.CellSize();
@@ -449,7 +449,7 @@ void carpetx_openpmd_t::write_openpmd_slice(const cGH *const cctkGH,
           const int numvars = groupdata.record.numvars;
 
           const tl_t tl{0};
-          const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+          const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
           const amrex::IndexType &indextype = mfab.ixType();
           const Arith::vect<bool, 3> is_cell_centred{indextype.cellCentered(0),
                                                      indextype.cellCentered(1),

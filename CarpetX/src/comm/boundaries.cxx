@@ -37,7 +37,7 @@ BoundaryCondition::BoundaryCondition(
     amrex::FArrayBox &dest)
     : grid_function(groupdata.grid_function),
       patchdata(driver().patch(groupdata.level.patch())),
-      geom(patchdata.amrcore->Geom(groupdata.level.index())), dest(dest),
+      geom(patchdata.amrcore().Geom(groupdata.level.index())), dest(dest),
       imin{geom.Domain().smallEnd(0), geom.Domain().smallEnd(1),
            geom.Domain().smallEnd(2)},
       imax{geom.Domain().bigEnd(0) + 1 + !grid_function.indextype[0],
@@ -108,7 +108,8 @@ void apply_boundary_conditions(
 
   const amrex::Geometry &geom = driver()
                                     .patch(groupdata.level.patch())
-                                    .amrcore->Geom(groupdata.level.index());
+                                    .amrcore()
+                                    .Geom(groupdata.level.index());
 
   if (geom.isAllPeriodic())
     return;

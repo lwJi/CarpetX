@@ -29,7 +29,7 @@ CarpetX_GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size,
   assert(size == dim);
   const auto &patchdata = driver().patch(patch_t{patch});
   const auto &fab = *patchdata.level(level_t{patchdata.patch, 0}).fab;
-  const auto &geom = patchdata.amrcore->Geom(0);
+  const auto &geom = patchdata.amrcore().Geom(0);
   for (int d = 0; d < dim; ++d) {
     physical_min[d] = geom.ProbDomain().lo(d);
     physical_max[d] = geom.ProbDomain().hi(d);
