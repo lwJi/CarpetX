@@ -413,11 +413,9 @@ concept rotates_arrays_unlent =
     requires(GHExt &ext, gi_t gi) { Binding::rotate(ext, gi); };
 
 template <class Clock>
-concept changes_run_unlent =
+concept sets_run_unlent =
     requires(const clock_writer_t &writer, const GHExt &ext,
-             const std::function<void(GHExt::run_clock_t &)> &change) {
-      Clock::change_run(writer, ext, change);
-    };
+             GHExt::run_clock_t next) { Clock::set_run(writer, ext, next); };
 
 template <class Clock>
 concept shows_stage_unlent =
@@ -975,7 +973,7 @@ static_assert(sealed_for<decltype(std::declval<GHExt::PatchData::LevelData &>()
 static_assert(sealed_for<decltype(std::declval<GHExt &>().sealed_run_clock()),
                          GHExt::run_clock_t, cctkGH_clock>);
 static_assert(!can_open<GHExt::sealed_run_clock_t, clock_writer_t>);
-static_assert(!changes_run_unlent<cctkGH_clock>);
+static_assert(!sets_run_unlent<cctkGH_clock>);
 static_assert(
     std::is_same_v<decltype(std::declval<const GHExt &>().run_clock()),
                    const GHExt::run_clock_t &>);

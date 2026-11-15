@@ -63,7 +63,7 @@ public:
 private:
   explicit clock_writer_t(const GHExt &ext) : ext(ext) {}
   const GHExt &ext;
-  template <class Change> void change(Change &&change_clock);
+  void set(GHExt::run_clock_t next);
   friend struct hierarchy_writers_t;
 };
 

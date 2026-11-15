@@ -37,10 +37,9 @@ void publish_clock(const GHExt &ext) {
 }
 } // namespace
 
-void cctkGH_clock::change_run(
-    const clock_writer_t &, const GHExt &ext,
-    const std::function<void(GHExt::run_clock_t &)> &change) {
-  change(ext.sealed_run_clock().open(cctkGH_clock{}));
+void cctkGH_clock::set_run(const clock_writer_t &, const GHExt &ext,
+                           const GHExt::run_clock_t next) {
+  ext.sealed_run_clock().open(cctkGH_clock{}) = next;
   publish_clock(ext);
 }
 

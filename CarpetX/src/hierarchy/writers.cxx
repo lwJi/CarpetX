@@ -250,8 +250,8 @@ amrex::MultiFab &scratch_writer_t::mfab(const group_t group,
 }
 
 namespace {
-void show_level_clock(GHExt::run_clock_t &clock, const GHExt &ext,
-                      const level_t level) {
+GHExt::run_clock_t showing_level(GHExt::run_clock_t clock, const GHExt &ext,
+                                 const level_t level) {
   if (ext.use_subcycling) {
     clock.timefac = substeps_per_coarsest_step(level.index());
     clock.time = clock.initial_time +
@@ -259,39 +259,41 @@ void show_level_clock(GHExt::run_clock_t &clock, const GHExt &ext,
   } else {
     clock.timefac = 1;
   }
+  return clock;
 }
 } // namespace
 
-template <class Change>
-void clock_writer_t::change(Change &&change_clock) {
-  cctkGH_clock::change_run(*this, ext, change_clock);
+void clock_writer_t::set(const GHExt::run_clock_t next) {
+  cctkGH_clock::set_run(*this, ext, next);
 }
 
 void clock_writer_t::start_run(const CCTK_REAL initial_time) {
-  change([&](GHExt::run_clock_t &clock) {
-    clock = {.iteration = 0,
-             .time = initial_time,
-             .delta_time = NAN,
-             .timefac = 1,
-             .initial_time = initial_time};
-  });
+  set({.iteration = 0,
+       .time = initial_time,
+       .delta_time = NAN,
+       .timefac = 1,
+       .initial_time = initial_time});
 }
 
 void clock_writer_t::resume_run(const int iteration, const CCTK_REAL time) {
-  change([&](GHExt::run_clock_t &clock) {
-    clock.iteration = iteration;
-    clock.time = time;
-  });
+  GHExt::run_clock_t next = ext.run_clock();
+  next.iteration = iteration;
+  next.time = time;
+  set(next);
 }
 
 void clock_writer_t::set_delta_time(const CCTK_REAL delta_time) {
   using std::isfinite;
   assert(isfinite(delta_time));
-  change([&](GHExt::run_clock_t &clock) { clock.delta_time = delta_time; });
+  GHExt::run_clock_t next = ext.run_clock();
+  next.delta_time = delta_time;
+  set(next);
 }
 
 void clock_writer_t::begin_iteration() {
-  change([](GHExt::run_clock_t &clock) { ++clock.iteration; });
+  GHExt::run_clock_t next = ext.run_clock();
+  ++next.iteration;
+  set(next);
 }
 
 void clock_writer_t::begin_step(const window_t window) {
@@ -299,24 +301,20 @@ void clock_writer_t::begin_step(const window_t window) {
     auto &clock = leveldata.sealed_clock().open(*this);
     clock.iteration += clock.delta_iteration;
   });
-  change([&](GHExt::run_clock_t &clock) {
-    if (!ext.use_subcycling)
-      clock.time += clock.delta_time;
-    show_level_clock(clock, ext, window.coarsest());
-  });
+  GHExt::run_clock_t next = ext.run_clock();
+  if (!ext.use_subcycling)
+    next.time += next.delta_time;
+  set(showing_level(next, ext, window.coarsest()));
 }
 
 void clock_writer_t::show_level(const level_t level) {
-  change([&](GHExt::run_clock_t &clock) {
-    show_level_clock(clock, ext, level);
-  });
+  set(showing_level(ext.run_clock(), ext, level));
 }
 
 void clock_writer_t::replay_last_step(const level_t level) {
-  change([&](GHExt::run_clock_t &clock) {
-    clock.iteration = ext.level(level).last_step_iteration();
-    show_level_clock(clock, ext, level);
-  });
+  GHExt::run_clock_t next = ext.run_clock();
+  next.iteration = ext.level(level).last_step_iteration();
+  set(showing_level(next, ext, level));
 }
 
 void stage_writer_t::run_at(const CCTK_REAL time, const CCTK_REAL delta_time,

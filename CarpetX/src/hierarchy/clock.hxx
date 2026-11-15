@@ -15,9 +15,8 @@ namespace CarpetX {
 
 struct cctkGH_clock {
 private:
-  static void
-  change_run(const clock_writer_t &writer, const GHExt &ext,
-             const std::function<void(GHExt::run_clock_t &)> &change);
+  static void set_run(const clock_writer_t &writer, const GHExt &ext,
+                      GHExt::run_clock_t next);
   static void show_stage(const stage_writer_t &writer, const GHExt &ext,
                          std::optional<GHExt::stage_clock_t> stage);
   friend class clock_writer_t;
