@@ -142,16 +142,16 @@ struct scratch_t::impl {
 
 namespace {
 
-const GHExt::PatchData::LevelData::GroupData::scratch_slot_t &
-resolve_scratch(const group_t group, const std::size_t slot) {
-  auto &pool = driver().group(group).scratch_pool;
-  if (slot >= pool.size() || !pool.at(slot).in_use)
+const amrex::MultiFab &resolve_scratch(const group_t group,
+                                       const std::size_t slot) {
+  const auto &pool = driver().group(group).scratch_pool();
+  if (slot >= pool.size() || !pool.in_use(slot))
     refuse(std::source_location::current(),
            "scratch buffer %d of group %s on patch %d, refinement level %d no "
            "longer exists: the level was remade while the scratch_t was held",
            int(slot), CCTK_FullGroupName(group.gi.index()),
            group.level.patch().index(), group.level.index());
-  return pool.at(slot);
+  return pool.mfab(slot);
 }
 
 } // namespace
@@ -174,7 +174,7 @@ const amrex::MultiFab &scratch_t::mfab() const & {
   if (!p)
     CCTK_ERROR("CarpetX::scratch_t::mfab() called on a moved-from scratch "
                "buffer");
-  return *resolve_scratch(p->group, p->slot).mfab;
+  return resolve_scratch(p->group, p->slot);
 }
 
 scratch_t::~scratch_t() {

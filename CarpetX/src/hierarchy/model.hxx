@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -574,13 +575,30 @@ struct GHExt {
 
         bool all_faces_have_symmetries_or_boundaries() const;
 
-        struct scratch_slot_t {
-          const_propagating_ptr<amrex::MultiFab> mfab;
-          bool in_use = false;
+        class scratch_pool_t {
+        public:
+          std::size_t size() const { return slots_.size(); }
+          bool in_use(const std::size_t slot) const {
+            return slots_.at(slot).in_use;
+          }
+          const amrex::MultiFab &mfab(const std::size_t slot) const {
+            return *slots_.at(slot).mfab;
+          }
+
+        private:
+          struct slot_t {
+            const_propagating_ptr<amrex::MultiFab> mfab;
+            bool in_use = false;
+          };
+          std::vector<slot_t> slots_;
+          static scratch_pool_t &of(GHExt &ext, group_t group,
+                                    std::source_location site);
+          friend class scratch_writer_t;
         };
-        std::vector<scratch_slot_t> scratch_pool;
+        const scratch_pool_t &scratch_pool() const { return scratch_pool_; }
 
       private:
+        scratch_pool_t scratch_pool_;
         std::vector<timelevel_t> tls;
         void rotate_timelevels();
 
@@ -790,7 +808,6 @@ private:
   friend class structure_writer_t;
   friend class level_writer_t;
   friend class registry_writer_t;
-  friend class scratch_writer_t;
   friend struct hierarchy_writers_t;
   friend struct cctkGH_binding;
   friend class write_scope_t;

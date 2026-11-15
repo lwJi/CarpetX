@@ -250,9 +250,12 @@ concept writes_timelevel = requires(Ext &ext, group_t group, tl_t tl) {
   ext.group(group).timelevel(tl).mfab->setVal(0);
 };
 
-template <class Ext>
-concept writes_scratch = requires(Ext &ext, group_t group) {
-  ext.group(group).scratch_pool.at(0).mfab->setVal(0);
+template <class Pool>
+concept writes_scratch = requires(Pool &pool) { pool.slots_.clear(); };
+
+template <class Pool>
+concept opens_scratch = requires(GHExt &ext, group_t group) {
+  Pool::of(ext, group, std::source_location::current());
 };
 
 template <class Scope, class... Args>
@@ -767,8 +770,10 @@ static_assert(regrids_amrcore<GHExt>);
 static_assert(!regrids_amrcore<std::remove_reference_t<decltype(driver())>>);
 static_assert(writes_timelevel<GHExt>);
 static_assert(!writes_timelevel<std::remove_reference_t<decltype(driver())>>);
-static_assert(writes_scratch<GHExt>);
-static_assert(!writes_scratch<std::remove_reference_t<decltype(driver())>>);
+static_assert(
+    !writes_scratch<GHExt::PatchData::LevelData::GroupData::scratch_pool_t>);
+static_assert(
+    !opens_scratch<GHExt::PatchData::LevelData::GroupData::scratch_pool_t>);
 static_assert(!std::is_copy_constructible_v<write_scope_t>);
 static_assert(!std::is_copy_assignable_v<write_scope_t>);
 static_assert(hands_out_mfab<write_scope_t &, level_t>);

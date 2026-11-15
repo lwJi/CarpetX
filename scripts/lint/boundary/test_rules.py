@@ -2328,11 +2328,11 @@ class Doc(unittest.TestCase):
             with self.assertRaises(ValueError):
                 doc.grants()
         text = headers[Grant.MODEL]
-        scratch = text.splitlines().index("  friend class scratch_writer_t;") + 1
+        scratch = text.splitlines().index("          friend class scratch_writer_t;") + 1
         binding = text.splitlines().index("        friend struct cctkGH_binding;") + 1
-        with mock.patch.dict(rules.GRANTS, {"GHExt": tuple(friend for friend in rules.GRANTS["GHExt"] if friend != "scratch_writer_t"), "GHExt::PatchData::LevelData::GroupData": ()}):
-            self.assertEqual(rules.ungranted(Grant.MODEL, text), [binding, scratch])
-            self.assertEqual([(f.line, f.rule) for f in findings(Grant.MODEL, text, Lang.CXX) if f.rule == "grant"], [(binding, "grant"), (scratch, "grant")])
+        with mock.patch.dict(rules.GRANTS, {"GHExt::PatchData::LevelData::GroupData::scratch_pool_t": (), "GHExt::PatchData::LevelData::GroupData": ()}):
+            self.assertEqual(rules.ungranted(Grant.MODEL, text), [scratch, binding])
+            self.assertEqual([(f.line, f.rule) for f in findings(Grant.MODEL, text, Lang.CXX) if f.rule == "grant"], [(scratch, "grant"), (binding, "grant")])
             self.assertEqual(doc.unbacked(), [])
             with self.assertRaises(ValueError):
                 doc.grants()

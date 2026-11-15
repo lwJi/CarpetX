@@ -435,6 +435,13 @@ void GHExt::PatchData::LevelData::GroupData::rotate_timelevels() {
   std::rotate(tls.begin(), tls.end() - 1, tls.end());
 }
 
+GHExt::PatchData::LevelData::GroupData::scratch_pool_t &
+GHExt::PatchData::LevelData::GroupData::scratch_pool_t::of(
+    GHExt &ext, const group_t group, const std::source_location site) {
+  return const_cast<scratch_pool_t &>(
+      std::as_const(ext).group(group, site).scratch_pool_);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 GHExt::GroupRecord::GroupRecord(const gi_t gi, const int num_timelevels)

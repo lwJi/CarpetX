@@ -179,8 +179,10 @@ void registry_writer_t::adopt_flesh_cctkGH(cGH *const cctkGH) {
 
 std::size_t scratch_writer_t::acquire(const group_t group,
                                       const std::source_location site) {
-  auto &groupdata = ext.group(group, site);
-  auto &pool = groupdata.scratch_pool;
+  const auto &groupdata = ext.group(group, site);
+  auto &pool = GHExt::PatchData::LevelData::GroupData::scratch_pool_t::of(
+                   ext, group, site)
+                   .slots_;
   std::size_t slot = 0;
   while (slot < pool.size() && pool.at(slot).in_use)
     ++slot;
@@ -196,7 +198,9 @@ std::size_t scratch_writer_t::acquire(const group_t group,
 }
 
 void scratch_writer_t::release(const group_t group, const std::size_t slot) {
-  auto &pool = ext.group(group).scratch_pool;
+  auto &pool = GHExt::PatchData::LevelData::GroupData::scratch_pool_t::of(
+                   ext, group, std::source_location::current())
+                   .slots_;
   assert(slot < pool.size() && pool.at(slot).in_use);
   pool.at(slot).in_use = false;
 }
@@ -204,7 +208,9 @@ void scratch_writer_t::release(const group_t group, const std::size_t slot) {
 amrex::MultiFab &scratch_writer_t::mfab(const group_t group,
                                         const std::size_t slot,
                                         const std::source_location site) {
-  auto &pool = ext.group(group, site).scratch_pool;
+  auto &pool = GHExt::PatchData::LevelData::GroupData::scratch_pool_t::of(
+                   ext, group, site)
+                   .slots_;
   assert(slot < pool.size() && pool.at(slot).in_use);
   return *pool.at(slot).mfab;
 }
