@@ -282,9 +282,25 @@ concept regrids_amrcore = requires(Ext &ext, patch_t patch) {
   ext.patch(patch).amrcore->regrid(0, 0.0);
 };
 
-template <class Ext>
-concept writes_timelevel = requires(Ext &ext, group_t group, tl_t tl) {
-  ext.group(group).timelevel(tl).mfab->setVal(0);
+template <class Timelevel>
+concept writes_timelevel =
+    requires(Timelevel &timelevel) { timelevel.mfab_->setVal(0); } ||
+    requires(Timelevel &timelevel) { timelevel.open_writes_ = 0; } ||
+    requires(Timelevel &timelevel) { timelevel.valid_.clear(); };
+
+template <class Timelevel>
+concept opens_timelevel = requires(level_t level, gi_t gi, tl_t tl) {
+  Timelevel::of(level, gi, tl, std::source_location::current());
+};
+
+template <class Timelevel>
+concept writes_array_timelevel = requires(Timelevel &timelevel) {
+  timelevel.data_.free();
+} || requires(Timelevel &timelevel) { timelevel.valid_.clear(); };
+
+template <class Timelevel>
+concept opens_array_timelevel = requires(gi_t gi, tl_t tl) {
+  Timelevel::of(gi, tl, std::source_location::current());
 };
 
 template <class Pool>
@@ -864,8 +880,30 @@ static_assert(!resets_modified<level_writer_t>);
 static_assert(std::is_same_v<decltype(driver()), const GHExt &>);
 static_assert(regrids_amrcore<GHExt>);
 static_assert(!regrids_amrcore<std::remove_reference_t<decltype(driver())>>);
-static_assert(writes_timelevel<GHExt>);
-static_assert(!writes_timelevel<std::remove_reference_t<decltype(driver())>>);
+static_assert(
+    !writes_timelevel<GHExt::PatchData::LevelData::GroupData::timelevel_t>);
+static_assert(
+    !opens_timelevel<GHExt::PatchData::LevelData::GroupData::timelevel_t>);
+static_assert(std::is_same_v<decltype(std::declval<GHExt &>()
+                                          .group(std::declval<group_t>())
+                                          .timelevel(std::declval<tl_t>())
+                                          .mfab()),
+                             const amrex::MultiFab &>);
+static_assert(std::is_same_v<decltype(std::declval<GHExt &>()
+                                          .group(std::declval<group_t>())
+                                          .timelevel(std::declval<tl_t>())
+                                          .open_writes()),
+                             int>);
+static_assert(
+    !writes_array_timelevel<GHExt::GlobalData::ArrayGroupData::timelevel_t>);
+static_assert(
+    !opens_array_timelevel<GHExt::GlobalData::ArrayGroupData::timelevel_t>);
+static_assert(std::is_same_v<decltype(std::declval<GHExt &>()
+                                          .record(std::declval<gi_t>())
+                                          .array()
+                                          .timelevel(std::declval<tl_t>())
+                                          .data()),
+                             const GHExt::GlobalData::AnyTypeVector &>);
 static_assert(
     !writes_scratch<GHExt::PatchData::LevelData::GroupData::scratch_pool_t>);
 static_assert(

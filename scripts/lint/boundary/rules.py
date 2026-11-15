@@ -67,11 +67,7 @@ STEMS = {
 assert set(STEMS) <= set(LAYERS), STEMS
 STEMS_HOME = READS_HOME
 GRANTS = {
-    "GHExt": (
-        "hierarchy_writers_t",
-        "write_scope_t",
-        "array_write_scope_t",
-    ),
+    "GHExt": ("hierarchy_writers_t",),
     "GHExt::registry_t": ("registry_writer_t",),
     "GHExt::level_set_t": ("level_writer_t",),
     "GHExt::patches_t": ("structure_writer_t",),

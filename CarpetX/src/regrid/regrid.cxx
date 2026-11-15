@@ -72,7 +72,7 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
     GridPtrDesc1 grid(leveldata, groupdata, mfi);
 
     const amrex::Array4<const CCTK_REAL> &err_array4 =
-        groupdata.timelevel(tl).mfab->array(mfi);
+        groupdata.timelevel(tl).mfab().array(mfi);
     const GF3D1<const CCTK_REAL> &err_ = grid.gf3d(err_array4, vi);
     const amrex::Array4<char> &tags_array4 = tags.array(mfi);
 
@@ -208,7 +208,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
                .keeps = {},
                .event = "MakeNewLevelFromCoarse after prolongation"});
           FillPatch_NewLevel(groupdata, coarsegroupdata, scope.mfab(level),
-                             *coarsegroupdata.timelevel(tl).mfab,
+                             coarsegroupdata.timelevel(tl).mfab(),
                              patchdata.amrcore->Geom(coarse.index()),
                              patchdata.amrcore->Geom(lev));
         } else {
@@ -325,8 +325,8 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
                           .keeps = {},
                           .event = "RemakeLevel after prolongation"});
         FillPatch_RemakeLevel(groupdata, coarsegroupdata, scope.mfab(level),
-                              *coarsegroupdata.timelevel(tl).mfab,
-                              *oldgroupdata.timelevel(tl).mfab,
+                              coarsegroupdata.timelevel(tl).mfab(),
+                              oldgroupdata.timelevel(tl).mfab(),
                               patchdata.amrcore->Geom(coarse.index()),
                               patchdata.amrcore->Geom(lev));
       } else {

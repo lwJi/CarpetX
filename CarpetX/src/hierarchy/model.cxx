@@ -453,6 +453,14 @@ GHExt::PatchData::LevelData::GroupData::ring_t::of(GHExt &ext,
   return const_cast<ring_t &>(std::as_const(ext).level(level).group(gi).ring_);
 }
 
+GHExt::PatchData::LevelData::GroupData::timelevel_t &
+GHExt::PatchData::LevelData::GroupData::timelevel_t::of(
+    const level_t level, const gi_t gi, const tl_t tl,
+    const std::source_location site) {
+  return const_cast<timelevel_t &>(
+      driver().level(level, site).group(gi, site).timelevel(tl, site));
+}
+
 GHExt::PatchData::LevelData::GroupData::scratch_pool_t &
 GHExt::PatchData::LevelData::GroupData::scratch_pool_t::of(
     GHExt &ext, const group_t group, const std::source_location site) {
@@ -514,6 +522,13 @@ void GHExt::GlobalData::ArrayGroupData::ring_t::rotate_timelevels() {
 GHExt::GlobalData::ArrayGroupData::ring_t &
 GHExt::GlobalData::ArrayGroupData::ring_t::of(GHExt &ext, const gi_t gi) {
   return const_cast<ring_t &>(std::as_const(ext).record(gi).array().ring_);
+}
+
+GHExt::GlobalData::ArrayGroupData::timelevel_t &
+GHExt::GlobalData::ArrayGroupData::timelevel_t::of(
+    const gi_t gi, const tl_t tl, const std::source_location site) {
+  return const_cast<timelevel_t &>(
+      driver().record(gi, site).array(site).timelevel(tl, site));
 }
 
 GHExt::registry_t::registry_t(const int numgroups)

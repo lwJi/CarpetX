@@ -231,7 +231,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
 
           const int numvars = groupdata.record.numvars;
           const tl_t tl{0};
-          const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+          const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
           const amrex::IndexType &indextype = mfab.ixType();
           const amrex::DistributionMapping &dm = mfab.DistributionMap();
 
@@ -497,7 +497,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
       const auto &groupdata0 =
           ext.level(level_t{patch_t{0}, 0}).group(group.groupindex);
       const tl_t tl{0};
-      const amrex::MultiFab &mfab0 = *groupdata0.timelevel(tl).mfab;
+      const amrex::MultiFab &mfab0 = groupdata0.timelevel(tl).mfab();
       const amrex::IndexType &indextype = mfab0.ixType();
 
       const std::array<int, dim> &nghosts =
@@ -515,7 +515,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(group.groupindex);
             const tl_t tl{0};
-            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+            const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
                 patchdata.amrcore->Geom(leveldata.level.index());
@@ -544,7 +544,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
         for (const auto &patchdata : ext.patches()) {
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(group.groupindex);
-            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+            const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
             const amrex::DistributionMapping &dm = mfab.DistributionMap();
             const int ncomponents = dm.size();
             const amrex::Geometry &geom =
@@ -616,7 +616,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
           for (const auto &leveldata : patchdata.levels()) {
             const auto &groupdata = leveldata.group(group.groupindex);
             const tl_t tl{0};
-            const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+            const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
             const int ncomponents = mfab.size();
             const amrex::Geometry &geom =
                 patchdata.amrcore->Geom(leveldata.level.index());
@@ -686,7 +686,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
             for (const auto &leveldata : patchdata.levels()) {
               const auto &groupdata = leveldata.group(group.groupindex);
               const tl_t tl{0};
-              const amrex::MultiFab &mfab = *groupdata.timelevel(tl).mfab;
+              const amrex::MultiFab &mfab = groupdata.timelevel(tl).mfab();
               const amrex::DistributionMapping &dm = mfab.DistributionMap();
               const int ncomponents = dm.size();
               const amrex::Geometry &geom =

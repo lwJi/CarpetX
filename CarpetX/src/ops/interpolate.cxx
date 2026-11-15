@@ -622,7 +622,7 @@ void CarpetX::InterpolationSetup::Interpolate(
                                 grid_function.indextype[2] * 0b001;
           assert(all(grid_function.nghostzones == grid.nghostzones));
           const amrex::Array4<const CCTK_REAL> &vars =
-              groupdata.timelevel(tl).mfab->array(pti);
+              groupdata.timelevel(tl).mfab().array(pti);
           vect<int, dim> derivs;
           int op = operations[v];
           while (op > 0) {

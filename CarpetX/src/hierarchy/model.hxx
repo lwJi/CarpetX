@@ -310,12 +310,12 @@ struct GHExt {
       struct timelevel_t {
         timelevel_t(AnyTypeVector data, int numvars,
                     const std::function<std::string()> &why)
-            : data(std::move(data)),
+            : data_(std::move(data)),
               valid_(
                   numvars,
                   why_valid_t(make_valid_outer() | make_valid_ghosts(), why)) {}
 
-        AnyTypeVector data;
+        const AnyTypeVector &data() const { return data_; }
 
         valid_t valid(const vi_t vi) const {
           return valid_.at(vi.index()).get();
@@ -325,7 +325,11 @@ struct GHExt {
         }
 
       private:
+        AnyTypeVector data_;
         std::vector<why_valid_t> valid_;
+        static timelevel_t &
+        of(gi_t gi, tl_t tl,
+           std::source_location site = std::source_location::current());
         friend class array_write_scope_t;
       };
       int array_size;
@@ -611,10 +615,10 @@ struct GHExt {
         struct timelevel_t {
           timelevel_t(std::unique_ptr<amrex::MultiFab> mfab, int numvars,
                       const std::function<std::string()> &why)
-              : mfab(std::move(mfab)), valid_(numvars, why_valid_t(why)) {}
+              : mfab_(std::move(mfab)), valid_(numvars, why_valid_t(why)) {}
 
-          const_propagating_ptr<amrex::MultiFab> mfab;
-          int open_writes = 0;
+          const amrex::MultiFab &mfab() const { return *mfab_; }
+          int open_writes() const { return open_writes_; }
 
           valid_t valid(const vi_t vi) const {
             return valid_.at(vi.index()).get();
@@ -624,7 +628,12 @@ struct GHExt {
           }
 
         private:
+          std::unique_ptr<amrex::MultiFab> mfab_;
+          int open_writes_ = 0;
           std::vector<why_valid_t> valid_;
+          static timelevel_t &
+          of(level_t level, gi_t gi, tl_t tl,
+             std::source_location site = std::source_location::current());
           friend class write_scope_t;
         };
 
@@ -639,7 +648,7 @@ struct GHExt {
           int open_write_count() const {
             int count = 0;
             for (const timelevel_t &tl : tls)
-              count += tl.open_writes;
+              count += tl.open_writes();
             return count;
           }
 
@@ -923,8 +932,6 @@ private:
   static GHExt &mutable_instance();
 
   friend struct hierarchy_writers_t;
-  friend class write_scope_t;
-  friend class array_write_scope_t;
 };
 
 const GHExt &driver();

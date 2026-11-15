@@ -213,7 +213,7 @@ std::size_t scratch_writer_t::acquire(const group_t group,
   while (slot < pool.size() && pool.at(slot).in_use)
     ++slot;
   if (slot == pool.size()) {
-    const amrex::MultiFab &mfab0 = *groupdata.timelevel(tl_t{0}).mfab;
+    const amrex::MultiFab &mfab0 = groupdata.timelevel(tl_t{0}).mfab();
     pool.push_back({std::make_unique<amrex::MultiFab>(
                         mfab0.boxArray(), mfab0.DistributionMap(),
                         mfab0.nComp(), mfab0.nGrowVect()),

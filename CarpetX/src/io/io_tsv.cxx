@@ -159,7 +159,7 @@ void WriteTSVold(const cGH *restrict cctkGH, const std::string &filename,
       const auto &groupdata = leveldata.group(gi);
       const tl_t tl{0};
       const auto &geom = patchdata.amrcore->Geom(leveldata.level.index());
-      const auto &mfab = *groupdata.timelevel(tl).mfab;
+      const auto &mfab = groupdata.timelevel(tl).mfab();
       for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
         const amrex::Array4<const CCTK_REAL> &vars = mfab.array(mfi);
         const amrex::Dim3 imin = amrex::lbound(vars);
@@ -332,7 +332,7 @@ void WriteTSVScalars(const cGH *restrict cctkGH, const std::string &filename,
 
   file << cctkGH->cctk_iteration << sep << cctkGH->cctk_time;
   const tl_t tl{0};
-  const auto &data = arraygroupdata.timelevel(tl).data;
+  const auto &data = arraygroupdata.timelevel(tl).data();
   for (const vi_t vi : group.variables())
     file << sep << data[vi.index()];
   file << "\n";
@@ -420,7 +420,7 @@ void WriteTSVArrays(const cGH *restrict cctkGH, const std::string &filename,
     for (int dir = 0; dir < arraygroupdata.dimension; ++dir)
       file << sep << (dir == out_dir ? i : 0);
     const tl_t tl{0};
-    const auto &data = arraygroupdata.timelevel(tl).data;
+    const auto &data = arraygroupdata.timelevel(tl).data();
     for (const vi_t vi : group.variables())
       file << sep << data[np * vi.index() + DI[out_dir] * i];
     file << "\n";
@@ -470,7 +470,7 @@ void WriteTSVGFs(const cGH *restrict cctkGH, const std::string &filename,
 
       const auto &symmetries = patchdata.symmetries;
 
-      const auto &mfab = *groupdata.timelevel(tl).mfab;
+      const auto &mfab = groupdata.timelevel(tl).mfab();
 
       const vect<int, dim> nghosts = {mfab.nGrow(0), mfab.nGrow(1),
                                       mfab.nGrow(2)};

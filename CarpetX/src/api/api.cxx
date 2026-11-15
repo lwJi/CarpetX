@@ -93,7 +93,7 @@ std::array<int, Loop::dim> nghostzones(const group_t group) {
 
 const amrex::MultiFab &data(const group_t group, const tl_t tl) {
   const operation_scope_t op("CarpetX::data");
-  return *driver().group(group).timelevel(tl).mfab;
+  return driver().group(group).timelevel(tl).mfab();
 }
 
 struct write_t::impl {
@@ -118,7 +118,7 @@ write_t write(const group_t group, const tl_t tl, const valid_t leaves_valid,
               const char *const what) {
   const operation_scope_t op("CarpetX::write");
   auto &groupdata = driver().group(group);
-  const int open_writes = groupdata.timelevel(tl).open_writes;
+  const int open_writes = groupdata.timelevel(tl).open_writes();
   if (open_writes > 0)
     CCTK_VERROR("CarpetX::write: time level %d of group %s has %d open write "
                 "scope%s (CarpetX::write) on patch %d, refinement level %d; "

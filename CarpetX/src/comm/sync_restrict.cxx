@@ -335,7 +335,7 @@ ProlongateGhosts_impl(const sync_guard_t &, const window_t window,
           FillPatch_ProlongateOnly(
               tasks2, tasks3, groupdata, coarsegroupdata,
               scopes.mfab(leveldata.level, gi, tl),
-              *coarsegroupdata.timelevel(tl).mfab,
+              coarsegroupdata.timelevel(tl).mfab(),
               ext.patch(leveldata.level.patch())
                   .amrcore->Geom(leveldata.level.index()),
               ext.patch(leveldata.level.patch())
@@ -471,7 +471,7 @@ static void SyncGroupsLockstep(const window_t window,
             FillPatch_ProlongateGhosts(
                 tasks2, tasks3, groupdata, coarsegroupdata,
                 scopes.mfab(leveldata.level, gi, tl),
-                *coarsegroupdata.timelevel(tl).mfab,
+                coarsegroupdata.timelevel(tl).mfab(),
                 ext.patch(leveldata.level.patch())
                     .amrcore->Geom(leveldata.level.index()),
                 ext.patch(leveldata.level.patch())
@@ -649,8 +649,7 @@ static void SyncGroupsSubcycling(const window_t window,
               error_if_parent_invalid(leveldata, gi, tl_t{1},
                                       prolongation_label.c_str());
             const amrex::MultiFab *const cmfab_old =
-                do_blend ? coarsegroupdata.timelevel(tl_t{1}).mfab.get()
-                         : nullptr;
+                do_blend ? &coarsegroupdata.timelevel(tl_t{1}).mfab() : nullptr;
             const CCTK_REAL tl_w_new = do_blend ? w_new : CCTK_REAL(1);
             tasks1.submit_serially([&tasks2, &tasks3, &leveldata, &groupdata,
                                     &coarsegroupdata, &scopes, gi, tl,
@@ -658,7 +657,7 @@ static void SyncGroupsSubcycling(const window_t window,
               FillPatch_ProlongateGhosts(
                   tasks2, tasks3, groupdata, coarsegroupdata,
                   scopes.mfab(leveldata.level, gi, tl),
-                  *coarsegroupdata.timelevel(tl).mfab,
+                  coarsegroupdata.timelevel(tl).mfab(),
                   ext.patch(leveldata.level.patch())
                       .amrcore->Geom(leveldata.level.index()),
                   ext.patch(leveldata.level.patch())
@@ -857,19 +856,19 @@ static void restrict_level(const level_t level,
           rank += groupdata.grid_function.indextype.at(d);
         switch (rank) {
         case 0:
-          average_down_nodal(*finegroupdata.timelevel(tl).mfab,
+          average_down_nodal(finegroupdata.timelevel(tl).mfab(),
                              scope.mfab(level), reffact);
           break;
         case 1:
-          average_down_edges(*finegroupdata.timelevel(tl).mfab,
+          average_down_edges(finegroupdata.timelevel(tl).mfab(),
                              scope.mfab(level), reffact);
           break;
         case 2:
-          average_down_faces(*finegroupdata.timelevel(tl).mfab,
+          average_down_faces(finegroupdata.timelevel(tl).mfab(),
                              scope.mfab(level), reffact);
           break;
         case 3:
-          average_down(*finegroupdata.timelevel(tl).mfab, scope.mfab(level), 0,
+          average_down(finegroupdata.timelevel(tl).mfab(), scope.mfab(level), 0,
                        groupdata.record.numvars, reffact);
           break;
         default:

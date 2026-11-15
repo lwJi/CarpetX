@@ -234,7 +234,7 @@ void OutputPlotfile(const cGH *restrict cctkGH) {
       for (const auto &restrict leveldata : patchdata.levels()) {
         const level_t level = leveldata.level;
         mfabs.at(level.index()) =
-            &*leveldata.group(group.groupindex).timelevel(tl).mfab;
+            &leveldata.group(group.groupindex).timelevel(tl).mfab();
         geoms.at(level.index()) = patchdata.amrcore->Geom(level.index());
         iters.at(level.index()) = cctk_iteration;
         reffacts.at(level.index()) = amrex::IntVect{2, 2, 2};

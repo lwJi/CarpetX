@@ -479,9 +479,9 @@ void CycleTimelevels(const window_t window, cGH *restrict const cctkGH,
               auto &restrict groupdata = leveldata.group(gi);
               amrex::MultiFab::Copy(
                   scopes.mfab(leveldata.level, gi, tl_t{0}),
-                  *groupdata.timelevel(tl_t{1}).mfab, 0, 0,
+                  groupdata.timelevel(tl_t{1}).mfab(), 0, 0,
                   groupdata.record.numvars,
-                  groupdata.timelevel(tl_t{0}).mfab->nGrowVect());
+                  groupdata.timelevel(tl_t{0}).mfab().nGrowVect());
             });
         }
       }

@@ -318,7 +318,7 @@ void StoreRKOldState(const level_t level,
         buffers_of(patchdata.level(*child), gi).rk_bands;
     if (!bands)
       continue;
-    bands->store_old(*groupdata.timelevel(tl).mfab, period,
+    bands->store_old(groupdata.timelevel(tl).mfab(), period,
                      leveldata.iteration());
   }
 }
@@ -343,7 +343,7 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
     const GroupData &rhs_groupdata = leveldata.group(rhs_groups[i]);
     if (!bands)
       continue;
-    bands->store_stage(stage, *rhs_groupdata.timelevel(tl_t{0}).mfab, period,
+    bands->store_stage(stage, rhs_groupdata.timelevel(tl_t{0}).mfab(), period,
                        std::source_location::current());
   }
 }

@@ -15,7 +15,8 @@ class clock_writer_t;
 struct cctkGH_binding {
   static void bind_arrays(cGH *cctkGH);
   static void unbind_arrays(cGH *cctkGH);
-  static void bind_local(cGH *cctkGH, GHExt::PatchData::LevelData &leveldata,
+  static void bind_local(cGH *cctkGH,
+                         const GHExt::PatchData::LevelData &leveldata,
                          const MFPointer &mfp);
   static void unbind_local(cGH *cctkGH,
                            const GHExt::PatchData::LevelData &leveldata,

@@ -228,7 +228,7 @@ operator<<(YAML::Emitter &yaml,
   yaml << YAML::EndSeq;
   yaml << YAML::Key << "data" << YAML::Value << YAML::BeginSeq;
   for (const tl_t tl : arraygroupdata.record.timelevels())
-    yaml << arraygroupdata.timelevel(tl).data;
+    yaml << arraygroupdata.timelevel(tl).data();
   yaml << YAML::EndSeq;
   yaml << YAML::EndMap;
   return yaml;

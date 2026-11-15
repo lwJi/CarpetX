@@ -157,7 +157,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
           buffers_of(*childleveldata, gi).freg_scratch;
       if (!child_scratch) {
         const amrex::MultiFab &child_state =
-            *childleveldata->group(gi).timelevel(tl).mfab;
+            childleveldata->group(gi).timelevel(tl).mfab();
         child_scratch = std::make_unique<amrex::FluxRegister>(
             child_state.boxArray(), child_state.DistributionMap(),
             child_freg->refRatio(), child_freg->fineLevel(),
@@ -171,7 +171,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
           face_areas(patchdata.amrcore->Geom(level.index()));
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
-            *leveldata.group(fluxes->at(d)).timelevel(tl).mfab;
+            leveldata.group(fluxes->at(d)).timelevel(tl).mfab();
         const CCTK_REAL area_d = area[d];
         for (const auto side :
              {amrex::Orientation::low, amrex::Orientation::high}) {
@@ -200,7 +200,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
     if (own_freg) {
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
-            *leveldata.group(fluxes->at(d)).timelevel(tl).mfab;
+            leveldata.group(fluxes->at(d)).timelevel(tl).mfab();
         const amrex::MultiFab &area = *buffers_of(leveldata).face_area[d];
         assert(area.ixType() == flux.ixType());
         assert(area.DistributionMap() == flux.DistributionMap());
