@@ -23,8 +23,8 @@ struct cctkGH_binding {
                            const MFPointer &mfp);
 
 private:
-  static void rotate(GHExt &ext, window_t window, gi_t gi);
-  static void rotate(GHExt &ext, gi_t gi);
+  static void rotate(const GHExt &ext, window_t window, gi_t gi);
+  static void rotate(const GHExt &ext, gi_t gi);
   friend class clock_writer_t;
 };
 

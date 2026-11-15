@@ -111,7 +111,8 @@ void cctkGH_binding::unbind_local(cGH *const cctkGH,
         cctkGH->data[groupdata.record.var(vi).index()][tl.index()] = nullptr;
 }
 
-void cctkGH_binding::rotate(GHExt &ext, const window_t window, const gi_t gi) {
+void cctkGH_binding::rotate(const GHExt &ext, const window_t window,
+                            const gi_t gi) {
   const int ntls0 = ext.record(gi).num_timelevels();
   loop_serially(window, [&](const GHExt::PatchData::LevelData &leveldata) {
     const auto &restrict groupdata = leveldata.group(gi);
@@ -130,7 +131,7 @@ void cctkGH_binding::rotate(GHExt &ext, const window_t window, const gi_t gi) {
   });
 }
 
-void cctkGH_binding::rotate(GHExt &ext, const gi_t gi) {
+void cctkGH_binding::rotate(const GHExt &ext, const gi_t gi) {
   assert(ext.flesh_cctkGH());
   ext.record(gi)
       .array()

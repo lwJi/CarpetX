@@ -36,9 +36,9 @@
 namespace CarpetX {
 
 namespace {
-GHExt *ghext = nullptr;
+const GHExt *ghext = nullptr;
 
-GHExt &existing_hierarchy() {
+const GHExt &existing_hierarchy() {
   if (!ghext)
     CCTK_ERROR("The CarpetX grid hierarchy does not exist: the public API is "
                "available between the driver's SetupGH and its Shutdown");
