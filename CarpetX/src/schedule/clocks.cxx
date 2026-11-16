@@ -6,6 +6,7 @@
 #include "hierarchy/scopes.hxx"
 #include "comm/sync.hxx"
 #include "comm/reflux.hxx"
+#include "comm/restrict.hxx"
 #include "comm/rk_ghosts.hxx"
 #include "comm/substeps.hxx"
 #include "io/io.hxx"

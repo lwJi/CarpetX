@@ -14,12 +14,7 @@
 
 namespace CarpetX {
 
-std::vector<gi_t> collect_restrictable_groups();
-
-void Restrict(window_t window, std::span<const gi_t> groups);
 void ProlongateAfterRestriction(window_t window);
-
-void RestrictNoPoison(window_t window, std::span<const gi_t> groups);
 
 void SyncGroups(window_t window, std::span<const gi_t> groups);
 
@@ -34,9 +29,6 @@ void ProlongateAligned(window_t window, std::span<const gi_t> groups,
 
 void SyncGhostsOnly(window_t window, std::span<const gi_t> groups,
                     timelevels_t tls);
-
-void ApplyOuterBoundary(window_t window, std::span<const gi_t> groups,
-                        timelevels_t tls);
 
 } // namespace CarpetX
 

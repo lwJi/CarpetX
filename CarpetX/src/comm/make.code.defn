@@ -32,6 +32,7 @@ SRCS =							\
 	group_selection.cxx				\
 	integrator.cxx					\
 	level_runs.cxx					\
+	outer_boundary.cxx				\
 	prolongate_3d_rf2.cxx				\
 	prolongate_3d_rf2_impl_cons.cxx			\
 	prolongate_3d_rf2_impl_ddf.cxx			\
@@ -43,6 +44,7 @@ SRCS =							\
 	prolongate_3d_rf2_impl_poly_cons3lfb.cxx	\
 	prolongate_3d_rf2_impl_poly_eno3lfb.cxx		\
 	reflux.cxx					\
+	restrict.cxx					\
 	rk_bands.cxx					\
 	rk_ghosts.cxx					\
 	substeps.cxx					\

@@ -2,10 +2,10 @@
 #include "hierarchy/modes.hxx"
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
-#include "comm/boundary_conditions.hxx"
 #include "comm/fillpatch.hxx"
 #include "comm/integrator.hxx"
-#include "comm/level_pairs.hxx"
+#include "comm/outer_boundary.hxx"
+#include "comm/restrict.hxx"
 #include "comm/substeps.hxx"
 #include "comm/sync.hxx"
 #include "comm/sync_guard.hxx"
@@ -20,8 +20,6 @@
 
 #include <cctk.h>
 #include <cctk_Parameters.h>
-
-#include <AMReX_MultiFabUtil.H>
 
 #include <algorithm>
 #include <cassert>
@@ -39,70 +37,6 @@ namespace CarpetX {
 // =======================================================================
 // Sync helpers
 // =======================================================================
-
-static void sync_multipatch_boundaries(const sync_guard_t &,
-                                       const std::span<const gi_t> groups) {
-  const GHExt &ext = driver();
-  static const bool have_multipatch_boundaries =
-      CCTK_IsFunctionAliased("MultiPatch_Interpolate");
-
-  if (have_multipatch_boundaries) {
-    std::vector<CCTK_INT> cactusvarinds;
-    for (const gi_t gi : groups) {
-      const auto &group = ext.record(gi);
-      for (const vi_t vi : group.variables())
-        cactusvarinds.push_back(group.var(vi).index());
-    }
-    MultiPatch_Interpolate(ext.get_global_cctkGH(), cactusvarinds.size(),
-                           cactusvarinds.data());
-  } else {
-    assert(ext.num_patches() == 1);
-  }
-}
-
-static valid_t outer_fills(const window_t window, const gi_t gi) {
-  std::optional<bool> covered;
-  loop_serially(window, [&](auto &restrict leveldata) {
-    const bool level_covered =
-        leveldata.group(gi).all_faces_have_symmetries_or_boundaries();
-    assert(!covered || *covered == level_covered);
-    covered = level_covered;
-  });
-  return covered.value_or(false) ? make_valid_outer() : valid_t();
-}
-
-static void apply_outer_boundary(const sync_guard_t &sync,
-                                 const window_t window,
-                                 const std::span<const gi_t> groups,
-                                 const timelevels_t tls,
-                                 const char *const event) {
-  const GHExt &ext = driver();
-  write_scopes_t scopes;
-  for (const gi_t gi : groups) {
-    const valid_t fills = outer_fills(window, gi);
-    for (const tl_t tl : tls.range(ext.record(gi))) {
-      require(window, {.gi = gi,
-                       .tl = tl,
-                       .where = make_valid_int() | make_valid_ghosts(),
-                       .event = event});
-      scopes.open(window, {.gi = gi,
-                           .tl = tl,
-                           .fills = fills,
-                           .keeps = make_valid_all(),
-                           .event = event});
-    }
-  }
-  for (const gi_t gi : groups)
-    loop_serially(window, [&](auto &restrict leveldata) {
-      auto &restrict groupdata = leveldata.group(gi);
-      for (const tl_t tl : tls.range(groupdata.record))
-        apply_boundary_conditions(groupdata,
-                                  scopes.mfab(leveldata.level, gi, tl));
-    });
-  synchronize();
-  sync_multipatch_boundaries(sync, groups);
-  scopes.close();
-}
 
 static void
 error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
@@ -144,15 +78,6 @@ error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
 // Restriction group selectors
 // =======================================================================
 
-std::vector<gi_t> collect_restrictable_groups() {
-  std::vector<gi_t> groups;
-  groups.reserve(CCTK_NumGroups());
-  for (const auto &group : driver().records(group_kind::grid_function))
-    if (group.do_restrict)
-      groups.push_back(group.groupindex);
-  return groups;
-}
-
 static std::vector<gi_t> reprolongate_groups() {
   const GHExt &ext = driver();
   std::vector<gi_t> groups;
@@ -172,9 +97,6 @@ static std::vector<gi_t> sync_restrict_groups(const std::vector<gi_t> &groups) {
       restrict_groups.push_back(gi);
   return restrict_groups;
 }
-
-static void restrict_level(level_t level, std::span<const gi_t> groups,
-                           valid_t coarse_keeps);
 
 // =======================================================================
 // Sync entry points
@@ -696,22 +618,6 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
   scopes.close();
 }
 
-void ApplyOuterBoundary(const window_t window,
-                        const std::span<const gi_t> groups0,
-                        const timelevels_t tls) {
-  const sync_guard_t sync;
-
-  static Timer timer("ApplyOuterBoundary");
-  Interval interval(timer);
-
-  sync_log_groups("ApplyOuterBoundary", groups0);
-
-  const std::vector<gi_t> groups = sync_filter_groups(groups0);
-  apply_outer_boundary(sync, window, groups, tls,
-                       "CarpetX::apply_outer_boundary reads the interior and "
-                       "both ghost regions");
-}
-
 void ProlongateAfterRestriction(const window_t window) {
   const sync_guard_t sync;
   const std::vector<gi_t> groups = sync_filter_groups(reprolongate_groups());
@@ -724,96 +630,6 @@ void ProlongateAfterRestriction(const window_t window) {
                            "ProlongateAfterRestriction applies the boundary "
                            "condition after the prolongation and reads the "
                            "interior and both ghost regions");
-}
-
-static void restrict_level(const level_t level,
-                           const std::span<const gi_t> groups,
-                           const valid_t coarse_keeps) {
-  static Timer timer("Restrict");
-  Interval interval(timer);
-
-  const std::optional<level_t> fine = level.child();
-  if (!fine)
-    return;
-  const GHExt &ext = driver();
-  auto &leveldata = ext.level(level);
-  const auto &fineleveldata = ext.level(*fine);
-  const window_t coarse_level = window_t::one_level(level);
-  const window_t fine_level = window_t::one_level(*fine);
-
-  for (const gi_t gi : groups) {
-    const auto &groupdata = leveldata.group(gi);
-    const auto &finegroupdata = fineleveldata.group(gi);
-    const amrex::IntVect reffact{2, 2, 2};
-
-    for (const tl_t tl :
-         timelevels_t::all_but_oldest().range(groupdata.record)) {
-
-      require(fine_level,
-              {.gi = gi,
-               .tl = tl,
-               .where = make_valid_int(),
-               .event = "Restrict on fine level before restricting"});
-      require(coarse_level,
-              {.gi = gi,
-               .tl = tl,
-               .where = make_valid_int(),
-               .event = "Restrict on coarse level before restricting"});
-      write_scope_t scope = open_write(coarse_level, {.gi = gi,
-                                                      .tl = tl,
-                                                      .fills = make_valid_int(),
-                                                      .keeps = coarse_keeps,
-                                                      .event = "Restrict"});
-
-#if 1
-      {
-        static Timer timer("Restrict::average_down");
-        Interval interval(timer);
-        int rank = 0;
-        for (int d = 0; d < dim; ++d)
-          rank += groupdata.grid_function.indextype.at(d);
-        switch (rank) {
-        case 0:
-          average_down_nodal(finegroupdata.timelevel(tl).mfab(),
-                             scope.mfab(level), reffact);
-          break;
-        case 1:
-          average_down_edges(finegroupdata.timelevel(tl).mfab(),
-                             scope.mfab(level), reffact);
-          break;
-        case 2:
-          average_down_faces(finegroupdata.timelevel(tl).mfab(),
-                             scope.mfab(level), reffact);
-          break;
-        case 3:
-          average_down(finegroupdata.timelevel(tl).mfab(), scope.mfab(level), 0,
-                       groupdata.record.numvars, reffact);
-          break;
-        default:
-          assert(0);
-        }
-      }
-#endif
-
-    } // for tl
-  } // for gi
-}
-
-void Restrict(const window_t window, const std::span<const gi_t> groups) {
-  if (groups.empty())
-    return;
-  loop_pairs_fine_to_coarse(window, [&](const level_t level) {
-    restrict_level(level, groups, make_valid_int());
-  });
-}
-
-void RestrictNoPoison(const window_t window,
-                      const std::span<const gi_t> groups) {
-  if (groups.empty())
-    return;
-  loop_pairs_fine_to_coarse(window, [&](const level_t level) {
-    restrict_level(level, groups, make_valid_all());
-  });
 }
 
 } // namespace CarpetX

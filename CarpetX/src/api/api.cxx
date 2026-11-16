@@ -4,6 +4,8 @@
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/scopes.hxx"
+#include "comm/outer_boundary.hxx"
+#include "comm/restrict.hxx"
 #include "comm/sync.hxx"
 #include "comm/timelevels.hxx"
 
