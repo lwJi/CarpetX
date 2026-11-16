@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable, Iterator
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, FLESH_SYNC_OVERLOAD, GRANT_LAYER, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, statements, ungranted
+from .rules import AMREX_CALLBACKS, DECLARATION_START, FLESH_SYNC_OVERLOAD, GRANT_LAYER, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
 from comments.lex_cxx import lex
 from comments.tokens import Kind
 from files import PROJECT
@@ -23,7 +23,7 @@ REGISTERED = (
     (layer_path("schedule", "storage.cxx"), ("QueryGroupStorageB",)),
     (layer_path("io", "io.cxx"), ("OutputGH",)),
     (layer_path("ops", "interpolate.cxx"), ("InterpLocalUniform",)),
-    (layer_path("comm", "sync_restrict.cxx"), (FLESH_SYNC_OVERLOAD,)),
+    (layer_path("comm", "sync.cxx"), (FLESH_SYNC_OVERLOAD,)),
 )
 CALLBACKS = (layer_path("regrid", "regrid.cxx"), AMREX_CALLBACKS)
 PUBLIC_HEADERS = (PUBLIC_DIR + "carpetx.hxx", PUBLIC_DIR + "carpetx_rk.hxx")
@@ -173,7 +173,7 @@ NOT_A_NAME = frozenset(
 
 
 def stems(root: str, layer: str) -> set[str]:
-    return {os.path.splitext(os.path.basename(path))[0] for path in sources(root, layer)}
+    return {row_of(os.path.splitext(os.path.basename(path))[0]) for path in sources(root, layer)}
 
 
 def stem_rows(root: str = PROJECT) -> dict[str, dict[str, str]]:
@@ -196,7 +196,7 @@ def lone_sources(root: str = PROJECT) -> list[str]:
         found.extend(
             layer_path(layer, name)
             for name in sorted(names)
-            if name.endswith(".cxx") and os.path.splitext(name)[0] + ".hxx" not in names and layer_path(layer, name) not in public
+            if name.endswith(".cxx") and row_of(os.path.splitext(name)[0]) + ".hxx" not in names and layer_path(layer, name) not in public
         )
     return found
 
@@ -430,7 +430,13 @@ def declared_names(text: str, forward: bool = True) -> set[str]:
 
 
 def stem_headers(root: str = PROJECT) -> dict[str, str]:
-    return {layer_path(layer, os.path.basename(path)): read(path) for layer in STEMS for path in sources(root, layer) if path.endswith(".hxx")}
+    found = {}
+    for layer in STEMS:
+        for path in sources(root, layer):
+            stem, extension = os.path.splitext(os.path.basename(path))
+            if extension == ".hxx" and row_of(stem) == stem:
+                found[layer_path(layer, stem + extension)] = read(path)
+    return found
 
 
 def stem_declarations(root: str = PROJECT, forward: bool = True) -> dict[str, set[str]]:

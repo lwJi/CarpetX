@@ -93,7 +93,7 @@ GENERAL: tuple[Section, ...] = (
                 "The halo has two ghost regions with a bit each: the same-level ghosts, which another box of the level or a periodic image covers, and the coarse-fine ghosts, which no box of the level covers and only an interpolation from the parent fills. "
                 "A ghost fill marks only the region it copies; the boundary condition reads the interior and both ghost regions, so it runs after the last ghost fill, requires all three valid, and alone marks the outer boundary. "
                 "`make_valid_ghosts()` and a schedule clause's everywhere name both.",
-                ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/model.cxx:LevelData", "hierarchy/scopes.cxx:loop_ghost_halves", "hierarchy/scopes.cxx:check_valid_gf", "comm/sync_restrict.cxx:apply_outer_boundary"),
+                ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/model.cxx:LevelData", "hierarchy/scopes.cxx:loop_ghost_halves", "hierarchy/scopes.cxx:check_valid_gf", "comm/outer_boundary.cxx:fill_outer_boundary"),
             ),
             Row(
                 "`scratch(group)` is shaped like `data(group, tl_t{0})` and has no validity bits; a regrid frees it, after which a `scratch_t` is an error.",
@@ -111,7 +111,7 @@ GENERAL: tuple[Section, ...] = (
                 "`sync` is the scheduled SYNC, subcycling under `use_subcycling`, and sets the same-level, coarse-fine and outer bits it fills; `sync_ghosts_only` is its same-level copy alone and sets the same-level bit, and `prolongate_ghosts` its coarse-to-fine interpolation alone and sets the coarse-fine bit, neither applying the boundary condition; `prolongate_aligned` is `prolongate_ghosts` that under subcycling fills only levels time-aligned with their parent. "
                 "`apply_outer_boundary` is the boundary condition alone: it requires the interior and both ghost regions, writes the outer region and sets the outer bit, so a thorn that has written a group everywhere and wants the driver's boundary condition on it calls this and no ghost fill. "
                 "`restrict_no_poison` leaves the coarse ghost and outer regions as they were, where the scheduled restriction invalidates and poisons them. `synchronize` waits for the device.",
-                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "api/api.cxx:apply_outer_boundary", "comm/sync_restrict.cxx:SyncGhostsOnly", "comm/sync_restrict.cxx:ProlongateGhosts_impl", "comm/sync_restrict.cxx:ApplyOuterBoundary", "api/api.cxx:restrict_no_poison", "comm/sync_restrict.cxx:Restrict", "comm/sync_restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
+                ("api/api.cxx:sync", "api/api.cxx:sync_ghosts_only", "api/api.cxx:prolongate_ghosts", "api/api.cxx:prolongate_aligned", "api/api.cxx:apply_outer_boundary", "comm/sync.cxx:SyncGhostsOnly", "comm/ghost_prolongation.cxx:ProlongateGhosts_impl", "comm/outer_boundary.cxx:ApplyOuterBoundary", "api/api.cxx:restrict_no_poison", "comm/restrict.cxx:Restrict", "comm/restrict.cxx:RestrictNoPoison", "hierarchy/loops.cxx:synchronize"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
@@ -162,12 +162,12 @@ RK_SECTIONS: tuple[Section, ...] = (
                 "`rhs_computed` feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
                 "`state_updated` says the state holds the next stage value: under subcycling it fills the coarse-fine ghosts of every refined level in the window and marks them valid; "
                 "the same-level ghosts and the outer boundary of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep. Without subcycling the last `state_updated` applies the flux registers.",
-                ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "comm/subcycling.cxx:FillRKBoundary", "api/api_rk.cxx:rk_step_t"),
+                ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "comm/rk_ghosts.cxx:FillRKBoundary", "api/api_rk.cxx:rk_step_t"),
             ),
             Row(
                 "Under subcycling, on a refined level at iteration > 0 the SYNC of an integrated group keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote; elsewhere it fills every ghost itself. "
                 "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`; the integrator schedules nothing for it.",
-                ("comm/sync_restrict.cxx:SyncGroupsSubcycling", "comm/subcycling.cxx:RecoverRKBoundary"),
+                ("comm/sync.cxx:SyncGroupsSubcycling", "comm/rk_ghosts.cxx:RecoverRKBoundary"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Register", "TestCarpetXAPI_Fill", "TestCarpetXAPI_Step"),

@@ -30,6 +30,9 @@ integrated_groups_with_storage(level_t level,
 std::vector<rk_level_t>
 integrated_levels(window_t window, const GHExt::integrator_t &integrator);
 
+bool integrator_owns_coarse_fine_ghosts(
+    const GHExt::PatchData::LevelData &leveldata, gi_t gi);
+
 } // namespace CarpetX
 
 #endif

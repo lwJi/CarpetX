@@ -4,7 +4,11 @@
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/scopes.hxx"
-#include "comm/comm.hxx"
+#include "comm/ghost_prolongation.hxx"
+#include "comm/outer_boundary.hxx"
+#include "comm/restrict.hxx"
+#include "comm/sync.hxx"
+#include "comm/timelevels.hxx"
 
 #include <cctk.h>
 

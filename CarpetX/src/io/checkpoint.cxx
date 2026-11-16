@@ -4,7 +4,7 @@
 #include "hierarchy/writers.hxx"
 #include "hierarchy/scopes.hxx"
 #include "io/selection.hxx"
-#include "comm/subcycling.hxx"
+#include "comm/checkpoint_bands.hxx"
 #include "util/refuse.hxx"
 
 #include <CactusBase/IOUtil/src/ioutil_CheckpointRecovery.h>

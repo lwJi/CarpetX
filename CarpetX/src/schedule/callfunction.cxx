@@ -6,7 +6,7 @@
 #include "hierarchy/loops.hxx"
 #include "hierarchy/modes.hxx"
 #include "hierarchy/scopes.hxx"
-#include "comm/comm.hxx"
+#include "comm/sync.hxx"
 #include "traversal/traversal.hxx"
 #include <carpetx.hxx>
 

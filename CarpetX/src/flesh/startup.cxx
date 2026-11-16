@@ -4,7 +4,7 @@
 #include "api/api.hxx"
 #include "schedule/schedule.hxx"
 #include "comm/buffers.hxx"
-#include "comm/comm.hxx"
+#include "comm/sync.hxx"
 #include "regrid/regrid.hxx"
 #include "ops/interp.hxx"
 #include "io/io.hxx"

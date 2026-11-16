@@ -70,4 +70,10 @@ integrated_levels(const window_t window,
   return levels;
 }
 
+bool integrator_owns_coarse_fine_ghosts(
+    const GHExt::PatchData::LevelData &leveldata, const gi_t gi) {
+  return leveldata.level.index() > 0 && group_is_integrated(gi) &&
+         leveldata.iteration() > 0;
+}
+
 } // namespace CarpetX

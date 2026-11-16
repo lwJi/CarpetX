@@ -1,5 +1,5 @@
 #include "comm/fillpatch.hxx"
-#include "comm/boundaries.hxx"
+#include "comm/boundary_conditions.hxx"
 #include "comm/prolongate_3d_rf2.hxx"
 
 #include <cassert>
