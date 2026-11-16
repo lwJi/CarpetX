@@ -112,10 +112,9 @@ void delete_cctkGH(cGH *cctkGH) {
 
 const GHExt &driver() { return existing_hierarchy(); }
 
-int current_iteration() {
-  const cGH *const cctkGH = driver().get_global_cctkGH();
-  return cctkGH ? cctkGH->cctk_iteration : 0;
-}
+int current_iteration() { return driver().run_clock().iteration; }
+
+bool hierarchy_exists() { return ghext != nullptr; }
 
 void assert_hierarchy_destroyed() { assert(!ghext); }
 

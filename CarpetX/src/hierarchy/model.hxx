@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -129,6 +130,7 @@ static_assert(std::is_same<amrex::Real, CCTK_REAL>::value,
 ////////////////////////////////////////////////////////////////////////////////
 
 class clock_writer_t;
+class stage_writer_t;
 class level_writer_t;
 class structure_writer_t;
 class registry_writer_t;
@@ -136,6 +138,7 @@ class scratch_writer_t;
 class write_scope_t;
 class array_write_scope_t;
 struct cctkGH_binding;
+struct cctkGH_clock;
 using amrcore_factory = std::unique_ptr<amrex::AmrCore> (*)(
     level_writer_t &levels, patch_t patch, const amrex::RealBox &domain, int,
     const amrex::Vector<int> &ncells,
@@ -174,6 +177,30 @@ struct GHExt {
     operator bool() const { return bool(cctkGH); }
     cGH *get() const { return cctkGH; }
   };
+
+  struct run_clock_t {
+    int iteration = 0;
+    CCTK_REAL time = 0, delta_time = NAN;
+    int timefac = 1;
+    CCTK_REAL initial_time = 0;
+  };
+  using sealed_run_clock_t = written_by<run_clock_t, cctkGH_clock>;
+  const sealed_run_clock_t &sealed_run_clock() const { return run_clock_; }
+  const run_clock_t &run_clock() const { return run_clock_.get(); }
+
+  struct stage_clock_t {
+    CCTK_REAL time, delta_time;
+  };
+  struct shown_stage_t {
+    std::optional<stage_clock_t> stage;
+  };
+  using sealed_shown_stage_t = written_by<shown_stage_t, cctkGH_clock>;
+  const sealed_shown_stage_t &sealed_shown_stage() const {
+    return shown_stage_;
+  }
+  const std::optional<stage_clock_t> &shown_stage() const {
+    return shown_stage_->stage;
+  }
 
   struct level_set_t {
     CCTK_INT epoch = 0;
@@ -878,6 +905,8 @@ struct GHExt {
   }
 
 private:
+  sealed_run_clock_t run_clock_;
+  sealed_shown_stage_t shown_stage_;
   sealed_level_set_t level_set_;
   const amrcore_factory make_core_;
   const level_buffers_factory make_buffers_;
@@ -890,6 +919,7 @@ private:
 };
 
 const GHExt &driver();
+bool hierarchy_exists();
 void assert_hierarchy_destroyed();
 int current_iteration();
 

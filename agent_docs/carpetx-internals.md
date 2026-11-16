@@ -39,7 +39,7 @@ flowchart TB
   regrid -- "fillpatch.hxx, substeps.hxx" --> comm
   config -- "refuse.hxx, var_type.hxx" --> util
   traversal -- "refuse.hxx" --> util
-  above -- "binding.hxx, grid.hxx, loops.hxx, model.hxx, modes.hxx, scopes.hxx, valid.hxx, writers.hxx" --> hierarchy
+  above -- "binding.hxx, clock.hxx, grid.hxx, loops.hxx, model.hxx, modes.hxx, scopes.hxx, valid.hxx, writers.hxx" --> hierarchy
   door -- "boundaries.hxx, grid_sizes.hxx, groups.hxx, indices.hxx, stages.hxx" --> config
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
@@ -135,15 +135,16 @@ An outsider decides when a layer works: it calls one of these entries. Each row 
 New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides, then names the rules whose home is in it. Under a layer that the table STEMS in scripts/lint/boundary/rules.py lists is one row per file stem, a header and its source sharing the stem, that says the one concern the stem holds: a stem with no row or a row with no stem fails the generator, `scripts/lint symbols` refuses a definition there that the header of its stem does not declare, and the tests refuse a source there with no header and an include of one of its headers that uses no name the header declares.
 
 - `flesh/`: every `extern "C"`, and the writers of the hierarchy that `create_hierarchy` returns, `hierarchy_writers_t`, which it keeps in one slot and lends: as arguments to the entries of `schedule/` it wraps, and once to `api/` in `SetupGH`. The set owns the hierarchy, so `CarpetX_Shutdown` destroys the hierarchy by emptying the slot, after `api/` has returned its writers. It never holds `level_writer_t`: the structure writer lends that to the AMReX core in `regrid/` when `InitGH` adds a patch. It owns no other data: an entry converts the flesh's arguments and calls the layer that does the work. Rules at home here: entry, ghost-only.
-- `api/`: the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the writers it uses, `registry_writer_t` and `scratch_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer` and `scratch_writer` refuse while it is empty. Rules at home here: ghost-only.
-- `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.
+- `api/`: the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. A thorn calls in with no flesh entry in its path, so `api/` holds the writers it uses, `registry_writer_t`, `scratch_writer_t` and `stage_writer_t`, in its one slot: `adopt_writers` fills it and refuses while it is full, `return_writers` empties it at shutdown, and `registry_writer`, `scratch_writer` and `stage_writer` refuse while it is empty. Of the clock it changes only the stage time and step every cGH shows in place of the run's, for the length of one `run_at`. Rules at home here: ghost-only.
+- `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums, which catch a write a routine did not declare. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers, what `flesh/` wraps to lend a writer, which is `Initialise`, `Evolve` and the four storage functions that record storage, and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls. It is passed the whole clock as `clock_writer_t`: every change of the run's iteration, time, step or time factor is one operation of that writer, which shows it on every cGH, so the iteration and step `schedule/` reads from the cGH it is handed are the model's.
 - `io/`: output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. Rules at home here: records, codec.
 - `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
 - `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
-- `comm/`: moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, and takes the iteration from `current_iteration()`. Rules at home here: directions, ghost-only.
-- `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, varindex, model, grant.
+- `comm/`: moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one, takes the iteration from `current_iteration()` and the step from `driver().run_clock()`, and changes nothing of the clock. Rules at home here: directions, ghost-only.
+- `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, clock, varindex, model, grant.
   - `model`: `GHExt`, its nested types, and the door `driver()`
   - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy
+  - `clock`: the only place the model's run clock and the stage it shows are opened, and the only writes to the cGH clock fields: `cctkGH_clock` applies a change a clock or stage writer asks for and publishes the run clock, or in its place the time and step of the shown stage, to the flesh's cGH and to every copy of it, so no change goes unpublished; and the check that a cGH a scheduled function returns still shows it
   - `valid`: the validity state a time level stores
   - `scopes`: the only way to change that state: write, require and invalidate
   - `binding`: the only writes to the cGH pointer table
@@ -167,16 +168,18 @@ Each row is a name that a `friend` line in a header of `hierarchy/` grants, and 
 | Granted | Private members of |
 | --- | --- |
 | `Writer` | `written_by` |
-| `hierarchy_writers_t` | `GHExt`, `clock_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t` |
+| `hierarchy_writers_t` | `GHExt`, `clock_writer_t`, `stage_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t` |
+| `cctkGH_clock` | `GHExt::run_clock_t`, `GHExt::shown_stage_t` |
 | `registry_writer_t` | `GHExt::registry_t` |
 | `level_writer_t` | `GHExt::level_set_t`, `GHExt::PatchData::levels_t` |
 | `structure_writer_t` | `GHExt::patches_t`, `GHExt::PatchData::core_t`, `level_writer_t` |
-| `clock_writer_t` | `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding` |
+| `clock_writer_t` | `GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding`, `cctkGH_clock` |
 | `write_scope_t` | `GHExt::PatchData::LevelData::GroupData::timelevel_t`, `why_valid_t` |
 | `scratch_writer_t` | `GHExt::PatchData::LevelData::GroupData::scratch_pool_t` |
 | `cctkGH_binding` | `GHExt::PatchData::LevelData::GroupData::ring_t`, `GHExt::GlobalData::ArrayGroupData::ring_t` |
 | `array_write_scope_t` | `GHExt::GlobalData::ArrayGroupData::timelevel_t`, `why_valid_t` |
 | `create_hierarchy` | `hierarchy_writers_t` |
+| `stage_writer_t` | `cctkGH_clock` |
 | `operator<<` | `why_valid_t`, `GridPtrDesc1` |
 | `open_write` | `write_scope_t` |
 | `write_scopes_t` | `write_scope_t` |

@@ -62,8 +62,6 @@ void setup_cctkGH(cGH *restrict cctkGH) {
   cctkGH->cctk_alignment = 1;
   cctkGH->cctk_alignment_offset = 0;
 
-  cctkGH->cctk_timefac = 1;
-
   cctkGH->cctk_npatches = driver().num_patches();
 
   cctkGH->cctk_convlevel = 0;
@@ -73,28 +71,11 @@ void setup_cctkGH(cGH *restrict cctkGH) {
     cctkGH->cctk_delta_space[d] = NAN;
   }
 
-  cctkGH->cctk_time = 0;
-  cctkGH->cctk_delta_time = NAN;
-
   cctkGH->cctk_component = undefined;
   cctkGH->cctk_level = undefined;
   cctkGH->cctk_patch = undefined;
   cctkGH->cctk_nghostzones[0] = undefined;
   assert(in_meta_mode(cctkGH));
-}
-
-void update_cctkGH(cGH *const cctkGH, const cGH *const sourceGH) {
-  if (cctkGH == sourceGH)
-    return;
-  cctkGH->cctk_iteration = sourceGH->cctk_iteration;
-  cctkGH->cctk_timefac = sourceGH->cctk_timefac;
-  cctkGH->cctk_time = sourceGH->cctk_time;
-  cctkGH->cctk_delta_time = sourceGH->cctk_delta_time;
-}
-
-void update_cctkGHs(cGH *restrict const cctkGH) {
-  driver().for_each_cctkGH(
-      [&](cGH *const copy) { update_cctkGH(copy, cctkGH); });
 }
 
 void enter_global_mode(cGH *restrict cctkGH) {

@@ -130,6 +130,18 @@ SECTIONS: tuple[Section, ...] = (
         refusals=("too_many_levels", "output_unknown_variable"),
     ),
     Section(
+        "The clock a routine sees",
+        (
+            Row(
+                "`cctk_iteration`, `cctk_time`, `cctk_delta_time` and `cctk_timefac` are the run clock that CarpetX holds, with the time and step of a `run_schedule_group_at` in place of the run's for the length of its traversal, and every cGH shows it: the flesh's, and each level, patch and tile copy. "
+                "A thorn reads them and never assigns them; when a scheduled function returns, CarpetX compares the cGH it was handed, the flesh's or for a local-mode function each tile copy, with the run clock in every build, and a cGH that disagrees stops the run, naming the function, the field, the cGH's value and the run clock's.",
+                ("hierarchy/clock.cxx:publish_clock", "hierarchy/clock.cxx:require_current_clock", "schedule/callfunction.cxx:CallFunction"),
+            ),
+        ),
+        exercised_by=("TestCarpetXAPI_Fill",),
+        refusals=("clock_stale",),
+    ),
+    Section(
         "The integrator's contract: `carpetx_rk.hxx`",
         (
             Row(
@@ -140,7 +152,7 @@ SECTIONS: tuple[Section, ...] = (
                 ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "hierarchy/model.cxx:record_integrator", "hierarchy/model.cxx:freeze_integrator"),
             ),
             Row(
-                "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH for the traversal; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
+                "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on every cGH for the traversal and then restores both, whichever cGH is passed; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
                 ("api/api_rk.cxx:run_schedule_group_at",),
             ),
             Row(

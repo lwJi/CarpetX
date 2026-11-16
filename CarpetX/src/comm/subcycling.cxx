@@ -367,7 +367,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   const bool substep_done = completed == stages.last();
   const stage_t stage = substep_done ? stages.first() : next_index(completed);
   const CCTK_REAL xsi = CCTK_REAL(substep_done ? substep.end : substep.begin);
-  const CCTK_REAL dtc = ext.get_global_cctkGH()->cctk_delta_time *
+  const CCTK_REAL dtc = ext.run_clock().delta_time *
                         CCTK_REAL(coarseleveldata.delta_iteration());
   assert(std::isfinite(dtc) && dtc > 0);
 

@@ -150,7 +150,7 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
                               .do_reflux = bool(do_reflux),
                               .make_core = make_cactus_amrcore,
                               .make_buffers = make_level_buffers});
-  adopt_writers(writers->registry, writers->scratch);
+  adopt_writers(writers->registry, writers->scratch, writers->stage);
   return nullptr;
 }
 

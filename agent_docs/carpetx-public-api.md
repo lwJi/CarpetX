@@ -36,11 +36,17 @@ The BoxArray and DistributionMapping of a level are those of any group's MultiFa
 
 Refusals: `too_many_levels`, `output_unknown_variable`.
 
+## The clock a routine sees
+
+`cctk_iteration`, `cctk_time`, `cctk_delta_time` and `cctk_timefac` are the run clock that CarpetX holds, with the time and step of a `run_schedule_group_at` in place of the run's for the length of its traversal, and every cGH shows it: the flesh's, and each level, patch and tile copy. A thorn reads them and never assigns them; when a scheduled function returns, CarpetX compares the cGH it was handed, the flesh's or for a local-mode function each tile copy, with the run clock in every build, and a cGH that disagrees stops the run, naming the function, the field, the cGH's value and the run clock's. Held by `publish_clock`, `require_current_clock` in `hierarchy/clock.cxx`; `CallFunction` in `schedule/callfunction.cxx`.
+
+Refusals: `clock_stale`.
+
 ## The integrator's contract: `carpetx_rk.hxx`
 
 Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step; CarpetX derives everything else, and runs without a registration until `open_rk_step`. Registration is `AT WRAGH`, once; the record freezes when that traversal ends. `dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. `b` holds the final-update weight of every stage, all zero for a method that never updates the state. Held by `register_integrator`, `require_integrator`, `check_weights`, `check_pair` in `api/api_rk.cxx`; `record_integrator`, `freeze_integrator` in `hierarchy/model.cxx`.
 
-`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on the given cGH and on every driver cGH for the traversal; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does. Held by `run_schedule_group_at` in `api/api_rk.cxx`.
+`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on every cGH for the traversal and then restores both, whichever cGH is passed; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does. Held by `run_schedule_group_at` in `api/api_rk.cxx`.
 
 `open_rk_step` is called once the state holds u(t_n), outside any OpenMP parallel region, and stores the old state of every registered pair with storage on each level of the window. `rhs_computed` stores the stage band and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. `state_updated` says the state holds the next stage value: under subcycling CarpetX fills the refinement boundary of every refined level in the window from its own clocks, scans the coarse-fine ghosts it wrote and marks them valid; the same-level ghosts and the outer boundary of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep, which exchanges the same-level ghosts and then applies the boundary condition. Without subcycling the last `state_updated` applies the flux registers. Held by `open_rk_step`, `require_serial_context`, `rhs_computed`, `state_updated`, `rk_step_t` in `api/api_rk.cxx`; `FillRKBoundary` in `comm/subcycling.cxx`.
 

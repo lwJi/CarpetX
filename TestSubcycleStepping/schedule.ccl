@@ -139,3 +139,12 @@ if (sync_in_tail) {
     SYNC: tail_context
   } "request a SYNC in CCTK_ANALYSIS, which must abort at iteration 1 under subcycling"
 }
+
+
+
+if (check_time) {
+  schedule TestSubcycleStepping_CheckTime AT poststep
+  {
+    LANG: C
+  } "abort unless cctk_time is the initial time plus cctk_iteration steps of the finest level"
+}

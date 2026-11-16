@@ -4,7 +4,6 @@
 #include "config/indices.hxx"
 #include "hierarchy/model.hxx"
 #include "schedule/schedule.hxx"
-#include "hierarchy/modes.hxx"
 #include "comm/comm.hxx"
 #include "comm/integrator.hxx"
 #include "comm/reflux.hxx"
@@ -197,9 +196,9 @@ void register_integrator(const rk_config_t &config) {
              describe_weights(config.b).c_str());
 }
 
-void run_schedule_group_at(const cGH *const cctkGH_, const char *const group,
+void run_schedule_group_at(const cGH *const cctkGH, const char *const group,
                            const CCTK_REAL time, const CCTK_REAL delta_time) {
-  if (!cctkGH_)
+  if (!cctkGH)
     CCTK_VERROR("CarpetX::run_schedule_group_at(\"%s\"): the cGH is null",
                 group);
   if (!group)
@@ -207,16 +206,10 @@ void run_schedule_group_at(const cGH *const cctkGH_, const char *const group,
                "null");
   static Timer timer("CarpetX::run_schedule_group_at");
   Interval interval(timer);
-  cGH *const cctkGH = const_cast<cGH *>(cctkGH_);
-  const CCTK_REAL saved_time = cctkGH->cctk_time;
-  const CCTK_REAL saved_delta_time = cctkGH->cctk_delta_time;
-  cctkGH->cctk_time = time;
-  cctkGH->cctk_delta_time = delta_time;
-  update_cctkGHs(cctkGH);
-  const int ierr = CCTK_ScheduleTraverse(group, cctkGH, CallFunction);
-  cctkGH->cctk_time = saved_time;
-  cctkGH->cctk_delta_time = saved_delta_time;
-  update_cctkGHs(cctkGH);
+  int ierr = 0;
+  stage_writer().run_at(time, delta_time, [&] {
+    ierr = CCTK_ScheduleTraverse(group, driver().flesh_cctkGH(), CallFunction);
+  });
   if (ierr)
     CCTK_VERROR("CarpetX::run_schedule_group_at: traversing schedule group "
                 "\"%s\" at time %g failed with error %d",
@@ -290,7 +283,7 @@ void rk_step_t::rhs_computed() {
   p->have_rhs = true;
   const stage_t stage = *p->stage;
   const CCTK_REAL weight = p->b.at(p->stages.offset(stage));
-  const CCTK_REAL delta_time = driver().get_global_cctkGH()->cctk_delta_time;
+  const CCTK_REAL delta_time = driver().run_clock().delta_time;
   using std::isfinite;
   if (!(isfinite(delta_time) && delta_time != 0))
     CCTK_VERROR("CarpetX::rk_step_t::rhs_computed on %s, RK stage %d of %d: "

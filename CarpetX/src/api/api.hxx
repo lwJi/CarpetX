@@ -12,10 +12,12 @@
 
 namespace CarpetX {
 
-void adopt_writers(registry_writer_t &registry, scratch_writer_t &scratch);
+void adopt_writers(registry_writer_t &registry, scratch_writer_t &scratch,
+                   stage_writer_t &stage);
 void return_writers();
 registry_writer_t &registry_writer();
 scratch_writer_t &scratch_writer();
+stage_writer_t &stage_writer();
 
 void require_no_open_write(
     const GHExt::PatchData::LevelData::GroupData &groupdata);
