@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable, Iterator
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, EXTERN_C, FLESH_SYNC_OVERLOAD, GRANT_LAYER, GRANT_WRAPPER, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, READS_TEXT, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, statements, ungranted
+from .rules import AMREX_CALLBACKS, DECLARATION_START, FLESH_SYNC_OVERLOAD, GRANT_LAYER, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, statements, ungranted
 from comments.lex_cxx import lex
 from comments.tokens import Kind
 from files import PROJECT
@@ -39,18 +39,7 @@ PUBLIC_BODIES = (
 )
 BODIES = "8"
 HANDED = "10"
-STEPS = {
-    "1": "the flesh starts the driver",
-    "2": "the driver names a bin or asks for output",
-    "3": "the flesh hands a bin to the driver's entry",
-    "4": "the flesh hands output to io/",
-    "5": "the entry asks the flesh to walk the bin with CallFunction",
-    "6": "the flesh calls CallFunction for each routine",
-    "7": "CallFunction runs the routine",
-    BODIES: f"the routine may call the public headers, whose bodies are in {PUBLIC_LAYER}/ but for those the table names",
-    "9": f"{PUBLIC_LAYER}/ may ask the flesh to walk a schedule group, back to 6",
-    HANDED: "what a routine asks of the flesh, the flesh hands to the layer that owns the work",
-}
+STEPS = tuple(str(step) for step in range(1, 11))
 PASS = (
     ("1", "cactus", "flesh", ("Initialise_entry", "Evolve_entry"), STARTUP),
     ("1", "flesh", "schedule", ("Initialise", "Evolve"), layer_path("schedule", "evolve.cxx")),
@@ -66,11 +55,7 @@ PASS = (
     (HANDED, "flesh", "schedule", ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease"), layer_path("schedule", "storage.cxx")),
 )
 assert {row[0] for row in PASS} | {BODIES, HANDED} == set(STEPS), PASS
-REGRID_STEPS = {
-    "1": "schedule/ asks the hierarchy",
-    "2": "the hierarchy asks AMReX",
-    "3": "AMReX calls back into the layer that defines its callbacks",
-}
+REGRID_STEPS = ("1", "2", "3")
 REGRID = (
     ("1", "schedule", "hierarchy", ("structure_writer_t::regrid",), layer_path("hierarchy", "writers.cxx")),
     ("2", "hierarchy", "amrex", ("amrcore_->regrid",), layer_path("hierarchy", "writers.cxx")),
@@ -81,22 +66,11 @@ CALLED_AS = {"structure_writer_t::regrid": "structure.regrid"}
 assert set(CALLED_AS) <= {name for row in PASS + REGRID for name in row[3]}, CALLED_AS
 BOXES = (("above", f"above {HUB}/"), ("door", "driver() allowed"), ("nodoor", "no driver()"))
 STACK_LEGEND = (
-    f"the layer rule holds what each layer reads, the table READS in {READS_HOME}: a file includes only its own layer or one its layer reads, and {READS_TEXT}",
-    "a layer reads only layers before it in that list, an include outside the table is refused, and an entry no file of the layer includes fails the tests, so the table holds exactly the layer-to-layer includes the tree has today",
-    "a solid arrow is an include a layer has today, read from its #include lines, with the headers on it, and a layer is drawn above what it includes",
-    f"an arrow from a box stands for the layers in it: its label is every header one of them reads from the target, and which layer reads which is not drawn; the inner box, every layer above {HUB}/, is there for the arrow into {HUB}/",
-    "the outer boxes are the door rule: driver() is called in the upper box, never in the lower",
-    f"{PUBLIC}/ is the public headers, {', '.join(os.path.basename(header) for header in PUBLIC_HEADERS)}, not a layer: a thorn reads nothing else of CarpetX, and agent_docs/carpetx-public-api.md describes them",
-    "a node names its layer, and no header where nothing can include it",
+    f"an arrow is an include a layer has today; the layer rule refuses one outside the table READS in {READS_HOME}",
+    f"{PUBLIC}/ is the public headers, not a layer",
 )
-PASS_LEGEND = (
-    "the numbered arrows are one pass of the schedule: " + ", ".join(f"{what} ({step})" for step, what in STEPS.items()),
-    "a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX",
-)
-REGRID_LEGEND = (
-    "the numbered arrows are one regrid: " + ", ".join(f"{what} ({step})" for step, what in REGRID_STEPS.items()),
-    "the table below lists every entry an outsider calls",
-)
+PASS_LEGEND = ("a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX",)
+REGRID_LEGEND: tuple[str, ...] = ()
 
 
 def rules_of(layer: str) -> list[str]:
@@ -538,10 +512,6 @@ def registrations(root: str = PROJECT) -> list[str]:
     return list(dict.fromkeys(REGISTRATION.findall(read(os.path.join(root, STARTUP)))))
 
 
-def extern_c_files(root: str = PROJECT) -> list[str]:
-    return [os.path.basename(path) for path in sources(root, "flesh") if path.endswith(".cxx") and EXTERN_C.search(read(path))]
-
-
 def top_down(found: dict[str, tuple[str, ...]]) -> list[tuple[str, tuple[str, ...]]]:
     return sorted(found.items(), key=lambda item: top_down_order(item[0]))
 
@@ -555,7 +525,7 @@ def by_layer(rows: tuple[tuple[str, tuple[str, ...]], ...]) -> dict[str, tuple[s
     return found
 
 
-def registered(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
+def hold_registered(root: str = PROJECT) -> None:
     found = registrations(root)
     claimed = [name for _, names in REGISTERED for name in names]
     unlisted = [name for name in found if name not in claimed]
@@ -569,7 +539,6 @@ def registered(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
         missing = [name for name in names if not defined(text, name)]
         if missing:
             raise ValueError(f"{', '.join(missing)} not defined in {file}, where its row in scripts/lint/boundary/doc.py says it is")
-    return by_layer(REGISTERED)
 
 
 def prototypes(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
@@ -659,6 +628,7 @@ def draw(edges: dict[tuple[str, str, str], tuple[str, ...]]) -> str:
 def the_pass(root: str = PROJECT) -> str:
     for row in PASS:
         hold(root, row)
+    hold_registered(root)
     edges: dict[tuple[str, str, str], tuple[str, ...]] = {}
     for layer, names in top_down(public_bodies(root)):
         edges[(BODIES, "thorn", layer)] = tuple(public_headers(root, names)) if layer == PUBLIC_LAYER else names
@@ -675,30 +645,8 @@ def the_regrid(root: str = PROJECT) -> str:
     return draw({(step, source, target): names for step, source, target, names, _ in REGRID})
 
 
-ENTRIES_HEADING = "## Who the outsiders call"
-ENTRIES_INTRO = "An outsider decides when a layer works: it calls one of these entries. Each row is a layer, who calls into it, and what they call."
-
-
-def entries(root: str = PROJECT) -> str:
-    rows: list[tuple[str, str, str]] = [("flesh", "Cactus flesh", f'every extern "C" in {", ".join(extern_c_files(root))}')]
-    rows += [(layer, "Cactus flesh", ", ".join(names)) for layer, names in registered(root).items()]
-    bodies = public_bodies(root)
-    rows.append((PUBLIC_LAYER, "a thorn", f"every function of {', '.join(public_headers(root, bodies[PUBLIC_LAYER]))} not named in a row below"))
-    rows += [(layer, "a thorn", ", ".join(names)) for layer, names in bodies.items() if layer != PUBLIC_LAYER]
-    rows.append((layer_of(CALLBACKS[0]), "AMReX", ", ".join(CALLBACKS[1])))
-    rows.sort(key=lambda row: top_down_order(row[0]))
-    lines = [ENTRIES_HEADING, "", ENTRIES_INTRO, "", "| Layer | Caller | Entries |", "| --- | --- | --- |"]
-    lines.extend(f"| `{layer}/` | {caller} | {what} |" for layer, caller, what in rows)
-    return "\n".join(lines) + "\n"
-
-
 OWNS_HEADING = "## What each layer owns"
-OWNS_INTRO = (
-    "New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides, then names the rules whose home is in it. "
-    f"Under a layer that the table STEMS in {STEMS_HOME} lists is one row per file stem, a header and its source sharing the stem, that says the one concern the stem holds: "
-    "a stem with no row or a row with no stem fails the generator, `scripts/lint symbols` refuses a definition there that the header of its stem does not declare, "
-    "and the tests refuse a source there with no header and an include of one of its headers that uses no name the header declares."
-)
+OWNS_INTRO = "New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. A row under a layer is a file stem and the one concern it holds."
 
 
 def owns(root: str = PROJECT) -> str:
@@ -711,14 +659,6 @@ def owns(root: str = PROJECT) -> str:
     return "\n".join([OWNS_HEADING, "", OWNS_INTRO, ""] + rows) + "\n"
 
 
-GRANTS_HEADING = "## Who is granted what"
-GRANTS_INTRO = (
-    f"Each row is a name that a `friend` line in a header of `{GRANT_LAYER}/` grants, and the types whose private members it reaches. "
-    f"An alias `using name = {GRANT_WRAPPER}<T, W>;` is the friend line of `W` under `T`: every holder reads `T` through it, only `W` opens it for writing, and the rule refuses `{GRANT_WRAPPER}` with arguments in any other form. "
-    f"The table GRANTS in {GRANTS_HOME} is those lines: the grant rule refuses a friend line the table lacks, and the tests refuse an entry no line backs."
-)
-
-
 def grant_headers(root: str = PROJECT) -> dict[str, str]:
     return {layer_path(GRANT_LAYER, os.path.basename(path)): read(path) for path in sources(root, GRANT_LAYER) if path.endswith(".hxx")}
 
@@ -728,30 +668,17 @@ def unbacked(root: str = PROJECT) -> list[tuple[str, str]]:
     return [(owner, friend) for owner, granted in GRANTS.items() for friend in granted if (owner, friend) not in found]
 
 
-def grants(root: str = PROJECT) -> str:
+def hold_grants(root: str = PROJECT) -> None:
     stray = [f"{header}:{line}" for header, text in grant_headers(root).items() for line in ungranted(header, text)]
     if stray:
         raise ValueError(f"{', '.join(stray)}: a friend line that no entry of GRANTS in {GRANTS_HOME} lists: add the entry")
     stale = unbacked(root)
     if stale:
         raise ValueError(f"{', '.join(f'{friend} in {owner}' for owner, friend in stale)}: an entry of GRANTS in {GRANTS_HOME} that no friend line backs: remove it")
-    reaches: dict[str, list[str]] = {}
-    for owner, granted in GRANTS.items():
-        for friend in granted:
-            reaches.setdefault(friend, []).append(owner)
-    lines = [GRANTS_HEADING, "", GRANTS_INTRO, "", "| Granted | Private members of |", "| --- | --- |"]
-    lines.extend(f"| `{friend}` | {', '.join(f'`{owner}`' for owner in owners)} |" for friend, owners in reaches.items())
-    return "\n".join(lines) + "\n"
 
 
 TITLE = "# CarpetX's internals"
-PREAMBLE = (
-    "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py`, "
-    f"the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `{STARTUP}`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when "
-    "the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX "
-    "only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule "
-    "named below holds. The list under each picture is its key."
-)
+PREAMBLE = "`python3 scripts/lint doc --write` writes this file. `python3 scripts/lint check --help` prints what every rule named below holds."
 SECTIONS: tuple[tuple[str, Callable[[str], str], tuple[str, ...]], ...] = (
     ("The stack", stack, STACK_LEGEND),
     ("One pass of the schedule", the_pass, PASS_LEGEND),
@@ -766,8 +693,9 @@ def legend(texts: tuple[str, ...]) -> str:
 def render(root: str = PROJECT) -> str:
     parts = [TITLE, "", PREAMBLE, ""]
     for title, picture, texts in SECTIONS:
-        parts.extend([f"## {title}", "", "```mermaid", picture(root).rstrip("\n"), "```", "", legend(texts)])
-    parts.append(entries(root))
+        parts.extend([f"## {title}", "", "```mermaid", picture(root).rstrip("\n"), "```", ""])
+        if texts:
+            parts.append(legend(texts))
+    hold_grants(root)
     parts.append(owns(root))
-    parts.append(grants(root))
     return "\n".join(parts)

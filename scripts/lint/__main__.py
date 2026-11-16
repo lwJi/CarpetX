@@ -16,8 +16,8 @@ How the checks are run:
   from another branch is not judged, only the merge's own resolution. `check --since origin/dev` shows
   what all of them would report; the rules are in agent_docs/code-comments.md and
   agent_docs/carpetx-public-api.md, and `check --help` prints every boundary rule. `doc --write` writes
-  agent_docs/carpetx-internals.md, the map of CarpetX/src, and agent_docs/carpetx-public-api.md, the guide
-  to its headers. `symbols` needs a build: the CI workflow runs it after every build and
+  agent_docs/carpetx-internals.md, the map of CarpetX/src, agent_docs/carpetx-public-api.md, the guide
+  to carpetx.hxx, and agent_docs/carpetx-rk-api.md, the integrator's contract. `symbols` needs a build: the CI workflow runs it after every build and
   agent_scripts/build.sh after a successful one.
 """
 HOOKS = {"hook-edit": "hook_edit", "hook-stop": "hook_stop"}
@@ -51,7 +51,7 @@ def run_check(checks, paths: list[str], since: str | None = None) -> int:
 def generated_docs() -> dict[str, tuple[str, object]]:
     from boundary import doc, guide
 
-    return {"internals": (doc.MAP, doc.render), "public-api": (guide.GUIDE, guide.render)}
+    return {"internals": (doc.MAP, doc.render), "public-api": (guide.GUIDE, guide.render), "rk-api": (guide.RK_GUIDE, guide.render_rk)}
 
 
 def run_doc(write: bool, names: list[str]) -> int:
@@ -154,9 +154,9 @@ def main(argv: list[str] | None = None) -> int:
     symbols.add_argument("objdir", metavar="OBJDIR", help="the build directory holding one subdirectory of .cxx.o per layer, such as configs/sim/build/CarpetX")
     doc = commands.add_parser(
         "doc",
-        help="print the generated docs as --write writes them: internals, agent_docs/carpetx-internals.md, the map of CarpetX/src, and public-api, agent_docs/carpetx-public-api.md, the guide to its headers",
+        help="print the generated docs as --write writes them: internals, agent_docs/carpetx-internals.md, the map of CarpetX/src, public-api, agent_docs/carpetx-public-api.md, the guide to carpetx.hxx, and rk-api, agent_docs/carpetx-rk-api.md, the integrator's contract",
     )
-    doc.add_argument("names", nargs="*", choices=["internals", "public-api"], metavar="DOC", help="internals or public-api (default: both)")
+    doc.add_argument("names", nargs="*", choices=["internals", "public-api", "rk-api"], metavar="DOC", help="internals, public-api or rk-api (default: all)")
     doc.add_argument("--write", action="store_true", help="write the files instead")
     commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a finding or that touches the generated map")
     commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a finding")

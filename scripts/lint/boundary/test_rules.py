@@ -2336,6 +2336,12 @@ class Guide(unittest.TestCase):
         with open(os.path.join(PROJECT, guide.GUIDE)) as f:
             text = f.read()
         self.assertEqual(guide.render(), text, "run python3 scripts/lint doc --write")
+        with open(os.path.join(PROJECT, guide.RK_GUIDE)) as f:
+            text = f.read()
+        self.assertEqual(guide.render_rk(), text, "run python3 scripts/lint doc --write")
+        self.assertEqual(guide.SECTIONS, guide.GENERAL + guide.RK_SECTIONS)
+        self.assertEqual(re.findall(r"^## (.*)$", guide.render() + guide.render_rk(), re.MULTILINE), [section.title for section in guide.SECTIONS])
+        self.assertNotIn("rhs_computed", guide.render())
 
     def test_a_span_names_what_is_called_qualified_or_a_type_and_nothing_foreign(self):
         text = '`window.narrow(min_level, max_level)`, `rk_config_t{b}`, `tl_t::next()`, `CCTK_GroupIndex("x")`, `std::array{gi}`, `Loop::GridDescBase`, `Timer`, `cctkGH->cctk_delta_time`, `Array4<const T>`, `{min, max}` and `USES INCLUDE HEADER: carpetx.hxx`'
@@ -2407,8 +2413,7 @@ class Guide(unittest.TestCase):
         with mock.patch.object(guide, "SECTIONS", twice):
             with self.assertRaisesRegex(ValueError, "^write_twice is a refusal of both 'Indices and handles' and 'Data, validity and the write scope' in scripts/lint/boundary/guide.py$"):
                 guide.hold_refusals(found)
-        self.assertIn("Refusals: `write_twice`, `write_unfilled`, ", guide.render())
-        self.assertIn("Refusals: `too_many_levels`, `output_unknown_variable`.", guide.render())
+        self.assertNotIn("write_twice", guide.render())
 
     def test_a_row_is_held_by_functions_defined_where_it_says(self):
         for section in guide.SECTIONS:
@@ -2423,8 +2428,7 @@ class Guide(unittest.TestCase):
             guide.hold_bound(PROJECT, section, guide.Row("text", ("api/api.cxx",)))
         with self.assertRaisesRegex(ValueError, "^open_rk_step is not defined in CarpetX/src/api/api.cxx, where a row of 'Indices and handles' in scripts/lint/boundary/guide.py says it is$"):
             guide.hold_bound(PROJECT, section, guide.Row("text", ("api/api.cxx:open_rk_step",)))
-        self.assertEqual(guide.held(guide.Row("text", ("api/api.cxx:write", "api/api.cxx:invalidate", "hierarchy/scopes.cxx:write_scope_t"))), "Held by `write`, `invalidate` in `api/api.cxx`; `write_scope_t` in `hierarchy/scopes.cxx`.")
-        self.assertIn("its box. Held by `variable`, `levels`, ", guide.render())
+        self.assertNotIn("handles.cxx", guide.render())
 
     def test_an_unexercised_name_is_declared_unused_and_listed_once(self):
         declared = guide.declared_names(PROJECT)
@@ -2471,8 +2475,6 @@ class Doc(unittest.TestCase):
             doc.reads(PROJECT)
         with mock.patch.dict(READS, {"api": ("util", "hierarchy", "comm", "schedule")}), self.assertRaises(AssertionError):
             doc.reads(PROJECT)
-        self.assertIn("io/ reads util/, traversal/, config/, hierarchy/, comm/, ops/; ", doc.STACK_LEGEND[0])
-        self.assertIn("util/ reads nothing; traversal/ reads util/; ", doc.STACK_LEGEND[0])
 
     def test_the_table_of_grants_is_the_friend_lines_the_tree_has(self):
         headers = doc.grant_headers()
@@ -2487,7 +2489,7 @@ class Doc(unittest.TestCase):
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):
-                doc.grants()
+                doc.hold_grants()
         text = headers[Grant.MODEL]
         scratch = text.splitlines().index("        using sealed_scratch_pool_t =") + 1
         binding = text.splitlines().index("        using sealed_ring_t = written_by<ring_t, cctkGH_binding>;") + 1
@@ -2496,22 +2498,7 @@ class Doc(unittest.TestCase):
             self.assertEqual([(f.line, f.rule) for f in findings(Grant.MODEL, text, Lang.CXX) if f.rule == "grant"], [(binding, "grant"), (scratch, "grant")])
             self.assertEqual(doc.unbacked(), [])
             with self.assertRaises(ValueError):
-                doc.grants()
-
-    def test_the_grants_table_is_grants_inverted(self):
-        lines = doc.grants().splitlines()
-        self.assertEqual(lines[:6], [doc.GRANTS_HEADING, "", doc.GRANTS_INTRO, "", "| Granted | Private members of |", "| --- | --- |"])
-        rows = {line.split(" | ")[0].strip("|` "): line.split(" | ")[1].rstrip(" |") for line in lines[6:]}
-        self.assertEqual(set(rows), {friend for granted in rules.GRANTS.values() for friend in granted})
-        self.assertEqual(rows["clock_writer_t"], "`GHExt::PatchData::LevelData::clock_t`, `cctkGH_binding`, `cctkGH_clock`")
-        self.assertEqual(rows["stage_writer_t"], "`cctkGH_clock`")
-        self.assertEqual(rows["cctkGH_clock"], "`GHExt::run_clock_t`, `GHExt::shown_stage_t`")
-        self.assertEqual(rows["operator<<"], "`why_valid_t`, `GridPtrDesc1`")
-        self.assertEqual(rows["hierarchy_writers_t"], "`GHExt`, `clock_writer_t`, `stage_writer_t`, `structure_writer_t`, `registry_writer_t`, `scratch_writer_t`")
-        for friend, owners in rows.items():
-            with self.subTest(friend=friend):
-                self.assertEqual(owners, ", ".join(f"`{owner}`" for owner, granted in rules.GRANTS.items() if friend in granted))
-        self.assertNotRegex(doc.render(), r"\b(two|three|four|five|six|seven|eight|nine) (writers|holders)\b")
+                doc.hold_grants()
 
     def test_the_stack_is_two_boxes_over_a_floor_with_no_forced_order(self):
         drawn = doc.stack()
@@ -2639,11 +2626,13 @@ class Doc(unittest.TestCase):
     def test_render_is_the_whole_map(self):
         text = doc.render()
         self.assertTrue(text.startswith(doc.TITLE + "\n\n" + doc.PREAMBLE + "\n\n## The stack\n\n```mermaid\n" + doc.stack() + "```\n\n" + doc.legend(doc.STACK_LEGEND) + "\n## "))
-        self.assertTrue(text.endswith(doc.legend(doc.REGRID_LEGEND) + "\n" + doc.entries() + "\n" + doc.owns() + "\n" + doc.grants()))
+        self.assertEqual(doc.REGRID_LEGEND, ())
+        self.assertTrue(text.endswith("```\n\n" + doc.owns()))
         for title, picture, texts in doc.SECTIONS:
             with self.subTest(title=title):
-                self.assertIn(f"\n## {title}\n\n```mermaid\n" + picture(PROJECT) + "```\n\n" + doc.legend(texts) + "\n", text)
-        self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), ["## The stack", "## One pass of the schedule", "## One regrid", doc.ENTRIES_HEADING, doc.OWNS_HEADING, doc.GRANTS_HEADING])
+                self.assertIn(f"\n## {title}\n\n```mermaid\n" + picture(PROJECT) + "```\n\n" + (doc.legend(texts) + "\n" if texts else ""), text)
+        self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), ["## The stack", "## One pass of the schedule", "## One regrid", doc.OWNS_HEADING])
+        self.assertNotRegex(text, r"\b(two|three|four|five|six|seven|eight|nine) (writers|holders)\b")
         self.assertEqual(text.count("```"), 6)
         self.assertEqual(doc.legend(("a", "b")), "- a\n- b\n")
         for name in re.findall(r"`([^`\n]+)`", doc.PREAMBLE):
@@ -2682,7 +2671,7 @@ class Doc(unittest.TestCase):
             [
                 "  - `model`: `GHExt`, its nested types, and the door `driver()`",
                 "  - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
-                "  - `clock`: the only place the model's run clock and the stage it shows are opened, and the only writes to the cGH clock fields: `cctkGH_clock` applies a change a clock or stage writer asks for and publishes the run clock, or in its place the time and step of the shown stage, to the flesh's cGH and to every copy of it, so no change goes unpublished; and the check that a cGH a scheduled function returns still shows it",
+                "  - `clock`: the only place the model's run clock and the stage it shows are opened, and the only writes to the cGH clock fields: `cctkGH_clock` publishes every change to the flesh's cGH and to every copy of it; and the check that a cGH a scheduled function returns still shows it",
                 "  - `valid`: the validity state a time level stores",
                 "  - `scopes`: the only way to change that state: write, require and invalidate",
                 "  - `binding`: the only writes to the cGH pointer table",
@@ -2705,19 +2694,18 @@ class Doc(unittest.TestCase):
                     else:
                         self.assertTrue(any(word in words for word in re.findall(r"[A-Za-z_]\w+", name)), f"{name} is not in CarpetX/src")
 
-    def test_every_picture_is_followed_by_its_key_in_mermaid_obsidian_takes(self):
+    def test_a_picture_is_followed_by_the_key_it_has_in_mermaid_obsidian_takes(self):
         text = doc.render()
         for title, picture, texts in doc.SECTIONS:
             with self.subTest(title=title):
                 drawn = picture(PROJECT)
-                self.assertIn("```mermaid\n" + drawn + "```\n\n" + doc.legend(texts), text)
+                self.assertIn("```mermaid\n" + drawn + "```\n\n" + (doc.legend(texts) if texts else "## "), text)
                 for line in drawn.splitlines():
                     self.assertNotIn("%%", line)
                     self.assertNotRegex(re.sub(r'"[^"]*"', "", line), r"[;\\]|::|[^\x00-\x7f]")
                 for item in texts:
                     self.assertNotIn("\n", item)
-        self.assertIn("regrid/ reads hierarchy/, comm/; ops/ reads util/, traversal/, hierarchy/; ", doc.STACK_LEGEND[0])
-        self.assertTrue(doc.STACK_LEGEND[0].endswith(rules.READS_TEXT))
+        self.assertIn(rules.READS_HOME, doc.STACK_LEGEND[0])
         self.assertIn(("hierarchy", "model.hxx"), doc.layer_includes(PROJECT, "flesh"))
         self.assertIn(("door", "include"), doc.floor())
 
@@ -2765,11 +2753,6 @@ class Doc(unittest.TestCase):
                 self.assertEqual(sorted(set(numbered), key=int), sorted(steps, key=int))
         self.assertEqual(doc.the_regrid().splitlines()[-1].split(" -- ")[0], "  amrex")
         self.assertNotIn("regrid", doc.the_pass())
-        table = doc.entries().splitlines()
-        self.assertEqual(table[:6], [doc.ENTRIES_HEADING, "", doc.ENTRIES_INTRO, "", "| Layer | Caller | Entries |", "| --- | --- | --- |"])
-        layers = [row.split("`")[1].rstrip("/") for row in table[6:]]
-        self.assertEqual(layers, sorted(layers, key=lambda layer: -LAYERS.index(layer)))
-        self.assertTrue({"flesh", "api", "schedule", "regrid"} <= set(layers), layers)
 
     def test_every_row_of_the_loop_and_the_tables_is_held_to_the_tree(self):
         def define(name):
@@ -2829,7 +2812,6 @@ class Doc(unittest.TestCase):
 
             write({})
             self.assertEqual(doc.registrations(root), [name for _, names in doc.REGISTERED for name in names])
-            self.assertEqual(doc.extern_c_files(root), ["startup.cxx"])
             self.assertEqual(doc.prototypes(root), {doc.PUBLIC_HEADERS[0]: ("num_patches", "synchronize", "reduce", "operator<<", "prolongate", "symmetries", "variable", "active_window", "all_levels"), doc.PUBLIC_HEADERS[1]: ("register_integrator",)})
             self.assertEqual(doc.public_bodies(root), {"api": ("num_patches", "prolongate", "symmetries", "register_integrator"), "hierarchy": ("variable", "active_window", "all_levels", "synchronize", "valid_t"), "config": ("operator<<",), "ops": ("reduce",), "util": ("Timer",)})
             lines = doc.the_pass(root).splitlines()
@@ -2872,32 +2854,15 @@ class Doc(unittest.TestCase):
                     '  amrex -- "3 ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel" --> regrid',
                 ],
             )
-            self.assertEqual(
-                doc.entries(root).splitlines()[6:],
-                [
-                    '| `flesh/` | Cactus flesh | every extern "C" in startup.cxx |',
-                    "| `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, Initialise_entry, Evolve_entry, MyProc, nProcs, Exit, Abort, Barrier, EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |",
-                    "| `api/` | a thorn | every function of carpetx.hxx, carpetx_rk.hxx not named in a row below |",
-                    "| `schedule/` | Cactus flesh | Shutdown, QueryGroupStorageB |",
-                    "| `io/` | Cactus flesh | OutputGH |",
-                    "| `ops/` | Cactus flesh | InterpLocalUniform |",
-                    "| `ops/` | a thorn | reduce |",
-                    "| `regrid/` | AMReX | ErrorEst, MakeNewLevelFromScratch, MakeNewLevelFromCoarse, RemakeLevel, ClearLevel |",
-                    "| `comm/` | Cactus flesh | SyncGroupsOnActiveLevels |",
-                    "| `hierarchy/` | a thorn | variable, active_window, all_levels, synchronize, valid_t |",
-                    "| `config/` | a thorn | operator<< |",
-                    "| `util/` | a thorn | Timer |",
-                ],
-            )
             startup = files[doc.STARTUP]
             evolve = files[layer_path("schedule", "evolve.cxx")]
             io_cxx = files[layer_path("io", "io.cxx")]
             writers_cxx = files[layer_path("hierarchy", "writers.cxx")]
             storage_cxx = files[layer_path("schedule", "storage.cxx")]
             for message, changes, draw in [
-                ("Foo registered in CarpetX/src/flesh/startup.cxx but in no row of REGISTERED", {doc.STARTUP: startup.replace("  CCTK_OverloadSetupGH(SetupGH);\n", "  CCTK_OverloadSetupGH(SetupGH);\n  CCTK_OverloadFoo(Foo);\n")}, doc.entries),
-                ("Shutdown in a row of REGISTERED in scripts/lint/boundary/doc.py but not registered", {doc.STARTUP: startup.replace("  CCTK_OverloadShutdown(Shutdown);\n", "")}, doc.entries),
-                ("OutputGH not defined in CarpetX/src/io/io.cxx, where its row", {layer_path("io", "io.cxx"): "int f() {\n  if (OutputGH(0)) {\n  }\n  return 0;\n}\n"}, doc.entries),
+                ("Foo registered in CarpetX/src/flesh/startup.cxx but in no row of REGISTERED", {doc.STARTUP: startup.replace("  CCTK_OverloadSetupGH(SetupGH);\n", "  CCTK_OverloadSetupGH(SetupGH);\n  CCTK_OverloadFoo(Foo);\n")}, doc.hold_registered),
+                ("Shutdown in a row of REGISTERED in scripts/lint/boundary/doc.py but not registered", {doc.STARTUP: startup.replace("  CCTK_OverloadShutdown(Shutdown);\n", "")}, doc.hold_registered),
+                ("OutputGH not defined in CarpetX/src/io/io.cxx, where its row", {layer_path("io", "io.cxx"): "int f() {\n  if (OutputGH(0)) {\n  }\n  return 0;\n}\n"}, doc.hold_registered),
                 ("OutputGH not defined in CarpetX/src/io/io.cxx, where step 4 lands", {layer_path("io", "io.cxx"): io_cxx.replace("int OutputGH(const cGH *cctkGH) {", "int Output(const cGH *cctkGH) {")}, doc.the_pass),
                 ("CCTK_Traverse not called in CarpetX/src/schedule/evolve.cxx, where step 2 starts", {layer_path("schedule", "evolve.cxx"): re.sub(r"  CCTK_Traverse\(.*\n", "", evolve)}, doc.the_pass),
                 ("CCTK_ScheduleTraverse not called in CarpetX/src/flesh/startup.cxx, where step 5 starts", {doc.STARTUP: startup.replace("CCTK_ScheduleTraverse(where, cctkGH, CallFunction)", "0")}, doc.the_pass),
@@ -2908,8 +2873,8 @@ class Doc(unittest.TestCase):
                 ("structure.regrid not called in schedule/, where step 1 starts", {layer_path("schedule", "evolve.cxx"): evolve.replace("  structure.regrid(level, time);\n", "  amrcore->regrid(level, time);\n")}, doc.the_regrid),
                 ("structure_writer_t::regrid not defined in CarpetX/src/hierarchy/writers.cxx, where step 1 lands", {layer_path("hierarchy", "writers.cxx"): writers_cxx.replace("structure_writer_t::regrid", "clock_writer_t::regrid")}, doc.the_regrid),
                 ("amrcore_->regrid not called in CarpetX/src/hierarchy/writers.cxx, where step 2 starts", {layer_path("hierarchy", "writers.cxx"): writers_cxx.replace("  ext.amrcore_->regrid(base.index(), time);\n", "")}, doc.the_regrid),
-                ("nowhere declared in a public header but defined in no api/ file and in no row of PUBLIC_BODIES", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "int nowhere();\n"}, doc.entries),
-                ("CarpetX/src/include/carpetx_rk.hxx:2 declares something the map cannot name: void (*handler)(int);", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "void (*handler)(int);\n"}, doc.entries),
+                ("nowhere declared in a public header but defined in no api/ file and in no row of PUBLIC_BODIES", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "int nowhere();\n"}, doc.the_pass),
+                ("CarpetX/src/include/carpetx_rk.hxx:2 declares something the map cannot name: void (*handler)(int);", {doc.PUBLIC_HEADERS[1]: files[doc.PUBLIC_HEADERS[1]] + "void (*handler)(int);\n"}, doc.the_pass),
                 ("operator<< not defined in CarpetX/src/config/boundaries.cxx, where its row of PUBLIC_BODIES", {layer_path("config", "boundaries.cxx"): "int tags() {\n  return 0;\n}\n"}, doc.the_pass),
                 ("reduce not defined in CarpetX/src/ops/reduction.cxx, where its row of PUBLIC_BODIES", {layer_path("ops", "reduction.cxx"): "int reduced() {\n  return 0;\n}\n"}, doc.the_pass),
             ]:
@@ -2921,14 +2886,14 @@ class Doc(unittest.TestCase):
             with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("util", "timer.cxx"), ("Nowhere",)),)), self.assertRaisesRegex(ValueError, "Nowhere is in a row of PUBLIC_BODIES"):
                 doc.the_pass(root)
             with mock.patch.object(doc, "PUBLIC_BODIES", ((layer_path("api", "api.cxx"), ("num_patches",)),)), self.assertRaisesRegex(ValueError, "in api/, at or above api/"):
-                doc.entries(root)
+                doc.the_pass(root)
             with mock.patch.dict(rules.GRANTS, {}, clear=True):
                 self.assertEqual(doc.render(root).count("```"), 6)
                 write({layer_path("hierarchy", "model.hxx"): "struct GHExt {\n  friend class clock_writer_t;\n};\n"})
                 with self.assertRaisesRegex(ValueError, re.escape("CarpetX/src/hierarchy/model.hxx:2: a friend line that no entry of GRANTS in scripts/lint/boundary/rules.py lists")):
                     doc.render(root)
                 rules.GRANTS["GHExt"] = ("clock_writer_t",)
-                self.assertTrue(doc.render(root).endswith("| --- | --- |\n| `clock_writer_t` | `GHExt` |\n"))
+                self.assertEqual(doc.render(root).count("```"), 6)
                 rules.GRANTS["GHExt"] = ("clock_writer_t", "scratch_writer_t")
                 with self.assertRaisesRegex(ValueError, re.escape("scratch_writer_t in GHExt: an entry of GRANTS in scripts/lint/boundary/rules.py that no friend line backs")):
                     doc.render(root)
