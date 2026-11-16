@@ -10,6 +10,7 @@ from .rules import RULES
 from files import PROJECT, is_thorn
 
 GUIDE = "agent_docs/carpetx-public-api.md"
+RK_GUIDE = "agent_docs/carpetx-rk-api.md"
 THORN = "TestCarpetXAPI"
 SOURCES = f"{THORN}/src"
 TESTS = f"{THORN}/test"
@@ -50,29 +51,30 @@ class Section:
 
 
 TITLE = "# CarpetX's public API"
-PREAMBLE = (
-    "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/guide.py`, and the edit hook refuses an edit here. "
-    "A row says only what a header cannot: a signature is read in the header."
-)
+WRITTEN = "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/guide.py`. A row says only what a header cannot: a signature is read in the header."
 BOUNDARY: tuple[str, ...] = (
-    "A thorn reaches CarpetX through the two headers `CarpetX/interface.ccl` exports from `CarpetX/src/include/`: `carpetx.hxx` for a general thorn, and `carpetx_rk.hxx` for the time integrator. "
-    "Every other header under `CarpetX/src/` refuses a compilation that is not CarpetX's own, and `agent_docs/carpetx-internals.md` maps the inside.",
-    f"`{THORN}` is a client of both headers: its `interface.ccl` and `configuration.ccl` are what a client declares, `{SOURCES}/` is a worked use of the calls below, "
+    WRITTEN,
+    f"A thorn reaches CarpetX through `carpetx.hxx`, and the time integrator also through `carpetx_rk.hxx`, whose contract is in `{RK_GUIDE}`. "
+    f"`{THORN}` is a client of both: its `interface.ccl` and `configuration.ccl` are what a client declares, `{SOURCES}/` is a worked use of the calls below, "
     f"and each parfile of `{ERRORS}/` is a call CarpetX refuses, with the text it aborts with in the `.expect` file beside it. "
-    "Every call is available between the driver's SetupGH and its Shutdown, and a bad argument is a `CCTK_VERROR`, never garbage.",
+    "Every call is available between the driver's SetupGH and its Shutdown, and a bad argument or a stale handle is a `CCTK_VERROR`.",
+)
+RK_TITLE = "# CarpetX's integrator API"
+RK_BOUNDARY: tuple[str, ...] = (
+    WRITTEN,
+    f"`carpetx_rk.hxx` is for the one thorn that is the time integrator. `{GUIDE}` covers `carpetx.hxx` and the validity regions named here, and `{THORN}` is a client of both.",
 )
 UNEXERCISED = ("restrict_no_poison", "scratch")
-SECTIONS: tuple[Section, ...] = (
+GENERAL: tuple[Section, ...] = (
     Section(
         "Indices and handles",
         (
             Row(
                 "`vi_t` is a variable's place in its group and `var_t` the flesh's variable index. "
-                "A handle is made of indices and resolved on every call, so a stale one is reported, never dereferenced. "
                 "`window_t` is a half-open range of levels on a half-open range of patches: `levels` spans every patch, `narrow` keeps the patches of its window, and `coarsest` and `finest` are on its first patch. "
-                "A window checks its bounds when it is built, so the error names the line that built it. "
-                "`component_t` is a box of a level, AMReX's global box index and the flesh's `cctk_component`; `tile_t` is one tile of the tiled traversal over this rank's boxes and carries the `component_t` it lies in, so `loop_parallel` hands its kernel the `level_t`, the `tile_t` and the local cGH, and a tile is looked up by its slot and checked against its box.",
-                ("hierarchy/handles.cxx:variable", "hierarchy/handles.cxx:levels", "hierarchy/handles.cxx:narrow", "hierarchy/handles.cxx:coarsest", "hierarchy/handles.cxx:finest", "hierarchy/handles.cxx:require_window_bounds", "hierarchy/handles.cxx:loop_parallel", "hierarchy/model.hxx:level", "hierarchy/model.hxx:get_local_cctkGH", "config/indices.hxx:tile_of"),
+                "`component_t` is a box of a level, AMReX's global box index and the flesh's `cctk_component`; `tile_t` is one tile of the tiled traversal over this rank's boxes and carries the `component_t` it lies in. "
+                "`loop_parallel` hands its kernel the `level_t`, the `tile_t` and the local cGH.",
+                ("hierarchy/handles.cxx:variable", "hierarchy/handles.cxx:levels", "hierarchy/handles.cxx:narrow", "hierarchy/handles.cxx:coarsest", "hierarchy/handles.cxx:finest", "hierarchy/handles.cxx:loop_parallel", "hierarchy/model.hxx:level", "hierarchy/model.hxx:get_local_cctkGH", "config/indices.hxx:tile_of"),
             ),
         ),
         exercised_by=("compile_checks.cxx", "TestCarpetXAPI_Fill"),
@@ -94,7 +96,7 @@ SECTIONS: tuple[Section, ...] = (
                 ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/model.cxx:LevelData", "hierarchy/scopes.cxx:loop_ghost_halves", "hierarchy/scopes.cxx:check_valid_gf", "comm/sync_restrict.cxx:apply_outer_boundary"),
             ),
             Row(
-                "`scratch(group)` is shaped like `data(group, tl_t{0})` and comes from a per-group pool its destructor returns it to; the pool dies with its level on a regrid, after which a `scratch_t` is an error, not a dangling pointer. It has no validity bits.",
+                "`scratch(group)` is shaped like `data(group, tl_t{0})` and has no validity bits; a regrid frees it, after which a `scratch_t` is an error.",
                 ("api/api.cxx:scratch", "api/api.cxx:resolve_scratch", "api/api.cxx:scratch_t"),
             ),
         ),
@@ -120,7 +122,7 @@ SECTIONS: tuple[Section, ...] = (
         (
             Row(
                 "The BoxArray and DistributionMapping of a level are those of any group's MultiFab on it, and the refinement ratio is 2. "
-                "Driver parameters are read through the flesh, `SHARES: Driver` or `CCTK_ParameterGet`, and CarpetX checks its own.",
+                "Driver parameters are read through the flesh, `SHARES: Driver` or `CCTK_ParameterGet`.",
                 ("hierarchy/model.cxx:PatchData", "hierarchy/model.cxx:GroupData", "config/grid_sizes.cxx:per_level_max_grid_sizes", "io/selection.cxx:select_groups"),
             ),
         ),
@@ -131,37 +133,40 @@ SECTIONS: tuple[Section, ...] = (
         "The clock a routine sees",
         (
             Row(
-                "`cctk_iteration`, `cctk_time`, `cctk_delta_time` and `cctk_timefac` are the run clock that CarpetX holds, with the time and step of a `run_schedule_group_at` in place of the run's for the length of its traversal, and every cGH shows it: the flesh's, and each level, patch and tile copy. "
-                "A thorn reads them and never assigns them; when a scheduled function returns, CarpetX compares the cGH it was handed, the flesh's or for a local-mode function each tile copy, with the run clock in every build, and a cGH that disagrees stops the run, naming the function, the field, the cGH's value and the run clock's.",
+                "`cctk_iteration`, `cctk_time`, `cctk_delta_time` and `cctk_timefac` are the run clock that CarpetX holds, and every cGH shows it. "
+                "A thorn reads them and never assigns them: when a scheduled function returns, a cGH that disagrees with the run clock stops the run.",
                 ("hierarchy/clock.cxx:publish_clock", "hierarchy/clock.cxx:require_current_clock", "schedule/callfunction.cxx:CallFunction"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Fill",),
         refusals=("clock_stale",),
     ),
+)
+RK_SECTIONS: tuple[Section, ...] = (
     Section(
-        "The integrator's contract: `carpetx_rk.hxx`",
+        "The integrator's contract",
         (
             Row(
-                "Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step; CarpetX derives everything else, and runs without a registration until `open_rk_step`. "
-                "Registration is `AT WRAGH`, once; the record freezes when that traversal ends. "
+                "Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step. "
+                "Registration is `AT WRAGH`, once. "
                 "`dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. "
                 "`b` holds the final-update weight of every stage, all zero for a method that never updates the state.",
-                ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "hierarchy/model.cxx:record_integrator", "hierarchy/model.cxx:freeze_integrator"),
+                ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "hierarchy/model.cxx:record_integrator"),
             ),
             Row(
-                "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on every cGH for the traversal and then restores both, whichever cGH is passed; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
+                "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on every cGH for the traversal and then restores both; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
                 ("api/api_rk.cxx:run_schedule_group_at",),
             ),
             Row(
-                "`open_rk_step` is called once the state holds u(t_n), outside any OpenMP parallel region, and stores the old state of every registered pair with storage on each level of the window. "
-                "`rhs_computed` stores the stage band and feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
-                "`state_updated` says the state holds the next stage value: under subcycling CarpetX fills the refinement boundary of every refined level in the window from its own clocks, scans the coarse-fine ghosts it wrote and marks them valid; the same-level ghosts and the outer boundary of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep, which exchanges the same-level ghosts and then applies the boundary condition. Without subcycling the last `state_updated` applies the flux registers.",
+                "`open_rk_step` is called once the state holds u(t_n), outside any OpenMP parallel region. "
+                "`rhs_computed` feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
+                "`state_updated` says the state holds the next stage value: under subcycling it fills the coarse-fine ghosts of every refined level in the window and marks them valid; "
+                "the same-level ghosts and the outer boundary of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep. Without subcycling the last `state_updated` applies the flux registers.",
                 ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "comm/subcycling.cxx:FillRKBoundary", "api/api_rk.cxx:rk_step_t"),
             ),
             Row(
-                "Under subcycling the SYNC of an integrated group copies the same-level ghosts and marks them on every level; on a refined level at iteration > 0 it keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote, and elsewhere it fills and marks every ghost itself; on every level it then applies the boundary condition, which requires the interior and both ghost regions, and marks the outer boundary. "
-                "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`, and the thorn's SYNC there copies and marks the rest; the integrator schedules nothing for it.",
+                "Under subcycling, on a refined level at iteration > 0 the SYNC of an integrated group keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote; elsewhere it fills every ghost itself. "
+                "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`; the integrator schedules nothing for it.",
                 ("comm/sync_restrict.cxx:SyncGroupsSubcycling", "comm/subcycling.cxx:RecoverRKBoundary"),
             ),
         ),
@@ -191,6 +196,8 @@ SECTIONS: tuple[Section, ...] = (
         ),
     ),
 )
+SECTIONS = GENERAL + RK_SECTIONS
+
 
 def words(text: str) -> set[str]:
     return set(WORD.findall(text))
@@ -341,11 +348,11 @@ def hold_refusals(found: dict[str, tuple[str, str]]) -> None:
         raise ValueError(f"{', '.join(unclaimed)} in {ERRORS}/ but a refusal of no section in scripts/lint/boundary/guide.py")
 
 
-def render(root: str = PROJECT) -> str:
+def hold_all(root: str) -> None:
     public = public_names(root)
     bare = bare_names(root)
     sources = test_sources(root)
-    for paragraph in BOUNDARY:
+    for paragraph in BOUNDARY + RK_BOUNDARY:
         hold_names(root, "the preamble", paragraph, public, bare)
     for section in SECTIONS:
         for row in section.rows:
@@ -353,13 +360,25 @@ def render(root: str = PROJECT) -> str:
             hold_bound(root, section, row)
         hold_exercised(root, section, sources)
     hold_unexercised(root, declared_names(root), sources)
-    found = refusals(root)
-    hold_refusals(found)
-    parts = [TITLE, "", PREAMBLE, ""]
-    for paragraph in BOUNDARY:
+    hold_refusals(refusals(root))
+
+
+def page(title: str, paragraphs: tuple[str, ...], sections: tuple[Section, ...]) -> str:
+    parts = [title, ""]
+    for paragraph in paragraphs:
         parts.extend([paragraph, ""])
-    for section in SECTIONS:
+    for section in sections:
         parts.extend([f"## {section.title}", ""])
         for row in section.rows:
             parts.extend([row.text, ""])
     return "\n".join(parts)
+
+
+def render(root: str = PROJECT) -> str:
+    hold_all(root)
+    return page(TITLE, BOUNDARY, GENERAL)
+
+
+def render_rk(root: str = PROJECT) -> str:
+    hold_all(root)
+    return page(RK_TITLE, RK_BOUNDARY, RK_SECTIONS)

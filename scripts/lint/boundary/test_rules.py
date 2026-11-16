@@ -2336,6 +2336,12 @@ class Guide(unittest.TestCase):
         with open(os.path.join(PROJECT, guide.GUIDE)) as f:
             text = f.read()
         self.assertEqual(guide.render(), text, "run python3 scripts/lint doc --write")
+        with open(os.path.join(PROJECT, guide.RK_GUIDE)) as f:
+            text = f.read()
+        self.assertEqual(guide.render_rk(), text, "run python3 scripts/lint doc --write")
+        self.assertEqual(guide.SECTIONS, guide.GENERAL + guide.RK_SECTIONS)
+        self.assertEqual(re.findall(r"^## (.*)$", guide.render() + guide.render_rk(), re.MULTILINE), [section.title for section in guide.SECTIONS])
+        self.assertNotIn("rhs_computed", guide.render())
 
     def test_a_span_names_what_is_called_qualified_or_a_type_and_nothing_foreign(self):
         text = '`window.narrow(min_level, max_level)`, `rk_config_t{b}`, `tl_t::next()`, `CCTK_GroupIndex("x")`, `std::array{gi}`, `Loop::GridDescBase`, `Timer`, `cctkGH->cctk_delta_time`, `Array4<const T>`, `{min, max}` and `USES INCLUDE HEADER: carpetx.hxx`'
@@ -2620,10 +2626,11 @@ class Doc(unittest.TestCase):
     def test_render_is_the_whole_map(self):
         text = doc.render()
         self.assertTrue(text.startswith(doc.TITLE + "\n\n" + doc.PREAMBLE + "\n\n## The stack\n\n```mermaid\n" + doc.stack() + "```\n\n" + doc.legend(doc.STACK_LEGEND) + "\n## "))
-        self.assertTrue(text.endswith(doc.legend(doc.REGRID_LEGEND) + "\n" + doc.owns()))
+        self.assertEqual(doc.REGRID_LEGEND, ())
+        self.assertTrue(text.endswith("```\n\n" + doc.owns()))
         for title, picture, texts in doc.SECTIONS:
             with self.subTest(title=title):
-                self.assertIn(f"\n## {title}\n\n```mermaid\n" + picture(PROJECT) + "```\n\n" + doc.legend(texts) + "\n", text)
+                self.assertIn(f"\n## {title}\n\n```mermaid\n" + picture(PROJECT) + "```\n\n" + (doc.legend(texts) + "\n" if texts else ""), text)
         self.assertEqual(re.findall(r"^## .*$", text, re.MULTILINE), ["## The stack", "## One pass of the schedule", "## One regrid", doc.OWNS_HEADING])
         self.assertNotRegex(text, r"\b(two|three|four|five|six|seven|eight|nine) (writers|holders)\b")
         self.assertEqual(text.count("```"), 6)
@@ -2687,12 +2694,12 @@ class Doc(unittest.TestCase):
                     else:
                         self.assertTrue(any(word in words for word in re.findall(r"[A-Za-z_]\w+", name)), f"{name} is not in CarpetX/src")
 
-    def test_every_picture_is_followed_by_its_key_in_mermaid_obsidian_takes(self):
+    def test_a_picture_is_followed_by_the_key_it_has_in_mermaid_obsidian_takes(self):
         text = doc.render()
         for title, picture, texts in doc.SECTIONS:
             with self.subTest(title=title):
                 drawn = picture(PROJECT)
-                self.assertIn("```mermaid\n" + drawn + "```\n\n" + doc.legend(texts), text)
+                self.assertIn("```mermaid\n" + drawn + "```\n\n" + (doc.legend(texts) if texts else "## "), text)
                 for line in drawn.splitlines():
                     self.assertNotIn("%%", line)
                     self.assertNotRegex(re.sub(r'"[^"]*"', "", line), r"[;\\]|::|[^\x00-\x7f]")

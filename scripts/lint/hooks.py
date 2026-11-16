@@ -5,14 +5,14 @@ import os
 import sys
 
 from boundary.doc import MAP
-from boundary.guide import GUIDE
+from boundary.guide import GUIDE, RK_GUIDE
 from checks import CHECKS
 from files import PROJECT, covered, merge_base, read_text, repo_name, simulate_edit
 from run import check_edit, check_since, has_findings, render_change
 
 GENERATED = {
     MAP: f"{MAP} is written by python3 scripts/lint doc --write from scripts/lint/boundary/rules.py, doc.py and symbols.py: change those and run it.",
-    GUIDE: f"{GUIDE} is written by python3 scripts/lint doc --write from the rows of scripts/lint/boundary/guide.py, TestCarpetXAPI/param.ccl and TestCarpetXAPI/test/errors: change those and run it.",
+    **{file: f"{file} is written by python3 scripts/lint doc --write from the rows of scripts/lint/boundary/guide.py, TestCarpetXAPI/param.ccl and TestCarpetXAPI/test/errors: change those and run it." for file in (GUIDE, RK_GUIDE)},
 }
 
 

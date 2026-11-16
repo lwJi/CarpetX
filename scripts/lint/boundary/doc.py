@@ -39,18 +39,7 @@ PUBLIC_BODIES = (
 )
 BODIES = "8"
 HANDED = "10"
-STEPS = {
-    "1": "the flesh starts the driver",
-    "2": "the driver names a bin or asks for output",
-    "3": "the flesh hands a bin to the driver's entry",
-    "4": "the flesh hands output to io/",
-    "5": "the entry asks the flesh to walk the bin with CallFunction",
-    "6": "the flesh calls CallFunction for each routine",
-    "7": "CallFunction runs the routine",
-    BODIES: f"the routine may call the public headers, whose bodies are in {PUBLIC_LAYER}/ but for those drawn into another layer",
-    "9": f"{PUBLIC_LAYER}/ may ask the flesh to walk a schedule group, back to 6",
-    HANDED: "what a routine asks of the flesh, the flesh hands to the layer that owns the work",
-}
+STEPS = tuple(str(step) for step in range(1, 11))
 PASS = (
     ("1", "cactus", "flesh", ("Initialise_entry", "Evolve_entry"), STARTUP),
     ("1", "flesh", "schedule", ("Initialise", "Evolve"), layer_path("schedule", "evolve.cxx")),
@@ -66,11 +55,7 @@ PASS = (
     (HANDED, "flesh", "schedule", ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease"), layer_path("schedule", "storage.cxx")),
 )
 assert {row[0] for row in PASS} | {BODIES, HANDED} == set(STEPS), PASS
-REGRID_STEPS = {
-    "1": "schedule/ asks the hierarchy",
-    "2": "the hierarchy asks AMReX",
-    "3": "AMReX calls back into the layer that defines its callbacks",
-}
+REGRID_STEPS = ("1", "2", "3")
 REGRID = (
     ("1", "schedule", "hierarchy", ("structure_writer_t::regrid",), layer_path("hierarchy", "writers.cxx")),
     ("2", "hierarchy", "amrex", ("amrcore_->regrid",), layer_path("hierarchy", "writers.cxx")),
@@ -81,17 +66,11 @@ CALLED_AS = {"structure_writer_t::regrid": "structure.regrid"}
 assert set(CALLED_AS) <= {name for row in PASS + REGRID for name in row[3]}, CALLED_AS
 BOXES = (("above", f"above {HUB}/"), ("door", "driver() allowed"), ("nodoor", "no driver()"))
 STACK_LEGEND = (
-    f"an arrow is an include a layer has today, with the headers on it, and a layer is drawn above what it includes; the layer rule holds the arrows to the table READS in {READS_HOME} and refuses an include outside it",
-    "an arrow from a box stands for the layers in it, and which of them reads which header is not drawn",
-    "the outer boxes are the door rule: driver() is called in the upper box, never in the lower",
+    f"an arrow is an include a layer has today; the layer rule refuses one outside the table READS in {READS_HOME}",
     f"{PUBLIC}/ is the public headers, not a layer",
-    "a node names its layer, and no header where nothing can include it",
 )
-PASS_LEGEND = (
-    "the numbered arrows are one pass of the schedule: " + ", ".join(f"{what} ({step})" for step, what in STEPS.items()),
-    "a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX",
-)
-REGRID_LEGEND = ("the numbered arrows are one regrid: " + ", ".join(f"{what} ({step})" for step, what in REGRID_STEPS.items()),)
+PASS_LEGEND = ("a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX",)
+REGRID_LEGEND: tuple[str, ...] = ()
 
 
 def rules_of(layer: str) -> list[str]:
@@ -667,10 +646,7 @@ def the_regrid(root: str = PROJECT) -> str:
 
 
 OWNS_HEADING = "## What each layer owns"
-OWNS_INTRO = (
-    "New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. Each row says what its layer owns and what it never decides, then names the rules whose home is in it. "
-    f"A layer that the table STEMS in {STEMS_HOME} lists has under it one row per file stem, a header and its source sharing the stem, that says the one concern the stem holds: a new stem needs a row, and a definition there is declared by the header of its stem."
-)
+OWNS_INTRO = "New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. A row under a layer is a file stem and the one concern it holds."
 
 
 def owns(root: str = PROJECT) -> str:
@@ -702,11 +678,7 @@ def hold_grants(root: str = PROJECT) -> None:
 
 
 TITLE = "# CarpetX's internals"
-PREAMBLE = (
-    "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/rules.py`, `scripts/lint/boundary/doc.py` and the code of `CarpetX/src/`, which it holds every picture to, "
-    "and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX only through the headers `agent_docs/carpetx-public-api.md` describes. "
-    "`python3 scripts/lint check --help` prints what every rule named below holds. The list under each picture is its key."
-)
+PREAMBLE = "`python3 scripts/lint doc --write` writes this file. `python3 scripts/lint check --help` prints what every rule named below holds."
 SECTIONS: tuple[tuple[str, Callable[[str], str], tuple[str, ...]], ...] = (
     ("The stack", stack, STACK_LEGEND),
     ("One pass of the schedule", the_pass, PASS_LEGEND),
@@ -721,7 +693,9 @@ def legend(texts: tuple[str, ...]) -> str:
 def render(root: str = PROJECT) -> str:
     parts = [TITLE, "", PREAMBLE, ""]
     for title, picture, texts in SECTIONS:
-        parts.extend([f"## {title}", "", "```mermaid", picture(root).rstrip("\n"), "```", "", legend(texts)])
+        parts.extend([f"## {title}", "", "```mermaid", picture(root).rstrip("\n"), "```", ""])
+        if texts:
+            parts.append(legend(texts))
     hold_grants(root)
     parts.append(owns(root))
     return "\n".join(parts)
