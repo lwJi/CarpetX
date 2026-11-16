@@ -41,7 +41,6 @@ private:
 struct group_declaration_t {
   std::string groupname;
   gi_t groupindex;
-  int firstvarindex;
   int numvars;
   bool do_checkpoint;
   bool do_evolve;
@@ -60,6 +59,7 @@ struct group_declaration_t {
 
 private:
   explicit group_declaration_t(gi_t gi);
+  int firstvarindex;
   std::optional<grid_function_t> grid_function_;
   friend struct GHExt;
 };
