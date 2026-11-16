@@ -13,7 +13,7 @@ from checks import plural, wrap
 from files import PROJECT
 
 from .doc import MAP, PUBLIC_BODIES, PUBLIC_HEADERS, declared_names, header_reads, read, stem_declarations
-from .rules import LAYERS, PRIVATE_DIR, READS_HOME, STEMS, STEMS_HOME, dirs, linkable
+from .rules import LAYERS, PRIVATE_DIR, READS_HOME, STEMS, STEMS_HOME, dirs, linkable, row_of
 
 OBJECT_SUFFIX = ".cxx.o"
 HEADER_SUFFIX = ".hxx"
@@ -159,7 +159,8 @@ def declared_name(symbol: str) -> Optional[str]:
 
 
 def header_of(obj: str) -> str:
-    return PRIVATE_DIR + obj[: -len(OBJECT_SUFFIX)] + HEADER_SUFFIX
+    layer, stem = os.path.split(obj[: -len(OBJECT_SUFFIX)])
+    return PRIVATE_DIR + os.path.join(layer, row_of(stem)) + HEADER_SUFFIX
 
 
 def strays(layers: dict[str, str], definitions: dict[str, set[tuple[str, str]]], headers: dict[str, set[str]], public: dict[str, set[str]]) -> list[Stray]:

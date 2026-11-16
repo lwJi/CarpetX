@@ -118,6 +118,14 @@ def layer_of(name: str) -> Optional[str]:
     return parts[0] if len(parts) == 2 and parts[0] in LAYERS else None
 
 
+FAMILY = re.compile(r"(.+?)_impl(?:_.+)?")
+
+
+def row_of(stem: str) -> str:
+    family = FAMILY.fullmatch(stem)
+    return family.group(1) if family else stem
+
+
 def includable(layer: str) -> tuple[str, ...]:
     assert layer in LAYERS, layer
     return READS[layer] + (layer,)

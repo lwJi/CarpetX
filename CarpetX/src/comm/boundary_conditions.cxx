@@ -1,5 +1,5 @@
-#include "comm/boundaries.hxx"
-#include "comm/boundaries_impl.hxx"
+#include "comm/boundary_conditions.hxx"
+#include "comm/boundary_conditions_impl.hxx"
 
 #include <carpetx.hxx>
 #include <vect.hxx>

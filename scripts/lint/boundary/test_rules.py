@@ -1367,7 +1367,7 @@ class Layer(unittest.TestCase):
     def test_a_file_includes_its_own_layer_and_the_layers_it_reads(self):
         for line in [
             '#include "comm/comm.hxx"',
-            '#include "comm/boundaries_impl.hxx"',
+            '#include "comm/boundary_conditions_impl.hxx"',
             '#include "hierarchy/model.hxx"',
             '#include "traversal/traversal.hxx"',
             '#include "util/refuse.hxx"',
@@ -1554,7 +1554,7 @@ class Prototype(unittest.TestCase):
             "extern template void prolongate<3>(const amrex::MultiFab &src,\n"
             "                                   amrex::MultiFab &dst);\n"
         )
-        self.assertEqual(reported("CarpetX/src/comm/boundaries_impl_neg_neg_int.cxx", text), [])
+        self.assertEqual(reported("CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx", text), [])
 
     def test_a_namespace_scope_object_initialised_with_parentheses_is_and_the_rule_says_how_to_write_it(self):
         for line in [
@@ -1824,7 +1824,7 @@ class Using(unittest.TestCase):
 
     def test_a_directive_inside_a_function_of_a_header_is_reported(self):
         text = "inline void f() {\n  using namespace Arith;\n  g(vect<int, dim>());\n}\n"
-        self.assertEqual(reported("CarpetX/src/comm/boundaries.hxx", text), [("using", "using namespace Arith;")])
+        self.assertEqual(reported("CarpetX/src/comm/boundary_conditions.hxx", text), [("using", "using namespace Arith;")])
 
     def test_a_using_declaration_or_an_alias_is_not(self):
         text = (
@@ -3031,6 +3031,29 @@ class Stems(unittest.TestCase):
                 self.assertEqual(doc.lone_sources(root), [layer_path("config", "readers.cxx"), layer_path("hierarchy", "handles.cxx"), layer_path("hierarchy", "modes.cxx")])
             with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"]}, clear=True):
                 self.assertEqual(doc.lone_sources(root), [layer_path("config", "readers.cxx")])
+
+    def test_a_kernel_family_is_one_row_held_to_its_header(self):
+        for stem, row in [("kernel", "kernel"), ("kernel_impl", "kernel"), ("kernel_impl_a", "kernel"), ("kernel_impl_neg_neg_int", "kernel"), ("kernel_implicit", "kernel_implicit"), ("impl", "impl"), ("_impl", "_impl")]:
+            with self.subTest(stem=stem):
+                self.assertEqual(rules.row_of(stem), row)
+        header, impl = layer_path("config", "kernel.hxx"), layer_path("config", "kernel_impl.hxx")
+        sources = [layer_path("config", "kernel.cxx"), layer_path("config", "kernel_impl_a.cxx"), layer_path("config", "kernel_impl_b_c.cxx")]
+        files = {
+            header: guarded(header, "namespace CarpetX {\nstruct kernel_t {\n  template <int N> void apply() const;\n};\n}\n"),
+            impl: guarded(impl, '#include "config/kernel.hxx"\nnamespace CarpetX {\nextern template void kernel_t::apply<1>() const;\n}\n'),
+            layer_path("hierarchy", "loops.cxx"): '#include "config/kernel.hxx"\n#include "config/kernel_impl.hxx"\nkernel_t kernel;\n',
+            **{source: '#include "config/kernel_impl.hxx"\n' for source in sources},
+        }
+        with tempfile.TemporaryDirectory() as root:
+            tree(root, files)
+            with mock.patch.dict(rules.STEMS, {"config": {"kernel": "a kernel and its instantiations"}}, clear=True):
+                self.assertEqual(doc.stems(root, "config"), {"kernel"})
+                self.assertEqual(doc.stem_rows(root), {"config": {"kernel": "a kernel and its instantiations"}})
+                self.assertEqual(doc.lone_sources(root), [])
+                self.assertEqual(set(doc.stem_headers(root)), {header})
+                self.assertEqual(doc.unused_includes(root), [])
+                os.remove(os.path.join(root, header))
+                self.assertEqual(doc.lone_sources(root), sources)
 
     def test_a_header_declares_its_namespace_scope_types_functions_and_constants(self):
         self.assertEqual(doc.declared_names(DECLARING), DECLARED)

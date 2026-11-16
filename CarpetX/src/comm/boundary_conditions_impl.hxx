@@ -1,9 +1,9 @@
-#ifndef CARPETX_CARPETX_COMM_BOUNDARIES_IMPL_HXX
-#define CARPETX_CARPETX_COMM_BOUNDARIES_IMPL_HXX
+#ifndef CARPETX_CARPETX_COMM_BOUNDARY_CONDITIONS_IMPL_HXX
+#define CARPETX_CARPETX_COMM_BOUNDARY_CONDITIONS_IMPL_HXX
 
 #include "internal.hxx"
 
-#include "comm/boundaries.hxx"
+#include "comm/boundary_conditions.hxx"
 
 #include <array>
 #include <functional>

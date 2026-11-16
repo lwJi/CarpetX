@@ -1,4 +1,4 @@
-#include "comm/boundaries_impl.hxx"
+#include "comm/boundary_conditions_impl.hxx"
 
 namespace CarpetX {
 

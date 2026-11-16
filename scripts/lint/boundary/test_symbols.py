@@ -11,6 +11,7 @@ from boundary.symbols import (
     Stray,
     SymbolsError,
     declared_name,
+    header_of,
     layer_objects,
     parse_definitions,
     parse_imports,
@@ -49,6 +50,8 @@ ERASE_LEVELS = "_ZN7CarpetX14level_writer_t17erase_levels_fromENS_7level_tE"
 ALL_LEVELS = "_ZN7CarpetX10all_levelsEv"
 PRINT_SYMMETRY = "_ZN7CarpetXlsERSoNS_10symmetry_tE"
 TO_STRING = "__ZNK7CarpetX7valid_tcvNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEv"
+POLY_MAP = "__ZN7CarpetX15prolongate_polyE"
+CONS_MAP = "__ZN7CarpetX15prolongate_consE"
 REALLOCATE = "__ZNSt5dequeIN7CarpetX13write_scope_tESaIS1_EE17_M_reallocate_mapEmb"
 MACOS_WEAK = (
     "0000000000002f4c (__TEXT,__text) weak external __ZN7CarpetX5TimerD2Ev\n"
@@ -295,6 +298,23 @@ class Strays(unittest.TestCase):
     def test_a_source_with_no_header_of_its_stem_defines_nothing_strong(self):
         layers = {"config/readers.cxx.o": "config"}
         self.assertEqual(strays(layers, {"config/readers.cxx.o": {("T", SIZES)}}, self.HEADERS, {}), [Stray("config/readers.cxx.o", SIZES, "CarpetX/src/config/readers.hxx")])
+
+    def test_an_object_of_a_kernel_family_is_held_to_the_header_of_its_row(self):
+        for obj, header in [
+            ("config/kernel.cxx.o", "CarpetX/src/config/kernel.hxx"),
+            ("config/kernel_impl.cxx.o", "CarpetX/src/config/kernel.hxx"),
+            ("config/kernel_impl_poly.cxx.o", "CarpetX/src/config/kernel.hxx"),
+            ("config/kernel_impl_neg_neg_int.cxx.o", "CarpetX/src/config/kernel.hxx"),
+            ("config/kernel_implicit.cxx.o", "CarpetX/src/config/kernel_implicit.hxx"),
+            ("config/grid_sizes.cxx.o", self.HEADER),
+        ]:
+            with self.subTest(obj=obj):
+                self.assertEqual(header_of(obj), header)
+        poly, cons = "config/kernel_impl_poly.cxx.o", "config/kernel_impl_cons.cxx.o"
+        layers = {poly: "config", cons: "config"}
+        headers = {"CarpetX/src/config/kernel.hxx": doc.declared_names("namespace CarpetX {\nextern const std::map<int, int> prolongate_poly;\nextern const std::map<int, int> prolongate_cons;\n}\n")}
+        definitions = {poly: {("S", POLY_MAP), ("W", DEFAULTED)}, cons: {("S", CONS_MAP), ("T", DEFAULTED)}}
+        self.assertEqual(strays(layers, definitions, headers, {}), [Stray(cons, DEFAULTED, "CarpetX/src/config/kernel.hxx")])
 
     def test_only_an_object_of_a_listed_layer_is_judged(self):
         definitions = {"schedule/evolve.cxx.o": {("T", DEFAULTED)}, "hierarchy/modes.cxx.o": {("T", CURRENT_MODE)}}
