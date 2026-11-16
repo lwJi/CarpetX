@@ -51,18 +51,16 @@ class Section:
 
 TITLE = "# CarpetX's public API"
 PREAMBLE = (
-    f"`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/guide.py`, which holds every row to the public headers, to `{SOURCES}/` and to `{ERRORS}/`; the edit hook refuses an edit here. "
-    f"A row says only what a header cannot: a signature is read in the header, and a refusal in its parfile. Each paragraph ends with the functions of `{DRIVER_SOURCES}/` that hold it, and the generator fails when one is no longer defined in the file named."
+    "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/guide.py`, and the edit hook refuses an edit here. "
+    "A row says only what a header cannot: a signature is read in the header."
 )
 BOUNDARY: tuple[str, ...] = (
     "A thorn reaches CarpetX through the two headers `CarpetX/interface.ccl` exports from `CarpetX/src/include/`: `carpetx.hxx` for a general thorn, and `carpetx_rk.hxx` for the time integrator. "
-    "Every other header under `CarpetX/src/` includes `internal.hxx`, which refuses a compilation that is not CarpetX's own; `python3 scripts/lint check --only boundary` holds this, `python3 scripts/lint check --help` says what each rule holds, and `agent_docs/carpetx-internals.md` maps the inside.",
-    f"`{THORN}` is a client of both headers: its `interface.ccl` and `configuration.ccl` are what a client declares, and `{SOURCES}/` exercises every name below but those on the last line of this preamble. "
-    f"A refusal named under a section is a parfile of `{ERRORS}/`: the description of its mode in `{PARAM}` says what the run does, and its `.expect` file is the text CarpetX aborts with. "
-    f"A mode that a parfile of `{TESTS}/` sets is instead a test the testsuite holds to its reference output. "
+    "Every other header under `CarpetX/src/` refuses a compilation that is not CarpetX's own, and `agent_docs/carpetx-internals.md` maps the inside.",
+    f"`{THORN}` is a client of both headers: its `interface.ccl` and `configuration.ccl` are what a client declares, `{SOURCES}/` is a worked use of the calls below, "
+    f"and each parfile of `{ERRORS}/` is a call CarpetX refuses, with the text it aborts with in the `.expect` file beside it. "
     "Every call is available between the driver's SetupGH and its Shutdown, and a bad argument is a `CCTK_VERROR`, never garbage.",
 )
-UNEXERCISED_INTRO = "Held by nothing but the headers: "
 UNEXERCISED = ("restrict_no_poison", "scratch")
 SECTIONS: tuple[Section, ...] = (
     Section(
@@ -268,14 +266,6 @@ def hold_bound(root: str, section: Section, row: Row) -> None:
             raise ValueError(f"{name} is not defined in {DRIVER_SOURCES}/{file}, where a row of {section.title!r} in scripts/lint/boundary/guide.py says it is")
 
 
-def held(row: Row) -> str:
-    files: dict[str, list[str]] = {}
-    for anchor in row.held_by:
-        file, _, name = anchor.partition(":")
-        files.setdefault(file, []).append(f"`{name}`")
-    return "Held by " + "; ".join(f"{', '.join(names)} in `{file}`" for file, names in files.items()) + "."
-
-
 def hold_unexercised(root: str, declared: set[str], sources: dict[str, str]) -> None:
     used = set.union(*(words(text) for text in sources.values()))
     unknown = [name for name in UNEXERCISED if name not in declared]
@@ -351,12 +341,6 @@ def hold_refusals(found: dict[str, tuple[str, str]]) -> None:
         raise ValueError(f"{', '.join(unclaimed)} in {ERRORS}/ but a refusal of no section in scripts/lint/boundary/guide.py")
 
 
-def closing(section: Section) -> list[str]:
-    if not section.refusals:
-        return []
-    return ["Refusals: " + ", ".join(f"`{name}`" for name in section.refusals) + ".", ""]
-
-
 def render(root: str = PROJECT) -> str:
     public = public_names(root)
     bare = bare_names(root)
@@ -374,10 +358,8 @@ def render(root: str = PROJECT) -> str:
     parts = [TITLE, "", PREAMBLE, ""]
     for paragraph in BOUNDARY:
         parts.extend([paragraph, ""])
-    parts.extend([UNEXERCISED_INTRO + ", ".join(f"`{name}`" for name in UNEXERCISED) + ".", ""])
     for section in SECTIONS:
         parts.extend([f"## {section.title}", ""])
         for row in section.rows:
-            parts.extend([f"{row.text} {held(row)}", ""])
-        parts.extend(closing(section))
+            parts.extend([row.text, ""])
     return "\n".join(parts)
