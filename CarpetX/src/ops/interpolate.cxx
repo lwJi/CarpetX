@@ -4,7 +4,6 @@
 #include "ops/reduction.hxx"
 #include "hierarchy/grid.hxx"
 #include "hierarchy/modes.hxx"
-#include "traversal/traversal.hxx"
 
 #include <defs.hxx>
 
@@ -563,7 +562,7 @@ void CarpetX::InterpolationSetup::Interpolate(
     const CCTK_INT *restrict const operations,
     const std::vector<Arith::vect<Arith::vect<bool, 3>, 2> >
         &allowed_boundaries, //  [patch][face][direction]
-    const CCTK_POINTER resultptrs_) const {
+    const CCTK_POINTER resultptrs_, const bool in_recovery) const {
   DECLARE_CCTK_PARAMETERS;
 
   // Define result variables
@@ -763,7 +762,7 @@ void CarpetX::InterpolationSetup::Interpolate(
     if (min_iteration_used <= max_iteration_used &&
         min_iteration_used != max_iteration_used) {
       const char *const recovery_hint =
-          in_recovery_traversal()
+          in_recovery
               ? " This run is recovering from a mid-cycle checkpoint, where "
                 "levels are at different times. Results that read across "
                 "levels cannot be recomputed in "

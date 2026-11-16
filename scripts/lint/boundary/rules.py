@@ -21,7 +21,7 @@ READS = {
     "hierarchy": ("util", "traversal", "config"),
     "comm": ("util", "traversal", "config", "hierarchy"),
     "regrid": ("hierarchy", "comm"),
-    "ops": ("util", "traversal", "hierarchy"),
+    "ops": ("util", "hierarchy"),
     "io": ("util", "traversal", "config", "hierarchy", "comm", "ops"),
     "schedule": ("traversal", "config", "hierarchy", "comm", "io"),
     "api": ("util", "config", "hierarchy", "comm", "schedule"),

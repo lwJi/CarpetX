@@ -1,6 +1,7 @@
 #include "hierarchy/model.hxx"
 #include "schedule/schedule.hxx"
 #include "ops/interp.hxx"
+#include "traversal/traversal.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -151,7 +152,7 @@ extern "C" void CarpetX_Interpolate(const CCTK_POINTER_TO_CONST cctkGH_,
   const std::vector<vect<vect<bool, dim>, 2> > allowed_boundaries(npatches,
                                                                   uniform);
   setup.Interpolate(cctkGH, nvars, varinds, operations, allowed_boundaries,
-                    resultptrs_);
+                    resultptrs_, in_recovery_traversal());
 }
 
 extern "C" CCTK_INT CarpetX_GetEpoch(void) { return driver().epoch(); }

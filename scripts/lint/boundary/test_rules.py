@@ -2532,9 +2532,9 @@ class Doc(unittest.TestCase):
             "each pair is a layer and one READS in scripts/lint/boundary/rules.py says it reads, but no file of the layer includes a header of it: remove the entry",
         )
         self.assertEqual({layer: tuple(target for target in LAYERS if (layer, target) in found) for layer in LAYERS}, READS)
-        with mock.patch.dict(READS, {"regrid": ("util", "hierarchy", "comm"), "ops": ("util", "traversal", "hierarchy", "comm")}):
+        with mock.patch.dict(READS, {"regrid": ("util", "hierarchy", "comm"), "ops": ("util", "hierarchy", "comm")}):
             self.assertEqual(doc.unread(), [("regrid", "util"), ("ops", "comm")])
-        with mock.patch.dict(READS, {"regrid": ("config", "hierarchy", "comm"), "ops": ("util", "traversal", "config", "hierarchy")}):
+        with mock.patch.dict(READS, {"regrid": ("config", "hierarchy", "comm"), "ops": ("util", "config", "hierarchy")}):
             self.assertEqual(doc.unread(), [("regrid", "config"), ("ops", "config")])
         with mock.patch.dict(READS, {"io": ("util", "traversal", "config", "hierarchy", "comm")}), self.assertRaises(AssertionError):
             doc.reads(PROJECT)
