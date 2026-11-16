@@ -2333,9 +2333,15 @@ class Hooks(unittest.TestCase):
 
 class Guide(unittest.TestCase):
     def test_the_guide_is_what_doc_writes(self):
-        with open(os.path.join(PROJECT, guide.GUIDE)) as f:
-            text = f.read()
-        self.assertEqual(guide.render(), text, "run python3 scripts/lint doc --write")
+        for file, render in ((guide.GUIDE, guide.render), (guide.RK_GUIDE, guide.render_rk)):
+            with self.subTest(file=file):
+                with open(os.path.join(PROJECT, file)) as f:
+                    text = f.read()
+                self.assertEqual(render(), text, "run python3 scripts/lint doc --write")
+        self.assertEqual(re.findall(r"^## .*$", guide.render_rk(), re.MULTILINE), ["## The integrator's contract: `carpetx_rk.hxx`"])
+        self.assertNotIn("carpetx_rk.hxx`\n", guide.render())
+        self.assertIn(guide.EXERCISED + " but `restrict_no_poison`, `scratch`.\n", guide.render())
+        self.assertIn(guide.EXERCISED + ".\n", guide.render_rk())
 
     def test_a_span_names_what_is_called_qualified_or_a_type_and_nothing_foreign(self):
         text = '`window.narrow(min_level, max_level)`, `rk_config_t{b}`, `tl_t::next()`, `CCTK_GroupIndex("x")`, `std::array{gi}`, `Loop::GridDescBase`, `Timer`, `cctkGH->cctk_delta_time`, `Array4<const T>`, `{min, max}` and `USES INCLUDE HEADER: carpetx.hxx`'

@@ -10,6 +10,7 @@ from .rules import RULES
 from files import PROJECT, is_thorn
 
 GUIDE = "agent_docs/carpetx-public-api.md"
+RK_GUIDE = "agent_docs/carpetx-rk-api.md"
 THORN = "TestCarpetXAPI"
 SOURCES = f"{THORN}/src"
 TESTS = f"{THORN}/test"
@@ -47,22 +48,33 @@ class Section:
     rows: tuple[Row, ...]
     exercised_by: tuple[str, ...] = ()
     refusals: tuple[str, ...] = ()
+    file: str = GUIDE
 
 
-TITLE = "# CarpetX's public API"
-PREAMBLE = (
-    f"`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/guide.py`, which holds every row to the public headers, to `{SOURCES}/` and to `{ERRORS}/`; the edit hook refuses an edit here. "
-    f"A row says only what a header cannot: a signature is read in the header, and a refusal in its parfile. Each paragraph ends with the functions of `{DRIVER_SOURCES}/` that hold it, and the generator fails when one is no longer defined in the file named."
-)
-BOUNDARY: tuple[str, ...] = (
-    "A thorn reaches CarpetX through the two headers `CarpetX/interface.ccl` exports from `CarpetX/src/include/`: `carpetx.hxx` for a general thorn, and `carpetx_rk.hxx` for the time integrator. "
-    "Every other header under `CarpetX/src/` includes `internal.hxx`, which refuses a compilation that is not CarpetX's own; `python3 scripts/lint check --only boundary` holds this, `python3 scripts/lint check --help` says what each rule holds, and `agent_docs/carpetx-internals.md` maps the inside.",
-    f"`{THORN}` is a client of both headers: its `interface.ccl` and `configuration.ccl` are what a client declares, and `{SOURCES}/` exercises every name below but those on the last line of this preamble. "
-    f"A refusal named under a section is a parfile of `{ERRORS}/`: the description of its mode in `{PARAM}` says what the run does, and its `.expect` file is the text CarpetX aborts with. "
-    f"A mode that a parfile of `{TESTS}/` sets is instead a test the testsuite holds to its reference output. "
-    "Every call is available between the driver's SetupGH and its Shutdown, and a bad argument is a `CCTK_VERROR`, never garbage.",
-)
-UNEXERCISED_INTRO = "Held by nothing but the headers: "
+@dataclass(frozen=True)
+class Guide:
+    title: str
+    preamble: tuple[str, ...]
+
+
+WRITTEN = "`python3 scripts/lint doc --write` writes this file from `scripts/lint/boundary/guide.py`, and the edit hook refuses an edit here."
+GUIDES = {
+    GUIDE: Guide(
+        "# CarpetX's public API",
+        (
+            f"{WRITTEN} A row says only what a header cannot: a signature is read in the header, and a refusal in its parfile. Each paragraph ends with the functions of `{DRIVER_SOURCES}/` that hold it.",
+            f"A thorn reaches CarpetX through the two headers `CarpetX/interface.ccl` exports: `carpetx.hxx`, described here, and for the time integrator `carpetx_rk.hxx`, described in `{RK_GUIDE}`. "
+            "Every other header under `CarpetX/src/` refuses a compilation that is not CarpetX's own, and `agent_docs/carpetx-internals.md` maps the inside. "
+            "Every call is available between the driver's SetupGH and its Shutdown, and a bad argument is a `CCTK_VERROR`, never garbage.",
+            f"A refusal named under a section is a parfile of `{ERRORS}/`, and its `.expect` file is the text CarpetX aborts with.",
+        ),
+    ),
+    RK_GUIDE: Guide(
+        "# CarpetX's integrator API",
+        (f"{WRITTEN} `carpetx_rk.hxx` is for the one thorn that integrates in time; `{GUIDE}` describes `carpetx.hxx`, which every thorn reads, and says how a row and a refusal here are read.",),
+    ),
+}
+EXERCISED = f"`{SOURCES}/` exercises every name below"
 UNEXERCISED = ("restrict_no_poison", "scratch")
 SECTIONS: tuple[Section, ...] = (
     Section(
@@ -168,6 +180,7 @@ SECTIONS: tuple[Section, ...] = (
             ),
         ),
         exercised_by=("TestCarpetXAPI_Register", "TestCarpetXAPI_Fill", "TestCarpetXAPI_Step"),
+        file=RK_GUIDE,
         refusals=(
             "register_at_startup",
             "register_at_paramcheck",
@@ -357,12 +370,20 @@ def closing(section: Section) -> list[str]:
     return ["Refusals: " + ", ".join(f"`{name}`" for name in section.refusals) + ".", ""]
 
 
-def render(root: str = PROJECT) -> str:
+def exercised(sections: tuple[Section, ...]) -> str:
+    mentioned = set.union(*(names_in(row.text) for section in sections for row in section.rows))
+    skipped = [f"`{name}`" for name in UNEXERCISED if name in mentioned]
+    return EXERCISED + (" but " + ", ".join(skipped) if skipped else "") + "."
+
+
+def render(root: str = PROJECT, file: str = GUIDE) -> str:
     public = public_names(root)
     bare = bare_names(root)
     sources = test_sources(root)
-    for paragraph in BOUNDARY:
-        hold_names(root, "the preamble", paragraph, public, bare)
+    for guide in GUIDES.values():
+        for paragraph in guide.preamble:
+            hold_names(root, "the preamble", paragraph, public, bare)
+    assert {section.file for section in SECTIONS} == set(GUIDES), GUIDES
     for section in SECTIONS:
         for row in section.rows:
             hold_names(root, section.title, row.text, public, bare)
@@ -371,13 +392,19 @@ def render(root: str = PROJECT) -> str:
     hold_unexercised(root, declared_names(root), sources)
     found = refusals(root)
     hold_refusals(found)
-    parts = [TITLE, "", PREAMBLE, ""]
-    for paragraph in BOUNDARY:
+    guide = GUIDES[file]
+    sections = tuple(section for section in SECTIONS if section.file == file)
+    parts = [guide.title, ""]
+    for paragraph in guide.preamble:
         parts.extend([paragraph, ""])
-    parts.extend([UNEXERCISED_INTRO + ", ".join(f"`{name}`" for name in UNEXERCISED) + ".", ""])
-    for section in SECTIONS:
+    parts.extend([exercised(sections), ""])
+    for section in sections:
         parts.extend([f"## {section.title}", ""])
         for row in section.rows:
             parts.extend([f"{row.text} {held(row)}", ""])
         parts.extend(closing(section))
     return "\n".join(parts)
+
+
+def render_rk(root: str = PROJECT) -> str:
+    return render(root, RK_GUIDE)
