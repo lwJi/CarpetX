@@ -29,6 +29,7 @@ SRCS =							\
 	buffers.cxx					\
 	checkpoint_bands.cxx				\
 	fillpatch.cxx					\
+	ghost_prolongation.cxx				\
 	group_selection.cxx				\
 	integrator.cxx					\
 	level_runs.cxx					\

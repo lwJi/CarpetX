@@ -7,6 +7,7 @@
 #include "hierarchy/loops.hxx"
 #include "hierarchy/writers.hxx"
 #include "comm/buffers.hxx"
+#include "comm/ghost_prolongation.hxx"
 #include "comm/reflux.hxx"
 #include "comm/restrict.hxx"
 #include "comm/checkpoint_bands.hxx"

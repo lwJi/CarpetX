@@ -5,6 +5,7 @@
 #include "hierarchy/writers.hxx"
 #include "hierarchy/scopes.hxx"
 #include "comm/sync.hxx"
+#include "comm/ghost_prolongation.hxx"
 #include "comm/reflux.hxx"
 #include "comm/restrict.hxx"
 #include "comm/rk_ghosts.hxx"

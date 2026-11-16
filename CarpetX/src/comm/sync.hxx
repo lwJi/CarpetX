@@ -14,18 +14,10 @@
 
 namespace CarpetX {
 
-void ProlongateAfterRestriction(window_t window);
-
 void SyncGroups(window_t window, std::span<const gi_t> groups);
 
 int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,
                              const int *groups, const int *directions);
-
-void ProlongateGhosts(window_t window, std::span<const gi_t> groups,
-                      timelevels_t tls);
-
-void ProlongateAligned(window_t window, std::span<const gi_t> groups,
-                       timelevels_t tls);
 
 void SyncGhostsOnly(window_t window, std::span<const gi_t> groups,
                     timelevels_t tls);
