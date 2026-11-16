@@ -68,7 +68,7 @@ STEMS = {
         "sync": "the sync a routine or thorn asks for: ghosts from the same level and the coarser one, then the outer boundary",
         "restrict": "coarse cells from the finer level's",
         "ghost_prolongation": "which levels, groups and time levels are prolongated into, the validity that requires of the level it reads, and the validity it records",
-        "outer_boundary": "which groups and time levels get the outer boundary, and the validity that records",
+        "outer_boundary": "which groups and time levels get the outer boundary, and the validity that records; the thorn routine it calls, and the refusal of a sync started from inside that call",
         "rk_ghosts": "filling coarse-fine ghosts between parent steps from the RK bands",
         "reflux": "flux registers: which groups have one, what accumulates in it, and correcting the coarse level from it",
         "fillpatch": "carrying data between two `MultiFab`s with an operator",
@@ -78,7 +78,6 @@ STEMS = {
         "rk_bands": "what a level holds of its parent's RK step, and when it may be read",
         "checkpoint_bands": "the bands of a level a checkpoint carries, each under its tag",
         "timelevels": "which time levels a request covers",
-        "sync_guard": "one exchange at a time",
         "group_selection": "which of the groups asked for an exchange acts on",
         "level_runs": "splitting a window into runs of levels a predicate treats alike",
         "level_pairs": "visiting each level of a window that has a child in it",
@@ -117,11 +116,9 @@ GRANTS = {
     "write_scope_t": ("open_write", "write_scopes_t"),
     "array_write_scope_t": ("open_array_write",),
     "GridPtrDesc1": ("operator<<",),
-    "sync_guard_t": ("SyncGroups", "SyncGhostsOnly", "ProlongateGhosts", "ProlongateAligned", "ProlongateAfterRestriction", "ApplyOuterBoundary"),
 }
 GRANTS_HOME = READS_HOME
-GRANT_LAYERS = ("hierarchy", "comm")
-assert set(GRANT_LAYERS) <= set(LAYERS), GRANT_LAYERS
+GRANT_LAYER = "hierarchy"
 GRANT_WRAPPER = "written_by"
 assert GRANT_WRAPPER in GRANTS, GRANTS
 HIERARCHY_LAYERS = LAYERS[LAYERS.index("hierarchy") :]
@@ -198,7 +195,6 @@ CLOCK_WORD = re.compile(rf"{CLOCK_FIELD}\s*([-+*/]?=(?!=)|\+\+|--)|(\+\+|--)\s*[
 GHOST_ONLY_FILES = (
     layer_path("comm", "sync.hxx"),
     layer_path("comm", "sync.cxx"),
-    layer_path("comm", "sync_guard.hxx"),
     layer_path("api", "api.cxx"),
     layer_path("flesh", "compile_checks.cxx"),
 )
@@ -371,8 +367,8 @@ def codec_cxx(name: str, lang: Lang) -> bool:
     return lang is Lang.CXX and name in CODEC_FILES
 
 
-def grant_header(name: str, lang: Lang) -> bool:
-    return carpetx_header(name, lang) and layer_of(name) in GRANT_LAYERS
+def hierarchy_header(name: str, lang: Lang) -> bool:
+    return carpetx_header(name, lang) and layer_of(name) == GRANT_LAYER
 
 
 def in_files(names: tuple[str, ...]) -> Callable[..., bool]:
@@ -686,18 +682,18 @@ RULES = (
     ),
     Rule(
         "grant",
-        files=grant_header,
+        files=hierarchy_header,
         word=FRIEND,
         allowed=granted,
-        text=f"a friend line in a header of {dirs(GRANT_LAYERS, 'or')} is an entry of the table GRANTS in {GRANTS_HOME}, under the type it "
+        text=f"a friend line in a header of {GRANT_LAYER}/ is an entry of the table GRANTS in {GRANTS_HOME}, under the type it "
         "sits in, spelled with the types that type is nested in, and naming the class or function it befriends, so that "
         f"granting a holder the private members of a type is an edit of that table; an alias using name = {GRANT_WRAPPER}<T, W>; is the "
         f"friend line of W under T, spelled the same way, because only W opens it for writing, and {GRANT_WRAPPER} is given arguments in no other form "
         "in such a header, so that no spelling hides a writer; the tests refuse an entry no friend line backs.",
         noun="friend line",
         where="GRANTS does not list",
-        clean=f"every friend line in {dirs(GRANT_LAYERS, 'and')} listed in GRANTS",
-        home=GRANT_LAYERS,
+        clean=f"every friend line in {GRANT_LAYER}/ listed in GRANTS",
+        home=(GRANT_LAYER,),
         whole=ungranted,
     ),
     Rule(

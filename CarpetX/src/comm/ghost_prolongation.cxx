@@ -6,7 +6,6 @@
 #include "comm/integrator.hxx"
 #include "comm/outer_boundary.hxx"
 #include "comm/substeps.hxx"
-#include "comm/sync_guard.hxx"
 #include "comm/group_selection.hxx"
 #include "comm/level_runs.hxx"
 #include "comm/timelevels.hxx"
@@ -26,9 +25,9 @@
 
 namespace CarpetX {
 
-void
-error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
-                        const gi_t gi, const tl_t tl, const char *const label) {
+void error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
+                             const gi_t gi, const tl_t tl,
+                             const char *const label) {
   const auto &restrict coarseleveldata =
       driver().level(leveldata.level.parent());
   const auto &restrict coarsegroupdata = coarseleveldata.group(gi);
@@ -73,14 +72,14 @@ static std::vector<gi_t> reprolongate_groups() {
   return groups;
 }
 
-static std::vector<level_run_t>
-ProlongateGhosts_impl(const sync_guard_t &, const window_t window,
-                      const std::span<const gi_t> groups0,
-                      const bool prolongate_on_same_iteration,
-                      const timelevels_t tls) {
+static std::vector<level_run_t> ProlongateGhosts_impl(
+    const window_t window, const std::span<const gi_t> groups0,
+    const bool prolongate_on_same_iteration, const timelevels_t tls) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
+
+  error_if_sync_nested();
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -170,26 +169,23 @@ ProlongateGhosts_impl(const sync_guard_t &, const window_t window,
 void ProlongateGhosts(const window_t window,
                       const std::span<const gi_t> groups0,
                       const timelevels_t tls) {
-  const sync_guard_t sync;
-  ProlongateGhosts_impl(sync, window, groups0, false, tls);
+  ProlongateGhosts_impl(window, groups0, false, tls);
 }
 
 void ProlongateAligned(const window_t window,
                        const std::span<const gi_t> groups0,
                        const timelevels_t tls) {
-  const sync_guard_t sync;
-  ProlongateGhosts_impl(sync, window, groups0, true, tls);
+  ProlongateGhosts_impl(window, groups0, true, tls);
 }
 
 void ProlongateAfterRestriction(const window_t window) {
-  const sync_guard_t sync;
   const std::vector<gi_t> groups = sync_filter_groups(reprolongate_groups());
   const timelevels_t tls = timelevels_t::all_but_oldest();
   const std::vector<level_run_t> runs =
-      ProlongateGhosts_impl(sync, window, groups, true, tls);
+      ProlongateGhosts_impl(window, groups, true, tls);
   for (const level_run_t &run : runs)
     if (run.value)
-      apply_outer_boundary(sync, run.levels, groups, tls,
+      apply_outer_boundary(run.levels, groups, tls,
                            "ProlongateAfterRestriction applies the boundary "
                            "condition after the prolongation and reads the "
                            "interior and both ghost regions");

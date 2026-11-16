@@ -3,9 +3,9 @@
 #include "hierarchy/loops.hxx"
 #include "hierarchy/model.hxx"
 #include "comm/boundary_conditions.hxx"
-#include "comm/sync_guard.hxx"
 #include "comm/group_selection.hxx"
 #include "comm/timelevels.hxx"
+#include "util/refuse.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/scopes.hxx"
 
@@ -13,13 +13,35 @@
 
 #include <cassert>
 #include <optional>
+#include <source_location>
 #include <span>
 #include <vector>
 
 namespace CarpetX {
 
-static void sync_multipatch_boundaries(const sync_guard_t &,
-                                       const std::span<const gi_t> groups) {
+namespace {
+bool in_thorn_callout = false;
+
+struct thorn_callout_t {
+  explicit thorn_callout_t(
+      const std::source_location site = std::source_location::current()) {
+    error_if_sync_nested(site);
+    in_thorn_callout = true;
+  }
+  ~thorn_callout_t() { in_thorn_callout = false; }
+  thorn_callout_t(const thorn_callout_t &) = delete;
+  thorn_callout_t &operator=(const thorn_callout_t &) = delete;
+};
+} // namespace
+
+void error_if_sync_nested(const std::source_location site) {
+  if (in_thorn_callout)
+    refuse(site, "a sync is already open: a sync cannot be started inside "
+                 "one. A routine that a sync calls, such as a thorn's "
+                 "MultiPatch_Interpolate, must not sync grid functions");
+}
+
+static void sync_multipatch_boundaries(const std::span<const gi_t> groups) {
   const GHExt &ext = driver();
   static const bool have_multipatch_boundaries =
       CCTK_IsFunctionAliased("MultiPatch_Interpolate");
@@ -31,6 +53,7 @@ static void sync_multipatch_boundaries(const sync_guard_t &,
       for (const vi_t vi : group.variables())
         cactusvarinds.push_back(group.var(vi).index());
     }
+    const thorn_callout_t callout;
     MultiPatch_Interpolate(ext.get_global_cctkGH(), cactusvarinds.size(),
                            cactusvarinds.data());
   } else {
@@ -49,7 +72,7 @@ static valid_t outer_fills(const window_t window, const gi_t gi) {
   return covered.value_or(false) ? make_valid_outer() : valid_t();
 }
 
-void apply_outer_boundary(const sync_guard_t &sync, const window_t window,
+void apply_outer_boundary(const window_t window,
                           const std::span<const gi_t> groups,
                           const timelevels_t tls, const char *const event) {
   const GHExt &ext = driver();
@@ -76,14 +99,14 @@ void apply_outer_boundary(const sync_guard_t &sync, const window_t window,
                                   scopes.mfab(leveldata.level, gi, tl));
     });
   synchronize();
-  sync_multipatch_boundaries(sync, groups);
+  sync_multipatch_boundaries(groups);
   scopes.close();
 }
 
 void ApplyOuterBoundary(const window_t window,
                         const std::span<const gi_t> groups0,
                         const timelevels_t tls) {
-  const sync_guard_t sync;
+  error_if_sync_nested();
 
   static Timer timer("ApplyOuterBoundary");
   Interval interval(timer);
@@ -91,7 +114,7 @@ void ApplyOuterBoundary(const window_t window,
   sync_log_groups("ApplyOuterBoundary", groups0);
 
   const std::vector<gi_t> groups = sync_filter_groups(groups0);
-  apply_outer_boundary(sync, window, groups, tls,
+  apply_outer_boundary(window, groups, tls,
                        "CarpetX::apply_outer_boundary reads the interior and "
                        "both ghost regions");
 }

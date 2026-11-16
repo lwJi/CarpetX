@@ -9,7 +9,6 @@
 #include "comm/restrict.hxx"
 #include "comm/substeps.hxx"
 #include "comm/sync.hxx"
-#include "comm/sync_guard.hxx"
 #include "comm/group_selection.hxx"
 #include "comm/level_runs.hxx"
 #include "comm/timelevels.hxx"
@@ -47,11 +46,13 @@ static std::vector<gi_t> sync_restrict_groups(const std::vector<gi_t> &groups) {
 // Sync entry points
 // =======================================================================
 
-static void SyncGroupsLockstep(const sync_guard_t &sync, const window_t window,
+static void SyncGroupsLockstep(const window_t window,
                                const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
+
+  error_if_sync_nested();
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -182,7 +183,7 @@ static void SyncGroupsLockstep(const sync_guard_t &sync, const window_t window,
   synchronize();
 
   scopes.close();
-  apply_outer_boundary(sync, window, groups, timelevels_t::all_but_oldest(),
+  apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
                        boundary_label.c_str());
 }
 
@@ -217,12 +218,15 @@ static void error_if_sync_in_tail(const window_t window,
       current_iteration(), min_level, max_level, min_level, min_level - 1);
 }
 
-static void SyncGroupsSubcycling(const sync_guard_t &sync,
-                                 const window_t window,
+static void SyncGroupsSubcycling(const window_t window,
                                  const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
+
+  error_if_sync_in_tail(window, groups0);
+
+  error_if_sync_nested();
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -364,19 +368,15 @@ static void SyncGroupsSubcycling(const sync_guard_t &sync,
   synchronize();
 
   scopes.close();
-  apply_outer_boundary(sync, window, groups, timelevels_t::all_but_oldest(),
+  apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
                        boundary_label.c_str());
 }
 
 void SyncGroups(const window_t window, const std::span<const gi_t> groups) {
-  if (driver().use_subcycling) {
-    error_if_sync_in_tail(window, groups);
-    const sync_guard_t sync;
-    SyncGroupsSubcycling(sync, window, groups);
-  } else {
-    const sync_guard_t sync;
-    SyncGroupsLockstep(sync, window, groups);
-  }
+  if (driver().use_subcycling)
+    SyncGroupsSubcycling(window, groups);
+  else
+    SyncGroupsLockstep(window, groups);
 }
 
 namespace {
@@ -403,7 +403,7 @@ void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
 
   const GHExt &ext = driver();
 
-  const sync_guard_t sync;
+  error_if_sync_nested();
 
   static Timer timer("Sync");
   Interval interval(timer);

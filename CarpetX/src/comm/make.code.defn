@@ -50,7 +50,6 @@ SRCS =							\
 	rk_ghosts.cxx					\
 	substeps.cxx					\
 	sync.cxx					\
-	sync_guard.cxx					\
 	timelevels.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))

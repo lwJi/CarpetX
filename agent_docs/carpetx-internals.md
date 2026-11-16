@@ -29,7 +29,7 @@ flowchart TB
   flesh -- "checkpoint.hxx, io.hxx" --> io
   flesh -- "interp.hxx" --> ops
   flesh -- "regrid.hxx" --> regrid
-  flesh -- "buffers.hxx, checkpoint_bands.hxx, ghost_prolongation.hxx, reflux.hxx, restrict.hxx, rk_bands.hxx, rk_ghosts.hxx, substeps.hxx, sync.hxx, sync_guard.hxx, timelevels.hxx" --> comm
+  flesh -- "buffers.hxx, checkpoint_bands.hxx, ghost_prolongation.hxx, reflux.hxx, restrict.hxx, rk_bands.hxx, rk_ghosts.hxx, substeps.hxx, sync.hxx, timelevels.hxx" --> comm
   api -- "schedule.hxx" --> schedule
   api -- "ghost_prolongation.hxx, integrator.hxx, outer_boundary.hxx, reflux.hxx, restrict.hxx, rk_ghosts.hxx, sync.hxx, timelevels.hxx" --> comm
   schedule -- "io.hxx" --> io
@@ -112,11 +112,11 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 - `io/`: output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. Rules at home here: records, codec.
 - `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
 - `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
-- `comm/`: filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock. Rules at home here: directions, grant, ghost-only, applies.
+- `comm/`: filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock. Rules at home here: directions, ghost-only, applies.
   - `sync`: the sync a routine or thorn asks for: ghosts from the same level and the coarser one, then the outer boundary
   - `restrict`: coarse cells from the finer level's
   - `ghost_prolongation`: which levels, groups and time levels are prolongated into, the validity that requires of the level it reads, and the validity it records
-  - `outer_boundary`: which groups and time levels get the outer boundary, and the validity that records
+  - `outer_boundary`: which groups and time levels get the outer boundary, and the validity that records; the thorn routine it calls, and the refusal of a sync started from inside that call
   - `rk_ghosts`: filling coarse-fine ghosts between parent steps from the RK bands
   - `reflux`: flux registers: which groups have one, what accumulates in it, and correcting the coarse level from it
   - `fillpatch`: carrying data between two `MultiFab`s with an operator
@@ -126,7 +126,6 @@ New code goes in the layer that owns what it works on, and a lower layer never d
   - `rk_bands`: what a level holds of its parent's RK step, and when it may be read
   - `checkpoint_bands`: the bands of a level a checkpoint carries, each under its tag
   - `timelevels`: which time levels a request covers
-  - `sync_guard`: one exchange at a time
   - `group_selection`: which of the groups asked for an exchange acts on
   - `level_runs`: splitting a window into runs of levels a predicate treats alike
   - `level_pairs`: visiting each level of a window that has a child in it
