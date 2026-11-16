@@ -23,7 +23,7 @@ REGISTERED = (
     (layer_path("schedule", "storage.cxx"), ("QueryGroupStorageB",)),
     (layer_path("io", "io.cxx"), ("OutputGH",)),
     (layer_path("ops", "interpolate.cxx"), ("InterpLocalUniform",)),
-    (layer_path("comm", "sync_restrict.cxx"), (FLESH_SYNC_OVERLOAD,)),
+    (layer_path("comm", "sync.cxx"), (FLESH_SYNC_OVERLOAD,)),
 )
 CALLBACKS = (layer_path("regrid", "regrid.cxx"), AMREX_CALLBACKS)
 PUBLIC_HEADERS = (PUBLIC_DIR + "carpetx.hxx", PUBLIC_DIR + "carpetx_rk.hxx")

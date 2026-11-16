@@ -4,7 +4,8 @@
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/scopes.hxx"
-#include "comm/comm.hxx"
+#include "comm/sync.hxx"
+#include "comm/timelevels.hxx"
 
 #include <cctk.h>
 

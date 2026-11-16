@@ -4,7 +4,7 @@
 #include "hierarchy/loops.hxx"
 #include "hierarchy/writers.hxx"
 #include "hierarchy/scopes.hxx"
-#include "comm/comm.hxx"
+#include "comm/sync.hxx"
 #include "comm/reflux.hxx"
 #include "comm/rk_ghosts.hxx"
 #include "comm/substeps.hxx"

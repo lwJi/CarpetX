@@ -29,7 +29,9 @@ SRCS =							\
 	buffers.cxx					\
 	checkpoint_bands.cxx				\
 	fillpatch.cxx					\
+	group_selection.cxx				\
 	integrator.cxx					\
+	level_runs.cxx					\
 	prolongate_3d_rf2.cxx				\
 	prolongate_3d_rf2_impl_cons.cxx			\
 	prolongate_3d_rf2_impl_ddf.cxx			\
@@ -44,7 +46,9 @@ SRCS =							\
 	rk_bands.cxx					\
 	rk_ghosts.cxx					\
 	substeps.cxx					\
-	sync_restrict.cxx
+	sync.cxx					\
+	sync_guard.cxx					\
+	timelevels.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 STRAY_SRCS := $(filter-out $(SRCS),$(notdir $(wildcard $(STRAY_DIR)*.cxx)))

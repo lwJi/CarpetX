@@ -173,8 +173,9 @@ CLOCK_FILES = (layer_path("hierarchy", "clock.cxx"),)
 CLOCK_FIELD = r"(\.|->)\s*cctk_(iteration|time|delta_time|timefac)\b"
 CLOCK_WORD = re.compile(rf"{CLOCK_FIELD}\s*([-+*/]?=(?!=)|\+\+|--)|(\+\+|--)\s*[\w.()\->]*{CLOCK_FIELD}")
 GHOST_ONLY_FILES = (
-    layer_path("comm", "comm.hxx"),
-    layer_path("comm", "sync_restrict.cxx"),
+    layer_path("comm", "sync.hxx"),
+    layer_path("comm", "sync.cxx"),
+    layer_path("comm", "sync_guard.hxx"),
     layer_path("api", "api.cxx"),
     layer_path("flesh", "compile_checks.cxx"),
 )
@@ -187,8 +188,8 @@ DOOR_FILE = layer_path("hierarchy", "model.cxx")
 DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
 LAYER_INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<((?:' + "|".join(LAYERS) + r')/[^>]*)>)')
 SYNC_FILES = (
-    layer_path("comm", "comm.hxx"),
-    layer_path("comm", "sync_restrict.cxx"),
+    layer_path("comm", "sync.hxx"),
+    layer_path("comm", "sync.cxx"),
 )
 DIRECTIONS_WORD = re.compile(r"\bdirections\b")
 FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
@@ -217,8 +218,8 @@ INDEX_FIXED = {
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
     layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
     layer_path("config", "groups.cxx"): ("CCTK_TraverseString",),
-    layer_path("comm", "comm.hxx"): (FLESH_SYNC_OVERLOAD,),
-    layer_path("comm", "sync_restrict.cxx"): (FLESH_SYNC_OVERLOAD,),
+    layer_path("comm", "sync.hxx"): (FLESH_SYNC_OVERLOAD,),
+    layer_path("comm", "sync.cxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("regrid", "regrid.hxx"): AMREX_CALLBACKS,
     layer_path("regrid", "regrid.cxx"): AMREX_CALLBACKS,
 }

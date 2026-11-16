@@ -12,7 +12,9 @@
 #include "comm/rk_bands.hxx"
 #include "comm/rk_ghosts.hxx"
 #include "comm/substeps.hxx"
-#include "comm/comm.hxx"
+#include "comm/sync.hxx"
+#include "comm/sync_guard.hxx"
+#include "comm/timelevels.hxx"
 #include "regrid/regrid.hxx"
 #include "schedule/checksums.hxx"
 #include "schedule/schedule.hxx"
@@ -686,6 +688,7 @@ static_assert(
     std::is_same_v<decltype(SyncGhostsOnly), comm_timelevels_entry_t>);
 static_assert(std::is_same_v<decltype(Reflux), void(window_t)>);
 static_assert(std::is_same_v<decltype(RecoverRKBoundary), void(window_t)>);
+static_assert(!std::is_default_constructible_v<sync_guard_t>);
 
 static_assert(write_spec_names<gi_t, tl_t>);
 static_assert(!write_spec_names<tl_t, gi_t>);

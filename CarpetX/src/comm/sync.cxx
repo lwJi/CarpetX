@@ -7,7 +7,11 @@
 #include "comm/integrator.hxx"
 #include "comm/level_pairs.hxx"
 #include "comm/substeps.hxx"
-#include "comm/comm.hxx"
+#include "comm/sync.hxx"
+#include "comm/sync_guard.hxx"
+#include "comm/group_selection.hxx"
+#include "comm/level_runs.hxx"
+#include "comm/timelevels.hxx"
 #include "traversal/traversal.hxx"
 #include "util/refuse.hxx"
 #include "util/task_manager.hxx"
@@ -36,51 +40,6 @@ namespace CarpetX {
 // Sync helpers
 // =======================================================================
 
-namespace {
-bool sync_active = false;
-
-struct sync_guard_t {
-  explicit sync_guard_t(
-      const std::source_location site = std::source_location::current()) {
-    if (sync_active)
-      refuse(site, "a sync is already open: a sync cannot be started inside "
-                   "one. A routine that a sync calls, such as a thorn's "
-                   "MultiPatch_Interpolate, must not sync grid functions");
-    sync_active = true;
-  }
-  ~sync_guard_t() { sync_active = false; }
-  sync_guard_t(const sync_guard_t &) = delete;
-  sync_guard_t &operator=(const sync_guard_t &) = delete;
-};
-} // namespace
-
-static void sync_log_groups(const char *label,
-                            const std::span<const gi_t> groups0) {
-  DECLARE_CCTK_PARAMETERS;
-  if (verbose) {
-    std::ostringstream buf;
-    for (std::size_t n = 0; n < groups0.size(); ++n) {
-      if (n != 0)
-        buf << ", ";
-      buf << CCTK_FullGroupName(groups0[n].index());
-    }
-#pragma omp critical
-    CCTK_VINFO("%s %s", label, buf.str().c_str());
-  }
-}
-
-static std::vector<gi_t>
-sync_filter_groups(const std::span<const gi_t> groups0) {
-  std::vector<gi_t> groups;
-  for (const gi_t gi : groups0) {
-    const auto &group = driver().record(gi);
-    if (!group.has_storage() || group.kind != group_kind::grid_function)
-      continue;
-    groups.push_back(gi);
-  }
-  return groups;
-}
-
 static void sync_multipatch_boundaries(const sync_guard_t &,
                                        const std::span<const gi_t> groups) {
   const GHExt &ext = driver();
@@ -99,18 +58,6 @@ static void sync_multipatch_boundaries(const sync_guard_t &,
   } else {
     assert(ext.num_patches() == 1);
   }
-}
-
-tl_range timelevels_t::range(const GHExt::GroupRecord &record,
-                             const std::source_location site) const {
-  const int ntls = record.num_timelevels();
-  if (!tl_)
-    return tl_range{tl_t{0}, tl_t{ntls > 1 ? ntls - 1 : ntls}};
-  if (!record.timelevels().contains(*tl_))
-    refuse(site,
-           "time level %d of group %s does not exist: it has %d time levels",
-           tl_->index(), record.groupname.c_str(), ntls);
-  return tl_range{*tl_, tl_->next()};
 }
 
 static valid_t outer_fills(const window_t window, const gi_t gi) {
@@ -155,36 +102,6 @@ static void apply_outer_boundary(const sync_guard_t &sync,
   synchronize();
   sync_multipatch_boundaries(sync, groups);
   scopes.close();
-}
-
-struct level_run_t {
-  window_t levels;
-  bool value;
-};
-
-static std::vector<level_run_t> split_levels(
-    const window_t window,
-    const std::function<bool(const GHExt::PatchData::LevelData &)> &predicate) {
-  const auto levels = window.level_bounds();
-  std::vector<std::optional<bool> > values(levels.max - levels.min);
-  loop_serially(window, [&](auto &restrict leveldata) {
-    std::optional<bool> &value =
-        values.at(leveldata.level.index() - levels.min);
-    const bool level_value = predicate(leveldata);
-    assert(!value || *value == level_value);
-    value = level_value;
-  });
-  std::vector<level_run_t> runs;
-  for (int lo = levels.min; lo < levels.max;) {
-    const std::optional<bool> value = values.at(lo - levels.min);
-    int hi = lo + 1;
-    while (hi < levels.max && values.at(hi - levels.min) == value)
-      ++hi;
-    if (value)
-      runs.push_back({window.narrow(lo, hi), *value});
-    lo = hi;
-  }
-  return runs;
 }
 
 static void
@@ -357,13 +274,11 @@ ProlongateGhosts_impl(const sync_guard_t &, const window_t window,
   return runs;
 }
 
-static void SyncGroupsLockstep(const window_t window,
+static void SyncGroupsLockstep(const sync_guard_t &sync, const window_t window,
                                const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
-
-  const sync_guard_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -529,22 +444,12 @@ static void error_if_sync_in_tail(const window_t window,
       current_iteration(), min_level, max_level, min_level, min_level - 1);
 }
 
-static bool
-integrator_owns_coarse_fine_ghosts(const GHExt::PatchData::LevelData &leveldata,
-                                   const gi_t gi) {
-  return leveldata.level.index() > 0 && group_is_integrated(gi) &&
-         leveldata.iteration() > 0;
-}
-
-static void SyncGroupsSubcycling(const window_t window,
+static void SyncGroupsSubcycling(const sync_guard_t &sync,
+                                 const window_t window,
                                  const std::span<const gi_t> groups0) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
-
-  error_if_sync_in_tail(window, groups0);
-
-  const sync_guard_t sync;
 
   static Timer timer("Sync");
   Interval interval(timer);
@@ -691,10 +596,14 @@ static void SyncGroupsSubcycling(const window_t window,
 }
 
 void SyncGroups(const window_t window, const std::span<const gi_t> groups) {
-  if (driver().use_subcycling)
-    SyncGroupsSubcycling(window, groups);
-  else
-    SyncGroupsLockstep(window, groups);
+  if (driver().use_subcycling) {
+    error_if_sync_in_tail(window, groups);
+    const sync_guard_t sync;
+    SyncGroupsSubcycling(sync, window, groups);
+  } else {
+    const sync_guard_t sync;
+    SyncGroupsLockstep(sync, window, groups);
+  }
 }
 
 namespace {

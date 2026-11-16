@@ -124,7 +124,7 @@ class Validity(unittest.TestCase):
 
     def test_kernels_and_member_setters_are_reported_in_carpetx_src(self):
         for line in self.KERNELS + self.SETTERS:
-            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/api/api.cxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/hierarchy/valid.cxx", "CarpetX/src/comm/scopes.cxx"]:
+            for name in ["CarpetX/src/comm/sync.cxx", "CarpetX/src/api/api.cxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/hierarchy/valid.cxx", "CarpetX/src/comm/scopes.cxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("validity", line)])
 
@@ -320,19 +320,19 @@ class Directions(unittest.TestCase):
     )
 
     def test_directions_reported(self):
-        for name in ["CarpetX/src/comm/comm.hxx", "CarpetX/src/comm/sync_restrict.cxx"]:
+        for name in ["CarpetX/src/comm/sync.hxx", "CarpetX/src/comm/sync.cxx"]:
             with self.subTest(name=name):
                 self.assertEqual(
                     reported(name, self.FORWARDED),
                     [("directions", "const int *groups, const int *directions);")],
                 )
         text = "  return SyncGroups(scheduled_window(sync_caller(gis).c_str()), cctkGH, gis, directions);\n"
-        self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", text), [("directions", text.strip())])
+        self.assertEqual(reported("CarpetX/src/comm/sync.cxx", text), [("directions", text.strip())])
 
     def test_directions_allowed_in_flesh_overload(self):
-        self.assertEqual(reported("CarpetX/src/comm/comm.hxx", self.FLESH_OVERLOAD), [])
-        self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", self.FLESH_DEFINITION), [])
-        self.assertEqual(reported("CarpetX/src/comm/comm.hxx", self.FLESH_OVERLOAD + "\n" + self.FORWARDED), [("directions", "const int *groups, const int *directions);")])
+        self.assertEqual(reported("CarpetX/src/comm/sync.hxx", self.FLESH_OVERLOAD), [])
+        self.assertEqual(reported("CarpetX/src/comm/sync.cxx", self.FLESH_DEFINITION), [])
+        self.assertEqual(reported("CarpetX/src/comm/sync.hxx", self.FLESH_OVERLOAD + "\n" + self.FORWARDED), [("directions", "const int *groups, const int *directions);")])
 
     def test_other_files_are_not_the_sync_layer(self):
         for name in ["CarpetX/src/schedule/schedule.hxx", "CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_meta.cxx", "CarpetX/src/hierarchy/model.hxx", "ODESolvers/src/solve.cxx"]:
@@ -340,11 +340,11 @@ class Directions(unittest.TestCase):
                 self.assertEqual(reported(name, self.FORWARDED), [])
 
     def test_a_longer_name_is_not_the_parameter(self):
-        self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", "std::vector<int> output_directions;\nint all_directions_done;\n"), [])
+        self.assertEqual(reported("CarpetX/src/comm/sync.cxx", "std::vector<int> output_directions;\nint all_directions_done;\n"), [])
 
     def test_line_numbers(self):
         text = "int a;\n" + self.FORWARDED
-        self.assertEqual(findings("CarpetX/src/comm/comm.hxx", text, Lang.CXX), [Finding(4, "directions", "const int *groups, const int *directions);")])
+        self.assertEqual(findings("CarpetX/src/comm/sync.hxx", text, Lang.CXX), [Finding(4, "directions", "const int *groups, const int *directions);")])
 
 
 class VarIndex(unittest.TestCase):
@@ -781,7 +781,7 @@ class Window(unittest.TestCase):
 
     def test_window_reported(self):
         for line in self.USES:
-            for name in ["CarpetX/src/schedule/schedule.hxx", "CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/include/carpetx.hxx"]:
+            for name in ["CarpetX/src/schedule/schedule.hxx", "CarpetX/src/comm/sync.cxx", "CarpetX/src/include/carpetx.hxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("window", line)])
 
@@ -815,7 +815,7 @@ class Alias(unittest.TestCase):
 
     def test_alias_reported(self):
         for line in self.USES:
-            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/hierarchy/valid.hxx", "CarpetX/src/include/carpetx.hxx"]:
+            for name in ["CarpetX/src/comm/sync.cxx", "CarpetX/src/hierarchy/valid.hxx", "CarpetX/src/include/carpetx.hxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("alias", line)])
 
@@ -826,7 +826,7 @@ class Alias(unittest.TestCase):
             "  remake_alias(mfab);\n",
         ]:
             with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", text), [])
+                self.assertEqual(reported("CarpetX/src/comm/sync.cxx", text), [])
 
     def test_other_thorns_are_not_checked(self):
         self.assertEqual(reported("ODESolvers/src/solve.cxx", self.USES[0] + "\n"), [])
@@ -994,13 +994,13 @@ class Index(unittest.TestCase):
         self.assertEqual(reported("CarpetX/src/regrid/regrid.hxx", text), [])
 
     def test_index_allowed_only_where_the_signature_is_fixed(self):
-        for name in ["CarpetX/src/hierarchy/model.hxx", "CarpetX/src/comm/comm.hxx"]:
+        for name in ["CarpetX/src/hierarchy/model.hxx", "CarpetX/src/comm/sync.hxx"]:
             with self.subTest(name=name):
                 self.assertEqual(
                     reported(name, "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);\n"),
                     [("index", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);")],
                 )
-        self.assertEqual(reported("CarpetX/src/comm/comm.hxx", "int SyncGroupsOnActiveLevels(const cGH *cctkGH, int gi);\n"), [])
+        self.assertEqual(reported("CarpetX/src/comm/sync.hxx", "int SyncGroupsOnActiveLevels(const cGH *cctkGH, int gi);\n"), [])
         self.assertEqual(
             reported("CarpetX/src/schedule/schedule.hxx", "int SyncGroupsOnActiveLevels(const cGH *cctkGH, int gi);\n"),
             [("index", "int SyncGroupsOnActiveLevels(const cGH *cctkGH, int gi);")],
@@ -1040,7 +1040,7 @@ class Index(unittest.TestCase):
 
     def test_a_source_in_every_layer_is_judged_like_a_header(self):
         for line in self.COUNTED:
-            for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/ops/interpolate.cxx", "CarpetX/src/ops/reduction.cxx", "CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_tsv.cxx", "CarpetX/src/hierarchy/loops.cxx"]:
+            for name in ["CarpetX/src/comm/sync.cxx", "CarpetX/src/ops/interpolate.cxx", "CarpetX/src/ops/reduction.cxx", "CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_tsv.cxx", "CarpetX/src/hierarchy/loops.cxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("index", line)])
 
@@ -1074,7 +1074,7 @@ class Index(unittest.TestCase):
         ("CarpetX/src/flesh/startup.cxx", "int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {\n"),
         ("CarpetX/src/flesh/aliased.cxx", "extern \"C\" CCTK_INT\nCarpetX_GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size,\n                               CCTK_REAL *restrict const spacing) {\n"),
         ("CarpetX/src/flesh/aliased.cxx", "extern \"C\" CCTK_INT CarpetX_GetBoundarySizesAndTypes(\n    const void *const cctkGH_, const CCTK_INT patch, const CCTK_INT size,\n    CCTK_INT *restrict const is_physbnd) {\n"),
-        ("CarpetX/src/comm/sync_restrict.cxx", "int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,\n                             const int gi) {\n"),
+        ("CarpetX/src/comm/sync.cxx", "int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,\n                             const int gi) {\n"),
         ("CarpetX/src/config/groups.cxx", "    const int ierr = CCTK_TraverseString(\n        var_set_string,\n        [](const int vi, const char *const optstring, void *argptr) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,\n                             const amrex::Real time, const int ngrow) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::MakeNewLevelFromScratch(\n    const int level, const amrex::Real time, const amrex::BoxArray &ba,\n    const amrex::DistributionMapping &dm) {\n"),
@@ -1183,7 +1183,7 @@ class Records(unittest.TestCase):
 
     def test_a_layer_not_yet_bound_is_not_judged(self):
         for line in self.READS:
-            for name in ["CarpetX/src/api/api.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/ops/reduction.cxx"]:
+            for name in ["CarpetX/src/api/api.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/comm/sync.cxx", "CarpetX/src/ops/reduction.cxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, line + "\n"), [])
 
@@ -1366,7 +1366,7 @@ class Door(unittest.TestCase):
 class Layer(unittest.TestCase):
     def test_a_file_includes_its_own_layer_and_the_layers_it_reads(self):
         for line in [
-            '#include "comm/comm.hxx"',
+            '#include "comm/sync.hxx"',
             '#include "comm/boundary_conditions_impl.hxx"',
             '#include "hierarchy/model.hxx"',
             '#include "traversal/traversal.hxx"',
@@ -1375,7 +1375,7 @@ class Layer(unittest.TestCase):
             '  #  include   "hierarchy/loops.hxx"  // the loops',
         ]:
             with self.subTest(line=line):
-                self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", line + "\n"), [])
+                self.assertEqual(reported("CarpetX/src/comm/sync.cxx", line + "\n"), [])
 
     def test_an_include_from_a_higher_layer_is_reported(self):
         for line in [
@@ -1386,12 +1386,12 @@ class Layer(unittest.TestCase):
             '#include "flesh/startup.hxx"',
         ]:
             with self.subTest(line=line):
-                self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", line + "\n"), [("layer", line)])
+                self.assertEqual(reported("CarpetX/src/comm/sync.cxx", line + "\n"), [("layer", line)])
         self.assertEqual(reported("CarpetX/src/api/api.hxx", '#include "flesh/startup.hxx"\n'), [("layer", '#include "flesh/startup.hxx"')])
 
     def test_an_include_from_a_lower_layer_its_own_does_not_read_is_reported(self):
         for name, line in [
-            ("CarpetX/src/ops/interpolate.cxx", '#include "comm/comm.hxx"'),
+            ("CarpetX/src/ops/interpolate.cxx", '#include "comm/sync.hxx"'),
             ("CarpetX/src/ops/interp.hxx", '#include "regrid/regrid.hxx"'),
             ("CarpetX/src/io/io.cxx", '#include "regrid/regrid.hxx"'),
             ("CarpetX/src/schedule/evolve.cxx", '#include "ops/interp.hxx"'),
@@ -1424,7 +1424,7 @@ class Layer(unittest.TestCase):
             '#include "../x.hxx"',
             '#include "../hierarchy/model.hxx"',
             '#include "comm/../schedule/schedule.hxx"',
-            '#include "./comm/comm.hxx"',
+            '#include "./comm/sync.hxx"',
             '#include "extra/x.hxx"',
             '#include "include/carpetx.hxx"',
             '#include "CarpetX/src/hierarchy/model.hxx"',
@@ -1450,7 +1450,7 @@ class Layer(unittest.TestCase):
 
     def test_mentions_outside_an_include_are_not_includes(self):
         text = 'const char *p = "schedule/schedule.hxx";\n// #include "schedule/schedule.hxx"\n#define X "io/io.hxx"\n'
-        self.assertEqual(reported("CarpetX/src/comm/sync_restrict.cxx", text), [])
+        self.assertEqual(reported("CarpetX/src/comm/sync.cxx", text), [])
 
     def test_other_thorns_public_headers_and_make_files_are_not_checked(self):
         line = '#include "schedule/schedule.hxx"\n'
@@ -1459,8 +1459,8 @@ class Layer(unittest.TestCase):
         self.assertEqual(reported("CarpetX/src/comm/make.code.defn", line, Lang.MAKE), [])
 
     def test_line_numbers(self):
-        text = '#include "comm/comm.hxx"\n#include "hierarchy/model.hxx"\n#include "schedule/schedule.hxx"\n'
-        self.assertEqual(findings("CarpetX/src/comm/sync_restrict.cxx", text, Lang.CXX), [Finding(3, "layer", '#include "schedule/schedule.hxx"')])
+        text = '#include "comm/sync.hxx"\n#include "hierarchy/model.hxx"\n#include "schedule/schedule.hxx"\n'
+        self.assertEqual(findings("CarpetX/src/comm/sync.cxx", text, Lang.CXX), [Finding(3, "layer", '#include "schedule/schedule.hxx"')])
 
 
 class Prototype(unittest.TestCase):
@@ -1543,7 +1543,7 @@ class Prototype(unittest.TestCase):
             "\n"
             "static_assert(std::is_same_v<decltype(driver()), const GHExt &>);\n"
         )
-        for name in ["CarpetX/src/comm/sync_restrict.cxx", "CarpetX/src/flesh/compile_checks.cxx"]:
+        for name in ["CarpetX/src/comm/sync.cxx", "CarpetX/src/flesh/compile_checks.cxx"]:
             with self.subTest(name=name):
                 self.assertEqual(reported(name, text), [])
 
@@ -2081,7 +2081,7 @@ class Report(unittest.TestCase):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
         c = ("CarpetX/src/hierarchy/model.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
-        d = ("CarpetX/src/comm/comm.hxx", Finding(2, "directions", "const int *groups, const int *directions);"))
+        d = ("CarpetX/src/comm/sync.hxx", Finding(2, "directions", "const int *groups, const int *directions);"))
         e = ("CarpetX/src/hierarchy/scopes.cxx", Finding(5, "varindex", "CCTK_FullVarName(groupdata.record.firstvarindex + vi),"))
         self.assertEqual(summary([a]), "✗ boundary: 1 private include")
         self.assertEqual(summary([a, a, b]), "✗ boundary: 2 private includes, 1 stray marker")
@@ -2116,7 +2116,7 @@ class Report(unittest.TestCase):
         g = ("CarpetX/src/traversal/traversal.cxx", Finding(12, "door", "const GHExt &ext = driver();"))
         self.assertEqual(summary([g]), "✗ boundary: 1 hierarchy use the door does not allow")
         self.assertEqual(summary([k, g, g]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 hierarchy uses the door does not allow")
-        y = ("CarpetX/src/comm/sync_restrict.cxx", Finding(3, "layer", '#include "schedule/schedule.hxx"'))
+        y = ("CarpetX/src/comm/sync.cxx", Finding(3, "layer", '#include "schedule/schedule.hxx"'))
         self.assertEqual(summary([y]), "✗ boundary: 1 include its layer does not read")
         self.assertEqual(summary([g, y, y, k]), "✗ boundary: 1 hierarchy use in a checkpoint codec, 2 includes its layer does not read, 1 hierarchy use the door does not allow")
         p = ("CarpetX/src/flesh/startup.cxx", Finding(36, "prototype", "int InitGH(cGH *cctkGH);"))
@@ -2148,14 +2148,14 @@ PLANT_SUMMARY = "✗ boundary: 1 traversal use outside traversal.cxx"
 SLOT_PLANT = ("void scope() {\n", "void scope() {\n  active_levels = std::nullopt;\n")
 DOOR_SUMMARY = "✗ boundary: 1 hierarchy use the door does not allow"
 LAYER_SUMMARY = "✗ boundary: 1 include its layer does not read"
-SYNC_SOURCE = '#include "comm/comm.hxx"\n#include "hierarchy/model.hxx"\n\nnamespace CarpetX {\nvoid sync() {\n}\n} // namespace CarpetX\n'
+SYNC_SOURCE = '#include "comm/sync.hxx"\n#include "hierarchy/model.hxx"\n\nnamespace CarpetX {\nvoid sync() {\n}\n} // namespace CarpetX\n'
 TRAVERSAL_SOURCE = '#include "traversal/traversal.hxx"\n#include "util/refuse.hxx"\n\nnamespace CarpetX {\nvoid scope() {\n}\n} // namespace CarpetX\n'
 IO_SOURCE = '#include "io/selection.hxx"\n\nnamespace CarpetX {\nvoid OutputTSV(const cGH *cctkGH) {\n}\n} // namespace CarpetX\n'
 PROJECT_FILES = {
     "CarpetX/interface.ccl": "IMPLEMENTS: Driver\n",
     "CarpetX/src/schedule/evolve.cxx": SOURCE,
     "CarpetX/src/hierarchy/model.cxx": SOURCE,
-    "CarpetX/src/comm/sync_restrict.cxx": SYNC_SOURCE,
+    "CarpetX/src/comm/sync.cxx": SYNC_SOURCE,
     "CarpetX/src/traversal/traversal.cxx": TRAVERSAL_SOURCE,
     "CarpetX/src/io/io_tsv.cxx": IO_SOURCE,
     "CarpetX/README": "not covered\n",
@@ -2168,7 +2168,7 @@ COUNTED_DENIAL = [
 ]
 COUNTED_SUMMARY = "✗ boundary: 1 bare index int in CarpetX, 1 group-table call in io/"
 UPWARD_PLANT = ('#include "hierarchy/model.hxx"\n', '#include "hierarchy/model.hxx"\n#include "schedule/schedule.hxx"\n')
-UPWARD_DENIAL = 'CarpetX/src/comm/sync_restrict.cxx:3   layer      #include "schedule/schedule.hxx"'
+UPWARD_DENIAL = 'CarpetX/src/comm/sync.cxx:3   layer      #include "schedule/schedule.hxx"'
 BARE_PLANT = ("namespace CarpetX {\n", '#include "model.hxx"\n\nnamespace CarpetX {\n')
 DRIVER_PLANT = ("void scope() {\n", "void scope() {\n  const GHExt &ext = driver();\n")
 DRIVER_DENIAL = "CarpetX/src/traversal/traversal.cxx:6   door       const GHExt &ext = driver();"
@@ -2233,7 +2233,7 @@ class Hooks(unittest.TestCase):
         self.assertEqual(self.edit("CarpetX/src/traversal/traversal.cxx", *SLOT_PLANT), "")
 
     def test_an_upward_include_is_denied_under_layer(self):
-        lines = denial(self, self.edit("CarpetX/src/comm/sync_restrict.cxx", *UPWARD_PLANT))
+        lines = denial(self, self.edit("CarpetX/src/comm/sync.cxx", *UPWARD_PLANT))
         self.assertEqual(lines[0], UPWARD_DENIAL)
         self.assertEqual(lines[1:-1], RULE.split("\n"))
         self.assertEqual(lines[-1], LAYER_SUMMARY)
@@ -2242,7 +2242,7 @@ class Hooks(unittest.TestCase):
         for name, line in [
             ("CarpetX/src/schedule/evolve.cxx", 1),
             ("CarpetX/src/hierarchy/model.cxx", 1),
-            ("CarpetX/src/comm/sync_restrict.cxx", 4),
+            ("CarpetX/src/comm/sync.cxx", 4),
             ("CarpetX/src/traversal/traversal.cxx", 4),
         ]:
             with self.subTest(name=name):
@@ -2266,8 +2266,8 @@ class Hooks(unittest.TestCase):
         self.assertEqual(self.edit("CarpetX/src/io/io_tsv.cxx", COUNTED_PLANT[0], COUNTED_PLANT[0] + "  " + walk + "\n"), "")
 
     def test_what_the_layers_allow_passes(self):
-        self.assertEqual(self.edit("CarpetX/src/schedule/evolve.cxx", "namespace CarpetX {\n", '#include "comm/comm.hxx"\n\nnamespace CarpetX {\n'), "")
-        self.assertEqual(self.edit("CarpetX/src/comm/sync_restrict.cxx", "void sync() {\n", "void sync() {\n  const GHExt &ext = driver();\n"), "")
+        self.assertEqual(self.edit("CarpetX/src/schedule/evolve.cxx", "namespace CarpetX {\n", '#include "comm/sync.hxx"\n\nnamespace CarpetX {\n'), "")
+        self.assertEqual(self.edit("CarpetX/src/comm/sync.cxx", "void sync() {\n", "void sync() {\n  const GHExt &ext = driver();\n"), "")
         self.assertEqual(self.edit("CarpetX/src/traversal/traversal.cxx", '#include "util/refuse.hxx"\n', '#include "util/refuse.hxx"\n#include "internal.hxx"\n'), "")
 
     def test_only_what_the_edit_adds_is_new(self):
@@ -2576,10 +2576,10 @@ class Doc(unittest.TestCase):
             for layer in LAYERS:
                 os.makedirs(os.path.join(src, layer))
             files = {
-                "flesh/a.cxx": '#include "internal.hxx"\n#include "io/io.hxx"\n#include "comm/comm.hxx"\n#include "hierarchy/model.hxx"\n#include <ops/interp.hxx>\n',
+                "flesh/a.cxx": '#include "internal.hxx"\n#include "io/io.hxx"\n#include "comm/sync.hxx"\n#include "hierarchy/model.hxx"\n#include <ops/interp.hxx>\n',
                 "flesh/b.cxx": '#include "io/checkpoint.hxx"\n#include "io/io.hxx"\n#include "util/refuse.hxx"\n',
                 "io/x.hxx": '#include "io/io.hxx"\n#include "ops/reduction.hxx"\n#include <mpi.h>\n',
-                "comm/comm.hxx": "",
+                "comm/sync.hxx": "",
                 "comm/notes.txt": '#include "io/io.hxx"\n',
                 "hierarchy/model.hxx": "",
             }
@@ -2594,7 +2594,7 @@ class Doc(unittest.TestCase):
                 [
                     (("flesh", "io"), ("checkpoint.hxx", "io.hxx")),
                     (("flesh", "ops"), ("interp.hxx",)),
-                    (("flesh", "comm"), ("comm.hxx",)),
+                    (("flesh", "comm"), ("sync.hxx",)),
                     (("io", "ops"), ("reduction.hxx",)),
                 ],
             )
@@ -2602,7 +2602,7 @@ class Doc(unittest.TestCase):
             drawn = doc.stack(root)
             graph = drawn.splitlines()
             self.assertEqual(graph[-7], '  include["include/"]')
-            self.assertEqual(graph[-6:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "comm.hxx" --> comm', '  io -- "reduction.hxx" --> ops', '  above -- "model.hxx" --> hierarchy', '  door -- "refuse.hxx" --> util'])
+            self.assertEqual(graph[-6:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "sync.hxx" --> comm', '  io -- "reduction.hxx" --> ops', '  above -- "model.hxx" --> hierarchy', '  door -- "refuse.hxx" --> util'])
             self.assertNotIn("%%", drawn)
             self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("hierarchy", "io", "comm")))
             self.assertIn('      ops["ops/ no header"]', drawn)
@@ -2723,18 +2723,18 @@ class Doc(unittest.TestCase):
         for layer, names in doc.handed():
             for name in names:
                 with self.subTest(name=name):
-                    self.assertIn(name, dict(doc.REGISTERED)[rules.layer_path(layer, {"schedule": "storage.cxx", "ops": "interpolate.cxx", "comm": "sync_restrict.cxx"}[layer])])
+                    self.assertIn(name, dict(doc.REGISTERED)[rules.layer_path(layer, {"schedule": "storage.cxx", "ops": "interpolate.cxx", "comm": "sync.cxx"}[layer])])
         regrid = doc.the_regrid()
         self.assertEqual(re.findall(r'-- "(\d+) ', regrid), sorted(doc.REGRID_STEPS))
         self.assertEqual(regrid.splitlines()[1], '  amrex["AMReX"]')
         self.assertNotIn("cactus", regrid)
         self.assertNotIn("thorn", regrid)
         with self.assertRaises(ValueError):
-            doc.hold(PROJECT, ("1", "cactus", "comm", ("NoSuchEntry",), rules.layer_path("comm", "sync_restrict.cxx")))
+            doc.hold(PROJECT, ("1", "cactus", "comm", ("NoSuchEntry",), rules.layer_path("comm", "sync.cxx")))
         with self.assertRaises(ValueError):
-            doc.hold(PROJECT, ("1", "comm", "cactus", ("CCTK_Traverse",), rules.layer_path("comm", "sync_restrict.cxx")))
+            doc.hold(PROJECT, ("1", "comm", "cactus", ("CCTK_Traverse",), rules.layer_path("comm", "sync.cxx")))
         with self.assertRaises(ValueError):
-            doc.hold(PROJECT, ("1", "cactus", "io", ("OutputGH",), rules.layer_path("comm", "sync_restrict.cxx")))
+            doc.hold(PROJECT, ("1", "cactus", "io", ("OutputGH",), rules.layer_path("comm", "sync.cxx")))
 
     def test_the_pass_and_the_regrid_draw_every_step_between_the_nodes_they_name(self):
         for picture, outsiders, steps in ((doc.the_pass, ['  cactus["Cactus flesh"]', '  thorn["a thorn\'s routine"]'], doc.STEPS), (doc.the_regrid, ['  amrex["AMReX"]'], doc.REGRID_STEPS)):
