@@ -204,7 +204,7 @@ GHOST_ONLY_WORD = re.compile(r"\bSyncGhostsOnly\s*\(")
 APPLIES_LAYER = "comm"
 APPLIES_STEMS = ("fillpatch", "boundary_conditions", "prolongate_3d_rf2")
 assert set(APPLIES_STEMS) <= set(STEMS[APPLIES_LAYER]), APPLIES_STEMS
-APPLIES_WORD = re.compile(r'^\s*#\s*include\s*[<"]hierarchy/scopes\.hxx[>"]')
+APPLIES_WORD = re.compile(r'^\s*#\s*include\s*[<"](?:hierarchy/scopes|' + APPLIES_LAYER + r'/(\w+))\.hxx[>"]')
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
     r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b"
@@ -384,6 +384,11 @@ def in_rows(layer: str, stems: tuple[str, ...]) -> Files:
 
 def never(name: str, line: str, statement: str) -> bool:
     return False
+
+
+def applies_allowed(name: str, line: str, statement: str) -> bool:
+    stem = APPLIES_WORD.search(line).group(1)
+    return stem is not None and row_of(stem) in APPLIES_STEMS
 
 
 def marker_allowed(name: str, line: str, statement: str) -> bool:
@@ -868,13 +873,14 @@ RULES = (
         "applies",
         files=in_rows(APPLIES_LAYER, APPLIES_STEMS),
         word=APPLIES_WORD,
-        allowed=never,
+        allowed=applies_allowed,
         text=f"a stem of {APPLIES_LAYER}/ that applies ({', '.join(APPLIES_STEMS)}) writes into the MultiFab it is handed and "
-        "records nothing: it does not include hierarchy/scopes.hxx, so it can open no write scope and require no "
-        "validity; the stem that decides what is filled does both.",
-        noun="write-scope include",
+        f"records nothing: it includes neither hierarchy/scopes.hxx nor a header of {APPLIES_LAYER}/ outside those stems, so it "
+        "can open no write scope, require no validity, and call no stem that does; the stem that decides what is filled "
+        "does both.",
+        noun="write-scope or deciding-stem include",
         where=f"in a stem of {APPLIES_LAYER}/ that applies",
-        clean=f"no write-scope include in a stem of {APPLIES_LAYER}/ that applies",
+        clean=f"no write-scope or deciding-stem include in a stem of {APPLIES_LAYER}/ that applies",
         home=(APPLIES_LAYER,),
     ),
 )

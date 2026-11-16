@@ -322,13 +322,31 @@ class Applies(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(reported(name, self.INCLUDE + "\n"), [])
 
+    def test_a_header_of_a_stem_that_decides_is_reported_in_a_stem_that_applies(self):
+        for name in ["CarpetX/src/comm/fillpatch.cxx", "CarpetX/src/comm/boundary_conditions_impl.hxx", "CarpetX/src/comm/prolongate_3d_rf2_impl_poly.cxx"]:
+            for line in ['#include "comm/restrict.hxx"', '#include "comm/outer_boundary.hxx"', "#include <comm/sync.hxx>", '#include "comm/buffers.hxx"', '#include "comm/nosuch_impl.hxx"']:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("applies", line)])
+
+    def test_a_header_of_a_stem_that_applies_passes(self):
+        for name in ["CarpetX/src/comm/fillpatch.cxx", "CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx", "CarpetX/src/comm/prolongate_3d_rf2.cxx"]:
+            for line in ['#include "comm/fillpatch.hxx"', '#include "comm/boundary_conditions.hxx"', '#include "comm/boundary_conditions_impl.hxx"', '#include "comm/prolongate_3d_rf2.hxx"', "#include <comm/prolongate_3d_rf2_impl.hxx>"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_a_stem_that_decides_includes_any_header_of_comm(self):
+        for name in ["CarpetX/src/comm/sync.cxx", "CarpetX/src/comm/rk_ghosts.cxx", "CarpetX/src/regrid/regrid.cxx"]:
+            for line in ['#include "comm/restrict.hxx"', '#include "comm/fillpatch.hxx"']:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
     def test_another_header_or_a_mention_passes(self):
         name = "CarpetX/src/comm/fillpatch.cxx"
-        for text in ['#include "hierarchy/valid.hxx"\n', '#include "hierarchy/scopes_detail.hxx"\n', "// hierarchy/scopes.hxx\n", "const write_scope_t *scope;\n"]:
+        for text in ['#include "hierarchy/valid.hxx"\n', '#include "hierarchy/scopes_detail.hxx"\n', "// hierarchy/scopes.hxx\n", "// comm/restrict.hxx\n", '#include "config/groups.hxx"\n', "const write_scope_t *scope;\n"]:
             with self.subTest(text=text):
                 self.assertNotIn("applies", [rule for rule, _ in reported(name, text)])
 
-    def test_no_file_of_a_stem_that_applies_includes_it(self):
+    def test_no_file_of_a_stem_that_applies_includes_one(self):
         applies = next(rule for rule in rules.RULES if rule.name == "applies")
         found, judged = [], set()
         for path in doc.sources(PROJECT, rules.APPLIES_LAYER):
@@ -2121,7 +2139,7 @@ class Report(unittest.TestCase):
             "no extern C entry outside flesh/, "
             "the hierarchy has one door that util/, traversal/ and config/ never use, "
             "no driver-internal ghost-only sync, "
-            "and no write-scope include in a stem of comm/ that applies",
+            "and no write-scope or deciding-stem include in a stem of comm/ that applies",
         )
 
     def test_counts(self):
