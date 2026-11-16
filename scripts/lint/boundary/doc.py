@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable, Iterator
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, FLESH_SYNC_OVERLOAD, GRANT_LAYER, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
+from .rules import AMREX_CALLBACKS, DECLARATION_START, FLESH_SYNC_OVERLOAD, GRANT_LAYERS, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
 from comments.lex_cxx import lex
 from comments.tokens import Kind
 from files import PROJECT
@@ -666,7 +666,7 @@ def owns(root: str = PROJECT) -> str:
 
 
 def grant_headers(root: str = PROJECT) -> dict[str, str]:
-    return {layer_path(GRANT_LAYER, os.path.basename(path)): read(path) for path in sources(root, GRANT_LAYER) if path.endswith(".hxx")}
+    return {layer_path(layer, os.path.basename(path)): read(path) for layer in GRANT_LAYERS for path in sources(root, layer) if path.endswith(".hxx")}
 
 
 def unbacked(root: str = PROJECT) -> list[tuple[str, str]]:

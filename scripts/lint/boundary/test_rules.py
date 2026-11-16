@@ -612,6 +612,14 @@ class Grant(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(reported(name, text), [("grant", "friend class io_writer_t;")])
 
+    def test_a_friend_the_table_lacks_is_reported_in_a_comm_header(self):
+        text = "class sync_guard_t {\n  explicit sync_guard_t();\n  friend void SyncGroups(window_t window, std::span<const gi_t> groups);\n  friend void Reflux(window_t window);\n};\n"
+        for name in ["CarpetX/src/comm/sync_guard.hxx", "CarpetX/src/comm/buffers.hxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, text), [("grant", "friend void Reflux(window_t window);")])
+        self.assertEqual(reported("CarpetX/src/comm/sync_guard.cxx", text), [])
+        self.assertEqual(rules.GRANT_LAYERS, ("hierarchy", "comm"))
+
     def test_a_friend_the_table_lists_is_clean(self):
         for text in [
             "struct GHExt {\n  struct PatchData {\n    struct LevelData {\n      class clock_t {\n        friend class clock_writer_t;\n      };\n    };\n  };\n  friend struct hierarchy_writers_t;\n};\n",
@@ -821,7 +829,7 @@ class Grant(unittest.TestCase):
         text = "struct GHExt {\n  friend class io_writer_t;\n};\n"
         for name in [
             "CarpetX/src/hierarchy/model.cxx",
-            "CarpetX/src/comm/buffers.hxx",
+            "CarpetX/src/comm/buffers.cxx",
             "CarpetX/src/schedule/checksums.hxx",
             "CarpetX/src/include/carpetx.hxx",
             "ODESolvers/src/hierarchy/model.hxx",
@@ -2127,7 +2135,7 @@ class Report(unittest.TestCase):
             "no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, "
             "no mutable, extern, comm/ object or other concern's include in the data model's headers, "
-            "every friend line in hierarchy/ listed in GRANTS, no active_levels_t, "
+            "every friend line in hierarchy/ and comm/ listed in GRANTS, no active_levels_t, "
             "no make_alias in CarpetX, "
             "no active_levels outside traversal.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
@@ -2544,13 +2552,15 @@ class Doc(unittest.TestCase):
     def test_the_table_of_grants_is_the_friend_lines_the_tree_has(self):
         headers = doc.grant_headers()
         self.assertIn(Grant.MODEL, headers)
-        self.assertEqual(doc.unbacked(), [], "each pair is a type and a friend that GRANTS in scripts/lint/boundary/rules.py lists, but no friend line in a header of hierarchy/ backs: remove the entry")
+        self.assertEqual(sorted(friend for _, owner, friend in rules.friends(headers["CarpetX/src/comm/sync_guard.hxx"]) if owner == "sync_guard_t"), sorted(rules.GRANTS["sync_guard_t"]))
+        self.assertEqual({rules.layer_of(header) for header in headers}, set(rules.GRANT_LAYERS))
+        self.assertEqual(doc.unbacked(), [], "each pair is a type and a friend that GRANTS in scripts/lint/boundary/rules.py lists, but no friend line in a header of hierarchy/ or comm/ backs: remove the entry")
         for header, text in headers.items():
             with self.subTest(header=header):
                 self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
         found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
         self.assertEqual(found, sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
-        self.assertEqual(len(found), 32)
+        self.assertEqual(len(found), 38)
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):
@@ -2613,10 +2623,10 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant.")
         self.assertTrue(rules.OWNS["hierarchy"].endswith(" Nothing here only reads the model: a query belongs to the layer that owns its subject."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
-        self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: directions, ghost-only, applies.")
+        self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: directions, grant, ghost-only, applies.")
         self.assertTrue(rules.OWNS["comm"].endswith(" It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock."))
         self.assertIn(" A stem either decides what is filled and records its validity, or applies and records nothing. ", rules.OWNS["comm"])
-        self.assertEqual(doc.rules_of("comm"), ["directions", "ghost-only", "applies"])
+        self.assertEqual(doc.rules_of("comm"), ["directions", "grant", "ghost-only", "applies"])
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
         self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "clock", "varindex", "model", "grant"])

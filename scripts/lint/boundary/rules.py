@@ -117,9 +117,11 @@ GRANTS = {
     "write_scope_t": ("open_write", "write_scopes_t"),
     "array_write_scope_t": ("open_array_write",),
     "GridPtrDesc1": ("operator<<",),
+    "sync_guard_t": ("SyncGroups", "SyncGhostsOnly", "ProlongateGhosts", "ProlongateAligned", "ProlongateAfterRestriction", "ApplyOuterBoundary"),
 }
 GRANTS_HOME = READS_HOME
-GRANT_LAYER = "hierarchy"
+GRANT_LAYERS = ("hierarchy", "comm")
+assert set(GRANT_LAYERS) <= set(LAYERS), GRANT_LAYERS
 GRANT_WRAPPER = "written_by"
 assert GRANT_WRAPPER in GRANTS, GRANTS
 HIERARCHY_LAYERS = LAYERS[LAYERS.index("hierarchy") :]
@@ -369,8 +371,8 @@ def codec_cxx(name: str, lang: Lang) -> bool:
     return lang is Lang.CXX and name in CODEC_FILES
 
 
-def hierarchy_header(name: str, lang: Lang) -> bool:
-    return carpetx_header(name, lang) and layer_of(name) == GRANT_LAYER
+def grant_header(name: str, lang: Lang) -> bool:
+    return carpetx_header(name, lang) and layer_of(name) in GRANT_LAYERS
 
 
 def in_files(names: tuple[str, ...]) -> Callable[..., bool]:
@@ -684,18 +686,18 @@ RULES = (
     ),
     Rule(
         "grant",
-        files=hierarchy_header,
+        files=grant_header,
         word=FRIEND,
         allowed=granted,
-        text=f"a friend line in a header of {GRANT_LAYER}/ is an entry of the table GRANTS in {GRANTS_HOME}, under the type it "
+        text=f"a friend line in a header of {dirs(GRANT_LAYERS, 'or')} is an entry of the table GRANTS in {GRANTS_HOME}, under the type it "
         "sits in, spelled with the types that type is nested in, and naming the class or function it befriends, so that "
         f"granting a holder the private members of a type is an edit of that table; an alias using name = {GRANT_WRAPPER}<T, W>; is the "
         f"friend line of W under T, spelled the same way, because only W opens it for writing, and {GRANT_WRAPPER} is given arguments in no other form "
         "in such a header, so that no spelling hides a writer; the tests refuse an entry no friend line backs.",
         noun="friend line",
         where="GRANTS does not list",
-        clean=f"every friend line in {GRANT_LAYER}/ listed in GRANTS",
-        home=(GRANT_LAYER,),
+        clean=f"every friend line in {dirs(GRANT_LAYERS, 'and')} listed in GRANTS",
+        home=GRANT_LAYERS,
         whole=ungranted,
     ),
     Rule(
