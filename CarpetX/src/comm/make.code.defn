@@ -27,6 +27,7 @@ SRCS =							\
 	boundary_conditions_impl_pos_pos_neg.cxx	\
 	boundary_conditions_impl_pos_pos_pos.cxx	\
 	buffers.cxx					\
+	checkpoint_bands.cxx				\
 	fillpatch.cxx					\
 	integrator.cxx					\
 	prolongate_3d_rf2.cxx				\
@@ -40,7 +41,8 @@ SRCS =							\
 	prolongate_3d_rf2_impl_poly_cons3lfb.cxx	\
 	prolongate_3d_rf2_impl_poly_eno3lfb.cxx		\
 	reflux.cxx					\
-	subcycling.cxx					\
+	rk_bands.cxx					\
+	rk_ghosts.cxx					\
 	substeps.cxx					\
 	sync_restrict.cxx
 

@@ -162,12 +162,12 @@ RK_SECTIONS: tuple[Section, ...] = (
                 "`rhs_computed` feeds the flux registers with the stage's weight times that level's `CCTK_DELTA_TIME`. "
                 "`state_updated` says the state holds the next stage value: under subcycling it fills the coarse-fine ghosts of every refined level in the window and marks them valid; "
                 "the same-level ghosts and the outer boundary of the integrated groups stay invalid until the thorn's SYNC in ODESolvers_PostStep. Without subcycling the last `state_updated` applies the flux registers.",
-                ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "comm/subcycling.cxx:FillRKBoundary", "api/api_rk.cxx:rk_step_t"),
+                ("api/api_rk.cxx:open_rk_step", "api/api_rk.cxx:require_serial_context", "api/api_rk.cxx:rhs_computed", "api/api_rk.cxx:state_updated", "comm/rk_ghosts.cxx:FillRKBoundary", "api/api_rk.cxx:rk_step_t"),
             ),
             Row(
                 "Under subcycling, on a refined level at iteration > 0 the SYNC of an integrated group keeps the coarse-fine ghosts that `state_updated` or the driver's refill after a recovery wrote; elsewhere it fills every ghost itself. "
                 "After a recovery the driver refills the integrated groups' refinement boundary before `CCTK_POST_RECOVER_VARIABLES`; the integrator schedules nothing for it.",
-                ("comm/sync_restrict.cxx:SyncGroupsSubcycling", "comm/subcycling.cxx:RecoverRKBoundary"),
+                ("comm/sync_restrict.cxx:SyncGroupsSubcycling", "comm/rk_ghosts.cxx:RecoverRKBoundary"),
             ),
         ),
         exercised_by=("TestCarpetXAPI_Register", "TestCarpetXAPI_Fill", "TestCarpetXAPI_Step"),

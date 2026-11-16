@@ -1,5 +1,5 @@
-#ifndef CARPETX_CARPETX_COMM_SUBCYCLING_HXX
-#define CARPETX_CARPETX_COMM_SUBCYCLING_HXX
+#ifndef CARPETX_CARPETX_COMM_RK_GHOSTS_HXX
+#define CARPETX_CARPETX_COMM_RK_GHOSTS_HXX
 
 #include "internal.hxx"
 
@@ -8,11 +8,8 @@
 
 #include <cctk.h>
 
-#include <AMReX_MultiFab.H>
-
 #include <span>
 #include <string>
-#include <vector>
 
 namespace CarpetX {
 
@@ -29,22 +26,6 @@ void FillRKBoundary(level_t child, std::span<const gi_t> states,
                     stage_t completed, const std::string &event);
 
 void RecoverRKBoundary(window_t window);
-
-struct checkpoint_band_t {
-  std::string tag;
-  const amrex::MultiFab *band;
-};
-
-struct restore_band_t {
-  std::string tag;
-  amrex::MultiFab *band;
-};
-
-std::vector<checkpoint_band_t> checkpoint_bands(level_t level, gi_t gi,
-                                                rat64 parent_step);
-
-std::vector<restore_band_t> restore_bands(level_t level, gi_t gi,
-                                          rat64 parent_step);
 
 } // namespace CarpetX
 

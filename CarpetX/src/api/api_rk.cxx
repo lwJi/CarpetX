@@ -7,7 +7,7 @@
 #include "comm/comm.hxx"
 #include "comm/integrator.hxx"
 #include "comm/reflux.hxx"
-#include "comm/subcycling.hxx"
+#include "comm/rk_ghosts.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>

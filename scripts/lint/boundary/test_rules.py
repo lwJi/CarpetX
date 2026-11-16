@@ -958,7 +958,7 @@ class Index(unittest.TestCase):
 
     def test_index_reported(self):
         for line in self.BARE:
-            for name in ["CarpetX/src/comm/subcycling.hxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/include/carpetx.hxx"]:
+            for name in ["CarpetX/src/comm/rk_ghosts.hxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/include/carpetx.hxx"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, "  " + line + "\n"), [("index", line)])
 
@@ -1146,8 +1146,8 @@ class Index(unittest.TestCase):
 
     def test_line_numbers(self):
         text = "int a;\n\n  " + self.BARE[0] + "\n"
-        self.assertEqual(findings("CarpetX/src/comm/subcycling.hxx", text, Lang.CXX), [Finding(3, "index", self.BARE[0])])
-        self.assertEqual(findings("CarpetX/src/comm/subcycling.cxx", text, Lang.CXX), [Finding(3, "index", self.BARE[0])])
+        self.assertEqual(findings("CarpetX/src/comm/rk_ghosts.hxx", text, Lang.CXX), [Finding(3, "index", self.BARE[0])])
+        self.assertEqual(findings("CarpetX/src/comm/rk_ghosts.cxx", text, Lang.CXX), [Finding(3, "index", self.BARE[0])])
 
 
 class Records(unittest.TestCase):
@@ -2095,7 +2095,7 @@ class Report(unittest.TestCase):
         self.assertEqual(summary([m]), "✗ boundary: 1 mutable, extern, comm/ object or other concern's include in the data model's headers")
         self.assertEqual(summary([m, e, m]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 mutable, extern, comm/ object or other concern's includes in the data model's headers")
         w = ("CarpetX/src/schedule/schedule.hxx", Finding(3, "window", "struct active_levels_t;"))
-        i = ("CarpetX/src/comm/subcycling.hxx", Finding(4, "index", "void StoreRKOldState(int patch, int level, std::span<const gi_t> var_groups, tl_t tl);"))
+        i = ("CarpetX/src/comm/rk_ghosts.hxx", Finding(4, "index", "void StoreRKOldState(int patch, int level, std::span<const gi_t> var_groups, tl_t tl);"))
         self.assertEqual(summary([w]), "✗ boundary: 1 active_levels_t use")
         al = ("CarpetX/src/comm/reflux.cxx", Finding(8, "alias", "amrex::MultiFab alias(state, amrex::make_alias, 0, 1);"))
         self.assertEqual(summary([al]), "✗ boundary: 1 make_alias use in CarpetX")

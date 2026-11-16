@@ -6,7 +6,7 @@
 #include "hierarchy/scopes.hxx"
 #include "comm/comm.hxx"
 #include "comm/reflux.hxx"
-#include "comm/subcycling.hxx"
+#include "comm/rk_ghosts.hxx"
 #include "comm/substeps.hxx"
 #include "io/io.hxx"
 #include "traversal/traversal.hxx"

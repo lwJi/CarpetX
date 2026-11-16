@@ -29,13 +29,13 @@ flowchart TB
   flesh -- "checkpoint.hxx, io.hxx" --> io
   flesh -- "interp.hxx" --> ops
   flesh -- "regrid.hxx" --> regrid
-  flesh -- "buffers.hxx, comm.hxx, reflux.hxx, subcycling.hxx, substeps.hxx" --> comm
+  flesh -- "buffers.hxx, checkpoint_bands.hxx, comm.hxx, reflux.hxx, rk_bands.hxx, rk_ghosts.hxx, substeps.hxx" --> comm
   api -- "schedule.hxx" --> schedule
-  api -- "comm.hxx, integrator.hxx, reflux.hxx, subcycling.hxx" --> comm
+  api -- "comm.hxx, integrator.hxx, reflux.hxx, rk_ghosts.hxx" --> comm
   schedule -- "io.hxx" --> io
-  schedule -- "comm.hxx, reflux.hxx, subcycling.hxx, substeps.hxx" --> comm
+  schedule -- "comm.hxx, reflux.hxx, rk_ghosts.hxx, substeps.hxx" --> comm
   io -- "reduction.hxx" --> ops
-  io -- "subcycling.hxx" --> comm
+  io -- "checkpoint_bands.hxx" --> comm
   regrid -- "fillpatch.hxx, substeps.hxx" --> comm
   config -- "refuse.hxx, var_type.hxx" --> util
   traversal -- "refuse.hxx" --> util
