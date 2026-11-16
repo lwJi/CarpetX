@@ -175,6 +175,10 @@ template <class Variable>
 concept record_var_takes =
     requires(const GHExt::GroupRecord &record, Variable vi) { record.var(vi); };
 
+template <class Record>
+concept reads_firstvarindex =
+    requires(const Record &record) { record.firstvarindex; };
+
 template <class Variable>
 concept timelevel_valid_takes = requires(
     const GHExt::PatchData::LevelData::GroupData::timelevel_t &timelevel,
@@ -695,6 +699,8 @@ static_assert(record_var_takes<vi_t>);
 static_assert(!record_var_takes<gi_t>);
 static_assert(!record_var_takes<var_t>);
 static_assert(!record_var_takes<int>);
+static_assert(!reads_firstvarindex<GHExt::GroupRecord>);
+static_assert(!reads_firstvarindex<group_declaration_t>);
 
 static_assert(timelevel_valid_takes<vi_t>);
 static_assert(!timelevel_valid_takes<tl_t>);
