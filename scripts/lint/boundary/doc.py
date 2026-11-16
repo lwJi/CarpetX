@@ -679,16 +679,21 @@ ENTRIES_HEADING = "## Who the outsiders call"
 ENTRIES_INTRO = "An outsider decides when a layer works: it calls one of these entries. Each row is a layer, who calls into it, and what they call."
 
 
-def entries(root: str = PROJECT) -> str:
+def entry_rows(root: str = PROJECT) -> list[tuple[str, str, str]]:
     rows: list[tuple[str, str, str]] = [("flesh", "Cactus flesh", f'every extern "C" in {", ".join(extern_c_files(root))}')]
     rows += [(layer, "Cactus flesh", ", ".join(names)) for layer, names in registered(root).items()]
     bodies = public_bodies(root)
-    rows.append((PUBLIC_LAYER, "a thorn", f"every function of {', '.join(public_headers(root, bodies[PUBLIC_LAYER]))} not named in a row below"))
+    elsewhere = ", ".join(f"{layer}/" for layer in bodies if layer != PUBLIC_LAYER)
+    rows.append((PUBLIC_LAYER, "a thorn", f"every function of {', '.join(public_headers(root, bodies[PUBLIC_LAYER]))} whose body is not in {elsewhere}"))
     rows += [(layer, "a thorn", ", ".join(names)) for layer, names in bodies.items() if layer != PUBLIC_LAYER]
     rows.append((layer_of(CALLBACKS[0]), "AMReX", ", ".join(CALLBACKS[1])))
     rows.sort(key=lambda row: top_down_order(row[0]))
+    return rows
+
+
+def entries(root: str = PROJECT) -> str:
     lines = [ENTRIES_HEADING, "", ENTRIES_INTRO, "", "| Layer | Caller | Entries |", "| --- | --- | --- |"]
-    lines.extend(f"| `{layer}/` | {caller} | {what} |" for layer, caller, what in rows)
+    lines.extend(f"| `{layer}/` | {caller} | {what} |" for layer, caller, what in entry_rows(root))
     return "\n".join(lines) + "\n"
 
 
@@ -701,14 +706,50 @@ OWNS_INTRO = (
 )
 
 
+def owned(layer: str) -> str:
+    return OWNS[layer] + (f" Rules at home here: {', '.join(rules_of(layer))}." if rules_of(layer) else "")
+
+
 def owns(root: str = PROJECT) -> str:
     assert tuple(OWNS) == LAYERS, tuple(OWNS)
     listed = stem_rows(root)
     rows = []
     for layer in reversed(LAYERS):
-        rows.append(f"- `{layer}/`: {OWNS[layer]}" + (f" Rules at home here: {', '.join(rules_of(layer))}." if rules_of(layer) else ""))
+        rows.append(f"- `{layer}/`: {owned(layer)}")
         rows.extend(f"  - `{stem}`: {holds}" for stem, holds in listed.get(layer, {}).items())
     return "\n".join([OWNS_HEADING, "", OWNS_INTRO, ""] + rows) + "\n"
+
+
+LAYER_COMMAND = "python3 scripts/lint doc --layer"
+INDEX_INTRO = (
+    "New code goes in the layer that owns what it works on, and a lower layer never decides for a higher one. "
+    f"`{LAYER_COMMAND} LAYER` prints all that one layer owns, what it reads, who reads it and who calls it from outside; `{MAP}` is the whole map."
+)
+SENTENCE = re.compile(r"(.*?)\.(?: |$)")
+
+
+def index() -> str:
+    rows = [f"- `{layer}/`: {SENTENCE.match(OWNS[layer]).group(1)}" for layer in reversed(LAYERS)]
+    return "\n".join([INDEX_INTRO, ""] + rows) + "\n"
+
+
+def read_line(found: dict[tuple[str, str], set[str]], pairs: list[tuple[str, str]], shown: int) -> str:
+    return ", ".join(f"`{pair[shown]}/` ({', '.join(sorted(found[pair]))})" for pair in pairs if pair in found) or "nothing"
+
+
+def layer_slice(layer: str, root: str = PROJECT) -> str:
+    if layer not in LAYERS:
+        raise ValueError(f"{layer} is not a layer of CarpetX/src: {', '.join(reversed(LAYERS))}")
+    found = reads(root)
+    parts = [f"# `{layer}/`", "", f"Owns: {owned(layer)}", ""]
+    stems = stem_rows(root).get(layer, {})
+    if stems:
+        parts.extend([f"- `{stem}`: {holds}" for stem, holds in stems.items()] + [""])
+    parts.extend([f"Reads: {read_line(found, [(layer, target) for target in READS[layer] + (PUBLIC,)], 1)}.", ""])
+    parts.extend([f"Read by: {read_line(found, [(reader, layer) for reader in reversed(LAYERS)], 0)}.", ""])
+    callers = "; ".join(f"{caller}: {what}" for row, caller, what in entry_rows(root) if row == layer)
+    parts.append(f"Called from outside: {callers or 'nothing'}.")
+    return "\n".join(parts) + "\n"
 
 
 GRANTS_HEADING = "## Who is granted what"
@@ -750,7 +791,7 @@ PREAMBLE = (
     f"the `#include` lines of `CarpetX/src/` and the rows of doc.py it holds to the code, each a registration in `{STARTUP}`, a call or a body; `scripts/lint/boundary/test_rules.py` fails when "
     "the file differs from what it writes, and the edit hook refuses an edit to it. A client thorn sees none of this: it reaches CarpetX "
     "only through the headers `agent_docs/carpetx-public-api.md` describes. `python3 scripts/lint check --help` prints what every rule "
-    "named below holds. The list under each picture is its key."
+    "named below holds. The list under each picture is its key. `python3 scripts/lint doc --layer LAYER` prints one layer of this map alone."
 )
 SECTIONS: tuple[tuple[str, Callable[[str], str], tuple[str, ...]], ...] = (
     ("The stack", stack, STACK_LEGEND),

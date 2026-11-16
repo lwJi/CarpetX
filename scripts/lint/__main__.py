@@ -17,7 +17,8 @@ How the checks are run:
   what all of them would report; the rules are in agent_docs/code-comments.md and
   agent_docs/carpetx-public-api.md, and `check --help` prints every boundary rule. `doc --write` writes
   agent_docs/carpetx-internals.md, the map of CarpetX/src, and agent_docs/carpetx-public-api.md and
-  agent_docs/carpetx-rk-api.md, the guides to its headers. `symbols` needs a build: the CI workflow runs it after every build and
+  agent_docs/carpetx-rk-api.md, the guides to its headers; `doc --layer` lists the layers of CarpetX/src
+  and `doc --layer LAYER` prints the map of one. `symbols` needs a build: the CI workflow runs it after every build and
   agent_scripts/build.sh after a successful one.
 """
 HOOKS = {"hook-edit": "hook_edit", "hook-stop": "hook_stop"}
@@ -54,9 +55,18 @@ def generated_docs() -> dict[str, tuple[str, object]]:
     return {"internals": (doc.MAP, doc.render), "public-api": (guide.GUIDE, guide.render), "rk-api": (guide.RK_GUIDE, guide.render_rk)}
 
 
-def run_doc(write: bool, names: list[str]) -> int:
+def run_doc(write: bool, names: list[str], layer: str | None = None) -> int:
     from files import PROJECT
 
+    if layer is not None:
+        from boundary import doc
+
+        try:
+            print(doc.layer_slice(layer) if layer else doc.index(), end="")
+        except (OSError, ValueError) as e:
+            print(f"lint doc: {e}", file=sys.stderr)
+            return EXIT_ERROR
+        return EXIT_CLEAN
     docs = generated_docs()
     for name in names or list(docs):
         file, render = docs[name]
@@ -158,13 +168,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     doc.add_argument("names", nargs="*", choices=["internals", "public-api", "rk-api"], metavar="DOC", help="internals, public-api or rk-api (default: all)")
     doc.add_argument("--write", action="store_true", help="write the files instead")
+    doc.add_argument("--layer", nargs="?", const="", metavar="LAYER", help="print instead what one layer of CarpetX/src owns, what it reads, who reads it and who calls it from outside; with no LAYER, list the layers with what each owns in a line")
     commands.add_parser("hook-edit", help="Claude Code PreToolUse hook: deny an Edit or Write that adds a finding or that touches the generated map")
     commands.add_parser("hook-stop", help="Claude Code Stop hook: block once if the branch added a finding")
     args = parser.parse_args(argv)
     if args.command in HOOKS:
         return run_hook(HOOKS[args.command])
     if args.command == "doc":
-        return run_doc(args.write, args.names)
+        if args.layer is not None and (args.write or args.names):
+            parser.error("--layer prints one layer and takes no DOC and no --write")
+        return run_doc(args.write, args.names, args.layer)
     if args.command == "symbols":
         return run_symbols(args.objdir)
     if args.since is not None and args.paths:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import importlib.util
 import io
 import json
 import os
@@ -2711,6 +2713,53 @@ class Doc(unittest.TestCase):
                     else:
                         self.assertTrue(any(word in words for word in re.findall(r"[A-Za-z_]\w+", name)), f"{name} is not in CarpetX/src")
 
+    def test_the_index_lists_every_layer_and_a_layer_is_printed_alone(self):
+        lines = doc.index().splitlines()
+        self.assertEqual(lines[:2], [doc.INDEX_INTRO, ""])
+        self.assertEqual([line.split(":")[0] for line in lines[2:]], [f"- `{layer}/`" for layer in reversed(LAYERS)])
+        found = doc.reads(PROJECT)
+        for layer, line in zip(reversed(LAYERS), lines[2:]):
+            with self.subTest(layer=layer):
+                said = line.split(": ", 1)[1]
+                self.assertTrue(rules.OWNS[layer].startswith(said + "."), said)
+                self.assertNotIn(". ", said)
+                text = doc.layer_slice(layer)
+                self.assertTrue(text.startswith(f"# `{layer}/`\n\nOwns: {doc.owned(layer)}\n\n"))
+                self.assertEqual([row for row in text.splitlines() if row.startswith("- ")], [f"- `{stem}`: {holds}" for stem, holds in rules.STEMS.get(layer, {}).items()])
+                reads, read_by, called = text.splitlines()[-5::2]
+                self.assertTrue(reads.startswith("Reads: ") and read_by.startswith("Read by: ") and called.startswith("Called from outside: "), text)
+                self.assertEqual(re.findall(r"`(\w+)/`", reads), [target for target in READS[layer] + (doc.PUBLIC,) if (layer, target) in found])
+                self.assertEqual(re.findall(r"`(\w+)/`", read_by), [reader for reader in reversed(LAYERS) if (reader, layer) in found])
+                for (reader, target), headers in found.items():
+                    if layer in (reader, target):
+                        self.assertIn(f"`{target if reader == layer else reader}/` ({', '.join(sorted(headers))})", reads if reader == layer else read_by)
+                self.assertEqual(called, "Called from outside: " + ("; ".join(f"{caller}: {what}" for row, caller, what in doc.entry_rows() if row == layer) or "nothing") + ".")
+                self.assertLess(len(text), len(doc.render()) / 5)
+        self.assertTrue(doc.layer_slice("comm").endswith("\n\nCalled from outside: Cactus flesh: SyncGroupsOnActiveLevels.\n"))
+        self.assertIn("\n\nReads: `include/` (carpetx.hxx).\n\n", doc.layer_slice("util"))
+        self.assertIn("\n\nRead by: nothing.\n\n", doc.layer_slice("flesh"))
+        self.assertTrue(doc.layer_slice("api").endswith("Called from outside: a thorn: every function of carpetx.hxx, carpetx_rk.hxx whose body is not in hierarchy/, config/, ops/, util/.\n"))
+        self.assertIn("AMReX: ErrorEst, ", doc.layer_slice("regrid"))
+        self.assertEqual({row for row, _, _ in doc.entry_rows()}, set(LAYERS) - {"traversal"})
+        self.assertTrue(doc.layer_slice("traversal").endswith("\n\nCalled from outside: nothing.\n"))
+        with self.assertRaisesRegex(ValueError, "^nosuch is not a layer of CarpetX/src: flesh, api, "):
+            doc.layer_slice("nosuch")
+        self.assertIn(f"`{doc.LAYER_COMMAND}`", doc.read(os.path.join(PROJECT, "CLAUDE.md")))
+        spec = importlib.util.spec_from_file_location("lint_main", os.path.join(PROJECT, "scripts", "lint", "__main__.py"))
+        lint = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(lint)
+        for argv, printed in ((["doc", "--layer"], doc.index()), (["doc", "--layer", "util"], doc.layer_slice("util"))):
+            with self.subTest(argv=argv):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    self.assertEqual(lint.main(argv), lint.EXIT_CLEAN)
+                self.assertEqual(out.getvalue(), printed)
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(lint.main(["doc", "--layer", "nosuch"]), lint.EXIT_ERROR)
+            with self.assertRaises(SystemExit):
+                lint.main(["doc", "--layer", "util", "--write"])
+        self.assertIn("lint doc: nosuch is not a layer of CarpetX/src", err.getvalue())
+
     def test_every_picture_is_followed_by_its_key_in_mermaid_obsidian_takes(self):
         text = doc.render()
         for title, picture, texts in doc.SECTIONS:
@@ -2883,7 +2932,7 @@ class Doc(unittest.TestCase):
                 [
                     '| `flesh/` | Cactus flesh | every extern "C" in startup.cxx |',
                     "| `flesh/` | Cactus flesh | SetupGH, InitGH, ScheduleTraverseGH, Initialise_entry, Evolve_entry, MyProc, nProcs, Exit, Abort, Barrier, EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry, CarpetX_InterpGridArrays, ArrayGroupSizeB, GroupDynamicData |",
-                    "| `api/` | a thorn | every function of carpetx.hxx, carpetx_rk.hxx not named in a row below |",
+                    "| `api/` | a thorn | every function of carpetx.hxx, carpetx_rk.hxx whose body is not in hierarchy/, config/, ops/, util/ |",
                     "| `schedule/` | Cactus flesh | Shutdown, QueryGroupStorageB |",
                     "| `io/` | Cactus flesh | OutputGH |",
                     "| `ops/` | Cactus flesh | InterpLocalUniform |",
