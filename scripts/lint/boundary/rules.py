@@ -36,7 +36,7 @@ OWNS = {
     "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
     "config": "what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.",
     "hierarchy": "the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject.",
-    "comm": "moving data between ranks, between levels, and into ghost and boundary zones, and the queries about integrator stages, flux registers and substeps. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
+    "comm": "filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`.",
@@ -63,6 +63,27 @@ STEMS = {
         "loops": "visiting levels and tiles",
         "grid": "describing one tile to a kernel",
         "handles": "the bodies of the public handles, all in one place",
+    },
+    "comm": {
+        "sync": "the sync a routine or thorn asks for: ghosts from the same level and the coarser one, then the outer boundary",
+        "restrict": "coarse cells from the finer level's",
+        "ghost_prolongation": "which levels, groups and time levels are prolongated into, the validity that requires of the level it reads, and the validity it records",
+        "outer_boundary": "which groups and time levels get the outer boundary, and the validity that records",
+        "rk_ghosts": "filling coarse-fine ghosts between parent steps from the RK bands",
+        "reflux": "flux registers: which groups have one, what accumulates in it, and correcting the coarse level from it",
+        "fillpatch": "carrying data between two `MultiFab`s with an operator",
+        "boundary_conditions": "applying a group's boundary conditions to one `MultiFab`",
+        "prolongate_3d_rf2": "the prolongation operators, and the choice of one per group",
+        "buffers": "what `comm/` keeps on a level, and its lifetime",
+        "rk_bands": "what a level holds of its parent's RK step, and when it may be read",
+        "checkpoint_bands": "the bands of a level a checkpoint carries, each under its tag",
+        "timelevels": "which time levels a request covers",
+        "sync_guard": "one exchange at a time",
+        "group_selection": "which of the groups asked for an exchange acts on",
+        "level_runs": "splitting a window into runs of levels a predicate treats alike",
+        "level_pairs": "visiting each level of a window that has a child in it",
+        "integrator": "what the registered integrator integrates, and in how many stages",
+        "substeps": "where a level stands in its parent's step",
     },
 }
 assert set(STEMS) <= set(LAYERS), STEMS
@@ -180,6 +201,10 @@ GHOST_ONLY_FILES = (
     layer_path("flesh", "compile_checks.cxx"),
 )
 GHOST_ONLY_WORD = re.compile(r"\bSyncGhostsOnly\s*\(")
+APPLIES_LAYER = "comm"
+APPLIES_STEMS = ("fillpatch", "boundary_conditions", "prolongate_3d_rf2")
+assert set(APPLIES_STEMS) <= set(STEMS[APPLIES_LAYER]), APPLIES_STEMS
+APPLIES_WORD = re.compile(r'^\s*#\s*include\s*[<"]hierarchy/scopes\.hxx[>"]')
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
     r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b"
@@ -350,6 +375,11 @@ def hierarchy_header(name: str, lang: Lang) -> bool:
 
 def in_files(names: tuple[str, ...]) -> Callable[..., bool]:
     return lambda name, *_: name in names
+
+
+def in_rows(layer: str, stems: tuple[str, ...]) -> Files:
+    assert set(stems) <= set(STEMS[layer]), (layer, stems)
+    return lambda name, lang: carpetx_cxx(name, lang) and layer_of(name) == layer and row_of(name.rsplit("/", 1)[1].split(".", 1)[0]) in stems
 
 
 def never(name: str, line: str, statement: str) -> bool:
@@ -833,6 +863,19 @@ RULES = (
         where="outside api.cxx",
         clean="no driver-internal ghost-only sync",
         home=layers_of(GHOST_ONLY_FILES),
+    ),
+    Rule(
+        "applies",
+        files=in_rows(APPLIES_LAYER, APPLIES_STEMS),
+        word=APPLIES_WORD,
+        allowed=never,
+        text=f"a stem of {APPLIES_LAYER}/ that applies ({', '.join(APPLIES_STEMS)}) writes into the MultiFab it is handed and "
+        "records nothing: it does not include hierarchy/scopes.hxx, so it can open no write scope and require no "
+        "validity; the stem that decides what is filled does both.",
+        noun="write-scope include",
+        where=f"in a stem of {APPLIES_LAYER}/ that applies",
+        clean=f"no write-scope include in a stem of {APPLIES_LAYER}/ that applies",
+        home=(APPLIES_LAYER,),
     ),
 )
 RULE = "\n".join([wrap(PREAMBLE)] + [rule.paragraph() for rule in RULES])

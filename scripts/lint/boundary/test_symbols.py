@@ -50,6 +50,8 @@ ERASE_LEVELS = "_ZN7CarpetX14level_writer_t17erase_levels_fromENS_7level_tE"
 ALL_LEVELS = "_ZN7CarpetX10all_levelsEv"
 PRINT_SYMMETRY = "_ZN7CarpetXlsERSoNS_10symmetry_tE"
 TO_STRING = "__ZNK7CarpetX7valid_tcvNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEv"
+SYNC_GROUPS = "__ZN7CarpetX10SyncGroupsENS_8window_tENSt3__14spanIKNS_4gi_tELm18446744073709551615EEE"
+RESTRICT = "__ZN7CarpetX8RestrictENS_8window_tENSt3__14spanIKNS_4gi_tELm18446744073709551615EEE"
 POLY_MAP = "__ZN7CarpetX15prolongate_polyE"
 CONS_MAP = "__ZN7CarpetX15prolongate_consE"
 REALLOCATE = "__ZNSt5dequeIN7CarpetX13write_scope_tESaIS1_EE17_M_reallocate_mapEmb"
@@ -318,10 +320,23 @@ class Strays(unittest.TestCase):
 
     def test_only_an_object_of_a_listed_layer_is_judged(self):
         definitions = {"schedule/evolve.cxx.o": {("T", DEFAULTED)}, "hierarchy/modes.cxx.o": {("T", CURRENT_MODE)}}
-        self.assertEqual(set(rules.STEMS), {"config", "hierarchy"})
+        self.assertEqual(set(rules.STEMS), {"config", "hierarchy", "comm"})
         self.assertEqual(strays(self.LAYERS, definitions, self.HEADERS, {}), [Stray("hierarchy/modes.cxx.o", CURRENT_MODE, "CarpetX/src/hierarchy/modes.hxx")])
         with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"]}, clear=True):
             self.assertEqual(strays(self.LAYERS, definitions, self.HEADERS, {}), [])
+
+    def test_a_comm_object_that_defines_a_name_its_stems_header_does_not_declare_is_a_stray(self):
+        sync, restrict = "comm/sync.cxx.o", "comm/restrict.cxx.o"
+        layers = {sync: "comm", restrict: "comm"}
+        headers = {
+            "CarpetX/src/comm/sync.hxx": doc.declared_names("namespace CarpetX {\nvoid SyncGroups(window_t window, std::span<const gi_t> groups);\n}\n"),
+            "CarpetX/src/comm/restrict.hxx": doc.declared_names("namespace CarpetX {\nvoid Restrict(window_t window, std::span<const gi_t> groups);\n}\n"),
+        }
+        self.assertIn("comm", rules.STEMS)
+        self.assertEqual(strays(layers, {sync: {("T", SYNC_GROUPS)}, restrict: {("T", RESTRICT)}}, headers, {}), [])
+        self.assertEqual(strays(layers, {sync: {("T", SYNC_GROUPS), ("T", RESTRICT)}, restrict: set()}, headers, {}), [Stray(sync, RESTRICT, "CarpetX/src/comm/sync.hxx")])
+        with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"], "hierarchy": rules.STEMS["hierarchy"]}, clear=True):
+            self.assertEqual(strays(layers, {sync: {("T", SYNC_GROUPS), ("T", RESTRICT)}}, headers, {}), [])
 
     def test_a_listed_layer_holds_each_source_to_its_own_header_and_a_public_body_to_the_public_headers(self):
         definitions = {
@@ -348,7 +363,7 @@ class Report(unittest.TestCase):
     CLEAN = "✓ symbols: every CarpetX import from the importing object's layer or one it reads"
 
     def test_clean(self):
-        self.assertEqual(render([], [], {}), self.CLEAN + ", and every definition of config/ and hierarchy/ declared in the header of its stem")
+        self.assertEqual(render([], [], {}), self.CLEAN + ", and every definition of config/, hierarchy/ and comm/ declared in the header of its stem")
         with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"]}, clear=True):
             self.assertEqual(summary([], []), self.CLEAN + ", and every definition of config/ declared in the header of its stem")
         with mock.patch.dict(rules.STEMS, clear=True):

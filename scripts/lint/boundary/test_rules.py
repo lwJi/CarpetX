@@ -300,6 +300,52 @@ class GhostOnly(unittest.TestCase):
         self.assertEqual(rules.layers_of(rules.GHOST_ONLY_FILES), ("comm", "api", "flesh"))
 
 
+class Applies(unittest.TestCase):
+    INCLUDE = '#include "hierarchy/scopes.hxx"'
+
+    def test_the_include_is_reported_in_a_stem_that_applies(self):
+        for name in [
+            "CarpetX/src/comm/fillpatch.cxx",
+            "CarpetX/src/comm/fillpatch.hxx",
+            "CarpetX/src/comm/boundary_conditions.cxx",
+            "CarpetX/src/comm/boundary_conditions_impl.hxx",
+            "CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx",
+            "CarpetX/src/comm/prolongate_3d_rf2.hxx",
+            "CarpetX/src/comm/prolongate_3d_rf2_impl_poly.cxx",
+        ]:
+            for line in [self.INCLUDE, "#include <hierarchy/scopes.hxx>", "  #  include \"hierarchy/scopes.hxx\""]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("applies", line.strip())])
+
+    def test_the_include_passes_in_a_stem_that_decides_and_outside_comm(self):
+        for name in ["CarpetX/src/comm/sync.cxx", "CarpetX/src/comm/outer_boundary.cxx", "CarpetX/src/comm/ghost_prolongation.cxx", "CarpetX/src/comm/rk_ghosts.cxx", "CarpetX/src/comm/reflux.cxx", "CarpetX/src/regrid/regrid.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.INCLUDE + "\n"), [])
+
+    def test_another_header_or_a_mention_passes(self):
+        name = "CarpetX/src/comm/fillpatch.cxx"
+        for text in ['#include "hierarchy/valid.hxx"\n', '#include "hierarchy/scopes_detail.hxx"\n', "// hierarchy/scopes.hxx\n", "const write_scope_t *scope;\n"]:
+            with self.subTest(text=text):
+                self.assertNotIn("applies", [rule for rule, _ in reported(name, text)])
+
+    def test_no_file_of_a_stem_that_applies_includes_it(self):
+        applies = next(rule for rule in rules.RULES if rule.name == "applies")
+        found, judged = [], set()
+        for path in doc.sources(PROJECT, rules.APPLIES_LAYER):
+            name = os.path.relpath(path, PROJECT)
+            if applies.files(name, Lang.CXX):
+                judged.add(rules.row_of(os.path.splitext(os.path.basename(name))[0]))
+            found.extend((name, f.line) for f in findings(name, doc.read(path), Lang.CXX) if f.rule == "applies")
+        self.assertEqual(judged, set(rules.APPLIES_STEMS))
+        self.assertEqual(found, [])
+
+    def test_the_rule_is_at_home_in_comm_and_names_rows_of_it(self):
+        self.assertLessEqual(set(rules.APPLIES_STEMS), set(rules.STEMS[rules.APPLIES_LAYER]))
+        self.assertEqual(next(rule for rule in rules.RULES if rule.name == "applies").home, ("comm",))
+        with self.assertRaises(AssertionError):
+            rules.in_rows("comm", ("nosuch",))
+
+
 class Directions(unittest.TestCase):
     FORWARDED = (
         "  int SyncGroupsLockstep(const window_t window,\n"
@@ -2074,7 +2120,8 @@ class Report(unittest.TestCase):
             "every header opens with its own guard and internal.hxx, "
             "no extern C entry outside flesh/, "
             "the hierarchy has one door that util/, traversal/ and config/ never use, "
-            "and no driver-internal ghost-only sync",
+            "no driver-internal ghost-only sync, "
+            "and no write-scope include in a stem of comm/ that applies",
         )
 
     def test_counts(self):
@@ -2548,6 +2595,10 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant.")
         self.assertTrue(rules.OWNS["hierarchy"].endswith(" Nothing here only reads the model: a query belongs to the layer that owns its subject."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
+        self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: directions, ghost-only, applies.")
+        self.assertTrue(rules.OWNS["comm"].endswith(" It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock."))
+        self.assertIn(" A stem either decides what is filled and records its validity, or applies and records nothing. ", rules.OWNS["comm"])
+        self.assertEqual(doc.rules_of("comm"), ["directions", "ghost-only", "applies"])
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
         self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "clock", "varindex", "model", "grant"])
@@ -2561,7 +2612,7 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "directions", "varindex", "model", "grant", "traversal", "records", "codec", "entry", "ghost-only"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "directions", "varindex", "model", "grant", "traversal", "records", "codec", "entry", "ghost-only", "applies"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
@@ -2679,6 +2730,30 @@ class Doc(unittest.TestCase):
                 "  - `loops`: visiting levels and tiles",
                 "  - `grid`: describing one tile to a kernel",
                 "  - `handles`: the bodies of the public handles, all in one place",
+            ],
+        )
+        self.assertEqual(
+            under["comm"],
+            [
+                "  - `sync`: the sync a routine or thorn asks for: ghosts from the same level and the coarser one, then the outer boundary",
+                "  - `restrict`: coarse cells from the finer level's",
+                "  - `ghost_prolongation`: which levels, groups and time levels are prolongated into, the validity that requires of the level it reads, and the validity it records",
+                "  - `outer_boundary`: which groups and time levels get the outer boundary, and the validity that records",
+                "  - `rk_ghosts`: filling coarse-fine ghosts between parent steps from the RK bands",
+                "  - `reflux`: flux registers: which groups have one, what accumulates in it, and correcting the coarse level from it",
+                "  - `fillpatch`: carrying data between two `MultiFab`s with an operator",
+                "  - `boundary_conditions`: applying a group's boundary conditions to one `MultiFab`",
+                "  - `prolongate_3d_rf2`: the prolongation operators, and the choice of one per group",
+                "  - `buffers`: what `comm/` keeps on a level, and its lifetime",
+                "  - `rk_bands`: what a level holds of its parent's RK step, and when it may be read",
+                "  - `checkpoint_bands`: the bands of a level a checkpoint carries, each under its tag",
+                "  - `timelevels`: which time levels a request covers",
+                "  - `sync_guard`: one exchange at a time",
+                "  - `group_selection`: which of the groups asked for an exchange acts on",
+                "  - `level_runs`: splitting a window into runs of levels a predicate treats alike",
+                "  - `level_pairs`: visiting each level of a window that has a child in it",
+                "  - `integrator`: what the registered integrator integrates, and in how many stages",
+                "  - `substeps`: where a level stands in its parent's step",
             ],
         )
         words = set()
@@ -2983,8 +3058,9 @@ class Stems(unittest.TestCase):
 
     def test_a_listed_layer_is_a_layer_and_every_stem_in_it_has_a_row(self):
         self.assertLessEqual(set(rules.STEMS), set(LAYERS))
-        self.assertEqual(tuple(rules.STEMS), ("config", "hierarchy"))
+        self.assertEqual(tuple(rules.STEMS), ("config", "hierarchy", "comm"))
         self.assertEqual(tuple(rules.STEMS["hierarchy"]), ("model", "writers", "clock", "valid", "scopes", "binding", "modes", "loops", "grid", "handles"))
+        self.assertEqual(len(rules.STEMS["comm"]), 19)
         self.assertEqual(doc.stem_rows(), rules.STEMS)
         for layer, rows in rules.STEMS.items():
             with self.subTest(layer=layer):
