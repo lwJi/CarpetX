@@ -17,8 +17,8 @@ void ApplyOuterBoundary(window_t window, std::span<const gi_t> groups,
 void error_if_sync_nested(
     std::source_location site = std::source_location::current());
 
-void apply_outer_boundary(window_t window, std::span<const gi_t> groups,
-                          timelevels_t tls, const char *event);
+void fill_outer_boundary(window_t window, std::span<const gi_t> groups,
+                         timelevels_t tls, const char *event);
 
 } // namespace CarpetX
 

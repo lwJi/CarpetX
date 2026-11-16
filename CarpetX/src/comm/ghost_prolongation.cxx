@@ -185,10 +185,10 @@ void ProlongateAfterRestriction(const window_t window) {
       ProlongateGhosts_impl(window, groups, true, tls);
   for (const level_run_t &run : runs)
     if (run.value)
-      apply_outer_boundary(run.levels, groups, tls,
-                           "ProlongateAfterRestriction applies the boundary "
-                           "condition after the prolongation and reads the "
-                           "interior and both ghost regions");
+      fill_outer_boundary(run.levels, groups, tls,
+                          "ProlongateAfterRestriction applies the boundary "
+                          "condition after the prolongation and reads the "
+                          "interior and both ghost regions");
 }
 
 } // namespace CarpetX

@@ -183,8 +183,8 @@ static void SyncGroupsLockstep(const window_t window,
   synchronize();
 
   scopes.close();
-  apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
-                       boundary_label.c_str());
+  fill_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
+                      boundary_label.c_str());
 }
 
 static void error_if_sync_in_tail(const window_t window,
@@ -368,8 +368,8 @@ static void SyncGroupsSubcycling(const window_t window,
   synchronize();
 
   scopes.close();
-  apply_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
-                       boundary_label.c_str());
+  fill_outer_boundary(window, groups, timelevels_t::all_but_oldest(),
+                      boundary_label.c_str());
 }
 
 void SyncGroups(const window_t window, const std::span<const gi_t> groups) {

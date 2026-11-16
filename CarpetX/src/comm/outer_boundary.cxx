@@ -72,9 +72,9 @@ static valid_t outer_fills(const window_t window, const gi_t gi) {
   return covered.value_or(false) ? make_valid_outer() : valid_t();
 }
 
-void apply_outer_boundary(const window_t window,
-                          const std::span<const gi_t> groups,
-                          const timelevels_t tls, const char *const event) {
+void fill_outer_boundary(const window_t window,
+                         const std::span<const gi_t> groups,
+                         const timelevels_t tls, const char *const event) {
   const GHExt &ext = driver();
   write_scopes_t scopes;
   for (const gi_t gi : groups) {
@@ -114,9 +114,9 @@ void ApplyOuterBoundary(const window_t window,
   sync_log_groups("ApplyOuterBoundary", groups0);
 
   const std::vector<gi_t> groups = sync_filter_groups(groups0);
-  apply_outer_boundary(window, groups, tls,
-                       "CarpetX::apply_outer_boundary reads the interior and "
-                       "both ghost regions");
+  fill_outer_boundary(window, groups, tls,
+                      "CarpetX::apply_outer_boundary reads the interior and "
+                      "both ghost regions");
 }
 
 } // namespace CarpetX
