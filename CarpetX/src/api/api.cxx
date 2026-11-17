@@ -234,8 +234,7 @@ void invalidate(const window_t window, const std::span<const gi_t> groups,
 void sync(const window_t window, const std::span<const gi_t> groups) {
   const operation_scope_t op("CarpetX::sync");
   require_operable(window, groups);
-  error_if_sync_in_tail(window, groups);
-  SyncGroups(window, groups);
+  SyncRequested(window, groups);
 }
 
 namespace {

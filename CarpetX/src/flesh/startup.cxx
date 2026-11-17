@@ -5,7 +5,6 @@
 #include "api/api.hxx"
 #include "schedule/schedule.hxx"
 #include "comm/buffers.hxx"
-#include "comm/sync.hxx"
 #include "regrid/regrid.hxx"
 #include "ops/interp.hxx"
 #include "io/io.hxx"
@@ -86,9 +85,7 @@ int SyncGroups_entry(const cGH *cctkGH, int numgroups, const int *groups,
                      const int *directions) {
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
   const std::vector<gi_t> gis(groups, groups + numgroups);
-  const window_t window = scheduled_window(sync_caller().c_str());
-  error_if_sync_in_tail(window, gis);
-  SyncGroups(window, gis);
+  SyncRequested(scheduled_window(sync_caller().c_str()), gis);
   return numgroups;
 }
 } // namespace

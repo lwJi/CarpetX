@@ -40,7 +40,7 @@ OWNS = {
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`.",
-    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. It opens the scopes of the run's phase and answers whether a sync may run in the open bin. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps, what `api/` hands to the flesh, and that one question, which `flesh/` and `api/` ask. A writer is an argument of each function that uses one, and none is kept between calls.",
+    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. It opens the scopes of the run's phase, and the sync a routine or thorn requests runs through its `SyncRequested`, which refuses one the open bin does not allow. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps, what `api/` hands to the flesh, and `SyncRequested`, which `flesh/` and `api/` call. A writer is an argument of each function that uses one, and none is kept between calls.",
     "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. It keeps the writers it uses in one slot, and of the clock it changes only the stage time and step, for the length of one `run_at`.",
     "flesh": 'every `extern "C"`, and `hierarchy_writers_t`, the writers that own the hierarchy, which it lends to `schedule/` and `api/`. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
@@ -199,6 +199,9 @@ GHOST_ONLY_FILES = (
     layer_path("flesh", "compile_checks.cxx"),
 )
 GHOST_ONLY_WORD = re.compile(r"\bSyncGhostsOnly\s*\(")
+REQUESTED_SYNC_FILES = (layer_path("comm", "sync.hxx"), layer_path("comm", "sync.cxx"))
+REQUESTED_SYNC_LAYER = "schedule"
+REQUESTED_SYNC_WORD = re.compile(r"\bSyncGroups\s*\(")
 APPLIES_LAYER = "comm"
 APPLIES_STEMS = ("fillpatch", "boundary_conditions", "prolongate_3d_rf2")
 assert set(APPLIES_STEMS) <= set(STEMS[APPLIES_LAYER]), APPLIES_STEMS
@@ -473,6 +476,10 @@ def entry_allowed(name: str, line: str, statement: str) -> bool:
 
 def door_allowed(name: str, line: str, statement: str) -> bool:
     return layer_of(name) in HIERARCHY_LAYERS
+
+
+def requested_sync_allowed(name: str, line: str, statement: str) -> bool:
+    return name in REQUESTED_SYNC_FILES or layer_of(name) == REQUESTED_SYNC_LAYER
 
 
 def unqualified(head: list[tuple[str, int]]) -> list[tuple[str, int]]:
@@ -856,6 +863,19 @@ RULES = (
         where="outside api.cxx",
         clean="no driver-internal ghost-only sync",
         home=layers_of(GHOST_ONLY_FILES),
+    ),
+    Rule(
+        "requested-sync",
+        files=private_cxx,
+        word=REQUESTED_SYNC_WORD,
+        allowed=requested_sync_allowed,
+        text=f"SyncGroups, the sync of comm/, is called outside comm/ only in {REQUESTED_SYNC_LAYER}/; the flesh's sync entry and "
+        f"the public CarpetX::sync call SyncRequested in CarpetX/src/{REQUESTED_SYNC_LAYER}/clocks.cxx, which refuses a sync in an "
+        "end-of-step bin that does not hold every level and then calls SyncGroups.",
+        noun="SyncGroups call",
+        where=f"outside {REQUESTED_SYNC_LAYER}/",
+        clean=f"no SyncGroups call outside {REQUESTED_SYNC_LAYER}/",
+        home=layers_of(REQUESTED_SYNC_FILES) + (REQUESTED_SYNC_LAYER,),
     ),
     Rule(
         "applies",

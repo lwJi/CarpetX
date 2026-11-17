@@ -52,8 +52,7 @@ PASS = (
     ("9", "api", "cactus", ("CCTK_ScheduleTraverse",), layer_path("api", "api_rk.cxx")),
     (HANDED, "cactus", "flesh", ("EnableGroupStorage_entry", "DisableGroupStorage_entry", "GroupStorageIncrease_entry", "GroupStorageDecrease_entry", "SyncGroups_entry"), STARTUP),
     (HANDED, "flesh", "schedule", ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease"), layer_path("schedule", "storage.cxx")),
-    (HANDED, "flesh", "schedule", ("error_if_sync_in_tail",), layer_path("schedule", "clocks.cxx")),
-    (HANDED, "flesh", "comm", ("SyncGroups",), layer_path("comm", "sync.cxx")),
+    (HANDED, "flesh", "schedule", ("SyncRequested",), layer_path("schedule", "clocks.cxx")),
 )
 assert {row[0] for row in PASS} | {BODIES, HANDED} == set(STEPS), PASS
 REGRID_STEPS = ("1", "2", "3")

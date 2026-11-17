@@ -137,9 +137,8 @@ void SetDeltaTime(clock_writer_t &clock) {
   if (CCTK_EQUALS(timestep_choice, "timestep")) {
     delta_time = timestep;
   } else if (CCTK_EQUALS(timestep_choice, "dtfac")) {
-    delta_time =
-        dtfac *
-        (driver().use_subcycling ? get_coarse_mindx() : get_finest_mindx());
+    delta_time = dtfac * (driver().use_subcycling ? get_coarse_mindx()
+                                                  : get_finest_mindx());
   } else {
     CCTK_ERROR("Unexpected value for 'CarpetX::timestep_choice'");
     abort();
@@ -267,8 +266,8 @@ void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
   CCTK_Traverse(cctkGH, bin);
 }
 
-void error_if_sync_in_tail(const window_t window,
-                           const std::span<const gi_t> groups0) {
+static void error_if_sync_in_tail(const window_t window,
+                                  const std::span<const gi_t> groups0) {
   if (!driver().use_subcycling)
     return;
   const char *const bin = scheduled_tail_bin();
@@ -298,6 +297,11 @@ void error_if_sync_in_tail(const window_t window,
       func ? func->thorn : "(unknown thorn)",
       func ? func->routine : "(unknown routine)", bin, groupnames.str().c_str(),
       current_iteration(), min_level, max_level, min_level, min_level - 1);
+}
+
+void SyncRequested(const window_t window, const std::span<const gi_t> groups) {
+  error_if_sync_in_tail(window, groups);
+  SyncGroups(window, groups);
 }
 
 void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
