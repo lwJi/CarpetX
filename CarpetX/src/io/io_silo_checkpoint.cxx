@@ -1063,10 +1063,8 @@ struct silo_codec_t final : checkpoint_codec_t {
                                           tag ? *tag : std::string()));
   }
 
-  std::optional<int> newest_iteration(const std::string &dir,
-                                      const std::string &file) override;
-  void read_parameters(const std::string &dir, const std::string &file,
-                       int iteration) override;
+  std::optional<int> read_parameters(const std::string &dir,
+                                     const std::string &file) override;
   void encode(const checkpoint_record_t &record, const std::string &dir,
               const std::string &file) override;
   checkpoint_record_t decode_structure(const std::string &dir,
@@ -1077,18 +1075,20 @@ struct silo_codec_t final : checkpoint_codec_t {
                    const std::string &file) override;
 };
 
-std::optional<int>
-silo_codec_t::newest_iteration(const std::string &dir,
-                               const std::string &file) {
+std::optional<int> silo_codec_t::read_parameters(const std::string &dir,
+                                                 const std::string &file) {
   assert(!dir.empty());
   assert(!file.empty());
 
-  static Timer timer("silo_codec_t::newest_iteration");
+  static Timer timer("silo_codec_t::read_parameters");
   Interval interval(timer);
 
   const int myproc = CCTK_MyProc(nullptr);
   const int metafile_ioproc = 0;
   const bool read_metafile = myproc == metafile_ioproc;
+
+  DBShowErrors(DB_ALL_AND_DRVR, nullptr);
+  DBSetAllowEmptyObjects(1);
 
   int iteration = -1;
   if (read_metafile) {
@@ -1102,30 +1102,13 @@ silo_codec_t::newest_iteration(const std::string &dir,
   MPI_Bcast(&iteration, 1, MPI_INT, metafile_ioproc, mpi_comm);
 
   if (iteration < 0) {
-    if (io_verbose)
-      CCTK_VINFO("Could not find a Silo checkpoint file \"%s/%s.*.silo\"",
+    if (io_verbose) {
+      CCTK_VINFO("Not recovering parameters:");
+      CCTK_VINFO("  Could not find a Silo checkpoint file \"%s/%s.*.silo\"",
                  dir.c_str(), file.c_str());
+    }
     return std::nullopt;
   }
-  return iteration;
-}
-
-void silo_codec_t::read_parameters(const std::string &dir,
-                                   const std::string &file,
-                                   const int iteration) {
-  assert(!dir.empty());
-  assert(!file.empty());
-  assert(iteration >= 0);
-
-  static Timer timer("silo_codec_t::read_parameters");
-  Interval interval(timer);
-
-  const int myproc = CCTK_MyProc(nullptr);
-  const int metafile_ioproc = 0;
-  const bool read_metafile = myproc == metafile_ioproc;
-
-  DBShowErrors(DB_ALL_AND_DRVR, nullptr);
-  DBSetAllowEmptyObjects(1);
 
   std::string parameters;
   if (read_metafile) {
@@ -1157,6 +1140,8 @@ void silo_codec_t::read_parameters(const std::string &dir,
   MPI_Bcast(parameters.data(), length, MPI_CHAR, metafile_ioproc, mpi_comm);
 
   IOUtil_SetAllParameters(parameters.data());
+
+  return iteration;
 }
 
 void silo_codec_t::encode(const checkpoint_record_t &record,

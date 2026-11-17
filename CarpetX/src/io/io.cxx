@@ -121,14 +121,9 @@ bool RecoverParameters() {
            "iteration %d: they are recovered once per run",
            *recovered_parameters_iteration);
 
-  const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
-  const std::optional<int> iteration =
-      codec->newest_iteration(recover_dir, recover_file);
-  if (!iteration)
-    return false;
-  codec->read_parameters(recover_dir, recover_file, *iteration);
-  recovered_parameters_iteration = iteration;
-  return true;
+  recovered_parameters_iteration =
+      make_codec(recover_method)->read_parameters(recover_dir, recover_file);
+  return bool(recovered_parameters_iteration);
 }
 
 checkpoint_record_t RecoverGridStructure(structure_writer_t &structure) {
