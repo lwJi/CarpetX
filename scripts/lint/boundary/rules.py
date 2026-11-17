@@ -122,6 +122,8 @@ GRANTS = {
     "flux_registers_t": ("flux_register_writer_t",),
     "flux_scratch_t": ("flux_register_writer_t",),
     "flux_register_writer_t": ("AccumulateFluxes", "restore_bands"),
+    "rk_fill_patches_t": ("rk_fill_patch_writer_t",),
+    "rk_fill_patch_writer_t": ("FillRKBoundary",),
 }
 GRANTS_HOME = READS_HOME
 GRANT_LAYERS = ("hierarchy", "comm")

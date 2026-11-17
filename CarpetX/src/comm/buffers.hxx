@@ -14,6 +14,8 @@
 #include <memory>
 #include <optional>
 #include <source_location>
+#include <span>
+#include <string>
 #include <vector>
 
 namespace CarpetX {
@@ -54,10 +56,29 @@ public:
   }
 };
 
+class rk_fill_patch_writer_t;
+using sealed_rk_fill_patches_t =
+    written_by<rk_fill_patches_t, rk_fill_patch_writer_t>;
+
+class rk_fill_patch_writer_t {
+  rk_fill_patch_writer_t() = default;
+  friend void FillRKBoundary(level_t child, std::span<const gi_t> states,
+                             stage_t completed, const std::string &event);
+
+public:
+  rk_fill_patch_writer_t(const rk_fill_patch_writer_t &) = delete;
+  rk_fill_patch_writer_t &operator=(const rk_fill_patch_writer_t &) = delete;
+
+  rk_fill_patches_t &open(const sealed_rk_fill_patches_t &sealed) const {
+    return sealed.open(*this);
+  }
+};
+
 struct group_buffers_t {
   sealed_flux_registers_t registers;
   sealed_flux_scratch_t scratch;
-  std::optional<rk_bands_t> rk_bands;
+  std::optional<rk_sources_t> rk_sources;
+  std::optional<sealed_rk_fill_patches_t> rk_fill_patches;
 };
 
 struct flux_geometry_t {

@@ -501,8 +501,27 @@ static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, int>);
 static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, component_t>);
 static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
 
-static_assert(std::is_same_v<decltype(group_buffers_t::rk_bands),
-                             std::optional<rk_bands_t>>);
+static_assert(std::is_same_v<decltype(group_buffers_t::rk_sources),
+                             std::optional<rk_sources_t>>);
+static_assert(std::is_same_v<decltype(group_buffers_t::rk_fill_patches),
+                             std::optional<sealed_rk_fill_patches_t>>);
+static_assert(sealed_for<decltype((*std::declval<const group_buffers_t &>()
+                                        .rk_fill_patches)),
+                         rk_fill_patches_t, rk_fill_patch_writer_t>);
+static_assert(opens<rk_fill_patch_writer_t, sealed_rk_fill_patches_t>);
+static_assert(!opens<rk_fill_patch_writer_t, sealed_flux_registers_t>);
+static_assert(!opens<flux_register_writer_t, sealed_rk_fill_patches_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const rk_fill_patch_writer_t &>().open(
+                       std::declval<const sealed_rk_fill_patches_t &>())),
+                   rk_fill_patches_t &>);
+static_assert(!std::is_default_constructible_v<rk_fill_patch_writer_t>);
+static_assert(!std::is_copy_constructible_v<rk_fill_patch_writer_t>);
+static_assert(!std::is_aggregate_v<rk_fill_patch_writer_t>);
+static_assert(std::is_same_v<decltype((std::declval<const group_buffers_t &>()
+                                           .rk_fill_patches.value()
+                                           ->crse)),
+                             const amrex::MultiFab &>);
 static_assert(std::is_same_v<decltype(level_buffers_t::geometry),
                              std::optional<flux_geometry_t>>);
 static_assert(std::is_same_v<decltype(flux_geometry_t::face_area),
@@ -627,15 +646,15 @@ static_assert(
 static_assert(!std::is_default_constructible_v<checkpoint_read_t>);
 static_assert(!std::is_copy_constructible_v<checkpoint_read_t>);
 static_assert(!std::is_aggregate_v<checkpoint_read_t>);
-static_assert(bands_stored_takes<rk_bands_t, rat64>);
-static_assert(!bands_stored_takes<rk_bands_t>);
-static_assert(bands_restore_takes<rk_bands_t, rat64>);
-static_assert(!bands_restore_takes<rk_bands_t>);
-static_assert(!bands_holds_takes<rk_bands_t, rat64>);
-static_assert(bands_sources_takes<rk_bands_t, rat64, fill_site_t>);
-static_assert(!bands_sources_takes<rk_bands_t>);
-static_assert(!reaches_bands_parent_step<rk_bands_t>);
-static_assert(!reaches_bands_stages_stored<rk_bands_t>);
+static_assert(bands_stored_takes<rk_sources_t, rat64>);
+static_assert(!bands_stored_takes<rk_sources_t>);
+static_assert(bands_restore_takes<rk_sources_t, rat64>);
+static_assert(!bands_restore_takes<rk_sources_t>);
+static_assert(!bands_holds_takes<rk_sources_t, rat64>);
+static_assert(bands_sources_takes<rk_sources_t, rat64, fill_site_t>);
+static_assert(!bands_sources_takes<rk_sources_t>);
+static_assert(!reaches_bands_parent_step<rk_sources_t>);
+static_assert(!reaches_bands_stages_stored<rk_sources_t>);
 
 static_assert(finer_behind_takes<level_t>);
 static_assert(!finer_behind_takes<int, int>);
