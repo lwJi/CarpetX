@@ -912,25 +912,18 @@ class Traversal(unittest.TestCase):
         text = "int a;\n\n" + self.USES[0] + "\n"
         self.assertEqual(findings("CarpetX/src/schedule/evolve.cxx", text, Lang.CXX), [Finding(3, "traversal", self.USES[0])])
 
-    def test_the_recovered_iteration_is_a_slot(self):
-        for line in [
-            "int recover_iteration = -1;",
-            "recover_iteration = codec->read_parameters(recover_dir, recover_file);",
-            "return recover_iteration >= 0;",
-            "if (cctkGH->cctk_iteration == recover_iteration) {",
-        ]:
-            with self.subTest(line=line):
-                self.assertEqual(reported("CarpetX/src/io/io.cxx", "  " + line + "\n"), [("traversal", line)])
-                self.assertEqual(reported("CarpetX/src/traversal/traversal.cxx", line + "\n"), [])
-
-    def test_the_recovered_iteration_readers_are_not_the_slot(self):
+    def test_the_recovered_iteration_is_not_a_slot(self):
         for text in [
-            "record_recovered_iteration(codec->read_parameters(recover_dir, recover_file));\n",
-            "return recovered_iteration() >= 0;\n",
-            "assert(cctkGH->cctk_iteration == recovered_iteration());\n",
+            "  std::optional<int> recover_iteration;\n",
+            "  if (recover_iteration) return;\n",
+            "  recover_iteration = iteration;\n",
+            "  std::optional<int> recovered_iteration;\n",
+            "  next.recovered_iteration = iteration;\n",
+            "if (cctkGH->cctk_iteration == driver().run_clock().recovered_iteration) {\n",
         ]:
-            with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/io/io.cxx", text), [])
+            for name in ["CarpetX/src/io/io.cxx", "CarpetX/src/hierarchy/writers.cxx"]:
+                with self.subTest(name=name, text=text):
+                    self.assertNotIn("traversal", [rule for rule, _ in reported(name, text)])
 
     def test_the_integrator_is_not_a_slot(self):
         for text in [
@@ -952,6 +945,45 @@ class Traversal(unittest.TestCase):
             for name in ["CarpetX/src/api/api_rk.cxx", "CarpetX/src/config/groups.cxx"]:
                 with self.subTest(name=name, text=text):
                     self.assertEqual(reported(name, text), [])
+
+
+class Phase(unittest.TestCase):
+    INCLUDE = '#include "traversal/traversal.hxx"'
+
+    def test_the_include_is_reported_in_another_file_of_hierarchy(self):
+        for name in ["CarpetX/src/hierarchy/model.cxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/hierarchy/scopes.cxx", "CarpetX/src/hierarchy/writers.cxx"]:
+            for line in [self.INCLUDE, "#include <traversal/traversal.hxx>", '  #  include "traversal/traversal.hxx"']:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("phase", line.strip())])
+
+    def test_the_include_is_allowed_in_handles(self):
+        self.assertEqual(reported(rules.PHASE_READER, self.INCLUDE + "\n"), [])
+        self.assertEqual(rules.PHASE_READER, "CarpetX/src/hierarchy/handles.cxx")
+
+    def test_the_include_is_not_judged_in_schedule_or_flesh(self):
+        for name in ["CarpetX/src/schedule/evolve.cxx", "CarpetX/src/schedule/clocks.cxx", "CarpetX/src/flesh/startup.cxx", "CarpetX/src/flesh/aliased.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.INCLUDE + "\n"), [])
+
+    def test_another_include_or_a_mention_passes(self):
+        name = "CarpetX/src/hierarchy/model.cxx"
+        for text in ['#include "util/refuse.hxx"\n', "// traversal/traversal.hxx\n", '#include "traversal/traversal_detail.hxx"\n', "scheduled_window(caller);\n"]:
+            with self.subTest(text=text):
+                self.assertNotIn("phase", [rule for rule, _ in reported(name, text)])
+
+    def test_no_file_of_hierarchy_but_handles_includes_it(self):
+        phase = next(rule for rule in rules.RULES if rule.name == "phase")
+        found, judged = [], set()
+        for path in doc.sources(PROJECT, rules.PHASE_LAYER):
+            name = os.path.relpath(path, PROJECT)
+            if phase.files(name, Lang.CXX):
+                judged.add(name)
+            found.extend((name, f.line) for f in findings(name, doc.read(path), Lang.CXX) if f.rule == "phase")
+        self.assertIn(rules.PHASE_READER, judged)
+        self.assertEqual(found, [])
+
+    def test_the_rule_is_at_home_in_hierarchy(self):
+        self.assertEqual(next(rule for rule in rules.RULES if rule.name == "phase").home, ("hierarchy",))
 
 
 class Index(unittest.TestCase):
@@ -2075,6 +2107,7 @@ class Report(unittest.TestCase):
             "every friend line in hierarchy/ listed in GRANTS, no active_levels_t, "
             "no make_alias in CarpetX, "
             "no active_levels outside traversal.cxx, "
+            "no phase include in hierarchy/ outside handles.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
             "no hierarchy access in a checkpoint codec, "
             "every internal include from its own layer or one it reads, "
@@ -2478,7 +2511,7 @@ class Doc(unittest.TestCase):
             self.assertEqual(doc.unread(), [("regrid", "util"), ("ops", "comm")])
         with mock.patch.dict(READS, {"regrid": ("config", "hierarchy", "comm"), "ops": ("util", "config", "hierarchy")}):
             self.assertEqual(doc.unread(), [("regrid", "config"), ("ops", "config")])
-        with mock.patch.dict(READS, {"io": ("util", "traversal", "config", "hierarchy", "comm")}), self.assertRaises(AssertionError):
+        with mock.patch.dict(READS, {"io": ("util", "config", "hierarchy", "comm")}), self.assertRaises(AssertionError):
             doc.reads(PROJECT)
         with mock.patch.dict(READS, {"api": ("util", "hierarchy", "comm", "schedule")}), self.assertRaises(AssertionError):
             doc.reads(PROJECT)
@@ -2552,7 +2585,7 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `config/`"], f"- `config/`: {rules.OWNS['config']}")
         self.assertTrue(rows["- `config/`"].endswith(" Nothing here calls `driver()`."))
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
-        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant.")
+        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant, phase.")
         self.assertTrue(rules.OWNS["hierarchy"].endswith(" Nothing here only reads the model: a query belongs to the layer that owns its subject."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
         self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: ghost-only, applies.")
@@ -2561,7 +2594,7 @@ class Doc(unittest.TestCase):
         self.assertEqual(doc.rules_of("comm"), ["ghost-only", "applies"])
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
-        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "clock", "varindex", "model", "grant"])
+        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "clock", "varindex", "model", "grant", "phase"])
         self.assertEqual(doc.node("flesh", ("regrid", "flesh")), '  flesh["flesh/ no header"]')
         self.assertEqual(doc.node("regrid", ("regrid", "flesh")), '  regrid["regrid/ no header"]')
         self.assertEqual(doc.node("ops", ("regrid", "flesh")), '  ops["ops/"]')
@@ -2572,7 +2605,7 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "varindex", "model", "grant", "traversal", "records", "codec", "entry", "ghost-only", "applies"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "varindex", "model", "grant", "traversal", "phase", "records", "codec", "entry", "ghost-only", "applies"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))

@@ -22,7 +22,7 @@ READS = {
     "comm": ("util", "config", "hierarchy"),
     "regrid": ("hierarchy", "comm"),
     "ops": ("util", "hierarchy"),
-    "io": ("util", "traversal", "config", "hierarchy", "comm", "ops"),
+    "io": ("util", "config", "hierarchy", "comm", "ops"),
     "schedule": ("traversal", "config", "hierarchy", "comm", "io"),
     "api": ("util", "config", "hierarchy", "comm", "schedule"),
     "flesh": ("util", "traversal", "config", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
@@ -33,7 +33,7 @@ READS_TEXT = "; ".join(f"{layer}/ reads {', '.join(f'{target}/' for target in RE
 READS_HOME = "scripts/lint/boundary/rules.py"
 OWNS = {
     "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
-    "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
+    "traversal": "the run's phase, one slot per fact, each written only by a scope that `schedule/` opens. Its readers are `schedule/`, `flesh/` and the public `active_window()`; a lower layer is told what it needs of the phase in a call. A fact about the whole run or about the grid is not a slot here.",
     "config": "what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.",
     "hierarchy": "the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject.",
     "comm": "filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
@@ -205,8 +205,11 @@ assert set(APPLIES_STEMS) <= set(STEMS[APPLIES_LAYER]), APPLIES_STEMS
 APPLIES_WORD = re.compile(r'^\s*#\s*include\s*[<"](?:hierarchy/scopes|' + APPLIES_LAYER + r'/(\w+))\.hxx[>"]')
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
-    r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b"
+    r"\b(active_levels|tail_bin|recovery_traversal|last_routine)\b"
 )
+PHASE_LAYER = "hierarchy"
+PHASE_READER = layer_path(PHASE_LAYER, "handles.cxx")
+PHASE_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]traversal/traversal\.hxx[>"]')
 DOOR_FILE = layer_path("hierarchy", "model.cxx")
 DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
 LAYER_INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<((?:' + "|".join(LAYERS) + r')/[^>]*)>)')
@@ -701,14 +704,25 @@ RULES = (
         files=private_cxx,
         word=TRAVERSAL_WORD,
         allowed=in_files(TRAVERSAL_FILES),
-        text="a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine, recover_iteration) is named "
-        "only in CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, parameter "
-        "recovery calls record_recovered_iteration() once, and a reader calls scheduled_window(), "
-        "scheduled_tail_bin(), in_recovery_traversal(), scheduled_routine() or recovered_iteration().",
+        text="a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine) is named only in "
+        "CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, and a reader calls "
+        "scheduled_window(), scheduled_tail_bin(), in_recovery_traversal() or scheduled_routine().",
         noun="traversal use",
         where="outside traversal.cxx",
         clean="no active_levels outside traversal.cxx",
         home=layers_of(TRAVERSAL_FILES),
+    ),
+    Rule(
+        "phase",
+        files=in_rows(PHASE_LAYER, tuple(STEMS[PHASE_LAYER])),
+        word=PHASE_INCLUDE,
+        allowed=in_files((PHASE_READER,)),
+        text=f"in {PHASE_LAYER}/ only handles.cxx, which defines the public active_window(), includes "
+        f"traversal/traversal.hxx; any other file of {PHASE_LAYER}/ is told what it needs of the phase in a call.",
+        noun="phase include",
+        where=f"in {PHASE_LAYER}/ outside handles.cxx",
+        clean=f"no phase include in {PHASE_LAYER}/ outside handles.cxx",
+        home=(PHASE_LAYER,),
     ),
     Rule(
         "index",

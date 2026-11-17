@@ -385,7 +385,10 @@ struct openpmd_codec_t final : checkpoint_codec_t {
     return mesh_name(id);
   }
 
-  int read_parameters(const std::string &dir, const std::string &file) override;
+  std::optional<int> newest_iteration(const std::string &dir,
+                                      const std::string &file) override;
+  void read_parameters(const std::string &dir, const std::string &file,
+                       int iteration) override;
   void encode(const checkpoint_record_t &record, const std::string &dir,
               const std::string &file) override;
   checkpoint_record_t decode_structure(const std::string &dir,
@@ -396,12 +399,13 @@ struct openpmd_codec_t final : checkpoint_codec_t {
                    const std::string &file) override;
 };
 
-int openpmd_codec_t::read_parameters(const std::string &dir,
-                                     const std::string &file) {
+std::optional<int>
+openpmd_codec_t::newest_iteration(const std::string &dir,
+                                  const std::string &file) {
   assert(!dir.empty());
   assert(!file.empty());
 
-  static Timer timer("openpmd_codec_t::read_parameters");
+  static Timer timer("openpmd_codec_t::newest_iteration");
   Interval interval(timer);
 
   const std::string filename = series_name(dir, file, get_format());
@@ -410,31 +414,42 @@ int openpmd_codec_t::read_parameters(const std::string &dir,
     series.emplace(filename, openPMD::Access::READ_ONLY, MPI_COMM_WORLD,
                    options);
   } catch (const openPMD::no_such_file_error &) {
-    if (io_verbose) {
-      CCTK_VINFO("Not recovering parameters:");
-      CCTK_VINFO("  Could not find an openPMD checkpoint file \"%s\"",
+    if (io_verbose)
+      CCTK_VINFO("Could not find an openPMD checkpoint file \"%s\"",
                  filename.c_str());
-    }
-    return -1;
+    return std::nullopt;
   }
 
-  int iteration = -1;
+  std::optional<int> iteration;
   for (auto iter = series->iterations.begin(); iter != series->iterations.end();
        ++iter)
-    iteration = iter->first;
-  if (iteration < 0) {
-    if (io_verbose) {
-      CCTK_VINFO("Not recovering parameters:");
-      CCTK_VINFO("  Could not find an openPMD checkpoint file \"%s\"",
-                 filename.c_str());
-    }
-    return -1;
-  }
+    iteration = int(iter->first);
+  if (!iteration && io_verbose)
+    CCTK_VINFO("Could not find an openPMD checkpoint file \"%s\"",
+               filename.c_str());
+  return iteration;
+}
 
+void openpmd_codec_t::read_parameters(const std::string &dir,
+                                      const std::string &file,
+                                      const int iteration) {
+  assert(!dir.empty());
+  assert(!file.empty());
+  assert(iteration >= 0);
+
+  static Timer timer("openpmd_codec_t::read_parameters");
+  Interval interval(timer);
+
+  const std::string filename = series_name(dir, file, get_format());
   CCTK_VINFO("Recovering parameters from checkpoint file \"%s\" iteration %d",
              filename.c_str(), iteration);
 
-  openPMD::Iteration read_iter = series->iterations[iteration];
+  openPMD::Series series(filename, openPMD::Access::READ_ONLY, MPI_COMM_WORLD,
+                         options);
+  if (!series.iterations.count(iteration))
+    CCTK_VERROR("The openPMD checkpoint \"%s\" holds no iteration %d",
+                filename.c_str(), iteration);
+  openPMD::Iteration read_iter = series.iterations[iteration];
   if (!read_iter.containsAttribute("AllParameters"))
     CCTK_VERROR("The openPMD checkpoint \"%s\" iteration %d holds no "
                 "parameters",
@@ -444,8 +459,6 @@ int openpmd_codec_t::read_parameters(const std::string &dir,
   assert(parameters_attr.dtype == openPMD::Datatype::STRING);
   const std::string parameters = parameters_attr.get<std::string>();
   IOUtil_SetAllParameters(parameters.data());
-
-  return iteration;
 }
 
 void openpmd_codec_t::encode(const checkpoint_record_t &record,

@@ -368,8 +368,6 @@ void RecoverFromCheckpoint(cGH *restrict const cctkGH, clock_writer_t &clock,
 
   RecomputePerClockGroup(cctkGH, clock);
 
-  assert(cctkGH->cctk_iteration == recovered_iteration());
-
 #pragma omp critical
   CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
              cctkGH->cctk_iteration, double(cctkGH->cctk_time),

@@ -8,7 +8,6 @@
 #include "io/io_silo.hxx"
 #include "io/io_tsv.hxx"
 #include "io/selection.hxx"
-#include "traversal/traversal.hxx"
 #include "util/refuse.hxx"
 #include <carpetx.hxx>
 
@@ -111,8 +110,15 @@ checkpoint_record_t RecoverGridStructure(structure_writer_t &structure) {
 
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
   refuse_unless_recoverable(codec->limits());
+  const std::optional<int> iteration =
+      codec->newest_iteration(recover_dir, recover_file);
+  if (!iteration)
+    refuse(std::source_location::current(),
+           "the parameters were recovered from a checkpoint \"%s\" in "
+           "\"%s\", and none is there now",
+           recover_file, recover_dir);
   checkpoint_record_t record =
-      codec->decode_structure(recover_dir, recover_file, recovered_iteration());
+      codec->decode_structure(recover_dir, recover_file, *iteration);
   apply_structure(record, structure);
   return record;
 }
