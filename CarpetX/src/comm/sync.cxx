@@ -44,7 +44,8 @@ static std::vector<gi_t> sync_restrict_groups(const std::vector<gi_t> &groups) {
 // =======================================================================
 
 static void SyncGroupsLockstep(const window_t window,
-                               const std::span<const gi_t> groups0) {
+                               const std::span<const gi_t> groups0,
+                               const requested_sync_t &) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
@@ -185,7 +186,8 @@ static void SyncGroupsLockstep(const window_t window,
 }
 
 static void SyncGroupsSubcycling(const window_t window,
-                                 const std::span<const gi_t> groups0) {
+                                 const std::span<const gi_t> groups0,
+                                 const requested_sync_t &) {
   DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
@@ -336,11 +338,12 @@ static void SyncGroupsSubcycling(const window_t window,
                       boundary_label.c_str());
 }
 
-void SyncGroups(const window_t window, const std::span<const gi_t> groups) {
+void SyncGroups(const window_t window, const std::span<const gi_t> groups,
+                const requested_sync_t &requested) {
   if (driver().use_subcycling)
-    SyncGroupsSubcycling(window, groups);
+    SyncGroupsSubcycling(window, groups, requested);
   else
-    SyncGroupsLockstep(window, groups);
+    SyncGroupsLockstep(window, groups, requested);
 }
 
 void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,

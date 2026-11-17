@@ -142,6 +142,9 @@ concept array_timelevel_takes =
     };
 
 template <class... Args>
+concept sync_groups_takes = requires(Args... args) { SyncGroups(args...); };
+
+template <class... Args>
 concept ghost_only_takes = requires(Args... args) { SyncGhostsOnly(args...); };
 
 template <class... Args>
@@ -680,7 +683,16 @@ static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateAfterRestriction), void(window_t)>);
 static_assert(std::is_same_v<decltype(RestrictNoPoison), comm_groups_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroups), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroups),
+                             void(window_t, std::span<const gi_t>,
+                                  const requested_sync_t &)>);
+static_assert(sync_groups_takes<window_t, std::span<const gi_t>,
+                                const requested_sync_t &>);
+static_assert(!sync_groups_takes<window_t, std::span<const gi_t>>);
+static_assert(!std::is_default_constructible_v<requested_sync_t>);
+static_assert(!std::is_copy_constructible_v<requested_sync_t>);
+static_assert(!std::is_aggregate_v<requested_sync_t>);
+static_assert(std::is_same_v<decltype(SyncRequested), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateGhosts), comm_timelevels_entry_t>);
 static_assert(

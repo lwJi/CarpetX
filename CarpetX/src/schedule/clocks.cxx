@@ -301,7 +301,7 @@ static void error_if_sync_in_tail(const window_t window,
 
 void SyncRequested(const window_t window, const std::span<const gi_t> groups) {
   error_if_sync_in_tail(window, groups);
-  SyncGroups(window, groups);
+  SyncGroups(window, groups, requested_sync_t());
 }
 
 static std::string sync_caller() {

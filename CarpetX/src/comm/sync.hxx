@@ -14,7 +14,17 @@
 
 namespace CarpetX {
 
-void SyncGroups(window_t window, std::span<const gi_t> groups);
+class requested_sync_t {
+  requested_sync_t() = default;
+  friend void SyncRequested(window_t window, std::span<const gi_t> groups);
+
+public:
+  requested_sync_t(const requested_sync_t &) = delete;
+  requested_sync_t &operator=(const requested_sync_t &) = delete;
+};
+
+void SyncGroups(window_t window, std::span<const gi_t> groups,
+                const requested_sync_t &requested);
 
 void SyncGhostsOnly(window_t window, std::span<const gi_t> groups,
                     timelevels_t tls);
