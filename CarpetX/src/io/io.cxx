@@ -139,6 +139,7 @@ checkpoint_record_t RecoverGridStructure(structure_writer_t &structure) {
   refuse_unless_recoverable(codec->limits());
   checkpoint_record_t record = codec->decode_structure(
       recover_dir, recover_file, *recovered_parameters_iteration);
+  assert(record.iteration == *recovered_parameters_iteration);
   apply_structure(record, structure);
   return record;
 }
