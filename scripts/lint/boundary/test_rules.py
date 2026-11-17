@@ -264,6 +264,256 @@ class Clock(unittest.TestCase):
         self.assertEqual(found, [])
 
 
+class Applies(unittest.TestCase):
+    INCLUDE = '#include "hierarchy/scopes.hxx"'
+
+    def test_the_include_is_reported_in_a_stem_that_applies(self):
+        for name in [
+            "CarpetX/src/comm/fillpatch.cxx",
+            "CarpetX/src/comm/fillpatch.hxx",
+            "CarpetX/src/comm/boundary_conditions.cxx",
+            "CarpetX/src/comm/boundary_conditions_impl.hxx",
+            "CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx",
+            "CarpetX/src/comm/prolongate_3d_rf2.hxx",
+            "CarpetX/src/comm/prolongate_3d_rf2_impl_poly.cxx",
+        ]:
+            for line in [self.INCLUDE, "#include <hierarchy/scopes.hxx>", "  #  include \"hierarchy/scopes.hxx\""]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("applies", line.strip())])
+
+    def test_the_include_passes_in_a_stem_that_decides_and_outside_comm(self):
+        for name in ["CarpetX/src/comm/sync.cxx", "CarpetX/src/comm/outer_boundary.cxx", "CarpetX/src/comm/ghost_prolongation.cxx", "CarpetX/src/comm/rk_ghosts.cxx", "CarpetX/src/comm/reflux.cxx", "CarpetX/src/regrid/regrid.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.INCLUDE + "\n"), [])
+
+    def test_a_header_of_a_stem_that_decides_is_reported_in_a_stem_that_applies(self):
+        for name in ["CarpetX/src/comm/fillpatch.cxx", "CarpetX/src/comm/boundary_conditions_impl.hxx", "CarpetX/src/comm/prolongate_3d_rf2_impl_poly.cxx"]:
+            for line in ['#include "comm/restrict.hxx"', '#include "comm/outer_boundary.hxx"', "#include <comm/sync.hxx>", '#include "comm/buffers.hxx"', '#include "comm/nosuch_impl.hxx"']:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("applies", line)])
+
+    def test_a_header_of_a_stem_that_applies_passes(self):
+        for name in ["CarpetX/src/comm/fillpatch.cxx", "CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx", "CarpetX/src/comm/prolongate_3d_rf2.cxx"]:
+            for line in ['#include "comm/fillpatch.hxx"', '#include "comm/boundary_conditions.hxx"', '#include "comm/boundary_conditions_impl.hxx"', '#include "comm/prolongate_3d_rf2.hxx"', "#include <comm/prolongate_3d_rf2_impl.hxx>"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_a_stem_that_decides_includes_any_header_of_comm(self):
+        for name in ["CarpetX/src/comm/sync.cxx", "CarpetX/src/comm/rk_ghosts.cxx", "CarpetX/src/regrid/regrid.cxx"]:
+            for line in ['#include "comm/restrict.hxx"', '#include "comm/fillpatch.hxx"']:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_another_header_or_a_mention_passes(self):
+        name = "CarpetX/src/comm/fillpatch.cxx"
+        for text in ['#include "hierarchy/valid.hxx"\n', '#include "hierarchy/scopes_detail.hxx"\n', "// hierarchy/scopes.hxx\n", "// comm/restrict.hxx\n", '#include "config/groups.hxx"\n', "const write_scope_t *scope;\n"]:
+            with self.subTest(text=text):
+                self.assertNotIn("applies", [rule for rule, _ in reported(name, text)])
+
+    def test_no_file_of_a_stem_that_applies_includes_one(self):
+        applies = next(rule for rule in rules.RULES if rule.name == "applies")
+        found, judged = [], set()
+        for path in doc.sources(PROJECT, rules.APPLIES_LAYER):
+            name = os.path.relpath(path, PROJECT)
+            if applies.files(name, Lang.CXX):
+                judged.add(rules.row_of(os.path.splitext(os.path.basename(name))[0]))
+            found.extend((name, f.line) for f in findings(name, doc.read(path), Lang.CXX) if f.rule == "applies")
+        self.assertEqual(judged, set(rules.APPLIES_STEMS))
+        self.assertEqual(found, [])
+
+    def test_the_rule_is_at_home_in_comm_and_names_rows_of_it(self):
+        self.assertLessEqual(set(rules.APPLIES_STEMS), set(rules.STEMS[rules.APPLIES_LAYER]))
+        self.assertEqual(next(rule for rule in rules.RULES if rule.name == "applies").home, ("comm",))
+        with self.assertRaises(AssertionError):
+            rules.in_rows("comm", ("nosuch",))
+
+
+class VarIndex(unittest.TestCase):
+    ADDITIONS = [
+        "cctkGH->data[group.firstvarindex + vi][tl.index()] = nullptr;",
+        "CCTK_FullVarName(groupdata.record.firstvarindex+vi),",
+        "const int varindex = CCTK_FirstVarIndexI(gi.index()) + vi;",
+        "CCTK_FullVarName(CCTK_FirstVarIndexI(wr.gi.index()) + wr.vi));",
+        "varname = CCTK_VarName(CCTK_FirstVarIndexI (gi) + vi);",
+        "return var_t{group.firstvarindex + vi.index()};",
+    ]
+    RECORD_VAR = (
+        "    var_t var(const vi_t vi) const {\n"
+        "      assert(variables().contains(vi));\n"
+        "      return var_t{firstvarindex + vi.index()};\n"
+        "    }\n"
+    )
+
+    def test_varindex_reported(self):
+        for line in self.ADDITIONS:
+            for name in ["CarpetX/src/hierarchy/scopes.cxx", "CarpetX/src/io/io_silo.cxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/include/carpetx.hxx"]:
+                with self.subTest(name=name, line=line):
+                    binding = [("binding", line)] if rules.is_private(name) and rules.BINDING_WORD.search(line) else []
+                    records = [("records", line)] if layer_of(name) in rules.RECORDS_LAYERS and "CCTK_FirstVarIndexI" in line else []
+                    self.assertEqual(reported(name, "  " + line + "\n"), binding + [("varindex", line)] + records)
+
+    def test_varindex_allowed_in_record_var(self):
+        self.assertEqual(reported("CarpetX/src/hierarchy/model.hxx", self.RECORD_VAR), [])
+        self.assertEqual(
+            reported("CarpetX/src/schedule/evolve.cxx", self.RECORD_VAR),
+            [("varindex", "return var_t{firstvarindex + vi.index()};")],
+        )
+
+    def test_other_arithmetic_is_not_an_addition(self):
+        for text in [
+            "firstvarindex = CCTK_FirstVarIndexI(gi.index());\n",
+            "return variable_t{gi_t{gi}, vi_t{var.index() - CCTK_FirstVarIndexI(gi)}};\n",
+            "int firstvarindex;\n",
+            "const int n = firstvarindex_count + 1;\n",
+            "const int n = myfirstvarindex + 1;\n",
+            "varname = CCTK_FullVarName(driver().record(gi).var(vi_t{vi}).index());\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/hierarchy/scopes.cxx", text), [])
+
+    def test_other_thorns_are_not_checked(self):
+        self.assertEqual(reported("PDESolvers/src/solve.cxx", "  " + self.ADDITIONS[2] + "\n"), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported("CarpetX/src/make.code.defn", "X = firstvarindex + 1\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n" + self.ADDITIONS[0] + "\n"
+        self.assertEqual(
+            findings("CarpetX/src/schedule/evolve.cxx", text, Lang.CXX),
+            [Finding(2, "binding", self.ADDITIONS[0]), Finding(2, "varindex", self.ADDITIONS[0])],
+        )
+
+
+class Model(unittest.TestCase):
+    MODEL = "CarpetX/src/hierarchy/model.hxx"
+    LEAKS = [
+        "mutable std::array<std::unique_ptr<amrex::MultiFab>, dim> face_area;",
+        "mutable std::unique_ptr<amrex::MultiFab> rk_crse_patch, rk_fine_patch;",
+        "mutable std::atomic<bool> rk_config_read{false};",
+        "auto next = [n]() mutable { return ++n; };",
+        "#include <carpetx_rk.hxx>",
+        "# include  <carpetx_rk.hxx>",
+        "extern std::atomic<CCTK_INT> carpetx_epoch;",
+        "extern int x;",
+        "amrex::Interpolater *interpolator;",
+        "amrex::Vector<amrex::BCRec> bcrecs;",
+        "std::unique_ptr<amrex::FluxRegister> freg;",
+        "#include <yaml-cpp/yaml.h>",
+        "# include  <yaml-cpp/emitter.h>",
+        "#include <zlib.h>",
+    ]
+    STATE = "CarpetX/src/hierarchy/valid.hxx"
+    OTHER_CONCERNS = [
+        '#include "hierarchy/scopes.hxx"',
+        '#include "hierarchy/loops.hxx"',
+        '#include "hierarchy/writers.hxx"',
+        '# include  "hierarchy/binding.hxx"',
+        "#include <hierarchy/scopes.hxx>",
+        '#include "hierarchy/validity.hxx"',
+        '#include "hierarchy/valid.hxx.in"',
+        '#include "hierarchy/model.hxx"',
+    ]
+
+    def test_a_mutable_an_extern_or_the_integrator_header_is_reported_in_the_data_model(self):
+        for line in self.LEAKS:
+            with self.subTest(line=line):
+                self.assertEqual(reported(self.MODEL, "  " + line + "\n"), [("model", line)])
+
+    def test_the_data_model_includes_no_other_header_of_its_layer(self):
+        for line in self.OTHER_CONCERNS:
+            with self.subTest(line=line):
+                self.assertEqual(reported(self.MODEL, line + "\n"), [("model", line)])
+
+    def test_the_data_model_includes_the_validity_state_and_the_layers_below(self):
+        for line in [
+            '#include "hierarchy/valid.hxx"',
+            '# include  "hierarchy/valid.hxx"',
+            "#include <hierarchy/valid.hxx>",
+            '#include "internal.hxx"',
+            '#include "config/groups.hxx"',
+            '#include "util/refuse.hxx"',
+            "#include <AMReX_MultiFab.H>",
+            "#include <zlib_ng.h>",
+            "#include <myzlib.h>",
+            "#include <yaml.h>",
+            "struct hierarchy_writers_t;",
+            "friend class write_scope_t;",
+        ]:
+            with self.subTest(line=line):
+                self.assertEqual([found for found in reported(self.MODEL, line + "\n") if found[0] == "model"], [])
+
+    def test_the_validity_state_is_held_to_the_same_words(self):
+        self.assertEqual(rules.MODEL_FILES, (self.MODEL, self.STATE))
+        for line in self.LEAKS + self.OTHER_CONCERNS:
+            with self.subTest(line=line):
+                self.assertEqual(reported(self.STATE, "  " + line + "\n"), [("model", line)])
+        self.assertEqual(reported(self.STATE, '#include "internal.hxx"\n\n#include <carpetx.hxx>\n#include <functional>\n'), [])
+
+    def test_a_file_that_uses_another_concern_includes_it(self):
+        for line in self.OTHER_CONCERNS[:5]:
+            for name in [
+                "CarpetX/src/hierarchy/model.cxx",
+                "CarpetX/src/hierarchy/scopes.hxx",
+                "CarpetX/src/hierarchy/scopes.cxx",
+                "CarpetX/src/comm/buffers.hxx",
+                "CarpetX/src/schedule/checksums.cxx",
+                "ODESolvers/src/hierarchy/model.hxx",
+            ]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_the_tree_holds(self):
+        for name in rules.MODEL_FILES:
+            with self.subTest(name=name):
+                with open(os.path.join(PROJECT, name)) as f:
+                    self.assertEqual([found for found in findings(name, f.read(), Lang.CXX) if found.rule == "model"], [])
+
+    def test_a_quoted_integrator_header_is_reported_under_model_and_layer(self):
+        line = '#include "carpetx_rk.hxx"'
+        self.assertEqual(reported(self.MODEL, line + "\n"), [("model", line), ("layer", line)])
+
+    def test_another_file_may_say_either(self):
+        for line in self.LEAKS:
+            for name in [
+                "CarpetX/src/config/groups.hxx",
+                "CarpetX/src/hierarchy/model.cxx",
+                "CarpetX/src/comm/buffers.hxx",
+                "CarpetX/src/traversal/traversal.hxx",
+                "CarpetX/src/include/carpetx.hxx",
+                "ODESolvers/src/hierarchy/model.hxx",
+            ]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [])
+
+    def test_a_longer_name_is_not_the_keyword_or_the_header(self):
+        text = (
+            "GHExt &mutable_driver();\n"
+            "const bool immutable = true;\n"
+            "struct mutable_t;\n"
+            "CCTK_INT external_epoch() const;\n"
+            "bool is_extern_c;\n"
+            "#include <carpetx.hxx>\n"
+            "#include <carpetx_rk_extra.hxx>\n"
+            "#include <ODESolvers/carpetx_rk.hxx>\n"
+            "using rk_config = carpetx_rk::config;\n"
+        )
+        self.assertEqual(reported(self.MODEL, text), [])
+
+    def test_a_comment_naming_the_keyword_is_reported_and_one_naming_the_header_is_not(self):
+        line = "// the bands are no longer mutable"
+        self.assertEqual(reported(self.MODEL, line + "\n"), [("model", line)])
+        self.assertEqual(reported(self.MODEL, "// groups.hxx includes <carpetx_rk.hxx>\n"), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported(self.MODEL, "X = mutable\n", Lang.MAKE), [])
+        self.assertEqual(reported("CarpetX/src/hierarchy/make.code.defn", "X = mutable\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "#include <carpetx.hxx>\n\n" + self.LEAKS[4] + "\n"
+        self.assertEqual(findings(self.MODEL, text, Lang.CXX), [Finding(3, "model", self.LEAKS[4])])
+
+
 class Grant(unittest.TestCase):
     MODEL = "CarpetX/src/hierarchy/model.hxx"
     HEADERS = [
