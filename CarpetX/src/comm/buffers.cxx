@@ -93,8 +93,8 @@ flux_geometry_of(const level_t level, const amrex::BoxArray &ba,
 level_buffers_ptr make_level_buffers(const level_t level,
                                      const amrex::BoxArray &ba,
                                      const amrex::DistributionMapping &dm) {
-  level_buffers_ptr buffers(new level_buffers_t,
-                            [](level_buffers_t *const p) { delete p; });
+  std::unique_ptr<level_buffers_t> buffers =
+      std::make_unique<level_buffers_t>();
   const int numgroups = CCTK_NumGroups();
   buffers->groups.resize(numgroups);
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
@@ -110,16 +110,19 @@ level_buffers_ptr make_level_buffers(const level_t level,
     make_rk_buffers(group, record, level, ba, dm);
   }
   buffers->geometry = flux_geometry_of(level, ba, dm);
-  return buffers;
+  return level_buffers_ptr(buffers.release(),
+                           [](const level_buffers_t *const p) { delete p; });
 }
 
-level_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata) {
+const level_buffers_t &
+buffers_of(const GHExt::PatchData::LevelData &leveldata) {
   assert(leveldata.buffers);
   return *leveldata.buffers;
 }
 
-group_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata,
-                            const gi_t gi, const std::source_location site) {
+const group_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata,
+                                  const gi_t gi,
+                                  const std::source_location site) {
   leveldata.group(gi, site);
   return buffers_of(leveldata).groups.at(gi.index());
 }

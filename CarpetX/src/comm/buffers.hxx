@@ -116,9 +116,9 @@ struct level_buffers_t {
 level_buffers_ptr make_level_buffers(level_t level, const amrex::BoxArray &ba,
                                      const amrex::DistributionMapping &dm);
 
-level_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata);
+const level_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata);
 
-group_buffers_t &
+const group_buffers_t &
 buffers_of(const GHExt::PatchData::LevelData &leveldata, gi_t gi,
            std::source_location site = std::source_location::current());
 

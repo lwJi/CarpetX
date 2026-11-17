@@ -146,7 +146,7 @@ using amrcore_factory = std::unique_ptr<amrex::AmrCore> (*)(
 
 struct level_buffers_t;
 using level_buffers_ptr =
-    std::unique_ptr<level_buffers_t, void (*)(level_buffers_t *)>;
+    std::unique_ptr<const level_buffers_t, void (*)(const level_buffers_t *)>;
 using level_buffers_factory =
     level_buffers_ptr (*)(level_t level, const amrex::BoxArray &ba,
                           const amrex::DistributionMapping &dm);

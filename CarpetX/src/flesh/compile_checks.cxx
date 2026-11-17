@@ -301,6 +301,40 @@ concept writes_scratch =
       pool.slots.at(0).in_use = true;
     } || requires(Pool &pool) { pool.slots.at(0).mfab->setVal(0); };
 
+template <class Buffers>
+concept writes_buffers =
+    requires(Buffers buffers) { buffers.groups.clear(); } ||
+    requires(Buffers buffers) { buffers.groups.at(0).registers = {}; } ||
+    requires(Buffers buffers) { buffers.groups.at(0).scratch = {}; } ||
+    requires(Buffers buffers) {
+      buffers.groups.at(0).registers->reg->setVal(0);
+    } ||
+    requires(Buffers buffers) {
+      buffers.groups.at(0).scratch->reg->setVal(0);
+    } ||
+    requires(Buffers buffers) { buffers.groups.at(0).rk_sources.reset(); } ||
+    requires(Buffers buffers) {
+      buffers.groups.at(0)
+          .rk_sources->get()
+          .stored(std::declval<rat64>())
+          ->old.setVal(0);
+    } ||
+    requires(Buffers buffers) {
+      buffers.groups.at(0).rk_fill_patches.reset();
+    } ||
+    requires(Buffers buffers) {
+      buffers.groups.at(0).rk_fill_patches->get().crse.setVal(0);
+    } || requires(Buffers buffers) { buffers.geometry.reset(); } ||
+    requires(Buffers buffers) { buffers.geometry->face_area[0].setVal(0); } ||
+    requires(Buffers buffers) { buffers.geometry->cell_volume.setVal(0); };
+
+template <class Group>
+concept writes_group_buffers =
+    requires(Group group) { group.registers = {}; } ||
+    requires(Group group) { group.scratch = {}; } ||
+    requires(Group group) { group.rk_sources.reset(); } ||
+    requires(Group group) { group.rk_fill_patches.reset(); };
+
 template <class Sealed, class Writer>
 concept can_open = requires(const Sealed &sealed, const Writer &writer) {
   sealed.open(writer);
@@ -572,6 +606,26 @@ static_assert(std::is_same_v<decltype(std::declval<const group_buffers_t &>()
 static_assert(std::is_same_v<decltype(std::declval<const group_buffers_t &>()
                                           .scratch->reg.get()),
                              const amrex::FluxRegister *>);
+static_assert(std::is_const_v<level_buffers_ptr::element_type>);
+static_assert(
+    std::is_same_v<decltype(buffers_of(
+                       std::declval<const GHExt::PatchData::LevelData &>())),
+                   const level_buffers_t &>);
+static_assert(
+    std::is_same_v<
+        decltype(buffers_of(std::declval<const GHExt::PatchData::LevelData &>(),
+                            std::declval<gi_t>())),
+        const group_buffers_t &>);
+static_assert(writes_buffers<level_buffers_t &>);
+static_assert(!writes_buffers<decltype(buffers_of(
+                  std::declval<const GHExt::PatchData::LevelData &>()))>);
+static_assert(!writes_buffers<decltype(buffers_of(
+                  std::declval<GHExt::PatchData::LevelData &>()))>);
+static_assert(!writes_buffers<decltype(*std::declval<level_buffers_ptr &>())>);
+static_assert(writes_group_buffers<group_buffers_t &>);
+static_assert(
+    !writes_group_buffers<decltype(buffers_of(
+        std::declval<GHExt::PatchData::LevelData &>(), std::declval<gi_t>()))>);
 
 static_assert(
     std::is_same_v<decltype(grid_buffer_t::mfab), const amrex::MultiFab *>);
