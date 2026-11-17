@@ -36,11 +36,11 @@ OWNS = {
     "traversal": "the run's phase, one slot per fact, each written only by a scope that `schedule/` opens. Its readers are `schedule/` and the public `active_window()`; a lower layer is told what it needs of the phase in a call. A fact about the whole run or about the grid is not a slot here.",
     "config": "what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.",
     "hierarchy": "the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject.",
-    "comm": "filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
+    "comm": "filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. Its `SyncGroups` takes a `requested_sync_t`, which only `SyncRequested` in `schedule/` builds, so a call from any other function does not compile, and its `SyncGhostsOnly` takes a `public_ghost_only_t`, which only the public `sync_ghosts_only` builds. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. It keeps one fact between two of the flesh's calls: the iteration of the checkpoint the parameters were recovered from, which the grid structure is then recovered from.",
-    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. It opens the scopes of the run's phase, and every sync of `comm/` runs through its `SyncRequested`, which refuses one the open bin does not allow; `SyncScheduled` is the flesh's sync, on the levels of the open traversal. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps, what `api/` hands to the flesh, and `SyncScheduled` and `SyncRequested`, which `flesh/` and `api/` call. A writer is an argument of each function that uses one, and none is kept between calls.",
+    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. It opens the scopes of the run's phase, and every sync of `comm/` runs through its `SyncRequested`, which refuses one the open bin does not allow and alone builds the `requested_sync_t` that `SyncGroups` takes; `SyncScheduled` is the flesh's sync, on the levels of the open traversal. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps, what `api/` hands to the flesh, and `SyncScheduled` and `SyncRequested`, which `flesh/` and `api/` call. A writer is an argument of each function that uses one, and none is kept between calls.",
     "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. It keeps the writers it uses in one slot, and of the clock it changes only the stage time and step, for the length of one `run_at`.",
     "flesh": 'every `extern "C"`, and `hierarchy_writers_t`, the writers that own the hierarchy, which it lends to `schedule/` and `api/`. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
@@ -116,9 +116,11 @@ GRANTS = {
     "write_scope_t": ("open_write", "write_scopes_t"),
     "array_write_scope_t": ("open_array_write",),
     "GridPtrDesc1": ("operator<<",),
+    "requested_sync_t": ("SyncRequested",),
+    "public_ghost_only_t": ("sync_ghosts_only",),
 }
 GRANTS_HOME = READS_HOME
-GRANT_LAYER = "hierarchy"
+GRANT_LAYERS = ("hierarchy", "comm")
 GRANT_WRAPPER = "written_by"
 assert GRANT_WRAPPER in GRANTS, GRANTS
 HIERARCHY_LAYERS = LAYERS[LAYERS.index("hierarchy") :]
@@ -192,16 +194,6 @@ BINDING_WORD = re.compile(r"(\.|->)\s*data\s*\[[^\]]*\]\s*\[[^\]]*\]\s*=(?!=)")
 CLOCK_FILES = (layer_path("hierarchy", "clock.cxx"),)
 CLOCK_FIELD = r"(\.|->)\s*cctk_(iteration|time|delta_time|timefac)\b"
 CLOCK_WORD = re.compile(rf"{CLOCK_FIELD}\s*([-+*/]?=(?!=)|\+\+|--)|(\+\+|--)\s*[\w.()\->]*{CLOCK_FIELD}")
-GHOST_ONLY_FILES = (
-    layer_path("comm", "sync.hxx"),
-    layer_path("comm", "sync.cxx"),
-    layer_path("api", "api.cxx"),
-    layer_path("flesh", "compile_checks.cxx"),
-)
-GHOST_ONLY_WORD = re.compile(r"\bSyncGhostsOnly\s*\(")
-REQUESTED_SYNC_FILES = (layer_path("comm", "sync.hxx"), layer_path("comm", "sync.cxx"))
-REQUESTED_SYNC_CALLER = layer_path("schedule", "clocks.cxx")
-REQUESTED_SYNC_WORD = re.compile(r"\bSyncGroups\s*\(")
 APPLIES_LAYER = "comm"
 APPLIES_STEMS = ("fillpatch", "boundary_conditions", "prolongate_3d_rf2")
 assert set(APPLIES_STEMS) <= set(STEMS[APPLIES_LAYER]), APPLIES_STEMS
@@ -365,8 +357,8 @@ def codec_cxx(name: str, lang: Lang) -> bool:
     return lang is Lang.CXX and name in CODEC_FILES
 
 
-def hierarchy_header(name: str, lang: Lang) -> bool:
-    return carpetx_header(name, lang) and layer_of(name) == GRANT_LAYER
+def grant_header(name: str, lang: Lang) -> bool:
+    return carpetx_header(name, lang) and layer_of(name) in GRANT_LAYERS
 
 
 def in_files(names: tuple[str, ...]) -> Callable[..., bool]:
@@ -476,10 +468,6 @@ def entry_allowed(name: str, line: str, statement: str) -> bool:
 
 def door_allowed(name: str, line: str, statement: str) -> bool:
     return layer_of(name) in HIERARCHY_LAYERS
-
-
-def requested_sync_allowed(name: str, line: str, statement: str) -> bool:
-    return name in REQUESTED_SYNC_FILES or name == REQUESTED_SYNC_CALLER
 
 
 def unqualified(head: list[tuple[str, int]]) -> list[tuple[str, int]]:
@@ -668,18 +656,18 @@ RULES = (
     ),
     Rule(
         "grant",
-        files=hierarchy_header,
+        files=grant_header,
         word=FRIEND,
         allowed=granted,
-        text=f"a friend line in a header of {GRANT_LAYER}/ is an entry of the table GRANTS in {GRANTS_HOME}, under the type it "
+        text=f"a friend line in a header of {dirs(GRANT_LAYERS, 'or')} is an entry of the table GRANTS in {GRANTS_HOME}, under the type it "
         "sits in, spelled with the types that type is nested in, and naming the class or function it befriends, so that "
         f"granting a holder the private members of a type is an edit of that table; an alias using name = {GRANT_WRAPPER}<T, W>; is the "
         f"friend line of W under T, spelled the same way, because only W opens it for writing, and {GRANT_WRAPPER} is given arguments in no other form "
         "in such a header, so that no spelling hides a writer; the tests refuse an entry no friend line backs.",
         noun="friend line",
         where="GRANTS does not list",
-        clean=f"every friend line in {GRANT_LAYER}/ listed in GRANTS",
-        home=(GRANT_LAYER,),
+        clean=f"every friend line in {dirs(GRANT_LAYERS, 'and')} listed in GRANTS",
+        home=GRANT_LAYERS,
         whole=ungranted,
     ),
     Rule(
@@ -850,33 +838,6 @@ RULES = (
         noun="hierarchy use",
         where="the door does not allow",
         clean=f"the hierarchy has one door that {dirs(UNDER_HIERARCHY, 'and')} never use",
-    ),
-    Rule(
-        "ghost-only",
-        files=private_cxx,
-        word=GHOST_ONLY_WORD,
-        allowed=in_files(GHOST_ONLY_FILES),
-        text="SyncGhostsOnly, the same-level ghost-only copy, is called only by the public sync_ghosts_only in CarpetX/src/api/api.cxx; "
-        "a sync inside the driver opens a scope that says what it fills and uses the scheduled SYNC or the "
-        "prolongation.",
-        noun="driver-internal ghost-only sync",
-        where="outside api.cxx",
-        clean="no driver-internal ghost-only sync",
-        home=layers_of(GHOST_ONLY_FILES),
-    ),
-    Rule(
-        "requested-sync",
-        files=private_cxx,
-        word=REQUESTED_SYNC_WORD,
-        allowed=requested_sync_allowed,
-        text=f"SyncGroups, the sync of comm/, is called outside comm/sync.cxx only in {REQUESTED_SYNC_CALLER}, by SyncRequested, "
-        "which refuses a sync in an end-of-step bin that does not hold every level and then calls SyncGroups; the "
-        "flesh's sync entry calls SyncScheduled, and the public CarpetX::sync and every other sync of the driver call "
-        "SyncRequested.",
-        noun="SyncGroups call",
-        where="outside schedule/clocks.cxx",
-        clean="no SyncGroups call outside schedule/clocks.cxx",
-        home=layers_of(REQUESTED_SYNC_FILES + (REQUESTED_SYNC_CALLER,)),
     ),
     Rule(
         "applies",

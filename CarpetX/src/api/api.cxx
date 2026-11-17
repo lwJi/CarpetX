@@ -241,10 +241,11 @@ namespace {
 
 void sync_ghosts_only_timelevels(const window_t window,
                                  const std::span<const gi_t> groups,
-                                 const timelevels_t tls) {
+                                 const timelevels_t tls,
+                                 const public_ghost_only_t &asked) {
   const operation_scope_t op("CarpetX::sync_ghosts_only");
   require_operable(window, groups);
-  SyncGhostsOnly(window, groups, tls);
+  SyncGhostsOnly(window, groups, tls, asked);
 }
 
 void prolongate_ghosts_timelevels(const window_t window,
@@ -275,12 +276,14 @@ void apply_outer_boundary_timelevels(const window_t window,
 
 void sync_ghosts_only(const window_t window,
                       const std::span<const gi_t> groups) {
-  sync_ghosts_only_timelevels(window, groups, timelevels_t::all_but_oldest());
+  sync_ghosts_only_timelevels(window, groups, timelevels_t::all_but_oldest(),
+                              public_ghost_only_t());
 }
 
 void sync_ghosts_only(const window_t window, const std::span<const gi_t> groups,
                       const tl_t tl) {
-  sync_ghosts_only_timelevels(window, groups, timelevels_t::one(tl));
+  sync_ghosts_only_timelevels(window, groups, timelevels_t::one(tl),
+                              public_ghost_only_t());
 }
 
 void prolongate_ghosts(const window_t window,

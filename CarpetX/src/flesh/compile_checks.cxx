@@ -142,6 +142,9 @@ concept array_timelevel_takes =
     };
 
 template <class... Args>
+concept sync_groups_takes = requires(Args... args) { SyncGroups(args...); };
+
+template <class... Args>
 concept ghost_only_takes = requires(Args... args) { SyncGhostsOnly(args...); };
 
 template <class... Args>
@@ -671,22 +674,41 @@ static_assert(!window_is_restricted_takes<int, int>);
 static_assert(require_takes<window_t>);
 static_assert(!require_takes<level_t>);
 
-static_assert(ghost_only_takes<window_t, std::span<const gi_t>, timelevels_t>);
+static_assert(ghost_only_takes<window_t, std::span<const gi_t>, timelevels_t,
+                               const public_ghost_only_t &>);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, timelevels_t>);
+static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, timelevels_t,
+                                const requested_sync_t &>);
 static_assert(!ghost_only_takes<window_t, std::span<const gi_t>>);
 static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, tl_t>);
 static_assert(!ghost_only_takes<window_t, std::span<const gi_t>, int>);
+static_assert(!std::is_default_constructible_v<public_ghost_only_t>);
+static_assert(!std::is_copy_constructible_v<public_ghost_only_t>);
+static_assert(!std::is_aggregate_v<public_ghost_only_t>);
 
 static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateAfterRestriction), void(window_t)>);
 static_assert(std::is_same_v<decltype(RestrictNoPoison), comm_groups_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroups), comm_groups_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGroups),
+                             void(window_t, std::span<const gi_t>,
+                                  const requested_sync_t &)>);
+static_assert(sync_groups_takes<window_t, std::span<const gi_t>,
+                                const requested_sync_t &>);
+static_assert(!sync_groups_takes<window_t, std::span<const gi_t>>);
+static_assert(!sync_groups_takes<window_t, std::span<const gi_t>,
+                                 const public_ghost_only_t &>);
+static_assert(!std::is_default_constructible_v<requested_sync_t>);
+static_assert(!std::is_copy_constructible_v<requested_sync_t>);
+static_assert(!std::is_aggregate_v<requested_sync_t>);
+static_assert(std::is_same_v<decltype(SyncRequested), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateGhosts), comm_timelevels_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateAligned), comm_timelevels_entry_t>);
-static_assert(
-    std::is_same_v<decltype(SyncGhostsOnly), comm_timelevels_entry_t>);
+static_assert(std::is_same_v<decltype(SyncGhostsOnly),
+                             void(window_t, std::span<const gi_t>, timelevels_t,
+                                  const public_ghost_only_t &)>);
 static_assert(std::is_same_v<decltype(Reflux), void(window_t)>);
 static_assert(std::is_same_v<decltype(RecoverRKBoundary), void(window_t)>);
 
