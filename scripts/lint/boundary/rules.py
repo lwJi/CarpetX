@@ -19,7 +19,7 @@ READS = {
     "traversal": ("util",),
     "config": ("util",),
     "hierarchy": ("util", "traversal", "config"),
-    "comm": ("util", "traversal", "config", "hierarchy"),
+    "comm": ("util", "config", "hierarchy"),
     "regrid": ("hierarchy", "comm"),
     "ops": ("util", "hierarchy"),
     "io": ("util", "traversal", "config", "hierarchy", "comm", "ops"),

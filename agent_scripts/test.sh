@@ -28,6 +28,12 @@ if [ -f "$summary" ] && grep -Eq 'Number failed *-> *0' "$summary"; then
     echo "✗ test: an expected-failure parfile did not fail as expected" >&2
     exit 1
   fi
+  # The parfiles under <Thorn>/test/logs must exit 0 and print the text of
+  # their .expect sidecar, a line the testsuite's output comparison ignores
+  if ! python3 "$repo/scripts/expect-error.py" --succeed "$CACTUSX/exe/cactus_carpetx" "$repo"/*/test/logs; then
+    echo "✗ test: a logs parfile did not print its expected line" >&2
+    exit 1
+  fi
   echo "✓ test"
   exit 0
 fi

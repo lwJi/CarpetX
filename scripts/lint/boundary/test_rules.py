@@ -1380,7 +1380,6 @@ class Layer(unittest.TestCase):
             '#include "comm/sync.hxx"',
             '#include "comm/boundary_conditions_impl.hxx"',
             '#include "hierarchy/model.hxx"',
-            '#include "traversal/traversal.hxx"',
             '#include "util/refuse.hxx"',
             '#include "util/typeprops.hh"',
             '  #  include   "hierarchy/loops.hxx"  // the loops',
@@ -1403,6 +1402,7 @@ class Layer(unittest.TestCase):
     def test_an_include_from_a_lower_layer_its_own_does_not_read_is_reported(self):
         for name, line in [
             ("CarpetX/src/ops/interpolate.cxx", '#include "comm/sync.hxx"'),
+            ("CarpetX/src/comm/ghost_prolongation.cxx", '#include "traversal/traversal.hxx"'),
             ("CarpetX/src/ops/interp.hxx", '#include "regrid/regrid.hxx"'),
             ("CarpetX/src/io/io.cxx", '#include "regrid/regrid.hxx"'),
             ("CarpetX/src/schedule/evolve.cxx", '#include "ops/interp.hxx"'),

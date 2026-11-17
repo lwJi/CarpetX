@@ -9,7 +9,6 @@
 #include "comm/group_selection.hxx"
 #include "comm/level_runs.hxx"
 #include "comm/timelevels.hxx"
-#include "traversal/traversal.hxx"
 #include "util/task_manager.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/scopes.hxx"
@@ -19,6 +18,7 @@
 
 #include <cassert>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -31,9 +31,9 @@ void error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
   const auto &restrict coarseleveldata =
       driver().level(leveldata.level.parent());
   const auto &restrict coarsegroupdata = coarseleveldata.group(gi);
+  const std::optional<int> recovered = driver().run_clock().recovered_iteration;
   const bool recovering =
-      recovered_iteration() >= 0 &&
-      coarseleveldata.last_finalized_iteration() <= recovered_iteration();
+      recovered && coarseleveldata.last_finalized_iteration() <= *recovered;
 
   const std::function<std::string()> hint = [&coarsegroupdata, tl,
                                              recovering]() -> std::string {

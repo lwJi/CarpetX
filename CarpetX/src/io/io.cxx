@@ -485,7 +485,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
 
   static int last_checkpoint_iteration = -1;
 
-  if (cctkGH->cctk_iteration == recovered_iteration()) {
+  if (cctkGH->cctk_iteration == driver().run_clock().recovered_iteration) {
     CCTK_VINFO(
         "Recovered from checkpoint at iteration %d; skipping checkpointing",
         cctkGH->cctk_iteration);
