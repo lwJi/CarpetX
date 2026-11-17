@@ -140,6 +140,14 @@ if (sync_in_tail) {
   } "request a SYNC in CCTK_ANALYSIS, which must abort at iteration 1 under subcycling"
 }
 
+if (sync_api_in_tail) {
+  schedule TestSubcycleStepping_SyncApiInTail AT analysis
+  {
+    LANG: C
+    OPTIONS: global
+  } "call CarpetX::sync in CCTK_ANALYSIS, which must abort at iteration 1 under subcycling"
+}
+
 
 
 if (check_time) {

@@ -1,7 +1,4 @@
 #include "io/io.hxx"
-#include "io/checkpoint.hxx"
-#include "traversal/traversal.hxx"
-#include "util/refuse.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -10,22 +7,9 @@
 
 #include <mpi.h>
 
-#include <memory>
-
 namespace CarpetX {
 
-extern "C" int CarpetX_RecoverParameters() {
-  const operation_scope_t op("CarpetX::RecoverParameters");
-  DECLARE_CCTK_PARAMETERS;
-
-  static Timer timer("RecoverParameters");
-  Interval interval(timer);
-
-  record_recovered_iteration(
-      make_codec(recover_method)->read_parameters(recover_dir, recover_file));
-
-  return recovered_iteration() >= 0;
-}
+extern "C" int CarpetX_RecoverParameters() { return RecoverParameters(); }
 
 extern "C" void CarpetX_CheckpointInitial(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS;

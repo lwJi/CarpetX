@@ -1063,7 +1063,8 @@ struct silo_codec_t final : checkpoint_codec_t {
                                           tag ? *tag : std::string()));
   }
 
-  int read_parameters(const std::string &dir, const std::string &file) override;
+  std::optional<int> read_parameters(const std::string &dir,
+                                     const std::string &file) override;
   void encode(const checkpoint_record_t &record, const std::string &dir,
               const std::string &file) override;
   checkpoint_record_t decode_structure(const std::string &dir,
@@ -1074,8 +1075,8 @@ struct silo_codec_t final : checkpoint_codec_t {
                    const std::string &file) override;
 };
 
-int silo_codec_t::read_parameters(const std::string &dir,
-                                  const std::string &file) {
+std::optional<int> silo_codec_t::read_parameters(const std::string &dir,
+                                                 const std::string &file) {
   assert(!dir.empty());
   assert(!file.empty());
 
@@ -1106,7 +1107,7 @@ int silo_codec_t::read_parameters(const std::string &dir,
       CCTK_VINFO("  Could not find a Silo checkpoint file \"%s/%s.*.silo\"",
                  dir.c_str(), file.c_str());
     }
-    return -1;
+    return std::nullopt;
   }
 
   std::string parameters;

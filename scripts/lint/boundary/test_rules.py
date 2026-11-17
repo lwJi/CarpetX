@@ -300,6 +300,54 @@ class GhostOnly(unittest.TestCase):
         self.assertEqual(rules.layers_of(rules.GHOST_ONLY_FILES), ("comm", "api", "flesh"))
 
 
+class RequestedSync(unittest.TestCase):
+    CALLS = [
+        "SyncGroups(window, gis);",
+        "SyncGroups (window, groups);",
+        "CarpetX::SyncGroups(scheduled_window(caller), gis);",
+    ]
+
+    def test_a_call_outside_the_caller_is_reported(self):
+        for line in self.CALLS:
+            for name in ["CarpetX/src/api/api.cxx", "CarpetX/src/flesh/startup.cxx", "CarpetX/src/io/io.cxx", "CarpetX/src/comm/restrict.cxx", "CarpetX/src/schedule/callfunction.cxx", "CarpetX/src/schedule/evolve.cxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("requested-sync", line)])
+
+    def test_the_caller_and_the_definition_may_call_it(self):
+        self.assertEqual(rules.REQUESTED_SYNC_CALLER, "CarpetX/src/schedule/clocks.cxx")
+        for line in self.CALLS:
+            for name in rules.REQUESTED_SYNC_FILES + (rules.REQUESTED_SYNC_CALLER,):
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [])
+
+    def test_a_mention_that_is_not_a_call_passes(self):
+        for text in [
+            "static_assert(std::is_same_v<decltype(SyncGroups), comm_groups_entry_t>);\n",
+            "SyncRequested(window, groups);\n",
+            "SyncScheduled(gis);\n",
+            "CCTK_OverloadSyncGroupsByDirI(SyncGroups_entry);\n",
+            "const gi_t gi{attribute->SyncGroups[n]};\n",
+            "SyncGroupsSubcycling(window, groups);\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/flesh/startup.cxx", "  " + text), [])
+
+    def test_another_thorn_and_the_public_headers_may_name_it(self):
+        self.assertEqual(reported("ODESolvers/src/solve.cxx", self.CALLS[0] + "\n"), [])
+        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", self.CALLS[0] + "\n"), [])
+
+    def test_no_file_but_the_caller_calls_it(self):
+        found = []
+        for layer in LAYERS:
+            for path in doc.sources(PROJECT, layer):
+                name = os.path.relpath(path, PROJECT)
+                found.extend((name, f.line) for f in findings(name, doc.read(path), Lang.CXX) if f.rule == "requested-sync")
+        self.assertEqual(found, [])
+
+    def test_the_rule_is_at_home_in_comm_and_schedule(self):
+        self.assertEqual(next(rule for rule in rules.RULES if rule.name == "requested-sync").home, ("comm", "schedule"))
+
+
 class Applies(unittest.TestCase):
     INCLUDE = '#include "hierarchy/scopes.hxx"'
 
@@ -362,53 +410,6 @@ class Applies(unittest.TestCase):
         self.assertEqual(next(rule for rule in rules.RULES if rule.name == "applies").home, ("comm",))
         with self.assertRaises(AssertionError):
             rules.in_rows("comm", ("nosuch",))
-
-
-class Directions(unittest.TestCase):
-    FORWARDED = (
-        "  int SyncGroupsLockstep(const window_t window,\n"
-        "                       const cGH *restrict cctkGH, int numgroups,\n"
-        "                       const int *groups, const int *directions);\n"
-    )
-    FLESH_OVERLOAD = (
-        "int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,\n"
-        "                             const int *groups, const int *directions);\n"
-    )
-    FLESH_DEFINITION = (
-        "int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,\n"
-        "                             const int numgroups, const int *const groups,\n"
-        "                             const int *const directions) {\n"
-        "  const std::vector<gi_t> gis(groups, groups + numgroups);\n"
-        "  return SyncGroups(scheduled_window(sync_caller(gis).c_str()), cctkGH, gis);\n"
-        "}\n"
-    )
-
-    def test_directions_reported(self):
-        for name in ["CarpetX/src/comm/sync.hxx", "CarpetX/src/comm/sync.cxx"]:
-            with self.subTest(name=name):
-                self.assertEqual(
-                    reported(name, self.FORWARDED),
-                    [("directions", "const int *groups, const int *directions);")],
-                )
-        text = "  return SyncGroups(scheduled_window(sync_caller(gis).c_str()), cctkGH, gis, directions);\n"
-        self.assertEqual(reported("CarpetX/src/comm/sync.cxx", text), [("directions", text.strip())])
-
-    def test_directions_allowed_in_flesh_overload(self):
-        self.assertEqual(reported("CarpetX/src/comm/sync.hxx", self.FLESH_OVERLOAD), [])
-        self.assertEqual(reported("CarpetX/src/comm/sync.cxx", self.FLESH_DEFINITION), [])
-        self.assertEqual(reported("CarpetX/src/comm/sync.hxx", self.FLESH_OVERLOAD + "\n" + self.FORWARDED), [("directions", "const int *groups, const int *directions);")])
-
-    def test_other_files_are_not_the_sync_layer(self):
-        for name in ["CarpetX/src/schedule/schedule.hxx", "CarpetX/src/schedule/evolve.cxx", "CarpetX/src/io/io_meta.cxx", "CarpetX/src/hierarchy/model.hxx", "ODESolvers/src/solve.cxx"]:
-            with self.subTest(name=name):
-                self.assertEqual(reported(name, self.FORWARDED), [])
-
-    def test_a_longer_name_is_not_the_parameter(self):
-        self.assertEqual(reported("CarpetX/src/comm/sync.cxx", "std::vector<int> output_directions;\nint all_directions_done;\n"), [])
-
-    def test_line_numbers(self):
-        text = "int a;\n" + self.FORWARDED
-        self.assertEqual(findings("CarpetX/src/comm/sync.hxx", text, Lang.CXX), [Finding(4, "directions", "const int *groups, const int *directions);")])
 
 
 class VarIndex(unittest.TestCase):
@@ -911,8 +912,6 @@ class Traversal(unittest.TestCase):
         "if (active_levels) return;",
         "driver().tail_bin = bin;",
         "if (!tail_bin) return;",
-        "recovery_traversal = true;",
-        "assert(!recovery_traversal);",
         "last_routine = attribute;",
         "const auto *f = last_routine;",
     ]
@@ -944,8 +943,6 @@ class Traversal(unittest.TestCase):
             "SyncGroupsOnActiveLevels(cctkGH, n, gs, ds);\n",
             "scheduled_tail_bin();\n",
             "tail_bin_scope_t scope(bin);\n",
-            "in_recovery_traversal();\n",
-            "recovery_scope_t scope;\n",
             "scheduled_routine();\n",
             "routine_scope_t routine_scope(attribute);\n",
         ]:
@@ -959,25 +956,18 @@ class Traversal(unittest.TestCase):
         text = "int a;\n\n" + self.USES[0] + "\n"
         self.assertEqual(findings("CarpetX/src/schedule/evolve.cxx", text, Lang.CXX), [Finding(3, "traversal", self.USES[0])])
 
-    def test_the_recovered_iteration_is_a_slot(self):
-        for line in [
-            "int recover_iteration = -1;",
-            "recover_iteration = codec->read_parameters(recover_dir, recover_file);",
-            "return recover_iteration >= 0;",
-            "if (cctkGH->cctk_iteration == recover_iteration) {",
-        ]:
-            with self.subTest(line=line):
-                self.assertEqual(reported("CarpetX/src/io/io.cxx", "  " + line + "\n"), [("traversal", line)])
-                self.assertEqual(reported("CarpetX/src/traversal/traversal.cxx", line + "\n"), [])
-
-    def test_the_recovered_iteration_readers_are_not_the_slot(self):
+    def test_the_recovered_iteration_is_not_a_slot(self):
         for text in [
-            "record_recovered_iteration(codec->read_parameters(recover_dir, recover_file));\n",
-            "return recovered_iteration() >= 0;\n",
-            "assert(cctkGH->cctk_iteration == recovered_iteration());\n",
+            "  std::optional<int> recover_iteration;\n",
+            "  if (recover_iteration) return;\n",
+            "  recover_iteration = iteration;\n",
+            "  std::optional<int> recovered_iteration;\n",
+            "  next.recovered_iteration = iteration;\n",
+            "if (cctkGH->cctk_iteration == driver().run_clock().recovered_iteration) {\n",
         ]:
-            with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/io/io.cxx", text), [])
+            for name in ["CarpetX/src/io/io.cxx", "CarpetX/src/hierarchy/writers.cxx"]:
+                with self.subTest(name=name, text=text):
+                    self.assertNotIn("traversal", [rule for rule, _ in reported(name, text)])
 
     def test_the_integrator_is_not_a_slot(self):
         for text in [
@@ -999,6 +989,50 @@ class Traversal(unittest.TestCase):
             for name in ["CarpetX/src/api/api_rk.cxx", "CarpetX/src/config/groups.cxx"]:
                 with self.subTest(name=name, text=text):
                     self.assertEqual(reported(name, text), [])
+
+
+class Phase(unittest.TestCase):
+    INCLUDE = '#include "traversal/traversal.hxx"'
+
+    def test_the_include_is_reported_in_another_file_of_hierarchy(self):
+        for name in ["CarpetX/src/hierarchy/model.cxx", "CarpetX/src/hierarchy/model.hxx", "CarpetX/src/hierarchy/scopes.cxx", "CarpetX/src/hierarchy/writers.cxx"]:
+            for line in [self.INCLUDE, "#include <traversal/traversal.hxx>", '  #  include "traversal/traversal.hxx"']:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [("phase", line.strip())])
+
+    def test_the_include_is_allowed_in_handles(self):
+        self.assertEqual(reported(rules.PHASE_READER, self.INCLUDE + "\n"), [])
+        self.assertEqual(rules.PHASE_READER, "CarpetX/src/hierarchy/handles.cxx")
+
+    def test_the_include_is_not_judged_in_schedule(self):
+        for name in ["CarpetX/src/schedule/evolve.cxx", "CarpetX/src/schedule/clocks.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.INCLUDE + "\n"), [])
+
+    def test_the_layer_rule_judges_the_include_in_flesh(self):
+        for name in ["CarpetX/src/flesh/startup.cxx", "CarpetX/src/flesh/aliased.cxx"]:
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, self.INCLUDE + "\n"), [("layer", self.INCLUDE)])
+
+    def test_another_include_or_a_mention_passes(self):
+        name = "CarpetX/src/hierarchy/model.cxx"
+        for text in ['#include "util/refuse.hxx"\n', "// traversal/traversal.hxx\n", '#include "traversal/traversal_detail.hxx"\n', "scheduled_window(caller);\n"]:
+            with self.subTest(text=text):
+                self.assertNotIn("phase", [rule for rule, _ in reported(name, text)])
+
+    def test_no_file_of_hierarchy_but_handles_includes_it(self):
+        phase = next(rule for rule in rules.RULES if rule.name == "phase")
+        found, judged = [], set()
+        for path in doc.sources(PROJECT, rules.PHASE_LAYER):
+            name = os.path.relpath(path, PROJECT)
+            if phase.files(name, Lang.CXX):
+                judged.add(name)
+            found.extend((name, f.line) for f in findings(name, doc.read(path), Lang.CXX) if f.rule == "phase")
+        self.assertIn(rules.PHASE_READER, judged)
+        self.assertEqual(found, [])
+
+    def test_the_rule_is_at_home_in_hierarchy(self):
+        self.assertEqual(next(rule for rule in rules.RULES if rule.name == "phase").home, ("hierarchy",))
 
 
 class Index(unittest.TestCase):
@@ -1064,11 +1098,6 @@ class Index(unittest.TestCase):
                     reported(name, "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);\n"),
                     [("index", "int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);")],
                 )
-        self.assertEqual(reported("CarpetX/src/comm/sync.hxx", "int SyncGroupsOnActiveLevels(const cGH *cctkGH, int gi);\n"), [])
-        self.assertEqual(
-            reported("CarpetX/src/schedule/schedule.hxx", "int SyncGroupsOnActiveLevels(const cGH *cctkGH, int gi);\n"),
-            [("index", "int SyncGroupsOnActiveLevels(const cGH *cctkGH, int gi);")],
-        )
         self.assertEqual(
             reported("CarpetX/src/schedule/schedule.hxx", "window_t narrow(int min_level, int max_level);\n"),
             [("index", "window_t narrow(int min_level, int max_level);")],
@@ -1138,7 +1167,6 @@ class Index(unittest.TestCase):
         ("CarpetX/src/flesh/startup.cxx", "int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {\n"),
         ("CarpetX/src/flesh/aliased.cxx", "extern \"C\" CCTK_INT\nCarpetX_GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size,\n                               CCTK_REAL *restrict const spacing) {\n"),
         ("CarpetX/src/flesh/aliased.cxx", "extern \"C\" CCTK_INT CarpetX_GetBoundarySizesAndTypes(\n    const void *const cctkGH_, const CCTK_INT patch, const CCTK_INT size,\n    CCTK_INT *restrict const is_physbnd) {\n"),
-        ("CarpetX/src/comm/sync.cxx", "int SyncGroupsOnActiveLevels(const cGH *restrict const cctkGH,\n                             const int gi) {\n"),
         ("CarpetX/src/config/groups.cxx", "    const int ierr = CCTK_TraverseString(\n        var_set_string,\n        [](const int vi, const char *const optstring, void *argptr) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,\n                             const amrex::Real time, const int ngrow) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::MakeNewLevelFromScratch(\n    const int level, const amrex::Real time, const amrex::BoxArray &ba,\n    const amrex::DistributionMapping &dm) {\n"),
@@ -1433,7 +1461,6 @@ class Layer(unittest.TestCase):
             '#include "comm/sync.hxx"',
             '#include "comm/boundary_conditions_impl.hxx"',
             '#include "hierarchy/model.hxx"',
-            '#include "traversal/traversal.hxx"',
             '#include "util/refuse.hxx"',
             '#include "util/typeprops.hh"',
             '  #  include   "hierarchy/loops.hxx"  // the loops',
@@ -1456,6 +1483,7 @@ class Layer(unittest.TestCase):
     def test_an_include_from_a_lower_layer_its_own_does_not_read_is_reported(self):
         for name, line in [
             ("CarpetX/src/ops/interpolate.cxx", '#include "comm/sync.hxx"'),
+            ("CarpetX/src/comm/ghost_prolongation.cxx", '#include "traversal/traversal.hxx"'),
             ("CarpetX/src/ops/interp.hxx", '#include "regrid/regrid.hxx"'),
             ("CarpetX/src/io/io.cxx", '#include "regrid/regrid.hxx"'),
             ("CarpetX/src/schedule/evolve.cxx", '#include "ops/interp.hxx"'),
@@ -1962,7 +1990,7 @@ class Layers(unittest.TestCase):
     def test_a_layer_includes_itself_and_the_layers_its_row_names(self):
         self.assertEqual(includable("util"), ("util",))
         self.assertEqual(includable("regrid"), ("hierarchy", "comm", "regrid"))
-        self.assertEqual(includable("flesh"), LAYERS)
+        self.assertEqual(includable("flesh"), tuple(layer for layer in LAYERS if layer != "traversal"))
         for layer in LAYERS:
             with self.subTest(layer=layer):
                 self.assertEqual(includable(layer), READS[layer] + (layer,))
@@ -1976,7 +2004,7 @@ class Layers(unittest.TestCase):
         self.assertEqual(linkable("schedule", headers), ("util", "traversal", "config", "hierarchy", "comm", "ops", "io", "schedule"))
         self.assertEqual(linkable("config", headers), ("util", "config"))
         self.assertEqual(linkable("api", headers), ("util", "config", "hierarchy", "comm", "schedule", "api"))
-        self.assertEqual(linkable("flesh", headers), LAYERS)
+        self.assertEqual(linkable("flesh", headers), tuple(layer for layer in LAYERS if layer != "traversal"))
         for layer in LAYERS:
             with self.subTest(layer=layer):
                 self.assertEqual(linkable(layer, {}), includable(layer))
@@ -2003,7 +2031,6 @@ class Layers(unittest.TestCase):
             + rules.TRAVERSAL_FILES
             + (rules.DOOR_FILE, rules.RECORD_VAR_FILE, rules.MODEL_FILE, MAKE_DEFN)
             + rules.MODEL_FILES
-            + rules.SYNC_FILES
             + tuple(rules.INDEX_FIXED)
             + rules.CODEC_FILES
         )
@@ -2124,12 +2151,12 @@ class Report(unittest.TestCase):
             "✓ boundary: no private CarpetX includes, no stray CARPETX_INTERNAL, "
             "no validity call outside scopes.cxx, no pointer-table write outside binding.cxx, "
             "no clock-field write outside clock.cxx, "
-            "no directions in the sync layer, "
             "no firstvarindex addition outside GroupRecord::var, "
             "no mutable, extern, comm/ object or other concern's include in the data model's headers, "
             "every friend line in hierarchy/ listed in GRANTS, no active_levels_t, "
             "no make_alias in CarpetX, "
             "no active_levels outside traversal.cxx, "
+            "no phase include in hierarchy/ outside handles.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
             "no hierarchy access in a checkpoint codec, "
             "every internal include from its own layer or one it reads, "
@@ -2139,6 +2166,7 @@ class Report(unittest.TestCase):
             "no extern C entry outside flesh/, "
             "the hierarchy has one door that util/, traversal/ and config/ never use, "
             "no driver-internal ghost-only sync, "
+            "no SyncGroups call outside schedule/clocks.cxx, "
             "and no write-scope or deciding-stem include in a stem of comm/ that applies",
         )
 
@@ -2146,16 +2174,13 @@ class Report(unittest.TestCase):
         a = ("T/src/a.cxx", Finding(3, "include", '#include "../../CarpetX/src/driver.hxx"'))
         b = ("T/src/b.cxx", Finding(1, "marker", "#define CARPETX_INTERNAL"))
         c = ("CarpetX/src/hierarchy/model.cxx", Finding(7, "validity", "why.set_all(valid_t(), r);"))
-        d = ("CarpetX/src/comm/sync.hxx", Finding(2, "directions", "const int *groups, const int *directions);"))
         e = ("CarpetX/src/hierarchy/scopes.cxx", Finding(5, "varindex", "CCTK_FullVarName(groupdata.record.firstvarindex + vi),"))
         self.assertEqual(summary([a]), "✗ boundary: 1 private include")
         self.assertEqual(summary([a, a, b]), "✗ boundary: 2 private includes, 1 stray marker")
         self.assertEqual(summary([c]), "✗ boundary: 1 validity call outside scopes.cxx")
         self.assertEqual(summary([b, c, c]), "✗ boundary: 1 stray marker, 2 validity calls outside scopes.cxx")
-        self.assertEqual(summary([d]), "✗ boundary: 1 directions parameter in the sync layer")
-        self.assertEqual(summary([c, d, d]), "✗ boundary: 1 validity call outside scopes.cxx, 2 directions parameters in the sync layer")
         self.assertEqual(summary([e]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var")
-        self.assertEqual(summary([d, e, e]), "✗ boundary: 1 directions parameter in the sync layer, 2 firstvarindex additions outside GroupRecord::var")
+        self.assertEqual(summary([c, e, e]), "✗ boundary: 1 validity call outside scopes.cxx, 2 firstvarindex additions outside GroupRecord::var")
         m = ("CarpetX/src/hierarchy/model.hxx", Finding(4, "model", "mutable std::unique_ptr<amrex::MultiFab> cell_volume;"))
         self.assertEqual(summary([m]), "✗ boundary: 1 mutable, extern, comm/ object or other concern's include in the data model's headers")
         self.assertEqual(summary([m, e, m]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 mutable, extern, comm/ object or other concern's includes in the data model's headers")
@@ -2532,11 +2557,11 @@ class Doc(unittest.TestCase):
             "each pair is a layer and one READS in scripts/lint/boundary/rules.py says it reads, but no file of the layer includes a header of it: remove the entry",
         )
         self.assertEqual({layer: tuple(target for target in LAYERS if (layer, target) in found) for layer in LAYERS}, READS)
-        with mock.patch.dict(READS, {"regrid": ("util", "hierarchy", "comm"), "ops": ("util", "traversal", "hierarchy", "comm")}):
+        with mock.patch.dict(READS, {"regrid": ("util", "hierarchy", "comm"), "ops": ("util", "hierarchy", "comm")}):
             self.assertEqual(doc.unread(), [("regrid", "util"), ("ops", "comm")])
-        with mock.patch.dict(READS, {"regrid": ("config", "hierarchy", "comm"), "ops": ("util", "traversal", "config", "hierarchy")}):
+        with mock.patch.dict(READS, {"regrid": ("config", "hierarchy", "comm"), "ops": ("util", "config", "hierarchy")}):
             self.assertEqual(doc.unread(), [("regrid", "config"), ("ops", "config")])
-        with mock.patch.dict(READS, {"io": ("util", "traversal", "config", "hierarchy", "comm")}), self.assertRaises(AssertionError):
+        with mock.patch.dict(READS, {"io": ("util", "config", "hierarchy", "comm")}), self.assertRaises(AssertionError):
             doc.reads(PROJECT)
         with mock.patch.dict(READS, {"api": ("util", "hierarchy", "comm", "schedule")}), self.assertRaises(AssertionError):
             doc.reads(PROJECT)
@@ -2610,16 +2635,17 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `config/`"], f"- `config/`: {rules.OWNS['config']}")
         self.assertTrue(rows["- `config/`"].endswith(" Nothing here calls `driver()`."))
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
-        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant.")
+        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant, phase.")
         self.assertTrue(rules.OWNS["hierarchy"].endswith(" Nothing here only reads the model: a query belongs to the layer that owns its subject."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
-        self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: directions, ghost-only, applies.")
+        self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: ghost-only, requested-sync, applies.")
         self.assertTrue(rules.OWNS["comm"].endswith(" It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock."))
         self.assertIn(" A stem either decides what is filled and records its validity, or applies and records nothing. ", rules.OWNS["comm"])
-        self.assertEqual(doc.rules_of("comm"), ["directions", "ghost-only", "applies"])
+        self.assertEqual(doc.rules_of("comm"), ["ghost-only", "requested-sync", "applies"])
+        self.assertEqual(doc.rules_of("schedule"), ["requested-sync"])
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
-        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "clock", "varindex", "model", "grant"])
+        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "clock", "varindex", "model", "grant", "phase"])
         self.assertEqual(doc.node("flesh", ("regrid", "flesh")), '  flesh["flesh/ no header"]')
         self.assertEqual(doc.node("regrid", ("regrid", "flesh")), '  regrid["regrid/ no header"]')
         self.assertEqual(doc.node("ops", ("regrid", "flesh")), '  ops["ops/"]')
@@ -2630,12 +2656,12 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "directions", "varindex", "model", "grant", "traversal", "records", "codec", "entry", "ghost-only", "applies"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "varindex", "model", "grant", "traversal", "phase", "records", "codec", "entry", "ghost-only", "requested-sync", "applies"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.CLOCK_FILES), ("hierarchy",))
-        self.assertEqual(rules.layers_of(rules.CODEC_FILES + rules.SYNC_FILES), ("io", "comm"))
+        self.assertEqual(rules.layers_of(rules.CODEC_FILES + rules.GHOST_ONLY_FILES), ("io", "comm", "api", "flesh"))
         with self.assertRaises(AssertionError):
             rules.layers_of((rules.MAKE_DEFN,))
 
@@ -2806,16 +2832,16 @@ class Doc(unittest.TestCase):
         steps = re.findall(r'-- "(\d+) ', drawn)
         self.assertEqual(sorted(set(steps), key=int), sorted(doc.STEPS, key=int))
         self.assertEqual(steps, sorted(steps, key=int))
-        self.assertIn('  cactus -- "10 SyncGroupsOnActiveLevels" --> comm', drawn)
+        self.assertNotIn(" --> comm", drawn)
         self.assertIn('  thorn -- "8 carpetx.hxx, carpetx_rk.hxx" --> api', drawn)
         self.assertIn('  api -- "9 CCTK_ScheduleTraverse" --> cactus', drawn)
-        self.assertIn('  cactus -- "10 EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry" --> flesh', drawn)
-        self.assertIn('  flesh -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease" --> schedule', drawn)
-        self.assertEqual(doc.handed(), [("schedule", ("QueryGroupStorageB",)), ("ops", ("InterpLocalUniform",)), ("comm", ("SyncGroupsOnActiveLevels",))])
+        self.assertIn('  cactus -- "10 EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry, SyncGroups_entry" --> flesh', drawn)
+        self.assertIn('  flesh -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, SyncScheduled" --> schedule', drawn)
+        self.assertEqual(doc.handed(), [("schedule", ("QueryGroupStorageB",)), ("ops", ("InterpLocalUniform",))])
         for layer, names in doc.handed():
             for name in names:
                 with self.subTest(name=name):
-                    self.assertIn(name, dict(doc.REGISTERED)[rules.layer_path(layer, {"schedule": "storage.cxx", "ops": "interpolate.cxx", "comm": "sync.cxx"}[layer])])
+                    self.assertIn(name, dict(doc.REGISTERED)[rules.layer_path(layer, {"schedule": "storage.cxx", "ops": "interpolate.cxx"}[layer])])
         regrid = doc.the_regrid()
         self.assertEqual(re.findall(r'-- "(\d+) ', regrid), sorted(doc.REGRID_STEPS))
         self.assertEqual(regrid.splitlines()[1], '  amrex["AMReX"]')
@@ -2858,6 +2884,8 @@ class Doc(unittest.TestCase):
         for name in storage:
             files[doc.STARTUP] = files[doc.STARTUP].replace(define(f"{name}_entry"), f"int {name}_entry(const cGH *cctkGH) {{\n  return {name}(cctkGH, writers->registry);\n}}\n")
         files[layer_path("schedule", "storage.cxx")] += "".join(f"int {name}(const cGH *cctkGH,\n       registry_writer_t &registry) {{\n  return 0;\n}}\n" for name in storage)
+        files[doc.STARTUP] = files[doc.STARTUP].replace(define("SyncGroups_entry"), "int SyncGroups_entry(const cGH *cctkGH) {\n  SyncScheduled(gis);\n  return 0;\n}\n")
+        files[layer_path("schedule", "clocks.cxx")] = "void SyncScheduled(const std::span<const gi_t> groups) {\n}\n"
         files[doc.STARTUP] += (
             "int ScheduleTraverseGH(cGH *cctkGH,\n                       const char *where) {\n  return CCTK_ScheduleTraverse(where, cctkGH, CallFunction);\n}\n"
             'extern "C" int CarpetX_Startup() {\n' + "".join(f"  CCTK_Overload{name}({name});\n" for _, names in doc.REGISTERED for name in names) + "}\n"
@@ -2927,12 +2955,11 @@ class Doc(unittest.TestCase):
                     '  api -- "9 CCTK_ScheduleTraverse" --> cactus',
                     '  cactus -- "10 QueryGroupStorageB" --> schedule',
                     '  cactus -- "10 InterpLocalUniform" --> ops',
-                    '  cactus -- "10 SyncGroupsOnActiveLevels" --> comm',
-                    '  cactus -- "10 EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry" --> flesh',
-                    '  flesh -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease" --> schedule',
+                    '  cactus -- "10 EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry, SyncGroups_entry" --> flesh',
+                    '  flesh -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, SyncScheduled" --> schedule',
                 ],
             )
-            self.assertEqual([line.split("[")[0].strip() for line in lines[3:12]], ["flesh", "api", "schedule", "io", "ops", "comm", "hierarchy", "config", "util"])
+            self.assertEqual([line.split("[")[0].strip() for line in lines[3:11]], ["flesh", "api", "schedule", "io", "ops", "hierarchy", "config", "util"])
             self.assertEqual(
                 doc.the_regrid(root).splitlines(),
                 [

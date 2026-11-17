@@ -5,8 +5,12 @@
 
 #include "hierarchy/writers.hxx"
 
+#include <carpetx.hxx>
+
 #include <cctk.h>
 #include <cctk_Schedule.h>
+
+#include <span>
 
 namespace CarpetX {
 
@@ -29,6 +33,9 @@ int EnableGroupStorage(const cGH *cctkGH, const char *groupname,
 int DisableGroupStorage(const cGH *cctkGH, const char *groupname,
                         registry_writer_t &registry);
 int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);
+
+void SyncRequested(window_t window, std::span<const gi_t> groups);
+void SyncScheduled(std::span<const gi_t> groups);
 
 } // namespace CarpetX
 

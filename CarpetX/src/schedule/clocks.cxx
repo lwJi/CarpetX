@@ -1,4 +1,5 @@
 #include "schedule/clocks.hxx"
+#include "schedule/schedule.hxx"
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
@@ -27,6 +28,7 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -135,9 +137,8 @@ void SetDeltaTime(clock_writer_t &clock) {
   if (CCTK_EQUALS(timestep_choice, "timestep")) {
     delta_time = timestep;
   } else if (CCTK_EQUALS(timestep_choice, "dtfac")) {
-    delta_time =
-        dtfac *
-        (driver().use_subcycling ? get_coarse_mindx() : get_finest_mindx());
+    delta_time = dtfac * (driver().use_subcycling ? get_coarse_mindx()
+                                                  : get_finest_mindx());
   } else {
     CCTK_ERROR("Unexpected value for 'CarpetX::timestep_choice'");
     abort();
@@ -265,6 +266,55 @@ void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
   CCTK_Traverse(cctkGH, bin);
 }
 
+static void error_if_sync_in_tail(const window_t window,
+                                  const std::span<const gi_t> groups0) {
+  if (!driver().use_subcycling)
+    return;
+  const char *const bin = scheduled_tail_bin();
+  if (!bin || groups0.empty())
+    return;
+  const auto [min_level, max_level] = window.level_bounds();
+  if (min_level == 0)
+    return;
+  std::ostringstream groupnames;
+  for (std::size_t n = 0; n < groups0.size(); ++n) {
+    const char *const groupname = CCTK_FullGroupName(groups0[n].index());
+    if (n != 0)
+      groupnames << ", ";
+    groupnames << (groupname ? groupname : "(unknown group)");
+  }
+  const cFunctionData *const func = scheduled_routine();
+  CCTK_VERROR(
+      "%s::%s (%s) requested SYNC of %s at iteration %d with "
+      "CarpetX::use_subcycling = yes, while the end-of-step window holds only "
+      "levels [%d,%d). The sync would fill the coarse-fine ghosts of level %d "
+      "from level %d, which has stepped ahead and has not been finalized. "
+      "Under subcycling CCTK_POSTSTEP, CCTK_ANALYSIS, CCTK_CHECKPOINT and "
+      "CCTK_TERMINATE may sync only when the end-of-step window holds every "
+      "level. Otherwise remove the SYNC: write pointwise outputs everywhere; "
+      "outputs that need a stencil stay interior and their ghosts are "
+      "invalid.",
+      func ? func->thorn : "(unknown thorn)",
+      func ? func->routine : "(unknown routine)", bin, groupnames.str().c_str(),
+      current_iteration(), min_level, max_level, min_level, min_level - 1);
+}
+
+void SyncRequested(const window_t window, const std::span<const gi_t> groups) {
+  error_if_sync_in_tail(window, groups);
+  SyncGroups(window, groups);
+}
+
+static std::string sync_caller() {
+  const cFunctionData *const func = scheduled_routine();
+  if (!func)
+    return "SYNC";
+  return std::string("SYNC from ") + func->thorn + "::" + func->routine;
+}
+
+void SyncScheduled(const std::span<const gi_t> groups) {
+  SyncRequested(scheduled_window(sync_caller().c_str()), groups);
+}
+
 void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
                     clock_writer_t &clock, const bool reflux) {
   DECLARE_CCTK_PARAMETERS;
@@ -299,8 +349,6 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
 
 static void RecomputePerClockGroup(cGH *restrict const cctkGH,
                                    clock_writer_t &clock) {
-  const recovery_scope_t scope;
-
   for (const window_t &group : ClockGroups()) {
     const auto [min_level, max_level] = group.level_bounds();
 
@@ -332,8 +380,6 @@ void RecoverFromCheckpoint(cGH *restrict const cctkGH, clock_writer_t &clock,
   RecoverHierarchy(cctkGH, clock, structure);
 
   RecomputePerClockGroup(cctkGH, clock);
-
-  assert(cctkGH->cctk_iteration == recovered_iteration());
 
 #pragma omp critical
   CCTK_VINFO("Iteration: %d   time: %g   delta_time: %g",
@@ -495,7 +541,7 @@ void CycleTimelevels(const window_t window, clock_writer_t &clock) {
     }
   }
   if (!presync_groups.empty()) {
-    SyncGroups(window, presync_groups);
+    SyncRequested(window, presync_groups);
   }
 }
 

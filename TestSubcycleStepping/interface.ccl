@@ -1,5 +1,6 @@
 implements: TestSubcycleStepping
 
+USES INCLUDE HEADER: carpetx.hxx
 USES INCLUDE HEADER: loop.hxx
 
 CCTK_REAL iteration TYPE=GF CENTERING={VVV} TAGS="checkpoint='yes'" "subcycling and prolongation test"

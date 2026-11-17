@@ -19,13 +19,13 @@ READS = {
     "traversal": ("util",),
     "config": ("util",),
     "hierarchy": ("util", "traversal", "config"),
-    "comm": ("util", "traversal", "config", "hierarchy"),
+    "comm": ("util", "config", "hierarchy"),
     "regrid": ("hierarchy", "comm"),
-    "ops": ("util", "traversal", "hierarchy"),
-    "io": ("util", "traversal", "config", "hierarchy", "comm", "ops"),
+    "ops": ("util", "hierarchy"),
+    "io": ("util", "config", "hierarchy", "comm", "ops"),
     "schedule": ("traversal", "config", "hierarchy", "comm", "io"),
     "api": ("util", "config", "hierarchy", "comm", "schedule"),
-    "flesh": ("util", "traversal", "config", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
+    "flesh": ("util", "config", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api"),
 }
 LAYERS = tuple(READS)
 assert all(targets == tuple(target for target in LAYERS[: LAYERS.index(layer)] if target in targets) for layer, targets in READS.items()), READS
@@ -33,14 +33,14 @@ READS_TEXT = "; ".join(f"{layer}/ reads {', '.join(f'{target}/' for target in RE
 READS_HOME = "scripts/lint/boundary/rules.py"
 OWNS = {
     "util": "leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.",
-    "traversal": "the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not.",
+    "traversal": "the run's phase, one slot per fact, each written only by a scope that `schedule/` opens. Its readers are `schedule/` and the public `active_window()`; a lower layer is told what it needs of the phase in a call. A fact about the whole run or about the grid is not a slot here.",
     "config": "what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.",
     "hierarchy": "the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject.",
     "comm": "filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
-    "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`.",
-    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.",
+    "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. It keeps one fact between two of the flesh's calls: the iteration of the checkpoint the parameters were recovered from, which the grid structure is then recovered from.",
+    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. It opens the scopes of the run's phase, and every sync of `comm/` runs through its `SyncRequested`, which refuses one the open bin does not allow; `SyncScheduled` is the flesh's sync, on the levels of the open traversal. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps, what `api/` hands to the flesh, and `SyncScheduled` and `SyncRequested`, which `flesh/` and `api/` call. A writer is an argument of each function that uses one, and none is kept between calls.",
     "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. It keeps the writers it uses in one slot, and of the clock it changes only the stage time and step, for the length of one `run_at`.",
     "flesh": 'every `extern "C"`, and `hierarchy_writers_t`, the writers that own the hierarchy, which it lends to `schedule/` and `api/`. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
@@ -199,23 +199,23 @@ GHOST_ONLY_FILES = (
     layer_path("flesh", "compile_checks.cxx"),
 )
 GHOST_ONLY_WORD = re.compile(r"\bSyncGhostsOnly\s*\(")
+REQUESTED_SYNC_FILES = (layer_path("comm", "sync.hxx"), layer_path("comm", "sync.cxx"))
+REQUESTED_SYNC_CALLER = layer_path("schedule", "clocks.cxx")
+REQUESTED_SYNC_WORD = re.compile(r"\bSyncGroups\s*\(")
 APPLIES_LAYER = "comm"
 APPLIES_STEMS = ("fillpatch", "boundary_conditions", "prolongate_3d_rf2")
 assert set(APPLIES_STEMS) <= set(STEMS[APPLIES_LAYER]), APPLIES_STEMS
 APPLIES_WORD = re.compile(r'^\s*#\s*include\s*[<"](?:hierarchy/scopes|' + APPLIES_LAYER + r'/(\w+))\.hxx[>"]')
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
-    r"\b(active_levels|tail_bin|recovery_traversal|last_routine|recover_iteration)\b"
+    r"\b(active_levels|tail_bin|last_routine)\b"
 )
+PHASE_LAYER = "hierarchy"
+PHASE_READER = layer_path(PHASE_LAYER, "handles.cxx")
+PHASE_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]traversal/traversal\.hxx[>"]')
 DOOR_FILE = layer_path("hierarchy", "model.cxx")
 DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
 LAYER_INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<((?:' + "|".join(LAYERS) + r')/[^>]*)>)')
-SYNC_FILES = (
-    layer_path("comm", "sync.hxx"),
-    layer_path("comm", "sync.cxx"),
-)
-DIRECTIONS_WORD = re.compile(r"\bdirections\b")
-FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
 VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\([^()]*\))*\))\s*\+")
 RECORD_VAR_FILE = layer_path("hierarchy", "model.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
@@ -241,8 +241,6 @@ INDEX_FIXED = {
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
     layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
     layer_path("config", "groups.cxx"): ("CCTK_TraverseString",),
-    layer_path("comm", "sync.hxx"): (FLESH_SYNC_OVERLOAD,),
-    layer_path("comm", "sync.cxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("regrid", "regrid.hxx"): AMREX_CALLBACKS,
     layer_path("regrid", "regrid.cxx"): AMREX_CALLBACKS,
 }
@@ -395,10 +393,6 @@ def marker_allowed(name: str, line: str, statement: str) -> bool:
     return is_private(name) and lang_of(name) is Lang.CXX and bool(GUARD.match(line))
 
 
-def directions_allowed(name: str, line: str, statement: str) -> bool:
-    return FLESH_SYNC_OVERLOAD in statement
-
-
 def varindex_allowed(name: str, line: str, statement: str) -> bool:
     return name == RECORD_VAR_FILE and bool(RECORD_VAR.search(line))
 
@@ -482,6 +476,10 @@ def entry_allowed(name: str, line: str, statement: str) -> bool:
 
 def door_allowed(name: str, line: str, statement: str) -> bool:
     return layer_of(name) in HIERARCHY_LAYERS
+
+
+def requested_sync_allowed(name: str, line: str, statement: str) -> bool:
+    return name in REQUESTED_SYNC_FILES or name == REQUESTED_SYNC_CALLER
 
 
 def unqualified(head: list[tuple[str, int]]) -> list[tuple[str, int]]:
@@ -639,18 +637,6 @@ RULES = (
         home=layers_of(CLOCK_FILES),
     ),
     Rule(
-        "directions",
-        files=in_files(SYNC_FILES),
-        word=DIRECTIONS_WORD,
-        allowed=directions_allowed,
-        text="the sync layer takes a window and a list of gi_t; only the flesh-facing SyncGroupsOnActiveLevels "
-        "receives the flesh's directions array, and discards it.",
-        noun="directions parameter",
-        where="in the sync layer",
-        clean="no directions in the sync layer",
-        home=layers_of(SYNC_FILES),
-    ),
-    Rule(
         "varindex",
         files=carpetx_cxx,
         word=VARINDEX_WORD,
@@ -725,14 +711,25 @@ RULES = (
         files=private_cxx,
         word=TRAVERSAL_WORD,
         allowed=in_files(TRAVERSAL_FILES),
-        text="a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine, recover_iteration) is named "
-        "only in CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, parameter "
-        "recovery calls record_recovered_iteration() once, and a reader calls scheduled_window(), "
-        "scheduled_tail_bin(), in_recovery_traversal(), scheduled_routine() or recovered_iteration().",
+        text="a traversal slot (active_levels, tail_bin, last_routine) is named only in "
+        "CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, and a reader calls "
+        "scheduled_window(), scheduled_tail_bin() or scheduled_routine().",
         noun="traversal use",
         where="outside traversal.cxx",
         clean="no active_levels outside traversal.cxx",
         home=layers_of(TRAVERSAL_FILES),
+    ),
+    Rule(
+        "phase",
+        files=in_rows(PHASE_LAYER, tuple(STEMS[PHASE_LAYER])),
+        word=PHASE_INCLUDE,
+        allowed=in_files((PHASE_READER,)),
+        text=f"in {PHASE_LAYER}/ only handles.cxx, which defines the public active_window(), includes "
+        f"traversal/traversal.hxx; any other file of {PHASE_LAYER}/ is told what it needs of the phase in a call.",
+        noun="phase include",
+        where=f"in {PHASE_LAYER}/ outside handles.cxx",
+        clean=f"no phase include in {PHASE_LAYER}/ outside handles.cxx",
+        home=(PHASE_LAYER,),
     ),
     Rule(
         "index",
@@ -866,6 +863,20 @@ RULES = (
         where="outside api.cxx",
         clean="no driver-internal ghost-only sync",
         home=layers_of(GHOST_ONLY_FILES),
+    ),
+    Rule(
+        "requested-sync",
+        files=private_cxx,
+        word=REQUESTED_SYNC_WORD,
+        allowed=requested_sync_allowed,
+        text=f"SyncGroups, the sync of comm/, is called outside comm/sync.cxx only in {REQUESTED_SYNC_CALLER}, by SyncRequested, "
+        "which refuses a sync in an end-of-step bin that does not hold every level and then calls SyncGroups; the "
+        "flesh's sync entry calls SyncScheduled, and the public CarpetX::sync and every other sync of the driver call "
+        "SyncRequested.",
+        noun="SyncGroups call",
+        where="outside schedule/clocks.cxx",
+        clean="no SyncGroups call outside schedule/clocks.cxx",
+        home=layers_of(REQUESTED_SYNC_FILES + (REQUESTED_SYNC_CALLER,)),
     ),
     Rule(
         "applies",

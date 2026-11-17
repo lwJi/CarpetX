@@ -2,6 +2,10 @@ BOOLEAN sync_in_tail "SYNC in ANALYSIS; must abort under subcycling"
 {
 } no
 
+BOOLEAN sync_api_in_tail "CarpetX::sync in ANALYSIS; must abort under subcycling"
+{
+} no
+
 BOOLEAN check_time "Abort unless every POSTSTEP sees cctk_time = cctk_initial_time + cctk_iteration * CCTK_DELTA_TIME"
 {
 } no

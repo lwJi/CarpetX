@@ -114,8 +114,8 @@ struct checkpoint_codec_t {
   virtual ~checkpoint_codec_t() = default;
   virtual codec_limits_t limits() const = 0;
   virtual std::string key(const buffer_id_t &id) const = 0;
-  virtual int read_parameters(const std::string &dir,
-                              const std::string &file) = 0;
+  virtual std::optional<int> read_parameters(const std::string &dir,
+                                             const std::string &file) = 0;
   virtual void encode(const checkpoint_record_t &record, const std::string &dir,
                       const std::string &file) = 0;
   virtual checkpoint_record_t decode_structure(const std::string &dir,

@@ -6,7 +6,6 @@
 #include "hierarchy/loops.hxx"
 #include "hierarchy/modes.hxx"
 #include "hierarchy/scopes.hxx"
-#include "comm/sync.hxx"
 #include "traversal/traversal.hxx"
 #include <carpetx.hxx>
 
@@ -98,7 +97,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     }
     if (!sync_set.empty()) {
       const std::vector<gi_t> sync_vec(sync_set.begin(), sync_set.end());
-      SyncGroups(window, sync_vec);
+      SyncRequested(window, sync_vec);
     }
   }
 

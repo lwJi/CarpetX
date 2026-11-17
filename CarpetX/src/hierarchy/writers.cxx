@@ -279,6 +279,7 @@ void clock_writer_t::resume_run(const int iteration, const CCTK_REAL time) {
   GHExt::run_clock_t next = ext.run_clock();
   next.iteration = iteration;
   next.time = time;
+  next.recovered_iteration = iteration;
   set(next);
 }
 

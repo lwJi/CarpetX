@@ -4,7 +4,6 @@
 #include "ops/reduction.hxx"
 #include "hierarchy/grid.hxx"
 #include "hierarchy/modes.hxx"
-#include "traversal/traversal.hxx"
 
 #include <defs.hxx>
 
@@ -22,6 +21,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -762,8 +762,12 @@ void CarpetX::InterpolationSetup::Interpolate(
     const double max_iteration_used = +global_iteration_used[1];
     if (min_iteration_used <= max_iteration_used &&
         min_iteration_used != max_iteration_used) {
+      const GHExt::run_clock_t &run_clock = ext.run_clock();
+      const bool not_stepped_since_recovery =
+          run_clock.recovered_iteration &&
+          run_clock.iteration <= *run_clock.recovered_iteration;
       const char *const recovery_hint =
-          in_recovery_traversal()
+          not_stepped_since_recovery
               ? " This run is recovering from a mid-cycle checkpoint, where "
                 "levels are at different times. Results that read across "
                 "levels cannot be recomputed in "

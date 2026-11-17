@@ -16,9 +16,6 @@ namespace CarpetX {
 
 void SyncGroups(window_t window, std::span<const gi_t> groups);
 
-int SyncGroupsOnActiveLevels(const cGH *restrict cctkGH, int numgroups,
-                             const int *groups, const int *directions);
-
 void SyncGhostsOnly(window_t window, std::span<const gi_t> groups,
                     timelevels_t tls);
 

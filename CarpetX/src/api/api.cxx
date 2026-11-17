@@ -9,6 +9,7 @@
 #include "comm/restrict.hxx"
 #include "comm/sync.hxx"
 #include "comm/timelevels.hxx"
+#include "schedule/schedule.hxx"
 
 #include <cctk.h>
 
@@ -233,7 +234,7 @@ void invalidate(const window_t window, const std::span<const gi_t> groups,
 void sync(const window_t window, const std::span<const gi_t> groups) {
   const operation_scope_t op("CarpetX::sync");
   require_operable(window, groups);
-  SyncGroups(window, groups);
+  SyncRequested(window, groups);
 }
 
 namespace {

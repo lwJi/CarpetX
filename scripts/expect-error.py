@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run expected-failure parameter files.
+"""Run parameter files whose output must contain a given text.
 
 Each DIR holds pairs <name>.par / <name>.expect. Every .par is run with EXE
 from a fresh temporary directory; it passes when the run exits non-zero and
@@ -7,11 +7,15 @@ its combined stdout/stderr contains the text of the .expect file. The
 testsuite globs only <Thorn>/test/*.par, so a subdirectory such as
 <Thorn>/test/errors is where a parfile that must abort lives.
 
+With --succeed a parfile passes instead when the run exits 0 and its output
+contains the text, which pins a line a successful run must log; such
+parfiles live in <Thorn>/test/logs.
+
 The run's environment holds EXPECT_ERROR_PARFILE_DIR, the absolute directory
 of the .par, so that a parfile can name a file beside it, for example
 IO::recover_dir = $ENV{EXPECT_ERROR_PARFILE_DIR} + "/../checkpoints".
 
-Exit 0 when every parfile fails as expected, 1 when one does not, 2 on a
+Exit 0 when every parfile ends as expected, 1 when one does not, 2 on a
 usage or setup error.
 """
 
@@ -44,7 +48,7 @@ def collect(dirs: list[str]) -> list[tuple[str, str]]:
     return cases
 
 
-def run_case(exe: str, par: str, expect: str, timeout: float) -> tuple[bool, str]:
+def run_case(exe: str, par: str, expect: str, timeout: float, must_abort: bool = True) -> tuple[bool, str]:
     with open(expect, encoding="utf-8") as f:
         wanted = f.read().strip()
     if not wanted:
@@ -66,8 +70,10 @@ def run_case(exe: str, par: str, expect: str, timeout: float) -> tuple[bool, str
             out = (e.stdout or b"").decode("utf-8", "replace")
             return False, f"timed out after {timeout:g} s\n{out}"
     out = proc.stdout.decode("utf-8", "replace")
-    if proc.returncode == 0:
+    if must_abort and proc.returncode == 0:
         return False, f"exited 0, but the run must abort with: {wanted}\n{out}"
+    if not must_abort and proc.returncode != 0:
+        return False, f"exited {proc.returncode}, but the run must succeed and print: {wanted}\n{out}"
     if wanted not in out:
         return False, f"exited {proc.returncode} without the expected text: {wanted}\n{out}"
     return True, f"exited {proc.returncode} with: {wanted}"
@@ -83,7 +89,12 @@ def tail(text: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 scripts/expect-error.py",
-        description="Run every <name>.par in DIR and require it to abort with the text of <name>.expect.",
+        description="Run every <name>.par in DIR and require it to abort (with --succeed, to exit 0) printing the text of <name>.expect.",
+    )
+    parser.add_argument(
+        "--succeed",
+        action="store_true",
+        help="require every run to exit 0 and print the text of its .expect instead of aborting",
     )
     parser.add_argument("exe", help="the Cactus executable")
     parser.add_argument("dirs", nargs="+", metavar="DIR", help="directories of .par/.expect pairs")
@@ -103,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     failures = 0
     for par, expect in cases:
         try:
-            ok, detail = run_case(exe, par, expect, args.timeout)
+            ok, detail = run_case(exe, par, expect, args.timeout, must_abort=not args.succeed)
         except (OSError, ValueError) as e:
             print(f"expect-error: {par}: {e}", file=sys.stderr)
             return EXIT_ERROR
@@ -113,10 +124,12 @@ def main(argv: list[str] | None = None) -> int:
             failures += 1
             print(tail("\n".join(detail.splitlines()[1:])))
     total = len(cases)
+    plural = "s" if total != 1 else ""
+    verb, past = ("succeed", "succeeded") if args.succeed else ("fail", "failed")
     if failures:
-        print(f"✗ expect-error: {failures} of {total} parfile{'s' if total != 1 else ''} did not fail as expected")
+        print(f"✗ expect-error: {failures} of {total} parfile{plural} did not {verb} as expected")
         return EXIT_FOUND
-    print(f"✓ expect-error: {total} parfile{'s' if total != 1 else ''} failed as expected")
+    print(f"✓ expect-error: {total} parfile{plural} {past} as expected")
     return EXIT_CLEAN
 
 

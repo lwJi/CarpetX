@@ -8,7 +8,6 @@
 #include "io/io_silo.hxx"
 #include "io/io_tsv.hxx"
 #include "io/selection.hxx"
-#include "traversal/traversal.hxx"
 #include "util/refuse.hxx"
 #include <carpetx.hxx>
 
@@ -105,14 +104,42 @@ void encode_output(const cGH *const cctkGH, const char *const operation,
 
 // Recovering
 
+namespace {
+std::optional<int> recovered_parameters_iteration;
+} // namespace
+
+bool RecoverParameters() {
+  const operation_scope_t op("CarpetX::RecoverParameters");
+  DECLARE_CCTK_PARAMETERS;
+
+  static Timer timer("RecoverParameters");
+  Interval interval(timer);
+
+  if (recovered_parameters_iteration)
+    refuse(std::source_location::current(),
+           "the parameters were already recovered from the checkpoint at "
+           "iteration %d: they are recovered once per run",
+           *recovered_parameters_iteration);
+
+  recovered_parameters_iteration =
+      make_codec(recover_method)->read_parameters(recover_dir, recover_file);
+  return bool(recovered_parameters_iteration);
+}
+
 checkpoint_record_t RecoverGridStructure(structure_writer_t &structure) {
   const operation_scope_t op("CarpetX::RecoverGridStructure");
   DECLARE_CCTK_PARAMETERS;
 
+  if (!recovered_parameters_iteration)
+    refuse(std::source_location::current(),
+           "no parameters were recovered from a checkpoint: the grid "
+           "structure is recovered from the checkpoint they came from");
+
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
   refuse_unless_recoverable(codec->limits());
-  checkpoint_record_t record =
-      codec->decode_structure(recover_dir, recover_file, recovered_iteration());
+  checkpoint_record_t record = codec->decode_structure(
+      recover_dir, recover_file, *recovered_parameters_iteration);
+  assert(record.iteration == *recovered_parameters_iteration);
   apply_structure(record, structure);
   return record;
 }
@@ -485,7 +512,7 @@ void Checkpoint(const cGH *const restrict cctkGH) {
 
   static int last_checkpoint_iteration = -1;
 
-  if (cctkGH->cctk_iteration == recovered_iteration()) {
+  if (cctkGH->cctk_iteration == driver().run_clock().recovered_iteration) {
     CCTK_VINFO(
         "Recovered from checkpoint at iteration %d; skipping checkpointing",
         cctkGH->cctk_iteration);

@@ -1,10 +1,10 @@
 #include "config/grid_sizes.hxx"
 #include "hierarchy/model.hxx"
+#include "hierarchy/modes.hxx"
 #include "hierarchy/writers.hxx"
 #include "api/api.hxx"
 #include "schedule/schedule.hxx"
 #include "comm/buffers.hxx"
-#include "comm/sync.hxx"
 #include "regrid/regrid.hxx"
 #include "ops/interp.hxx"
 #include "io/io.hxx"
@@ -71,6 +71,14 @@ int GroupStorageDecrease_entry(const cGH *cctkGH, int n_groups,
   assert(writers);
   return GroupStorageDecrease(cctkGH, n_groups, groups, tls, status,
                               writers->registry);
+}
+
+int SyncGroups_entry(const cGH *cctkGH, int numgroups, const int *groups,
+                     const int *directions) {
+  assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
+  const std::vector<gi_t> gis(groups, groups + numgroups);
+  SyncScheduled(gis);
+  return numgroups;
 }
 } // namespace
 
@@ -401,7 +409,7 @@ extern "C" int CarpetX_Startup() {
   CCTK_OverloadGroupStorageDecrease(GroupStorageDecrease_entry);
   CCTK_OverloadQueryGroupStorageB(QueryGroupStorageB);
 
-  CCTK_OverloadSyncGroupsByDirI(SyncGroupsOnActiveLevels);
+  CCTK_OverloadSyncGroupsByDirI(SyncGroups_entry);
 
   CCTK_OverloadInterpGridArrays(CarpetX_InterpGridArrays);
   CCTK_OverloadArrayGroupSizeB(ArrayGroupSizeB);

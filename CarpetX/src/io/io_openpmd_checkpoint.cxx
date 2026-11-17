@@ -385,7 +385,8 @@ struct openpmd_codec_t final : checkpoint_codec_t {
     return mesh_name(id);
   }
 
-  int read_parameters(const std::string &dir, const std::string &file) override;
+  std::optional<int> read_parameters(const std::string &dir,
+                                     const std::string &file) override;
   void encode(const checkpoint_record_t &record, const std::string &dir,
               const std::string &file) override;
   checkpoint_record_t decode_structure(const std::string &dir,
@@ -396,8 +397,8 @@ struct openpmd_codec_t final : checkpoint_codec_t {
                    const std::string &file) override;
 };
 
-int openpmd_codec_t::read_parameters(const std::string &dir,
-                                     const std::string &file) {
+std::optional<int> openpmd_codec_t::read_parameters(const std::string &dir,
+                                                    const std::string &file) {
   assert(!dir.empty());
   assert(!file.empty());
 
@@ -415,7 +416,7 @@ int openpmd_codec_t::read_parameters(const std::string &dir,
       CCTK_VINFO("  Could not find an openPMD checkpoint file \"%s\"",
                  filename.c_str());
     }
-    return -1;
+    return std::nullopt;
   }
 
   int iteration = -1;
@@ -428,7 +429,7 @@ int openpmd_codec_t::read_parameters(const std::string &dir,
       CCTK_VINFO("  Could not find an openPMD checkpoint file \"%s\"",
                  filename.c_str());
     }
-    return -1;
+    return std::nullopt;
   }
 
   CCTK_VINFO("Recovering parameters from checkpoint file \"%s\" iteration %d",

@@ -25,6 +25,7 @@ TWOPROC_DIR="$(./simfactory/bin/sim --machine="actions-$ACCELERATOR-$REAL_PRECIS
 # The parfiles under <Thorn>/test/errors must abort with the text of their
 # .expect sidecar; the testsuite cannot express that
 time python3 "$CARPETXSPACE/scripts/expect-error.py" exe/cactus_sim "$CARPETXSPACE"/*/test/errors
+time python3 "$CARPETXSPACE/scripts/expect-error.py" --succeed exe/cactus_sim "$CARPETXSPACE"/*/test/logs
 
 # # Parse results and generate plots
 # cd "$PAGESSPACE"

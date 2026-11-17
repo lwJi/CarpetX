@@ -183,6 +183,7 @@ struct GHExt {
     CCTK_REAL time = 0, delta_time = NAN;
     int timefac = 1;
     CCTK_REAL initial_time = 0;
+    std::optional<int> recovered_iteration;
   };
   using sealed_run_clock_t = written_by<run_clock_t, cctkGH_clock>;
   const sealed_run_clock_t &sealed_run_clock() const { return run_clock_; }

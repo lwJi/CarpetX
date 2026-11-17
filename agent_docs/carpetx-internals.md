@@ -61,7 +61,6 @@ flowchart LR
   schedule["schedule/"]
   io["io/"]
   ops["ops/"]
-  comm["comm/"]
   hierarchy["hierarchy/"]
   config["config/"]
   util["util/"]
@@ -82,9 +81,8 @@ flowchart LR
   api -- "9 CCTK_ScheduleTraverse" --> cactus
   cactus -- "10 QueryGroupStorageB" --> schedule
   cactus -- "10 InterpLocalUniform" --> ops
-  cactus -- "10 SyncGroupsOnActiveLevels" --> comm
-  cactus -- "10 EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry" --> flesh
-  flesh -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease" --> schedule
+  cactus -- "10 EnableGroupStorage_entry, DisableGroupStorage_entry, GroupStorageIncrease_entry, GroupStorageDecrease_entry, SyncGroups_entry" --> flesh
+  flesh -- "10 EnableGroupStorage, DisableGroupStorage, GroupStorageIncrease, GroupStorageDecrease, SyncScheduled" --> schedule
 ```
 
 - a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX
@@ -108,11 +106,11 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 
 - `flesh/`: every `extern "C"`, and `hierarchy_writers_t`, the writers that own the hierarchy, which it lends to `schedule/` and `api/`. It owns no other data: an entry converts the flesh's arguments and calls the layer that does the work. Rules at home here: entry, ghost-only.
 - `api/`: the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. It keeps the writers it uses in one slot, and of the clock it changes only the stage time and step, for the length of one `run_at`. Rules at home here: ghost-only.
-- `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.
-- `io/`: output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. Rules at home here: records, codec.
+- `schedule/`: the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. It opens the scopes of the run's phase, and every sync of `comm/` runs through its `SyncRequested`, which refuses one the open bin does not allow; `SyncScheduled` is the flesh's sync, on the levels of the open traversal. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps, what `api/` hands to the flesh, and `SyncScheduled` and `SyncRequested`, which `flesh/` and `api/` call. A writer is an argument of each function that uses one, and none is kept between calls. Rules at home here: requested-sync.
+- `io/`: output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. It keeps one fact between two of the flesh's calls: the iteration of the checkpoint the parameters were recovered from, which the grid structure is then recovered from. Rules at home here: records, codec.
 - `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
 - `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
-- `comm/`: filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock. Rules at home here: directions, ghost-only, applies.
+- `comm/`: filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock. Rules at home here: ghost-only, requested-sync, applies.
   - `sync`: the sync a routine or thorn asks for: ghosts from the same level and the coarser one, then the outer boundary
   - `restrict`: coarse cells from the finer level's
   - `ghost_prolongation`: which levels, groups and time levels are prolongated into, the validity that requires of the level it reads, and the validity it records
@@ -131,7 +129,7 @@ New code goes in the layer that owns what it works on, and a lower layer never d
   - `level_pairs`: visiting each level of a window that has a child in it
   - `integrator`: what the registered integrator integrates, and in how many stages
   - `substeps`: where a level stands in its parent's step
-- `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, clock, varindex, model, grant.
+- `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, clock, varindex, model, grant, phase.
   - `model`: `GHExt`, its nested types, and the door `driver()`
   - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy
   - `clock`: the only place the model's run clock and the stage it shows are opened, and the only writes to the cGH clock fields: `cctkGH_clock` publishes every change to the flesh's cGH and to every copy of it; and the check that a cGH a scheduled function returns still shows it
@@ -148,5 +146,5 @@ New code goes in the layer that owns what it works on, and a lower layer never d
   - `grid_sizes`: the largest grid each level may have
   - `indices`: ranges over the public index types
   - `stages`: RK stages and the refinement of time
-- `traversal/`: the run's phase, one slot per fact with one writer. A fact about the phase that `comm/`, `ops/` or `io/` must read without depending on `schedule/` is a slot here; a fact about the grid is not. Rules at home here: traversal.
+- `traversal/`: the run's phase, one slot per fact, each written only by a scope that `schedule/` opens. Its readers are `schedule/` and the public `active_window()`; a lower layer is told what it needs of the phase in a call. A fact about the whole run or about the grid is not a slot here. Rules at home here: traversal.
 - `util/`: leaves that know nothing of the grid. Nothing here names the hierarchy, a level, a window or the scheduler.
