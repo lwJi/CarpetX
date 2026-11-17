@@ -11,6 +11,7 @@
 
 #include <AMReX_FabArrayBase.H>
 #include <AMReX_FluxRegister.H>
+#include <AMReX_Geometry.H>
 #include <AMReX_IntVect.H>
 #include <AMReX_MultiFab.H>
 
@@ -65,6 +66,27 @@ std::optional<rk_bands_t> rk_bands_of(const GHExt::GroupRecord &record,
   return std::optional<rk_bands_t>(std::in_place, fp, record.numvars,
                                    registered_stages());
 }
+
+std::optional<flux_geometry_t>
+flux_geometry_of(const level_t level, const amrex::BoxArray &ba,
+                 const amrex::DistributionMapping &dm) {
+  const GHExt &ext = driver();
+  if (!ext.do_reflux)
+    return std::nullopt;
+  bool any_flux_register = false;
+  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()}))
+    any_flux_register = any_flux_register || group_has_flux_register(gi);
+  if (!any_flux_register)
+    return std::nullopt;
+  assert(ba.ixType().cellCentered());
+  const amrex::Geometry &geom =
+      ext.patch(level.patch()).amrcore().Geom(level.index());
+  std::optional<flux_geometry_t> geometry(std::in_place);
+  for (int d = 0; d < dim; ++d)
+    geom.GetFaceArea(geometry->face_area[d], ba, dm, d, 0);
+  geom.GetVolume(geometry->cell_volume, ba, dm, 0);
+  return geometry;
+}
 } // namespace
 
 level_buffers_ptr make_level_buffers(const level_t level,
@@ -85,6 +107,7 @@ level_buffers_ptr make_level_buffers(const level_t level,
     group.freg = flux_register_of(record, level, ba, dm);
     group.rk_bands = rk_bands_of(record, level, ba, dm);
   }
+  buffers->geometry = flux_geometry_of(level, ba, dm);
   return buffers;
 }
 

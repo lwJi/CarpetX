@@ -77,38 +77,6 @@ static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
   return area;
 }
 
-void EnsureFluxGeometry(const level_t level) {
-  const auto &patchdata = driver().patch(level.patch());
-  const auto &leveldata = patchdata.level(level);
-  level_buffers_t &buffers = buffers_of(leveldata);
-
-  [[maybe_unused]] const auto have_all_or_none = [&]() {
-    const bool have = bool(buffers.cell_volume);
-    bool good = true;
-    for (int d = 0; d < dim; ++d)
-      good = good && bool(buffers.face_area[d]) == have;
-    return good;
-  };
-  assert(have_all_or_none());
-  if (buffers.cell_volume)
-    return;
-
-  const amrex::Geometry &geom = patchdata.amrcore().Geom(level.index());
-  assert(leveldata.fab);
-  const amrex::BoxArray &ba = leveldata.fab->boxArray();
-  const amrex::DistributionMapping &dm = leveldata.fab->DistributionMap();
-  assert(ba.ixType().cellCentered());
-
-  for (int d = 0; d < dim; ++d) {
-    buffers.face_area[d] = std::make_unique<amrex::MultiFab>();
-    geom.GetFaceArea(*buffers.face_area[d], ba, dm, d, 0);
-  }
-  buffers.cell_volume = std::make_unique<amrex::MultiFab>();
-  geom.GetVolume(*buffers.cell_volume, ba, dm, 0);
-
-  assert(have_all_or_none());
-}
-
 void AccumulateFluxes(const level_t level, const stage_t stage,
                       const CCTK_REAL weight) {
   const GHExt &ext = driver();
@@ -139,8 +107,6 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
     amrex::FluxRegister *const own_freg = buffers_of(leveldata, gi).freg.get();
     if (!child_freg && !own_freg)
       continue;
-
-    EnsureFluxGeometry(level);
 
     for (int d = 0; d < dim; ++d) {
       std::ostringstream buf;
@@ -198,10 +164,13 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
     }
 
     if (own_freg) {
+      const std::optional<flux_geometry_t> &geometry =
+          buffers_of(leveldata).geometry;
+      assert(geometry);
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
             leveldata.group(fluxes->at(d)).timelevel(tl).mfab();
-        const amrex::MultiFab &area = *buffers_of(leveldata).face_area[d];
+        const amrex::MultiFab &area = geometry->face_area[d];
         assert(area.ixType() == flux.ixType());
         assert(area.DistributionMap() == flux.DistributionMap());
         own_freg->FineAdd(flux, area, d, 0, 0, groupdata.record.numvars,
@@ -246,15 +215,16 @@ static void reflux_level(const level_t level) {
              .where = make_valid_int(),
              .event = "Reflux before refluxing: Coarse level data"});
 
-    EnsureFluxGeometry(level);
-
     write_scope_t scope = open_write(coarse_level, {.gi = gi,
                                                     .tl = tl,
                                                     .fills = make_valid_int(),
                                                     .keeps = make_valid_all(),
                                                     .event = "Reflux"});
     amrex::MultiFab &state = scope.mfab(level);
-    const amrex::MultiFab &volume = *buffers_of(leveldata).cell_volume;
+    const std::optional<flux_geometry_t> &geometry =
+        buffers_of(leveldata).geometry;
+    assert(geometry);
+    const amrex::MultiFab &volume = geometry->cell_volume;
     assert(volume.ixType() == state.ixType());
     assert(volume.DistributionMap() == state.DistributionMap());
     finebuffers.freg->Reflux(state, volume, 1.0, 0, 0, groupdata.record.numvars,

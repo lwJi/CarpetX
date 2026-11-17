@@ -23,10 +23,14 @@ struct group_buffers_t {
   std::optional<rk_bands_t> rk_bands;
 };
 
+struct flux_geometry_t {
+  std::array<amrex::MultiFab, dim> face_area;
+  amrex::MultiFab cell_volume;
+};
+
 struct level_buffers_t {
   std::vector<group_buffers_t> groups;
-  std::array<std::unique_ptr<amrex::MultiFab>, dim> face_area;
-  std::unique_ptr<amrex::MultiFab> cell_volume;
+  std::optional<flux_geometry_t> geometry;
 };
 
 level_buffers_ptr make_level_buffers(level_t level, const amrex::BoxArray &ba,

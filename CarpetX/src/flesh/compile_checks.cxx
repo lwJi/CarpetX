@@ -23,6 +23,7 @@
 
 #include <carpetx.hxx>
 
+#include <array>
 #include <functional>
 #include <optional>
 #include <source_location>
@@ -497,6 +498,12 @@ static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
 
 static_assert(std::is_same_v<decltype(group_buffers_t::rk_bands),
                              std::optional<rk_bands_t>>);
+static_assert(std::is_same_v<decltype(level_buffers_t::geometry),
+                             std::optional<flux_geometry_t>>);
+static_assert(std::is_same_v<decltype(flux_geometry_t::face_area),
+                             std::array<amrex::MultiFab, dim>>);
+static_assert(
+    std::is_same_v<decltype(flux_geometry_t::cell_volume), amrex::MultiFab>);
 
 static_assert(
     std::is_same_v<decltype(grid_buffer_t::mfab), const amrex::MultiFab *>);
@@ -690,9 +697,9 @@ static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateAfterRestriction), void(window_t)>);
 static_assert(std::is_same_v<decltype(RestrictNoPoison), comm_groups_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroups),
-                             void(window_t, std::span<const gi_t>,
-                                  const requested_sync_t &)>);
+static_assert(
+    std::is_same_v<decltype(SyncGroups), void(window_t, std::span<const gi_t>,
+                                              const requested_sync_t &)>);
 static_assert(sync_groups_takes<window_t, std::span<const gi_t>,
                                 const requested_sync_t &>);
 static_assert(!sync_groups_takes<window_t, std::span<const gi_t>>);
