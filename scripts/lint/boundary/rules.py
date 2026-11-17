@@ -40,7 +40,7 @@ OWNS = {
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`.",
-    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps and what `api/` hands to the flesh. A writer is an argument of each function that uses one, and none is kept between calls.",
+    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. It opens the scopes of the run's phase and answers whether a sync may run in the open bin. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps, what `api/` hands to the flesh, and that one question, which `flesh/` and `api/` ask. A writer is an argument of each function that uses one, and none is kept between calls.",
     "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. It keeps the writers it uses in one slot, and of the clock it changes only the stage time and step, for the length of one `run_at`.",
     "flesh": 'every `extern "C"`, and `hierarchy_writers_t`, the writers that own the hierarchy, which it lends to `schedule/` and `api/`. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
@@ -210,12 +210,6 @@ TRAVERSAL_WORD = re.compile(
 DOOR_FILE = layer_path("hierarchy", "model.cxx")
 DRIVER_CALL = re.compile(r"\bdriver\s*\(\s*\)")
 LAYER_INCLUDE = re.compile(r'^\s*#\s*include\s*(?:"([^"]*)"|<((?:' + "|".join(LAYERS) + r')/[^>]*)>)')
-SYNC_FILES = (
-    layer_path("comm", "sync.hxx"),
-    layer_path("comm", "sync.cxx"),
-)
-DIRECTIONS_WORD = re.compile(r"\bdirections\b")
-FLESH_SYNC_OVERLOAD = "SyncGroupsOnActiveLevels"
 VARINDEX_WORD = re.compile(r"\b(firstvarindex|CCTK_FirstVarIndexI\s*\((?:[^()]|\([^()]*\))*\))\s*\+")
 RECORD_VAR_FILE = layer_path("hierarchy", "model.hxx")
 RECORD_VAR = re.compile(r"\bvar_t\s*\{\s*firstvarindex\s*\+")
@@ -241,8 +235,6 @@ INDEX_FIXED = {
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
     layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
     layer_path("config", "groups.cxx"): ("CCTK_TraverseString",),
-    layer_path("comm", "sync.hxx"): (FLESH_SYNC_OVERLOAD,),
-    layer_path("comm", "sync.cxx"): (FLESH_SYNC_OVERLOAD,),
     layer_path("regrid", "regrid.hxx"): AMREX_CALLBACKS,
     layer_path("regrid", "regrid.cxx"): AMREX_CALLBACKS,
 }
@@ -393,10 +385,6 @@ def marker_allowed(name: str, line: str, statement: str) -> bool:
     if name == MAKE_DEFN:
         return True
     return is_private(name) and lang_of(name) is Lang.CXX and bool(GUARD.match(line))
-
-
-def directions_allowed(name: str, line: str, statement: str) -> bool:
-    return FLESH_SYNC_OVERLOAD in statement
 
 
 def varindex_allowed(name: str, line: str, statement: str) -> bool:
@@ -637,18 +625,6 @@ RULES = (
         where="outside clock.cxx",
         clean="no clock-field write outside clock.cxx",
         home=layers_of(CLOCK_FILES),
-    ),
-    Rule(
-        "directions",
-        files=in_files(SYNC_FILES),
-        word=DIRECTIONS_WORD,
-        allowed=directions_allowed,
-        text="the sync layer takes a window and a list of gi_t; only the flesh-facing SyncGroupsOnActiveLevels "
-        "receives the flesh's directions array, and discards it.",
-        noun="directions parameter",
-        where="in the sync layer",
-        clean="no directions in the sync layer",
-        home=layers_of(SYNC_FILES),
     ),
     Rule(
         "varindex",

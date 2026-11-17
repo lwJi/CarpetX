@@ -1,4 +1,5 @@
 #include "schedule/clocks.hxx"
+#include "schedule/schedule.hxx"
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
@@ -27,6 +28,7 @@
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -263,6 +265,39 @@ static void RecoverHierarchy(cGH *restrict const cctkGH, clock_writer_t &clock,
 void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
   const tail_bin_scope_t scope(bin);
   CCTK_Traverse(cctkGH, bin);
+}
+
+void error_if_sync_in_tail(const window_t window,
+                           const std::span<const gi_t> groups0) {
+  if (!driver().use_subcycling)
+    return;
+  const char *const bin = scheduled_tail_bin();
+  if (!bin || groups0.empty())
+    return;
+  const auto [min_level, max_level] = window.level_bounds();
+  if (min_level == 0)
+    return;
+  std::ostringstream groupnames;
+  for (std::size_t n = 0; n < groups0.size(); ++n) {
+    const char *const groupname = CCTK_FullGroupName(groups0[n].index());
+    if (n != 0)
+      groupnames << ", ";
+    groupnames << (groupname ? groupname : "(unknown group)");
+  }
+  const cFunctionData *const func = scheduled_routine();
+  CCTK_VERROR(
+      "%s::%s (%s) requested SYNC of %s at iteration %d with "
+      "CarpetX::use_subcycling = yes, while the end-of-step window holds only "
+      "levels [%d,%d). The sync would fill the coarse-fine ghosts of level %d "
+      "from level %d, which has stepped ahead and has not been finalized. "
+      "Under subcycling CCTK_POSTSTEP, CCTK_ANALYSIS, CCTK_CHECKPOINT and "
+      "CCTK_TERMINATE may sync only when the end-of-step window holds every "
+      "level. Otherwise remove the SYNC: write pointwise outputs everywhere; "
+      "outputs that need a stencil stay interior and their ghosts are "
+      "invalid.",
+      func ? func->thorn : "(unknown thorn)",
+      func ? func->routine : "(unknown routine)", bin, groupnames.str().c_str(),
+      current_iteration(), min_level, max_level, min_level, min_level - 1);
 }
 
 void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,

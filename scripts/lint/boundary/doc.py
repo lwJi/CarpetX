@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable, Iterator
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, FLESH_SYNC_OVERLOAD, GRANT_LAYER, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
+from .rules import AMREX_CALLBACKS, DECLARATION_START, GRANT_LAYER, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
 from comments.lex_cxx import lex
 from comments.tokens import Kind
 from files import PROJECT
@@ -18,12 +18,11 @@ OUTSIDERS = (("cactus", "Cactus flesh"), ("amrex", "AMReX"), ("thorn", "a thorn'
 STARTUP = layer_path("flesh", "startup.cxx")
 REGISTRATION = re.compile(r"\bCCTK_(?:Overload\w+|RegisterGHExtension\w+|InterpRegisterOpLocalUniform)\s*\(\s*(?:ghext_handle\s*,\s*)?(\w+)")
 REGISTERED = (
-    (STARTUP, ("SetupGH", "InitGH", "ScheduleTraverseGH", "Initialise_entry", "Evolve_entry", "MyProc", "nProcs", "Exit", "Abort", "Barrier", "EnableGroupStorage_entry", "DisableGroupStorage_entry", "GroupStorageIncrease_entry", "GroupStorageDecrease_entry", "CarpetX_InterpGridArrays", "ArrayGroupSizeB", "GroupDynamicData")),
+    (STARTUP, ("SetupGH", "InitGH", "ScheduleTraverseGH", "Initialise_entry", "Evolve_entry", "MyProc", "nProcs", "Exit", "Abort", "Barrier", "EnableGroupStorage_entry", "DisableGroupStorage_entry", "GroupStorageIncrease_entry", "GroupStorageDecrease_entry", "CarpetX_InterpGridArrays", "ArrayGroupSizeB", "GroupDynamicData", "SyncGroups_entry")),
     (layer_path("schedule", "evolve.cxx"), ("Shutdown",)),
     (layer_path("schedule", "storage.cxx"), ("QueryGroupStorageB",)),
     (layer_path("io", "io.cxx"), ("OutputGH",)),
     (layer_path("ops", "interpolate.cxx"), ("InterpLocalUniform",)),
-    (layer_path("comm", "sync.cxx"), (FLESH_SYNC_OVERLOAD,)),
 )
 CALLBACKS = (layer_path("regrid", "regrid.cxx"), AMREX_CALLBACKS)
 PUBLIC_HEADERS = (PUBLIC_DIR + "carpetx.hxx", PUBLIC_DIR + "carpetx_rk.hxx")
@@ -51,8 +50,10 @@ PASS = (
     ("6", "cactus", "schedule", ("CallFunction",), layer_path("schedule", "callfunction.cxx")),
     ("7", "schedule", "thorn", ("CCTK_CallFunction",), layer_path("schedule", "callfunction.cxx")),
     ("9", "api", "cactus", ("CCTK_ScheduleTraverse",), layer_path("api", "api_rk.cxx")),
-    (HANDED, "cactus", "flesh", ("EnableGroupStorage_entry", "DisableGroupStorage_entry", "GroupStorageIncrease_entry", "GroupStorageDecrease_entry"), STARTUP),
+    (HANDED, "cactus", "flesh", ("EnableGroupStorage_entry", "DisableGroupStorage_entry", "GroupStorageIncrease_entry", "GroupStorageDecrease_entry", "SyncGroups_entry"), STARTUP),
     (HANDED, "flesh", "schedule", ("EnableGroupStorage", "DisableGroupStorage", "GroupStorageIncrease", "GroupStorageDecrease"), layer_path("schedule", "storage.cxx")),
+    (HANDED, "flesh", "schedule", ("error_if_sync_in_tail",), layer_path("schedule", "clocks.cxx")),
+    (HANDED, "flesh", "comm", ("SyncGroups",), layer_path("comm", "sync.cxx")),
 )
 assert {row[0] for row in PASS} | {BODIES, HANDED} == set(STEPS), PASS
 REGRID_STEPS = ("1", "2", "3")

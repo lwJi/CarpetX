@@ -3,7 +3,10 @@
 #include "cctk_Parameters.h"
 #include "loop.hxx"
 
+#include <carpetx.hxx>
+
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -169,6 +172,14 @@ extern "C"
 void TestSubcycleStepping_SyncInTail(CCTK_ARGUMENTS)
 {
   // do nothing: the SYNC clause on this routine is the test
+}
+
+extern "C"
+void TestSubcycleStepping_SyncApiInTail(CCTK_ARGUMENTS)
+{
+  const std::array groups{
+      CarpetX::gi_t{CCTK_GroupIndex("TestSubcycleStepping::tail_context")}};
+  CarpetX::sync(CarpetX::active_window(), groups);
 }
 
 extern "C"

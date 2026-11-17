@@ -1,5 +1,6 @@
 #include "config/grid_sizes.hxx"
 #include "hierarchy/model.hxx"
+#include "hierarchy/modes.hxx"
 #include "hierarchy/writers.hxx"
 #include "api/api.hxx"
 #include "schedule/schedule.hxx"
@@ -8,6 +9,7 @@
 #include "regrid/regrid.hxx"
 #include "ops/interp.hxx"
 #include "io/io.hxx"
+#include "traversal/traversal.hxx"
 #include "util/logo.hxx"
 #include <carpetx.hxx>
 
@@ -71,6 +73,23 @@ int GroupStorageDecrease_entry(const cGH *cctkGH, int n_groups,
   assert(writers);
   return GroupStorageDecrease(cctkGH, n_groups, groups, tls, status,
                               writers->registry);
+}
+
+std::string sync_caller() {
+  const cFunctionData *const func = scheduled_routine();
+  if (!func)
+    return "SYNC";
+  return std::string("SYNC from ") + func->thorn + "::" + func->routine;
+}
+
+int SyncGroups_entry(const cGH *cctkGH, int numgroups, const int *groups,
+                     const int *directions) {
+  assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
+  const std::vector<gi_t> gis(groups, groups + numgroups);
+  const window_t window = scheduled_window(sync_caller().c_str());
+  error_if_sync_in_tail(window, gis);
+  SyncGroups(window, gis);
+  return numgroups;
 }
 } // namespace
 
@@ -401,7 +420,7 @@ extern "C" int CarpetX_Startup() {
   CCTK_OverloadGroupStorageDecrease(GroupStorageDecrease_entry);
   CCTK_OverloadQueryGroupStorageB(QueryGroupStorageB);
 
-  CCTK_OverloadSyncGroupsByDirI(SyncGroupsOnActiveLevels);
+  CCTK_OverloadSyncGroupsByDirI(SyncGroups_entry);
 
   CCTK_OverloadInterpGridArrays(CarpetX_InterpGridArrays);
   CCTK_OverloadArrayGroupSizeB(ArrayGroupSizeB);
