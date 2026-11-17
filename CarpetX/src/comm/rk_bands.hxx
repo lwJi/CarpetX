@@ -44,7 +44,7 @@ public:
     amrex::MultiFab &old;
     std::span<amrex::MultiFab> ks;
   };
-  std::optional<slots_t> stored(rat64 parent_step);
+  std::optional<sources_t> stored(rat64 parent_step) const;
   slots_t restore(rat64 parent_step);
 
 private:

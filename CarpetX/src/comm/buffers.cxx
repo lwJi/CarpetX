@@ -63,7 +63,8 @@ void make_rk_buffers(group_buffers_t &group, const GHExt::GroupRecord &record,
       amrcore.Geom(level.parent().index()));
   if (fp.ba_crse_patch.empty())
     return;
-  group.rk_sources.emplace(fp, record.numvars, registered_stages());
+  group.rk_sources.emplace(std::in_place, fp, record.numvars,
+                           registered_stages());
   group.rk_fill_patches.emplace(std::in_place, fp, record.numvars);
 }
 

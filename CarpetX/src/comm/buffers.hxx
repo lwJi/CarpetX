@@ -74,10 +74,32 @@ public:
   }
 };
 
+class rk_source_writer_t;
+using sealed_rk_sources_t = written_by<rk_sources_t, rk_source_writer_t>;
+
+class rk_source_writer_t {
+  rk_source_writer_t() = default;
+  friend void StoreRKOldState(level_t level, std::span<const gi_t> var_groups,
+                              tl_t tl);
+  friend void StoreRKStage(level_t level, std::span<const gi_t> var_groups,
+                           std::span<const gi_t> rhs_groups, stage_t stage);
+  friend std::vector<restore_band_t>
+  restore_bands(level_t level, gi_t gi, rat64 parent_step,
+                const checkpoint_read_t &reading);
+
+public:
+  rk_source_writer_t(const rk_source_writer_t &) = delete;
+  rk_source_writer_t &operator=(const rk_source_writer_t &) = delete;
+
+  rk_sources_t &open(const sealed_rk_sources_t &sealed) const {
+    return sealed.open(*this);
+  }
+};
+
 struct group_buffers_t {
   sealed_flux_registers_t registers;
   sealed_flux_scratch_t scratch;
-  std::optional<rk_sources_t> rk_sources;
+  std::optional<sealed_rk_sources_t> rk_sources;
   std::optional<sealed_rk_fill_patches_t> rk_fill_patches;
 };
 

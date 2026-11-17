@@ -259,6 +259,7 @@ void StoreRKOldState(const level_t level,
   const std::optional<level_t> child = level.child();
   const amrex::Periodicity &period =
       patchdata.amrcore().Geom(level.index()).periodicity();
+  const rk_source_writer_t storing;
 
   for (const gi_t gi : var_groups) {
     const GroupData &groupdata = leveldata.group(gi);
@@ -269,12 +270,12 @@ void StoreRKOldState(const level_t level,
                   CCTK_FullGroupName(gi.index()));
     if (!child)
       continue;
-    std::optional<rk_sources_t> &bands =
+    const std::optional<sealed_rk_sources_t> &bands =
         buffers_of(patchdata.level(*child), gi).rk_sources;
     if (!bands)
       continue;
-    bands->store_old(groupdata.timelevel(tl).mfab(), period,
-                     leveldata.iteration());
+    storing.open(*bands).store_old(groupdata.timelevel(tl).mfab(), period,
+                                   leveldata.iteration());
   }
 }
 
@@ -291,15 +292,17 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
   const auto &childleveldata = patchdata.level(*child);
   const amrex::Periodicity &period =
       patchdata.amrcore().Geom(level.index()).periodicity();
+  const rk_source_writer_t storing;
 
   for (size_t i = 0; i < var_groups.size(); ++i) {
-    std::optional<rk_sources_t> &bands =
+    const std::optional<sealed_rk_sources_t> &bands =
         buffers_of(childleveldata, var_groups[i]).rk_sources;
     const GroupData &rhs_groupdata = leveldata.group(rhs_groups[i]);
     if (!bands)
       continue;
-    bands->store_stage(stage, rhs_groupdata.timelevel(tl_t{0}).mfab(), period,
-                       std::source_location::current());
+    storing.open(*bands).store_stage(stage,
+                                     rhs_groupdata.timelevel(tl_t{0}).mfab(),
+                                     period, std::source_location::current());
   }
 }
 
@@ -361,8 +364,8 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
         rk_fill_fpinfo(mfab, interpolator_of(groupdata.record), fgeom, cgeom)));
     if (!buffers.rk_sources)
       continue;
-    const rk_sources_t::sources_t src =
-        buffers.rk_sources->sources(coarseleveldata.iteration(), {child, gi});
+    const rk_sources_t::sources_t src = buffers.rk_sources->get().sources(
+        coarseleveldata.iteration(), {child, gi});
     rk_fill_patches_t &patches = filling.open(*buffers.rk_fill_patches);
     amrex::MultiFab &crse_patch = patches.crse;
     amrex::MultiFab &fine_patch = patches.fine;

@@ -502,7 +502,26 @@ static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, component_t>);
 static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
 
 static_assert(std::is_same_v<decltype(group_buffers_t::rk_sources),
-                             std::optional<rk_sources_t>>);
+                             std::optional<sealed_rk_sources_t>>);
+static_assert(
+    sealed_for<decltype((*std::declval<const group_buffers_t &>().rk_sources)),
+               rk_sources_t, rk_source_writer_t>);
+static_assert(opens<rk_source_writer_t, sealed_rk_sources_t>);
+static_assert(!opens<rk_fill_patch_writer_t, sealed_rk_sources_t>);
+static_assert(!opens<flux_register_writer_t, sealed_rk_sources_t>);
+static_assert(!opens<rk_source_writer_t, sealed_rk_fill_patches_t>);
+static_assert(!opens<rk_source_writer_t, sealed_flux_registers_t>);
+static_assert(!opens<rk_source_writer_t, sealed_flux_scratch_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const rk_source_writer_t &>().open(
+                       std::declval<const sealed_rk_sources_t &>())),
+                   rk_sources_t &>);
+static_assert(!std::is_default_constructible_v<rk_source_writer_t>);
+static_assert(!std::is_copy_constructible_v<rk_source_writer_t>);
+static_assert(!std::is_aggregate_v<rk_source_writer_t>);
+static_assert(std::is_same_v<decltype(std::declval<const rk_sources_t &>()
+                                          .stored(std::declval<rat64>())),
+                             std::optional<rk_sources_t::sources_t>>);
 static_assert(std::is_same_v<decltype(group_buffers_t::rk_fill_patches),
                              std::optional<sealed_rk_fill_patches_t>>);
 static_assert(sealed_for<decltype((*std::declval<const group_buffers_t &>()
@@ -647,6 +666,7 @@ static_assert(!std::is_default_constructible_v<checkpoint_read_t>);
 static_assert(!std::is_copy_constructible_v<checkpoint_read_t>);
 static_assert(!std::is_aggregate_v<checkpoint_read_t>);
 static_assert(bands_stored_takes<rk_sources_t, rat64>);
+static_assert(bands_stored_takes<const rk_sources_t, rat64>);
 static_assert(!bands_stored_takes<rk_sources_t>);
 static_assert(bands_restore_takes<rk_sources_t, rat64>);
 static_assert(!bands_restore_takes<rk_sources_t>);

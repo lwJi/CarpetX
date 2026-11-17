@@ -99,11 +99,11 @@ bool rk_sources_t::holds(const rat64 parent_step) const {
          stages_stored_ == int(ks_source_.size());
 }
 
-std::optional<rk_sources_t::slots_t>
-rk_sources_t::stored(const rat64 parent_step) {
+std::optional<rk_sources_t::sources_t>
+rk_sources_t::stored(const rat64 parent_step) const {
   if (!holds(parent_step))
     return std::nullopt;
-  return slots_t{old_source_, std::span<amrex::MultiFab>(ks_source_)};
+  return sources_t{old_source_, std::span<const amrex::MultiFab>(ks_source_)};
 }
 
 rk_sources_t::slots_t rk_sources_t::restore(const rat64 parent_step) {

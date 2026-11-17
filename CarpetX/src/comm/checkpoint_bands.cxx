@@ -38,10 +38,9 @@ std::string flux_register_band_tag(const amrex::Orientation face) {
   return buf.str();
 }
 
-template <class Band, class Register>
-std::vector<Band>
-list_bands(Register *const reg,
-           const std::optional<rk_sources_t::slots_t> rk_slots) {
+template <class Band, class Register, class Slots>
+std::vector<Band> list_bands(Register *const reg,
+                             const std::optional<Slots> &rk_slots) {
   std::vector<Band> bands;
   const auto add_band = [&](auto *const band, std::string tag) {
     if (band && !band->empty())
@@ -70,11 +69,12 @@ checkpoint_bands(const level_t level, const gi_t gi, const rat64 parent_step) {
   const std::optional<level_t> child = level.child();
   if (!child)
     return {};
-  group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
-  std::optional<rk_sources_t> &rk_sources = childbuffers.rk_sources;
+  const group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
+  const std::optional<sealed_rk_sources_t> &rk_sources =
+      childbuffers.rk_sources;
   return list_bands<checkpoint_band_t>(
       childbuffers.registers->reg.get(),
-      rk_sources ? rk_sources->stored(parent_step) : std::nullopt);
+      rk_sources ? rk_sources->get().stored(parent_step) : std::nullopt);
 }
 
 std::vector<restore_band_t> restore_bands(const level_t level, const gi_t gi,
@@ -84,12 +84,14 @@ std::vector<restore_band_t> restore_bands(const level_t level, const gi_t gi,
   if (!child)
     return {};
   const flux_register_writer_t writing;
-  group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
-  std::optional<rk_sources_t> &rk_sources = childbuffers.rk_sources;
+  const rk_source_writer_t storing;
+  const group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
+  const std::optional<sealed_rk_sources_t> &rk_sources =
+      childbuffers.rk_sources;
   return list_bands<restore_band_t>(
       writing.open(childbuffers.registers).reg.get(),
       rk_sources ? std::optional<rk_sources_t::slots_t>(
-                       rk_sources->restore(parent_step))
+                       storing.open(*rk_sources).restore(parent_step))
                  : std::nullopt);
 }
 
