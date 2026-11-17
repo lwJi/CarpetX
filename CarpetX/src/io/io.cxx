@@ -104,21 +104,46 @@ void encode_output(const cGH *const cctkGH, const char *const operation,
 
 // Recovering
 
+namespace {
+std::optional<int> recovered_parameters_iteration;
+} // namespace
+
+bool RecoverParameters() {
+  const operation_scope_t op("CarpetX::RecoverParameters");
+  DECLARE_CCTK_PARAMETERS;
+
+  static Timer timer("RecoverParameters");
+  Interval interval(timer);
+
+  if (recovered_parameters_iteration)
+    refuse(std::source_location::current(),
+           "the parameters were already recovered from the checkpoint at "
+           "iteration %d: they are recovered once per run",
+           *recovered_parameters_iteration);
+
+  const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
+  const std::optional<int> iteration =
+      codec->newest_iteration(recover_dir, recover_file);
+  if (!iteration)
+    return false;
+  codec->read_parameters(recover_dir, recover_file, *iteration);
+  recovered_parameters_iteration = iteration;
+  return true;
+}
+
 checkpoint_record_t RecoverGridStructure(structure_writer_t &structure) {
   const operation_scope_t op("CarpetX::RecoverGridStructure");
   DECLARE_CCTK_PARAMETERS;
 
+  if (!recovered_parameters_iteration)
+    refuse(std::source_location::current(),
+           "no parameters were recovered from a checkpoint: the grid "
+           "structure is recovered from the checkpoint they came from");
+
   const std::unique_ptr<checkpoint_codec_t> codec = make_codec(recover_method);
   refuse_unless_recoverable(codec->limits());
-  const std::optional<int> iteration =
-      codec->newest_iteration(recover_dir, recover_file);
-  if (!iteration)
-    refuse(std::source_location::current(),
-           "the parameters were recovered from a checkpoint \"%s\" in "
-           "\"%s\", and none is there now",
-           recover_file, recover_dir);
-  checkpoint_record_t record =
-      codec->decode_structure(recover_dir, recover_file, *iteration);
+  checkpoint_record_t record = codec->decode_structure(
+      recover_dir, recover_file, *recovered_parameters_iteration);
   apply_structure(record, structure);
   return record;
 }
