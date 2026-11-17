@@ -264,42 +264,6 @@ class Clock(unittest.TestCase):
         self.assertEqual(found, [])
 
 
-class GhostOnly(unittest.TestCase):
-    CALLS = [
-        "SyncGhostsOnly(window_t::one_level(level), states, timelevels_t::one(rk_tl));",
-        "SyncGhostsOnly (window, groups, tls);",
-        "CarpetX::SyncGhostsOnly(window, states, timelevels_t::one(tl_t{0}));",
-    ]
-
-    def test_a_call_outside_the_wrapper_is_reported(self):
-        for line in self.CALLS:
-            for name in ["CarpetX/src/api/api_rk.cxx", "CarpetX/src/schedule/clocks.cxx"]:
-                with self.subTest(name=name, line=line):
-                    self.assertEqual(reported(name, "  " + line + "\n"), [("ghost-only", line)])
-
-    def test_the_wrapper_and_the_definition_may_call_it(self):
-        for line in self.CALLS:
-            for name in rules.GHOST_ONLY_FILES:
-                with self.subTest(name=name, line=line):
-                    self.assertEqual(reported(name, "  " + line + "\n"), [])
-
-    def test_a_mention_that_is_not_a_call_passes(self):
-        for text in [
-            "static_assert(std::is_same_v<decltype(SyncGhostsOnly), void(window_t)>);\n",
-            "SyncGhostsOnlyAligned(window, groups, tls);\n",
-            "SyncGhostsOnly_impl(window, groups, tls);\n",
-        ]:
-            with self.subTest(text=text):
-                self.assertEqual(reported("CarpetX/src/api/api_rk.cxx", "  " + text), [])
-
-    def test_another_thorn_and_the_public_headers_may_name_it(self):
-        self.assertEqual(reported("ODESolvers/src/solve.cxx", self.CALLS[1] + "\n"), [])
-        self.assertEqual(reported("CarpetX/src/include/carpetx.hxx", self.CALLS[1] + "\n"), [])
-
-    def test_the_rule_is_at_home_where_the_call_is_spelled(self):
-        self.assertEqual(rules.layers_of(rules.GHOST_ONLY_FILES), ("comm", "api", "flesh"))
-
-
 class Grant(unittest.TestCase):
     MODEL = "CarpetX/src/hierarchy/model.hxx"
     HEADERS = [
@@ -1871,7 +1835,6 @@ class Report(unittest.TestCase):
             "every header opens with its own guard and internal.hxx, "
             "no extern C entry outside flesh/, "
             "the hierarchy has one door that util/, traversal/ and config/ never use, "
-            "no driver-internal ghost-only sync, "
             "and no write-scope or deciding-stem include in a stem of comm/ that applies",
         )
 
@@ -2279,8 +2242,9 @@ class Doc(unittest.TestCase):
             with self.subTest(header=header):
                 self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
         found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
-        self.assertEqual(found, sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
-        self.assertEqual(len(found), 33)
+        self.assertEqual(sorted(set(found)), sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
+        self.assertEqual(len(found), 35)
+        self.assertEqual(len(set(found)), 34)
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):
@@ -2342,11 +2306,11 @@ class Doc(unittest.TestCase):
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
         self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant, phase.")
         self.assertTrue(rules.OWNS["hierarchy"].endswith(" Nothing here only reads the model: a query belongs to the layer that owns its subject."))
-        self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry, ghost-only."))
-        self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: grant, ghost-only, applies.")
+        self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry."))
+        self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: grant, applies.")
         self.assertTrue(rules.OWNS["comm"].endswith(" It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock."))
         self.assertIn(" A stem either decides what is filled and records its validity, or applies and records nothing. ", rules.OWNS["comm"])
-        self.assertEqual(doc.rules_of("comm"), ["grant", "ghost-only", "applies"])
+        self.assertEqual(doc.rules_of("comm"), ["grant", "applies"])
         self.assertEqual(doc.rules_of("schedule"), [])
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
@@ -2361,12 +2325,12 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "varindex", "model", "grant", "traversal", "phase", "records", "codec", "entry", "ghost-only", "applies"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "varindex", "model", "grant", "traversal", "phase", "records", "codec", "entry", "applies"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.CLOCK_FILES), ("hierarchy",))
-        self.assertEqual(rules.layers_of(rules.CODEC_FILES + rules.GHOST_ONLY_FILES), ("io", "comm", "api", "flesh"))
+        self.assertEqual(rules.layers_of(rules.CODEC_FILES + rules.VALIDITY_FILES + rules.TRAVERSAL_FILES), ("io", "hierarchy", "traversal"))
         with self.assertRaises(AssertionError):
             rules.layers_of((rules.MAKE_DEFN,))
 

@@ -36,7 +36,7 @@ OWNS = {
     "traversal": "the run's phase, one slot per fact, each written only by a scope that `schedule/` opens. Its readers are `schedule/` and the public `active_window()`; a lower layer is told what it needs of the phase in a call. A fact about the whole run or about the grid is not a slot here.",
     "config": "what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.",
     "hierarchy": "the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject.",
-    "comm": "filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. Its `SyncGroups` takes a `requested_sync_t`, which only `SyncRequested` in `schedule/` builds, so a sync that skips the refusal there does not compile. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
+    "comm": "filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. Its `SyncGroups` takes a `requested_sync_t`, which only `SyncRequested` in `schedule/` builds, so a sync that skips the refusal there does not compile, and its `SyncGhostsOnly` takes a `public_ghost_only_t`, which only the public `sync_ghosts_only` builds. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. It keeps one fact between two of the flesh's calls: the iteration of the checkpoint the parameters were recovered from, which the grid structure is then recovered from.",
@@ -117,6 +117,7 @@ GRANTS = {
     "array_write_scope_t": ("open_array_write",),
     "GridPtrDesc1": ("operator<<",),
     "requested_sync_t": ("SyncRequested",),
+    "public_ghost_only_t": ("sync_ghosts_only",),
 }
 GRANTS_HOME = READS_HOME
 GRANT_LAYERS = ("hierarchy", "comm")
@@ -193,13 +194,6 @@ BINDING_WORD = re.compile(r"(\.|->)\s*data\s*\[[^\]]*\]\s*\[[^\]]*\]\s*=(?!=)")
 CLOCK_FILES = (layer_path("hierarchy", "clock.cxx"),)
 CLOCK_FIELD = r"(\.|->)\s*cctk_(iteration|time|delta_time|timefac)\b"
 CLOCK_WORD = re.compile(rf"{CLOCK_FIELD}\s*([-+*/]?=(?!=)|\+\+|--)|(\+\+|--)\s*[\w.()\->]*{CLOCK_FIELD}")
-GHOST_ONLY_FILES = (
-    layer_path("comm", "sync.hxx"),
-    layer_path("comm", "sync.cxx"),
-    layer_path("api", "api.cxx"),
-    layer_path("flesh", "compile_checks.cxx"),
-)
-GHOST_ONLY_WORD = re.compile(r"\bSyncGhostsOnly\s*\(")
 APPLIES_LAYER = "comm"
 APPLIES_STEMS = ("fillpatch", "boundary_conditions", "prolongate_3d_rf2")
 assert set(APPLIES_STEMS) <= set(STEMS[APPLIES_LAYER]), APPLIES_STEMS
@@ -844,19 +838,6 @@ RULES = (
         noun="hierarchy use",
         where="the door does not allow",
         clean=f"the hierarchy has one door that {dirs(UNDER_HIERARCHY, 'and')} never use",
-    ),
-    Rule(
-        "ghost-only",
-        files=private_cxx,
-        word=GHOST_ONLY_WORD,
-        allowed=in_files(GHOST_ONLY_FILES),
-        text="SyncGhostsOnly, the same-level ghost-only copy, is called only by the public sync_ghosts_only in CarpetX/src/api/api.cxx; "
-        "a sync inside the driver opens a scope that says what it fills and uses the scheduled SYNC or the "
-        "prolongation.",
-        noun="driver-internal ghost-only sync",
-        where="outside api.cxx",
-        clean="no driver-internal ghost-only sync",
-        home=layers_of(GHOST_ONLY_FILES),
     ),
     Rule(
         "applies",
