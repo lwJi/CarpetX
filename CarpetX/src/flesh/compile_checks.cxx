@@ -515,9 +515,10 @@ static_assert(std::is_same_v<decltype(checkpoint_bands(std::declval<level_t>(),
                                                        std::declval<gi_t>(),
                                                        std::declval<rat64>())),
                              std::vector<checkpoint_band_t>>);
-static_assert(std::is_same_v<decltype(restore_bands(std::declval<level_t>(),
-                                                    std::declval<gi_t>(),
-                                                    std::declval<rat64>())),
+static_assert(std::is_same_v<decltype(restore_bands(
+                                 std::declval<level_t>(), std::declval<gi_t>(),
+                                 std::declval<rat64>(),
+                                 std::declval<const checkpoint_read_t &>())),
                              std::vector<restore_band_t>>);
 
 static_assert(accumulate_fluxes_takes<level_t, stage_t, CCTK_REAL>);
@@ -583,10 +584,19 @@ static_assert(!checkpoint_bands_takes<level_t, gi_t>);
 static_assert(!checkpoint_bands_takes<int, int, gi_t, rat64>);
 static_assert(!checkpoint_bands_takes<level_t, int, rat64>);
 
-static_assert(restore_bands_takes<level_t, gi_t, rat64>);
+static_assert(
+    restore_bands_takes<level_t, gi_t, rat64, const checkpoint_read_t &>);
+static_assert(!restore_bands_takes<level_t, gi_t, rat64>);
 static_assert(!restore_bands_takes<level_t, gi_t>);
-static_assert(!restore_bands_takes<level_t, int, rat64>);
-static_assert(!restore_bands_takes<int, int, gi_t, rat64>);
+static_assert(
+    !restore_bands_takes<level_t, int, rat64, const checkpoint_read_t &>);
+static_assert(
+    !restore_bands_takes<int, int, gi_t, rat64, const checkpoint_read_t &>);
+static_assert(
+    !restore_bands_takes<level_t, gi_t, rat64, const requested_sync_t &>);
+static_assert(!std::is_default_constructible_v<checkpoint_read_t>);
+static_assert(!std::is_copy_constructible_v<checkpoint_read_t>);
+static_assert(!std::is_aggregate_v<checkpoint_read_t>);
 static_assert(bands_stored_takes<rk_bands_t, rat64>);
 static_assert(!bands_stored_takes<rk_bands_t>);
 static_assert(bands_restore_takes<rk_bands_t, rat64>);

@@ -78,7 +78,8 @@ checkpoint_bands(const level_t level, const gi_t gi, const rat64 parent_step) {
 }
 
 std::vector<restore_band_t> restore_bands(const level_t level, const gi_t gi,
-                                          const rat64 parent_step) {
+                                          const rat64 parent_step,
+                                          const checkpoint_read_t &) {
   const std::optional<level_t> child = level.child();
   if (!child)
     return {};

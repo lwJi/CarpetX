@@ -118,6 +118,7 @@ GRANTS = {
     "GridPtrDesc1": ("operator<<",),
     "requested_sync_t": ("SyncRequested",),
     "public_ghost_only_t": ("sync_ghosts_only",),
+    "checkpoint_read_t": ("read_record",),
 }
 GRANTS_HOME = READS_HOME
 GRANT_LAYERS = ("hierarchy", "comm")
