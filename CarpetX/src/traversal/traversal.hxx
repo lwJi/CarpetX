@@ -31,15 +31,6 @@ public:
   tail_bin_scope_t &operator=(const tail_bin_scope_t &) = delete;
 };
 
-class recovery_scope_t {
-public:
-  explicit recovery_scope_t(
-      std::source_location site = std::source_location::current());
-  ~recovery_scope_t();
-  recovery_scope_t(const recovery_scope_t &) = delete;
-  recovery_scope_t &operator=(const recovery_scope_t &) = delete;
-};
-
 class routine_scope_t {
 public:
   explicit routine_scope_t(const cFunctionData *routine);
@@ -56,8 +47,6 @@ scheduled_window(const char *caller,
                  std::source_location site = std::source_location::current());
 
 const char *scheduled_tail_bin();
-
-bool in_recovery_traversal();
 
 const cFunctionData *scheduled_routine();
 

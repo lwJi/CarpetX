@@ -208,7 +208,7 @@ assert set(APPLIES_STEMS) <= set(STEMS[APPLIES_LAYER]), APPLIES_STEMS
 APPLIES_WORD = re.compile(r'^\s*#\s*include\s*[<"](?:hierarchy/scopes|' + APPLIES_LAYER + r'/(\w+))\.hxx[>"]')
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
-    r"\b(active_levels|tail_bin|recovery_traversal|last_routine)\b"
+    r"\b(active_levels|tail_bin|last_routine)\b"
 )
 PHASE_LAYER = "hierarchy"
 PHASE_READER = layer_path(PHASE_LAYER, "handles.cxx")
@@ -711,9 +711,9 @@ RULES = (
         files=private_cxx,
         word=TRAVERSAL_WORD,
         allowed=in_files(TRAVERSAL_FILES),
-        text="a traversal slot (active_levels, tail_bin, recovery_traversal, last_routine) is named only in "
+        text="a traversal slot (active_levels, tail_bin, last_routine) is named only in "
         "CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, and a reader calls "
-        "scheduled_window(), scheduled_tail_bin(), in_recovery_traversal() or scheduled_routine().",
+        "scheduled_window(), scheduled_tail_bin() or scheduled_routine().",
         noun="traversal use",
         where="outside traversal.cxx",
         clean="no active_levels outside traversal.cxx",

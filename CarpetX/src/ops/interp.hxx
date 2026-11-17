@@ -76,8 +76,7 @@ public:
                    const CCTK_INT *restrict const operations,
                    const std::vector<Arith::vect<Arith::vect<bool, 3>, 2> >
                        &allowed_boundaries, //  [patch][face][direction]
-                   const CCTK_POINTER resultptrs_,
-                   const bool in_recovery) const;
+                   const CCTK_POINTER resultptrs_) const;
 };
 
 // a dummy routine for now

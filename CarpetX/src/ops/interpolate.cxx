@@ -21,6 +21,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -562,7 +563,7 @@ void CarpetX::InterpolationSetup::Interpolate(
     const CCTK_INT *restrict const operations,
     const std::vector<Arith::vect<Arith::vect<bool, 3>, 2> >
         &allowed_boundaries, //  [patch][face][direction]
-    const CCTK_POINTER resultptrs_, const bool in_recovery) const {
+    const CCTK_POINTER resultptrs_) const {
   DECLARE_CCTK_PARAMETERS;
 
   // Define result variables
@@ -761,8 +762,12 @@ void CarpetX::InterpolationSetup::Interpolate(
     const double max_iteration_used = +global_iteration_used[1];
     if (min_iteration_used <= max_iteration_used &&
         min_iteration_used != max_iteration_used) {
+      const GHExt::run_clock_t &run_clock = ext.run_clock();
+      const bool not_stepped_since_recovery =
+          run_clock.recovered_iteration &&
+          run_clock.iteration <= *run_clock.recovered_iteration;
       const char *const recovery_hint =
-          in_recovery
+          not_stepped_since_recovery
               ? " This run is recovering from a mid-cycle checkpoint, where "
                 "levels are at different times. Results that read across "
                 "levels cannot be recomputed in "

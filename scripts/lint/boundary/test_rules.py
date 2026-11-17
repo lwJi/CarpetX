@@ -910,8 +910,6 @@ class Traversal(unittest.TestCase):
         "if (active_levels) return;",
         "driver().tail_bin = bin;",
         "if (!tail_bin) return;",
-        "recovery_traversal = true;",
-        "assert(!recovery_traversal);",
         "last_routine = attribute;",
         "const auto *f = last_routine;",
     ]
@@ -943,8 +941,6 @@ class Traversal(unittest.TestCase):
             "SyncGroupsOnActiveLevels(cctkGH, n, gs, ds);\n",
             "scheduled_tail_bin();\n",
             "tail_bin_scope_t scope(bin);\n",
-            "in_recovery_traversal();\n",
-            "recovery_scope_t scope;\n",
             "scheduled_routine();\n",
             "routine_scope_t routine_scope(attribute);\n",
         ]:

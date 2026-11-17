@@ -338,8 +338,6 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
 
 static void RecomputePerClockGroup(cGH *restrict const cctkGH,
                                    clock_writer_t &clock) {
-  const recovery_scope_t scope;
-
   for (const window_t &group : ClockGroups()) {
     const auto [min_level, max_level] = group.level_bounds();
 
