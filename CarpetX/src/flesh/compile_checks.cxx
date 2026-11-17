@@ -313,6 +313,11 @@ concept sealed_for =
                    const T &> &&
     !can_open<written_by<T, Writer>, Writer>;
 
+template <class Writer, class Sealed>
+concept opens = requires(const Writer &writer, const Sealed &sealed) {
+  writer.open(sealed);
+};
+
 template <class Scope, class... Args>
 concept hands_out_mfab = requires(Scope scope, Args... args) {
   std::forward<Scope>(scope).mfab(args...);
@@ -504,6 +509,31 @@ static_assert(std::is_same_v<decltype(flux_geometry_t::face_area),
                              std::array<amrex::MultiFab, dim>>);
 static_assert(
     std::is_same_v<decltype(flux_geometry_t::cell_volume), amrex::MultiFab>);
+static_assert(
+    sealed_for<decltype((std::declval<const group_buffers_t &>().registers)),
+               flux_registers_t, flux_register_writer_t>);
+static_assert(
+    sealed_for<decltype((std::declval<const group_buffers_t &>().scratch)),
+               flux_scratch_t, flux_register_writer_t>);
+static_assert(opens<flux_register_writer_t, sealed_flux_registers_t>);
+static_assert(opens<flux_register_writer_t, sealed_flux_scratch_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const flux_register_writer_t &>().open(
+                       std::declval<const sealed_flux_registers_t &>())),
+                   flux_registers_t &>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const flux_register_writer_t &>().open(
+                       std::declval<const sealed_flux_scratch_t &>())),
+                   flux_scratch_t &>);
+static_assert(!std::is_default_constructible_v<flux_register_writer_t>);
+static_assert(!std::is_copy_constructible_v<flux_register_writer_t>);
+static_assert(!std::is_aggregate_v<flux_register_writer_t>);
+static_assert(std::is_same_v<decltype(std::declval<const group_buffers_t &>()
+                                          .registers->reg.get()),
+                             const amrex::FluxRegister *>);
+static_assert(std::is_same_v<decltype(std::declval<const group_buffers_t &>()
+                                          .scratch->reg.get()),
+                             const amrex::FluxRegister *>);
 
 static_assert(
     std::is_same_v<decltype(grid_buffer_t::mfab), const amrex::MultiFab *>);

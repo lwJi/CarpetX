@@ -38,12 +38,12 @@ std::string flux_register_band_tag(const amrex::Orientation face) {
   return buf.str();
 }
 
-template <class Band>
+template <class Band, class Register>
 std::vector<Band>
-list_bands(group_buffers_t &buffers,
+list_bands(Register *const reg,
            const std::optional<rk_bands_t::slots_t> rk_slots) {
   std::vector<Band> bands;
-  const auto add_band = [&](amrex::MultiFab *const band, std::string tag) {
+  const auto add_band = [&](auto *const band, std::string tag) {
     if (band && !band->empty())
       bands.push_back({std::move(tag), band});
   };
@@ -53,13 +53,12 @@ list_bands(group_buffers_t &buffers,
       add_band(&rk_slots->ks[stages.offset(stage)], ks_source_band_tag(stage));
     add_band(&rk_slots->old, old_source_band_tag());
   }
-  if (buffers.freg)
+  if (reg)
     for (int dir = 0; dir < dim; ++dir)
       for (const auto side :
            {amrex::Orientation::low, amrex::Orientation::high}) {
         const amrex::Orientation face(dir, side);
-        add_band(&(*buffers.freg)[face].multiFab(),
-                 flux_register_band_tag(face));
+        add_band(&(*reg)[face].multiFab(), flux_register_band_tag(face));
       }
   return bands;
 }
@@ -73,8 +72,9 @@ checkpoint_bands(const level_t level, const gi_t gi, const rat64 parent_step) {
     return {};
   group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
   std::optional<rk_bands_t> &rk_bands = childbuffers.rk_bands;
-  return list_bands<checkpoint_band_t>(
-      childbuffers, rk_bands ? rk_bands->stored(parent_step) : std::nullopt);
+  return list_bands<checkpoint_band_t>(childbuffers.registers->reg.get(),
+                                       rk_bands ? rk_bands->stored(parent_step)
+                                                : std::nullopt);
 }
 
 std::vector<restore_band_t> restore_bands(const level_t level, const gi_t gi,
@@ -83,12 +83,14 @@ std::vector<restore_band_t> restore_bands(const level_t level, const gi_t gi,
   const std::optional<level_t> child = level.child();
   if (!child)
     return {};
+  const flux_register_writer_t writing;
   group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
   std::optional<rk_bands_t> &rk_bands = childbuffers.rk_bands;
   return list_bands<restore_band_t>(
-      childbuffers, rk_bands ? std::optional<rk_bands_t::slots_t>(
-                                   rk_bands->restore(parent_step))
-                             : std::nullopt);
+      writing.open(childbuffers.registers).reg.get(),
+      rk_bands
+          ? std::optional<rk_bands_t::slots_t>(rk_bands->restore(parent_step))
+          : std::nullopt);
 }
 
 } // namespace CarpetX

@@ -94,6 +94,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
   const auto *const childleveldata = child ? &patchdata.level(*child) : nullptr;
   const tl_t tl{0};
   const window_t this_level = window_t::one_level(level);
+  const flux_register_writer_t writing;
 
   for (const auto &groupdata : leveldata.groups()) {
     const std::optional<std::array<gi_t, dim>> &fluxes =
@@ -103,8 +104,11 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
     const gi_t gi = groupdata.record.groupindex;
 
     amrex::FluxRegister *const child_freg =
-        childleveldata ? buffers_of(*childleveldata, gi).freg.get() : nullptr;
-    amrex::FluxRegister *const own_freg = buffers_of(leveldata, gi).freg.get();
+        childleveldata
+            ? writing.open(buffers_of(*childleveldata, gi).registers).reg.get()
+            : nullptr;
+    amrex::FluxRegister *const own_freg =
+        writing.open(buffers_of(leveldata, gi).registers).reg.get();
     if (!child_freg && !own_freg)
       continue;
 
@@ -119,12 +123,12 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
     }
 
     if (child_freg) {
-      std::unique_ptr<amrex::FluxRegister> &child_scratch =
-          buffers_of(*childleveldata, gi).freg_scratch;
-      if (!child_scratch) {
+      flux_scratch_t &child_scratch =
+          writing.open(buffers_of(*childleveldata, gi).scratch);
+      if (!child_scratch.reg.get()) {
         const amrex::MultiFab &child_state =
             childleveldata->group(gi).timelevel(tl).mfab();
-        child_scratch = std::make_unique<amrex::FluxRegister>(
+        child_scratch.reg = std::make_unique<amrex::FluxRegister>(
             child_state.boxArray(), child_state.DistributionMap(),
             child_freg->refRatio(), child_freg->fineLevel(),
             child_freg->nComp());
@@ -142,7 +146,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
         for (const auto side :
              {amrex::Orientation::low, amrex::Orientation::high}) {
           const amrex::Orientation face(d, side);
-          amrex::FabSet &scratch = (*child_scratch)[face];
+          amrex::FabSet &scratch = (*child_scratch.reg)[face];
           amrex::FabSet &reg = (*child_freg)[face];
           assert(scratch.boxArray() == reg.boxArray());
           assert(scratch.DistributionMap() == reg.DistributionMap());
@@ -180,6 +184,16 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
   }
 }
 
+namespace {
+void correct_from_register(const amrex::FluxRegister &reg,
+                           amrex::MultiFab &state,
+                           const amrex::MultiFab &volume, const int numvars,
+                           const amrex::Geometry &geom) {
+  const_cast<amrex::FluxRegister &>(reg).Reflux(state, volume, 1.0, 0, 0,
+                                                numvars, geom);
+}
+} // namespace
+
 static void reflux_level(const level_t level) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -200,7 +214,8 @@ static void reflux_level(const level_t level) {
     const gi_t gi = groupdata.record.groupindex;
     const group_buffers_t &finebuffers = buffers_of(fineleveldata, gi);
 
-    if (!finebuffers.freg)
+    const amrex::FluxRegister *const reg = finebuffers.registers->reg.get();
+    if (!reg)
       continue;
 
     if (verbose)
@@ -227,8 +242,7 @@ static void reflux_level(const level_t level) {
     const amrex::MultiFab &volume = geometry->cell_volume;
     assert(volume.ixType() == state.ixType());
     assert(volume.DistributionMap() == state.DistributionMap());
-    finebuffers.freg->Reflux(state, volume, 1.0, 0, 0, groupdata.record.numvars,
-                             geom);
+    correct_from_register(*reg, state, volume, groupdata.record.numvars, geom);
   }
 }
 

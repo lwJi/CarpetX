@@ -119,6 +119,9 @@ GRANTS = {
     "requested_sync_t": ("SyncRequested",),
     "public_ghost_only_t": ("sync_ghosts_only",),
     "checkpoint_read_t": ("read_record",),
+    "flux_registers_t": ("flux_register_writer_t",),
+    "flux_scratch_t": ("flux_register_writer_t",),
+    "flux_register_writer_t": ("AccumulateFluxes", "restore_bands"),
 }
 GRANTS_HOME = READS_HOME
 GRANT_LAYERS = ("hierarchy", "comm")

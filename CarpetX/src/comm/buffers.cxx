@@ -104,7 +104,8 @@ level_buffers_ptr make_level_buffers(const level_t level,
       CCTK_VERROR("Group %s has no prolongation operator",
                   record.groupname.c_str());
     group_buffers_t &group = buffers->groups.at(gi.index());
-    group.freg = flux_register_of(record, level, ba, dm);
+    group.registers = sealed_flux_registers_t(
+        flux_registers_t{flux_register_of(record, level, ba, dm)});
     group.rk_bands = rk_bands_of(record, level, ba, dm);
   }
   buffers->geometry = flux_geometry_of(level, ba, dm);

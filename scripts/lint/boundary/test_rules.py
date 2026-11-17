@@ -2493,8 +2493,8 @@ class Doc(unittest.TestCase):
                 self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
         found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
         self.assertEqual(sorted(set(found)), sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
-        self.assertEqual(len(found), 36)
-        self.assertEqual(len(set(found)), 35)
+        self.assertEqual(len(found), 40)
+        self.assertEqual(len(set(found)), 39)
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):
@@ -3114,7 +3114,7 @@ class Stems(unittest.TestCase):
                 self.assertEqual(doc.declared_names(text), declared)
                 self.assertEqual(doc.declared_names(text, forward=False), defined)
         declared, defined = doc.stem_declarations(), doc.stem_declarations(forward=False)
-        self.assertEqual({header for header in declared if declared[header] != defined[header]}, {layer_path("hierarchy", "model.hxx"), layer_path("hierarchy", "binding.hxx"), layer_path("comm", "checkpoint_bands.hxx")})
+        self.assertEqual({header for header in declared if declared[header] != defined[header]}, {layer_path("hierarchy", "model.hxx"), layer_path("hierarchy", "binding.hxx"), layer_path("comm", "buffers.hxx"), layer_path("comm", "checkpoint_bands.hxx")})
         for text, line in [
             ("int a;\nvoid (*handler)(int);\n", 2),
             ("\n\nstruct {\n  int x;\n} anonymous;\n", 3),
