@@ -35,6 +35,7 @@ int DisableGroupStorage(const cGH *cctkGH, const char *groupname,
 int QueryGroupStorageB(const cGH *cctkGH, int gi, const char *groupname);
 
 void SyncRequested(window_t window, std::span<const gi_t> groups);
+void SyncScheduled(std::span<const gi_t> groups);
 
 } // namespace CarpetX
 

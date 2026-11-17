@@ -8,7 +8,6 @@
 #include "regrid/regrid.hxx"
 #include "ops/interp.hxx"
 #include "io/io.hxx"
-#include "traversal/traversal.hxx"
 #include "util/logo.hxx"
 #include <carpetx.hxx>
 
@@ -74,18 +73,11 @@ int GroupStorageDecrease_entry(const cGH *cctkGH, int n_groups,
                               writers->registry);
 }
 
-std::string sync_caller() {
-  const cFunctionData *const func = scheduled_routine();
-  if (!func)
-    return "SYNC";
-  return std::string("SYNC from ") + func->thorn + "::" + func->routine;
-}
-
 int SyncGroups_entry(const cGH *cctkGH, int numgroups, const int *groups,
                      const int *directions) {
   assert(in_global_mode(cctkGH) || in_level_mode(cctkGH));
   const std::vector<gi_t> gis(groups, groups + numgroups);
-  SyncRequested(scheduled_window(sync_caller().c_str()), gis);
+  SyncScheduled(gis);
   return numgroups;
 }
 } // namespace

@@ -304,6 +304,17 @@ void SyncRequested(const window_t window, const std::span<const gi_t> groups) {
   SyncGroups(window, groups);
 }
 
+static std::string sync_caller() {
+  const cFunctionData *const func = scheduled_routine();
+  if (!func)
+    return "SYNC";
+  return std::string("SYNC from ") + func->thorn + "::" + func->routine;
+}
+
+void SyncScheduled(const std::span<const gi_t> groups) {
+  SyncRequested(scheduled_window(sync_caller().c_str()), groups);
+}
+
 void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
                     clock_writer_t &clock, const bool reflux) {
   DECLARE_CCTK_PARAMETERS;
@@ -530,7 +541,7 @@ void CycleTimelevels(const window_t window, clock_writer_t &clock) {
     }
   }
   if (!presync_groups.empty()) {
-    SyncGroups(window, presync_groups);
+    SyncRequested(window, presync_groups);
   }
 }
 
