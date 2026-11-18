@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable, Iterator
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, GIVEN, GIVEN_HOME, GIVEN_LAYER, GRANT_LAYERS, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, SEES_ALL, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
+from .rules import AMREX_CALLBACKS, DECLARATION_START, GIVEN, GIVEN_HOME, GIVEN_LAYER, GRANT_LAYERS, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, INSIDE_SUFFIX, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, SEES_ALL, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
 from comments.lex_cxx import lex
 from comments.tokens import Kind
 from files import PROJECT
@@ -464,7 +464,7 @@ def stem_headers(root: str = PROJECT) -> dict[str, str]:
     for layer in STEMS:
         for path in sources(root, layer):
             stem, extension = os.path.splitext(os.path.basename(path))
-            if extension == ".hxx" and row_of(stem) == stem:
+            if extension == ".hxx" and stem in (row_of(stem), row_of(stem) + INSIDE_SUFFIX):
                 found[layer_path(layer, stem + extension)] = read(path)
     return found
 

@@ -1,4 +1,5 @@
 #include "comm/restrict.hxx"
+#include "comm/restrict_inside.hxx"
 
 #include "hierarchy/model.hxx"
 #include "comm/level_pairs.hxx"

@@ -160,7 +160,8 @@ def layer_of(name: str) -> Optional[str]:
     return parts[0] if len(parts) == 2 and parts[0] in LAYERS else None
 
 
-FAMILY = re.compile(r"(.+?)_impl(?:_.+)?")
+INSIDE_SUFFIX = "_inside"
+FAMILY = re.compile(r"(.+?)(?:" + INSIDE_SUFFIX + r"|_impl(?:_.+)?)")
 
 
 def row_of(stem: str) -> str:

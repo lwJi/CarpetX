@@ -13,7 +13,7 @@ from checks import plural, wrap
 from files import PROJECT
 
 from .doc import MAP, PUBLIC_BODIES, PUBLIC_HEADERS, declared_names, header_reads, read, stem_declarations
-from .rules import LAYERS, PRIVATE_DIR, READS_HOME, STEMS, STEMS_HOME, dirs, linkable, row_of
+from .rules import INSIDE_SUFFIX, LAYERS, PRIVATE_DIR, READS_HOME, STEMS, STEMS_HOME, dirs, linkable, row_of
 
 OBJECT_SUFFIX = ".cxx.o"
 HEADER_SUFFIX = ".hxx"
@@ -40,8 +40,9 @@ REACH_RULE = wrap(
 )
 STEM_RULE = wrap(
     f"stems: in a layer that STEMS in {STEMS_HOME} lists, a header and its source share a stem, and the object the "
-    "build made from <layer>/<stem>.cxx strongly defines in namespace CarpetX only what <layer>/<stem>.hxx declares: a "
-    "function, an object or the outermost class of a member that the header declares at namespace scope, or that a public "
+    f"build made from <layer>/<stem>.cxx strongly defines in namespace CarpetX only what <layer>/<stem>.hxx and "
+    f"<layer>/<stem>{INSIDE_SUFFIX}.hxx declare: a "
+    "function, an object or the outermost class of a member that one of them declares at namespace scope, or that a public "
     "header declares when PUBLIC_BODIES in scripts/lint/boundary/doc.py lists the source; a header that only uses a "
     "name does not declare it, and one that declares a class with no body leaves the members to the header that "
     "defines the class. A body another header declares moves "
@@ -158,9 +159,10 @@ def declared_name(symbol: str) -> Optional[str]:
     return None if name.startswith(UNNAMED_NAMESPACE) else name
 
 
-def header_of(obj: str) -> str:
+def headers_of(obj: str) -> tuple[str, str]:
     layer, stem = os.path.split(obj[: -len(OBJECT_SUFFIX)])
-    return PRIVATE_DIR + os.path.join(layer, row_of(stem)) + HEADER_SUFFIX
+    base = PRIVATE_DIR + os.path.join(layer, row_of(stem))
+    return base + HEADER_SUFFIX, base + INSIDE_SUFFIX + HEADER_SUFFIX
 
 
 def strays(layers: dict[str, str], definitions: dict[str, set[tuple[str, str]]], headers: dict[str, set[str]], public: dict[str, set[str]]) -> list[Stray]:
@@ -168,8 +170,9 @@ def strays(layers: dict[str, str], definitions: dict[str, set[tuple[str, str]]],
     for obj in sorted(layers):
         if layers[obj] not in STEMS:
             continue
-        header = header_of(obj)
-        declared = headers.get(header, set()) | public.get(obj, set())
+        held = headers_of(obj)
+        header = next((header for header in held if header in headers), held[0])
+        declared = set().union(*(headers.get(header, set()) for header in held)) | public.get(obj, set())
         for kind, symbol in sorted(definitions.get(obj, ()), key=lambda definition: definition[1]):
             name = declared_name(symbol) if kind in STRONG else None
             if name is not None and name not in declared:
@@ -206,13 +209,13 @@ def demangle(names: Iterable[str]) -> dict[str, str]:
 
 def summary(unread: list[Reach], stray: list[Stray]) -> str:
     if not unread and not stray:
-        held = f", and every definition of {dirs(tuple(STEMS), 'and')} declared in the header of its stem" if STEMS else ""
+        held = f", and every definition of {dirs(tuple(STEMS), 'and')} declared in a header of its stem" if STEMS else ""
         return "✓ symbols: every CarpetX import from the importing object's layer or one it reads" + held
     counts = []
     if unread:
         counts.append(f"{plural(len(unread), 'import')} from a layer the importing object's layer does not read")
     if stray:
-        counts.append(f"{plural(len(stray), 'definition')} the header of its stem does not declare")
+        counts.append(f"{plural(len(stray), 'definition')} no header of its stem declares")
     return "✗ symbols: " + ", ".join(counts)
 
 

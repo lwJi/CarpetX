@@ -11,7 +11,7 @@ from boundary.symbols import (
     Stray,
     SymbolsError,
     declared_name,
-    header_of,
+    headers_of,
     layer_objects,
     parse_definitions,
     parse_imports,
@@ -52,6 +52,7 @@ PRINT_SYMMETRY = "_ZN7CarpetXlsERSoNS_10symmetry_tE"
 TO_STRING = "__ZNK7CarpetX7valid_tcvNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEv"
 SYNC_GROUPS = "__ZN7CarpetX10SyncGroupsENS_8window_tENSt3__14spanIKNS_4gi_tELm18446744073709551615EEE"
 RESTRICT = "__ZN7CarpetX8RestrictENS_8window_tENSt3__14spanIKNS_4gi_tELm18446744073709551615EEE"
+RESTRICT_LEVEL = "__ZN7CarpetX14restrict_levelENS_7level_tENSt3__14spanIKNS_4gi_tELm18446744073709551615EEENS_7valid_tE"
 POLY_MAP = "__ZN7CarpetX15prolongate_polyE"
 CONS_MAP = "__ZN7CarpetX15prolongate_consE"
 REALLOCATE = "__ZNSt5dequeIN7CarpetX13write_scope_tESaIS1_EE17_M_reallocate_mapEmb"
@@ -303,15 +304,16 @@ class Strays(unittest.TestCase):
 
     def test_an_object_of_a_kernel_family_is_held_to_the_header_of_its_row(self):
         for obj, header in [
-            ("config/kernel.cxx.o", "CarpetX/src/config/kernel.hxx"),
-            ("config/kernel_impl.cxx.o", "CarpetX/src/config/kernel.hxx"),
-            ("config/kernel_impl_poly.cxx.o", "CarpetX/src/config/kernel.hxx"),
-            ("config/kernel_impl_neg_neg_int.cxx.o", "CarpetX/src/config/kernel.hxx"),
-            ("config/kernel_implicit.cxx.o", "CarpetX/src/config/kernel_implicit.hxx"),
-            ("config/grid_sizes.cxx.o", self.HEADER),
+            ("config/kernel.cxx.o", "CarpetX/src/config/kernel"),
+            ("config/kernel_impl.cxx.o", "CarpetX/src/config/kernel"),
+            ("config/kernel_impl_poly.cxx.o", "CarpetX/src/config/kernel"),
+            ("config/kernel_impl_neg_neg_int.cxx.o", "CarpetX/src/config/kernel"),
+            ("config/kernel_inside.cxx.o", "CarpetX/src/config/kernel"),
+            ("config/kernel_implicit.cxx.o", "CarpetX/src/config/kernel_implicit"),
+            ("config/grid_sizes.cxx.o", self.HEADER[: -len(".hxx")]),
         ]:
             with self.subTest(obj=obj):
-                self.assertEqual(header_of(obj), header)
+                self.assertEqual(headers_of(obj), (header + ".hxx", header + "_inside.hxx"))
         poly, cons = "config/kernel_impl_poly.cxx.o", "config/kernel_impl_cons.cxx.o"
         layers = {poly: "config", cons: "config"}
         headers = {"CarpetX/src/config/kernel.hxx": doc.declared_names("namespace CarpetX {\nextern const std::map<int, int> prolongate_poly;\nextern const std::map<int, int> prolongate_cons;\n}\n")}
@@ -338,6 +340,27 @@ class Strays(unittest.TestCase):
         with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"], "hierarchy": rules.STEMS["hierarchy"]}, clear=True):
             self.assertEqual(strays(layers, {sync: {("T", SYNC_GROUPS), ("T", RESTRICT)}}, headers, {}), [])
 
+    def test_a_name_declared_only_in_the_inside_header_of_its_stem_is_not_a_stray(self):
+        sync, restrict = "comm/sync.cxx.o", "comm/restrict.cxx.o"
+        layers = {sync: "comm", restrict: "comm"}
+        plain, inside = "CarpetX/src/comm/restrict.hxx", "CarpetX/src/comm/restrict_inside.hxx"
+        headers = {
+            "CarpetX/src/comm/sync.hxx": doc.declared_names("namespace CarpetX {\nvoid SyncGroups(window_t window, std::span<const gi_t> groups);\n}\n"),
+            plain: doc.declared_names("namespace CarpetX {\nvoid Restrict(window_t window, std::span<const gi_t> groups);\n}\n"),
+            inside: doc.declared_names("namespace CarpetX {\nvoid restrict_level(level_t level, std::span<const gi_t> groups, valid_t coarse_keeps);\n}\n"),
+        }
+        self.assertEqual(headers_of(restrict), (plain, inside))
+        self.assertEqual(strays(layers, {restrict: {("T", RESTRICT), ("T", RESTRICT_LEVEL)}}, headers, {}), [])
+        self.assertEqual(strays(layers, {sync: {("T", SYNC_GROUPS), ("T", RESTRICT_LEVEL)}}, headers, {}), [Stray(sync, RESTRICT_LEVEL, "CarpetX/src/comm/sync.hxx")])
+        self.assertEqual(
+            strays(layers, {restrict: {("T", RESTRICT), ("T", RESTRICT_LEVEL)}}, {plain: headers[plain]}, {}),
+            [Stray(restrict, RESTRICT_LEVEL, plain)],
+        )
+        self.assertEqual(
+            strays(layers, {restrict: {("T", RESTRICT), ("T", RESTRICT_LEVEL)}}, {inside: headers[inside]}, {}),
+            [Stray(restrict, RESTRICT, inside)],
+        )
+
     def test_a_listed_layer_holds_each_source_to_its_own_header_and_a_public_body_to_the_public_headers(self):
         definitions = {
             "hierarchy/modes.cxx.o": {("T", CURRENT_MODE), ("T", GLOBAL_MODE), ("T", ALL_LEVELS)},
@@ -363,9 +386,9 @@ class Report(unittest.TestCase):
     CLEAN = "✓ symbols: every CarpetX import from the importing object's layer or one it reads"
 
     def test_clean(self):
-        self.assertEqual(render([], [], {}), self.CLEAN + ", and every definition of config/, hierarchy/ and comm/ declared in the header of its stem")
+        self.assertEqual(render([], [], {}), self.CLEAN + ", and every definition of config/, hierarchy/ and comm/ declared in a header of its stem")
         with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"]}, clear=True):
-            self.assertEqual(summary([], []), self.CLEAN + ", and every definition of config/ declared in the header of its stem")
+            self.assertEqual(summary([], []), self.CLEAN + ", and every definition of config/ declared in a header of its stem")
         with mock.patch.dict(rules.STEMS, clear=True):
             self.assertEqual(summary([], []), self.CLEAN)
 
@@ -382,8 +405,8 @@ class Report(unittest.TestCase):
         self.assertEqual(lines[0], "config/grid_sizes.cxx.o   not in config/grid_sizes.hxx   CarpetX::size_or_default(int, int)")
         self.assertTrue(lines[1].startswith("stems: in a layer that STEMS in scripts/lint/boundary/rules.py lists"))
         self.assertFalse(any(line.startswith("symbols: ") for line in lines))
-        self.assertEqual(lines[-1], "✗ symbols: 1 definition the header of its stem does not declare")
+        self.assertEqual(lines[-1], "✗ symbols: 1 definition no header of its stem declares")
         both = render([self.UP], [self.OUT, self.OUT], self.READABLE).split("\n")
-        self.assertEqual(both[-1], "✗ symbols: 1 import from a layer the importing object's layer does not read, 2 definitions the header of its stem does not declare")
+        self.assertEqual(both[-1], "✗ symbols: 1 import from a layer the importing object's layer does not read, 2 definitions no header of its stem declares")
         self.assertLess(both.index(lines[0]), both.index(lines[1]))
         self.assertLess(both.index(next(line for line in both if line.startswith("symbols: "))), both.index(lines[0]))

@@ -5,7 +5,7 @@
 #include "comm/ghost_prolongation.hxx"
 #include "comm/integrator.hxx"
 #include "comm/outer_boundary.hxx"
-#include "comm/restrict.hxx"
+#include "comm/restrict_inside.hxx"
 #include "comm/substeps.hxx"
 #include "comm/sync.hxx"
 #include "comm/group_selection.hxx"

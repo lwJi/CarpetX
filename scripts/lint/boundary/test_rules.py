@@ -3268,7 +3268,7 @@ class Stems(unittest.TestCase):
                 self.assertEqual(doc.lone_sources(root), [layer_path("config", "readers.cxx")])
 
     def test_a_kernel_family_is_one_row_held_to_its_header(self):
-        for stem, row in [("kernel", "kernel"), ("kernel_impl", "kernel"), ("kernel_impl_a", "kernel"), ("kernel_impl_neg_neg_int", "kernel"), ("kernel_implicit", "kernel_implicit"), ("impl", "impl"), ("_impl", "_impl")]:
+        for stem, row in [("kernel", "kernel"), ("kernel_impl", "kernel"), ("kernel_impl_a", "kernel"), ("kernel_impl_neg_neg_int", "kernel"), ("kernel_inside", "kernel"), ("kernel_inside_a", "kernel_inside_a"), ("kernel_insider", "kernel_insider"), ("kernel_implicit", "kernel_implicit"), ("inside", "inside"), ("_inside", "_inside"), ("impl", "impl"), ("_impl", "_impl")]:
             with self.subTest(stem=stem):
                 self.assertEqual(rules.row_of(stem), row)
         header, impl = layer_path("config", "kernel.hxx"), layer_path("config", "kernel_impl.hxx")
@@ -3289,6 +3289,29 @@ class Stems(unittest.TestCase):
                 self.assertEqual(doc.unused_includes(root), [])
                 os.remove(os.path.join(root, header))
                 self.assertEqual(doc.lone_sources(root), sources)
+
+    def test_a_stem_carries_an_inside_header_held_like_its_plain_one(self):
+        header, inside, impl = (layer_path("comm", name) for name in ("restrict.hxx", "restrict_inside.hxx", "restrict_impl.hxx"))
+        source, sibling = layer_path("comm", "restrict.cxx"), layer_path("comm", "sync.cxx")
+        files = {
+            header: guarded(header, "namespace CarpetX {\nvoid Restrict(window_t window, std::span<const gi_t> groups);\n}\n"),
+            inside: guarded(inside, "namespace CarpetX {\nvoid restrict_level(level_t level, std::span<const gi_t> groups, valid_t coarse_keeps);\n}\n"),
+            impl: guarded(impl, '#include "comm/restrict.hxx"\nnamespace CarpetX {\nextern template void Restrict<1>();\n}\n'),
+            source: '#include "comm/restrict.hxx"\n#include "comm/restrict_inside.hxx"\nvoid Restrict() { restrict_level(); }\n',
+            sibling: '#include "comm/restrict_inside.hxx"\nvoid SyncGroups() { restrict_level(); }\n',
+        }
+        with tempfile.TemporaryDirectory() as root:
+            tree(root, files)
+            with mock.patch.dict(rules.STEMS, {"comm": {"restrict": "coarse cells", "sync": "the sync"}}, clear=True):
+                self.assertEqual(doc.stems(root, "comm"), {"restrict", "sync"})
+                self.assertEqual(doc.lone_sources(root), [sibling])
+                self.assertEqual(doc.stem_headers(root), {header: files[header], inside: files[inside]})
+                self.assertEqual(doc.stem_declarations(root), {header: {"Restrict"}, inside: {"restrict_level"}})
+                self.assertEqual(doc.unused_includes(root), [])
+                write(root, sibling, '#include "comm/restrict.hxx"\n#include "comm/restrict_inside.hxx"\nvoid SyncGroups() { restrict_level(); }\n')
+                self.assertEqual(doc.unused_includes(root), [(sibling, header)])
+                write(root, sibling, '#include "comm/restrict_inside.hxx"\nvoid SyncGroups() { Restrict(); }\n')
+                self.assertEqual(doc.unused_includes(root), [(sibling, inside)])
 
     def test_a_header_declares_its_namespace_scope_types_functions_and_constants(self):
         self.assertEqual(doc.declared_names(DECLARING), DECLARED)
