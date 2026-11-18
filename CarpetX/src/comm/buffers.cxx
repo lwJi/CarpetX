@@ -106,6 +106,8 @@ level_buffers_ptr make_level_buffers(const level_t level,
     group_buffers_t &group = buffers->groups.at(gi.index());
     group.registers = sealed_flux_registers_t(
         flux_registers_t{flux_register_of(record, level, ba, dm)});
+    group.scratch = sealed_flux_scratch_t(
+        flux_scratch_t{flux_register_of(record, level, ba, dm)});
     group.rk = rk_buffers_of(record, level, ba, dm);
   }
   buffers->geometry = flux_geometry_of(level, ba, dm);

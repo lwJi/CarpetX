@@ -16,7 +16,6 @@
 
 #include <array>
 #include <cassert>
-#include <memory>
 #include <optional>
 #include <sstream>
 
@@ -123,16 +122,9 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
     }
 
     if (child_freg) {
-      flux_scratch_t &child_scratch =
-          writing.open(buffers_of(*childleveldata, gi).scratch);
-      if (!child_scratch.reg.get()) {
-        const amrex::MultiFab &child_state =
-            childleveldata->group(gi).timelevel(tl).mfab();
-        child_scratch.reg = std::make_unique<amrex::FluxRegister>(
-            child_state.boxArray(), child_state.DistributionMap(),
-            child_freg->refRatio(), child_freg->fineLevel(),
-            child_freg->nComp());
-      }
+      amrex::FluxRegister *const child_scratch =
+          writing.open(buffers_of(*childleveldata, gi).scratch).reg.get();
+      assert(child_scratch);
       if (stage == stages.first())
         child_freg->setVal(0);
       const int numvars = groupdata.record.numvars;
@@ -146,7 +138,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
         for (const auto side :
              {amrex::Orientation::low, amrex::Orientation::high}) {
           const amrex::Orientation face(d, side);
-          amrex::FabSet &scratch = (*child_scratch.reg)[face];
+          amrex::FabSet &scratch = (*child_scratch)[face];
           amrex::FabSet &reg = (*child_freg)[face];
           assert(scratch.boxArray() == reg.boxArray());
           assert(scratch.DistributionMap() == reg.DistributionMap());
