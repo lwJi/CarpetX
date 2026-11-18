@@ -23,7 +23,6 @@
 
 #include <carpetx.hxx>
 
-#include <array>
 #include <functional>
 #include <optional>
 #include <source_location>
@@ -320,9 +319,8 @@ concept writes_buffers =
     } ||
     requires(Buffers buffers) {
       buffers.groups.at(0).rk->fill_patches.get().crse.setVal(0);
-    } || requires(Buffers buffers) { buffers.geometry.reset(); } ||
-    requires(Buffers buffers) { buffers.geometry->face_area[0].setVal(0); } ||
-    requires(Buffers buffers) { buffers.geometry->cell_volume.setVal(0); };
+    } || requires(Buffers buffers) { buffers.cell_volume.reset(); } ||
+    requires(Buffers buffers) { buffers.cell_volume->setVal(0); };
 
 template <class Group>
 concept writes_group_buffers =
@@ -569,12 +567,11 @@ static_assert(std::is_same_v<decltype((std::declval<const group_buffers_t &>()
                                            .rk.value()
                                            .fill_patches->crse)),
                              const amrex::MultiFab &>);
-static_assert(std::is_same_v<decltype(level_buffers_t::geometry),
-                             std::optional<flux_geometry_t>>);
-static_assert(std::is_same_v<decltype(flux_geometry_t::face_area),
-                             std::array<amrex::MultiFab, dim>>);
-static_assert(
-    std::is_same_v<decltype(flux_geometry_t::cell_volume), amrex::MultiFab>);
+static_assert(std::is_same_v<decltype(level_buffers_t::cell_volume),
+                             std::optional<amrex::MultiFab>>);
+static_assert(std::is_same_v<
+              decltype((*std::declval<const level_buffers_t &>().cell_volume)),
+              const amrex::MultiFab &>);
 static_assert(
     sealed_for<decltype((std::declval<const group_buffers_t &>().registers)),
                flux_registers_t, flux_register_writer_t>);

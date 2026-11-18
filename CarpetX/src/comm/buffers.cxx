@@ -67,9 +67,9 @@ rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
                                      registered_stages());
 }
 
-std::optional<flux_geometry_t>
-flux_geometry_of(const level_t level, const amrex::BoxArray &ba,
-                 const amrex::DistributionMapping &dm) {
+std::optional<amrex::MultiFab>
+cell_volume_of(const level_t level, const amrex::BoxArray &ba,
+               const amrex::DistributionMapping &dm) {
   const GHExt &ext = driver();
   if (!ext.do_reflux)
     return std::nullopt;
@@ -81,11 +81,9 @@ flux_geometry_of(const level_t level, const amrex::BoxArray &ba,
   assert(ba.ixType().cellCentered());
   const amrex::Geometry &geom =
       ext.patch(level.patch()).amrcore().Geom(level.index());
-  std::optional<flux_geometry_t> geometry(std::in_place);
-  for (int d = 0; d < dim; ++d)
-    geom.GetFaceArea(geometry->face_area[d], ba, dm, d, 0);
-  geom.GetVolume(geometry->cell_volume, ba, dm, 0);
-  return geometry;
+  std::optional<amrex::MultiFab> cell_volume(std::in_place);
+  geom.GetVolume(*cell_volume, ba, dm, 0);
+  return cell_volume;
 }
 } // namespace
 
@@ -110,7 +108,7 @@ level_buffers_ptr make_level_buffers(const level_t level,
         flux_scratch_t{flux_register_of(record, level, ba, dm)});
     group.rk = rk_buffers_of(record, level, ba, dm);
   }
-  buffers->geometry = flux_geometry_of(level, ba, dm);
+  buffers->cell_volume = cell_volume_of(level, ba, dm);
   return level_buffers_ptr(buffers.release(),
                            [](const level_buffers_t *const p) { delete p; });
 }

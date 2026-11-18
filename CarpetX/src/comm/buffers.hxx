@@ -12,7 +12,6 @@
 #include <AMReX_FluxRegister.H>
 #include <AMReX_MultiFab.H>
 
-#include <array>
 #include <memory>
 #include <optional>
 #include <source_location>
@@ -115,14 +114,9 @@ struct group_buffers_t {
   std::optional<rk_buffers_t> rk;
 };
 
-struct flux_geometry_t {
-  std::array<amrex::MultiFab, dim> face_area;
-  amrex::MultiFab cell_volume;
-};
-
 struct level_buffers_t {
   std::vector<group_buffers_t> groups;
-  std::optional<flux_geometry_t> geometry;
+  std::optional<amrex::MultiFab> cell_volume;
 };
 
 level_buffers_ptr make_level_buffers(level_t level, const amrex::BoxArray &ba,

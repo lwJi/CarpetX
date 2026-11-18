@@ -12,6 +12,8 @@
 
 #include <AMReX_FluxRegister.H>
 #include <AMReX_Geometry.H>
+#include <AMReX_IndexType.H>
+#include <AMReX_IntVect.H>
 #include <AMReX_MultiFab.H>
 
 #include <array>
@@ -93,6 +95,8 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
   const auto *const childleveldata = child ? &patchdata.level(*child) : nullptr;
   const tl_t tl{0};
   const window_t this_level = window_t::one_level(level);
+  const std::array<CCTK_REAL, dim> area =
+      face_areas(patchdata.amrcore().Geom(level.index()));
   const flux_register_writer_t writing;
 
   for (const auto &groupdata : leveldata.groups()) {
@@ -129,8 +133,6 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
         child_freg->setVal(0);
       const int numvars = groupdata.record.numvars;
       const CCTK_REAL mult = -weight;
-      const std::array<CCTK_REAL, dim> area =
-          face_areas(patchdata.amrcore().Geom(level.index()));
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
             leveldata.group(fluxes->at(d)).timelevel(tl).mfab();
@@ -160,17 +162,14 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
     }
 
     if (own_freg) {
-      const std::optional<flux_geometry_t> &geometry =
-          buffers_of(leveldata).geometry;
-      assert(geometry);
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
             leveldata.group(fluxes->at(d)).timelevel(tl).mfab();
-        const amrex::MultiFab &area = geometry->face_area[d];
-        assert(area.ixType() == flux.ixType());
-        assert(area.DistributionMap() == flux.DistributionMap());
-        own_freg->FineAdd(flux, area, d, 0, 0, groupdata.record.numvars,
-                          +weight);
+        assert(flux.ixType() ==
+               amrex::IndexType(amrex::IntVect::TheDimensionVector(d)));
+        assert(flux.DistributionMap() == own_freg->DistributionMap());
+        own_freg->FineAdd(flux, d, 0, 0, groupdata.record.numvars,
+                          weight * area[d]);
       }
     }
   }
@@ -228,10 +227,10 @@ static void reflux_level(const level_t level) {
                                                     .keeps = make_valid_all(),
                                                     .event = "Reflux"});
     amrex::MultiFab &state = scope.mfab(level);
-    const std::optional<flux_geometry_t> &geometry =
-        buffers_of(leveldata).geometry;
-    assert(geometry);
-    const amrex::MultiFab &volume = geometry->cell_volume;
+    const std::optional<amrex::MultiFab> &cell_volume =
+        buffers_of(leveldata).cell_volume;
+    assert(cell_volume);
+    const amrex::MultiFab &volume = *cell_volume;
     assert(volume.ixType() == state.ixType());
     assert(volume.DistributionMap() == state.DistributionMap());
     correct_from_register(*reg, state, volume, groupdata.record.numvars, geom);

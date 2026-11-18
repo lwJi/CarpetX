@@ -120,7 +120,7 @@ New code goes in the layer that owns what it works on, and a lower layer never d
   - `fillpatch`: carrying data between two `MultiFab`s with an operator
   - `boundary_conditions`: applying a group's boundary conditions to one `MultiFab`
   - `prolongate_3d_rf2`: the prolongation operators, and the choice of one per group
-  - `buffers`: what `comm/` keeps on a level and its lifetime, and the one writer of each buffer: `flux_register_writer_t` of the flux registers and their scratch, `rk_source_writer_t` of the RK sources, `rk_fill_patch_writer_t` of the RK fill patches; the flux geometry has none
+  - `buffers`: what `comm/` keeps on a level and its lifetime, and the one writer of each buffer: `flux_register_writer_t` of the flux registers and their scratch, `rk_source_writer_t` of the RK sources, `rk_fill_patch_writer_t` of the RK fill patches; the cell volume has none
   - `rk_bands`: what a level holds of its parent's RK step and when it may be read, and the two patches the RK fill works in
   - `checkpoint_bands`: the bands of a level a checkpoint carries, each under its tag
   - `timelevels`: which time levels a request covers
