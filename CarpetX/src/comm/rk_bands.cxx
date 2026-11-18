@@ -58,31 +58,27 @@ rk_fill_fpinfo(const amrex::FabArrayBase &fine,
                                         fgeom, cgeom, index_space);
 }
 
-rk_bands_t::rk_bands_t(const amrex::FabArrayBase::FPinfo &fp, const int numvars,
-                       const stage_range stages)
-    : old_source_(fp.ba_crse_patch, fp.dm_patch, numvars, 0),
-      crse_patch_(fp.ba_crse_patch, fp.dm_patch, numvars, 0, amrex::MFInfo(),
-                  *fp.fact_crse_patch),
-      fine_patch_(fp.ba_fine_patch, fp.dm_patch, numvars, 0, amrex::MFInfo(),
-                  *fp.fact_fine_patch) {
+rk_sources_t::rk_sources_t(const amrex::FabArrayBase::FPinfo &fp,
+                           const int numvars, const stage_range stages)
+    : old_source_(fp.ba_crse_patch, fp.dm_patch, numvars, 0) {
   assert(!fp.ba_crse_patch.empty());
   ks_source_.reserve(stages.size());
   for ([[maybe_unused]] const stage_t stage : stages)
     ks_source_.emplace_back(fp.ba_crse_patch, fp.dm_patch, numvars, 0);
 }
 
-void rk_bands_t::store_old(const amrex::MultiFab &parent_state,
-                           const amrex::Periodicity &period,
-                           const rat64 parent_step) {
+void rk_sources_t::store_old(const amrex::MultiFab &parent_state,
+                             const amrex::Periodicity &period,
+                             const rat64 parent_step) {
   copy_interior_to_band(old_source_, parent_state, period);
   parent_step_ = parent_step;
   stages_stored_ = 0;
 }
 
-void rk_bands_t::store_stage(const stage_t stage,
-                             const amrex::MultiFab &parent_rhs,
-                             const amrex::Periodicity &period,
-                             const std::source_location site) {
+void rk_sources_t::store_stage(const stage_t stage,
+                               const amrex::MultiFab &parent_rhs,
+                               const amrex::Periodicity &period,
+                               const std::source_location site) {
   const int num_stages = int(ks_source_.size());
   const stage_range stages = rk_stages(num_stages);
   const bool is_next_stage = parent_step_ && stages_stored_ < num_stages &&
@@ -98,25 +94,26 @@ void rk_bands_t::store_stage(const stage_t stage,
   ++stages_stored_;
 }
 
-bool rk_bands_t::holds(const rat64 parent_step) const {
+bool rk_sources_t::holds(const rat64 parent_step) const {
   return parent_step_ && *parent_step_ == parent_step &&
          stages_stored_ == int(ks_source_.size());
 }
 
-std::optional<rk_bands_t::slots_t> rk_bands_t::stored(const rat64 parent_step) {
+std::optional<rk_sources_t::sources_t>
+rk_sources_t::stored(const rat64 parent_step) const {
   if (!holds(parent_step))
     return std::nullopt;
-  return slots_t{old_source_, std::span<amrex::MultiFab>(ks_source_)};
+  return sources_t{old_source_, std::span<const amrex::MultiFab>(ks_source_)};
 }
 
-rk_bands_t::slots_t rk_bands_t::restore(const rat64 parent_step) {
+rk_sources_t::slots_t rk_sources_t::restore(const rat64 parent_step) {
   parent_step_ = parent_step;
   stages_stored_ = int(ks_source_.size());
   return {old_source_, std::span<amrex::MultiFab>(ks_source_)};
 }
 
-rk_bands_t::sources_t rk_bands_t::sources(const rat64 parent_step,
-                                          const fill_site_t &where) const {
+rk_sources_t::sources_t rk_sources_t::sources(const rat64 parent_step,
+                                              const fill_site_t &where) const {
   const int num_stages = int(ks_source_.size());
   if (!holds(parent_step))
     refuse(std::source_location::current(),
@@ -129,7 +126,13 @@ rk_bands_t::sources_t rk_bands_t::sources(const rat64 parent_step,
   return {old_source_, std::span<const amrex::MultiFab>(ks_source_)};
 }
 
-amrex::MultiFab &rk_bands_t::crse_patch() { return crse_patch_; }
-amrex::MultiFab &rk_bands_t::fine_patch() { return fine_patch_; }
+rk_fill_patches_t::rk_fill_patches_t(const amrex::FabArrayBase::FPinfo &fp,
+                                     const int numvars)
+    : crse(fp.ba_crse_patch, fp.dm_patch, numvars, 0, amrex::MFInfo(),
+           *fp.fact_crse_patch),
+      fine(fp.ba_fine_patch, fp.dm_patch, numvars, 0, amrex::MFInfo(),
+           *fp.fact_fine_patch) {
+  assert(!fp.ba_crse_patch.empty());
+}
 
 } // namespace CarpetX

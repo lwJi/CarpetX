@@ -36,7 +36,7 @@ OWNS = {
     "traversal": "the run's phase, one slot per fact, each written only by a scope that `schedule/` opens. Its readers are `schedule/` and the public `active_window()`; a lower layer is told what it needs of the phase in a call. A fact about the whole run or about the grid is not a slot here.",
     "config": "what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.",
     "hierarchy": "the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject.",
-    "comm": "filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. Its `SyncGroups` takes a `requested_sync_t`, which only `SyncRequested` in `schedule/` builds, so a call from any other function does not compile, and its `SyncGhostsOnly` takes a `public_ghost_only_t`, which only the public `sync_ghosts_only` builds. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
+    "comm": "filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. Its `SyncGroups` takes a `requested_sync_t`, which only `SyncRequested` in `schedule/` builds, so a call from any other function does not compile, and its `SyncGhostsOnly` takes a `public_ghost_only_t`, which only the public `sync_ghosts_only` builds. What it keeps on a level is read const through `buffers_of`, and a buffer is opened only by the writer its `written_by` alias names. Its `restore_bands` takes a `checkpoint_read_t`, which only `read_record` in `io/` builds. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. It keeps one fact between two of the flesh's calls: the iteration of the checkpoint the parameters were recovered from, which the grid structure is then recovered from.",
@@ -74,8 +74,8 @@ STEMS = {
         "fillpatch": "carrying data between two `MultiFab`s with an operator",
         "boundary_conditions": "applying a group's boundary conditions to one `MultiFab`",
         "prolongate_3d_rf2": "the prolongation operators, and the choice of one per group",
-        "buffers": "what `comm/` keeps on a level, and its lifetime",
-        "rk_bands": "what a level holds of its parent's RK step, and when it may be read",
+        "buffers": "what `comm/` keeps on a level and its lifetime, and the one writer of each buffer: `flux_register_writer_t` of the flux registers and their scratch, `rk_source_writer_t` of the RK sources, `rk_fill_patch_writer_t` of the RK fill patches; the cell volume has none",
+        "rk_bands": "what a level holds of its parent's RK step and when it may be read, and the two patches the RK fill works in",
         "checkpoint_bands": "the bands of a level a checkpoint carries, each under its tag",
         "timelevels": "which time levels a request covers",
         "group_selection": "which of the groups asked for an exchange acts on",
@@ -118,6 +118,13 @@ GRANTS = {
     "GridPtrDesc1": ("operator<<",),
     "requested_sync_t": ("SyncRequested",),
     "public_ghost_only_t": ("sync_ghosts_only",),
+    "checkpoint_read_t": ("read_record",),
+    "flux_buffers_t": ("flux_register_writer_t",),
+    "flux_register_writer_t": ("AccumulateFluxes", "restore_bands"),
+    "rk_fill_patches_t": ("rk_fill_patch_writer_t",),
+    "rk_fill_patch_writer_t": ("FillRKBoundary",),
+    "rk_sources_t": ("rk_source_writer_t",),
+    "rk_source_writer_t": ("StoreRKOldState", "StoreRKStage", "restore_bands"),
 }
 GRANTS_HOME = READS_HOME
 GRANT_LAYERS = ("hierarchy", "comm")
@@ -642,9 +649,9 @@ RULES = (
         word=MODEL_WORD,
         allowed=never,
         text=f"{MODEL_FILE}, the header that declares the data model, has no mutable member, declares no extern variable, does not include "
-        "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but comm/'s buffers and what its cGH pointers reach, of which the rules binding and clock leave the pointer table and the clock fields to one file each, and every fact "
+        "<carpetx_rk.hxx> and names no amrex::Interpolater, amrex::BCRec or amrex::FluxRegister, so that a const hierarchy writes nothing but what its cGH pointers reach, of which the rules binding and clock leave the pointer table and the clock fields to one file each, and every fact "
         f"about the hierarchy, the epoch included, is a GHExt member changed only by a holder the table GRANTS in {GRANTS_HOME} names; what comm/ "
-        "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to a type it "
+        "builds on a level lives in comm/'s level_buffers_t, which LevelData holds through one pointer to const of a type it "
         "only forward-declares, and the integrator record is a GHExt value. It includes no yaml-cpp header, no <zlib.h> and no header of "
         f"its own layer but {MODEL_STATE_FILE}, the validity state it stores, so that a file that includes the data model receives no other concern with it: "
         "a file that opens a write scope includes hierarchy/scopes.hxx, and the format of the metadata is in io/. "

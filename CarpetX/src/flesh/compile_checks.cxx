@@ -300,6 +300,31 @@ concept writes_scratch =
       pool.slots.at(0).in_use = true;
     } || requires(Pool &pool) { pool.slots.at(0).mfab->setVal(0); };
 
+template <class Buffers>
+concept writes_buffers =
+    requires(Buffers buffers) { buffers.groups.clear(); } ||
+    requires(Buffers buffers) { buffers.groups.at(0).flux.reset(); } ||
+    requires(Buffers buffers) {
+      buffers.groups.at(0).flux->get().reg.setVal(0);
+    } ||
+    requires(Buffers buffers) {
+      buffers.groups.at(0).flux->get().scratch.setVal(0);
+    } || requires(Buffers buffers) { buffers.groups.at(0).rk.reset(); } ||
+    requires(Buffers buffers) {
+      buffers.groups.at(0)
+          .rk->sources.get()
+          .stored(std::declval<rat64>())
+          ->old.setVal(0);
+    } ||
+    requires(Buffers buffers) {
+      buffers.groups.at(0).rk->fill_patches.get().crse.setVal(0);
+    } || requires(Buffers buffers) { buffers.cell_volume.reset(); } ||
+    requires(Buffers buffers) { buffers.cell_volume->setVal(0); };
+
+template <class Group>
+concept writes_group_buffers = requires(Group group) { group.flux.reset(); } ||
+                               requires(Group group) { group.rk.reset(); };
+
 template <class Sealed, class Writer>
 concept can_open = requires(const Sealed &sealed, const Writer &writer) {
   sealed.open(writer);
@@ -311,6 +336,11 @@ concept sealed_for =
     std::is_same_v<decltype(std::declval<written_by<T, Writer> &>().get()),
                    const T &> &&
     !can_open<written_by<T, Writer>, Writer>;
+
+template <class Writer, class Sealed>
+concept opens = requires(const Writer &writer, const Sealed &sealed) {
+  writer.open(sealed);
+};
 
 template <class Scope, class... Args>
 concept hands_out_mfab = requires(Scope scope, Args... args) {
@@ -495,8 +525,91 @@ static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, int>);
 static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, component_t>);
 static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
 
-static_assert(std::is_same_v<decltype(group_buffers_t::rk_bands),
-                             std::optional<rk_bands_t>>);
+static_assert(
+    std::is_same_v<decltype(group_buffers_t::rk), std::optional<rk_buffers_t>>);
+static_assert(!std::is_default_constructible_v<rk_buffers_t>);
+static_assert(
+    sealed_for<decltype((std::declval<const group_buffers_t &>().rk->sources)),
+               rk_sources_t, rk_source_writer_t>);
+static_assert(opens<rk_source_writer_t, sealed_rk_sources_t>);
+static_assert(!opens<rk_fill_patch_writer_t, sealed_rk_sources_t>);
+static_assert(!opens<flux_register_writer_t, sealed_rk_sources_t>);
+static_assert(!opens<rk_source_writer_t, sealed_rk_fill_patches_t>);
+static_assert(!opens<rk_source_writer_t, sealed_flux_buffers_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const rk_source_writer_t &>().open(
+                       std::declval<const sealed_rk_sources_t &>())),
+                   rk_sources_t &>);
+static_assert(!std::is_default_constructible_v<rk_source_writer_t>);
+static_assert(!std::is_copy_constructible_v<rk_source_writer_t>);
+static_assert(!std::is_aggregate_v<rk_source_writer_t>);
+static_assert(std::is_same_v<decltype(std::declval<const rk_sources_t &>()
+                                          .stored(std::declval<rat64>())),
+                             std::optional<rk_sources_t::sources_t>>);
+static_assert(sealed_for<decltype((std::declval<const group_buffers_t &>()
+                                       .rk->fill_patches)),
+                         rk_fill_patches_t, rk_fill_patch_writer_t>);
+static_assert(opens<rk_fill_patch_writer_t, sealed_rk_fill_patches_t>);
+static_assert(!opens<rk_fill_patch_writer_t, sealed_flux_buffers_t>);
+static_assert(!opens<flux_register_writer_t, sealed_rk_fill_patches_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const rk_fill_patch_writer_t &>().open(
+                       std::declval<const sealed_rk_fill_patches_t &>())),
+                   rk_fill_patches_t &>);
+static_assert(!std::is_default_constructible_v<rk_fill_patch_writer_t>);
+static_assert(!std::is_copy_constructible_v<rk_fill_patch_writer_t>);
+static_assert(!std::is_aggregate_v<rk_fill_patch_writer_t>);
+static_assert(std::is_same_v<decltype((std::declval<const group_buffers_t &>()
+                                           .rk.value()
+                                           .fill_patches->crse)),
+                             const amrex::MultiFab &>);
+static_assert(std::is_same_v<decltype(level_buffers_t::cell_volume),
+                             std::optional<amrex::MultiFab>>);
+static_assert(std::is_same_v<
+              decltype((*std::declval<const level_buffers_t &>().cell_volume)),
+              const amrex::MultiFab &>);
+static_assert(std::is_same_v<decltype(group_buffers_t::flux),
+                             std::optional<sealed_flux_buffers_t>>);
+static_assert(!std::is_default_constructible_v<flux_buffers_t>);
+static_assert(
+    sealed_for<decltype((std::declval<const group_buffers_t &>().flux.value())),
+               flux_buffers_t, flux_register_writer_t>);
+static_assert(opens<flux_register_writer_t, sealed_flux_buffers_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const flux_register_writer_t &>().open(
+                       std::declval<const sealed_flux_buffers_t &>())),
+                   flux_buffers_t &>);
+static_assert(!std::is_default_constructible_v<flux_register_writer_t>);
+static_assert(!std::is_copy_constructible_v<flux_register_writer_t>);
+static_assert(!std::is_aggregate_v<flux_register_writer_t>);
+static_assert(
+    std::is_same_v<
+        decltype((std::declval<const group_buffers_t &>().flux.value()->reg)),
+        const amrex::FluxRegister &>);
+static_assert(std::is_same_v<decltype((std::declval<const group_buffers_t &>()
+                                           .flux.value()
+                                           ->scratch)),
+                             const amrex::FluxRegister &>);
+static_assert(std::is_const_v<level_buffers_ptr::element_type>);
+static_assert(
+    std::is_same_v<decltype(buffers_of(
+                       std::declval<const GHExt::PatchData::LevelData &>())),
+                   const level_buffers_t &>);
+static_assert(
+    std::is_same_v<
+        decltype(buffers_of(std::declval<const GHExt::PatchData::LevelData &>(),
+                            std::declval<gi_t>())),
+        const group_buffers_t &>);
+static_assert(writes_buffers<level_buffers_t &>);
+static_assert(!writes_buffers<decltype(buffers_of(
+                  std::declval<const GHExt::PatchData::LevelData &>()))>);
+static_assert(!writes_buffers<decltype(buffers_of(
+                  std::declval<GHExt::PatchData::LevelData &>()))>);
+static_assert(!writes_buffers<decltype(*std::declval<level_buffers_ptr &>())>);
+static_assert(writes_group_buffers<group_buffers_t &>);
+static_assert(
+    !writes_group_buffers<decltype(buffers_of(
+        std::declval<GHExt::PatchData::LevelData &>(), std::declval<gi_t>()))>);
 
 static_assert(
     std::is_same_v<decltype(grid_buffer_t::mfab), const amrex::MultiFab *>);
@@ -508,9 +621,10 @@ static_assert(std::is_same_v<decltype(checkpoint_bands(std::declval<level_t>(),
                                                        std::declval<gi_t>(),
                                                        std::declval<rat64>())),
                              std::vector<checkpoint_band_t>>);
-static_assert(std::is_same_v<decltype(restore_bands(std::declval<level_t>(),
-                                                    std::declval<gi_t>(),
-                                                    std::declval<rat64>())),
+static_assert(std::is_same_v<decltype(restore_bands(
+                                 std::declval<level_t>(), std::declval<gi_t>(),
+                                 std::declval<rat64>(),
+                                 std::declval<const checkpoint_read_t &>())),
                              std::vector<restore_band_t>>);
 
 static_assert(accumulate_fluxes_takes<level_t, stage_t, CCTK_REAL>);
@@ -576,19 +690,29 @@ static_assert(!checkpoint_bands_takes<level_t, gi_t>);
 static_assert(!checkpoint_bands_takes<int, int, gi_t, rat64>);
 static_assert(!checkpoint_bands_takes<level_t, int, rat64>);
 
-static_assert(restore_bands_takes<level_t, gi_t, rat64>);
+static_assert(
+    restore_bands_takes<level_t, gi_t, rat64, const checkpoint_read_t &>);
+static_assert(!restore_bands_takes<level_t, gi_t, rat64>);
 static_assert(!restore_bands_takes<level_t, gi_t>);
-static_assert(!restore_bands_takes<level_t, int, rat64>);
-static_assert(!restore_bands_takes<int, int, gi_t, rat64>);
-static_assert(bands_stored_takes<rk_bands_t, rat64>);
-static_assert(!bands_stored_takes<rk_bands_t>);
-static_assert(bands_restore_takes<rk_bands_t, rat64>);
-static_assert(!bands_restore_takes<rk_bands_t>);
-static_assert(!bands_holds_takes<rk_bands_t, rat64>);
-static_assert(bands_sources_takes<rk_bands_t, rat64, fill_site_t>);
-static_assert(!bands_sources_takes<rk_bands_t>);
-static_assert(!reaches_bands_parent_step<rk_bands_t>);
-static_assert(!reaches_bands_stages_stored<rk_bands_t>);
+static_assert(
+    !restore_bands_takes<level_t, int, rat64, const checkpoint_read_t &>);
+static_assert(
+    !restore_bands_takes<int, int, gi_t, rat64, const checkpoint_read_t &>);
+static_assert(
+    !restore_bands_takes<level_t, gi_t, rat64, const requested_sync_t &>);
+static_assert(!std::is_default_constructible_v<checkpoint_read_t>);
+static_assert(!std::is_copy_constructible_v<checkpoint_read_t>);
+static_assert(!std::is_aggregate_v<checkpoint_read_t>);
+static_assert(bands_stored_takes<rk_sources_t, rat64>);
+static_assert(bands_stored_takes<const rk_sources_t, rat64>);
+static_assert(!bands_stored_takes<rk_sources_t>);
+static_assert(bands_restore_takes<rk_sources_t, rat64>);
+static_assert(!bands_restore_takes<rk_sources_t>);
+static_assert(!bands_holds_takes<rk_sources_t, rat64>);
+static_assert(bands_sources_takes<rk_sources_t, rat64, fill_site_t>);
+static_assert(!bands_sources_takes<rk_sources_t>);
+static_assert(!reaches_bands_parent_step<rk_sources_t>);
+static_assert(!reaches_bands_stages_stored<rk_sources_t>);
 
 static_assert(finer_behind_takes<level_t>);
 static_assert(!finer_behind_takes<int, int>);
@@ -690,9 +814,9 @@ static_assert(std::is_same_v<decltype(Restrict), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateAfterRestriction), void(window_t)>);
 static_assert(std::is_same_v<decltype(RestrictNoPoison), comm_groups_entry_t>);
-static_assert(std::is_same_v<decltype(SyncGroups),
-                             void(window_t, std::span<const gi_t>,
-                                  const requested_sync_t &)>);
+static_assert(
+    std::is_same_v<decltype(SyncGroups), void(window_t, std::span<const gi_t>,
+                                              const requested_sync_t &)>);
 static_assert(sync_groups_takes<window_t, std::span<const gi_t>,
                                 const requested_sync_t &>);
 static_assert(!sync_groups_takes<window_t, std::span<const gi_t>>);

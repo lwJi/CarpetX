@@ -2493,8 +2493,8 @@ class Doc(unittest.TestCase):
                 self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
         found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
         self.assertEqual(sorted(set(found)), sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
-        self.assertEqual(len(found), 35)
-        self.assertEqual(len(set(found)), 34)
+        self.assertEqual(len(found), 45)
+        self.assertEqual(len(set(found)), 44)
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):
@@ -2707,8 +2707,8 @@ class Doc(unittest.TestCase):
                 "  - `fillpatch`: carrying data between two `MultiFab`s with an operator",
                 "  - `boundary_conditions`: applying a group's boundary conditions to one `MultiFab`",
                 "  - `prolongate_3d_rf2`: the prolongation operators, and the choice of one per group",
-                "  - `buffers`: what `comm/` keeps on a level, and its lifetime",
-                "  - `rk_bands`: what a level holds of its parent's RK step, and when it may be read",
+                "  - `buffers`: what `comm/` keeps on a level and its lifetime, and the one writer of each buffer: `flux_register_writer_t` of the flux registers and their scratch, `rk_source_writer_t` of the RK sources, `rk_fill_patch_writer_t` of the RK fill patches; the cell volume has none",
+                "  - `rk_bands`: what a level holds of its parent's RK step and when it may be read, and the two patches the RK fill works in",
                 "  - `checkpoint_bands`: the bands of a level a checkpoint carries, each under its tag",
                 "  - `timelevels`: which time levels a request covers",
                 "  - `group_selection`: which of the groups asked for an exchange acts on",
@@ -3114,7 +3114,7 @@ class Stems(unittest.TestCase):
                 self.assertEqual(doc.declared_names(text), declared)
                 self.assertEqual(doc.declared_names(text, forward=False), defined)
         declared, defined = doc.stem_declarations(), doc.stem_declarations(forward=False)
-        self.assertEqual({header for header in declared if declared[header] != defined[header]}, {layer_path("hierarchy", "model.hxx"), layer_path("hierarchy", "binding.hxx")})
+        self.assertEqual({header for header in declared if declared[header] != defined[header]}, {layer_path("hierarchy", "model.hxx"), layer_path("hierarchy", "binding.hxx"), layer_path("comm", "buffers.hxx"), layer_path("comm", "checkpoint_bands.hxx")})
         for text, line in [
             ("int a;\nvoid (*handler)(int);\n", 2),
             ("\n\nstruct {\n  int x;\n} anonymous;\n", 3),

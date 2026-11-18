@@ -299,6 +299,8 @@ struct need_t {
 };
 
 struct target_sink_t final : buffer_visitor_t {
+  explicit target_sink_t(const checkpoint_read_t &reading) : reading(reading) {}
+
   void state(const GHExt::PatchData::LevelData::GroupData &groupdata,
              const tl_t tl) override {
     needs.push_back(
@@ -315,7 +317,8 @@ struct target_sink_t final : buffer_visitor_t {
   void bands(const level_t level, const gi_t gi,
              const rat64 parent_step) override {
     const GHExt::GroupRecord &group = driver().record(gi);
-    for (const auto &[tag, band] : restore_bands(level, gi, parent_step)) {
+    for (const auto &[tag, band] :
+         restore_bands(level, gi, parent_step, reading)) {
       assert(band->nGrowVect() == 0);
       needs.push_back(
           {.id = buffer_id(group, level, tag), .from = grid_target_t{band}});
@@ -335,6 +338,7 @@ struct target_sink_t final : buffer_visitor_t {
              .shape = array_shape(arraydata)}});
   }
 
+  const checkpoint_read_t &reading;
   std::vector<need_t> needs;
 };
 
@@ -425,8 +429,7 @@ checkpoint_record_t build_record(const cGH *const cctkGH,
   return record;
 }
 
-void apply_structure(checkpoint_record_t &record,
-                     structure_writer_t &structure,
+void apply_structure(checkpoint_record_t &record, structure_writer_t &structure,
                      const std::source_location site) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -461,7 +464,8 @@ void read_record(checkpoint_codec_t &codec, const checkpoint_record_t &record,
                  const group_selection_t &selection, const bool restartable,
                  const std::string &dir, const std::string &file,
                  const std::string &event, const std::source_location site) {
-  target_sink_t sink;
+  const checkpoint_read_t reading;
+  target_sink_t sink(reading);
   for_each_buffer(record, selection, restartable, codec.limits(), sink);
   const std::vector<need_t> &needs = sink.needs;
 

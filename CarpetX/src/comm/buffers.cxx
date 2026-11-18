@@ -11,6 +11,7 @@
 
 #include <AMReX_FabArrayBase.H>
 #include <AMReX_FluxRegister.H>
+#include <AMReX_Geometry.H>
 #include <AMReX_IntVect.H>
 #include <AMReX_MultiFab.H>
 
@@ -19,28 +20,25 @@
 #include <memory>
 #include <optional>
 #include <source_location>
+#include <utility>
 
 namespace CarpetX {
 
-namespace {
-std::unique_ptr<amrex::FluxRegister>
-flux_register_of(const GHExt::GroupRecord &record, const level_t level,
-                 const amrex::BoxArray &ba,
-                 const amrex::DistributionMapping &dm) {
-  if (level.index() == 0 || !group_has_flux_register(record.groupindex))
-    return nullptr;
-  const amrex::IntVect ratio =
-      driver().patch(level.patch()).amrcore().refRatio(level.parent().index());
-  auto freg = std::make_unique<amrex::FluxRegister>(
-      ba, dm, ratio, level.index(), record.numvars);
-  freg->setVal(0);
-  return freg;
+flux_buffers_t::flux_buffers_t(const amrex::BoxArray &ba,
+                               const amrex::DistributionMapping &dm,
+                               const amrex::IntVect &ratio,
+                               const int fine_level, const int numvars)
+    : reg(ba, dm, ratio, fine_level, numvars),
+      scratch(ba, dm, ratio, fine_level, numvars) {
+  reg.setVal(0);
+  scratch.setVal(0);
 }
 
-std::optional<rk_bands_t> rk_bands_of(const GHExt::GroupRecord &record,
-                                      const level_t level,
-                                      const amrex::BoxArray &ba,
-                                      const amrex::DistributionMapping &dm) {
+namespace {
+
+std::optional<rk_buffers_t>
+rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
+              const amrex::BoxArray &ba, const amrex::DistributionMapping &dm) {
   const GHExt &ext = driver();
   const gi_t gi = record.groupindex;
   if (!ext.use_subcycling || level.index() == 0 || !group_is_integrated(gi))
@@ -62,16 +60,35 @@ std::optional<rk_bands_t> rk_bands_of(const GHExt::GroupRecord &record,
       amrcore.Geom(level.parent().index()));
   if (fp.ba_crse_patch.empty())
     return std::nullopt;
-  return std::optional<rk_bands_t>(std::in_place, fp, record.numvars,
-                                   registered_stages());
+  return std::optional<rk_buffers_t>(std::in_place, fp, record.numvars,
+                                     registered_stages());
+}
+
+std::optional<amrex::MultiFab>
+cell_volume_of(const level_t level, const amrex::BoxArray &ba,
+               const amrex::DistributionMapping &dm) {
+  const GHExt &ext = driver();
+  if (!ext.do_reflux)
+    return std::nullopt;
+  bool any_flux_register = false;
+  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()}))
+    any_flux_register = any_flux_register || group_has_flux_register(gi);
+  if (!any_flux_register)
+    return std::nullopt;
+  assert(ba.ixType().cellCentered());
+  const amrex::Geometry &geom =
+      ext.patch(level.patch()).amrcore().Geom(level.index());
+  std::optional<amrex::MultiFab> cell_volume(std::in_place);
+  geom.GetVolume(*cell_volume, ba, dm, 0);
+  return cell_volume;
 }
 } // namespace
 
 level_buffers_ptr make_level_buffers(const level_t level,
                                      const amrex::BoxArray &ba,
                                      const amrex::DistributionMapping &dm) {
-  level_buffers_ptr buffers(new level_buffers_t,
-                            [](level_buffers_t *const p) { delete p; });
+  std::unique_ptr<level_buffers_t> buffers =
+      std::make_unique<level_buffers_t>();
   const int numgroups = CCTK_NumGroups();
   buffers->groups.resize(numgroups);
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
@@ -82,19 +99,29 @@ level_buffers_ptr make_level_buffers(const level_t level,
       CCTK_VERROR("Group %s has no prolongation operator",
                   record.groupname.c_str());
     group_buffers_t &group = buffers->groups.at(gi.index());
-    group.freg = flux_register_of(record, level, ba, dm);
-    group.rk_bands = rk_bands_of(record, level, ba, dm);
+    if (level.index() > 0 && group_has_flux_register(gi))
+      group.flux.emplace(std::in_place, ba, dm,
+                         driver()
+                             .patch(level.patch())
+                             .amrcore()
+                             .refRatio(level.parent().index()),
+                         level.index(), record.numvars);
+    group.rk = rk_buffers_of(record, level, ba, dm);
   }
-  return buffers;
+  buffers->cell_volume = cell_volume_of(level, ba, dm);
+  return level_buffers_ptr(buffers.release(),
+                           [](const level_buffers_t *const p) { delete p; });
 }
 
-level_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata) {
+const level_buffers_t &
+buffers_of(const GHExt::PatchData::LevelData &leveldata) {
   assert(leveldata.buffers);
   return *leveldata.buffers;
 }
 
-group_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata,
-                            const gi_t gi, const std::source_location site) {
+const group_buffers_t &buffers_of(const GHExt::PatchData::LevelData &leveldata,
+                                  const gi_t gi,
+                                  const std::source_location site) {
   leveldata.group(gi, site);
   return buffers_of(leveldata).groups.at(gi.index());
 }

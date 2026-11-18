@@ -45,8 +45,9 @@ using GroupData = GHExt::PatchData::LevelData::GroupData;
 
 template <int RKSTAGES>
 void rk_dense_output_impl(amrex::MultiFab &crse_patch,
-                          const rk_bands_t::sources_t src, const stage_t stage,
-                          const CCTK_REAL xsi, const CCTK_REAL dtc) {
+                          const rk_sources_t::sources_t src,
+                          const stage_t stage, const CCTK_REAL xsi,
+                          const CCTK_REAL dtc) {
   static_assert(RKSTAGES == 3 || RKSTAGES == 4,
                 "rk_dense_output only supports RKSTAGES == 3 or 4");
   const stage_range stages = rk_stages(RKSTAGES);
@@ -222,7 +223,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
 }
 
 void rk_dense_output(amrex::MultiFab &crse_patch,
-                     const rk_bands_t::sources_t src,
+                     const rk_sources_t::sources_t src,
                      const rk_dense_output_t dense_output, const stage_t stage,
                      const CCTK_REAL xsi, const CCTK_REAL dtc) {
   switch (dense_output) {
@@ -240,12 +241,12 @@ void rk_dense_output(amrex::MultiFab &crse_patch,
 }
 
 [[maybe_unused]] bool
-bands_match_footprint(std::optional<rk_bands_t> &bands,
+bands_match_footprint(const std::optional<rk_buffers_t> &rk,
                       const amrex::FabArrayBase::FPinfo &fp) {
-  if (!bands)
+  if (!rk)
     return fp.ba_crse_patch.empty();
-  return bands->crse_patch().boxArray() == fp.ba_crse_patch &&
-         bands->fine_patch().boxArray() == fp.ba_fine_patch;
+  return rk->fill_patches->crse.boxArray() == fp.ba_crse_patch &&
+         rk->fill_patches->fine.boxArray() == fp.ba_fine_patch;
 }
 
 } // namespace
@@ -258,6 +259,7 @@ void StoreRKOldState(const level_t level,
   const std::optional<level_t> child = level.child();
   const amrex::Periodicity &period =
       patchdata.amrcore().Geom(level.index()).periodicity();
+  const rk_source_writer_t storing;
 
   for (const gi_t gi : var_groups) {
     const GroupData &groupdata = leveldata.group(gi);
@@ -268,12 +270,13 @@ void StoreRKOldState(const level_t level,
                   CCTK_FullGroupName(gi.index()));
     if (!child)
       continue;
-    std::optional<rk_bands_t> &bands =
-        buffers_of(patchdata.level(*child), gi).rk_bands;
-    if (!bands)
+    const std::optional<rk_buffers_t> &rk =
+        buffers_of(patchdata.level(*child), gi).rk;
+    if (!rk)
       continue;
-    bands->store_old(groupdata.timelevel(tl).mfab(), period,
-                     leveldata.iteration());
+    storing.open(rk->sources)
+        .store_old(groupdata.timelevel(tl).mfab(), period,
+                   leveldata.iteration());
   }
 }
 
@@ -290,15 +293,17 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
   const auto &childleveldata = patchdata.level(*child);
   const amrex::Periodicity &period =
       patchdata.amrcore().Geom(level.index()).periodicity();
+  const rk_source_writer_t storing;
 
   for (size_t i = 0; i < var_groups.size(); ++i) {
-    std::optional<rk_bands_t> &bands =
-        buffers_of(childleveldata, var_groups[i]).rk_bands;
+    const std::optional<rk_buffers_t> &rk =
+        buffers_of(childleveldata, var_groups[i]).rk;
     const GroupData &rhs_groupdata = leveldata.group(rhs_groups[i]);
-    if (!bands)
+    if (!rk)
       continue;
-    bands->store_stage(stage, rhs_groupdata.timelevel(tl_t{0}).mfab(), period,
-                       std::source_location::current());
+    storing.open(rk->sources)
+        .store_stage(stage, rhs_groupdata.timelevel(tl_t{0}).mfab(), period,
+                     std::source_location::current());
   }
 }
 
@@ -321,8 +326,8 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   const bool substep_done = completed == stages.last();
   const stage_t stage = substep_done ? stages.first() : next_index(completed);
   const CCTK_REAL xsi = CCTK_REAL(substep_done ? substep.end : substep.begin);
-  const CCTK_REAL dtc = ext.run_clock().delta_time *
-                        CCTK_REAL(coarseleveldata.delta_iteration());
+  const CCTK_REAL dtc =
+      ext.run_clock().delta_time * CCTK_REAL(coarseleveldata.delta_iteration());
   assert(std::isfinite(dtc) && dtc > 0);
 
   const window_t window = window_t::one_level(child);
@@ -338,6 +343,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   task_manager tasks1;
   task_manager tasks2;
   task_manager tasks3;
+  const rk_fill_patch_writer_t filling;
 
   for (const gi_t gi : states) {
     const GroupData &groupdata = leveldata.group(gi);
@@ -353,16 +359,17 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
     if (mfab.nGrowVect().max() == 0)
       continue;
 
-    std::optional<rk_bands_t> &bands = buffers_of(leveldata, gi).rk_bands;
+    const std::optional<rk_buffers_t> &rk = buffers_of(leveldata, gi).rk;
     assert(bands_match_footprint(
-        bands,
+        rk,
         rk_fill_fpinfo(mfab, interpolator_of(groupdata.record), fgeom, cgeom)));
-    if (!bands)
+    if (!rk)
       continue;
-    const rk_bands_t::sources_t src =
-        bands->sources(coarseleveldata.iteration(), {child, gi});
-    amrex::MultiFab &crse_patch = bands->crse_patch();
-    amrex::MultiFab &fine_patch = bands->fine_patch();
+    const rk_sources_t::sources_t src =
+        rk->sources.get().sources(coarseleveldata.iteration(), {child, gi});
+    rk_fill_patches_t &patches = filling.open(rk->fill_patches);
+    amrex::MultiFab &crse_patch = patches.crse;
+    amrex::MultiFab &fine_patch = patches.fine;
 
     tasks1.submit_serially([&crse_patch, src, dense_output, stage, xsi, dtc]() {
       rk_dense_output(crse_patch, src, dense_output, stage, xsi, dtc);

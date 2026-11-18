@@ -24,10 +24,10 @@ struct fill_site_t {
   gi_t gi;
 };
 
-class rk_bands_t {
+class rk_sources_t {
 public:
-  rk_bands_t(const amrex::FabArrayBase::FPinfo &fp, int numvars,
-             stage_range stages);
+  rk_sources_t(const amrex::FabArrayBase::FPinfo &fp, int numvars,
+               stage_range stages);
 
   void store_old(const amrex::MultiFab &parent_state,
                  const amrex::Periodicity &period, rat64 parent_step);
@@ -44,20 +44,22 @@ public:
     amrex::MultiFab &old;
     std::span<amrex::MultiFab> ks;
   };
-  std::optional<slots_t> stored(rat64 parent_step);
+  std::optional<sources_t> stored(rat64 parent_step) const;
   slots_t restore(rat64 parent_step);
-
-  amrex::MultiFab &crse_patch();
-  amrex::MultiFab &fine_patch();
 
 private:
   bool holds(rat64 parent_step) const;
 
   amrex::MultiFab old_source_;
   std::vector<amrex::MultiFab> ks_source_;
-  amrex::MultiFab crse_patch_, fine_patch_;
   std::optional<rat64> parent_step_;
   int stages_stored_ = 0;
+};
+
+struct rk_fill_patches_t {
+  rk_fill_patches_t(const amrex::FabArrayBase::FPinfo &fp, int numvars);
+
+  amrex::MultiFab crse, fine;
 };
 
 const amrex::FabArrayBase::FPinfo &
