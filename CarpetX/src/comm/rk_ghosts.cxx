@@ -1,5 +1,4 @@
 #include "comm/rk_ghosts.hxx"
-#include "comm/rk_ghosts_inside.hxx"
 
 #include "config/indices.hxx"
 #include "hierarchy/model.hxx"
@@ -45,6 +44,9 @@ namespace CarpetX {
 namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
+
+constexpr CCTK_REAL rk_substep_ratio = CCTK_REAL(1) / time_refinement;
+static_assert(rk_substep_ratio * time_refinement == 1);
 
 template <int RKSTAGES>
 void rk_dense_output_impl(amrex::MultiFab &crse_patch,
