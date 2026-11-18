@@ -8,8 +8,11 @@
 #include "comm/rk_bands.hxx"
 #include <carpetx.hxx>
 
+#include <AMReX_BoxArray.H>
+#include <AMReX_DistributionMapping.H>
 #include <AMReX_FabArrayBase.H>
 #include <AMReX_FluxRegister.H>
+#include <AMReX_IntVect.H>
 #include <AMReX_MultiFab.H>
 
 #include <memory>
@@ -25,19 +28,17 @@ namespace CarpetX {
 struct restore_band_t;
 class checkpoint_read_t;
 
-struct flux_registers_t {
-  const_propagating_ptr<amrex::FluxRegister> reg;
-};
+struct flux_buffers_t {
+  flux_buffers_t(const amrex::BoxArray &ba,
+                 const amrex::DistributionMapping &dm,
+                 const amrex::IntVect &ratio, int fine_level, int numvars);
 
-struct flux_scratch_t {
-  const_propagating_ptr<amrex::FluxRegister> reg;
+  amrex::FluxRegister reg, scratch;
 };
 
 class flux_register_writer_t;
-using sealed_flux_registers_t =
-    written_by<flux_registers_t, flux_register_writer_t>;
-using sealed_flux_scratch_t =
-    written_by<flux_scratch_t, flux_register_writer_t>;
+using sealed_flux_buffers_t =
+    written_by<flux_buffers_t, flux_register_writer_t>;
 
 class flux_register_writer_t {
   flux_register_writer_t() = default;
@@ -50,10 +51,7 @@ public:
   flux_register_writer_t(const flux_register_writer_t &) = delete;
   flux_register_writer_t &operator=(const flux_register_writer_t &) = delete;
 
-  flux_registers_t &open(const sealed_flux_registers_t &sealed) const {
-    return sealed.open(*this);
-  }
-  flux_scratch_t &open(const sealed_flux_scratch_t &sealed) const {
+  flux_buffers_t &open(const sealed_flux_buffers_t &sealed) const {
     return sealed.open(*this);
   }
 };
@@ -109,8 +107,7 @@ struct rk_buffers_t {
 };
 
 struct group_buffers_t {
-  sealed_flux_registers_t registers;
-  sealed_flux_scratch_t scratch;
+  std::optional<sealed_flux_buffers_t> flux;
   std::optional<rk_buffers_t> rk;
 };
 

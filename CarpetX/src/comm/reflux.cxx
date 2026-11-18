@@ -106,13 +106,16 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
       continue;
     const gi_t gi = groupdata.record.groupindex;
 
-    amrex::FluxRegister *const child_freg =
-        childleveldata
-            ? writing.open(buffers_of(*childleveldata, gi).registers).reg.get()
-            : nullptr;
-    amrex::FluxRegister *const own_freg =
-        writing.open(buffers_of(leveldata, gi).registers).reg.get();
-    if (!child_freg && !own_freg)
+    const auto opened =
+        [&](const GHExt::PatchData::LevelData &holder) -> flux_buffers_t * {
+      const std::optional<sealed_flux_buffers_t> &flux =
+          buffers_of(holder, gi).flux;
+      return flux ? &writing.open(*flux) : nullptr;
+    };
+    flux_buffers_t *const child_flux =
+        childleveldata ? opened(*childleveldata) : nullptr;
+    flux_buffers_t *const own_flux = opened(leveldata);
+    if (!child_flux && !own_flux)
       continue;
 
     for (int d = 0; d < dim; ++d) {
@@ -125,12 +128,11 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
                            .event = buf.str()});
     }
 
-    if (child_freg) {
-      amrex::FluxRegister *const child_scratch =
-          writing.open(buffers_of(*childleveldata, gi).scratch).reg.get();
-      assert(child_scratch);
+    if (child_flux) {
+      amrex::FluxRegister &child_freg = child_flux->reg;
+      amrex::FluxRegister &child_scratch = child_flux->scratch;
       if (stage == stages.first())
-        child_freg->setVal(0);
+        child_freg.setVal(0);
       const int numvars = groupdata.record.numvars;
       const CCTK_REAL mult = -weight;
       for (int d = 0; d < dim; ++d) {
@@ -140,8 +142,8 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
         for (const auto side :
              {amrex::Orientation::low, amrex::Orientation::high}) {
           const amrex::Orientation face(d, side);
-          amrex::FabSet &scratch = (*child_scratch)[face];
-          amrex::FabSet &reg = (*child_freg)[face];
+          amrex::FabSet &scratch = child_scratch[face];
+          amrex::FabSet &reg = child_freg[face];
           assert(scratch.boxArray() == reg.boxArray());
           assert(scratch.DistributionMap() == reg.DistributionMap());
           assert(scratch.nComp() == numvars && reg.nComp() == numvars);
@@ -161,15 +163,16 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
       }
     }
 
-    if (own_freg) {
+    if (own_flux) {
+      amrex::FluxRegister &own_freg = own_flux->reg;
       for (int d = 0; d < dim; ++d) {
         const amrex::MultiFab &flux =
             leveldata.group(fluxes->at(d)).timelevel(tl).mfab();
         assert(flux.ixType() ==
                amrex::IndexType(amrex::IntVect::TheDimensionVector(d)));
-        assert(flux.DistributionMap() == own_freg->DistributionMap());
-        own_freg->FineAdd(flux, d, 0, 0, groupdata.record.numvars,
-                          weight * area[d]);
+        assert(flux.DistributionMap() == own_freg.DistributionMap());
+        own_freg.FineAdd(flux, d, 0, 0, groupdata.record.numvars,
+                         weight * area[d]);
       }
     }
   }
@@ -203,10 +206,9 @@ static void reflux_level(const level_t level) {
 
   for (const auto &groupdata : leveldata.groups()) {
     const gi_t gi = groupdata.record.groupindex;
-    const group_buffers_t &finebuffers = buffers_of(fineleveldata, gi);
-
-    const amrex::FluxRegister *const reg = finebuffers.registers->reg.get();
-    if (!reg)
+    const std::optional<sealed_flux_buffers_t> &fineflux =
+        buffers_of(fineleveldata, gi).flux;
+    if (!fineflux)
       continue;
 
     if (verbose)
@@ -233,7 +235,8 @@ static void reflux_level(const level_t level) {
     const amrex::MultiFab &volume = *cell_volume;
     assert(volume.ixType() == state.ixType());
     assert(volume.DistributionMap() == state.DistributionMap());
-    correct_from_register(*reg, state, volume, groupdata.record.numvars, geom);
+    correct_from_register(fineflux->get().reg, state, volume,
+                          groupdata.record.numvars, geom);
   }
 }
 

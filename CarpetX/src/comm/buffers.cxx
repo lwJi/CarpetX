@@ -24,20 +24,17 @@
 
 namespace CarpetX {
 
-namespace {
-std::unique_ptr<amrex::FluxRegister>
-flux_register_of(const GHExt::GroupRecord &record, const level_t level,
-                 const amrex::BoxArray &ba,
-                 const amrex::DistributionMapping &dm) {
-  if (level.index() == 0 || !group_has_flux_register(record.groupindex))
-    return nullptr;
-  const amrex::IntVect ratio =
-      driver().patch(level.patch()).amrcore().refRatio(level.parent().index());
-  auto freg = std::make_unique<amrex::FluxRegister>(
-      ba, dm, ratio, level.index(), record.numvars);
-  freg->setVal(0);
-  return freg;
+flux_buffers_t::flux_buffers_t(const amrex::BoxArray &ba,
+                               const amrex::DistributionMapping &dm,
+                               const amrex::IntVect &ratio,
+                               const int fine_level, const int numvars)
+    : reg(ba, dm, ratio, fine_level, numvars),
+      scratch(ba, dm, ratio, fine_level, numvars) {
+  reg.setVal(0);
+  scratch.setVal(0);
 }
+
+namespace {
 
 std::optional<rk_buffers_t>
 rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
@@ -102,10 +99,13 @@ level_buffers_ptr make_level_buffers(const level_t level,
       CCTK_VERROR("Group %s has no prolongation operator",
                   record.groupname.c_str());
     group_buffers_t &group = buffers->groups.at(gi.index());
-    group.registers = sealed_flux_registers_t(
-        flux_registers_t{flux_register_of(record, level, ba, dm)});
-    group.scratch = sealed_flux_scratch_t(
-        flux_scratch_t{flux_register_of(record, level, ba, dm)});
+    if (level.index() > 0 && group_has_flux_register(gi))
+      group.flux.emplace(std::in_place, ba, dm,
+                         driver()
+                             .patch(level.patch())
+                             .amrcore()
+                             .refRatio(level.parent().index()),
+                         level.index(), record.numvars);
     group.rk = rk_buffers_of(record, level, ba, dm);
   }
   buffers->cell_volume = cell_volume_of(level, ba, dm);

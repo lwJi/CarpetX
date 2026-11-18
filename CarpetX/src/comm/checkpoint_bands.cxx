@@ -70,9 +70,10 @@ checkpoint_bands(const level_t level, const gi_t gi, const rat64 parent_step) {
   if (!child)
     return {};
   const group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
+  const std::optional<sealed_flux_buffers_t> &flux = childbuffers.flux;
   const std::optional<rk_buffers_t> &rk = childbuffers.rk;
   return list_bands<checkpoint_band_t>(
-      childbuffers.registers->reg.get(),
+      flux ? &flux->get().reg : nullptr,
       rk ? rk->sources.get().stored(parent_step) : std::nullopt);
 }
 
@@ -85,9 +86,10 @@ std::vector<restore_band_t> restore_bands(const level_t level, const gi_t gi,
   const flux_register_writer_t writing;
   const rk_source_writer_t storing;
   const group_buffers_t &childbuffers = buffers_of(driver().level(*child), gi);
+  const std::optional<sealed_flux_buffers_t> &flux = childbuffers.flux;
   const std::optional<rk_buffers_t> &rk = childbuffers.rk;
   return list_bands<restore_band_t>(
-      writing.open(childbuffers.registers).reg.get(),
+      flux ? &writing.open(*flux).reg : nullptr,
       rk ? std::optional<rk_sources_t::slots_t>(
                storing.open(rk->sources).restore(parent_step))
          : std::nullopt);

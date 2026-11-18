@@ -303,13 +303,12 @@ concept writes_scratch =
 template <class Buffers>
 concept writes_buffers =
     requires(Buffers buffers) { buffers.groups.clear(); } ||
-    requires(Buffers buffers) { buffers.groups.at(0).registers = {}; } ||
-    requires(Buffers buffers) { buffers.groups.at(0).scratch = {}; } ||
+    requires(Buffers buffers) { buffers.groups.at(0).flux.reset(); } ||
     requires(Buffers buffers) {
-      buffers.groups.at(0).registers->reg->setVal(0);
+      buffers.groups.at(0).flux->get().reg.setVal(0);
     } ||
     requires(Buffers buffers) {
-      buffers.groups.at(0).scratch->reg->setVal(0);
+      buffers.groups.at(0).flux->get().scratch.setVal(0);
     } || requires(Buffers buffers) { buffers.groups.at(0).rk.reset(); } ||
     requires(Buffers buffers) {
       buffers.groups.at(0)
@@ -323,10 +322,8 @@ concept writes_buffers =
     requires(Buffers buffers) { buffers.cell_volume->setVal(0); };
 
 template <class Group>
-concept writes_group_buffers =
-    requires(Group group) { group.registers = {}; } || requires(Group group) {
-      group.scratch = {};
-    } || requires(Group group) { group.rk.reset(); };
+concept writes_group_buffers = requires(Group group) { group.flux.reset(); } ||
+                               requires(Group group) { group.rk.reset(); };
 
 template <class Sealed, class Writer>
 concept can_open = requires(const Sealed &sealed, const Writer &writer) {
@@ -538,8 +535,7 @@ static_assert(opens<rk_source_writer_t, sealed_rk_sources_t>);
 static_assert(!opens<rk_fill_patch_writer_t, sealed_rk_sources_t>);
 static_assert(!opens<flux_register_writer_t, sealed_rk_sources_t>);
 static_assert(!opens<rk_source_writer_t, sealed_rk_fill_patches_t>);
-static_assert(!opens<rk_source_writer_t, sealed_flux_registers_t>);
-static_assert(!opens<rk_source_writer_t, sealed_flux_scratch_t>);
+static_assert(!opens<rk_source_writer_t, sealed_flux_buffers_t>);
 static_assert(
     std::is_same_v<decltype(std::declval<const rk_source_writer_t &>().open(
                        std::declval<const sealed_rk_sources_t &>())),
@@ -554,7 +550,7 @@ static_assert(sealed_for<decltype((std::declval<const group_buffers_t &>()
                                        .rk->fill_patches)),
                          rk_fill_patches_t, rk_fill_patch_writer_t>);
 static_assert(opens<rk_fill_patch_writer_t, sealed_rk_fill_patches_t>);
-static_assert(!opens<rk_fill_patch_writer_t, sealed_flux_registers_t>);
+static_assert(!opens<rk_fill_patch_writer_t, sealed_flux_buffers_t>);
 static_assert(!opens<flux_register_writer_t, sealed_rk_fill_patches_t>);
 static_assert(
     std::is_same_v<decltype(std::declval<const rk_fill_patch_writer_t &>().open(
@@ -572,31 +568,28 @@ static_assert(std::is_same_v<decltype(level_buffers_t::cell_volume),
 static_assert(std::is_same_v<
               decltype((*std::declval<const level_buffers_t &>().cell_volume)),
               const amrex::MultiFab &>);
+static_assert(std::is_same_v<decltype(group_buffers_t::flux),
+                             std::optional<sealed_flux_buffers_t>>);
+static_assert(!std::is_default_constructible_v<flux_buffers_t>);
 static_assert(
-    sealed_for<decltype((std::declval<const group_buffers_t &>().registers)),
-               flux_registers_t, flux_register_writer_t>);
-static_assert(
-    sealed_for<decltype((std::declval<const group_buffers_t &>().scratch)),
-               flux_scratch_t, flux_register_writer_t>);
-static_assert(opens<flux_register_writer_t, sealed_flux_registers_t>);
-static_assert(opens<flux_register_writer_t, sealed_flux_scratch_t>);
-static_assert(
-    std::is_same_v<decltype(std::declval<const flux_register_writer_t &>().open(
-                       std::declval<const sealed_flux_registers_t &>())),
-                   flux_registers_t &>);
+    sealed_for<decltype((std::declval<const group_buffers_t &>().flux.value())),
+               flux_buffers_t, flux_register_writer_t>);
+static_assert(opens<flux_register_writer_t, sealed_flux_buffers_t>);
 static_assert(
     std::is_same_v<decltype(std::declval<const flux_register_writer_t &>().open(
-                       std::declval<const sealed_flux_scratch_t &>())),
-                   flux_scratch_t &>);
+                       std::declval<const sealed_flux_buffers_t &>())),
+                   flux_buffers_t &>);
 static_assert(!std::is_default_constructible_v<flux_register_writer_t>);
 static_assert(!std::is_copy_constructible_v<flux_register_writer_t>);
 static_assert(!std::is_aggregate_v<flux_register_writer_t>);
-static_assert(std::is_same_v<decltype(std::declval<const group_buffers_t &>()
-                                          .registers->reg.get()),
-                             const amrex::FluxRegister *>);
-static_assert(std::is_same_v<decltype(std::declval<const group_buffers_t &>()
-                                          .scratch->reg.get()),
-                             const amrex::FluxRegister *>);
+static_assert(
+    std::is_same_v<
+        decltype((std::declval<const group_buffers_t &>().flux.value()->reg)),
+        const amrex::FluxRegister &>);
+static_assert(std::is_same_v<decltype((std::declval<const group_buffers_t &>()
+                                           .flux.value()
+                                           ->scratch)),
+                             const amrex::FluxRegister &>);
 static_assert(std::is_const_v<level_buffers_ptr::element_type>);
 static_assert(
     std::is_same_v<decltype(buffers_of(
