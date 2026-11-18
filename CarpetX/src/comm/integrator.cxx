@@ -38,6 +38,8 @@ std::vector<gi_t> integrated_states(const GHExt::integrator_t &integrator) {
   return states;
 }
 
+namespace {
+
 integrated_groups_t
 integrated_groups_with_storage(const level_t level,
                                const GHExt::integrator_t &integrator) {
@@ -58,6 +60,8 @@ integrated_groups_with_storage(const level_t level,
   }
   return groups;
 }
+
+} // namespace
 
 std::vector<rk_level_t>
 integrated_levels(const window_t window,
