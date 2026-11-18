@@ -178,8 +178,7 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
   }
 }
 
-static void reflux_level(const level_t level,
-                         const flux_register_writer_t &writing) {
+static void reflux_level(const level_t level) {
   DECLARE_CCTK_PARAMETERS;
 
   static Timer timer("Reflux");
@@ -226,17 +225,15 @@ static void reflux_level(const level_t level,
     const amrex::MultiFab &volume = *cell_volume;
     assert(volume.ixType() == state.ixType());
     assert(volume.DistributionMap() == state.DistributionMap());
-    writing.open(*fineflux).reg.Reflux(state, volume, 1.0, 0, 0,
-                                       groupdata.record.numvars, geom);
+    flux_register_writer_t::reflux_into(state, *fineflux, volume,
+                                        groupdata.record.numvars, geom);
   }
 }
 
 void Reflux(const window_t window) {
   if (!driver().do_reflux)
     return;
-  const flux_register_writer_t writing;
-  loop_pairs_fine_to_coarse(
-      window, [&](const level_t level) { reflux_level(level, writing); });
+  loop_pairs_fine_to_coarse(window, reflux_level);
 }
 
 } // namespace CarpetX

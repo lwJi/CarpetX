@@ -46,7 +46,6 @@ class flux_register_writer_t {
   friend std::vector<restore_band_t>
   restore_bands(level_t level, gi_t gi, rat64 parent_step,
                 const checkpoint_read_t &reading);
-  friend void Reflux(window_t window);
 
 public:
   flux_register_writer_t(const flux_register_writer_t &) = delete;
@@ -54,6 +53,14 @@ public:
 
   flux_buffers_t &open(const sealed_flux_buffers_t &sealed) const {
     return sealed.open(*this);
+  }
+
+  static void reflux_into(amrex::MultiFab &state,
+                          const sealed_flux_buffers_t &sealed,
+                          const amrex::MultiFab &volume, const int numvars,
+                          const amrex::Geometry &geom) {
+    flux_register_writer_t().open(sealed).reg.Reflux(state, volume, 1.0, 0, 0,
+                                                     numvars, geom);
   }
 };
 

@@ -120,7 +120,7 @@ GRANTS = {
     "public_ghost_only_t": ("sync_ghosts_only",),
     "checkpoint_read_t": ("read_record",),
     "flux_buffers_t": ("flux_register_writer_t",),
-    "flux_register_writer_t": ("AccumulateFluxes", "restore_bands", "Reflux"),
+    "flux_register_writer_t": ("AccumulateFluxes", "restore_bands"),
     "rk_fill_patches_t": ("rk_fill_patch_writer_t",),
     "rk_fill_patch_writer_t": ("FillRKBoundary",),
     "rk_sources_t": ("rk_source_writer_t",),
@@ -712,7 +712,8 @@ RULES = (
         "one writer, and in CarpetX/src/hierarchy/binding.cxx, which fills the cGH pointer table with the pointers a "
         "routine writes through; anywhere else it would turn what driver() or buffers_of hands out const into a "
         "destination without a writer. A write site opens a write scope or the writer the table GRANTS in "
-        f"{GRANTS_HOME} names, also where an AMReX member that only reads is not const; a cGH for the flesh comes "
+        f"{GRANTS_HOME} names; an AMReX member that only reads but is not const is called by a member of that "
+        "writer which hands nothing it opened back, as flux_register_writer_t::reflux_into does; a cGH for the flesh comes "
         "from the model's get_*_cctkGH; and a C library that takes a char * is handed the data() of a std::string "
         "that is not const.",
         noun="const_cast",
