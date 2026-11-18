@@ -408,11 +408,18 @@ def applies_allowed(name: str, line: str, statement: str) -> bool:
     return stem is not None and row_of(stem) in APPLIES_STEMS
 
 
+def is_interface_header(name: str) -> bool:
+    stem, _, suffix = name.rsplit("/", 1)[1].partition(".")
+    return layer_of(name) == GIVEN_LAYER and "." + suffix in HEADER_SUFFIXES and row_of(stem) == stem
+
+
 def interface_allowed(name: str, line: str, statement: str) -> bool:
     stem = INTERFACE_WORD.search(line).group(1)
     layer = layer_of(name)
-    if name == SEES_ALL or layer == GIVEN_LAYER:
+    if name == SEES_ALL:
         return True
+    if layer == GIVEN_LAYER:
+        return not is_interface_header(name)
     return stem in GIVEN.get(layer, ())
 
 
@@ -915,7 +922,9 @@ RULES = (
         allowed=interface_allowed,
         text=f"a layer that reads {GIVEN_LAYER}/ includes only the headers of {GIVEN_LAYER}/ it is given, each the plain "
         f"header of a stem: {GIVEN_TEXT}. Every other header of {GIVEN_LAYER}/ is its inside, included only by "
-        f"{GIVEN_LAYER}/ itself and by {SEES_ALL}, which checks that inside and counts as no layer's use. A new use from "
+        f"{GIVEN_LAYER}/ itself and by {SEES_ALL}, which checks that inside and counts as no layer's use. A header of "
+        f"{GIVEN_LAYER}/ that is given includes no header of {GIVEN_LAYER}/, so what a layer reaches is exactly the headers "
+        f"it is given; a type a signature takes from another header is forward-declared. A new use from "
         f"above is an entry of GIVEN in {GIVEN_HOME}, in the same change, and GIVEN holds no entry that no file of the "
         f"layer but {SEES_ALL.rsplit('/', 1)[1]} includes.",
         noun="include",

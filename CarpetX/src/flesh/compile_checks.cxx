@@ -6,7 +6,7 @@
 #include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/writers.hxx"
-#include "comm/buffers.hxx"
+#include "comm/buffers_inside.hxx"
 #include "comm/ghost_prolongation.hxx"
 #include "comm/reflux.hxx"
 #include "comm/restrict.hxx"

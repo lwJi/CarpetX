@@ -3,7 +3,7 @@
 #include "config/indices.hxx"
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
-#include "comm/buffers.hxx"
+#include "comm/buffers_inside.hxx"
 #include <carpetx.hxx>
 
 #include <AMReX_FluxRegister.H>

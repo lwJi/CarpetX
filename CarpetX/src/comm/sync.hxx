@@ -3,8 +3,6 @@
 
 #include "internal.hxx"
 
-#include "comm/timelevels.hxx"
-
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -13,6 +11,8 @@
 #include <vector>
 
 namespace CarpetX {
+
+struct timelevels_t;
 
 class requested_sync_t {
   requested_sync_t() = default;

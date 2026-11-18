@@ -2,7 +2,7 @@
 
 #include "config/indices.hxx"
 #include "hierarchy/model.hxx"
-#include "comm/buffers.hxx"
+#include "comm/buffers_inside.hxx"
 #include "comm/ghost_prolongation.hxx"
 #include "comm/timelevels.hxx"
 #include "comm/fillpatch.hxx"

@@ -374,10 +374,35 @@ class Interface(unittest.TestCase):
                             self.assertEqual(reported(name, line + "\n"), [])
 
     def test_compile_checks_and_comm_include_any_header_of_comm(self):
-        for name in [rules.SEES_ALL, "CarpetX/src/comm/sync.cxx", "CarpetX/src/comm/buffers.hxx", "CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx"]:
+        for name in [rules.SEES_ALL, "CarpetX/src/comm/sync.cxx", "CarpetX/src/comm/buffers_inside.hxx", "CarpetX/src/comm/boundary_conditions_impl.hxx", "CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx"]:
             for line in ['#include "comm/rk_bands_inside.hxx"', '#include "comm/level_runs_inside.hxx"', '#include "comm/restrict_inside.hxx"', '#include "comm/prolongate_3d_rf2_impl.hxx"', '#include "comm/buffers.hxx"']:
                 with self.subTest(name=name, line=line):
                     self.assertNotIn("interface", [rule for rule, _ in reported(name, line + "\n")])
+
+    def test_an_interface_header_of_comm_including_a_header_of_comm_is_reported(self):
+        for name, line in [
+            ("CarpetX/src/comm/sync.hxx", '#include "comm/timelevels.hxx"'),
+            ("CarpetX/src/comm/buffers.hxx", '#include "comm/rk_bands_inside.hxx"'),
+            ("CarpetX/src/comm/buffers.hxx", '#include "comm/buffers_inside.hxx"'),
+            ("CarpetX/src/comm/restrict.hxx", "#include <comm/restrict_inside.hxx>"),
+            ("CarpetX/src/comm/outer_boundary.hxx", '#include "comm/sync.hxx"'),
+        ]:
+            with self.subTest(name=name, line=line):
+                self.assertEqual(reported(name, line + "\n"), [("interface", line)])
+
+    def test_the_interface_headers_of_comm_are_its_plain_headers(self):
+        for name, expected in [
+            ("CarpetX/src/comm/sync.hxx", True),
+            ("CarpetX/src/comm/buffers.hxx", True),
+            ("CarpetX/src/comm/buffers_inside.hxx", False),
+            ("CarpetX/src/comm/rk_bands_inside.hxx", False),
+            ("CarpetX/src/comm/boundary_conditions_impl.hxx", False),
+            ("CarpetX/src/comm/sync.cxx", False),
+            ("CarpetX/src/api/api.hxx", False),
+            ("CarpetX/src/hierarchy/model.hxx", False),
+        ]:
+            with self.subTest(name=name):
+                self.assertEqual(rules.is_interface_header(name), expected)
 
     def test_a_layer_that_does_not_read_comm_is_left_to_the_layer_rule(self):
         for name in ["CarpetX/src/ops/interpolate.cxx", "CarpetX/src/hierarchy/model.cxx", "CarpetX/src/util/logo.cxx", "CarpetX/src/extra/x.cxx"]:
@@ -1569,7 +1594,8 @@ class Layer(unittest.TestCase):
                     expected = [("interface", line)]
                 for name in [layer_path(layer, "x.cxx"), layer_path(layer, "x.hxx")]:
                     with self.subTest(name=name, line=line):
-                        self.assertEqual(reported(name, line + "\n"), expected)
+                        found = [("interface", line)] if other == layer == rules.GIVEN_LAYER and rules.is_interface_header(name) else expected
+                        self.assertEqual(reported(name, line + "\n"), found)
 
     def test_an_unqualified_private_name_is_reported(self):
         for line in ['#include "model.hxx"', '#include "schedule.hxx"', '#include "valid.hxx"', '#include "loop.hxx"']:
@@ -3384,7 +3410,7 @@ class Stems(unittest.TestCase):
                 self.assertEqual(doc.declared_names(text), declared)
                 self.assertEqual(doc.declared_names(text, forward=False), defined)
         declared, defined = doc.stem_declarations(), doc.stem_declarations(forward=False)
-        self.assertEqual({header for header in declared if declared[header] != defined[header]}, {layer_path("hierarchy", "model.hxx"), layer_path("hierarchy", "binding.hxx"), layer_path("comm", "buffers.hxx"), layer_path("comm", "checkpoint_bands.hxx")})
+        self.assertEqual({header for header in declared if declared[header] != defined[header]}, {layer_path("hierarchy", "model.hxx"), layer_path("hierarchy", "binding.hxx"), layer_path("comm", "buffers_inside.hxx"), layer_path("comm", "checkpoint_bands.hxx"), layer_path("comm", "ghost_prolongation.hxx"), layer_path("comm", "outer_boundary.hxx"), layer_path("comm", "sync.hxx")})
         for text, line in [
             ("int a;\nvoid (*handler)(int);\n", 2),
             ("\n\nstruct {\n  int x;\n} anonymous;\n", 3),

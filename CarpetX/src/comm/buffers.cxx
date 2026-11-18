@@ -1,4 +1,5 @@
 #include "comm/buffers.hxx"
+#include "comm/buffers_inside.hxx"
 
 #include "comm/integrator.hxx"
 #include "comm/prolongate_3d_rf2_inside.hxx"

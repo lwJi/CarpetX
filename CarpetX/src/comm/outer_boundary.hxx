@@ -3,13 +3,14 @@
 
 #include "internal.hxx"
 
-#include "comm/timelevels.hxx"
 #include <carpetx.hxx>
 
 #include <source_location>
 #include <span>
 
 namespace CarpetX {
+
+struct timelevels_t;
 
 void ApplyOuterBoundary(window_t window, std::span<const gi_t> groups,
                         timelevels_t tls);
