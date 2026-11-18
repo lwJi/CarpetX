@@ -1,6 +1,6 @@
 #include "comm/fillpatch.hxx"
-#include "comm/boundary_conditions.hxx"
-#include "comm/prolongate_3d_rf2.hxx"
+#include "comm/boundary_conditions_inside.hxx"
+#include "comm/prolongate_3d_rf2_inside.hxx"
 
 #include <cassert>
 #include <utility>

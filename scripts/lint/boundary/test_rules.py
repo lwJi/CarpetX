@@ -272,9 +272,10 @@ class Applies(unittest.TestCase):
             "CarpetX/src/comm/fillpatch.cxx",
             "CarpetX/src/comm/fillpatch.hxx",
             "CarpetX/src/comm/boundary_conditions.cxx",
+            "CarpetX/src/comm/boundary_conditions_inside.hxx",
             "CarpetX/src/comm/boundary_conditions_impl.hxx",
             "CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx",
-            "CarpetX/src/comm/prolongate_3d_rf2.hxx",
+            "CarpetX/src/comm/prolongate_3d_rf2_inside.hxx",
             "CarpetX/src/comm/prolongate_3d_rf2_impl_poly.cxx",
         ]:
             for line in [self.INCLUDE, "#include <hierarchy/scopes.hxx>", "  #  include \"hierarchy/scopes.hxx\""]:
@@ -294,7 +295,7 @@ class Applies(unittest.TestCase):
 
     def test_a_header_of_a_stem_that_applies_passes(self):
         for name in ["CarpetX/src/comm/fillpatch.cxx", "CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx", "CarpetX/src/comm/prolongate_3d_rf2.cxx"]:
-            for line in ['#include "comm/fillpatch.hxx"', '#include "comm/boundary_conditions.hxx"', '#include "comm/boundary_conditions_impl.hxx"', '#include "comm/prolongate_3d_rf2.hxx"', "#include <comm/prolongate_3d_rf2_impl.hxx>"]:
+            for line in ['#include "comm/fillpatch.hxx"', '#include "comm/boundary_conditions_inside.hxx"', '#include "comm/boundary_conditions_impl.hxx"', '#include "comm/prolongate_3d_rf2_inside.hxx"', "#include <comm/prolongate_3d_rf2_impl.hxx>"]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, line + "\n"), [])
 
@@ -350,9 +351,10 @@ class Interface(unittest.TestCase):
     def test_an_include_of_a_header_the_layer_is_not_given_is_reported(self):
         for name, line in [
             ("CarpetX/src/api/x.cxx", '#include "comm/level_runs.hxx"'),
+            ("CarpetX/src/api/x.cxx", '#include "comm/level_runs_inside.hxx"'),
             ("CarpetX/src/regrid/x.cxx", '#include "comm/restrict.hxx"'),
             ("CarpetX/src/flesh/startup.cxx", '#include "comm/sync.hxx"'),
-            ("CarpetX/src/flesh/startup.cxx", "#include <comm/rk_bands.hxx>"),
+            ("CarpetX/src/flesh/startup.cxx", "#include <comm/rk_bands_inside.hxx>"),
             ("CarpetX/src/io/checkpoint.cxx", '#include "comm/buffers.hxx"'),
             ("CarpetX/src/schedule/clocks.cxx", '#include "comm/timelevels.hxx"'),
             ("CarpetX/src/api/api.hxx", '#include "comm/boundary_conditions_impl.hxx"'),
@@ -373,7 +375,7 @@ class Interface(unittest.TestCase):
 
     def test_compile_checks_and_comm_include_any_header_of_comm(self):
         for name in [rules.SEES_ALL, "CarpetX/src/comm/sync.cxx", "CarpetX/src/comm/buffers.hxx", "CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx"]:
-            for line in ['#include "comm/rk_bands.hxx"', '#include "comm/level_runs.hxx"', '#include "comm/restrict_inside.hxx"', '#include "comm/prolongate_3d_rf2_impl.hxx"', '#include "comm/buffers.hxx"']:
+            for line in ['#include "comm/rk_bands_inside.hxx"', '#include "comm/level_runs_inside.hxx"', '#include "comm/restrict_inside.hxx"', '#include "comm/prolongate_3d_rf2_impl.hxx"', '#include "comm/buffers.hxx"']:
                 with self.subTest(name=name, line=line):
                     self.assertNotIn("interface", [rule for rule, _ in reported(name, line + "\n")])
 
@@ -2657,6 +2659,34 @@ class Doc(unittest.TestCase):
                 write(root, layer_path("api", "a.hxx"), '#include "comm/restrict.hxx"\n')
                 self.assertEqual(doc.unincluded(root), [])
 
+    def test_each_plain_header_of_comm_is_given_to_some_layer(self):
+        self.assertEqual(
+            doc.unlisted_headers(),
+            [],
+            "each is a plain header of comm/ that no layer of GIVEN in scripts/lint/boundary/rules.py is given: rename it <stem>_inside.hxx, or add the stem to the list of the layer that includes it",
+        )
+        with tempfile.TemporaryDirectory() as root:
+            tree(
+                root,
+                {
+                    layer_path("comm", "sync.hxx"): "",
+                    layer_path("comm", "sync.cxx"): "",
+                    layer_path("comm", "restrict.hxx"): "",
+                    layer_path("comm", "restrict_inside.hxx"): "",
+                    layer_path("comm", "level_runs.hxx"): "",
+                    layer_path("comm", "level_runs.cxx"): "",
+                    layer_path("comm", "level_pairs_inside.hxx"): "",
+                    layer_path("comm", "boundary_conditions_impl.hxx"): "",
+                    layer_path("api", "api.hxx"): "",
+                },
+            )
+            with mock.patch.dict(rules.GIVEN, {"api": ("sync",)}, clear=True):
+                self.assertEqual(doc.unlisted_headers(root), [layer_path("comm", "level_runs.hxx"), layer_path("comm", "restrict.hxx")])
+                os.rename(os.path.join(root, layer_path("comm", "level_runs.hxx")), os.path.join(root, layer_path("comm", "level_runs_inside.hxx")))
+                self.assertEqual(doc.unlisted_headers(root), [layer_path("comm", "restrict.hxx")])
+            with mock.patch.dict(rules.GIVEN, {"schedule": ("restrict",), "api": ("restrict", "sync")}, clear=True):
+                self.assertEqual(doc.unlisted_headers(root), [])
+
     def test_an_arrow_into_comm_is_what_the_layer_is_given(self):
         lines = doc.stack().splitlines()
         for layer, stems in rules.GIVEN.items():
@@ -3312,6 +3342,27 @@ class Stems(unittest.TestCase):
                 self.assertEqual(doc.unused_includes(root), [(sibling, header)])
                 write(root, sibling, '#include "comm/restrict_inside.hxx"\nvoid SyncGroups() { Restrict(); }\n')
                 self.assertEqual(doc.unused_includes(root), [(sibling, inside)])
+
+    def test_a_stem_may_have_only_an_inside_header(self):
+        runs, runs_source, pairs = layer_path("comm", "level_runs_inside.hxx"), layer_path("comm", "level_runs.cxx"), layer_path("comm", "level_pairs_inside.hxx")
+        sibling = layer_path("comm", "sync.cxx")
+        files = {
+            runs: guarded(runs, "namespace CarpetX {\nstd::vector<level_run_t> split_levels(window_t window);\n}\n"),
+            runs_source: '#include "comm/level_runs_inside.hxx"\nstd::vector<level_run_t> split_levels(window_t window) { return {}; }\n',
+            pairs: guarded(pairs, "namespace CarpetX {\ninline void loop_pairs_fine_to_coarse(window_t window) {}\n}\n"),
+            sibling: '#include "comm/level_pairs_inside.hxx"\n#include "comm/level_runs_inside.hxx"\nvoid SyncGroups() { split_levels(); loop_pairs_fine_to_coarse(); }\n',
+        }
+        with tempfile.TemporaryDirectory() as root:
+            tree(root, files)
+            with mock.patch.dict(rules.STEMS, {"comm": {"level_runs": "runs", "level_pairs": "pairs", "sync": "the sync"}}, clear=True):
+                self.assertEqual(doc.stems(root, "comm"), {"level_runs", "level_pairs", "sync"})
+                self.assertEqual(doc.stem_rows(root), {"comm": {"level_runs": "runs", "level_pairs": "pairs", "sync": "the sync"}})
+                self.assertEqual(doc.lone_sources(root), [sibling])
+                self.assertEqual(doc.stem_headers(root), {runs: files[runs], pairs: files[pairs]})
+                self.assertEqual(doc.stem_declarations(root), {runs: {"split_levels"}, pairs: {"loop_pairs_fine_to_coarse"}})
+                self.assertEqual(doc.unused_includes(root), [])
+                os.remove(os.path.join(root, runs))
+                self.assertEqual(doc.lone_sources(root), [runs_source, sibling])
 
     def test_a_header_declares_its_namespace_scope_types_functions_and_constants(self):
         self.assertEqual(doc.declared_names(DECLARING), DECLARED)

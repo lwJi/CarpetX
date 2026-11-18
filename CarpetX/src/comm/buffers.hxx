@@ -5,7 +5,7 @@
 
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
-#include "comm/rk_bands.hxx"
+#include "comm/rk_bands_inside.hxx"
 #include <carpetx.hxx>
 
 #include <AMReX_BoxArray.H>

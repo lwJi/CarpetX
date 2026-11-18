@@ -2,8 +2,8 @@
 
 #include "hierarchy/loops.hxx"
 #include "hierarchy/model.hxx"
-#include "comm/boundary_conditions.hxx"
-#include "comm/group_selection.hxx"
+#include "comm/boundary_conditions_inside.hxx"
+#include "comm/group_selection_inside.hxx"
 #include "comm/timelevels.hxx"
 #include "util/refuse.hxx"
 #include <carpetx.hxx>

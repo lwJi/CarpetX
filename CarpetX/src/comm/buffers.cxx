@@ -1,9 +1,9 @@
 #include "comm/buffers.hxx"
 
 #include "comm/integrator.hxx"
-#include "comm/prolongate_3d_rf2.hxx"
+#include "comm/prolongate_3d_rf2_inside.hxx"
 #include "comm/reflux.hxx"
-#include "comm/rk_bands.hxx"
+#include "comm/rk_bands_inside.hxx"
 #include "hierarchy/model.hxx"
 #include <carpetx.hxx>
 

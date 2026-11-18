@@ -6,8 +6,8 @@
 #include "comm/integrator.hxx"
 #include "comm/outer_boundary.hxx"
 #include "comm/substeps.hxx"
-#include "comm/group_selection.hxx"
-#include "comm/level_runs.hxx"
+#include "comm/group_selection_inside.hxx"
+#include "comm/level_runs_inside.hxx"
 #include "comm/timelevels.hxx"
 #include "util/task_manager.hxx"
 #include <carpetx.hxx>

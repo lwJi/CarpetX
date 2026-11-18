@@ -1,4 +1,4 @@
-#include "comm/boundary_conditions.hxx"
+#include "comm/boundary_conditions_inside.hxx"
 #include "comm/boundary_conditions_impl.hxx"
 
 #include <carpetx.hxx>

@@ -11,7 +11,7 @@
 #include "comm/reflux.hxx"
 #include "comm/restrict.hxx"
 #include "comm/checkpoint_bands.hxx"
-#include "comm/rk_bands.hxx"
+#include "comm/rk_bands_inside.hxx"
 #include "comm/rk_ghosts.hxx"
 #include "comm/substeps.hxx"
 #include "comm/sync.hxx"

@@ -180,6 +180,16 @@ def unincluded(root: str = PROJECT) -> list[tuple[str, str]]:
     return found
 
 
+def unlisted_headers(root: str = PROJECT) -> list[str]:
+    given = {stem for stems in GIVEN.values() for stem in stems}
+    found = []
+    for path in sources(root, GIVEN_LAYER):
+        stem, extension = os.path.splitext(os.path.basename(path))
+        if extension == ".hxx" and row_of(stem) == stem and stem not in given:
+            found.append(layer_path(GIVEN_LAYER, stem + extension))
+    return found
+
+
 def standing(stem: str) -> str:
     assert stem in STEMS[GIVEN_LAYER], stem
     readers = [f"{layer}/" for layer, stems in GIVEN.items() if stem in stems]
@@ -226,7 +236,7 @@ def lone_sources(root: str = PROJECT) -> list[str]:
         found.extend(
             layer_path(layer, name)
             for name in sorted(names)
-            if name.endswith(".cxx") and row_of(os.path.splitext(name)[0]) + ".hxx" not in names and layer_path(layer, name) not in public
+            if name.endswith(".cxx") and names.isdisjoint(row_of(os.path.splitext(name)[0]) + suffix + ".hxx" for suffix in ("", INSIDE_SUFFIX)) and layer_path(layer, name) not in public
         )
     return found
 

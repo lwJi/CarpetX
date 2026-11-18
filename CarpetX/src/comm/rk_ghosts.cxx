@@ -7,7 +7,7 @@
 #include "comm/timelevels.hxx"
 #include "comm/fillpatch.hxx"
 #include "comm/integrator.hxx"
-#include "comm/prolongate_3d_rf2.hxx"
+#include "comm/prolongate_3d_rf2_inside.hxx"
 #include "comm/substeps.hxx"
 #include "hierarchy/scopes.hxx"
 #include "util/refuse.hxx"

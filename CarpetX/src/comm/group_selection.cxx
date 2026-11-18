@@ -1,4 +1,4 @@
-#include "comm/group_selection.hxx"
+#include "comm/group_selection_inside.hxx"
 
 #include "hierarchy/model.hxx"
 #include <carpetx.hxx>

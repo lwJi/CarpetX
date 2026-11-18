@@ -4,7 +4,7 @@
 #include "hierarchy/scopes.hxx"
 #include "comm/buffers.hxx"
 #include "comm/integrator.hxx"
-#include "comm/level_pairs.hxx"
+#include "comm/level_pairs_inside.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
