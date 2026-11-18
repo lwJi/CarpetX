@@ -94,8 +94,12 @@ checkpoint_record_t::level_record(const level_t level,
 level_record_t &
 checkpoint_record_t::level_record(const level_t level,
                                   const std::source_location site) {
-  return const_cast<level_record_t &>(
-      std::as_const(*this).level_record(level, site));
+  const auto found = levels_.find(level);
+  if (found == levels_.end())
+    refuse(site,
+           "refinement level %d of patch %d is not in the checkpoint record",
+           level.index(), level.patch().index());
+  return found->second;
 }
 
 level_record_t &checkpoint_record_t::add_level(const patch_t patch) {

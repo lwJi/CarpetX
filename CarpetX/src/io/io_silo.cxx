@@ -653,7 +653,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
       } // if write multimesh
 
       {
-        const std::string multimeshname = make_meshname(nghosts);
+        std::string multimeshname = make_meshname(nghosts);
 
         const DB::ptr<DBoptlist> optlist = DB::make(DBMakeOptlist(10));
         assert(optlist);
@@ -667,7 +667,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
         assert(!ierr);
 
         ierr = DBAddOption(optlist.get(), DBOPT_MMESH_NAME,
-                           const_cast<char *>(multimeshname.c_str()));
+                           multimeshname.data());
         assert(!ierr);
 
         int vartype_scalar = DB_VARTYPE_SCALAR;

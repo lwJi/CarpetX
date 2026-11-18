@@ -213,8 +213,9 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   switch (mode) {
   case mode_t::local:
     loop_parallel(window, [&](const GHExt::PatchData::LevelData &leveldata,
-                              tile_t, const cGH *local_cctkGH) {
-      CCTK_CallFunction(function, attribute, const_cast<cGH *>(local_cctkGH));
+                              const tile_t tile, const cGH *local_cctkGH) {
+      assert(leveldata.get_local_cctkGH(tile) == local_cctkGH);
+      CCTK_CallFunction(function, attribute, leveldata.get_local_cctkGH(tile));
       require_clock_kept(local_cctkGH);
     });
     synchronize();

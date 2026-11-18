@@ -170,7 +170,7 @@ class Validity(unittest.TestCase):
 
 class Binding(unittest.TestCase):
     WRITES = [
-        "cctkGH->data[group.var(vi).index()][tl.index()] = const_cast<void *>(p);",
+        "cctkGH->data[group.var(vi).index()][tl.index()] = array_ptr(group, tl, vi);",
         "local_cctkGH->data[groupdata.record.var(vi).index()][tl.index()] = grid1.ptr(vars, vi);",
         "cctkGH->data[v][tl] = nullptr;",
         "copy.data[v][tl]= p;",
@@ -822,6 +822,61 @@ class Alias(unittest.TestCase):
     def test_line_numbers(self):
         text = "int a;\n  " + self.USES[0] + "\n"
         self.assertEqual(findings("CarpetX/src/comm/reflux.cxx", text, Lang.CXX), [Finding(2, "alias", self.USES[0])])
+
+
+class Cast(unittest.TestCase):
+    USES = [
+        "const_cast<amrex::FluxRegister &>(reg).Reflux(state, volume, 1.0, 0, 0, numvars, geom);",
+        "CCTK_CallFunction(function, attribute, const_cast<cGH *>(local_cctkGH));",
+        "return const_cast<level_record_t &>(std::as_const(*this).level_record(level, site));",
+        "amrex::MultiFab &mfab = const_cast <amrex::MultiFab &>(driver().group(group).timelevel(tl).mfab());",
+        "flux_buffers_t &flux = const_cast<flux_buffers_t &>(buffers_of(leveldata, gi).flux->get());",
+    ]
+
+    def test_cast_reported(self):
+        for line in self.USES:
+            for name in ["CarpetX/src/comm/reflux.cxx", "CarpetX/src/hierarchy/model.cxx", "CarpetX/src/hierarchy/binding.hxx", "CarpetX/src/io/io_silo.cxx", "CarpetX/src/include/carpetx.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, "  " + line + "\n"), [("cast", line)])
+
+    def test_the_seal_and_the_pointer_table_name_it(self):
+        for name in rules.CAST_FILES:
+            for line in self.USES:
+                with self.subTest(name=name, line=line):
+                    self.assertNotIn("cast", [rule for rule, _ in reported(name, "  " + line + "\n")])
+        self.assertEqual(rules.CAST_FILES, ("CarpetX/src/hierarchy/model.hxx", "CarpetX/src/hierarchy/binding.cxx"))
+        self.assertEqual(next(rule for rule in rules.RULES if rule.name == "cast").home, ("hierarchy",))
+
+    def test_the_tree_names_it_nowhere_else(self):
+        folder = os.path.join(PROJECT, rules.PRIVATE_DIR)
+        names = [os.path.relpath(os.path.join(at, base), PROJECT) for at, _, bases in os.walk(folder) for base in bases]
+        judged = [name for name in names if lang_of(name) is Lang.CXX]
+        self.assertTrue(set(rules.CAST_FILES) <= set(judged))
+        found = [(name, f.line) for name in judged for f in findings(name, doc.read(os.path.join(PROJECT, name)), Lang.CXX) if f.rule == "cast"]
+        self.assertEqual(found, [])
+        for name in rules.CAST_FILES:
+            with self.subTest(name=name):
+                self.assertIn("const_cast", doc.read(os.path.join(PROJECT, name)), "this file no longer names const_cast: remove it from CAST_FILES")
+
+    def test_other_words_are_fine(self):
+        for text in [
+            "  const auto found = static_cast<int>(levels_.size());\n",
+            "  std::as_const(*this).level_record(level, site);\n",
+            "  const int const_casts = 0;\n",
+            "  reconst_cast(mfab);\n",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(reported("CarpetX/src/comm/sync.cxx", text), [])
+
+    def test_other_thorns_are_not_checked(self):
+        self.assertEqual(reported("ODESolvers/src/solve.cxx", self.USES[0] + "\n"), [])
+
+    def test_only_c_and_cxx_files_are_checked(self):
+        self.assertEqual(reported("CarpetX/src/make.code.defn", "X = const_cast\n", Lang.MAKE), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n  " + self.USES[0] + "\n"
+        self.assertEqual(findings("CarpetX/src/comm/reflux.cxx", text, Lang.CXX), [Finding(2, "cast", self.USES[0])])
 
 
 class Traversal(unittest.TestCase):
@@ -2075,6 +2130,7 @@ class Report(unittest.TestCase):
             "no mutable, extern, comm/ object or other concern's include in the data model's headers, "
             "every friend line in hierarchy/ and comm/ listed in GRANTS, no active_levels_t, "
             "no make_alias in CarpetX, "
+            "no const_cast outside model.hxx and binding.cxx, "
             "no active_levels outside traversal.cxx, "
             "no phase include in hierarchy/ outside handles.cxx, "
             "no bare index int in CarpetX, no group-table call in io/, "
@@ -2108,6 +2164,9 @@ class Report(unittest.TestCase):
         al = ("CarpetX/src/comm/reflux.cxx", Finding(8, "alias", "amrex::MultiFab alias(state, amrex::make_alias, 0, 1);"))
         self.assertEqual(summary([al]), "✗ boundary: 1 make_alias use in CarpetX")
         self.assertEqual(summary([al, w, al]), "✗ boundary: 1 active_levels_t use, 2 make_alias uses in CarpetX")
+        ca = ("CarpetX/src/comm/reflux.cxx", Finding(9, "cast", "const_cast<amrex::FluxRegister &>(reg).Reflux(state, volume, 1.0, 0, 0, numvars, geom);"))
+        self.assertEqual(summary([ca]), "✗ boundary: 1 const_cast outside model.hxx and binding.cxx")
+        self.assertEqual(summary([ca, al, ca]), "✗ boundary: 1 make_alias use in CarpetX, 2 const_casts outside model.hxx and binding.cxx")
         self.assertEqual(summary([i]), "✗ boundary: 1 bare index int in CarpetX")
         self.assertEqual(summary([e, w, w, i, i]), "✗ boundary: 1 firstvarindex addition outside GroupRecord::var, 2 active_levels_t uses, 2 bare index ints in CarpetX")
         self.assertEqual(summary([w, m]), "✗ boundary: 1 mutable, extern, comm/ object or other concern's include in the data model's headers, 1 active_levels_t use")
@@ -2493,8 +2552,8 @@ class Doc(unittest.TestCase):
                 self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
         found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
         self.assertEqual(sorted(set(found)), sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
-        self.assertEqual(len(found), 45)
-        self.assertEqual(len(set(found)), 44)
+        self.assertEqual(len(found), 46)
+        self.assertEqual(len(set(found)), 45)
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):
@@ -2554,7 +2613,7 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `config/`"], f"- `config/`: {rules.OWNS['config']}")
         self.assertTrue(rows["- `config/`"].endswith(" Nothing here calls `driver()`."))
         self.assertTrue(rows["- `io/`"].endswith(" Rules at home here: records, codec."))
-        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant, phase.")
+        self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant, cast, phase.")
         self.assertTrue(rules.OWNS["hierarchy"].endswith(" Nothing here only reads the model: a query belongs to the layer that owns its subject."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry."))
         self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: grant, applies.")
@@ -2564,7 +2623,7 @@ class Doc(unittest.TestCase):
         self.assertEqual(doc.rules_of("schedule"), [])
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
-        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "clock", "varindex", "model", "grant", "phase"])
+        self.assertEqual(doc.rules_of("hierarchy"), ["validity", "binding", "clock", "varindex", "model", "grant", "cast", "phase"])
         self.assertEqual(doc.node("flesh", ("regrid", "flesh")), '  flesh["flesh/ no header"]')
         self.assertEqual(doc.node("regrid", ("regrid", "flesh")), '  regrid["regrid/ no header"]')
         self.assertEqual(doc.node("ops", ("regrid", "flesh")), '  ops["ops/"]')
@@ -2575,7 +2634,7 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "varindex", "model", "grant", "traversal", "phase", "records", "codec", "entry", "applies"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "varindex", "model", "grant", "cast", "traversal", "phase", "records", "codec", "entry", "applies"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))

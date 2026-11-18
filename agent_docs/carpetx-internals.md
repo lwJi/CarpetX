@@ -129,7 +129,7 @@ New code goes in the layer that owns what it works on, and a lower layer never d
   - `level_pairs`: visiting each level of a window that has a child in it
   - `integrator`: what the registered integrator integrates, and in how many stages
   - `substeps`: where a level stands in its parent's step
-- `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, clock, varindex, model, grant, phase.
+- `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, clock, varindex, model, grant, cast, phase.
   - `model`: `GHExt`, its nested types, and the door `driver()`
   - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy
   - `clock`: the only place the model's run clock and the stage it shows are opened, and the only writes to the cGH clock fields: `cctkGH_clock` publishes every change to the flesh's cGH and to every copy of it; and the check that a cGH a scheduled function returns still shows it

@@ -46,6 +46,7 @@ class flux_register_writer_t {
   friend std::vector<restore_band_t>
   restore_bands(level_t level, gi_t gi, rat64 parent_step,
                 const checkpoint_read_t &reading);
+  friend void Reflux(window_t window);
 
 public:
   flux_register_writer_t(const flux_register_writer_t &) = delete;
