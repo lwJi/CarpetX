@@ -311,29 +311,24 @@ concept writes_buffers =
     } ||
     requires(Buffers buffers) {
       buffers.groups.at(0).scratch->reg->setVal(0);
-    } ||
-    requires(Buffers buffers) { buffers.groups.at(0).rk_sources.reset(); } ||
+    } || requires(Buffers buffers) { buffers.groups.at(0).rk.reset(); } ||
     requires(Buffers buffers) {
       buffers.groups.at(0)
-          .rk_sources->get()
+          .rk->sources.get()
           .stored(std::declval<rat64>())
           ->old.setVal(0);
     } ||
     requires(Buffers buffers) {
-      buffers.groups.at(0).rk_fill_patches.reset();
-    } ||
-    requires(Buffers buffers) {
-      buffers.groups.at(0).rk_fill_patches->get().crse.setVal(0);
+      buffers.groups.at(0).rk->fill_patches.get().crse.setVal(0);
     } || requires(Buffers buffers) { buffers.geometry.reset(); } ||
     requires(Buffers buffers) { buffers.geometry->face_area[0].setVal(0); } ||
     requires(Buffers buffers) { buffers.geometry->cell_volume.setVal(0); };
 
 template <class Group>
 concept writes_group_buffers =
-    requires(Group group) { group.registers = {}; } ||
-    requires(Group group) { group.scratch = {}; } ||
-    requires(Group group) { group.rk_sources.reset(); } ||
-    requires(Group group) { group.rk_fill_patches.reset(); };
+    requires(Group group) { group.registers = {}; } || requires(Group group) {
+      group.scratch = {};
+    } || requires(Group group) { group.rk.reset(); };
 
 template <class Sealed, class Writer>
 concept can_open = requires(const Sealed &sealed, const Writer &writer) {
@@ -535,10 +530,11 @@ static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, int>);
 static_assert(!local_cctkGH_takes<GHExt::PatchData::LevelData, component_t>);
 static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
 
-static_assert(std::is_same_v<decltype(group_buffers_t::rk_sources),
-                             std::optional<sealed_rk_sources_t>>);
 static_assert(
-    sealed_for<decltype((*std::declval<const group_buffers_t &>().rk_sources)),
+    std::is_same_v<decltype(group_buffers_t::rk), std::optional<rk_buffers_t>>);
+static_assert(!std::is_default_constructible_v<rk_buffers_t>);
+static_assert(
+    sealed_for<decltype((std::declval<const group_buffers_t &>().rk->sources)),
                rk_sources_t, rk_source_writer_t>);
 static_assert(opens<rk_source_writer_t, sealed_rk_sources_t>);
 static_assert(!opens<rk_fill_patch_writer_t, sealed_rk_sources_t>);
@@ -556,10 +552,8 @@ static_assert(!std::is_aggregate_v<rk_source_writer_t>);
 static_assert(std::is_same_v<decltype(std::declval<const rk_sources_t &>()
                                           .stored(std::declval<rat64>())),
                              std::optional<rk_sources_t::sources_t>>);
-static_assert(std::is_same_v<decltype(group_buffers_t::rk_fill_patches),
-                             std::optional<sealed_rk_fill_patches_t>>);
-static_assert(sealed_for<decltype((*std::declval<const group_buffers_t &>()
-                                        .rk_fill_patches)),
+static_assert(sealed_for<decltype((std::declval<const group_buffers_t &>()
+                                       .rk->fill_patches)),
                          rk_fill_patches_t, rk_fill_patch_writer_t>);
 static_assert(opens<rk_fill_patch_writer_t, sealed_rk_fill_patches_t>);
 static_assert(!opens<rk_fill_patch_writer_t, sealed_flux_registers_t>);
@@ -572,8 +566,8 @@ static_assert(!std::is_default_constructible_v<rk_fill_patch_writer_t>);
 static_assert(!std::is_copy_constructible_v<rk_fill_patch_writer_t>);
 static_assert(!std::is_aggregate_v<rk_fill_patch_writer_t>);
 static_assert(std::is_same_v<decltype((std::declval<const group_buffers_t &>()
-                                           .rk_fill_patches.value()
-                                           ->crse)),
+                                           .rk.value()
+                                           .fill_patches->crse)),
                              const amrex::MultiFab &>);
 static_assert(std::is_same_v<decltype(level_buffers_t::geometry),
                              std::optional<flux_geometry_t>>);

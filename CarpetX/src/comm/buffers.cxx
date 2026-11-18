@@ -39,16 +39,16 @@ flux_register_of(const GHExt::GroupRecord &record, const level_t level,
   return freg;
 }
 
-void make_rk_buffers(group_buffers_t &group, const GHExt::GroupRecord &record,
-                     const level_t level, const amrex::BoxArray &ba,
-                     const amrex::DistributionMapping &dm) {
+std::optional<rk_buffers_t>
+rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
+              const amrex::BoxArray &ba, const amrex::DistributionMapping &dm) {
   const GHExt &ext = driver();
   const gi_t gi = record.groupindex;
   if (!ext.use_subcycling || level.index() == 0 || !group_is_integrated(gi))
-    return;
+    return std::nullopt;
   const amrex::IntVect nghost(record.grid_function().nghostzones);
   if (nghost.max() == 0)
-    return;
+    return std::nullopt;
   const std::array<int, dim> &indextype = record.grid_function().indextype;
   const amrex::BoxArray gba = convert(
       ba, amrex::IndexType(
@@ -62,10 +62,9 @@ void make_rk_buffers(group_buffers_t &group, const GHExt::GroupRecord &record,
       probe, interpolator_of(record), amrcore.Geom(level.index()),
       amrcore.Geom(level.parent().index()));
   if (fp.ba_crse_patch.empty())
-    return;
-  group.rk_sources.emplace(std::in_place, fp, record.numvars,
-                           registered_stages());
-  group.rk_fill_patches.emplace(std::in_place, fp, record.numvars);
+    return std::nullopt;
+  return std::optional<rk_buffers_t>(std::in_place, fp, record.numvars,
+                                     registered_stages());
 }
 
 std::optional<flux_geometry_t>
@@ -107,7 +106,7 @@ level_buffers_ptr make_level_buffers(const level_t level,
     group_buffers_t &group = buffers->groups.at(gi.index());
     group.registers = sealed_flux_registers_t(
         flux_registers_t{flux_register_of(record, level, ba, dm)});
-    make_rk_buffers(group, record, level, ba, dm);
+    group.rk = rk_buffers_of(record, level, ba, dm);
   }
   buffers->geometry = flux_geometry_of(level, ba, dm);
   return level_buffers_ptr(buffers.release(),

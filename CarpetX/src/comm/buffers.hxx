@@ -3,10 +3,12 @@
 
 #include "internal.hxx"
 
+#include "config/stages.hxx"
 #include "hierarchy/model.hxx"
 #include "comm/rk_bands.hxx"
 #include <carpetx.hxx>
 
+#include <AMReX_FabArrayBase.H>
 #include <AMReX_FluxRegister.H>
 #include <AMReX_MultiFab.H>
 
@@ -16,6 +18,7 @@
 #include <source_location>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -96,11 +99,20 @@ public:
   }
 };
 
+struct rk_buffers_t {
+  rk_buffers_t(const amrex::FabArrayBase::FPinfo &fp, const int numvars,
+               const stage_range stages)
+      : sources(std::in_place, fp, numvars, stages),
+        fill_patches(std::in_place, fp, numvars) {}
+
+  sealed_rk_sources_t sources;
+  sealed_rk_fill_patches_t fill_patches;
+};
+
 struct group_buffers_t {
   sealed_flux_registers_t registers;
   sealed_flux_scratch_t scratch;
-  std::optional<sealed_rk_sources_t> rk_sources;
-  std::optional<sealed_rk_fill_patches_t> rk_fill_patches;
+  std::optional<rk_buffers_t> rk;
 };
 
 struct flux_geometry_t {
