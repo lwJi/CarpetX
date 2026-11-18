@@ -504,6 +504,42 @@ def unused_includes(root: str = PROJECT) -> list[tuple[str, str]]:
     return found
 
 
+def needs(head: list[str], body: list[str]) -> set[str]:
+    return set(head) if function_like(head) else set(head) | set(body)
+
+
+def given_words(root: str, layers: list[str]) -> set[str]:
+    found: set[str] = set()
+    for layer in layers:
+        for path in sources(root, layer):
+            if layer_path(layer, os.path.basename(path)) != SEES_ALL:
+                found |= words_in(read(path))
+    return found
+
+
+def unused_names(root: str = PROJECT) -> list[tuple[str, str]]:
+    found = []
+    for stem in sorted({stem for stems in GIVEN.values() for stem in stems}):
+        header = layer_path(GIVEN_LAYER, stem + ".hxx")
+        path = os.path.join(root, header)
+        if not os.path.exists(path):
+            continue
+        text = read(path)
+        try:
+            declared = declared_names(text, forward=False)
+            needed = [(declared_by(head, body) or set(), needs(head, body)) for _, head, body, has_body in declarations(text) if not forward_declaration(head, has_body)]
+        except ValueError as e:
+            raise ValueError(f"{header}: {e}") from None
+        used = declared & given_words(root, [layer for layer, stems in GIVEN.items() if stem in stems])
+        grown = True
+        while grown:
+            more = set().union(*(need for names, need in needed if not names.isdisjoint(used))) & declared
+            grown = not more <= used
+            used |= more
+        found.extend((header, name) for name in sorted(declared - used))
+    return found
+
+
 def is_pair(reader: str, target: str) -> bool:
     return target != PUBLIC and group_of(reader) is not None and group_of(reader) == group_of(target)
 

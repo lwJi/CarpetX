@@ -2713,6 +2713,44 @@ class Doc(unittest.TestCase):
             with mock.patch.dict(rules.GIVEN, {"schedule": ("restrict",), "api": ("restrict", "sync")}, clear=True):
                 self.assertEqual(doc.unlisted_headers(root), [])
 
+    def test_a_header_a_layer_is_given_declares_only_names_its_layers_use(self):
+        self.assertEqual(
+            doc.unused_names(),
+            [],
+            "each pair is a header of comm/ that GIVEN in scripts/lint/boundary/rules.py lists and a name it declares that no file of a layer it is given spells, and no declaration of a used name needs: move the declaration to <stem>_inside.hxx",
+        )
+        restrict, substeps, bands = (layer_path("comm", name) for name in ("restrict.hxx", "substeps.hxx", "checkpoint_bands.hxx"))
+        files = {
+            restrict: guarded(restrict, "namespace CarpetX {\nvoid Restrict(window_t window);\nvoid restrict_level(level_t level, valid_t coarse_keeps);\n}\n"),
+            substeps: guarded(
+                substeps,
+                "namespace CarpetX {\nstruct timelevels_t;\nsubstep_t substep_of_parent_step(level_t child);\ninline bool aligned_with_parent(const level_t child) {\n  return substep_of_parent_step(child).aligned();\n}\n}\n",
+            ),
+            bands: guarded(
+                bands,
+                "namespace CarpetX {\nstruct checkpoint_band_t {\n  band_tag_t tag;\n};\nstruct band_tag_t {\n  int id;\n};\nstruct band_kind_t {\n  int id;\n};\nstd::vector<checkpoint_band_t> checkpoint_bands(level_t level);\n}\n",
+            ),
+            layer_path("schedule", "clocks.cxx"): '#include "comm/restrict.hxx"\n#include "comm/substeps.hxx"\nvoid f() { Restrict(window); aligned_with_parent(level); }\n',
+            layer_path("api", "api.cxx"): '#include "comm/restrict.hxx"\n// restrict_level\nconst char *name = "restrict_level";\n',
+            layer_path("regrid", "regrid.cxx"): "void g() { restrict_level(level, valid); }\n",
+            layer_path("io", "checkpoint.cxx"): '#include "comm/checkpoint_bands.hxx"\nauto bands = checkpoint_bands(level);\n',
+            rules.SEES_ALL: '#include "comm/checkpoint_bands.hxx"\nstatic_assert(sizeof(band_kind_t) > 0);\n',
+        }
+        given = {"io": ("checkpoint_bands",), "schedule": ("restrict", "substeps"), "api": ("restrict",)}
+        with tempfile.TemporaryDirectory() as root:
+            tree(root, files)
+            with mock.patch.dict(rules.GIVEN, given, clear=True):
+                self.assertEqual(
+                    doc.unused_names(root),
+                    [(bands, "band_kind_t"), (restrict, "restrict_level"), (substeps, "substep_of_parent_step")],
+                )
+                write(root, layer_path("api", "api.cxx"), '#include "comm/restrict.hxx"\nvoid h() { restrict_level(level, valid); }\n')
+                self.assertEqual(doc.unused_names(root), [(bands, "band_kind_t"), (substeps, "substep_of_parent_step")])
+                write(root, layer_path("io", "checkpoint.cxx"), files[layer_path("io", "checkpoint.cxx")] + "band_kind_t kind;\n")
+                self.assertEqual(doc.unused_names(root), [(substeps, "substep_of_parent_step")])
+                write(root, layer_path("schedule", "clocks.cxx"), files[layer_path("schedule", "clocks.cxx")].replace("aligned_with_parent", "window_is_restricted"))
+                self.assertEqual(doc.unused_names(root), [(substeps, "aligned_with_parent"), (substeps, "substep_of_parent_step")])
+
     def test_an_arrow_into_comm_is_what_the_layer_is_given(self):
         lines = doc.stack().splitlines()
         for layer, stems in rules.GIVEN.items():

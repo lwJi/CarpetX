@@ -1,4 +1,5 @@
 #include "comm/fillpatch.hxx"
+#include "comm/fillpatch_inside.hxx"
 #include "comm/boundary_conditions_inside.hxx"
 #include "comm/prolongate_3d_rf2_inside.hxx"
 

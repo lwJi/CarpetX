@@ -1,4 +1,5 @@
 #include "comm/integrator.hxx"
+#include "comm/integrator_inside.hxx"
 
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"

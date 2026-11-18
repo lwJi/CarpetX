@@ -1,4 +1,5 @@
 #include "comm/outer_boundary.hxx"
+#include "comm/outer_boundary_inside.hxx"
 
 #include "hierarchy/loops.hxx"
 #include "hierarchy/model.hxx"

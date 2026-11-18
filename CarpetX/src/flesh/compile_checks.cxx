@@ -13,6 +13,7 @@
 #include "comm/checkpoint_bands.hxx"
 #include "comm/rk_bands_inside.hxx"
 #include "comm/rk_ghosts.hxx"
+#include "comm/rk_ghosts_inside.hxx"
 #include "comm/substeps.hxx"
 #include "comm/sync.hxx"
 #include "comm/timelevels.hxx"

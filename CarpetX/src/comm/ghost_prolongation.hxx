@@ -3,7 +3,6 @@
 
 #include "internal.hxx"
 
-#include "hierarchy/model.hxx"
 #include <carpetx.hxx>
 
 #include <span>
@@ -19,9 +18,6 @@ void ProlongateAligned(window_t window, std::span<const gi_t> groups,
                        timelevels_t tls);
 
 void ProlongateAfterRestriction(window_t window);
-
-void error_if_parent_invalid(const GHExt::PatchData::LevelData &leveldata,
-                             gi_t gi, tl_t tl, const char *label);
 
 } // namespace CarpetX
 
