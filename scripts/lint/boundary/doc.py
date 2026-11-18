@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable, Iterator
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, GRANT_LAYERS, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
+from .rules import AMREX_CALLBACKS, DECLARATION_START, GIVEN, GIVEN_HOME, GIVEN_LAYER, GRANT_LAYERS, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, SEES_ALL, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
 from comments.lex_cxx import lex
 from comments.tokens import Kind
 from files import PROJECT
@@ -66,7 +66,8 @@ CALLED_AS = {"structure_writer_t::regrid": "structure.regrid"}
 assert set(CALLED_AS) <= {name for row in PASS + REGRID for name in row[3]}, CALLED_AS
 BOXES = (("above", f"above {HUB}/"), ("door", "driver() allowed"), ("nodoor", "no driver()"))
 STACK_LEGEND = (
-    f"an arrow is an include a layer has today; the layer rule refuses one outside the table READS in {READS_HOME}",
+    f"an arrow not into {GIVEN_LAYER}/ is an include a layer has today; the layer rule refuses one outside the table READS in {READS_HOME}",
+    f"an arrow into {GIVEN_LAYER}/ is the interface that layer is given, the table GIVEN in {GIVEN_HOME}; the interface rule refuses an include outside it, and {SEES_ALL}, which checks the inside of {GIVEN_LAYER}/, adds nothing to an arrow",
     f"{PUBLIC}/ is the public headers, not a layer",
 )
 PASS_LEGEND = ("a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX",)
@@ -140,9 +141,12 @@ def reads(root: str) -> dict[tuple[str, str], set[str]]:
     for layer in LAYERS:
         for target, header in layer_includes(root, layer):
             assert target in READS[layer], (layer, target)
-            found.setdefault((layer, target), set()).add(header)
+            if target != GIVEN_LAYER:
+                found.setdefault((layer, target), set()).add(header)
         for header in public_includes(root, layer):
             found.setdefault((layer, PUBLIC), set()).add(header)
+    for layer, stems in GIVEN.items():
+        found[(layer, GIVEN_LAYER)] = {stem + ".hxx" for stem in stems}
     return found
 
 
@@ -154,6 +158,32 @@ def header_reads(root: str = PROJECT) -> dict[str, tuple[str, ...]]:
 def unread(root: str = PROJECT) -> list[tuple[str, str]]:
     found = reads(root)
     return [(layer, target) for layer in LAYERS for target in READS[layer] if (layer, target) not in found]
+
+
+def given_includes(root: str, layer: str) -> set[str]:
+    found: set[str] = set()
+    for path in sources(root, layer):
+        if layer_path(layer, os.path.basename(path)) == SEES_ALL:
+            continue
+        for m in filter(None, map(LAYER_INCLUDE.match, read(path).splitlines())):
+            target, _, header = (m.group(1) or m.group(2)).partition("/")
+            if target == GIVEN_LAYER:
+                found.add(header)
+    return found
+
+
+def unincluded(root: str = PROJECT) -> list[tuple[str, str]]:
+    found = []
+    for layer, stems in GIVEN.items():
+        included = given_includes(root, layer)
+        found.extend((layer, stem) for stem in stems if stem + ".hxx" not in included)
+    return found
+
+
+def standing(stem: str) -> str:
+    assert stem in STEMS[GIVEN_LAYER], stem
+    readers = [f"{layer}/" for layer, stems in GIVEN.items() if stem in stems]
+    return f"Interface for {', '.join(readers)}." if readers else "Inside."
 
 
 NAME = re.compile(r"[A-Za-z_]\w*")
@@ -661,7 +691,7 @@ def owns(root: str = PROJECT) -> str:
     rows = []
     for layer in reversed(LAYERS):
         rows.append(f"- `{layer}/`: {OWNS[layer]}" + (f" Rules at home here: {', '.join(rules_of(layer))}." if rules_of(layer) else ""))
-        rows.extend(f"  - `{stem}`: {holds}" for stem, holds in listed.get(layer, {}).items())
+        rows.extend(f"  - `{stem}`: {holds}" + (f". {standing(stem)}" if layer == GIVEN_LAYER else "") for stem, holds in listed.get(layer, {}).items())
     return "\n".join([OWNS_HEADING, "", OWNS_INTRO, ""] + rows) + "\n"
 
 

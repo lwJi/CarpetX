@@ -29,7 +29,7 @@ flowchart TB
   flesh -- "checkpoint.hxx, io.hxx" --> io
   flesh -- "interp.hxx" --> ops
   flesh -- "regrid.hxx" --> regrid
-  flesh -- "buffers.hxx, checkpoint_bands.hxx, ghost_prolongation.hxx, reflux.hxx, restrict.hxx, rk_bands.hxx, rk_ghosts.hxx, substeps.hxx, sync.hxx, timelevels.hxx" --> comm
+  flesh -- "buffers.hxx" --> comm
   api -- "schedule.hxx" --> schedule
   api -- "ghost_prolongation.hxx, integrator.hxx, outer_boundary.hxx, reflux.hxx, restrict.hxx, rk_ghosts.hxx, sync.hxx, timelevels.hxx" --> comm
   schedule -- "io.hxx" --> io
@@ -47,7 +47,8 @@ flowchart TB
   nodoor -- "carpetx.hxx" --> include
 ```
 
-- an arrow is an include a layer has today; the layer rule refuses one outside the table READS in scripts/lint/boundary/rules.py
+- an arrow not into comm/ is an include a layer has today; the layer rule refuses one outside the table READS in scripts/lint/boundary/rules.py
+- an arrow into comm/ is the interface that layer is given, the table GIVEN in scripts/lint/boundary/rules.py; the interface rule refuses an include outside it, and CarpetX/src/flesh/compile_checks.cxx, which checks the inside of comm/, adds nothing to an arrow
 - include/ is the public headers, not a layer
 
 ## One pass of the schedule
@@ -110,25 +111,25 @@ New code goes in the layer that owns what it works on, and a lower layer never d
 - `io/`: output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. It keeps one fact between two of the flesh's calls: the iteration of the checkpoint the parameters were recovered from, which the grid structure is then recovered from. Rules at home here: records, codec.
 - `ops/`: operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.
 - `regrid/`: the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.
-- `comm/`: filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. Its `SyncGroups` takes a `requested_sync_t`, which only `SyncRequested` in `schedule/` builds, so a call from any other function does not compile, and its `SyncGhostsOnly` takes a `public_ghost_only_t`, which only the public `sync_ghosts_only` builds. What it keeps on a level is read const through `buffers_of`, and a buffer is opened only by the writer its `written_by` alias names. Its `restore_bands` takes a `checkpoint_read_t`, which only `read_record` in `io/` builds. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock. Rules at home here: grant, applies.
-  - `sync`: the sync a routine or thorn asks for: ghosts from the same level and the coarser one, then the outer boundary
-  - `restrict`: coarse cells from the finer level's
-  - `ghost_prolongation`: which levels, groups and time levels are prolongated into, the validity that requires of the level it reads, and the validity it records
-  - `outer_boundary`: which groups and time levels get the outer boundary, and the validity that records; the thorn routine it calls, and the refusal of a sync started from inside that call
-  - `rk_ghosts`: filling coarse-fine ghosts between parent steps from the RK bands
-  - `reflux`: flux registers: which groups have one, what accumulates in it, and correcting the coarse level from it
-  - `fillpatch`: carrying data between two `MultiFab`s with an operator
-  - `boundary_conditions`: applying a group's boundary conditions to one `MultiFab`
-  - `prolongate_3d_rf2`: the prolongation operators, and the choice of one per group
-  - `buffers`: what `comm/` keeps on a level and its lifetime, and the one writer of each buffer: `flux_register_writer_t` of the flux registers and their scratch, `rk_source_writer_t` of the RK sources, `rk_fill_patch_writer_t` of the RK fill patches; the cell volume has none
-  - `rk_bands`: what a level holds of its parent's RK step and when it may be read, and the two patches the RK fill works in
-  - `checkpoint_bands`: the bands of a level a checkpoint carries, each under its tag
-  - `timelevels`: which time levels a request covers
-  - `group_selection`: which of the groups asked for an exchange acts on
-  - `level_runs`: splitting a window into runs of levels a predicate treats alike
-  - `level_pairs`: visiting each level of a window that has a child in it
-  - `integrator`: what the registered integrator integrates, and in how many stages
-  - `substeps`: where a level stands in its parent's step
+- `comm/`: filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. Its `SyncGroups` takes a `requested_sync_t`, which only `SyncRequested` in `schedule/` builds, so a call from any other function does not compile, and its `SyncGhostsOnly` takes a `public_ghost_only_t`, which only the public `sync_ghosts_only` builds. What it keeps on a level is read const through `buffers_of`, and a buffer is opened only by the writer its `written_by` alias names. Its `restore_bands` takes a `checkpoint_read_t`, which only `read_record` in `io/` builds. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock. Rules at home here: grant, applies, interface.
+  - `sync`: the sync a routine or thorn asks for: ghosts from the same level and the coarser one, then the outer boundary. Interface for schedule/, api/.
+  - `restrict`: coarse cells from the finer level's. Interface for schedule/, api/.
+  - `ghost_prolongation`: which levels, groups and time levels are prolongated into, the validity that requires of the level it reads, and the validity it records. Interface for schedule/, api/.
+  - `outer_boundary`: which groups and time levels get the outer boundary, and the validity that records; the thorn routine it calls, and the refusal of a sync started from inside that call. Interface for api/.
+  - `rk_ghosts`: filling coarse-fine ghosts between parent steps from the RK bands. Interface for schedule/, api/.
+  - `reflux`: flux registers: which groups have one, what accumulates in it, and correcting the coarse level from it. Interface for schedule/, api/.
+  - `fillpatch`: carrying data between two `MultiFab`s with an operator. Interface for regrid/.
+  - `boundary_conditions`: applying a group's boundary conditions to one `MultiFab`. Inside.
+  - `prolongate_3d_rf2`: the prolongation operators, and the choice of one per group. Inside.
+  - `buffers`: what `comm/` keeps on a level and its lifetime, and the one writer of each buffer: `flux_register_writer_t` of the flux registers and their scratch, `rk_source_writer_t` of the RK sources, `rk_fill_patch_writer_t` of the RK fill patches; the cell volume has none. Interface for flesh/.
+  - `rk_bands`: what a level holds of its parent's RK step and when it may be read, and the two patches the RK fill works in. Inside.
+  - `checkpoint_bands`: the bands of a level a checkpoint carries, each under its tag. Interface for io/.
+  - `timelevels`: which time levels a request covers. Interface for api/.
+  - `group_selection`: which of the groups asked for an exchange acts on. Inside.
+  - `level_runs`: splitting a window into runs of levels a predicate treats alike. Inside.
+  - `level_pairs`: visiting each level of a window that has a child in it. Inside.
+  - `integrator`: what the registered integrator integrates, and in how many stages. Interface for api/.
+  - `substeps`: where a level stands in its parent's step. Interface for regrid/, schedule/.
 - `hierarchy/`: the data model and what it cannot be built or written without. Nothing here only reads the model: a query belongs to the layer that owns its subject. Rules at home here: validity, binding, clock, varindex, model, grant, cast, phase.
   - `model`: `GHExt`, its nested types, and the door `driver()`
   - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy

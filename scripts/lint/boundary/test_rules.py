@@ -299,7 +299,7 @@ class Applies(unittest.TestCase):
                     self.assertEqual(reported(name, line + "\n"), [])
 
     def test_a_stem_that_decides_includes_any_header_of_comm(self):
-        for name in ["CarpetX/src/comm/sync.cxx", "CarpetX/src/comm/rk_ghosts.cxx", "CarpetX/src/regrid/regrid.cxx"]:
+        for name in ["CarpetX/src/comm/sync.cxx", "CarpetX/src/comm/rk_ghosts.cxx"]:
             for line in ['#include "comm/restrict.hxx"', '#include "comm/fillpatch.hxx"']:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(reported(name, line + "\n"), [])
@@ -326,6 +326,93 @@ class Applies(unittest.TestCase):
         self.assertEqual(next(rule for rule in rules.RULES if rule.name == "applies").home, ("comm",))
         with self.assertRaises(AssertionError):
             rules.in_rows("comm", ("nosuch",))
+
+
+class Interface(unittest.TestCase):
+    def test_the_lists_are_the_includes_the_layers_above_have_and_compile_checks_sees_all(self):
+        self.assertEqual(rules.GIVEN_LAYER, "comm")
+        self.assertEqual(
+            rules.GIVEN,
+            {
+                "regrid": ("fillpatch", "substeps"),
+                "io": ("checkpoint_bands",),
+                "schedule": ("ghost_prolongation", "reflux", "restrict", "rk_ghosts", "substeps", "sync"),
+                "api": ("ghost_prolongation", "integrator", "outer_boundary", "reflux", "restrict", "rk_ghosts", "sync", "timelevels"),
+                "flesh": ("buffers",),
+            },
+        )
+        self.assertEqual(set(rules.GIVEN), {layer for layer in LAYERS if "comm" in READS[layer]})
+        self.assertEqual(rules.SEES_ALL, "CarpetX/src/flesh/compile_checks.cxx")
+        for layer, stems in rules.GIVEN.items():
+            with self.subTest(layer=layer):
+                self.assertLessEqual(set(stems), set(rules.STEMS["comm"]))
+
+    def test_an_include_of_a_header_the_layer_is_not_given_is_reported(self):
+        for name, line in [
+            ("CarpetX/src/api/x.cxx", '#include "comm/level_runs.hxx"'),
+            ("CarpetX/src/regrid/x.cxx", '#include "comm/restrict.hxx"'),
+            ("CarpetX/src/flesh/startup.cxx", '#include "comm/sync.hxx"'),
+            ("CarpetX/src/flesh/startup.cxx", "#include <comm/rk_bands.hxx>"),
+            ("CarpetX/src/io/checkpoint.cxx", '#include "comm/buffers.hxx"'),
+            ("CarpetX/src/schedule/clocks.cxx", '#include "comm/timelevels.hxx"'),
+            ("CarpetX/src/api/api.hxx", '#include "comm/boundary_conditions_impl.hxx"'),
+            ("CarpetX/src/api/api.cxx", '#include "comm/restrict_inside.hxx"'),
+            ("CarpetX/src/regrid/regrid.cxx", '#include "comm/fillpatch_impl.hxx"'),
+            ("CarpetX/src/api/api.cxx", '  #  include "comm/nosuch.hxx"'),
+        ]:
+            with self.subTest(name=name, line=line):
+                self.assertEqual(reported(name, line + "\n"), [("interface", line.strip())])
+
+    def test_an_include_of_a_header_the_layer_is_given_passes(self):
+        for layer, stems in rules.GIVEN.items():
+            for stem in stems:
+                for name in [layer_path(layer, "x.cxx"), layer_path(layer, "x.hxx")]:
+                    for line in [f'#include "comm/{stem}.hxx"', f"#include <comm/{stem}.hxx>"]:
+                        with self.subTest(name=name, line=line):
+                            self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_compile_checks_and_comm_include_any_header_of_comm(self):
+        for name in [rules.SEES_ALL, "CarpetX/src/comm/sync.cxx", "CarpetX/src/comm/buffers.hxx", "CarpetX/src/comm/boundary_conditions_impl_neg_neg_int.cxx"]:
+            for line in ['#include "comm/rk_bands.hxx"', '#include "comm/level_runs.hxx"', '#include "comm/restrict_inside.hxx"', '#include "comm/prolongate_3d_rf2_impl.hxx"', '#include "comm/buffers.hxx"']:
+                with self.subTest(name=name, line=line):
+                    self.assertNotIn("interface", [rule for rule, _ in reported(name, line + "\n")])
+
+    def test_a_layer_that_does_not_read_comm_is_left_to_the_layer_rule(self):
+        for name in ["CarpetX/src/ops/interpolate.cxx", "CarpetX/src/hierarchy/model.cxx", "CarpetX/src/util/logo.cxx", "CarpetX/src/extra/x.cxx"]:
+            line = '#include "comm/sync.hxx"'
+            with self.subTest(name=name):
+                self.assertEqual(reported(name, line + "\n"), [("layer", line)])
+
+    def test_another_include_or_a_mention_passes(self):
+        name = "CarpetX/src/api/api.cxx"
+        for text in ['#include "hierarchy/model.hxx"\n', "// #include \"comm/level_runs.hxx\"\n", 'const char *p = "comm/level_runs.hxx";\n', "#include <carpetx.hxx>\n", '#include "schedule/schedule.hxx"\n']:
+            with self.subTest(text=text):
+                self.assertNotIn("interface", [rule for rule, _ in reported(name, text)])
+
+    def test_no_file_of_the_tree_includes_a_header_its_layer_is_not_given(self):
+        found = []
+        for layer in LAYERS:
+            for path in doc.sources(PROJECT, layer):
+                name = os.path.relpath(path, PROJECT)
+                found.extend((name, f.line) for f in findings(name, doc.read(path), Lang.CXX) if f.rule == "interface")
+        self.assertEqual(found, [])
+
+    def test_the_refusal_names_the_lists_and_where_a_new_use_goes(self):
+        interface = next(rule for rule in rules.RULES if rule.name == "interface")
+        self.assertEqual(interface.home, ("comm",))
+        self.assertIn(rules.GIVEN_HOME, interface.text)
+        self.assertIn(rules.SEES_ALL, interface.text)
+        self.assertIn("A new use from above is an entry of GIVEN in scripts/lint/boundary/rules.py", interface.text)
+        for layer, stems in rules.GIVEN.items():
+            with self.subTest(layer=layer):
+                self.assertIn(f"{layer}/ is given {', '.join(f'{stem}.hxx' for stem in stems)}", interface.text)
+        self.assertIn("flesh/ is given buffers.hxx.", interface.text)
+        name = "CarpetX/src/api/x.cxx"
+        found = [(name, f) for f in findings(name, '#include "comm/level_runs.hxx"\n', Lang.CXX)]
+        report = render(found).split("\n")
+        self.assertEqual(report[0], 'CarpetX/src/api/x.cxx:1   interface   #include "comm/level_runs.hxx"')
+        self.assertIn(interface.paragraph().split("\n")[0], report)
+        self.assertEqual(report[-1], "✗ boundary: 1 include comm/ does not give its layer")
 
 
 class VarIndex(unittest.TestCase):
@@ -1476,6 +1563,8 @@ class Layer(unittest.TestCase):
             for other in LAYERS:
                 line = f'#include "{other}/x.hxx"'
                 expected = [] if other == layer or other in READS[layer] else [("layer", line)]
+                if other == rules.GIVEN_LAYER and layer in rules.GIVEN:
+                    expected = [("interface", line)]
                 for name in [layer_path(layer, "x.cxx"), layer_path(layer, "x.hxx")]:
                     with self.subTest(name=name, line=line):
                         self.assertEqual(reported(name, line + "\n"), expected)
@@ -2008,6 +2097,7 @@ class Layers(unittest.TestCase):
             + rules.MODEL_FILES
             + tuple(rules.INDEX_FIXED)
             + rules.CODEC_FILES
+            + (rules.SEES_ALL,)
         )
         for name in named:
             with self.subTest(name=name):
@@ -2141,7 +2231,8 @@ class Report(unittest.TestCase):
             "every header opens with its own guard and internal.hxx, "
             "no extern C entry outside flesh/, "
             "the hierarchy has one door that util/, traversal/ and config/ never use, "
-            "and no write-scope or deciding-stem include in a stem of comm/ that applies",
+            "no write-scope or deciding-stem include in a stem of comm/ that applies, "
+            "and every include of comm/ from above one its layer is given",
         )
 
     def test_counts(self):
@@ -2543,6 +2634,48 @@ class Doc(unittest.TestCase):
         with mock.patch.dict(READS, {"api": ("util", "hierarchy", "comm", "schedule")}), self.assertRaises(AssertionError):
             doc.reads(PROJECT)
 
+    def test_each_header_a_layer_is_given_is_included_by_a_file_of_it_but_compile_checks(self):
+        self.assertEqual(
+            doc.unincluded(),
+            [],
+            "each pair is a layer and a stem of comm/ that GIVEN in scripts/lint/boundary/rules.py lists for it, but no file of the layer but flesh/compile_checks.cxx includes its header: remove the entry",
+        )
+        with tempfile.TemporaryDirectory() as root:
+            tree(
+                root,
+                {
+                    layer_path("api", "a.cxx"): '#include "comm/sync.hxx"\n#include "hierarchy/model.hxx"\n',
+                    layer_path("api", "a.hxx"): "// #include \"comm/restrict.hxx\"\n",
+                    rules.SEES_ALL: '#include "comm/buffers.hxx"\n#include "comm/restrict.hxx"\n',
+                    layer_path("io", "b.cxx"): '#include "comm/buffers.hxx"\n',
+                },
+            )
+            with mock.patch.dict(rules.GIVEN, {"api": ("restrict", "sync"), "flesh": ("buffers",)}, clear=True):
+                self.assertEqual(doc.unincluded(root), [("api", "restrict"), ("flesh", "buffers")])
+                write(root, layer_path("flesh", "startup.cxx"), "#include <comm/buffers.hxx>\n")
+                self.assertEqual(doc.unincluded(root), [("api", "restrict")])
+                write(root, layer_path("api", "a.hxx"), '#include "comm/restrict.hxx"\n')
+                self.assertEqual(doc.unincluded(root), [])
+
+    def test_an_arrow_into_comm_is_what_the_layer_is_given(self):
+        lines = doc.stack().splitlines()
+        for layer, stems in rules.GIVEN.items():
+            with self.subTest(layer=layer):
+                self.assertIn(f'  {layer} -- "{", ".join(f"{stem}.hxx" for stem in stems)}" --> comm', lines)
+        self.assertIn('  flesh -- "buffers.hxx" --> comm', lines)
+        self.assertEqual(len([line for line in lines if line.endswith(" --> comm")]), len(rules.GIVEN))
+        self.assertIn(rules.GIVEN_HOME, doc.STACK_LEGEND[1])
+        self.assertIn("an arrow into comm/ is the interface that layer is given", doc.STACK_LEGEND[1])
+        self.assertIn(rules.SEES_ALL, doc.STACK_LEGEND[1])
+        self.assertEqual(doc.standing("restrict"), "Interface for schedule/, api/.")
+        self.assertEqual(doc.standing("substeps"), "Interface for regrid/, schedule/.")
+        self.assertEqual(doc.standing("buffers"), "Interface for flesh/.")
+        self.assertEqual(doc.standing("level_runs"), "Inside.")
+        self.assertEqual(doc.standing("rk_bands"), "Inside.")
+        with self.assertRaises(AssertionError):
+            doc.standing("nosuch")
+        self.assertEqual([stem for stem in rules.STEMS["comm"] if doc.standing(stem) == "Inside."], ["boundary_conditions", "prolongate_3d_rf2", "rk_bands", "group_selection", "level_runs", "level_pairs"])
+
     def test_the_table_of_grants_is_the_friend_lines_the_tree_has(self):
         headers = doc.grant_headers()
         self.assertIn(Grant.MODEL, headers)
@@ -2616,10 +2749,10 @@ class Doc(unittest.TestCase):
         self.assertEqual(rows["- `hierarchy/`"], f"- `hierarchy/`: {rules.OWNS['hierarchy']} Rules at home here: validity, binding, clock, varindex, model, grant, cast, phase.")
         self.assertTrue(rules.OWNS["hierarchy"].endswith(" Nothing here only reads the model: a query belongs to the layer that owns its subject."))
         self.assertTrue(rows["- `flesh/`"].endswith(" Rules at home here: entry."))
-        self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: grant, applies.")
+        self.assertEqual(rows["- `comm/`"], f"- `comm/`: {rules.OWNS['comm']} Rules at home here: grant, applies, interface.")
         self.assertTrue(rules.OWNS["comm"].endswith(" It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock."))
         self.assertIn(" A stem either decides what is filled and records its validity, or applies and records nothing. ", rules.OWNS["comm"])
-        self.assertEqual(doc.rules_of("comm"), ["grant", "applies"])
+        self.assertEqual(doc.rules_of("comm"), ["grant", "applies", "interface"])
         self.assertEqual(doc.rules_of("schedule"), [])
         self.assertEqual(rows["- `ops/`"], f"- `ops/`: {rules.OWNS['ops']}")
         self.assertNotIn("Rules at home here", rows["- `ops/`"])
@@ -2634,7 +2767,7 @@ class Doc(unittest.TestCase):
         for rule in rules.RULES:
             with self.subTest(rule=rule.name):
                 self.assertLessEqual(set(rule.home), set(LAYERS))
-        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "varindex", "model", "grant", "cast", "traversal", "phase", "records", "codec", "entry", "applies"])
+        self.assertEqual([rule.name for rule in rules.RULES if rule.home], ["validity", "binding", "clock", "varindex", "model", "grant", "cast", "traversal", "phase", "records", "codec", "entry", "applies", "interface"])
         self.assertEqual(rules.layers_of((rules.MODEL_FILE,)), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.VALIDITY_FILES), ("hierarchy",))
         self.assertEqual(rules.layers_of(rules.BINDING_FILES), ("hierarchy",))
@@ -2661,13 +2794,17 @@ class Doc(unittest.TestCase):
                     f.write(text)
             self.assertEqual(doc.header_reads(root), {layer: ("ops",) if layer == "io" else () for layer in LAYERS})
             self.assertEqual(doc.layer_includes(root, "flesh", (".hxx",)), set())
+            self.assertIn(("comm", "sync.hxx"), doc.layer_includes(root, "flesh"))
+            given = mock.patch.dict(rules.GIVEN, {"flesh": ("buffers",)}, clear=True)
+            given.start()
+            self.addCleanup(given.stop)
             edges = doc.includes(root)
             self.assertEqual(
                 list(edges.items()),
                 [
                     (("flesh", "io"), ("checkpoint.hxx", "io.hxx")),
                     (("flesh", "ops"), ("interp.hxx",)),
-                    (("flesh", "comm"), ("sync.hxx",)),
+                    (("flesh", "comm"), ("buffers.hxx",)),
                     (("io", "ops"), ("reduction.hxx",)),
                 ],
             )
@@ -2675,7 +2812,7 @@ class Doc(unittest.TestCase):
             drawn = doc.stack(root)
             graph = drawn.splitlines()
             self.assertEqual(graph[-7], '  include["include/"]')
-            self.assertEqual(graph[-6:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "sync.hxx" --> comm', '  io -- "reduction.hxx" --> ops', '  above -- "model.hxx" --> hierarchy', '  door -- "refuse.hxx" --> util'])
+            self.assertEqual(graph[-6:], ['  flesh -- "checkpoint.hxx, io.hxx" --> io', '  flesh -- "interp.hxx" --> ops', '  flesh -- "buffers.hxx" --> comm', '  io -- "reduction.hxx" --> ops', '  above -- "model.hxx" --> hierarchy', '  door -- "refuse.hxx" --> util'])
             self.assertNotIn("%%", drawn)
             self.assertEqual(doc.headerless(root), tuple(layer for layer in LAYERS if layer not in ("hierarchy", "io", "comm")))
             self.assertIn('      ops["ops/ no header"]', drawn)
@@ -2728,7 +2865,7 @@ class Doc(unittest.TestCase):
                 layer = line.split("`")[1].rstrip("/")
             else:
                 under.setdefault(layer, []).append(line)
-        self.assertEqual(under, {layer: [f"  - `{stem}`: {holds}" for stem, holds in rows.items()] for layer, rows in rules.STEMS.items()})
+        self.assertEqual(under, {layer: [f"  - `{stem}`: {holds}" + (f". {doc.standing(stem)}" if layer == "comm" else "") for stem, holds in rows.items()] for layer, rows in rules.STEMS.items()})
         self.assertEqual(
             under["config"],
             [
@@ -2757,24 +2894,24 @@ class Doc(unittest.TestCase):
         self.assertEqual(
             under["comm"],
             [
-                "  - `sync`: the sync a routine or thorn asks for: ghosts from the same level and the coarser one, then the outer boundary",
-                "  - `restrict`: coarse cells from the finer level's",
-                "  - `ghost_prolongation`: which levels, groups and time levels are prolongated into, the validity that requires of the level it reads, and the validity it records",
-                "  - `outer_boundary`: which groups and time levels get the outer boundary, and the validity that records; the thorn routine it calls, and the refusal of a sync started from inside that call",
-                "  - `rk_ghosts`: filling coarse-fine ghosts between parent steps from the RK bands",
-                "  - `reflux`: flux registers: which groups have one, what accumulates in it, and correcting the coarse level from it",
-                "  - `fillpatch`: carrying data between two `MultiFab`s with an operator",
-                "  - `boundary_conditions`: applying a group's boundary conditions to one `MultiFab`",
-                "  - `prolongate_3d_rf2`: the prolongation operators, and the choice of one per group",
-                "  - `buffers`: what `comm/` keeps on a level and its lifetime, and the one writer of each buffer: `flux_register_writer_t` of the flux registers and their scratch, `rk_source_writer_t` of the RK sources, `rk_fill_patch_writer_t` of the RK fill patches; the cell volume has none",
-                "  - `rk_bands`: what a level holds of its parent's RK step and when it may be read, and the two patches the RK fill works in",
-                "  - `checkpoint_bands`: the bands of a level a checkpoint carries, each under its tag",
-                "  - `timelevels`: which time levels a request covers",
-                "  - `group_selection`: which of the groups asked for an exchange acts on",
-                "  - `level_runs`: splitting a window into runs of levels a predicate treats alike",
-                "  - `level_pairs`: visiting each level of a window that has a child in it",
-                "  - `integrator`: what the registered integrator integrates, and in how many stages",
-                "  - `substeps`: where a level stands in its parent's step",
+                "  - `sync`: the sync a routine or thorn asks for: ghosts from the same level and the coarser one, then the outer boundary. Interface for schedule/, api/.",
+                "  - `restrict`: coarse cells from the finer level's. Interface for schedule/, api/.",
+                "  - `ghost_prolongation`: which levels, groups and time levels are prolongated into, the validity that requires of the level it reads, and the validity it records. Interface for schedule/, api/.",
+                "  - `outer_boundary`: which groups and time levels get the outer boundary, and the validity that records; the thorn routine it calls, and the refusal of a sync started from inside that call. Interface for api/.",
+                "  - `rk_ghosts`: filling coarse-fine ghosts between parent steps from the RK bands. Interface for schedule/, api/.",
+                "  - `reflux`: flux registers: which groups have one, what accumulates in it, and correcting the coarse level from it. Interface for schedule/, api/.",
+                "  - `fillpatch`: carrying data between two `MultiFab`s with an operator. Interface for regrid/.",
+                "  - `boundary_conditions`: applying a group's boundary conditions to one `MultiFab`. Inside.",
+                "  - `prolongate_3d_rf2`: the prolongation operators, and the choice of one per group. Inside.",
+                "  - `buffers`: what `comm/` keeps on a level and its lifetime, and the one writer of each buffer: `flux_register_writer_t` of the flux registers and their scratch, `rk_source_writer_t` of the RK sources, `rk_fill_patch_writer_t` of the RK fill patches; the cell volume has none. Interface for flesh/.",
+                "  - `rk_bands`: what a level holds of its parent's RK step and when it may be read, and the two patches the RK fill works in. Inside.",
+                "  - `checkpoint_bands`: the bands of a level a checkpoint carries, each under its tag. Interface for io/.",
+                "  - `timelevels`: which time levels a request covers. Interface for api/.",
+                "  - `group_selection`: which of the groups asked for an exchange acts on. Inside.",
+                "  - `level_runs`: splitting a window into runs of levels a predicate treats alike. Inside.",
+                "  - `level_pairs`: visiting each level of a window that has a child in it. Inside.",
+                "  - `integrator`: what the registered integrator integrates, and in how many stages. Interface for api/.",
+                "  - `substeps`: where a level stands in its parent's step. Interface for regrid/, schedule/.",
             ],
         )
         words = set()
