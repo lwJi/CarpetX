@@ -13,7 +13,7 @@ from checks import plural, wrap
 from files import PROJECT
 
 from .doc import MAP, PUBLIC_BODIES, PUBLIC_HEADERS, declared_names, header_reads, read, stem_declarations
-from .rules import INSIDE_SUFFIX, LAYERS, PRIVATE_DIR, READS_HOME, STEMS, STEMS_HOME, dirs, linkable, row_of
+from .rules import GIVEN, GIVEN_HOME, GIVEN_LAYER, INSIDE_SUFFIX, LAYERS, PRIVATE_DIR, READS_HOME, SEES_ALL, STEMS, STEMS_HOME, dirs, layer_path, linkable, row_of
 
 OBJECT_SUFFIX = ".cxx.o"
 HEADER_SUFFIX = ".hxx"
@@ -38,6 +38,15 @@ REACH_RULE = wrap(
     "symbol: a header, a prototype, a block-scope declaration or an extern. No reach is excepted: a body a layer "
     "calls moves into a layer it reads."
 )
+SEES_ALL_OBJECT = SEES_ALL[len(PRIVATE_DIR) :] + ".o"
+GIVEN_RULE = wrap(
+    f"given: an object the build made from a .cxx of a layer that reads {GIVEN_LAYER}/ imports from an object of "
+    f"{GIVEN_LAYER}/ only a name that a header of {GIVEN_LAYER}/ its layer is given by GIVEN in {GIVEN_HOME} declares: a "
+    "function, an object or the outermost class of a member, whatever declared the symbol: a header, a prototype, a "
+    "block-scope declaration or an extern, and an inline body of a given header imports what it calls into every "
+    f"object that includes it. {SEES_ALL_OBJECT}, which checks the inside of {GIVEN_LAYER}/, is not judged. A name "
+    f"a layer above comes to need moves into a header of {GIVEN_LAYER}/ that layer is given, in the same change."
+)
 STEM_RULE = wrap(
     f"stems: in a layer that STEMS in {STEMS_HOME} lists, a header and its source share a stem, and the object the "
     f"build made from <layer>/<stem>.cxx strongly defines in namespace CarpetX only what <layer>/<stem>.hxx and "
@@ -49,7 +58,7 @@ STEM_RULE = wrap(
     "to the source of that header's stem, and one no header declares is declared there or becomes file-local. The "
     f"match is by name, never by signature, and {MAP} says what each stem holds."
 )
-RULE = REACH_RULE + "\n" + STEM_RULE
+RULE = REACH_RULE + "\n" + GIVEN_RULE + "\n" + STEM_RULE
 
 Demangle = Callable[[Iterable[str]], dict[str, str]]
 
@@ -63,6 +72,13 @@ class Reach:
     object: str
     layer: str
     to: str
+    symbol: str
+
+
+@dataclass(frozen=True)
+class Ungiven:
+    object: str
+    layer: str
     symbol: str
 
 
@@ -159,6 +175,22 @@ def declared_name(symbol: str) -> Optional[str]:
     return None if name.startswith(UNNAMED_NAMESPACE) else name
 
 
+def given_names(headers: dict[str, set[str]]) -> dict[str, set[str]]:
+    return {layer: set().union(*(headers.get(layer_path(GIVEN_LAYER, stem + HEADER_SUFFIX), set()) for stem in stems)) for layer, stems in GIVEN.items()}
+
+
+def ungiven(layers: dict[str, str], defined: dict[str, str], imports: dict[str, set[str]], given: dict[str, set[str]]) -> list[Ungiven]:
+    found = []
+    for obj in sorted(layers):
+        layer = layers[obj]
+        if layer not in GIVEN or obj == SEES_ALL_OBJECT:
+            continue
+        for name in sorted(imports.get(obj, ())):
+            if defined.get(name) == GIVEN_LAYER and declared_name(name) not in given.get(layer, set()):
+                found.append(Ungiven(obj, layer, name))
+    return found
+
+
 def headers_of(obj: str) -> tuple[str, str]:
     layer, stem = os.path.split(obj[: -len(OBJECT_SUFFIX)])
     base = PRIVATE_DIR + os.path.join(layer, row_of(stem))
@@ -207,29 +239,39 @@ def demangle(names: Iterable[str]) -> dict[str, str]:
     return dict(zip(names, done.stdout.splitlines()))
 
 
-def summary(unread: list[Reach], stray: list[Stray]) -> str:
-    if not unread and not stray:
-        held = f", and every definition of {dirs(tuple(STEMS), 'and')} declared in a header of its stem" if STEMS else ""
-        return "✓ symbols: every CarpetX import from the importing object's layer or one it reads" + held
+def summary(unread: list[Reach], given: list[Ungiven], stray: list[Stray]) -> str:
+    if not unread and not given and not stray:
+        held = ["✓ symbols: every CarpetX import from the importing object's layer or one it reads"]
+        if GIVEN:
+            held.append(f"every one from {GIVEN_LAYER}/ declared in a header its layer is given")
+        if STEMS:
+            held.append(f"every definition of {dirs(tuple(STEMS), 'and')} declared in a header of its stem")
+        return held[0] if len(held) == 1 else ", ".join(held[:-1]) + ", and " + held[-1]
     counts = []
     if unread:
         counts.append(f"{plural(len(unread), 'import')} from a layer the importing object's layer does not read")
+    if given:
+        counts.append(f"{plural(len(given), 'import')} of a name of {GIVEN_LAYER}/ the importing object's layer is not given")
     if stray:
         counts.append(f"{plural(len(stray), 'definition')} no header of its stem declares")
     return "✗ symbols: " + ", ".join(counts)
 
 
-def render(unread: list[Reach], stray: list[Stray], readable: dict[str, str]) -> str:
+def render(unread: list[Reach], given: list[Ungiven], stray: list[Stray], readable: dict[str, str]) -> str:
     out = []
     if unread:
         width = max(len(r.object) for r in unread)
         out.extend(f"{r.object.ljust(width)}   -> {r.to.ljust(9)}   {readable[r.symbol]}" for r in unread)
         out.extend(REACH_RULE.split("\n"))
+    if given:
+        width = max(len(u.object) for u in given)
+        out.extend(f"{u.object.ljust(width)}   not given to {u.layer}/   {readable[u.symbol]}" for u in given)
+        out.extend(GIVEN_RULE.split("\n"))
     if stray:
         width = max(len(s.object) for s in stray)
         out.extend(f"{s.object.ljust(width)}   not in {s.header[len(PRIVATE_DIR) :]}   {readable[s.symbol]}" for s in stray)
         out.extend(STEM_RULE.split("\n"))
-    out.append(summary(unread, stray))
+    out.append(summary(unread, given, stray))
     return "\n".join(out)
 
 
@@ -237,7 +279,10 @@ def check(objdir: str, demangler: Optional[Demangle] = None) -> tuple[str, bool]
     layers = layer_objects(objdir)
     definitions = {obj: defined_in(os.path.join(objdir, obj)) for obj in layers}
     imports = {obj: parse_imports(nm(os.path.join(objdir, obj), "--undefined-only")) for obj in layers}
-    unread = reaches(layers, strong_definitions(definitions, layers), imports, header_reads())
-    stray = strays(layers, definitions, stem_names(), public_names())
-    readable = (demangler or demangle)([r.symbol for r in unread] + [s.symbol for s in stray])
-    return render(unread, stray, readable), not unread and not stray
+    defined = strong_definitions(definitions, layers)
+    declared = stem_names()
+    unread = reaches(layers, defined, imports, header_reads())
+    given = ungiven(layers, defined, imports, given_names(declared))
+    stray = strays(layers, definitions, declared, public_names())
+    readable = (demangler or demangle)([r.symbol for r in unread] + [u.symbol for u in given] + [s.symbol for s in stray])
+    return render(unread, given, stray, readable), not unread and not given and not stray
