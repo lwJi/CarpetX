@@ -178,16 +178,6 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
   }
 }
 
-namespace {
-void correct_from_register(const amrex::FluxRegister &reg,
-                           amrex::MultiFab &state,
-                           const amrex::MultiFab &volume, const int numvars,
-                           const amrex::Geometry &geom) {
-  const_cast<amrex::FluxRegister &>(reg).Reflux(state, volume, 1.0, 0, 0,
-                                                numvars, geom);
-}
-} // namespace
-
 static void reflux_level(const level_t level) {
   DECLARE_CCTK_PARAMETERS;
 
@@ -235,8 +225,8 @@ static void reflux_level(const level_t level) {
     const amrex::MultiFab &volume = *cell_volume;
     assert(volume.ixType() == state.ixType());
     assert(volume.DistributionMap() == state.DistributionMap());
-    correct_from_register(fineflux->get().reg, state, volume,
-                          groupdata.record.numvars, geom);
+    flux_register_writer_t::reflux_into(state, *fineflux, volume,
+                                        groupdata.record.numvars, geom);
   }
 }
 

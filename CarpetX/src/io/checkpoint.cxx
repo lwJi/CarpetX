@@ -80,22 +80,31 @@ std::vector<level_t> checkpoint_record_t::levels() const {
   return result;
 }
 
-const level_record_t &
-checkpoint_record_t::level_record(const level_t level,
-                                  const std::source_location site) const {
-  const auto found = levels_.find(level);
-  if (found == levels_.end())
+namespace {
+
+template <class Levels>
+auto &level_in(Levels &levels, const level_t level,
+               const std::source_location site) {
+  const auto found = levels.find(level);
+  if (found == levels.end())
     refuse(site,
            "refinement level %d of patch %d is not in the checkpoint record",
            level.index(), level.patch().index());
   return found->second;
 }
 
+} // namespace
+
+const level_record_t &
+checkpoint_record_t::level_record(const level_t level,
+                                  const std::source_location site) const {
+  return level_in(levels_, level, site);
+}
+
 level_record_t &
 checkpoint_record_t::level_record(const level_t level,
                                   const std::source_location site) {
-  return const_cast<level_record_t &>(
-      std::as_const(*this).level_record(level, site));
+  return level_in(levels_, level, site);
 }
 
 level_record_t &checkpoint_record_t::add_level(const patch_t patch) {

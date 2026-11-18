@@ -229,6 +229,8 @@ MODEL_WORD = re.compile(
 )
 WINDOW_WORD = re.compile(r"\bactive_levels_t\b")
 ALIAS_WORD = re.compile(r"\bmake_alias\b")
+CAST_FILES = (layer_path("hierarchy", "model.hxx"), layer_path("hierarchy", "binding.cxx"))
+CAST_WORD = re.compile(r"\bconst_cast\b")
 INDEX_PARAM = re.compile(r"\b(?:int|CCTK_INT)\s+(gi|vi|tl|patch|level|min_level|max_level|min_patch|max_patch|stage|component|tile)\b")
 STORAGE_OVERLOADS = ("QueryGroupStorageB", "GroupStorageIncrease", "GroupStorageDecrease")
 AMREX_CALLBACKS = ("ErrorEst", "MakeNewLevelFromScratch", "MakeNewLevelFromCoarse", "RemakeLevel", "ClearLevel")
@@ -700,6 +702,24 @@ RULES = (
         noun="make_alias use",
         where="in CarpetX",
         clean="no make_alias in CarpetX",
+    ),
+    Rule(
+        "cast",
+        files=carpetx_cxx,
+        word=CAST_WORD,
+        allowed=in_files(CAST_FILES),
+        text="const_cast is named only in CarpetX/src/hierarchy/model.hxx, where written_by opens what it seals for its "
+        "one writer, and in CarpetX/src/hierarchy/binding.cxx, which fills the cGH pointer table with the pointers a "
+        "routine writes through; anywhere else it would turn what driver() or buffers_of hands out const into a "
+        "destination without a writer. A write site opens a write scope or the writer the table GRANTS in "
+        f"{GRANTS_HOME} names; an AMReX member that only reads but is not const is called by a member of that "
+        "writer which hands nothing it opened back, as flux_register_writer_t::reflux_into does; a cGH for the flesh comes "
+        "from the model's get_*_cctkGH; and a C library that takes a char * is handed the data() of a std::string "
+        "that is not const.",
+        noun="const_cast",
+        where="outside model.hxx and binding.cxx",
+        clean="no const_cast outside model.hxx and binding.cxx",
+        home=layers_of(CAST_FILES),
     ),
     Rule(
         "traversal",
