@@ -5,20 +5,31 @@
 
 #include <cctk.h>
 
+#include <array>
 #include <memory>
 #include <vector>
 
 namespace CarpetX {
 
-constexpr int rk_dense_output_stages(const rk_dense_output_t dense_output) {
+struct rk_dense_output_method_t {
+  int nstages;
+  std::array<CCTK_REAL, 4> b, c;
+};
+
+constexpr rk_dense_output_method_t
+rk_dense_output_method(const rk_dense_output_t dense_output) {
   switch (dense_output) {
   case rk_dense_output_t::ssprk3:
-    return 3;
+    return {3, {1.0 / 6, 1.0 / 6, 2.0 / 3}, {0, 1, 1.0 / 2}};
   case rk_dense_output_t::rk4:
-    return 4;
+    return {4, {1.0 / 6, 1.0 / 3, 1.0 / 3, 1.0 / 6}, {0, 1.0 / 2, 1.0 / 2, 1}};
   default:
-    return 0;
+    return {0, {}, {}};
   }
+}
+
+constexpr int rk_dense_output_stages(const rk_dense_output_t dense_output) {
+  return rk_dense_output_method(dense_output).nstages;
 }
 
 struct rk_pair_t {

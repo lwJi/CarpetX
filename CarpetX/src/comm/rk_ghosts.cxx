@@ -15,6 +15,7 @@
 #include "util/refuse.hxx"
 #include "util/task_manager.hxx"
 #include <carpetx.hxx>
+#include <carpetx_rk.hxx>
 
 #include <cctk.h>
 #include <cctk_Parameters.h>
@@ -33,6 +34,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <source_location>
@@ -47,6 +49,45 @@ using GroupData = GHExt::PatchData::LevelData::GroupData;
 
 constexpr CCTK_REAL rk_substep_ratio = CCTK_REAL(1) / time_refinement;
 static_assert(rk_substep_ratio * time_refinement == 1);
+
+template <int RKSTAGES>
+constexpr std::array<CCTK_REAL, RKSTAGES>
+rk_dense_output_weights(const CCTK_REAL xsi) {
+  static_assert(RKSTAGES == 3 || RKSTAGES == 4,
+                "rk_dense_output_weights only supports RKSTAGES == 3 or 4");
+  const CCTK_REAL xsi2 = xsi * xsi;
+  if constexpr (RKSTAGES == 3) {
+    return {xsi - (5. / 6.) * xsi2, (1. / 6.) * xsi2, (2. / 3.) * xsi2};
+  } else {
+    const CCTK_REAL xsi3 = xsi2 * xsi;
+    return {xsi - 1.5 * xsi2 + (2. / 3.) * xsi3, xsi2 - (2. / 3.) * xsi3,
+            xsi2 - (2. / 3.) * xsi3, -0.5 * xsi2 + (2. / 3.) * xsi3};
+  }
+}
+
+template <rk_dense_output_t dense_output>
+constexpr bool rk_dense_output_weights_end_at_method_b() {
+  constexpr rk_dense_output_method_t method =
+      rk_dense_output_method(dense_output);
+  const std::array<CCTK_REAL, method.nstages> b =
+      rk_dense_output_weights<method.nstages>(1);
+  for (int s = 0; s < method.nstages; ++s) {
+    const CCTK_REAL difference = b[s] - method.b[s];
+    if (!(difference <= 4 * std::numeric_limits<CCTK_REAL>::epsilon() &&
+          -difference <= 4 * std::numeric_limits<CCTK_REAL>::epsilon()))
+      return false;
+  }
+  return true;
+}
+
+static_assert(
+    rk_dense_output_weights_end_at_method_b<rk_dense_output_t::ssprk3>(),
+    "rk_ghosts: the ssprk3 dense-output weights at xsi = 1 must be the b of "
+    "CarpetX::rk_dense_output_method(rk_dense_output_t::ssprk3)");
+static_assert(
+    rk_dense_output_weights_end_at_method_b<rk_dense_output_t::rk4>(),
+    "rk_ghosts: the rk4 dense-output weights at xsi = 1 must be the b of "
+    "CarpetX::rk_dense_output_method(rk_dense_output_t::rk4)");
 
 template <int RKSTAGES>
 void rk_dense_output_impl(amrex::MultiFab &crse_patch,
@@ -85,13 +126,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
   }
 
   if constexpr (RKSTAGES == 3) {
-    // AMReX RK3 (SSPRK3) dense-output coefficients, a degree-2 Taylor
-    // expansion over S_old + k1, k2, k3 (no uttt term).
-    const std::array<CCTK_REAL, 3> b = {
-        xsi - (5. / 6.) * xsi2, // b1
-        (1. / 6.) * xsi2,       // b2
-        (2. / 3.) * xsi2        // b3
-    };
+    const std::array<CCTK_REAL, 3> b = rk_dense_output_weights<3>(xsi);
     const std::array<CCTK_REAL, 3> bt = {
         1.0 - (5. / 3.) * xsi, // bt1
         (1. / 3.) * xsi,       // bt2
@@ -142,15 +177,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
           });
     }
   } else { // RKSTAGES == 4
-    const CCTK_REAL xsi3 = xsi2 * xsi;
-
-    // Coefficients for the dense output formulas (U, Ut, Utt, Uttt)
-    const std::array<CCTK_REAL, 4> b = {
-        xsi - 1.5 * xsi2 + (2. / 3.) * xsi3, // b1
-        xsi2 - (2. / 3.) * xsi3,             // b2
-        xsi2 - (2. / 3.) * xsi3,             // b3
-        -0.5 * xsi2 + (2. / 3.) * xsi3       // b4
-    };
+    const std::array<CCTK_REAL, 4> b = rk_dense_output_weights<4>(xsi);
     const std::array<CCTK_REAL, 4> bt = {
         1.0 - 3.0 * xsi + 2.0 * xsi2, // bt1
         2.0 * xsi - 2.0 * xsi2,       // bt2
