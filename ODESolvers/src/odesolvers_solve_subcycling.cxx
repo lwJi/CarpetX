@@ -291,6 +291,19 @@ extern "C" void ODESolvers_CheckMethod(CCTK_ARGUMENTS) {
                   "(ODESolvers/src/rk_methods.hxx)",
                   keyword->range);
   }
+  for (const rk_method_t &row : rk_methods) {
+    bool has_keyword = false;
+    for (const t_range *keyword = method_param->range; keyword;
+         keyword = keyword->next)
+      if (CCTK_Equals(keyword->origin, "ODESolvers") &&
+          CCTK_Equals(keyword->range, row.name))
+        has_keyword = true;
+    if (!has_keyword)
+      CCTK_VERROR("The RK method table (ODESolvers/src/rk_methods.hxx) has a "
+                  "row \"%s\" that is not a keyword of ODESolvers::method "
+                  "(ODESolvers/param.ccl)",
+                  row.name);
+  }
 }
 
 } // namespace ODESolvers

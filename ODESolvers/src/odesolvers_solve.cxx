@@ -15,8 +15,7 @@ extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
   const rk_method_t &rk = rk_method(method);
   CarpetX::rk_config_t integrator;
   integrator.dense_output = rk.dense_output;
-  if (!rk.implicit)
-    integrator.b.assign(rk.b.begin(), rk.b.begin() + rk.nstages);
+  integrator.b.assign(rk.b.begin(), rk.b.begin() + rk.nstages);
   for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
     if (CCTK_GroupTypeI(gi0) != CCTK_GF)
       continue;
@@ -455,62 +454,6 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
       }
     }
     calcupdate(nsteps, dt, 0.0, factors, srcs);
-
-  } else if (CCTK_EQUALS(method, "IMEX122") ||
-             CCTK_EQUALS(method, "Implicit Euler")) {
-    // Implicit definition:
-    //   y1 = y0 + h/2 f(y0) + h/2 g(y1)
-    //   y2 = y0 + h f(y1) + h g(y1)
-
-    // Implicit RHS:
-    //   u1 = G(u0, h)   where   u1 = u0 + h g(u1)
-
-    // Explicit definition:
-    //   k1 = f(y0)
-    //   y1 = G(y0 + h/2 k1, h/2)
-    //   k'2 = (y1 - y0 - h/2 k1) / (h/2)
-    //   k2 = f(y1)
-    //   y2 = y0 + h k2 + h k'2
-
-    const auto y0 = var.copy();
-
-    if (verbose)
-      CCTK_VINFO("Calculating RHS #1 at t=%g", double(old_time));
-    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", old_time, dt);
-    const auto k1 = rhs.copy();
-
-    statecomp_t::lincomb(var, 1, make_array(dt / 2), make_array(&rhs),
-                         CarpetX::make_valid_int());
-    CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
-                        "ODESolvers updated the state vector");
-    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep",
-                                   old_time + dt / 2, dt);
-
-    if (verbose)
-      CCTK_VINFO("Taking implicit step #1 at t=%g with dt=%g",
-                 double(old_time + dt / 2), double(dt / 2));
-    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_ImplicitStep",
-                                   old_time + dt / 2, dt / 2);
-
-    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", old_time + dt,
-                                   dt);
-    const auto y1 = var.copy();
-
-    statecomp_t kprime2;
-    statecomp_t::lincomb(kprime2, 0,
-                         make_array(-CCTK_REAL(1), +CCTK_REAL(1), -dt / 2),
-                         make_array(&y0, &y1, &k1), CarpetX::make_valid_int());
-
-    if (verbose)
-      CCTK_VINFO("Calculating RHS #2 at t=%g", double(old_time + dt));
-    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", old_time + dt, dt);
-    const auto k2 = rhs.copy();
-
-    statecomp_t::lincomb(var, 0, make_array(CCTK_REAL(1), dt, dt),
-                         make_array(&y0, &k2, &kprime2),
-                         CarpetX::make_valid_int());
-    CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
-                        "ODESolvers updated the state vector");
 
   } else {
     assert(0);

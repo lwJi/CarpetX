@@ -170,10 +170,6 @@ SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
   {
   } "Calculate analysis quantities everywhere"
 
-  SCHEDULE GROUP ODESolvers_ImplicitStep
-  {
-  } "Take an implicit step everywhere on the grid"
-
 
 
 # Initialization
@@ -212,9 +208,6 @@ SCHEDULE ODESolvers_CheckMethod AT CCTK_PARAMCHECK
 
 # Time evolution
 
-  # TODO: this does not yet handle "IMEX122" correctly
-  # this group never actually executes since do_subseteps == 0 always, it is
-  # only present to show up in the schedule printout
   SCHEDULE GROUP ODESolvers_CalledBySolve AT EVOL AFTER ODESolvers_Solve WHILE (ODESolvers::do_substeps)
   {
   } "Groups internally scheduled by ODESolvers_Solve"

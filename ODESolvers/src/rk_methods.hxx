@@ -18,45 +18,34 @@ struct rk_method_t {
   const char *name;
   int nstages;
   CarpetX::rk_dense_output_t dense_output;
-  bool implicit;
   std::array<CCTK_REAL, max_table_stages> b;
 };
 
-inline constexpr std::array<rk_method_t, 10> rk_methods{{
-    {"constant", 4, CarpetX::rk_dense_output_t::rk4, false, {}},
-    {"Euler", 1, CarpetX::rk_dense_output_t::none, false, {1}},
-    {"RK2", 2, CarpetX::rk_dense_output_t::none, false, {0, 1}},
-    {"RK3",
-     3,
-     CarpetX::rk_dense_output_t::none,
-     false,
-     {1.0 / 6, 2.0 / 3, 1.0 / 6}},
+inline constexpr std::array<rk_method_t, 8> rk_methods{{
+    {"constant", 4, CarpetX::rk_dense_output_t::rk4, {}},
+    {"Euler", 1, CarpetX::rk_dense_output_t::none, {1}},
+    {"RK2", 2, CarpetX::rk_dense_output_t::none, {0, 1}},
+    {"RK3", 3, CarpetX::rk_dense_output_t::none, {1.0 / 6, 2.0 / 3, 1.0 / 6}},
     {"SSPRK3",
      3,
      CarpetX::rk_dense_output_t::ssprk3,
-     false,
      {1.0 / 6, 1.0 / 6, 2.0 / 3}},
     {"RK4",
      4,
      CarpetX::rk_dense_output_t::rk4,
-     false,
      {1.0 / 6, 1.0 / 3, 1.0 / 3, 1.0 / 6}},
     {"RKF78",
      11,
      CarpetX::rk_dense_output_t::none,
-     false,
      {41.0 / 840, 0, 0, 0, 0, 34.0 / 105, 9.0 / 35, 9.0 / 35, 9.0 / 280,
       9.0 / 280, 41.0 / 840}},
     {"DP87",
      13,
      CarpetX::rk_dense_output_t::none,
-     false,
      {14005451.0 / 335480064, 0, 0, 0, 0, -59238493.0 / 1068277825,
       181606767.0 / 758867731, 561292985.0 / 797845732,
       -1041891430.0 / 1371343529, 760417239.0 / 1151165299,
       118820643.0 / 751138087, -528747749.0 / 2220607170, 1.0 / 4}},
-    {"IMEX122", 2, CarpetX::rk_dense_output_t::none, true, {}},
-    {"Implicit Euler", 2, CarpetX::rk_dense_output_t::none, true, {}},
 }};
 
 namespace rk_methods_detail {
@@ -69,8 +58,6 @@ constexpr bool row_consistent(const rk_method_t &rk) {
   if (has_dense_output &&
       rk.nstages != CarpetX::rk_dense_output_stages(rk.dense_output))
     return false;
-  if (has_dense_output && rk.implicit)
-    return false;
   CCTK_REAL sum = 0;
   bool all_zero = true;
   for (std::size_t s = 0; s < rk.b.size(); ++s) {
@@ -79,8 +66,6 @@ constexpr bool row_consistent(const rk_method_t &rk) {
     if (int(s) >= rk.nstages && rk.b[s] != 0)
       return false;
   }
-  if (rk.implicit)
-    return all_zero;
   const CCTK_REAL err = sum - 1 < 0 ? 1 - sum : sum - 1;
   return all_zero ||
          err <= 4 * rk.nstages * std::numeric_limits<CCTK_REAL>::epsilon();
@@ -130,10 +115,9 @@ dense_output_rows_are(const std::initializer_list<const char *> methods) {
 } // namespace rk_methods_detail
 
 static_assert(rk_methods_detail::table_consistent(),
-              "rk_methods: a row's b must sum to 1 (or be all zero), vanish "
-              "beyond nstages, and be all zero when the row is implicit; a "
-              "row with a dense output must have that method's stage count "
-              "(CarpetX::rk_dense_output_stages) and be explicit");
+              "rk_methods: a row's b must sum to 1 (or be all zero) and "
+              "vanish beyond nstages; a row with a dense output must have "
+              "that method's stage count (CarpetX::rk_dense_output_stages)");
 static_assert(rk_methods_detail::names_distinct(),
               "rk_methods: rk_method finds a row by its name, compared "
               "case-insensitively, so no two rows may share a name");
