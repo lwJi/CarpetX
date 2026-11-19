@@ -156,9 +156,8 @@ namespace rk_methods_detail {
 
 template <typename Rule> constexpr bool every_explicit_row(const Rule rule) {
   for (const rk_method_t &rk : rk_methods)
-    if (const explicit_rk_t *const scheme =
-            std::get_if<explicit_rk_t>(&rk.scheme))
-      if (!rule(*scheme))
+    if (std::holds_alternative<explicit_rk_t>(rk.scheme))
+      if (!rule(std::get<explicit_rk_t>(rk.scheme)))
         return false;
   return true;
 }
@@ -186,9 +185,9 @@ constexpr bool names_distinct() {
 constexpr int peak_copies_of(const char *const method) {
   for (const rk_method_t &rk : rk_methods)
     if (names_equal(rk.name, method))
-      if (const explicit_rk_t *const scheme =
-              std::get_if<explicit_rk_t>(&rk.scheme))
-        return peak_copies(storage_plan(scheme->tableau));
+      if (std::holds_alternative<explicit_rk_t>(rk.scheme))
+        return peak_copies(
+            storage_plan(std::get<explicit_rk_t>(rk.scheme).tableau));
   return -1;
 }
 
