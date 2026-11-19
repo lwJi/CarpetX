@@ -6,14 +6,10 @@
 #include "config/stages.hxx"
 #include <carpetx.hxx>
 
-#include <cctk.h>
-
 #include <span>
 #include <string>
 
 namespace CarpetX {
-
-inline constexpr CCTK_REAL rk_substep_ratio = CCTK_REAL(1) / time_refinement;
 
 inline constexpr tl_t rk_tl{0};
 

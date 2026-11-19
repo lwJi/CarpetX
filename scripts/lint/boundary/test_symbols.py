@@ -10,8 +10,10 @@ from boundary.symbols import (
     Reach,
     Stray,
     SymbolsError,
+    Ungiven,
     declared_name,
-    header_of,
+    given_names,
+    headers_of,
     layer_objects,
     parse_definitions,
     parse_imports,
@@ -22,6 +24,7 @@ from boundary.symbols import (
     strays,
     strong_definitions,
     summary,
+    ungiven,
     weakened,
 )
 
@@ -52,8 +55,13 @@ PRINT_SYMMETRY = "_ZN7CarpetXlsERSoNS_10symmetry_tE"
 TO_STRING = "__ZNK7CarpetX7valid_tcvNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEEv"
 SYNC_GROUPS = "__ZN7CarpetX10SyncGroupsENS_8window_tENSt3__14spanIKNS_4gi_tELm18446744073709551615EEE"
 RESTRICT = "__ZN7CarpetX8RestrictENS_8window_tENSt3__14spanIKNS_4gi_tELm18446744073709551615EEE"
+RESTRICT_LEVEL = "__ZN7CarpetX14restrict_levelENS_7level_tENSt3__14spanIKNS_4gi_tELm18446744073709551615EEENS_7valid_tE"
 POLY_MAP = "__ZN7CarpetX15prolongate_polyE"
 CONS_MAP = "__ZN7CarpetX15prolongate_consE"
+COLLECT = "__ZN7CarpetX27collect_restrictable_groupsEv"
+TIMELEVELS_RANGE = "__ZNK7CarpetX12timelevels_t5rangeENS_4gi_tE"
+SUBSTEP_OF_PARENT = "__ZN7CarpetX22substep_of_parent_stepENS_7level_tE"
+ALIGNED = "__ZN7CarpetX19aligned_with_parentENS_7level_tE"
 REALLOCATE = "__ZNSt5dequeIN7CarpetX13write_scope_tESaIS1_EE17_M_reallocate_mapEmb"
 MACOS_WEAK = (
     "0000000000002f4c (__TEXT,__text) weak external __ZN7CarpetX5TimerD2Ev\n"
@@ -303,15 +311,16 @@ class Strays(unittest.TestCase):
 
     def test_an_object_of_a_kernel_family_is_held_to_the_header_of_its_row(self):
         for obj, header in [
-            ("config/kernel.cxx.o", "CarpetX/src/config/kernel.hxx"),
-            ("config/kernel_impl.cxx.o", "CarpetX/src/config/kernel.hxx"),
-            ("config/kernel_impl_poly.cxx.o", "CarpetX/src/config/kernel.hxx"),
-            ("config/kernel_impl_neg_neg_int.cxx.o", "CarpetX/src/config/kernel.hxx"),
-            ("config/kernel_implicit.cxx.o", "CarpetX/src/config/kernel_implicit.hxx"),
-            ("config/grid_sizes.cxx.o", self.HEADER),
+            ("config/kernel.cxx.o", "CarpetX/src/config/kernel"),
+            ("config/kernel_impl.cxx.o", "CarpetX/src/config/kernel"),
+            ("config/kernel_impl_poly.cxx.o", "CarpetX/src/config/kernel"),
+            ("config/kernel_impl_neg_neg_int.cxx.o", "CarpetX/src/config/kernel"),
+            ("config/kernel_inside.cxx.o", "CarpetX/src/config/kernel"),
+            ("config/kernel_implicit.cxx.o", "CarpetX/src/config/kernel_implicit"),
+            ("config/grid_sizes.cxx.o", self.HEADER[: -len(".hxx")]),
         ]:
             with self.subTest(obj=obj):
-                self.assertEqual(header_of(obj), header)
+                self.assertEqual(headers_of(obj), (header + ".hxx", header + "_inside.hxx"))
         poly, cons = "config/kernel_impl_poly.cxx.o", "config/kernel_impl_cons.cxx.o"
         layers = {poly: "config", cons: "config"}
         headers = {"CarpetX/src/config/kernel.hxx": doc.declared_names("namespace CarpetX {\nextern const std::map<int, int> prolongate_poly;\nextern const std::map<int, int> prolongate_cons;\n}\n")}
@@ -338,6 +347,27 @@ class Strays(unittest.TestCase):
         with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"], "hierarchy": rules.STEMS["hierarchy"]}, clear=True):
             self.assertEqual(strays(layers, {sync: {("T", SYNC_GROUPS), ("T", RESTRICT)}}, headers, {}), [])
 
+    def test_a_name_declared_only_in_the_inside_header_of_its_stem_is_not_a_stray(self):
+        sync, restrict = "comm/sync.cxx.o", "comm/restrict.cxx.o"
+        layers = {sync: "comm", restrict: "comm"}
+        plain, inside = "CarpetX/src/comm/restrict.hxx", "CarpetX/src/comm/restrict_inside.hxx"
+        headers = {
+            "CarpetX/src/comm/sync.hxx": doc.declared_names("namespace CarpetX {\nvoid SyncGroups(window_t window, std::span<const gi_t> groups);\n}\n"),
+            plain: doc.declared_names("namespace CarpetX {\nvoid Restrict(window_t window, std::span<const gi_t> groups);\n}\n"),
+            inside: doc.declared_names("namespace CarpetX {\nvoid restrict_level(level_t level, std::span<const gi_t> groups, valid_t coarse_keeps);\n}\n"),
+        }
+        self.assertEqual(headers_of(restrict), (plain, inside))
+        self.assertEqual(strays(layers, {restrict: {("T", RESTRICT), ("T", RESTRICT_LEVEL)}}, headers, {}), [])
+        self.assertEqual(strays(layers, {sync: {("T", SYNC_GROUPS), ("T", RESTRICT_LEVEL)}}, headers, {}), [Stray(sync, RESTRICT_LEVEL, "CarpetX/src/comm/sync.hxx")])
+        self.assertEqual(
+            strays(layers, {restrict: {("T", RESTRICT), ("T", RESTRICT_LEVEL)}}, {plain: headers[plain]}, {}),
+            [Stray(restrict, RESTRICT_LEVEL, plain)],
+        )
+        self.assertEqual(
+            strays(layers, {restrict: {("T", RESTRICT), ("T", RESTRICT_LEVEL)}}, {inside: headers[inside]}, {}),
+            [Stray(restrict, RESTRICT, inside)],
+        )
+
     def test_a_listed_layer_holds_each_source_to_its_own_header_and_a_public_body_to_the_public_headers(self):
         definitions = {
             "hierarchy/modes.cxx.o": {("T", CURRENT_MODE), ("T", GLOBAL_MODE), ("T", ALL_LEVELS)},
@@ -356,34 +386,110 @@ class Strays(unittest.TestCase):
         self.assertEqual(len(strays(self.LAYERS, definitions, headers, {})), 6)
 
 
+class Given(unittest.TestCase):
+    API, REGRID, CHECKS, SYNC = "api/api.cxx.o", "regrid/regrid.cxx.o", "flesh/compile_checks.cxx.o", "comm/sync.cxx.o"
+    LAYERS = {API: "api", REGRID: "regrid", CHECKS: "flesh", SYNC: "comm", "hierarchy/model.cxx.o": "hierarchy"}
+    DEFINED = {RESTRICT: "comm", RESTRICT_LEVEL: "comm", COLLECT: "comm", TIMELEVELS_RANGE: "comm", SUBSTEP_OF_PARENT: "comm", ALIGNED: "comm", DRIVER: "hierarchy"}
+    HEADERS = {
+        "CarpetX/src/comm/restrict.hxx": doc.declared_names("namespace CarpetX {\nvoid Restrict(window_t window, std::span<const gi_t> groups);\nstd::vector<gi_t> collect_restrictable_groups();\n}\n"),
+        "CarpetX/src/comm/restrict_inside.hxx": doc.declared_names("namespace CarpetX {\nvoid restrict_level(level_t level, std::span<const gi_t> groups, valid_t coarse_keeps);\n}\n"),
+        "CarpetX/src/comm/timelevels.hxx": doc.declared_names("namespace CarpetX {\nstruct timelevels_t {\n  int range(gi_t gi) const;\n};\n}\n"),
+        "CarpetX/src/comm/substeps.hxx": doc.declared_names("namespace CarpetX {\nbool aligned_with_parent(level_t child);\n}\n"),
+        "CarpetX/src/comm/substeps_inside.hxx": doc.declared_names("namespace CarpetX {\nsubstep_t substep_of_parent_step(level_t child);\n}\n"),
+    }
+
+    def test_a_layer_is_given_the_names_of_the_headers_in_its_list_and_no_others(self):
+        given = given_names(self.HEADERS)
+        self.assertEqual(set(given), set(rules.GIVEN))
+        self.assertEqual(given["api"], {"Restrict", "collect_restrictable_groups", "timelevels_t"})
+        self.assertEqual(given["regrid"], {"aligned_with_parent"})
+        self.assertEqual(given["io"], set())
+
+    def test_an_import_of_a_name_a_given_header_declares_passes(self):
+        imports = {self.API: {RESTRICT, COLLECT, DRIVER}, self.REGRID: {ALIGNED}}
+        self.assertEqual(ungiven(self.LAYERS, self.DEFINED, imports, given_names(self.HEADERS)), [])
+
+    def test_a_member_passes_through_its_outermost_class(self):
+        self.assertEqual(declared_name(TIMELEVELS_RANGE), "timelevels_t")
+        self.assertEqual(ungiven(self.LAYERS, self.DEFINED, {self.API: {TIMELEVELS_RANGE}}, given_names(self.HEADERS)), [])
+
+    def test_an_import_of_a_name_only_an_inside_header_declares_is_reported(self):
+        imports = {self.API: {RESTRICT, RESTRICT_LEVEL}, self.REGRID: {ALIGNED, SUBSTEP_OF_PARENT}}
+        self.assertEqual(
+            ungiven(self.LAYERS, self.DEFINED, imports, given_names(self.HEADERS)),
+            [Ungiven(self.API, "api", RESTRICT_LEVEL), Ungiven(self.REGRID, "regrid", SUBSTEP_OF_PARENT)],
+        )
+
+    def test_an_import_of_a_header_another_layer_is_given_is_reported(self):
+        self.assertEqual(ungiven(self.LAYERS, self.DEFINED, {self.REGRID: {RESTRICT}}, given_names(self.HEADERS)), [Ungiven(self.REGRID, "regrid", RESTRICT)])
+
+    def test_the_compile_checks_comm_itself_and_a_layer_that_does_not_read_comm_are_not_judged(self):
+        self.assertEqual(rules.SEES_ALL, "CarpetX/src/flesh/compile_checks.cxx")
+        imports = {self.CHECKS: {RESTRICT_LEVEL, SUBSTEP_OF_PARENT}, self.SYNC: {RESTRICT_LEVEL}, "hierarchy/model.cxx.o": {RESTRICT_LEVEL}}
+        self.assertEqual(ungiven(self.LAYERS, self.DEFINED, imports, given_names(self.HEADERS)), [])
+        layers = {**self.LAYERS, "flesh/startup.cxx.o": "flesh"}
+        self.assertEqual(ungiven(layers, self.DEFINED, {"flesh/startup.cxx.o": {RESTRICT_LEVEL}}, given_names(self.HEADERS)), [Ungiven("flesh/startup.cxx.o", "flesh", RESTRICT_LEVEL)])
+
+    def test_an_import_not_strongly_defined_in_comm_is_left_to_the_reach_rule(self):
+        defined = {RESTRICT_LEVEL: "hierarchy"}
+        self.assertEqual(ungiven(self.LAYERS, defined, {self.API: {RESTRICT_LEVEL, SUBSTEP_OF_PARENT}}, given_names(self.HEADERS)), [])
+
+    def test_the_tree_gives_api_restrict_and_not_restrict_level(self):
+        given = given_names(stem_names())
+        self.assertLessEqual({"Restrict", "RestrictNoPoison", "collect_restrictable_groups", "ApplyOuterBoundary", "timelevels_t"}, given["api"])
+        self.assertTrue(given["api"].isdisjoint({"restrict_level", "fill_outer_boundary", "error_if_sync_nested"}))
+        self.assertIn("aligned_with_parent", given["regrid"])
+        self.assertNotIn("substep_of_parent_step", given["regrid"])
+        self.assertEqual(given["flesh"], {"make_level_buffers"})
+
+
 class Report(unittest.TestCase):
     UP = Reach("config/groups.cxx.o", "config", "comm", "_ZN7CarpetX16get_interpolatorEv")
     OUT = Stray("config/grid_sizes.cxx.o", DEFAULTED, "CarpetX/src/config/grid_sizes.hxx")
     READABLE = {UP.symbol: "CarpetX::get_interpolator(std::string)", OUT.symbol: "CarpetX::size_or_default(int, int)"}
+    BESIDE = Ungiven("api/api.cxx.o", "api", RESTRICT_LEVEL)
+    READABLE = {**READABLE, BESIDE.symbol: "CarpetX::restrict_level(CarpetX::level_t, std::span<CarpetX::gi_t const>, CarpetX::valid_t)"}
     CLEAN = "✓ symbols: every CarpetX import from the importing object's layer or one it reads"
+    GIVEN = ", every one from comm/ declared in a header its layer is given"
 
     def test_clean(self):
-        self.assertEqual(render([], [], {}), self.CLEAN + ", and every definition of config/, hierarchy/ and comm/ declared in the header of its stem")
+        self.assertEqual(render([], [], [], {}), self.CLEAN + self.GIVEN + ", and every definition of config/, hierarchy/ and comm/ declared in a header of its stem")
         with mock.patch.dict(rules.STEMS, {"config": rules.STEMS["config"]}, clear=True):
-            self.assertEqual(summary([], []), self.CLEAN + ", and every definition of config/ declared in the header of its stem")
+            self.assertEqual(summary([], [], []), self.CLEAN + self.GIVEN + ", and every definition of config/ declared in a header of its stem")
         with mock.patch.dict(rules.STEMS, clear=True):
-            self.assertEqual(summary([], []), self.CLEAN)
+            self.assertEqual(summary([], [], []), self.CLEAN + ", and" + self.GIVEN[1:])
+            with mock.patch.dict(rules.GIVEN, clear=True):
+                self.assertEqual(summary([], [], []), self.CLEAN)
 
     def test_unread(self):
-        lines = render([self.UP], [], self.READABLE).split("\n")
+        lines = render([self.UP], [], [], self.READABLE).split("\n")
         self.assertEqual(lines[0], "config/groups.cxx.o   -> comm        CarpetX::get_interpolator(std::string)")
         self.assertTrue(lines[1].startswith("symbols: an object the build made"))
         self.assertFalse(any(line.startswith("stems: ") for line in lines))
         self.assertEqual(lines[-1], "✗ symbols: 1 import from a layer the importing object's layer does not read")
-        self.assertEqual(summary([self.UP, self.UP], []), "✗ symbols: 2 imports from a layer the importing object's layer does not read")
+        self.assertEqual(summary([self.UP, self.UP], [], []), "✗ symbols: 2 imports from a layer the importing object's layer does not read")
 
     def test_stray(self):
-        lines = render([], [self.OUT], self.READABLE).split("\n")
+        lines = render([], [], [self.OUT], self.READABLE).split("\n")
         self.assertEqual(lines[0], "config/grid_sizes.cxx.o   not in config/grid_sizes.hxx   CarpetX::size_or_default(int, int)")
         self.assertTrue(lines[1].startswith("stems: in a layer that STEMS in scripts/lint/boundary/rules.py lists"))
         self.assertFalse(any(line.startswith("symbols: ") for line in lines))
-        self.assertEqual(lines[-1], "✗ symbols: 1 definition the header of its stem does not declare")
-        both = render([self.UP], [self.OUT, self.OUT], self.READABLE).split("\n")
-        self.assertEqual(both[-1], "✗ symbols: 1 import from a layer the importing object's layer does not read, 2 definitions the header of its stem does not declare")
+        self.assertEqual(lines[-1], "✗ symbols: 1 definition no header of its stem declares")
+        both = render([self.UP], [], [self.OUT, self.OUT], self.READABLE).split("\n")
+        self.assertEqual(both[-1], "✗ symbols: 1 import from a layer the importing object's layer does not read, 2 definitions no header of its stem declares")
         self.assertLess(both.index(lines[0]), both.index(lines[1]))
         self.assertLess(both.index(next(line for line in both if line.startswith("symbols: "))), both.index(lines[0]))
+
+    def test_ungiven(self):
+        lines = render([], [self.BESIDE], [], self.READABLE).split("\n")
+        self.assertEqual(lines[0], "api/api.cxx.o   not given to api/   CarpetX::restrict_level(CarpetX::level_t, std::span<CarpetX::gi_t const>, CarpetX::valid_t)")
+        self.assertTrue(lines[1].startswith("given: an object the build made from a .cxx of a layer that reads comm/"))
+        self.assertFalse(any(line.startswith(("symbols: ", "stems: ")) for line in lines))
+        self.assertEqual(lines[-1], "✗ symbols: 1 import of a name of comm/ the importing object's layer is not given")
+        every = render([self.UP], [self.BESIDE], [self.OUT], self.READABLE).split("\n")
+        self.assertEqual(
+            every[-1],
+            "✗ symbols: 1 import from a layer the importing object's layer does not read, 1 import of a name of comm/ the importing object's layer is not given, 1 definition no header of its stem declares",
+        )
+        starts = [next(i for i, line in enumerate(every) if line.startswith(word)) for word in ("symbols: ", "given: ", "stems: ")]
+        self.assertEqual(starts, sorted(starts))

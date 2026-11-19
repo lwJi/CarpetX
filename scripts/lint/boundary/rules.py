@@ -87,6 +87,19 @@ STEMS = {
 }
 assert set(STEMS) <= set(LAYERS), STEMS
 STEMS_HOME = READS_HOME
+GIVEN_LAYER = "comm"
+GIVEN = {
+    "regrid": ("fillpatch", "substeps"),
+    "io": ("checkpoint_bands",),
+    "schedule": ("ghost_prolongation", "reflux", "restrict", "rk_ghosts", "substeps", "sync"),
+    "api": ("ghost_prolongation", "integrator", "outer_boundary", "reflux", "restrict", "rk_ghosts", "sync", "timelevels"),
+    "flesh": ("buffers",),
+}
+assert set(GIVEN) == {layer for layer in LAYERS if GIVEN_LAYER in READS[layer]}, GIVEN
+assert tuple(GIVEN) == tuple(layer for layer in LAYERS if layer in GIVEN), GIVEN
+assert all(stems == tuple(sorted(set(stems))) and set(stems) <= set(STEMS[GIVEN_LAYER]) for stems in GIVEN.values()), GIVEN
+GIVEN_HOME = READS_HOME
+GIVEN_TEXT = "; ".join(f"{layer}/ is given {', '.join(f'{stem}.hxx' for stem in stems)}" for layer, stems in GIVEN.items())
 GRANTS = {
     "written_by": ("Writer",),
     "GHExt": ("hierarchy_writers_t",),
@@ -147,7 +160,8 @@ def layer_of(name: str) -> Optional[str]:
     return parts[0] if len(parts) == 2 and parts[0] in LAYERS else None
 
 
-FAMILY = re.compile(r"(.+?)_impl(?:_.+)?")
+INSIDE_SUFFIX = "_inside"
+FAMILY = re.compile(r"(.+?)(?:" + INSIDE_SUFFIX + r"|_impl(?:_.+)?)")
 
 
 def row_of(stem: str) -> str:
@@ -205,6 +219,8 @@ APPLIES_LAYER = "comm"
 APPLIES_STEMS = ("fillpatch", "boundary_conditions", "prolongate_3d_rf2")
 assert set(APPLIES_STEMS) <= set(STEMS[APPLIES_LAYER]), APPLIES_STEMS
 APPLIES_WORD = re.compile(r'^\s*#\s*include\s*[<"](?:hierarchy/scopes|' + APPLIES_LAYER + r'/(\w+))\.hxx[>"]')
+SEES_ALL = layer_path("flesh", "compile_checks.cxx")
+INTERFACE_WORD = re.compile(r'^\s*#\s*include\s*[<"]' + GIVEN_LAYER + r'/(\w+)\.hxx[>"]')
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
     r"\b(active_levels|tail_bin|last_routine)\b"
@@ -370,6 +386,10 @@ def grant_header(name: str, lang: Lang) -> bool:
     return carpetx_header(name, lang) and layer_of(name) in GRANT_LAYERS
 
 
+def given_reader(name: str, lang: Lang) -> bool:
+    return private_cxx(name, lang) and (layer_of(name) == GIVEN_LAYER or layer_of(name) in GIVEN)
+
+
 def in_files(names: tuple[str, ...]) -> Callable[..., bool]:
     return lambda name, *_: name in names
 
@@ -386,6 +406,21 @@ def never(name: str, line: str, statement: str) -> bool:
 def applies_allowed(name: str, line: str, statement: str) -> bool:
     stem = APPLIES_WORD.search(line).group(1)
     return stem is not None and row_of(stem) in APPLIES_STEMS
+
+
+def is_interface_header(name: str) -> bool:
+    stem, _, suffix = name.rsplit("/", 1)[1].partition(".")
+    return layer_of(name) == GIVEN_LAYER and "." + suffix in HEADER_SUFFIXES and row_of(stem) == stem
+
+
+def interface_allowed(name: str, line: str, statement: str) -> bool:
+    stem = INTERFACE_WORD.search(line).group(1)
+    layer = layer_of(name)
+    if name == SEES_ALL:
+        return True
+    if layer == GIVEN_LAYER:
+        return not is_interface_header(name)
+    return stem in GIVEN.get(layer, ())
 
 
 def marker_allowed(name: str, line: str, statement: str) -> bool:
@@ -879,6 +914,23 @@ RULES = (
         where=f"in a stem of {APPLIES_LAYER}/ that applies",
         clean=f"no write-scope or deciding-stem include in a stem of {APPLIES_LAYER}/ that applies",
         home=(APPLIES_LAYER,),
+    ),
+    Rule(
+        "interface",
+        files=given_reader,
+        word=INTERFACE_WORD,
+        allowed=interface_allowed,
+        text=f"a layer that reads {GIVEN_LAYER}/ includes only the headers of {GIVEN_LAYER}/ it is given, each the plain "
+        f"header of a stem: {GIVEN_TEXT}. Every other header of {GIVEN_LAYER}/ is its inside, included only by "
+        f"{GIVEN_LAYER}/ itself and by {SEES_ALL}, which checks that inside and counts as no layer's use. A header of "
+        f"{GIVEN_LAYER}/ that is given includes no header of {GIVEN_LAYER}/, so what a layer reaches is exactly the headers "
+        f"it is given; a type a signature takes from another header is forward-declared. A new use from "
+        f"above is an entry of GIVEN in {GIVEN_HOME}, in the same change, and GIVEN holds no entry that no file of the "
+        f"layer but {SEES_ALL.rsplit('/', 1)[1]} includes.",
+        noun="include",
+        where=f"{GIVEN_LAYER}/ does not give its layer",
+        clean=f"every include of {GIVEN_LAYER}/ from above one its layer is given",
+        home=(GIVEN_LAYER,),
     ),
 )
 RULE = "\n".join([wrap(PREAMBLE)] + [rule.paragraph() for rule in RULES])

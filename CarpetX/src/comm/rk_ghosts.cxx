@@ -2,13 +2,15 @@
 
 #include "config/indices.hxx"
 #include "hierarchy/model.hxx"
-#include "comm/buffers.hxx"
+#include "comm/buffers_inside.hxx"
 #include "comm/ghost_prolongation.hxx"
 #include "comm/timelevels.hxx"
-#include "comm/fillpatch.hxx"
+#include "comm/fillpatch_inside.hxx"
 #include "comm/integrator.hxx"
-#include "comm/prolongate_3d_rf2.hxx"
+#include "comm/integrator_inside.hxx"
+#include "comm/prolongate_3d_rf2_inside.hxx"
 #include "comm/substeps.hxx"
+#include "comm/substeps_inside.hxx"
 #include "hierarchy/scopes.hxx"
 #include "util/refuse.hxx"
 #include "util/task_manager.hxx"
@@ -42,6 +44,9 @@ namespace CarpetX {
 namespace {
 
 using GroupData = GHExt::PatchData::LevelData::GroupData;
+
+constexpr CCTK_REAL rk_substep_ratio = CCTK_REAL(1) / time_refinement;
+static_assert(rk_substep_ratio * time_refinement == 1);
 
 template <int RKSTAGES>
 void rk_dense_output_impl(amrex::MultiFab &crse_patch,

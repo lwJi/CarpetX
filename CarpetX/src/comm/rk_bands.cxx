@@ -1,4 +1,4 @@
-#include "comm/rk_bands.hxx"
+#include "comm/rk_bands_inside.hxx"
 
 #include "config/stages.hxx"
 #include "util/refuse.hxx"

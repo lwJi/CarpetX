@@ -10,10 +10,6 @@
 
 namespace CarpetX {
 
-bool group_is_integrated(gi_t gi);
-stage_range registered_stages();
-rk_dense_output_t registered_dense_output();
-
 struct integrated_groups_t {
   std::vector<gi_t> states, rhss;
 };
@@ -24,14 +20,8 @@ struct rk_level_t {
 };
 
 std::vector<gi_t> integrated_states(const GHExt::integrator_t &integrator);
-integrated_groups_t
-integrated_groups_with_storage(level_t level,
-                               const GHExt::integrator_t &integrator);
 std::vector<rk_level_t>
 integrated_levels(window_t window, const GHExt::integrator_t &integrator);
-
-bool integrator_owns_coarse_fine_ghosts(
-    const GHExt::PatchData::LevelData &leveldata, gi_t gi);
 
 } // namespace CarpetX
 

@@ -1,4 +1,5 @@
 #include "comm/substeps.hxx"
+#include "comm/substeps_inside.hxx"
 
 #include "hierarchy/model.hxx"
 #include <carpetx.hxx>
@@ -20,6 +21,10 @@ substep_t substep_of_parent_step(const level_t child) {
   assert(begin >= 0 && end <= 1 &&
          "the child has taken a substep of its parent's current step");
   return {begin, end};
+}
+
+bool aligned_with_parent(const level_t child) {
+  return substep_of_parent_step(child).aligned();
 }
 
 bool window_is_restricted(const window_t window) {

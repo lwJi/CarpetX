@@ -1,7 +1,8 @@
 #include "comm/restrict.hxx"
+#include "comm/restrict_inside.hxx"
 
 #include "hierarchy/model.hxx"
-#include "comm/level_pairs.hxx"
+#include "comm/level_pairs_inside.hxx"
 #include "comm/timelevels.hxx"
 #include <carpetx.hxx>
 #include "hierarchy/scopes.hxx"

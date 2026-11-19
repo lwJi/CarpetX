@@ -6,12 +6,12 @@
 #include "hierarchy/grid.hxx"
 #include "hierarchy/loops.hxx"
 #include "hierarchy/writers.hxx"
-#include "comm/buffers.hxx"
+#include "comm/buffers_inside.hxx"
 #include "comm/ghost_prolongation.hxx"
 #include "comm/reflux.hxx"
 #include "comm/restrict.hxx"
 #include "comm/checkpoint_bands.hxx"
-#include "comm/rk_bands.hxx"
+#include "comm/rk_bands_inside.hxx"
 #include "comm/rk_ghosts.hxx"
 #include "comm/substeps.hxx"
 #include "comm/sync.hxx"
@@ -680,7 +680,6 @@ static_assert(!rk_stages(0).contains(stage_t{1}));
 
 static_assert(!substep_t{0, rat64(1) / 2}.aligned());
 static_assert(substep_t{rat64(1) / 2, 1}.aligned());
-static_assert(rk_substep_ratio * time_refinement == 1);
 static_assert(substeps_per_coarsest_step(0) == 1);
 static_assert(substeps_per_coarsest_step(3) ==
               time_refinement * time_refinement * time_refinement);

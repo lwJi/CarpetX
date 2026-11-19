@@ -1,10 +1,11 @@
 #include "comm/reflux.hxx"
+#include "comm/reflux_inside.hxx"
 
 #include "hierarchy/model.hxx"
 #include "hierarchy/scopes.hxx"
-#include "comm/buffers.hxx"
-#include "comm/integrator.hxx"
-#include "comm/level_pairs.hxx"
+#include "comm/buffers_inside.hxx"
+#include "comm/integrator_inside.hxx"
+#include "comm/level_pairs_inside.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>

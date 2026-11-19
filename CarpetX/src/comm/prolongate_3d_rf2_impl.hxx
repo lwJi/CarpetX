@@ -3,7 +3,7 @@
 
 #include "internal.hxx"
 
-#include "comm/prolongate_3d_rf2.hxx"
+#include "comm/prolongate_3d_rf2_inside.hxx"
 
 #include <carpetx.hxx>
 
