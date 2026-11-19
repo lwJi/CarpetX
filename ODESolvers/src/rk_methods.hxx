@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <initializer_list>
+#include <limits>
 #include <variant>
 
 namespace ODESolvers {
@@ -133,6 +134,25 @@ registered_dense_output(const rk_method_t &rk) {
       rk.scheme);
 }
 
+constexpr bool
+matches_dense_output(const CarpetX::rk_dense_output_t dense_output,
+                     const tableau_t &tableau) {
+  if (dense_output == CarpetX::rk_dense_output_t::none)
+    return true;
+  const CarpetX::rk_dense_output_method_t method =
+      CarpetX::rk_dense_output_method(dense_output);
+  if (tableau.nstages != method.nstages)
+    return false;
+  const CCTK_REAL tolerance = 4 * std::numeric_limits<CCTK_REAL>::epsilon();
+  for (int s = 0; s < method.nstages; ++s)
+    if (!(rk_tableau_detail::magnitude(tableau.b[s] - method.b[s]) <=
+              tolerance &&
+          rk_tableau_detail::magnitude(tableau.c[s] - method.c[s]) <=
+              tolerance))
+      return false;
+  return true;
+}
+
 namespace rk_methods_detail {
 
 template <typename Rule> constexpr bool every_explicit_row(const Rule rule) {
@@ -142,12 +162,6 @@ template <typename Rule> constexpr bool every_explicit_row(const Rule rule) {
       if (!rule(*scheme))
         return false;
   return true;
-}
-
-constexpr bool has_dense_output_stages(const explicit_rk_t &scheme) {
-  return scheme.dense_output == CarpetX::rk_dense_output_t::none ||
-         scheme.tableau.nstages ==
-             CarpetX::rk_dense_output_stages(scheme.dense_output);
 }
 
 constexpr char lower(const char c) {
@@ -209,10 +223,13 @@ static_assert(
     }),
     "rk_methods: a tableau must satisfy the order condition of "
     "every rooted tree with at most its declared order of vertices");
-static_assert(rk_methods_detail::every_explicit_row(
-                  rk_methods_detail::has_dense_output_stages),
-              "rk_methods: a row with a dense output must have that method's "
-              "stage count (CarpetX::rk_dense_output_stages)");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return matches_dense_output(scheme.dense_output, scheme.tableau);
+    }),
+    "rk_methods: a row with a dense output must have the stage count, b and "
+    "c of the method that dense output was written for "
+    "(CarpetX::rk_dense_output_method)");
 static_assert(rk_methods_detail::names_distinct(),
               "rk_methods: rk_method finds a row by its name, compared "
               "case-insensitively, so no two rows may share a name");

@@ -1,6 +1,8 @@
 #include "rk_methods.hxx"
 #include "rk_tableau.hxx"
 
+#include <carpetx_rk.hxx>
+
 #include <variant>
 
 namespace ODESolvers {
@@ -37,6 +39,23 @@ static_assert(is_explicit(rk4_one_coefficient_off) &&
                   !rows_sum_to_c(rk4_one_coefficient_off),
               "rk_rejected: RK4 with one mistyped a must be refused by the "
               "row-sum rule");
+
+constexpr tableau_t three_eighths_rule{
+    4,
+    4,
+    {{{}, {1.0 / 3}, {-1.0 / 3, 1}, {1, -1, 1}}},
+    {1.0 / 8, 3.0 / 8, 3.0 / 8, 1.0 / 8},
+    {0, 1.0 / 3, 2.0 / 3, 1}};
+
+static_assert(is_explicit(three_eighths_rule) &&
+                  rows_sum_to_c(three_eighths_rule) &&
+                  weights_sum_to_one(three_eighths_rule) &&
+                  has_declared_order(three_eighths_rule) &&
+                  !matches_dense_output(CarpetX::rk_dense_output_t::rk4,
+                                        three_eighths_rule),
+              "rk_rejected: the 3/8 rule passes every tableau rule and, "
+              "tagged with the rk4 dense output, must be refused by the "
+              "dense-output rule");
 
 } // namespace
 } // namespace ODESolvers
