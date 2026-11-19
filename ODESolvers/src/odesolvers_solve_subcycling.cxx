@@ -1,11 +1,10 @@
 #include "rk_methods.hxx"
+#include "rk_step.hxx"
 #include "solve.hxx"
 
 #include <carpetx.hxx>
 #include <carpetx_rk.hxx>
 
-#include <array>
-#include <cstddef>
 #include <vector>
 
 namespace ODESolvers {
@@ -96,8 +95,6 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   static CarpetX::Timer timer("ODESolvers::Solve");
   CarpetX::Interval interval(timer);
 
-  const CCTK_REAL dt = CCTK_DELTA_TIME;
-
   static CarpetX::Timer timer_setup("ODESolvers::Solve::setup");
   std::optional<CarpetX::Interval> interval_setup(timer_setup);
 
@@ -115,140 +112,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
 
   interval_setup.reset();
 
-  const CCTK_REAL old_time = cctkGH->cctk_time - dt;
-  CCTK_REAL t = old_time;
-
-  static CarpetX::Timer timer_lincomb("ODESolvers::Solve::lincomb");
-  static CarpetX::Timer timer_rhs("ODESolvers::Solve::rhs");
-  static CarpetX::Timer timer_poststep("ODESolvers::Solve::poststep");
-
-  const rk_method_t &rk = rk_method(method);
-  assert(registered_dense_output(rk) != CarpetX::rk_dense_output_t::none);
-
-  std::optional<CarpetX::rk_step_t> step;
-
-  const auto open_step = [&]() {
-    step.emplace(CarpetX::open_rk_step(window));
-  };
-  const auto calcrhs = [&](const int n) {
-    CarpetX::Interval interval_rhs(timer_rhs);
-    if (verbose)
-      CCTK_VINFO("Calculating RHS #%d at t=%g", n, double(t));
-    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_RHS", t,
-                                   cctkGH->cctk_delta_time);
-    step.value().rhs_computed();
-  };
-  const auto calcupdate = [&](const int n, const CCTK_REAL c,
-                              const CCTK_REAL a0, const auto &as,
-                              const auto &vars) {
-    CarpetX::Interval interval_lincomb(timer_lincomb);
-    if (verbose)
-      CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
-    statecomp_t::lincomb(var, a0, as, vars, CarpetX::make_valid_int());
-    CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
-                        "ODESolvers updated the state vector");
-    t = old_time + c;
-  };
-  const auto calcpoststep = [&]() {
-    CarpetX::Interval interval_poststep(timer_poststep);
-    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", t,
-                                   cctkGH->cctk_delta_time);
-  };
-  const auto calcys_rmbnd = [&]() {
-    if (verbose)
-      CCTK_VINFO("Fill refinement boundary ghost zones using Ys at t=%g",
-                 double(t));
-    step.value().state_updated();
-  };
-
-  static_assert(
-      rk_methods_detail::dense_output_rows_are({"constant", "RK4", "SSPRK3"}),
-      "rk_methods: the rows with a dense output must be the methods "
-      "ODESolvers_Solve_Subcycling has a branch for");
-
-  if (CCTK_EQUALS(method, "constant")) {
-
-    // y1 = y0
-
-    // do nothing
-
-  } else if (CCTK_EQUALS(method, "RK4")) {
-
-    // k1 = f(y0)
-    // k2 = f(y0 + h/2 k1)
-    // k3 = f(y0 + h/2 k2)
-    // k4 = f(y0 + h k3)
-    // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
-
-    assert(std::get<explicit_rk_t>(rk.scheme).tableau.nstages == 4);
-
-    const auto old = var.copy();
-
-    open_step();
-
-    calcrhs(1);
-    auto kaccum = rhs.copy();
-    calcupdate(1, dt / 2, 1.0, reals<1>{dt / 2}, states<1>{&rhs});
-    calcys_rmbnd();
-    calcpoststep();
-
-    calcrhs(2);
-    statecomp_t::lincomb(kaccum, 1.0, reals<1>{2.0}, states<1>{&rhs},
-                         CarpetX::make_valid_int());
-    calcupdate(2, dt / 2, 0.0, reals<2>{1.0, dt / 2}, states<2>{&old, &rhs});
-    calcys_rmbnd();
-    calcpoststep();
-
-    calcrhs(3);
-    statecomp_t::lincomb(kaccum, 1.0, reals<1>{2.0}, states<1>{&rhs},
-                         CarpetX::make_valid_int());
-    calcupdate(3, dt, 0.0, reals<2>{1.0, dt}, states<2>{&old, &rhs});
-    calcys_rmbnd();
-    calcpoststep();
-
-    calcrhs(4);
-    calcupdate(4, dt, 0.0, reals<3>{1.0, dt / 6, dt / 6},
-               states<3>{&old, &kaccum, &rhs});
-    calcys_rmbnd();
-    calcpoststep();
-
-  } else if (CCTK_EQUALS(method, "SSPRK3")) {
-
-    // k1 = f(y0)
-    // k2 = f(y0 + h k1)
-    // k3 = f(y0 + h/4 k1 + h/4 k2)
-    // y1 = y0 + h/6 k1 + h/6 k2 + 2/3 h k3
-
-    assert(std::get<explicit_rk_t>(rk.scheme).tableau.nstages == 3);
-
-    const auto old = var.copy();
-
-    open_step();
-
-    calcrhs(1);
-    const auto k1 = rhs.copy();
-    calcupdate(1, dt, 1.0, reals<1>{dt}, states<1>{&rhs}); // var = y0 + dt*k1
-    calcys_rmbnd();
-    calcpoststep();
-
-    calcrhs(2);
-    const auto k2 = rhs.copy();
-    calcupdate(2, dt / 2, 0.0, reals<3>{1.0, dt / 4, dt / 4},
-               states<3>{&old, &k1, &k2});
-    calcys_rmbnd();
-    calcpoststep();
-
-    calcrhs(3);
-    calcupdate(3, dt, 0.0, reals<4>{1.0, dt / 6, dt / 6, 2 * dt / 3},
-               states<4>{&old, &k1, &k2, &rhs});
-    calcys_rmbnd();
-    calcpoststep();
-
-  } else {
-    CCTK_VERROR("ODESolvers::method = \"%s\" has a dense output in "
-                "rk_methods.hxx but no branch in the subcycling solver",
-                method);
-  }
+  step(cctkGH, rk_method(method), window, var, rhs, dep_groups);
 }
 
 extern "C" void ODESolvers_CheckTimelevels(CCTK_ARGUMENTS) {

@@ -9,7 +9,6 @@
 
 #include <array>
 #include <cstddef>
-#include <initializer_list>
 #include <limits>
 #include <variant>
 
@@ -182,21 +181,6 @@ constexpr bool names_distinct() {
       if (names_equal(rk_methods[i].name, rk_methods[j].name))
         return false;
   return true;
-}
-
-constexpr bool
-dense_output_rows_are(const std::initializer_list<const char *> methods) {
-  std::size_t listed_rows = 0;
-  for (const auto &rk : rk_methods) {
-    bool listed = false;
-    for (const char *const method : methods)
-      listed = listed || names_equal(rk.name, method);
-    if (listed !=
-        (registered_dense_output(rk) != CarpetX::rk_dense_output_t::none))
-      return false;
-    listed_rows += listed;
-  }
-  return listed_rows == methods.size();
 }
 
 constexpr int peak_copies_of(const char *const method) {
