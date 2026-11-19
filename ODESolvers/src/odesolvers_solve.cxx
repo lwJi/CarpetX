@@ -14,8 +14,18 @@ extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
 
   const rk_method_t &rk = rk_method(method);
   CarpetX::rk_config_t integrator;
-  integrator.dense_output = rk.dense_output;
-  integrator.b.assign(rk.b.begin(), rk.b.begin() + rk.nstages);
+  integrator.dense_output = registered_dense_output(rk);
+  std::visit(overloaded{[&](const frozen_t &) {
+                          integrator.b.assign(CarpetX::rk_dense_output_stages(
+                                                  integrator.dense_output),
+                                              0);
+                        },
+                        [&](const explicit_rk_t &scheme) {
+                          integrator.b.assign(scheme.tableau.b.begin(),
+                                              scheme.tableau.b.begin() +
+                                                  scheme.tableau.nstages);
+                        }},
+             rk.scheme);
   for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
     if (CCTK_GroupTypeI(gi0) != CCTK_GF)
       continue;
@@ -161,7 +171,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     // k1 = f(y0)
     // y1 = y0 + h k1
 
-    assert(rk.nstages == 1);
+    assert(std::get<explicit_rk_t>(rk.scheme).tableau.nstages == 1);
 
     open_step();
 
@@ -174,7 +184,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     // k2 = f(y0 + h/2 k1)
     // y1 = y0 + h k2
 
-    assert(rk.nstages == 2);
+    assert(std::get<explicit_rk_t>(rk.scheme).tableau.nstages == 2);
 
     const auto old = copy_state(var);
 
@@ -193,7 +203,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     // k3 = f(y0 - h k1 + 2 h k2)
     // y1 = y0 + h/6 k1 + 2/3 h k2 + h/6 k3
 
-    assert(rk.nstages == 3);
+    assert(std::get<explicit_rk_t>(rk.scheme).tableau.nstages == 3);
 
     const auto old = copy_state(var);
 
@@ -222,7 +232,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     //   u3 = 1/3 u0 + 2/3 u2 + 2/3 h L(u2)
     // i.e. y1 = y0 + h/6 L(u0) + h/6 L(u1) + 2/3 h L(u2)
 
-    assert(rk.nstages == 3);
+    assert(std::get<explicit_rk_t>(rk.scheme).tableau.nstages == 3);
 
     const auto old = copy_state(var);
 
@@ -247,7 +257,7 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
-    assert(rk.nstages == 4);
+    assert(std::get<explicit_rk_t>(rk.scheme).tableau.nstages == 4);
 
     const auto old = copy_state(var);
 
@@ -279,40 +289,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
   } else if (CCTK_EQUALS(method, "RKF78")) {
 
-    typedef CCTK_REAL T;
-    const auto R = [](T x, T y) { return x / y; };
-    const vector<tuple<T, vector<T> > > tableau{
-        {/* 1 */ 0, {}},                                           //
-        {/* 2 */ R(2, 27), {R(2, 27)}},                            //
-        {/* 3 */ R(1, 9), {R(1, 36), R(3, 36)}},                   //
-        {/* 4 */ R(1, 6), {R(1, 24), 0, R(3, 24)}},                //
-        {/* 5 */ R(5, 12), {R(20, 48), 0, R(-75, 48), R(75, 48)}}, //
-        {/* 6 */ R(1, 2), {R(1, 20), 0, 0, R(5, 20), R(4, 20)}},   //
-        {/* 7 */ R(5, 6),
-         {R(-25, 108), 0, 0, R(125, 108), R(-260, 108), R(250, 108)}}, //
-        {/* 8 */ R(1, 6),
-         {R(31, 300), 0, 0, 0, R(61, 225), R(-2, 9), R(13, 900)}}, //
-        {/* 9 */ R(2, 3),
-         {2, 0, 0, R(-53, 6), R(704, 45), R(-107, 9), R(67, 90), 3}}, //
-        {/* 10 */ R(1, 3),
-         {R(-91, 108), 0, 0, R(23, 108), R(-976, 135), R(311, 54),
-          R(-19, 60), R(17, 6), R(-1, 12)}}, //
-        {/* 11 */ 1,
-         {R(2383, 4100), 0, 0, R(-341, 164), R(4496, 1025), R(-301, 82),
-          R(2133, 4100), R(45, 82), R(45, 164), R(18, 41)}}, //
-    };
-
-    const size_t nsteps = tableau.size();
-    assert(int(nsteps) == rk.nstages);
-    for (size_t step = 0; step < nsteps; ++step) {
-      assert(get<1>(tableau.at(step)).size() == step);
-      const auto &c = get<0>(tableau.at(step));
-      const auto &as = get<1>(tableau.at(step));
-      T x = 0;
-      for (const auto &a : as)
-        x += a;
-      assert(fabs(x - c) <= 10 * numeric_limits<T>::epsilon());
-    }
+    const tableau_t &tab = std::get<explicit_rk_t>(rk.scheme).tableau;
+    const size_t nsteps = tab.nstages;
 
     const auto old = copy_state(var);
 
@@ -322,8 +300,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     ks.reserve(nsteps);
     for (size_t step = 0; step < nsteps; ++step) {
       if (step > 0) {
-        const auto &c = get<0>(tableau.at(step));
-        const auto &as = get<1>(tableau.at(step));
+        const auto &c = tab.c[step];
+        const auto &as = tab.a[step];
 
         // Add scaled RHS to state vector
         vector<CCTK_REAL> factors;
@@ -353,8 +331,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     factors.push_back(1);
     srcs.push_back(&old);
     for (size_t i = 0; i < nsteps; ++i) {
-      if (rk.b.at(i) != 0) {
-        factors.push_back(rk.b.at(i) * dt);
+      if (tab.b.at(i) != 0) {
+        factors.push_back(tab.b.at(i) * dt);
         srcs.push_back(&ks.at(i));
       }
     }
@@ -362,50 +340,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
 
   } else if (CCTK_EQUALS(method, "DP87")) {
 
-    typedef CCTK_REAL T;
-    const auto R = [](T x, T y) { return x / y; };
-    // doi:10.1016/0771-050X(81)90010-3
-    const vector<vector<T> > tableau{
-        {
-            {/*1*/},                                    //
-            {/*2*/ R(1, 18)},                           //
-            {/*3*/ R(1, 48), R(1, 16)},                 //
-            {/*4*/ R(1, 32), 0, R(3, 32)},              //
-            {/*5*/ R(5, 16), 0, -R(75, 64), R(75, 64)}, //
-            {/*6*/ R(3, 80), 0, 0, R(3, 16), R(3, 20)}, //
-            {/*7*/ R(29443841, 614563906), 0, 0, R(77736538, 692538347),
-             -R(28693883, 1125000000), R(23124283, 1800000000)}, //
-            {/*8*/ R(16016141, 946692911), 0, 0, R(61564180, 158732637),
-             R(22789713, 633445777), R(545815736, 2771057229),
-             -R(180193667, 1043307555)}, //
-            {/*9*/ R(39632708, 573591083), 0, 0, -R(433636366, 683701615),
-             -R(421739975, 2616292301), R(100302831, 723423059),
-             R(790204164, 839813087), R(800635310, 3783071287)}, //
-            {/*10*/ R(246121993, 1340847787), 0, 0,
-             -R(37695042795, 15268766246), -R(309121744, 1061227803),
-             -R(12992083, 490766935), R(6005943493, 2108947869),
-             R(393006217, 1396673457), R(123872331, 1001029789)}, //
-            {/*11*/ -R(1028468189, 846180014), 0, 0, R(8478235783, 508512852),
-             R(1311729495, 1432422823), -R(10304129995, 1701304382),
-             -R(48777925059, 3047939560), R(15336726248, 1032824649),
-             -R(45442868181, 3398467696), R(3065993473, 597172653)}, //
-            {/*12*/ R(185892177, 718116043), 0, 0, -R(3185094517, 667107341),
-             -R(477755414, 1098053517), -R(703635378, 230739211),
-             R(5731566787, 1027545527), R(5232866602, 850066563),
-             -R(4093664535, 808688257), R(3962137247, 1805957418),
-             R(65686358, 487910083)}, //
-            {/*13*/ R(403863854, 491063109), 0, 0, -R(5068492393, 434740067),
-             -R(411421997, 543043805), R(652783627, 914296604),
-             R(11173962825, 925320556), -R(13158990841, 6184727034),
-             R(3936647629, 1978049680), -R(160528059, 685178525),
-             R(248638103, 1413531060), 0}, //
-        },
-    };
-
-    const size_t nsteps = tableau.size();
-    assert(int(nsteps) == rk.nstages);
-    for (size_t step = 0; step < nsteps; ++step)
-      assert(tableau.at(step).size() == step);
+    const tableau_t &tab = std::get<explicit_rk_t>(rk.scheme).tableau;
+    const size_t nsteps = tab.nstages;
 
     const auto old = copy_state(var);
 
@@ -415,10 +351,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     ks.reserve(nsteps);
     for (size_t step = 0; step < nsteps; ++step) {
       if (step > 0) {
-        const auto &as = tableau.at(step);
-        T c = 0;
-        for (const auto &a : as)
-          c += a;
+        const auto &c = tab.c[step];
+        const auto &as = tab.a[step];
 
         // Add scaled RHS to state vector
         vector<CCTK_REAL> factors;
@@ -448,8 +382,8 @@ extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
     factors.push_back(1);
     srcs.push_back(&old);
     for (size_t i = 0; i < nsteps; ++i) {
-      if (rk.b.at(i) != 0) {
-        factors.push_back(rk.b.at(i) * dt);
+      if (tab.b.at(i) != 0) {
+        factors.push_back(tab.b.at(i) * dt);
         srcs.push_back(&ks.at(i));
       }
     }

@@ -123,7 +123,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
   static CarpetX::Timer timer_poststep("ODESolvers::Solve::poststep");
 
   const rk_method_t &rk = rk_method(method);
-  assert(rk.dense_output != CarpetX::rk_dense_output_t::none);
+  assert(registered_dense_output(rk) != CarpetX::rk_dense_output_t::none);
 
   std::optional<CarpetX::rk_step_t> step;
 
@@ -180,8 +180,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k4 = f(y0 + h k3)
     // y1 = y0 + h/6 k1 + h/3 k2 + h/3 k3 + h/6 k4
 
-    // The table row must describe the sequence below
-    assert(rk.nstages == 4);
+    assert(std::get<explicit_rk_t>(rk.scheme).tableau.nstages == 4);
 
     const auto old = var.copy();
 
@@ -220,8 +219,7 @@ extern "C" void ODESolvers_Solve_Subcycling(CCTK_ARGUMENTS) {
     // k3 = f(y0 + h/4 k1 + h/4 k2)
     // y1 = y0 + h/6 k1 + h/6 k2 + 2/3 h k3
 
-    // The table row must describe the sequence below
-    assert(rk.nstages == 3);
+    assert(std::get<explicit_rk_t>(rk.scheme).tableau.nstages == 3);
 
     const auto old = var.copy();
 
