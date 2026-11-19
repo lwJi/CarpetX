@@ -146,6 +146,37 @@ constexpr bool has_declared_order(const tableau_t &tableau) {
   return true;
 }
 
+struct storage_plan_t {
+  bool needs_old, needs_acc;
+  per_stage<int> keep_until;
+};
+
+constexpr storage_plan_t storage_plan(const tableau_t &tableau) {
+  storage_plan_t plan{};
+  plan.needs_old = tableau.nstages >= 2;
+  plan.needs_acc = false;
+  for (int s = 0; s + 1 < tableau.nstages; ++s)
+    plan.needs_acc = plan.needs_acc || tableau.b[s] != 0;
+  for (int i = 0; i < max_stages; ++i) {
+    plan.keep_until[i] = -1;
+    for (int row = i + 2; row < tableau.nstages; ++row)
+      if (tableau.a[row][i] != 0)
+        plan.keep_until[i] = row;
+  }
+  return plan;
+}
+
+constexpr int peak_copies(const storage_plan_t &plan) {
+  int peak_stage_copies = 0;
+  for (int s = 0; s < max_stages; ++s) {
+    int live = 0;
+    for (int i = 0; i <= s; ++i)
+      live += plan.keep_until[i] > s;
+    peak_stage_copies = live > peak_stage_copies ? live : peak_stage_copies;
+  }
+  return int(plan.needs_old) + int(plan.needs_acc) + peak_stage_copies;
+}
+
 } // namespace ODESolvers
 
 #endif

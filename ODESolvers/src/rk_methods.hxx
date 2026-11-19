@@ -199,6 +199,15 @@ dense_output_rows_are(const std::initializer_list<const char *> methods) {
   return listed_rows == methods.size();
 }
 
+constexpr int peak_copies_of(const char *const method) {
+  for (const rk_method_t &rk : rk_methods)
+    if (names_equal(rk.name, method))
+      if (const explicit_rk_t *const scheme =
+              std::get_if<explicit_rk_t>(&rk.scheme))
+        return peak_copies(storage_plan(scheme->tableau));
+  return -1;
+}
+
 } // namespace rk_methods_detail
 
 static_assert(
@@ -233,6 +242,25 @@ static_assert(
 static_assert(rk_methods_detail::names_distinct(),
               "rk_methods: rk_method finds a row by its name, compared "
               "case-insensitively, so no two rows may share a name");
+static_assert(rk_methods_detail::peak_copies_of("Euler") == 0,
+              "rk_methods: Euler must step with no copy of the state");
+static_assert(rk_methods_detail::peak_copies_of("RK2") == 1,
+              "rk_methods: RK2 must step holding only the old state");
+static_assert(rk_methods_detail::peak_copies_of("RK3") == 3,
+              "rk_methods: RK3 must step holding at most the old state, the "
+              "weighted sum and k1");
+static_assert(rk_methods_detail::peak_copies_of("SSPRK3") == 3,
+              "rk_methods: SSPRK3 must step holding at most the old state, "
+              "the weighted sum and k1");
+static_assert(rk_methods_detail::peak_copies_of("RK4") == 2,
+              "rk_methods: RK4 must step holding at most the old state and "
+              "the weighted sum");
+static_assert(rk_methods_detail::peak_copies_of("RKF78") == 9,
+              "rk_methods: RKF78 must step holding at most the old state, "
+              "the weighted sum and seven stage right-hand sides");
+static_assert(rk_methods_detail::peak_copies_of("DP87") == 11,
+              "rk_methods: DP87 must step holding at most the old state, the "
+              "weighted sum and nine stage right-hand sides");
 
 // Look up the row for the given ODESolvers::method (case-insensitive, like
 // CCTK_EQUALS). Every keyword value has a row; a missing one is a hard error.
