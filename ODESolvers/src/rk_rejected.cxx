@@ -47,5 +47,10 @@ static_assert(
     "rk_rejected: a row is a tableau or a CarpetX dense-output method; a "
     "dense output written beside a tableau of the row's own must not compile");
 
+static_assert(std::is_const_v<decltype(explicit_rk_t::dense_output)> &&
+                  std::is_const_v<decltype(explicit_rk_t::tableau)>,
+              "rk_rejected: a finished row's dense output and tableau are "
+              "fixed by its constructor and must not be writable afterwards");
+
 } // namespace
 } // namespace ODESolvers

@@ -15,25 +15,31 @@ namespace ODESolvers {
 
 struct frozen_t {};
 
+constexpr tableau_t
+dense_output_tableau(const CarpetX::rk_dense_output_t dense_output) {
+  const CarpetX::rk_dense_output_method_t method =
+      CarpetX::rk_dense_output_method(dense_output);
+  tableau_t tableau{};
+  tableau.nstages = method.nstages;
+  tableau.order = method.order;
+  for (int s = 0; s < method.nstages; ++s) {
+    for (int i = 0; i < s; ++i)
+      tableau.a[s][i] = method.a[s][i];
+    tableau.b[s] = method.b[s];
+    tableau.c[s] = method.c[s];
+  }
+  return tableau;
+}
+
 struct explicit_rk_t {
   constexpr explicit_rk_t(const tableau_t &tableau)
       : dense_output(CarpetX::rk_dense_output_t::none), tableau(tableau) {}
   constexpr explicit_rk_t(const CarpetX::rk_dense_output_t dense_output)
-      : dense_output(dense_output), tableau{} {
-    const CarpetX::rk_dense_output_method_t method =
-        CarpetX::rk_dense_output_method(dense_output);
-    tableau.nstages = method.nstages;
-    tableau.order = method.order;
-    for (int s = 0; s < method.nstages; ++s) {
-      for (int i = 0; i < s; ++i)
-        tableau.a[s][i] = method.a[s][i];
-      tableau.b[s] = method.b[s];
-      tableau.c[s] = method.c[s];
-    }
-  }
+      : dense_output(dense_output),
+        tableau(dense_output_tableau(dense_output)) {}
 
-  CarpetX::rk_dense_output_t dense_output;
-  tableau_t tableau;
+  const CarpetX::rk_dense_output_t dense_output;
+  const tableau_t tableau;
 };
 
 struct rk_method_t {
