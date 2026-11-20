@@ -73,55 +73,50 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
   for (int s = 0; s < nstages; ++s) {
     calcrhs(s + 1);
 
-    if (s + 1 < nstages && tableau.b[s] != 0) {
+    const int row = s + 1;
+    const bool last = row == nstages;
+
+    if (!last && tableau.b[s] != 0) {
       CarpetX::Interval interval_lincomb(timer_lincomb);
-      if (acc) {
+      if (acc)
         statecomp_t::lincomb(*acc, 1, reals<1>{tableau.b[s]}, states<1>{&rhs},
                              CarpetX::make_valid_int());
-      } else {
-        acc.emplace(rhs.copy());
-        statecomp_t::lincomb(*acc, 0, reals<1>{tableau.b[s]}, states<1>{&rhs},
-                             CarpetX::make_valid_int());
-      }
+      else
+        acc.emplace(rhs.scaled(tableau.b[s]));
     }
 
     if (plan.keep_until[s] >= 0)
       ks[s].emplace(rhs.copy());
 
-    if (s + 1 < nstages) {
-      const int row = s + 1;
-      std::vector<CCTK_REAL> factors{1};
-      std::vector<const statecomp_t *> srcs{&old.value()};
-      for (int i = 0; i < row; ++i) {
+    std::vector<CCTK_REAL> factors;
+    std::vector<const statecomp_t *> srcs;
+    const auto read = [&](const CCTK_REAL factor, const statecomp_t &src) {
+      factors.push_back(factor);
+      srcs.push_back(&src);
+    };
+    if (old)
+      read(1, *old);
+    if (last) {
+      assert(plan.needs_acc == bool(acc));
+      if (acc)
+        read(dt, *acc);
+      if (tableau.b[s] != 0)
+        read(tableau.b[s] * dt, rhs);
+    } else {
+      for (int i = 0; i <= s; ++i) {
         if (tableau.a[row][i] == 0)
           continue;
         assert(i == s || ks[i]);
-        factors.push_back(tableau.a[row][i] * dt);
-        srcs.push_back(i == s ? &rhs : &*ks[i]);
+        read(tableau.a[row][i] * dt, i == s ? rhs : *ks[i]);
       }
-      calcupdate(row, tableau.c[row] * dt, 0, factors, srcs);
-      for (int i = 0; i < row; ++i)
-        if (plan.keep_until[i] == row)
-          ks[i].reset();
     }
-  }
+    calcupdate(row, last ? dt : tableau.c[row] * dt, old ? 0 : 1, factors,
+               srcs);
 
-  assert(plan.needs_acc == bool(acc));
-  std::vector<CCTK_REAL> factors;
-  std::vector<const statecomp_t *> srcs;
-  if (old) {
-    factors.push_back(1);
-    srcs.push_back(&*old);
+    for (int i = 0; i < row; ++i)
+      if (plan.keep_until[i] == row)
+        ks[i].reset();
   }
-  if (acc) {
-    factors.push_back(dt);
-    srcs.push_back(&*acc);
-  }
-  if (tableau.b[nstages - 1] != 0) {
-    factors.push_back(tableau.b[nstages - 1] * dt);
-    srcs.push_back(&rhs);
-  }
-  calcupdate(nstages, dt, old ? 0 : 1, factors, srcs);
 }
 
 } // namespace
