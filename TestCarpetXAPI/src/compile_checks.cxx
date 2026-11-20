@@ -327,7 +327,10 @@ constexpr CarpetX::rk_dense_output_method_t ssprk3_method =
     CarpetX::rk_dense_output_method(CarpetX::rk_dense_output_t::ssprk3);
 constexpr CarpetX::rk_dense_output_method_t rk4_method =
     CarpetX::rk_dense_output_method(CarpetX::rk_dense_output_t::rk4);
-static_assert(ssprk3_method.nstages == 3);
+static_assert(ssprk3_method.nstages == 3 && ssprk3_method.order == 3);
+static_assert(ssprk3_method.a[1][0] == 1 &&
+              ssprk3_method.a[2][0] == CCTK_REAL(1.0 / 4) &&
+              ssprk3_method.a[2][1] == CCTK_REAL(1.0 / 4));
 static_assert(ssprk3_method.b[0] == CCTK_REAL(1.0 / 6) &&
               ssprk3_method.b[1] == CCTK_REAL(1.0 / 6) &&
               ssprk3_method.b[2] == CCTK_REAL(2.0 / 3) &&
@@ -336,7 +339,12 @@ static_assert(ssprk3_method.c[0] == 0 && ssprk3_method.c[1] == 1 &&
               ssprk3_method.c[2] == CCTK_REAL(1.0 / 2) &&
               ssprk3_method.c[3] == 0);
 static_assert(ssprk3_method.b[1] != CCTK_REAL(2.0 / 3));
-static_assert(rk4_method.nstages == 4);
+static_assert(rk4_method.nstages == 4 && rk4_method.order == 4);
+static_assert(rk4_method.a[1][0] == CCTK_REAL(1.0 / 2) &&
+              rk4_method.a[2][0] == 0 &&
+              rk4_method.a[2][1] == CCTK_REAL(1.0 / 2) &&
+              rk4_method.a[3][0] == 0 && rk4_method.a[3][1] == 0 &&
+              rk4_method.a[3][2] == 1);
 static_assert(rk4_method.b[0] == CCTK_REAL(1.0 / 6) &&
               rk4_method.b[1] == CCTK_REAL(1.0 / 3) &&
               rk4_method.b[2] == CCTK_REAL(1.0 / 3) &&

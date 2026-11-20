@@ -12,7 +12,8 @@
 namespace CarpetX {
 
 struct rk_dense_output_method_t {
-  int nstages;
+  int nstages, order;
+  std::array<std::array<CCTK_REAL, 4>, 4> a;
   std::array<CCTK_REAL, 4> b, c;
 };
 
@@ -20,11 +21,19 @@ constexpr rk_dense_output_method_t
 rk_dense_output_method(const rk_dense_output_t dense_output) {
   switch (dense_output) {
   case rk_dense_output_t::ssprk3:
-    return {3, {1.0 / 6, 1.0 / 6, 2.0 / 3}, {0, 1, 1.0 / 2}};
+    return {3,
+            3,
+            {{{}, {1}, {1.0 / 4, 1.0 / 4}}},
+            {1.0 / 6, 1.0 / 6, 2.0 / 3},
+            {0, 1, 1.0 / 2}};
   case rk_dense_output_t::rk4:
-    return {4, {1.0 / 6, 1.0 / 3, 1.0 / 3, 1.0 / 6}, {0, 1.0 / 2, 1.0 / 2, 1}};
+    return {4,
+            4,
+            {{{}, {1.0 / 2}, {0, 1.0 / 2}, {0, 0, 1}}},
+            {1.0 / 6, 1.0 / 3, 1.0 / 3, 1.0 / 6},
+            {0, 1.0 / 2, 1.0 / 2, 1}};
   default:
-    return {0, {}, {}};
+    return {};
   }
 }
 
