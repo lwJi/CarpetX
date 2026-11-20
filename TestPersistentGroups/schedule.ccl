@@ -26,10 +26,7 @@ SCHEDULE GROUP TestPersistentGroups_CheckGroup AT initial AFTER (TestPersistentG
 
 
 
-# Evolution: after the integrated state has been advanced, stamp the level's
-# new time on the interior, SYNC, and check every point including the ghosts
-
-SCHEDULE TestPersistentGroups_Write AT evol AFTER (ODESolvers_Solve, ODESolvers_Solve_Subcycling)
+SCHEDULE TestPersistentGroups_Write AT evol AFTER ODESolvers_Solve
 {
   LANG: C
   WRITES: persist_default(interior)

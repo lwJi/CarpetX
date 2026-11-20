@@ -154,7 +154,13 @@ RK_SECTIONS: tuple[Section, ...] = (
                 ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "hierarchy/model.cxx:record_integrator"),
             ),
             Row(
-                "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on every cGH for the traversal and then restores both; pass `cctkGH->cctk_delta_time` unless the step itself changes, as an IMEX half step does.",
+                "`rk_dense_output_method` states the method each dense output was written for as a whole Butcher tableau: its stage count, its order, `a`, its weights `b`, and its stage times `c`, in the order the stages arrive through `rhs_computed`. "
+                "The dense output's weights reduce to that `b` at the end of the parent step, which CarpetX asserts at build, and the kernel takes the stage values of the finer level from that `a` and `c`. "
+                "An integrator that registers a dense output is that method; registration checks only its stage count, so the integrator takes its tableau from this one and does not write its own.",
+                ("comm/rk_ghosts.cxx:rk_dense_output_weights", "comm/rk_ghosts.cxx:rk_dense_output_weights_end_at_method_b", "comm/rk_ghosts.cxx:rk_fine_stage", "api/api_rk.cxx:register_integrator"),
+            ),
+            Row(
+                "`run_schedule_group_at` sets `cctk_time` and `cctk_delta_time` on every cGH for the traversal and then restores both; pass `cctkGH->cctk_delta_time` unless the group is to see a step of another size.",
                 ("api/api_rk.cxx:run_schedule_group_at",),
             ),
             Row(
