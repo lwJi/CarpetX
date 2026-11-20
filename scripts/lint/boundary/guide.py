@@ -156,7 +156,7 @@ RK_SECTIONS: tuple[Section, ...] = (
             Row(
                 "`rk_dense_output_method` states the method each dense output was written for as a whole Butcher tableau: its stage count, its order, `a`, its weights `b`, and its stage times `c`, in the order the stages arrive through `rhs_computed`. "
                 "The dense output's weights reduce to that `b` at the end of the parent step, which CarpetX asserts at build. "
-                "An integrator that registers a dense output is that method; registration checks only its stage count, so the integrator holds its own `b` and `c` to this one.",
+                "An integrator that registers a dense output is that method; registration checks only its stage count, so the integrator takes its tableau from this one and does not write its own.",
                 ("comm/rk_ghosts.cxx:rk_dense_output_weights", "comm/rk_ghosts.cxx:rk_dense_output_weights_end_at_method_b", "api/api_rk.cxx:register_integrator"),
             ),
             Row(
