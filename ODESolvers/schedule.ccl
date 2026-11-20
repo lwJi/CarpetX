@@ -8,27 +8,19 @@ SCHEDULE ODESolvers_InitConstants AT WRAGH
   WRITES: do_substeps
 } "Set up dummy loop counters for schedule printout"
 
-if(use_subcycling) {
+SCHEDULE ODESolvers_Solve AT evol
+{
+  LANG: C
+  OPTIONS: level
+} "Solve ODEs"
 
-  SCHEDULE ODESolvers_Solve_Subcycling AT evol
-  {
-    LANG: C
-    OPTIONS: level
-  } "Solve ODEs with subcycling"
+if(use_subcycling) {
 
   SCHEDULE ODESolvers_CheckTimelevels AT CCTK_PARAMCHECK
   {
     LANG: C
     OPTIONS: global
   } "Reject multiple timelevels for evolved groups under subcycling"
-
-} else {
-
-  SCHEDULE ODESolvers_Solve AT evol
-  {
-    LANG: C
-    OPTIONS: level
-  } "Solve ODEs"
 
 }
 
