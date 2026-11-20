@@ -89,11 +89,30 @@ static_assert(
     "rk_ghosts: the rk4 dense-output weights at xsi = 1 must be the b of "
     "CarpetX::rk_dense_output_method(rk_dense_output_t::rk4)");
 
-template <int RKSTAGES>
+struct rk_fine_stage_t {
+  CCTK_REAL f, df_f, d2f_f_f, df_df_f;
+};
+
+constexpr rk_fine_stage_t rk_fine_stage(const rk_dense_output_method_t &method,
+                                        const int s) {
+  rk_fine_stage_t taylor{method.c[s], 0, 0, 0};
+  for (int j = 0; j < s; ++j) {
+    taylor.df_f += method.a[s][j] * method.c[j];
+    taylor.d2f_f_f += method.a[s][j] * method.c[j] * method.c[j] / 2;
+    for (int k = 0; k < j; ++k)
+      taylor.df_df_f += method.a[s][j] * method.a[j][k] * method.c[k];
+  }
+  return taylor;
+}
+
+template <rk_dense_output_t dense_output>
 void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                           const rk_sources_t::sources_t src,
                           const stage_t stage, const CCTK_REAL xsi,
                           const CCTK_REAL dtc) {
+  constexpr rk_dense_output_method_t method =
+      rk_dense_output_method(dense_output);
+  constexpr int RKSTAGES = method.nstages;
   static_assert(RKSTAGES == 3 || RKSTAGES == 4,
                 "rk_dense_output only supports RKSTAGES == 3 or 4");
   const stage_range stages = rk_stages(RKSTAGES);
@@ -102,6 +121,9 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
   const amrex::MultiFab &old_band = src.old;
 
   constexpr CCTK_REAL r = rk_substep_ratio;
+  const rk_fine_stage_t fine = rk_fine_stage(method, stages.offset(stage));
+  const CCTK_REAL at = fine.f * r;
+  const CCTK_REAL att = fine.df_f * r * r;
 
   const int nvars = crse_patch.nComp();
   assert(old_band.nComp() == nvars);
@@ -157,11 +179,9 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                                                  kcs_arrs[2][b_](i, j, k, n)};
             const CCTK_REAL uu = b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2];
             const CCTK_REAL ut = bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2];
-            // note r*ut (not 0.5*r*ut as in the RK4 stage 2)
-            yf_arrs[b_](i, j, k, n) += dtc * (uu + r * ut);
+            yf_arrs[b_](i, j, k, n) += dtc * (uu + at * ut);
           });
     } else { // stage 3
-      const CCTK_REAL r2 = r * r;
       amrex::ParallelFor(
           crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
@@ -172,8 +192,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
             const CCTK_REAL ut = bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2];
             const CCTK_REAL utt =
                 btt[0] * kk[0] + btt[1] * kk[1] + btt[2] * kk[2];
-            yf_arrs[b_](i, j, k, n) +=
-                dtc * (uu + 0.5 * r * ut + 0.25 * r2 * utt);
+            yf_arrs[b_](i, j, k, n) += dtc * (uu + at * ut + att * utt);
           });
     }
   } else { // RKSTAGES == 4
@@ -219,16 +238,18 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                 b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2] + b[3] * kk[3];
             const CCTK_REAL ut =
                 bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2] + bt[3] * kk[3];
-            yf_arrs[b_](i, j, k, n) += dtc * (uu + 0.5 * r * ut);
+            yf_arrs[b_](i, j, k, n) += dtc * (uu + at * ut);
           });
     } else { // stage 3 or stage 4
-      const CCTK_REAL r2 = r * r;
-      const CCTK_REAL r3 = r2 * r;
-      const bool third = stage == stage_t{3};
-      const CCTK_REAL at = third ? 0.5 * r : r;
-      const CCTK_REAL att = third ? 0.25 * r2 : 0.5 * r2;
-      const CCTK_REAL attt = third ? 0.0625 * r3 : 0.125 * r3;
-      const CCTK_REAL ak = third ? -4.0 : 4.0;
+      static_assert(method.c[1] == method.c[2],
+                    "rk_ghosts: the rk4 kernel takes f'f'f from k3 - k2, "
+                    "whose f'f term cancels only if stages 2 and 3 share a "
+                    "stage time");
+      constexpr CCTK_REAL k3_minus_k2 =
+          rk_fine_stage(method, 2).df_f - rk_fine_stage(method, 1).df_f;
+      const CCTK_REAL attt = fine.d2f_f_f * r * r * r;
+      const CCTK_REAL ak =
+          (fine.df_df_f - fine.d2f_f_f) / (fine.d2f_f_f * k3_minus_k2);
       amrex::ParallelFor(
           crse_patch, amrex::IntVect{0}, nvars,
           [=] AMREX_GPU_DEVICE(int b_, int i, int j, int k, int n) noexcept {
@@ -260,10 +281,12 @@ void rk_dense_output(amrex::MultiFab &crse_patch,
                      const CCTK_REAL xsi, const CCTK_REAL dtc) {
   switch (dense_output) {
   case rk_dense_output_t::ssprk3:
-    rk_dense_output_impl<3>(crse_patch, src, stage, xsi, dtc);
+    rk_dense_output_impl<rk_dense_output_t::ssprk3>(crse_patch, src, stage, xsi,
+                                                    dtc);
     break;
   case rk_dense_output_t::rk4:
-    rk_dense_output_impl<4>(crse_patch, src, stage, xsi, dtc);
+    rk_dense_output_impl<rk_dense_output_t::rk4>(crse_patch, src, stage, xsi,
+                                                 dtc);
     break;
   default:
     CCTK_ERROR("Subcycling dense output: the registered integrator has no "
