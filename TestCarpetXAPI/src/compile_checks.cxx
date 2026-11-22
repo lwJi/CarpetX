@@ -322,6 +322,45 @@ static_assert(!reads_mfab<CarpetX::scratch_t>);
 static_assert(!reads_mfab<const CarpetX::scratch_t>);
 
 static_assert(std::is_same_v<decltype(CarpetX::rk_pair_t::state), gi_t>);
+
+constexpr CarpetX::rk_dense_output_method_t ssprk3_method =
+    CarpetX::rk_dense_output_method(CarpetX::rk_dense_output_t::ssprk3);
+constexpr CarpetX::rk_dense_output_method_t rk4_method =
+    CarpetX::rk_dense_output_method(CarpetX::rk_dense_output_t::rk4);
+static_assert(ssprk3_method.nstages == 3 && ssprk3_method.order == 3);
+static_assert(ssprk3_method.a[1][0] == 1 &&
+              ssprk3_method.a[2][0] == CCTK_REAL(1.0 / 4) &&
+              ssprk3_method.a[2][1] == CCTK_REAL(1.0 / 4));
+static_assert(ssprk3_method.b[0] == CCTK_REAL(1.0 / 6) &&
+              ssprk3_method.b[1] == CCTK_REAL(1.0 / 6) &&
+              ssprk3_method.b[2] == CCTK_REAL(2.0 / 3) &&
+              ssprk3_method.b[3] == 0);
+static_assert(ssprk3_method.c[0] == 0 && ssprk3_method.c[1] == 1 &&
+              ssprk3_method.c[2] == CCTK_REAL(1.0 / 2) &&
+              ssprk3_method.c[3] == 0);
+static_assert(ssprk3_method.b[1] != CCTK_REAL(2.0 / 3));
+static_assert(rk4_method.nstages == 4 && rk4_method.order == 4);
+static_assert(rk4_method.a[1][0] == CCTK_REAL(1.0 / 2) &&
+              rk4_method.a[2][0] == 0 &&
+              rk4_method.a[2][1] == CCTK_REAL(1.0 / 2) &&
+              rk4_method.a[3][0] == 0 && rk4_method.a[3][1] == 0 &&
+              rk4_method.a[3][2] == 1);
+static_assert(rk4_method.b[0] == CCTK_REAL(1.0 / 6) &&
+              rk4_method.b[1] == CCTK_REAL(1.0 / 3) &&
+              rk4_method.b[2] == CCTK_REAL(1.0 / 3) &&
+              rk4_method.b[3] == CCTK_REAL(1.0 / 6));
+static_assert(rk4_method.c[0] == 0 && rk4_method.c[1] == CCTK_REAL(1.0 / 2) &&
+              rk4_method.c[2] == CCTK_REAL(1.0 / 2) && rk4_method.c[3] == 1);
+static_assert(rk4_method.b[0] != CCTK_REAL(1.0 / 8) &&
+              rk4_method.c[1] != CCTK_REAL(1.0 / 3));
+static_assert(CarpetX::rk_dense_output_method(CarpetX::rk_dense_output_t::none)
+                  .nstages == 0);
+static_assert(CarpetX::rk_dense_output_stages(
+                  CarpetX::rk_dense_output_t::ssprk3) == ssprk3_method.nstages);
+static_assert(CarpetX::rk_dense_output_stages(
+                  CarpetX::rk_dense_output_t::rk4) == rk4_method.nstages);
+static_assert(
+    CarpetX::rk_dense_output_stages(CarpetX::rk_dense_output_t::none) == 0);
 static_assert(std::is_same_v<decltype(CarpetX::group_t::gi), gi_t>);
 static_assert(std::is_same_v<decltype(CarpetX::group_t::level), level_t>);
 static_assert(std::is_same_v<decltype(CarpetX::variable_t::gi), gi_t>);

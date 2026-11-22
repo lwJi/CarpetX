@@ -9,9 +9,6 @@ KEYWORD method "ODE solver method" STEERABLE=always
   "RK4" :: "classic RK4"
   "RKF78" :: "Runge-Kutta-Fehlberg 7(8)"
   "DP87" :: "Dormand & Prince 8(7)"
-
-  "IMEX122" :: "IMEX midpoint (1,2,2)"
-  "Implicit Euler" :: "IMEX midpoint (1,2,2), misnamed"
 } "RK2"
 
 BOOLEAN verbose "Verbose output" STEERABLE=always

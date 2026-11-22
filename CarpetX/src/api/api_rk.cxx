@@ -73,23 +73,20 @@ void require_grid_function_group(const char *const role, const gi_t gi) {
 void check_weights(const std::vector<CCTK_REAL> &b) {
   using std::fabs, std::isfinite;
   CCTK_REAL sum = 0;
-  bool all_zero = true;
   for (std::size_t s = 0; s < b.size(); ++s) {
     if (!isfinite(b[s]))
       CCTK_VERROR("CarpetX::register_integrator: the weight b of RK stage %d "
                   "is %g; every registered weight is finite",
                   int(s) + 1, double(b[s]));
     sum += b[s];
-    all_zero = all_zero && b[s] == 0;
   }
   const CCTK_REAL tolerance =
       4 * b.size() * std::numeric_limits<CCTK_REAL>::epsilon();
-  if (!all_zero && !(fabs(sum - 1) <= tolerance))
+  if (!b.empty() && !(fabs(sum - 1) <= tolerance))
     CCTK_VERROR("CarpetX::register_integrator: the %d RK stage weights b sum "
                 "to %.17g, not 1; the final update is y1 = y0 + dt * sum_s "
                 "b_s f(Y_s), so an explicit method's weights sum to 1, and a "
-                "method that never updates the state registers all-zero "
-                "weights",
+                "method that never updates the state registers no integrator",
                 int(b.size()), double(sum));
 }
 
