@@ -7,26 +7,13 @@
 namespace ODESolvers {
 using namespace std;
 
-extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
-  DECLARE_CCTK_ARGUMENTS_ODESolvers_InitConstants;
-  DECLARE_CCTK_PARAMETERS;
+namespace {
 
-  *do_substeps = 0;
-
-  const rk_method_t &rk = rk_method(method);
+void register_explicit(const explicit_rk_t &scheme) {
   CarpetX::rk_config_t integrator;
-  integrator.dense_output = registered_dense_output(rk);
-  std::visit(overloaded{[&](const frozen_t &) {
-                          integrator.b.assign(CarpetX::rk_dense_output_stages(
-                                                  integrator.dense_output),
-                                              0);
-                        },
-                        [&](const explicit_rk_t &scheme) {
-                          integrator.b.assign(scheme.tableau.b.begin(),
-                                              scheme.tableau.b.begin() +
-                                                  scheme.tableau.nstages);
-                        }},
-             rk.scheme);
+  integrator.dense_output = scheme.dense_output;
+  integrator.b.assign(scheme.tableau.b.begin(),
+                      scheme.tableau.b.begin() + scheme.tableau.nstages);
   for (int gi0 = 0; gi0 < CCTK_NumGroups(); ++gi0) {
     if (CCTK_GroupTypeI(gi0) != CCTK_GF)
       continue;
@@ -36,6 +23,21 @@ extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
       integrator.integrated.push_back(CarpetX::rk_pair_t{gi, *rhs_gi});
   }
   CarpetX::register_integrator(integrator);
+}
+
+} // namespace
+
+extern "C" void ODESolvers_InitConstants(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_ARGUMENTS_ODESolvers_InitConstants;
+  DECLARE_CCTK_PARAMETERS;
+
+  *do_substeps = 0;
+
+  std::visit(overloaded{[](const frozen_t &) {},
+                        [](const explicit_rk_t &scheme) {
+                          register_explicit(scheme);
+                        }},
+             rk_method(method).scheme);
 }
 
 extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {

@@ -131,15 +131,6 @@ inline constexpr std::array<rk_method_t, 8> rk_methods{{
            1201146811.0 / 1299019798, 1, 1}}}},
 }};
 
-constexpr CarpetX::rk_dense_output_t
-registered_dense_output(const rk_method_t &rk) {
-  return std::visit(
-      overloaded{
-          [](const frozen_t &) { return CarpetX::rk_dense_output_t::rk4; },
-          [](const explicit_rk_t &scheme) { return scheme.dense_output; }},
-      rk.scheme);
-}
-
 namespace rk_methods_detail {
 
 template <typename Rule> constexpr bool every_explicit_row(const Rule rule) {
