@@ -222,35 +222,6 @@ constexpr storage_plan_t storage_plan(const tableau_t &tableau) {
   return plan;
 }
 
-constexpr bool plan_reproduces_rows(const tableau_t &tableau) {
-  using namespace rk_tableau_detail;
-  const storage_plan_t plan = storage_plan(tableau);
-  for (int row = 1; row <= tableau.nstages; ++row) {
-    const row_reads_t &reads = plan.reads[row - 1];
-    for (int i = 0; i < row; ++i) {
-      const CCTK_REAL read =
-          reads.stage[i] + (i + 1 < row ? reads.acc * tableau.b[i] : 0);
-      if (magnitude(read - row_weight(tableau, row, i)) >
-          sum_tolerance(tableau))
-        return false;
-      if (i + 1 < row && reads.stage[i] != 0 && plan.keep_until[i] < row)
-        return false;
-    }
-  }
-  return true;
-}
-
-constexpr int peak_copies(const storage_plan_t &plan) {
-  int peak_stage_copies = 0;
-  for (int s = 0; s < max_stages; ++s) {
-    int live = 0;
-    for (int i = 0; i <= s; ++i)
-      live += plan.keep_until[i] > s;
-    peak_stage_copies = live > peak_stage_copies ? live : peak_stage_copies;
-  }
-  return int(plan.needs_old) + int(plan.needs_acc) + peak_stage_copies;
-}
-
 } // namespace ODESolvers
 
 #endif

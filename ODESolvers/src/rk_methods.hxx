@@ -1,6 +1,7 @@
 #ifndef CARPETX_ODESOLVERS_RK_METHODS_HXX
 #define CARPETX_ODESOLVERS_RK_METHODS_HXX
 
+#include "rk_run.hxx"
 #include "rk_tableau.hxx"
 
 #include <carpetx_rk.hxx>
@@ -165,8 +166,8 @@ constexpr int peak_copies_of(const char *const method) {
   for (const rk_method_t &rk : rk_methods)
     if (names_equal(rk.name, method))
       if (std::holds_alternative<explicit_rk_t>(rk.scheme))
-        return peak_copies(
-            storage_plan(std::get<explicit_rk_t>(rk.scheme).tableau));
+        return symbolic_run(std::get<explicit_rk_t>(rk.scheme).tableau)
+            .peak_copies;
   return -1;
 }
 
@@ -203,11 +204,38 @@ static_assert(rk_methods_detail::peak_copies_of("RK2") == 1,
               "rk_methods: RK2 must step holding only the old state");
 static_assert(
     rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
-      return plan_reproduces_rows(scheme.tableau);
+      return symbolic_run(scheme.tableau).check.reaches_rows;
     }),
-    "rk_methods: a row that reads the weighted sum must equal its factor "
-    "times b on the earlier stages, and any other row must find a copy of "
-    "every earlier stage it reads");
+    "rk_methods: when stage s of run_explicit lands, the state must be the "
+    "state the step started from plus dt times row s + 1 of the tableau's a "
+    "applied to the stage right-hand sides, and b at the last stage");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return symbolic_run(scheme.tableau).check.lands_at_c;
+    }),
+    "rk_methods: stage s of run_explicit must land at c[s + 1] of the "
+    "tableau, and at 1 for the last stage: ODESolvers_PostStep and the next "
+    "ODESolvers_RHS run at that fraction of the step");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return symbolic_run(scheme.tableau).check.reads_live;
+    }),
+    "rk_methods: run_explicit must read a register only while it holds what "
+    "an assignment wrote: before it is released and, for the state, before "
+    "it lands and goes through ODESolvers_PostStep");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return symbolic_run(scheme.tableau).check.releases_held;
+    }),
+    "rk_methods: run_explicit must release only the old state, the weighted "
+    "sum or a stage copy, and only one that holds a value");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return symbolic_run(scheme.tableau).check.stages_in_order;
+    }),
+    "rk_methods: run_explicit must compute one right-hand side and land once "
+    "for each stage of the tableau, in order, and must compute each "
+    "right-hand side from the state as the previous landing left it");
 static_assert(rk_methods_detail::peak_copies_of("RK3") == 2,
               "rk_methods: RK3 must step holding at most the old state and "
               "the weighted sum");
