@@ -45,26 +45,14 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
                                    cctkGH->cctk_delta_time);
     rk_step.rhs_computed();
   };
-  const auto calcupdate = [&](const int n, const CCTK_REAL c,
-                              const CCTK_REAL scale,
-                              const std::vector<CCTK_REAL> &factors,
-                              const std::vector<const statecomp_t *> &srcs) {
-    {
-      CarpetX::Interval interval_lincomb(timer_lincomb);
-      statecomp_t::lincomb(var, scale, factors, srcs,
-                           CarpetX::make_valid_int());
-      CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
-                          "ODESolvers updated the state vector");
-    }
+  const auto calcpoststep = [&](const int n, const CCTK_REAL c) {
     rk_step.state_updated();
-    {
-      CarpetX::Interval interval_poststep(timer_poststep);
-      t = old_time + c;
-      CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", t,
-                                     cctkGH->cctk_delta_time);
-      if (verbose)
-        CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
-    }
+    CarpetX::Interval interval_poststep(timer_poststep);
+    t = old_time + c;
+    CarpetX::run_schedule_group_at(cctkGH, "ODESolvers_PostStep", t,
+                                   cctkGH->cctk_delta_time);
+    if (verbose)
+      CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
   };
 
   std::optional<statecomp_t> acc;
@@ -75,15 +63,9 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
 
     const int row = s + 1;
     const bool last = row == nstages;
-
-    if (!last && tableau.b[s] != 0) {
-      CarpetX::Interval interval_lincomb(timer_lincomb);
-      if (acc)
-        statecomp_t::lincomb(*acc, 1, reals<1>{tableau.b[s]}, states<1>{&rhs},
-                             CarpetX::make_valid_int());
-      else
-        acc.emplace(rhs.scaled(tableau.b[s]));
-    }
+    const auto weight = [&](const int i) {
+      return last ? tableau.b[i] : tableau.a[row][i];
+    };
 
     if (plan.keep_until[s] >= 0)
       ks[s].emplace(rhs.copy());
@@ -96,22 +78,36 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
     };
     if (old)
       read(1, *old);
-    if (last) {
+    if (last)
       assert(plan.needs_acc == bool(acc));
-      if (acc)
-        read(dt, *acc);
-      if (tableau.b[s] != 0)
-        read(tableau.b[s] * dt, rhs);
+    if (plan.acc_factor[s] != 0) {
+      assert(acc);
+      read(plan.acc_factor[s] * dt, *acc);
     } else {
-      for (int i = 0; i <= s; ++i) {
-        if (tableau.a[row][i] == 0)
+      for (int i = 0; i < s; ++i) {
+        if (weight(i) == 0)
           continue;
-        assert(i == s || ks[i]);
-        read(tableau.a[row][i] * dt, i == s ? rhs : *ks[i]);
+        assert(ks[i]);
+        read(weight(i) * dt, *ks[i]);
       }
     }
-    calcupdate(row, last ? dt : tableau.c[row] * dt, old ? 0 : 1, factors,
-               srcs);
+    if (weight(s) != 0)
+      read(weight(s) * dt, rhs);
+    {
+      CarpetX::Interval interval_lincomb(timer_lincomb);
+      statecomp_t::lincomb(var, old ? 0 : 1, factors, srcs,
+                           CarpetX::make_valid_int());
+      if (!last && tableau.b[s] != 0) {
+        if (acc)
+          statecomp_t::lincomb(*acc, 1, reals<1>{tableau.b[s]}, states<1>{&rhs},
+                               CarpetX::make_valid_int());
+        else
+          acc.emplace(rhs.scaled(tableau.b[s]));
+      }
+      CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
+                          "ODESolvers updated the state vector");
+    }
+    calcpoststep(row, last ? dt : tableau.c[row] * dt);
 
     for (int i = 0; i < row; ++i)
       if (plan.keep_until[i] == row)

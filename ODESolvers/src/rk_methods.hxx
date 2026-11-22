@@ -201,12 +201,19 @@ static_assert(rk_methods_detail::peak_copies_of("Euler") == 0,
               "rk_methods: Euler must step with no copy of the state");
 static_assert(rk_methods_detail::peak_copies_of("RK2") == 1,
               "rk_methods: RK2 must step holding only the old state");
-static_assert(rk_methods_detail::peak_copies_of("RK3") == 3,
-              "rk_methods: RK3 must step holding at most the old state, the "
-              "weighted sum and k1");
-static_assert(rk_methods_detail::peak_copies_of("SSPRK3") == 3,
-              "rk_methods: SSPRK3 must step holding at most the old state, "
-              "the weighted sum and k1");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return plan_reproduces_rows(scheme.tableau);
+    }),
+    "rk_methods: a row that reads the weighted sum must equal its factor "
+    "times b on the earlier stages, and any other row must find a copy of "
+    "every earlier stage it reads");
+static_assert(rk_methods_detail::peak_copies_of("RK3") == 2,
+              "rk_methods: RK3 must step holding at most the old state and "
+              "the weighted sum");
+static_assert(rk_methods_detail::peak_copies_of("SSPRK3") == 2,
+              "rk_methods: SSPRK3 must step holding at most the old state "
+              "and the weighted sum");
 static_assert(rk_methods_detail::peak_copies_of("RK4") == 2,
               "rk_methods: RK4 must step holding at most the old state and "
               "the weighted sum");

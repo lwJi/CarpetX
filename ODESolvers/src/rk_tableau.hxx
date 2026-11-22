@@ -146,24 +146,92 @@ constexpr bool has_declared_order(const tableau_t &tableau) {
   return true;
 }
 
+namespace rk_tableau_detail {
+
+constexpr CCTK_REAL row_weight(const tableau_t &tableau, const int row,
+                               const int i) {
+  return row == tableau.nstages ? tableau.b[i] : tableau.a[row][i];
+}
+
+struct ratio_to_weights_t {
+  bool exists;
+  CCTK_REAL ratio;
+};
+
+constexpr ratio_to_weights_t
+earlier_stages_ratio_to_weights(const tableau_t &tableau, const int row) {
+  const int nearlier = row - 1;
+  int pivot = -1;
+  for (int i = nearlier - 1; i >= 0; --i)
+    if (tableau.b[i] != 0)
+      pivot = i;
+  if (pivot < 0) {
+    for (int i = 0; i < nearlier; ++i)
+      if (row_weight(tableau, row, i) != 0)
+        return {false, 0};
+    return {true, 0};
+  }
+  for (int i = 0; i < nearlier; ++i)
+    if (row_weight(tableau, row, i) * tableau.b[pivot] !=
+        row_weight(tableau, row, pivot) * tableau.b[i])
+      return {false, 0};
+  return {true, row_weight(tableau, row, pivot) / tableau.b[pivot]};
+}
+
+} // namespace rk_tableau_detail
+
 struct storage_plan_t {
   bool needs_old, needs_acc;
   per_stage<int> keep_until;
+  per_stage<CCTK_REAL> acc_factor;
 };
 
 constexpr storage_plan_t storage_plan(const tableau_t &tableau) {
+  using namespace rk_tableau_detail;
   storage_plan_t plan{};
   plan.needs_old = tableau.nstages >= 2;
   plan.needs_acc = false;
   for (int s = 0; s + 1 < tableau.nstages; ++s)
     plan.needs_acc = plan.needs_acc || tableau.b[s] != 0;
-  for (int i = 0; i < max_stages; ++i) {
+  for (int i = 0; i < max_stages; ++i)
     plan.keep_until[i] = -1;
-    for (int row = i + 2; row < tableau.nstages; ++row)
+  for (int row = 2; row < tableau.nstages; ++row) {
+    if (earlier_stages_ratio_to_weights(tableau, row).exists)
+      continue;
+    for (int i = 0; i + 1 < row; ++i)
       if (tableau.a[row][i] != 0)
         plan.keep_until[i] = row;
   }
+  for (int row = 1; row <= tableau.nstages; ++row) {
+    const ratio_to_weights_t ratio =
+        earlier_stages_ratio_to_weights(tableau, row);
+    bool has_every_copy = true;
+    for (int i = 0; i + 1 < row; ++i)
+      if (row_weight(tableau, row, i) != 0 && plan.keep_until[i] < row)
+        has_every_copy = false;
+    plan.acc_factor[row - 1] =
+        ratio.exists && !has_every_copy ? ratio.ratio : 0;
+  }
   return plan;
+}
+
+constexpr bool plan_reproduces_rows(const tableau_t &tableau) {
+  using namespace rk_tableau_detail;
+  const storage_plan_t plan = storage_plan(tableau);
+  for (int row = 1; row <= tableau.nstages; ++row) {
+    const CCTK_REAL acc_factor = plan.acc_factor[row - 1];
+    for (int i = 0; i + 1 < row; ++i) {
+      const CCTK_REAL weight = row_weight(tableau, row, i);
+      if (acc_factor != 0) {
+        if (magnitude(acc_factor * tableau.b[i] - weight) >
+            sum_tolerance(tableau))
+          return false;
+      } else if (weight != 0 && plan.keep_until[i] < row) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 constexpr int peak_copies(const storage_plan_t &plan) {
