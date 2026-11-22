@@ -78,6 +78,26 @@ struct symbolic_value_t {
   per_stage<CCTK_REAL> of_stage_rhs;
 };
 
+constexpr int nassign_stored(const stage_t &stage) {
+  const int capacity = int(stage.assign.size());
+  return stage.nassign < 0          ? 0
+         : stage.nassign > capacity ? capacity
+                                    : stage.nassign;
+}
+
+constexpr bool is_empty(const stage_t &stage) {
+  if (stage.nassign != 0 || stage.time != 0)
+    return false;
+  for (const bool freed : stage.frees)
+    if (freed)
+      return false;
+  return true;
+}
+
+constexpr bool can_be_written(const int r) {
+  return r >= 0 && r < num_regs && r != reg_rhs;
+}
+
 } // namespace rk_program_detail
 
 constexpr program_t plan(const tableau_t &tableau) {
@@ -151,10 +171,15 @@ struct program_check_t {
   bool rates_read_rates;
   bool reads_var_at_stage_0_only;
   bool order_free;
+  bool has_tableau_shape;
+  bool lands_at_c;
+  bool writes_once;
+  bool frees_what_it_holds;
   constexpr bool operator==(const program_check_t &) const = default;
 };
 
-inline constexpr program_check_t every_rule_holds{true, true, true, true, true};
+inline constexpr program_check_t every_rule_holds{true, true, true, true, true,
+                                                  true, true, true, true};
 
 constexpr program_check_t check_program(const tableau_t &tableau,
                                         const program_t &program) {
@@ -164,6 +189,15 @@ constexpr program_check_t check_program(const tableau_t &tableau,
   if (!is_explicit(tableau))
     return program_check_t{};
   program_check_t check = every_rule_holds;
+  if (program.nstages != tableau.nstages)
+    check.has_tableau_shape = false;
+  for (int s = 0; s < max_stages; ++s) {
+    const stage_t &stage = program.stage[s];
+    if (s < tableau.nstages ? nassign_stored(stage) != stage.nassign
+                            : !is_empty(stage))
+      check.has_tableau_shape = false;
+  }
+
   per_reg<symbolic_value_t> reg{};
   reg[reg_var].live = true;
   reg[reg_var].of_step_start_state = 1;
@@ -175,8 +209,14 @@ constexpr program_check_t check_program(const tableau_t &tableau,
 
     const per_reg<symbolic_value_t> before_stage = reg;
     per_reg<bool> written_earlier_in_stage{};
-    for (int n = 0; n < stage.nassign; ++n) {
+    for (int n = 0; n < nassign_stored(stage); ++n) {
       const assign_t &assign = stage.assign[n];
+      if (!can_be_written(assign.dst)) {
+        check.writes_once = false;
+        continue;
+      }
+      if (written_earlier_in_stage[assign.dst])
+        check.writes_once = false;
       if (s > 0 && assign.coeff[reg_var] != 0)
         check.reads_var_at_stage_0_only = false;
       symbolic_value_t written{};
@@ -210,10 +250,21 @@ constexpr program_check_t check_program(const tableau_t &tableau,
         check.reaches_rows = false;
     }
 
-    for (int r = 0; r < num_regs; ++r)
-      if (stage.frees[r])
-        reg[r].live = false;
+    const CCTK_REAL lands_at = row == tableau.nstages ? 1 : tableau.c[row];
+    if (stage.time != lands_at)
+      check.lands_at_c = false;
+
+    for (int r = 0; r < num_regs; ++r) {
+      if (!stage.frees[r])
+        continue;
+      if (!is_scratch(r) || !reg[r].live)
+        check.frees_what_it_holds = false;
+      reg[r].live = false;
+    }
   }
+  for (int r = 0; r < num_regs; ++r)
+    if (is_scratch(r) && reg[r].live)
+      check.frees_what_it_holds = false;
   return check;
 }
 

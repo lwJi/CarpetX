@@ -238,6 +238,34 @@ static_assert(
     "rk_methods: no assignment may read a register that an earlier "
     "assignment of the same stage writes: the step runs a stage's "
     "assignments in listed order and the check evaluates them at once");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return check_program(scheme.tableau, scheme.program).has_tableau_shape;
+    }),
+    "rk_methods: a program must have as many stages as its tableau, each "
+    "with no more assignments than a stage can hold, and nothing in the "
+    "stages after them: the step takes its number of stages from the program");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return check_program(scheme.tableau, scheme.program).lands_at_c;
+    }),
+    "rk_methods: the time of stage s of a program must be c[s + 1] of its "
+    "tableau, and 1 for the last stage: the step runs ODESolvers_PostStep "
+    "and the next ODESolvers_RHS at that fraction of the step");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return check_program(scheme.tableau, scheme.program).writes_once;
+    }),
+    "rk_methods: an assignment must write the state, the old state, the "
+    "weighted sum or a stage copy, never the right-hand side, and no stage "
+    "may write a register twice");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return check_program(scheme.tableau, scheme.program).frees_what_it_holds;
+    }),
+    "rk_methods: a stage may free only the old state, the weighted sum or a "
+    "stage copy, and only one that holds a value, and none of them may still "
+    "hold a value after the last stage");
 static_assert(rk_methods_detail::peak_copies_of("RK3") == 2,
               "rk_methods: RK3 must step holding at most the old state and "
               "the weighted sum");
