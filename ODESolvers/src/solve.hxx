@@ -88,8 +88,7 @@ struct statecomp_t {
   vector<entry_t> entries;
   CarpetX::tl_t timelevel{0};
 
-  statecomp_t copy() const;
-  statecomp_t scaled(CCTK_REAL factor) const;
+  statecomp_t scratch_like() const;
 
   template <size_t N>
   static void

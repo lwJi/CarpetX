@@ -1,6 +1,7 @@
 #ifndef CARPETX_ODESOLVERS_RK_METHODS_HXX
 #define CARPETX_ODESOLVERS_RK_METHODS_HXX
 
+#include "rk_program.hxx"
 #include "rk_tableau.hxx"
 
 #include <carpetx_rk.hxx>
@@ -33,13 +34,15 @@ dense_output_tableau(const CarpetX::rk_dense_output_t dense_output) {
 
 struct explicit_rk_t {
   constexpr explicit_rk_t(const tableau_t &tableau)
-      : dense_output(CarpetX::rk_dense_output_t::none), tableau(tableau) {}
+      : dense_output(CarpetX::rk_dense_output_t::none), tableau(tableau),
+        program(plan(this->tableau)) {}
   constexpr explicit_rk_t(const CarpetX::rk_dense_output_t dense_output)
-      : dense_output(dense_output),
-        tableau(dense_output_tableau(dense_output)) {}
+      : dense_output(dense_output), tableau(dense_output_tableau(dense_output)),
+        program(plan(tableau)) {}
 
   const CarpetX::rk_dense_output_t dense_output;
   const tableau_t tableau;
+  const program_t program;
 };
 
 struct rk_method_t {
@@ -165,8 +168,7 @@ constexpr int peak_copies_of(const char *const method) {
   for (const rk_method_t &rk : rk_methods)
     if (names_equal(rk.name, method))
       if (std::holds_alternative<explicit_rk_t>(rk.scheme))
-        return peak_copies(
-            storage_plan(std::get<explicit_rk_t>(rk.scheme).tableau));
+        return peak_copies(std::get<explicit_rk_t>(rk.scheme).program);
   return -1;
 }
 
@@ -203,11 +205,17 @@ static_assert(rk_methods_detail::peak_copies_of("RK2") == 1,
               "rk_methods: RK2 must step holding only the old state");
 static_assert(
     rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
-      return plan_reproduces_rows(scheme.tableau);
+      return check_program(scheme.tableau, scheme.program).reaches_rows;
     }),
-    "rk_methods: a row that reads the weighted sum must equal its factor "
-    "times b on the earlier stages, and any other row must find a copy of "
-    "every earlier stage it reads");
+    "rk_methods: after stage s of a row's program the state must be the "
+    "state the step started from plus dt times row s + 1 of the tableau's a "
+    "applied to the stage right-hand sides, and b after the last stage");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return check_program(scheme.tableau, scheme.program).reads_live;
+    }),
+    "rk_methods: a program must read a register only while it holds a "
+    "value: after a stage has written it and before a stage frees it");
 static_assert(rk_methods_detail::peak_copies_of("RK3") == 2,
               "rk_methods: RK3 must step holding at most the old state and "
               "the weighted sum");

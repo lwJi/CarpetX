@@ -1,5 +1,7 @@
 #include "rk_step.hxx"
 
+#include "rk_program.hxx"
+
 #include <carpetx_rk.hxx>
 
 #include <cctk_Parameters.h>
@@ -13,7 +15,63 @@ namespace ODESolvers {
 
 namespace {
 
-void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
+class registers_t {
+public:
+  registers_t(statecomp_t &var, const statecomp_t &rhs) : var(var), rhs(rhs) {}
+
+  void assign(const assign_t &a, const CCTK_REAL dt) {
+    statecomp_t &dst = written(a);
+    std::vector<CCTK_REAL> factors;
+    std::vector<const statecomp_t *> srcs;
+    for (int r = 0; r < num_regs; ++r) {
+      if (r == a.dst || a.coeff[r] == 0)
+        continue;
+      factors.push_back(a.coeff[r] *
+                        (is_state(a.dst) && !is_state(r) ? dt : 1));
+      srcs.push_back(&read(r));
+    }
+    statecomp_t::lincomb(dst, a.coeff[a.dst], factors, srcs,
+                         CarpetX::make_valid_int());
+  }
+
+  void release(const per_reg<bool> &frees) {
+    for (int r = 0; r < num_regs; ++r) {
+      if (!frees[r])
+        continue;
+      assert(is_scratch(r));
+      assert(scratch[r]);
+      scratch[r].reset();
+    }
+  }
+
+private:
+  statecomp_t &written(const assign_t &a) {
+    assert(a.dst != reg_rhs);
+    if (a.dst == reg_var)
+      return var;
+    std::optional<statecomp_t> &dst = scratch[a.dst];
+    if (!dst) {
+      assert(a.coeff[a.dst] == 0);
+      dst.emplace((is_state(a.dst) ? var : rhs).scratch_like());
+    }
+    return *dst;
+  }
+
+  const statecomp_t &read(const int r) const {
+    if (r == reg_var)
+      return var;
+    if (r == reg_rhs)
+      return rhs;
+    assert(scratch[r]);
+    return *scratch[r];
+  }
+
+  statecomp_t &var;
+  const statecomp_t &rhs;
+  per_reg<std::optional<statecomp_t> > scratch;
+};
+
+void step_explicit(const cGH *const cctkGH, const program_t &program,
                    const CarpetX::window_t window, statecomp_t &var,
                    const statecomp_t &rhs,
                    const std::span<const CarpetX::gi_t> dep_groups) {
@@ -23,17 +81,9 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
   static CarpetX::Timer timer_rhs("ODESolvers::Solve::rhs");
   static CarpetX::Timer timer_poststep("ODESolvers::Solve::poststep");
 
-  const int nstages = tableau.nstages;
-  const storage_plan_t plan = storage_plan(tableau);
-  assert(plan.needs_old || nstages == 1);
-
   const CCTK_REAL dt = cctkGH->cctk_delta_time / cctkGH->cctk_timefac;
   const CCTK_REAL old_time = cctkGH->cctk_time - dt;
   CCTK_REAL t = old_time;
-
-  std::optional<statecomp_t> old;
-  if (plan.needs_old)
-    old.emplace(var.copy());
 
   CarpetX::rk_step_t rk_step = CarpetX::open_rk_step(window);
 
@@ -55,60 +105,20 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
       CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
   };
 
-  std::optional<statecomp_t> acc;
-  std::vector<std::optional<statecomp_t> > ks(nstages);
+  registers_t regs(var, rhs);
 
-  for (int s = 0; s < nstages; ++s) {
+  for (int s = 0; s < program.nstages; ++s) {
+    const stage_t &stage = program.stage[s];
     calcrhs(s + 1);
-
-    const int row = s + 1;
-    const bool last = row == nstages;
-    const row_reads_t &reads = plan.reads[s];
-
-    if (plan.keep_until[s] >= 0)
-      ks[s].emplace(rhs.copy());
-
-    std::vector<CCTK_REAL> factors;
-    std::vector<const statecomp_t *> srcs;
-    const auto read = [&](const CCTK_REAL factor, const statecomp_t &src) {
-      factors.push_back(factor);
-      srcs.push_back(&src);
-    };
-    if (old)
-      read(1, *old);
-    if (last)
-      assert(plan.needs_acc == bool(acc));
-    if (reads.acc != 0) {
-      assert(acc);
-      read(reads.acc * dt, *acc);
-    }
-    for (int i = 0; i < s; ++i) {
-      if (reads.stage[i] == 0)
-        continue;
-      assert(ks[i]);
-      read(reads.stage[i] * dt, *ks[i]);
-    }
-    if (reads.stage[s] != 0)
-      read(reads.stage[s] * dt, rhs);
     {
       CarpetX::Interval interval_lincomb(timer_lincomb);
-      statecomp_t::lincomb(var, old ? 0 : 1, factors, srcs,
-                           CarpetX::make_valid_int());
-      if (!last && tableau.b[s] != 0) {
-        if (acc)
-          statecomp_t::lincomb(*acc, 1, reals<1>{tableau.b[s]}, states<1>{&rhs},
-                               CarpetX::make_valid_int());
-        else
-          acc.emplace(rhs.scaled(tableau.b[s]));
-      }
+      for (int n = 0; n < stage.nassign; ++n)
+        regs.assign(stage.assign[n], dt);
       CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
                           "ODESolvers updated the state vector");
     }
-    calcpoststep(row, last ? dt : tableau.c[row] * dt);
-
-    for (int i = 0; i < row; ++i)
-      if (plan.keep_until[i] == row)
-        ks[i].reset();
+    calcpoststep(s + 1, stage.time * dt);
+    regs.release(stage.frees);
   }
 }
 
@@ -120,7 +130,7 @@ void step(const cGH *const cctkGH, const rk_method_t &method,
           const std::span<const CarpetX::gi_t> dep_groups) {
   std::visit(overloaded{[](const frozen_t &) {},
                         [&](const explicit_rk_t &scheme) {
-                          step_explicit(cctkGH, scheme.tableau, window, var,
+                          step_explicit(cctkGH, scheme.program, window, var,
                                         rhs, dep_groups);
                         }},
              method.scheme);

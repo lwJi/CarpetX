@@ -5,16 +5,13 @@ using namespace std;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-statecomp_t statecomp_t::copy() const { return scaled(1); }
-
-statecomp_t statecomp_t::scaled(const CCTK_REAL factor) const {
+statecomp_t statecomp_t::scratch_like() const {
   statecomp_t result;
   result.timelevel = timelevel;
   result.entries.reserve(entries.size());
   for (const entry_t &entry : entries)
     result.entries.push_back(
         entry_t{entry.group, CarpetX::scratch(entry.group)});
-  lincomb(result, 0, make_array(factor), make_array(this), CarpetX::valid_t());
   return result;
 }
 
