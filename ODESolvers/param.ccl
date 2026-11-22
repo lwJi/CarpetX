@@ -1,4 +1,4 @@
-KEYWORD method "ODE solver method" STEERABLE=always
+KEYWORD method "ODE solver method" STEERABLE=recover
 {
   # See <https://en.wikipedia.org/wiki/List_of_Runge–Kutta_methods>
   "constant" :: "state vector is kept constant in time"
