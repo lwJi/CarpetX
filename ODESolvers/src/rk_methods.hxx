@@ -216,6 +216,28 @@ static_assert(
     }),
     "rk_methods: a program must read a register only while it holds a "
     "value: after a stage has written it and before a stage frees it");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return check_program(scheme.tableau, scheme.program).rates_read_rates;
+    }),
+    "rk_methods: a register that holds right-hand sides (the weighted sum, a "
+    "stage copy) must not read the state or the old state");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return check_program(scheme.tableau, scheme.program)
+          .reads_var_at_stage_0_only;
+    }),
+    "rk_methods: a program may read the state, its own value in a state "
+    "write included, only at stage 0: from then on the state has been "
+    "through ODESolvers_PostStep and is not the combination of right-hand "
+    "sides the check takes it for");
+static_assert(
+    rk_methods_detail::every_explicit_row([](const explicit_rk_t &scheme) {
+      return check_program(scheme.tableau, scheme.program).order_free;
+    }),
+    "rk_methods: no assignment may read a register that an earlier "
+    "assignment of the same stage writes: the step runs a stage's "
+    "assignments in listed order and the check evaluates them at once");
 static_assert(rk_methods_detail::peak_copies_of("RK3") == 2,
               "rk_methods: RK3 must step holding at most the old state and "
               "the weighted sum");

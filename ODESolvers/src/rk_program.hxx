@@ -148,8 +148,13 @@ constexpr program_t plan(const tableau_t &tableau) {
 struct program_check_t {
   bool reaches_rows;
   bool reads_live;
+  bool rates_read_rates;
+  bool reads_var_at_stage_0_only;
+  bool order_free;
   constexpr bool operator==(const program_check_t &) const = default;
 };
+
+inline constexpr program_check_t every_rule_holds{true, true, true, true, true};
 
 constexpr program_check_t check_program(const tableau_t &tableau,
                                         const program_t &program) {
@@ -158,7 +163,7 @@ constexpr program_check_t check_program(const tableau_t &tableau,
   using rk_tableau_detail::sum_tolerance;
   if (!is_explicit(tableau))
     return program_check_t{};
-  program_check_t check{true, true};
+  program_check_t check = every_rule_holds;
   per_reg<symbolic_value_t> reg{};
   reg[reg_var].live = true;
   reg[reg_var].of_step_start_state = 1;
@@ -169,8 +174,11 @@ constexpr program_check_t check_program(const tableau_t &tableau,
     reg[reg_rhs].of_stage_rhs[s] = 1;
 
     const per_reg<symbolic_value_t> before_stage = reg;
+    per_reg<bool> written_earlier_in_stage{};
     for (int n = 0; n < stage.nassign; ++n) {
       const assign_t &assign = stage.assign[n];
+      if (s > 0 && assign.coeff[reg_var] != 0)
+        check.reads_var_at_stage_0_only = false;
       symbolic_value_t written{};
       written.live = true;
       for (int r = 0; r < num_regs; ++r) {
@@ -179,12 +187,17 @@ constexpr program_check_t check_program(const tableau_t &tableau,
         const symbolic_value_t &read = before_stage[r];
         if (!read.live)
           check.reads_live = false;
+        if (!is_state(assign.dst) && is_state(r))
+          check.rates_read_rates = false;
+        if (written_earlier_in_stage[r])
+          check.order_free = false;
         written.of_step_start_state +=
             assign.coeff[r] * read.of_step_start_state;
         for (int i = 0; i < max_stages; ++i)
           written.of_stage_rhs[i] += assign.coeff[r] * read.of_stage_rhs[i];
       }
       reg[assign.dst] = written;
+      written_earlier_in_stage[assign.dst] = true;
     }
 
     const int row = s + 1;
