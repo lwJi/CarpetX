@@ -1,6 +1,5 @@
 IMPLEMENTS: ODESolvers
 
-USES INCLUDE HEADER: div.hxx
 USES INCLUDE HEADER: carpetx.hxx
 USES INCLUDE HEADER: carpetx_rk.hxx
 

@@ -8,16 +8,7 @@
 #include <cctk_Arguments.h>
 #include <util_Table.h>
 
-#include <div.hxx>
-
 #include <AMReX_MultiFab.H>
-#include <AMReX_Version.H>
-
-#if defined _OPENMP || defined __HIPCC__
-#include <omp.h>
-#else
-static inline int omp_get_max_threads() { return 1; }
-#endif
 
 #include <algorithm>
 #include <array>
@@ -92,23 +83,22 @@ struct statecomp_t {
   statecomp_t scaled(CCTK_REAL factor) const;
 
   template <size_t N>
-  static void
-  lincomb(statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, N> &factors,
-          const array<const statecomp_t *, N> &srcs, CarpetX::valid_t where);
+  static void lincomb(statecomp_t &dst, CCTK_REAL scale,
+                      const array<CCTK_REAL, N> &factors,
+                      const array<const statecomp_t *, N> &srcs);
   template <size_t N>
-  static void
-  lincomb(statecomp_t &dst, CCTK_REAL scale, const array<CCTK_REAL, N> &factors,
-          const array<statecomp_t *, N> &srcs, const CarpetX::valid_t where) {
+  static void lincomb(statecomp_t &dst, CCTK_REAL scale,
+                      const array<CCTK_REAL, N> &factors,
+                      const array<statecomp_t *, N> &srcs) {
     array<const statecomp_t *, N> srcs1;
     for (size_t n = 0; n < N; ++n)
       srcs1[n] = srcs[n];
-    lincomb(dst, scale, factors, srcs1, where);
+    lincomb(dst, scale, factors, srcs1);
   }
 
   static void lincomb(statecomp_t &dst, CCTK_REAL scale,
                       const vector<CCTK_REAL> &factors,
-                      const vector<const statecomp_t *> &srcs,
-                      CarpetX::valid_t where);
+                      const vector<const statecomp_t *> &srcs);
 };
 
 template <std::size_t N> using reals = std::array<CCTK_REAL, N>;
@@ -172,8 +162,7 @@ inline std::optional<CarpetX::gi_t> get_group_rhs(const CarpetX::gi_t gi) {
   return rhs_gi;
 }
 
-inline std::vector<CarpetX::gi_t>
-get_group_dependents(const CarpetX::gi_t gi) {
+inline std::vector<CarpetX::gi_t> get_group_dependents(const CarpetX::gi_t gi) {
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);

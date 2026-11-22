@@ -92,12 +92,11 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
       read(reads.stage[s] * dt, rhs);
     {
       CarpetX::Interval interval_lincomb(timer_lincomb);
-      statecomp_t::lincomb(var, old ? 0 : 1, factors, srcs,
-                           CarpetX::make_valid_int());
+      statecomp_t::lincomb(var, old ? 0 : 1, factors, srcs);
       if (!last && tableau.b[s] != 0) {
         if (acc)
-          statecomp_t::lincomb(*acc, 1, reals<1>{tableau.b[s]}, states<1>{&rhs},
-                               CarpetX::make_valid_int());
+          statecomp_t::lincomb(*acc, 1, reals<1>{tableau.b[s]},
+                               states<1>{&rhs});
         else
           acc.emplace(rhs.scaled(tableau.b[s]));
       }
