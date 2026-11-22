@@ -1,7 +1,14 @@
+#include "integrated_groups.hxx"
 #include "rk_methods.hxx"
-#include "solve.hxx"
 
-#include <carpetx.hxx>
+#include <carpetx_rk.hxx>
+
+#include <cctk.h>
+#include <cctk_Arguments.h>
+#include <cctk_Parameters.h>
+
+#include <algorithm>
+#include <cassert>
 
 namespace ODESolvers {
 
@@ -9,9 +16,8 @@ extern "C" void ODESolvers_CheckTimelevels(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_CheckTimelevels;
   DECLARE_CCTK_PARAMETERS;
 
-  for (int gi = 0; gi < CCTK_NumGroups(); ++gi) {
-    if (!get_group_rhs(CarpetX::gi_t{gi}))
-      continue;
+  for (const CarpetX::rk_pair_t &pair : integrated_groups().pairs) {
+    const int gi = pair.state.index();
     const int ntls = CCTK_ActiveTimeLevelsGI(cctkGH, gi);
     if (ntls >= 2)
       CCTK_VERROR("ODESolvers subcycling requires evolved groups to have a "
