@@ -387,6 +387,19 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
                   "ghost zones",
                   nghostzones[0], nghostzones[1], nghostzones[2], ng[0], ng[1],
                   ng[2]);
+    const amrex::MultiFab &mfab = CarpetX::data(group, tl);
+    const CarpetX::scratch_t scratch = CarpetX::scratch(group);
+    const amrex::MultiFab &smfab = scratch.mfab();
+    if (smfab.boxArray() != mfab.boxArray() ||
+        smfab.DistributionMap() != mfab.DistributionMap() ||
+        smfab.nComp() != mfab.nComp())
+      CCTK_VERROR("CarpetX::scratch does not have the boxes, distribution and "
+                  "variables of TestCarpetXAPI::state");
+    const amrex::IntVect sng = smfab.nGrowVect();
+    if (sng != amrex::IntVect{0})
+      CCTK_VERROR("CarpetX::scratch has [%d,%d,%d] ghost zones for "
+                  "TestCarpetXAPI::state; expected none",
+                  sng[0], sng[1], sng[2]);
     require_flags(group, CarpetX::valid_t(), "before anything wrote it");
   });
 

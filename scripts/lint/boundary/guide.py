@@ -64,7 +64,7 @@ RK_BOUNDARY: tuple[str, ...] = (
     WRITTEN,
     f"`carpetx_rk.hxx` is for the one thorn that is the time integrator. `{GUIDE}` covers `carpetx.hxx` and the validity regions named here, and `{THORN}` is a client of both.",
 )
-UNEXERCISED = ("restrict_no_poison", "scratch")
+UNEXERCISED = ("restrict_no_poison",)
 GENERAL: tuple[Section, ...] = (
     Section(
         "Indices and handles",
@@ -96,7 +96,7 @@ GENERAL: tuple[Section, ...] = (
                 ("include/carpetx.hxx:make_valid_ghosts", "schedule/clauses.cxx:decode_clauses", "hierarchy/model.cxx:LevelData", "hierarchy/scopes.cxx:loop_ghost_halves", "hierarchy/scopes.cxx:check_valid_gf", "comm/outer_boundary.cxx:fill_outer_boundary"),
             ),
             Row(
-                "`scratch(group)` is shaped like `data(group, tl_t{0})` and has no validity bits; a regrid frees it, after which a `scratch_t` is an error.",
+                "`scratch(group)` is the interior of `data(group, tl_t{0})`, with its boxes, distribution, centring and variables and no ghost zones, and has no validity bits; a regrid frees it, after which a `scratch_t` is an error.",
                 ("api/api.cxx:scratch", "api/api.cxx:resolve_scratch", "api/api.cxx:scratch_t"),
             ),
         ),

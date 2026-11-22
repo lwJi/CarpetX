@@ -14,7 +14,7 @@ A write scope sets the validity of the group at `tl` to exactly `leaves_valid` w
 
 The halo has two ghost regions with a bit each: the same-level ghosts, which another box of the level or a periodic image covers, and the coarse-fine ghosts, which no box of the level covers and only an interpolation from the parent fills. A ghost fill marks only the region it copies; the boundary condition reads the interior and both ghost regions, so it runs after the last ghost fill, requires all three valid, and alone marks the outer boundary. `make_valid_ghosts()` and a schedule clause's everywhere name both.
 
-`scratch(group)` is shaped like `data(group, tl_t{0})` and has no validity bits; a regrid frees it, after which a `scratch_t` is an error.
+`scratch(group)` is the interior of `data(group, tl_t{0})`, with its boxes, distribution, centring and variables and no ghost zones, and has no validity bits; a regrid frees it, after which a `scratch_t` is an error.
 
 ## Communication
 
