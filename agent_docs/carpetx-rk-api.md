@@ -6,7 +6,7 @@
 
 ## The integrator's contract
 
-Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step. Registration is `AT WRAGH`, once. `dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. `b` holds the final-update weight of every stage, all zero for a method that never updates the state.
+Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step. Registration is `AT WRAGH`, once. `dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. `b` holds the final-update weight of every stage, and nonempty weights sum to 1; a method that never updates the state registers no integrator.
 
 `rk_dense_output_method` states the method each dense output was written for as a whole Butcher tableau: its stage count, its order, `a`, its weights `b`, and its stage times `c`, in the order the stages arrive through `rhs_computed`. The dense output's weights reduce to that `b` at the end of the parent step, which CarpetX asserts at build, and the kernel takes the stage values of the finer level from that `a` and `c`. An integrator that registers a dense output is that method; registration checks only its stage count, so the integrator takes its tableau from this one and does not write its own.
 

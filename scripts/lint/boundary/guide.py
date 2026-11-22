@@ -150,7 +150,7 @@ RK_SECTIONS: tuple[Section, ...] = (
                 "Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step. "
                 "Registration is `AT WRAGH`, once. "
                 "`dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. "
-                "`b` holds the final-update weight of every stage, all zero for a method that never updates the state.",
+                "`b` holds the final-update weight of every stage, and nonempty weights sum to 1; a method that never updates the state registers no integrator.",
                 ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "hierarchy/model.cxx:record_integrator"),
             ),
             Row(
