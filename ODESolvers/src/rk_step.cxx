@@ -63,9 +63,7 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
 
     const int row = s + 1;
     const bool last = row == nstages;
-    const auto weight = [&](const int i) {
-      return last ? tableau.b[i] : tableau.a[row][i];
-    };
+    const row_reads_t &reads = plan.reads[s];
 
     if (plan.keep_until[s] >= 0)
       ks[s].emplace(rhs.copy());
@@ -80,19 +78,18 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
       read(1, *old);
     if (last)
       assert(plan.needs_acc == bool(acc));
-    if (plan.acc_factor[s] != 0) {
+    if (reads.acc != 0) {
       assert(acc);
-      read(plan.acc_factor[s] * dt, *acc);
-    } else {
-      for (int i = 0; i < s; ++i) {
-        if (weight(i) == 0)
-          continue;
-        assert(ks[i]);
-        read(weight(i) * dt, *ks[i]);
-      }
+      read(reads.acc * dt, *acc);
     }
-    if (weight(s) != 0)
-      read(weight(s) * dt, rhs);
+    for (int i = 0; i < s; ++i) {
+      if (reads.stage[i] == 0)
+        continue;
+      assert(ks[i]);
+      read(reads.stage[i] * dt, *ks[i]);
+    }
+    if (reads.stage[s] != 0)
+      read(reads.stage[s] * dt, rhs);
     {
       CarpetX::Interval interval_lincomb(timer_lincomb);
       statecomp_t::lincomb(var, old ? 0 : 1, factors, srcs,

@@ -180,19 +180,21 @@ earlier_stages_ratio_to_weights(const tableau_t &tableau, const int row) {
 
 } // namespace rk_tableau_detail
 
+struct row_reads_t {
+  CCTK_REAL acc;
+  per_stage<CCTK_REAL> stage;
+};
+
 struct storage_plan_t {
   bool needs_old, needs_acc;
   per_stage<int> keep_until;
-  per_stage<CCTK_REAL> acc_factor;
+  per_stage<row_reads_t> reads;
 };
 
 constexpr storage_plan_t storage_plan(const tableau_t &tableau) {
   using namespace rk_tableau_detail;
   storage_plan_t plan{};
   plan.needs_old = tableau.nstages >= 2;
-  plan.needs_acc = false;
-  for (int s = 0; s + 1 < tableau.nstages; ++s)
-    plan.needs_acc = plan.needs_acc || tableau.b[s] != 0;
   for (int i = 0; i < max_stages; ++i)
     plan.keep_until[i] = -1;
   for (int row = 2; row < tableau.nstages; ++row) {
@@ -203,14 +205,19 @@ constexpr storage_plan_t storage_plan(const tableau_t &tableau) {
         plan.keep_until[i] = row;
   }
   for (int row = 1; row <= tableau.nstages; ++row) {
-    const ratio_to_weights_t ratio =
-        earlier_stages_ratio_to_weights(tableau, row);
+    const int s = row - 1;
+    row_reads_t &reads = plan.reads[s];
+    reads.stage[s] = row_weight(tableau, row, s);
     bool has_every_copy = true;
-    for (int i = 0; i + 1 < row; ++i)
+    for (int i = 0; i < s; ++i)
       if (row_weight(tableau, row, i) != 0 && plan.keep_until[i] < row)
         has_every_copy = false;
-    plan.acc_factor[row - 1] =
-        ratio.exists && !has_every_copy ? ratio.ratio : 0;
+    if (has_every_copy)
+      for (int i = 0; i < s; ++i)
+        reads.stage[i] = row_weight(tableau, row, i);
+    else
+      reads.acc = earlier_stages_ratio_to_weights(tableau, row).ratio;
+    plan.needs_acc = plan.needs_acc || reads.acc != 0;
   }
   return plan;
 }
@@ -219,16 +226,15 @@ constexpr bool plan_reproduces_rows(const tableau_t &tableau) {
   using namespace rk_tableau_detail;
   const storage_plan_t plan = storage_plan(tableau);
   for (int row = 1; row <= tableau.nstages; ++row) {
-    const CCTK_REAL acc_factor = plan.acc_factor[row - 1];
-    for (int i = 0; i + 1 < row; ++i) {
-      const CCTK_REAL weight = row_weight(tableau, row, i);
-      if (acc_factor != 0) {
-        if (magnitude(acc_factor * tableau.b[i] - weight) >
-            sum_tolerance(tableau))
-          return false;
-      } else if (weight != 0 && plan.keep_until[i] < row) {
+    const row_reads_t &reads = plan.reads[row - 1];
+    for (int i = 0; i < row; ++i) {
+      const CCTK_REAL read =
+          reads.stage[i] + (i + 1 < row ? reads.acc * tableau.b[i] : 0);
+      if (magnitude(read - row_weight(tableau, row, i)) >
+          sum_tolerance(tableau))
         return false;
-      }
+      if (i + 1 < row && reads.stage[i] != 0 && plan.keep_until[i] < row)
+        return false;
     }
   }
   return true;
