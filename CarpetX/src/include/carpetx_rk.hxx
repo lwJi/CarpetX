@@ -45,22 +45,10 @@ struct rk_pair_t {
   gi_t state, rhs;
 };
 
-struct rk_config_t {
-  rk_dense_output_t dense_output = rk_dense_output_t::none;
-  std::vector<CCTK_REAL> b;
-  std::vector<rk_pair_t> integrated;
-
-  int nstages() const { return b.size(); }
-  bool feeds_flux_registers() const { return !b.empty(); }
-  bool is_integrated(const gi_t gi) const {
-    for (const rk_pair_t &pair : integrated)
-      if (pair.state == gi)
-        return true;
-    return false;
-  }
-};
-
-void register_integrator(const rk_config_t &config);
+void register_integrator(rk_dense_output_t dense_output,
+                         const std::vector<rk_pair_t> &integrated);
+void register_integrator(const std::vector<CCTK_REAL> &b,
+                         const std::vector<rk_pair_t> &integrated);
 
 void run_schedule_group_at(const cGH *cctkGH, const char *group, CCTK_REAL time,
                            CCTK_REAL delta_time);

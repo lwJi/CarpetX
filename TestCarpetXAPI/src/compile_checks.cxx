@@ -28,6 +28,11 @@ concept sync_takes = requires(window_t window, Groups groups) {
 };
 
 template <class... Args>
+concept register_integrator_takes = requires(Args... args) {
+  CarpetX::register_integrator(args...);
+};
+
+template <class... Args>
 concept sync_ghosts_only_takes =
     requires(window_t window, std::span<const gi_t> groups, Args... args) {
   CarpetX::sync_ghosts_only(window, groups, args...);
@@ -361,6 +366,21 @@ static_assert(CarpetX::rk_dense_output_stages(
                   CarpetX::rk_dense_output_t::rk4) == rk4_method.nstages);
 static_assert(
     CarpetX::rk_dense_output_stages(CarpetX::rk_dense_output_t::none) == 0);
+
+static_assert(register_integrator_takes<CarpetX::rk_dense_output_t,
+                                        std::vector<CarpetX::rk_pair_t> >);
+static_assert(register_integrator_takes<std::vector<CCTK_REAL>,
+                                        std::vector<CarpetX::rk_pair_t> >);
+static_assert(
+    !register_integrator_takes<CarpetX::rk_dense_output_t,
+                               std::vector<CCTK_REAL>,
+                               std::vector<CarpetX::rk_pair_t> >,
+    "a registration names a dense-output method or writes its weights b; a "
+    "dense output written beside a b must not compile");
+static_assert(!register_integrator_takes<std::vector<CarpetX::rk_pair_t> >,
+              "a registration that states neither a dense-output method nor "
+              "weights b must not compile");
+
 static_assert(std::is_same_v<decltype(CarpetX::group_t::gi), gi_t>);
 static_assert(std::is_same_v<decltype(CarpetX::group_t::level), level_t>);
 static_assert(std::is_same_v<decltype(CarpetX::variable_t::gi), gi_t>);

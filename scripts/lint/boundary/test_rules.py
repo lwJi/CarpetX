@@ -1060,7 +1060,7 @@ class Traversal(unittest.TestCase):
 
     def test_the_integrator_is_not_a_slot(self):
         for text in [
-            "  std::optional<rk_config_t> integrator_config;\n",
+            "  std::optional<GHExt::integrator_t> integrator_config;\n",
             "  integrator_config = config;\n",
             "  return integrator_config->nstages();\n",
             "  bool integrator_frozen = false;\n",
@@ -1068,8 +1068,8 @@ class Traversal(unittest.TestCase):
             "  integrator_frozen = true;\n",
             "record_integrator(config);\n",
             "registry.freeze_integrator();\n",
-            "const std::optional<rk_config_t> &config = integrator();\n",
-            "const std::optional<rk_config_t> &integrator = CarpetX::integrator();\n",
+            "const std::optional<GHExt::integrator_t> &config = integrator();\n",
+            "const std::optional<GHExt::integrator_t> &integrator = CarpetX::integrator();\n",
             "return integrator && integrator->is_integrated(gi);\n",
             "my_integrator_config = 1;\n",
             "bool integrator_frozen_early;\n",
@@ -2530,8 +2530,8 @@ class Guide(unittest.TestCase):
         self.assertNotIn("rhs_computed", guide.render())
 
     def test_a_span_names_what_is_called_qualified_or_a_type_and_nothing_foreign(self):
-        text = '`window.narrow(min_level, max_level)`, `rk_config_t{b}`, `tl_t::next()`, `CCTK_GroupIndex("x")`, `std::array{gi}`, `Loop::GridDescBase`, `Timer`, `cctkGH->cctk_delta_time`, `Array4<const T>`, `{min, max}` and `USES INCLUDE HEADER: carpetx.hxx`'
-        self.assertEqual(guide.names_in(text), {"narrow", "rk_config_t", "tl_t", "next", "Timer"})
+        text = '`window.narrow(min_level, max_level)`, `rk_pair_t{state, rhs}`, `tl_t::next()`, `CCTK_GroupIndex("x")`, `std::array{gi}`, `Loop::GridDescBase`, `Timer`, `cctkGH->cctk_delta_time`, `Array4<const T>`, `{min, max}` and `USES INCLUDE HEADER: carpetx.hxx`'
+        self.assertEqual(guide.names_in(text), {"narrow", "rk_pair_t", "tl_t", "next", "Timer"})
 
     def test_every_name_the_rows_set_in_code_is_public_a_rule_a_parameter_or_the_marker(self):
         public, bare = guide.public_names(PROJECT), guide.bare_names(PROJECT)
@@ -2618,7 +2618,7 @@ class Guide(unittest.TestCase):
 
     def test_an_unexercised_name_is_declared_unused_and_listed_once(self):
         declared = guide.declared_names(PROJECT)
-        self.assertTrue({"sync", "window_t", "rk_config_t", "Timer", "rat64", "rk_dense_output_t", "narrow", "loop_parallel", "next", "mfab", "parent", "one_level"} <= declared, declared)
+        self.assertTrue({"sync", "window_t", "rk_pair_t", "Timer", "rat64", "rk_dense_output_t", "narrow", "loop_parallel", "next", "mfab", "parent", "one_level"} <= declared, declared)
         self.assertFalse({"ssprk3", "leaves_valid", "delta_time", "namespace", "if", "switch", "for", "return"} & declared, declared)
         sources = guide.test_sources(PROJECT)
         guide.hold_unexercised(PROJECT, declared, sources)
@@ -3118,13 +3118,13 @@ class Doc(unittest.TestCase):
                 layer_path("config", "boundaries.cxx"): 'std::ostream &operator<<(std::ostream &os, const symmetry_t symmetry) {\n  return os << "none";\n}\n',
                 layer_path("ops", "reduction.cxx"): "reduction<CCTK_REAL, dim> reduce(const gi_t gi) {\n  return {};\n}\n",
                 layer_path("util", "timer.cxx"): "Timer::Timer(const std::string &name)\n    : name(name) {\n}\n",
-                layer_path("api", "api.cxx"): "int num_patches() {\n  return 0;\n}\nvoid register_integrator(const rk_config_t &config) {\n}\n",
+                layer_path("api", "api.cxx"): "int num_patches() {\n  return 0;\n}\nvoid register_integrator(const rk_dense_output_t dense_output) {\n}\n",
                 layer_path("api", "api_rk.cxx"): "void run_schedule_group_at(const cGH *cctkGH) {\n  CCTK_ScheduleTraverse(group, cctkGH, CallFunction);\n}\n",
                 doc.PUBLIC_HEADERS[0]: "int num_patches();\nvoid synchronize();\nreduction<CCTK_REAL, Loop::dim> reduce(gi_t gi);\nstruct valid_t {\n  std::string explanation() const;\n};\n"
                 "class Timer {\n  Timer(const std::string &name);\n};\nstd::ostream &operator<<(std::ostream &os, symmetry_t symmetry);\nvoid prolongate(window_t window,\n                std::span<const gi_t> groups);\n"
                 "std::array<std::array<symmetry_t, Loop::dim>, 2> symmetries(level_t level);\nstatic_assert(sizeof(int) == 4);\n"
                 "variable_t variable(var_t var);\nwindow_t active_window();\nwindow_t all_levels();\n",
-                doc.PUBLIC_HEADERS[1]: "void register_integrator(const rk_config_t &config);\n",
+                doc.PUBLIC_HEADERS[1]: "void register_integrator(rk_dense_output_t dense_output);\n",
             }
         )
         files[layer_path("api", "api.cxx")] += "void prolongate(window_t window, std::span<const gi_t> groups) {\n}\nstd::array<std::array<symmetry_t, dim>, 2> symmetries(const level_t level) {\n  return {};\n}\n"

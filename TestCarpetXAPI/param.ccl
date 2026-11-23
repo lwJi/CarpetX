@@ -19,7 +19,6 @@ KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Regist
   "register-after-use" :: "register a valid integrator at CCTK_INITIAL, after the driver has frozen its integrator record; CarpetX aborts the run"
   "unregistered-rk-call" :: "call CarpetX::open_rk_step at CCTK_INITIAL without having registered an integrator; CarpetX aborts the run"
   "window-outside-traversal" :: "call CarpetX::active_window at STARTUP, before the driver has opened any traversal; CarpetX aborts the run"
-  "dense-output-stage-mismatch" :: "register a 2-stage integrator whose dense output is RK4; CarpetX aborts the run"
   "weights-sum-mismatch" :: "register a 3-stage integrator whose weights b sum to 1.5; CarpetX aborts the run"
   "reflux-without-weights" :: "register an integrator without weights b (an implicit method) that integrates conserved, which carries a fluxes= tag, under CarpetX::do_reflux with CarpetX::max_num_levels > 1; CarpetX aborts the run"
   "subcycling-without-dense-output" :: "register an integrator without a dense output under CarpetX::use_subcycling; CarpetX aborts the run"

@@ -101,8 +101,9 @@ std::string describe_weights(const std::vector<CCTK_REAL> &b) {
   return buf.str();
 }
 
-void check_pair(const rk_config_t &config, const std::size_t index) {
-  const rk_pair_t &pair = config.integrated.at(index);
+void check_pair(const std::vector<rk_pair_t> &integrated,
+                const std::size_t index) {
+  const rk_pair_t &pair = integrated.at(index);
   require_grid_function_group("integrated", pair.state);
   require_grid_function_group("right-hand side", pair.rhs);
   const char *const state = CCTK_FullGroupName(pair.state.index());
@@ -130,7 +131,7 @@ void check_pair(const rk_config_t &config, const std::size_t index) {
                 "state; remove the tag",
                 state);
   for (std::size_t other = 0; other < index; ++other) {
-    const rk_pair_t &earlier = config.integrated.at(other);
+    const rk_pair_t &earlier = integrated.at(other);
     if (earlier.state == pair.state)
       CCTK_VERROR("CarpetX::register_integrator: group %s is registered as "
                   "integrated state twice",
@@ -141,35 +142,29 @@ void check_pair(const rk_config_t &config, const std::size_t index) {
                   CCTK_FullGroupName(pair.rhs.index()),
                   CCTK_FullGroupName(earlier.state.index()), state);
   }
-  for (const rk_pair_t &other : config.integrated)
+  for (const rk_pair_t &other : integrated)
     if (other.rhs == pair.state)
       CCTK_VERROR("CarpetX::register_integrator: group %s is registered both "
                   "as integrated state and as the right-hand side of %s",
                   state, CCTK_FullGroupName(other.state.index()));
 }
 
-} // namespace
-
-void register_integrator(const rk_config_t &config) {
+void check_and_record(const rk_dense_output_t dense_output,
+                      const std::vector<CCTK_REAL> &b,
+                      const std::vector<rk_pair_t> &integrated) {
   DECLARE_CCTK_PARAMETERS;
   const operation_scope_t op("CarpetX::register_integrator");
   const GHExt &ext = driver();
-  if (config.dense_output != rk_dense_output_t::none &&
-      config.nstages() != rk_dense_output_stages(config.dense_output))
-    CCTK_VERROR("CarpetX::register_integrator: the %s dense output belongs to "
-                "a method with %d RK stages, but the integrator registered %d",
-                dense_output_name(config.dense_output),
-                rk_dense_output_stages(config.dense_output), config.nstages());
-  if (ext.use_subcycling && config.dense_output == rk_dense_output_t::none)
+  if (ext.use_subcycling && dense_output == rk_dense_output_t::none)
     CCTK_ERROR("CarpetX::register_integrator: CarpetX::use_subcycling = yes "
                "fills the refinement boundary by dense output, but the "
                "integrator registered dense_output = none; choose a method "
                "whose dense output CarpetX implements (SSPRK3, RK4)");
-  check_weights(config.b);
-  for (std::size_t index = 0; index < config.integrated.size(); ++index)
-    check_pair(config, index);
-  if (ext.do_reflux && max_num_levels > 1 && !config.feeds_flux_registers())
-    for (const rk_pair_t &pair : config.integrated)
+  check_weights(b);
+  for (std::size_t index = 0; index < integrated.size(); ++index)
+    check_pair(integrated, index);
+  if (ext.do_reflux && max_num_levels > 1 && b.empty())
+    for (const rk_pair_t &pair : integrated)
       if (ext.record(pair.state).grid_function().fluxes)
         CCTK_VERROR("CarpetX::register_integrator: CarpetX::do_reflux = yes "
                     "with CarpetX::max_num_levels = %d needs an integrator "
@@ -180,16 +175,30 @@ void register_integrator(const rk_config_t &config) {
                     int(max_num_levels),
                     CCTK_FullGroupName(pair.state.index()));
   std::map<gi_t, gi_t> rhs;
-  for (const rk_pair_t &pair : config.integrated)
+  for (const rk_pair_t &pair : integrated)
     rhs.emplace(pair.state, pair.rhs);
-  registry_writer().record_integrator(
-      {config.dense_output, config.b, std::move(rhs)});
+  registry_writer().record_integrator({dense_output, b, std::move(rhs)});
   CCTK_VINFO("Registered the time integrator: %d RK stages, dense output %s, "
              "%d integrated group%s, %s",
-             config.nstages(), dense_output_name(config.dense_output),
-             int(config.integrated.size()),
-             config.integrated.size() == 1 ? "" : "s",
-             describe_weights(config.b).c_str());
+             int(b.size()), dense_output_name(dense_output),
+             int(integrated.size()), integrated.size() == 1 ? "" : "s",
+             describe_weights(b).c_str());
+}
+
+} // namespace
+
+void register_integrator(const rk_dense_output_t dense_output,
+                         const std::vector<rk_pair_t> &integrated) {
+  const rk_dense_output_method_t method = rk_dense_output_method(dense_output);
+  check_and_record(dense_output,
+                   std::vector<CCTK_REAL>(method.b.begin(),
+                                          method.b.begin() + method.nstages),
+                   integrated);
+}
+
+void register_integrator(const std::vector<CCTK_REAL> &b,
+                         const std::vector<rk_pair_t> &integrated) {
+  check_and_record(rk_dense_output_t::none, b, integrated);
 }
 
 void run_schedule_group_at(const cGH *const cctkGH, const char *const group,
