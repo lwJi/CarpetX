@@ -31,4 +31,14 @@ fixed_config_t decode_fixed_config() {
   };
 }
 
+steered_config_t decode_steered_config() {
+  DECLARE_CCTK_PARAMETERS;
+  return steered_config_t{
+      .poison_undefined_values = bool(poison_undefined_values),
+      .poison_undefined_arrays = bool(poison_undefined_arrays),
+      .interpolation_order = int(interpolation_order),
+      .regrid_error_threshold = regrid_error_threshold,
+  };
+}
+
 } // namespace CarpetX

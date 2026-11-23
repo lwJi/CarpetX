@@ -10,7 +10,6 @@
 #include <cctk.h>
 #include <cctk_Arguments.h>
 #include <cctk_Functions.h>
-#include <cctk_Parameters.h>
 
 #include <AMReX_AmrParticles.H>
 #include <AMReX_Particles.H>
@@ -569,7 +568,7 @@ void CarpetX::InterpolationSetup::Interpolate(
     const std::vector<Arith::vect<Arith::vect<bool, 3>, 2> >
         &allowed_boundaries, //  [patch][face][direction]
     const CCTK_POINTER resultptrs_) const {
-  DECLARE_CCTK_PARAMETERS;
+  const int interpolation_order = driver().steered().interpolation_order;
 
   // Define result variables
   const int nprocs = amrex::ParallelDescriptor::NProcs();

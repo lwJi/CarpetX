@@ -120,7 +120,7 @@ void assert_hierarchy_destroyed() { assert(!ghext); }
 
 GHExt::GHExt(const config_t config)
     : fixed(config.fixed), make_core_(config.make_core),
-      make_buffers_(config.make_buffers),
+      make_buffers_(config.make_buffers), steered_(config.steered),
       registry_(std::in_place, CCTK_NumGroups()) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
@@ -133,6 +133,11 @@ GHExt::GHExt(const config_t config)
 GHExt::~GHExt() {
   assert(ghext == this);
   ghext = nullptr;
+}
+
+void steer_writer_t::retake(const GHExt &ext,
+                            const steered_config_t steered) const {
+  ext.sealed_steered().open(*this) = steered;
 }
 
 void GHExt::patches_t::mark_initialized() {

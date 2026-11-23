@@ -42,7 +42,7 @@ OWNS = {
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
     "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. It keeps one fact between two of the flesh's calls: the iteration of the checkpoint the parameters were recovered from, which the grid structure is then recovered from.",
-    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums. It opens the scopes of the run's phase, and every sync of `comm/` runs through its `SyncRequested`, which refuses one the open bin does not allow and alone builds the `requested_sync_t` that `SyncGroups` takes; `SyncScheduled` is the flesh's sync, on the levels of the open traversal. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps, what `api/` hands to the flesh, and `SyncScheduled` and `SyncRequested`, which `flesh/` and `api/` call. A writer is an argument of each function that uses one, and none is kept between calls.",
+    "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums; on entry to an outermost routine it alone re-takes the steered part of the run's configuration, through the `steer_writer_t` only it builds. It opens the scopes of the run's phase, and every sync of `comm/` runs through its `SyncRequested`, which refuses one the open bin does not allow and alone builds the `requested_sync_t` that `SyncGroups` takes; `SyncScheduled` is the flesh's sync, on the levels of the open traversal. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps, what `api/` hands to the flesh, and `SyncScheduled` and `SyncRequested`, which `flesh/` and `api/` call. A writer is an argument of each function that uses one, and none is kept between calls.",
     "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. It keeps the writers it uses in one slot, and of the clock it changes only the stage time and step, for the length of one `run_at`.",
     "flesh": 'every `extern "C"`, and `hierarchy_writers_t`, the writers that own the hierarchy, which it lends to `schedule/` and `api/`. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
 }
@@ -53,13 +53,13 @@ STEMS = {
         "boundaries": "`boundary_t`, the condition a face of the domain is given, and `faces_t`, one value per face",
         "decode_boundaries": "the symmetries and default boundaries the parameters ask for",
         "grid_sizes": "the largest grid each level may have",
-        "run_config": "what the model carries of the run's configuration: `fixed_config_t`, the part fixed for the run",
+        "run_config": "what the model carries of the run's configuration: `fixed_config_t`, the part fixed for the run, and `steered_config_t`, the part a steer changes",
         "decode_run_config": "the one decoding of what the model carries of the run's configuration, which only the files that fill the model call",
         "indices": "ranges over the public index types",
         "stages": "RK stages and the refinement of time",
     },
     "hierarchy": {
-        "model": "`GHExt`, its nested types, and the door `driver()`",
+        "model": "`GHExt`, its nested types, and the door `driver()`; and `steer_writer_t`, the key only `CallFunction` builds, which re-takes the steered part of the run's configuration",
         "writers": "the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
         "clock": "the only place the model's run clock and the stage it shows are opened, and the only writes to the cGH clock fields: `cctkGH_clock` publishes every change to the flesh's cGH and to every copy of it; and the check that a cGH a scheduled function returns still shows it",
         "valid": "the validity state a time level stores",
@@ -110,6 +110,7 @@ GRANTS = {
     "written_by": ("Writer",),
     "GHExt": ("hierarchy_writers_t",),
     "GHExt::run_clock_t": ("cctkGH_clock",),
+    "GHExt::steered_config_t": ("steer_writer_t",),
     "GHExt::shown_stage_t": ("cctkGH_clock",),
     "GHExt::registry_t": ("registry_writer_t",),
     "GHExt::level_set_t": ("level_writer_t",),
@@ -135,6 +136,7 @@ GRANTS = {
     "write_scope_t": ("open_write", "write_scopes_t"),
     "array_write_scope_t": ("open_array_write",),
     "GridPtrDesc1": ("operator<<",),
+    "steer_writer_t": ("CallFunction",),
     "requested_sync_t": ("SyncRequested",),
     "public_ghost_only_t": ("sync_ghosts_only",),
     "checkpoint_read_t": ("read_record",),
@@ -229,7 +231,7 @@ SEES_ALL = layer_path("flesh", "compile_checks.cxx")
 INTERFACE_WORD = re.compile(r'^\s*#\s*include\s*[<"]' + GIVEN_LAYER + r'/(\w+)\.hxx[>"]')
 TRAVERSAL_FILES = (layer_path("traversal", "traversal.cxx"), layer_path("traversal", "traversal.hxx"))
 TRAVERSAL_WORD = re.compile(
-    r"\b(active_levels|tail_bin|last_routine)\b"
+    r"\b(active_levels|tail_bin|last_routine|routine_depth)\b"
 )
 PHASE_LAYER = "hierarchy"
 PHASE_READER = layer_path(PHASE_LAYER, "handles.cxx")
@@ -312,7 +314,7 @@ FRIEND = re.compile(r"\bfriend\b")
 CLASS_KEYWORDS = ("struct", "class", "union")
 ACCESS_KEYWORDS = ("public", "protected", "private")
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
-PARAMETER_READERS = ("config", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "flesh")
+PARAMETER_READERS = ("config", "hierarchy", "comm", "regrid", "io", "schedule", "flesh")
 assert PARAMETER_READERS == tuple(layer for layer in LAYERS if layer in PARAMETER_READERS), PARAMETER_READERS
 DECODING_LAYER = "config"
 assert DECODING_LAYER in PARAMETER_READERS, PARAMETER_READERS
@@ -361,19 +363,28 @@ CARRIED = {
         "prolongate_per_group",
         *SYMMETRY_PARAMETERS,
     ),
+    "steered": (
+        "poison_undefined_values",
+        "poison_undefined_arrays",
+        "interpolation_order",
+        "regrid_error_threshold",
+    ),
 }
 CARRIED_NAMES = frozenset(name for names in CARRIED.values() for name in names)
 assert len(CARRIED_NAMES) == sum(len(names) for names in CARRIED.values()), CARRIED
 RUN_CONFIG_STEM = "decode_run_config"
 assert RUN_CONFIG_STEM in DECODES, DECODES
-RUN_CONFIG_FILES = (layer_path("flesh", "startup.cxx"),)
+RUN_CONFIG_FILES = (layer_path("flesh", "startup.cxx"), layer_path("schedule", "callfunction.cxx"))
 RUN_CONFIG_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]' + DECODING_LAYER + "/" + RUN_CONFIG_STEM + r'\.hxx[>"]')
 assert set(SYMMETRY_PARAMETERS) <= set(CARRIED["fixed"]), CARRIED
 CARRIED_TEXT = (
     f"the model carries {', '.join(name for name in CARRIED['fixed'] if name not in SYMMETRY_PARAMETERS)} in its fixed part, read from driver().fixed in every layer, "
+    f"{', '.join(CARRIED['steered'])} in its steered part, read from driver().steered() in every layer, "
     f"and {', '.join(SYMMETRY_PARAMETERS)} as each patch's symmetries, read from its PatchData; "
-    f"{DECODING_LAYER}/{RUN_CONFIG_STEM} decodes the first once, and is included only from {' and '.join(RUN_CONFIG_FILES)}, to fill the model, "
-    f"and {DECODING_LAYER}/{SYMMETRY_STEM} the second, which a patch is handed when it is added"
+    f"{DECODING_LAYER}/{RUN_CONFIG_STEM} decodes the first two, and is included only from {' and '.join(RUN_CONFIG_FILES)}, to fill the model: "
+    f"SetupGH decodes both parts once, and CallFunction re-takes the steered part on entry to every outermost scheduled routine, one no other routine runs through a schedule group, "
+    f"so that a steer reaches every layer at the next outermost routine and every site sees one value from that routine's entry to its end; "
+    f"{DECODING_LAYER}/{SYMMETRY_STEM} decodes the third, which a patch is handed when it is added"
 )
 PARAMETER_MACRO = re.compile(r"\bDECLARE_CCTK_PARAMETERS\b")
 DECODING_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]' + DECODING_LAYER + r'/(\w+)\.hxx[>"]')
@@ -903,9 +914,9 @@ RULES = (
         files=private_cxx,
         word=TRAVERSAL_WORD,
         allowed=in_files(TRAVERSAL_FILES),
-        text="a traversal slot (active_levels, tail_bin, last_routine) is named only in "
+        text="a traversal slot (active_levels, tail_bin, last_routine, routine_depth) is named only in "
         "CarpetX/src/traversal/traversal.cxx and traversal.hxx; a driver phase opens a scope, and a reader calls "
-        "scheduled_window(), scheduled_tail_bin() or scheduled_routine().",
+        "scheduled_window(), scheduled_tail_bin() or scheduled_routine(), or asks its routine_scope_t whether it is the outermost.",
         noun="traversal use",
         where="outside traversal.cxx",
         clean="no active_levels outside traversal.cxx",

@@ -137,6 +137,7 @@ class level_writer_t;
 class structure_writer_t;
 class registry_writer_t;
 class scratch_writer_t;
+class steer_writer_t;
 class write_scope_t;
 class array_write_scope_t;
 struct cctkGH_binding;
@@ -157,6 +158,7 @@ struct GHExt {
 
   struct config_t {
     fixed_config_t fixed;
+    steered_config_t steered;
     amrcore_factory make_core;
     level_buffers_factory make_buffers;
   };
@@ -877,6 +879,10 @@ struct GHExt {
 
   const fixed_config_t fixed;
 
+  using sealed_steered_t = written_by<steered_config_t, steer_writer_t>;
+  const sealed_steered_t &sealed_steered() const { return steered_; }
+  const steered_config_t &steered() const { return steered_.get(); }
+
   int num_levels(const patch_t patch) const {
     return this->patch(patch).num_levels();
   }
@@ -913,12 +919,24 @@ private:
   sealed_level_set_t level_set_;
   const amrcore_factory make_core_;
   const level_buffers_factory make_buffers_;
+  sealed_steered_t steered_;
   sealed_registry_t registry_;
   sealed_patches_t patches_;
 
   explicit GHExt(config_t config);
 
   friend struct hierarchy_writers_t;
+};
+
+class steer_writer_t {
+  steer_writer_t() = default;
+  friend int CallFunction(void *function, cFunctionData *attribute,
+                          void *data);
+
+public:
+  steer_writer_t(const steer_writer_t &) = delete;
+  steer_writer_t &operator=(const steer_writer_t &) = delete;
+  void retake(const GHExt &ext, steered_config_t steered) const;
 };
 
 const GHExt &driver();

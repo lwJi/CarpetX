@@ -4,7 +4,6 @@
 #include <carpetx.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 #include <util_ErrorCodes.h>
 #include <util_Table.h>
 
@@ -120,8 +119,6 @@ extern "C" CCTK_INT CarpetX_DriverInterpolate(
     CCTK_INT const input_array_variable_indices[],
     CCTK_INT const N_output_arrays, CCTK_INT const output_array_type_codes[],
     CCTK_POINTER const output_arrays[]) {
-  DECLARE_CCTK_PARAMETERS;
-
   const int carpetx_interp_handle = CCTK_InterpHandle("CarpetX");
   assert(carpetx_interp_handle >= 0);
   if (carpetx_interp_handle != local_interp_handle) {
@@ -133,7 +130,7 @@ extern "C" CCTK_INT CarpetX_DriverInterpolate(
   CCTK_INT order;
   int n_elems = Util_TableGetInt(param_table_handle, &order, "order");
   assert(n_elems == 1);
-  assert(order == interpolation_order);
+  assert(order == driver().steered().interpolation_order);
 
   std::vector<CCTK_INT> varinds;
   varinds.resize(N_output_arrays);

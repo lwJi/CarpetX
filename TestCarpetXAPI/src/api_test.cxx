@@ -10,6 +10,8 @@
 #include <AMReX_Geometry.H>
 #include <AMReX_MFIter.H>
 #include <AMReX_MultiFab.H>
+#include <AMReX_ParallelDescriptor.H>
+#include <AMReX_Reduce.H>
 
 #include <array>
 #include <cassert>
@@ -570,6 +572,107 @@ extern "C" void TestCarpetXAPI_Step(CCTK_ARGUMENTS) {
     step.state_updated();
   }
   CarpetX::sync(window, std::array{gi});
+}
+
+struct ghost_points_t {
+  amrex::Long ones, total;
+};
+
+ghost_points_t count_ghost_ones(const amrex::MultiFab &mfab) {
+  amrex::ReduceOps<amrex::ReduceOpSum, amrex::ReduceOpSum> reduce_op;
+  amrex::ReduceData<amrex::Long, amrex::Long> reduce_data(reduce_op);
+  using result_t = amrex::GpuTuple<amrex::Long, amrex::Long>;
+  for (amrex::MFIter mfi(mfab); mfi.isValid(); ++mfi) {
+    const amrex::Box valid = mfi.validbox();
+    const amrex::Array4<const CCTK_REAL> arr = mfab.const_array(mfi);
+    reduce_op.eval(mfi.fabbox(), reduce_data,
+                   [=] AMREX_GPU_DEVICE(const int i, const int j,
+                                        const int k) -> result_t {
+                     if (valid.contains(i, j, k))
+                       return {0, 0};
+                     return {arr(i, j, k, 0) == 1 ? 1 : 0, 1};
+                   });
+  }
+  result_t counts = reduce_data.value(reduce_op);
+  amrex::Long ones = amrex::get<0>(counts), total = amrex::get<1>(counts);
+  amrex::ParallelDescriptor::ReduceLongSum(ones);
+  amrex::ParallelDescriptor::ReduceLongSum(total);
+  return {ones, total};
+}
+
+enum class steer_seen_t { not_yet, arrived };
+
+void open_steered_scope(const char *const routine, const steer_seen_t seen) {
+  const CarpetX::gi_t gi = state_group();
+  CarpetX::active_window().loop_serially([&](const CarpetX::level_t level) {
+    CarpetX::write_t write = CarpetX::write(CarpetX::group_t{level, gi}, tl,
+                                            CarpetX::make_valid_int(), routine);
+    const ghost_points_t ghosts = count_ghost_ones(write.mfab());
+    if (ghosts.total == 0)
+      CCTK_VERROR("%s: TestCarpetXAPI::state on refinement level %d has no "
+                  "ghost points",
+                  routine, level.index());
+    if (seen == steer_seen_t::not_yet && ghosts.ones != ghosts.total)
+      CCTK_VERROR("%s: %lld of the %lld ghost points of TestCarpetXAPI::state "
+                  "on refinement level %d no longer hold 1 after a write scope "
+                  "that promises the interior opened; the steer of "
+                  "CarpetX::poison_undefined_values to yes in "
+                  "TestCarpetXAPI_SteerFirst reached the write scope before "
+                  "the next outermost scheduled routine",
+                  routine, static_cast<long long>(ghosts.total - ghosts.ones),
+                  static_cast<long long>(ghosts.total), level.index());
+    if (seen == steer_seen_t::arrived && ghosts.ones != 0)
+      CCTK_VERROR("%s: %lld of the %lld ghost points of TestCarpetXAPI::state "
+                  "on refinement level %d still hold 1 after a write scope "
+                  "that promises the interior opened; the steer of "
+                  "CarpetX::poison_undefined_values to yes in "
+                  "TestCarpetXAPI_SteerFirst did not reach the write scope in "
+                  "the next outermost scheduled routine",
+                  routine, static_cast<long long>(ghosts.ones),
+                  static_cast<long long>(ghosts.total), level.index());
+    fill_interior(level, write.mfab());
+  });
+}
+
+extern "C" void TestCarpetXAPI_SteerFirst(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (!CCTK_EQUALS(mode, "steer"))
+    return;
+  const int ierr =
+      CCTK_ParameterSet("poison_undefined_values", "CarpetX", "yes");
+  if (ierr != 0)
+    CCTK_VERROR("CCTK_ParameterSet of CarpetX::poison_undefined_values "
+                "returned %d",
+                ierr);
+  const CarpetX::gi_t gi = state_group();
+  CarpetX::active_window().loop_serially([&](const CarpetX::level_t level) {
+    CarpetX::write_t write =
+        CarpetX::write(CarpetX::group_t{level, gi}, tl,
+                       CarpetX::make_valid_all(), "TestCarpetXAPI_SteerFirst");
+    write.mfab().setVal(1, 0, 1, write.mfab().nGrowVect());
+  });
+  open_steered_scope("TestCarpetXAPI_SteerFirst", steer_seen_t::not_yet);
+  CarpetX::run_schedule_group_at(cctkGH, "TestCarpetXAPI_SteerNested",
+                                 cctkGH->cctk_time, cctkGH->cctk_delta_time);
+}
+
+extern "C" void TestCarpetXAPI_SteerInner(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (!CCTK_EQUALS(mode, "steer"))
+    return;
+  open_steered_scope("TestCarpetXAPI_SteerInner", steer_seen_t::not_yet);
+}
+
+extern "C" void TestCarpetXAPI_SteerSecond(CCTK_ARGUMENTS) {
+  DECLARE_CCTK_PARAMETERS;
+
+  if (!CCTK_EQUALS(mode, "steer"))
+    return;
+  open_steered_scope("TestCarpetXAPI_SteerSecond", steer_seen_t::arrived);
+  const CarpetX::window_t window = CarpetX::active_window();
+  CarpetX::sync(window, std::array{state_group()});
 }
 
 extern "C" void TestCarpetXAPI_Check(CCTK_ARGUMENTS) {

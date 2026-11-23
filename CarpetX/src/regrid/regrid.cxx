@@ -65,6 +65,7 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
                                        .vi = vi,
                                        .where = make_valid_int(),
                                        .event = "ErrorEst"});
+  const CCTK_REAL error_threshold = driver().steered().regrid_error_threshold;
   std::size_t npoints_set = 0, npoints_clear = 0, npoints_total = 0;
   auto mfitinfo = amrex::MFItInfo().SetDynamic(true).EnableTiling();
 #pragma omp parallel
@@ -80,7 +81,7 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
                 npoints_total_local = 0;
     grid.loop_idx(where_t::interior, groupdata.grid_function.indextype,
                   [&](const Loop::PointDesc &p) {
-                    const int tag = err_(p.I) >= regrid_error_threshold
+                    const int tag = err_(p.I) >= error_threshold
                                         ? amrex::TagBox::SET
                                         : amrex::TagBox::CLEAR;
                     npoints_set_local += tag == amrex::TagBox::SET;

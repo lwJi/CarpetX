@@ -7,7 +7,6 @@
 #include <loop_device.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <algorithm>
 #include <cassert>
@@ -130,8 +129,7 @@ void error_if_invalid(const ArrayGroupData &groupdata, const vi_t vi,
 
 void poison_invalid_gf(const window_t window, const gi_t gi, const vi_t vi,
                        const tl_t tl, const valid_t where) {
-  DECLARE_CCTK_PARAMETERS;
-  if (!poison_undefined_values || !where.valid_any())
+  if (!driver().steered().poison_undefined_values || !where.valid_any())
     return;
 
   static Timer timer("poison_invalid<GF>");
@@ -180,8 +178,7 @@ void poison_invalid_gf(const window_t window, const gi_t gi, const vi_t vi,
 void check_valid_gf(const window_t window, const gi_t gi, const vi_t vi,
                     const tl_t tl, const valid_t where,
                     const std::function<std::string()> &msg) {
-  DECLARE_CCTK_PARAMETERS;
-  if (!poison_undefined_values || !where.valid_any())
+  if (!driver().steered().poison_undefined_values || !where.valid_any())
     return;
 
   static Timer timer("check_valid<GF>");
@@ -419,8 +416,7 @@ std::size_t count_ga_poison(const ArrayGroupData &arraygroupdata, const vi_t vi,
 void poison_invalid_ga(const ArrayGroupData &arraydata,
                        GHExt::GlobalData::AnyTypeVector &data, const vi_t vi,
                        const valid_t where) {
-  DECLARE_CCTK_PARAMETERS;
-  if (!poison_undefined_arrays || !where.valid_int)
+  if (!driver().steered().poison_undefined_arrays || !where.valid_int)
     return;
   poison_ga_interior(arraydata, data, vi);
 }
@@ -428,8 +424,7 @@ void poison_invalid_ga(const ArrayGroupData &arraydata,
 void check_valid_ga(const gi_t gi, const vi_t vi, const tl_t tl,
                     const valid_t where,
                     const std::function<std::string()> &msg) {
-  DECLARE_CCTK_PARAMETERS;
-  if (!poison_undefined_arrays || !where.valid_int)
+  if (!driver().steered().poison_undefined_arrays || !where.valid_int)
     return;
   const auto &restrict arraygroupdata = driver().record(gi).array();
   const std::size_t nan_count = count_ga_poison(arraygroupdata, vi, tl);

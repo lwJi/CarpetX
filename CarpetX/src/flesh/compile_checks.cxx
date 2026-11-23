@@ -214,6 +214,11 @@ concept assigns_fixed =
     requires(Ext &ext, const fixed_config_t &fixed) { ext.fixed = fixed; };
 
 template <class Ext>
+concept assigns_steered = requires(Ext &ext, const steered_config_t &steered) {
+  ext.steered() = steered;
+};
+
+template <class Ext>
 concept assigns_active_timelevels =
     requires(Ext &ext, gi_t gi) { ext.active_timelevels(gi) = 0; };
 
@@ -931,6 +936,19 @@ static_assert(std::is_same_v<decltype(GHExt::config_t::fixed), fixed_config_t>);
 static_assert(!assigns_use_subcycling<GHExt>);
 static_assert(!assigns_do_reflux<GHExt>);
 static_assert(!assigns_fixed<GHExt>);
+static_assert(
+    std::is_same_v<decltype(GHExt::config_t::steered), steered_config_t>);
+static_assert(sealed_for<decltype(std::declval<GHExt &>().sealed_steered()),
+                         steered_config_t, steer_writer_t>);
+static_assert(!can_open<GHExt::sealed_steered_t, clock_writer_t>);
+static_assert(
+    std::is_same_v<decltype(std::declval<const GHExt &>().steered()),
+                   const steered_config_t &>);
+static_assert(!assigns_steered<GHExt>);
+static_assert(!std::is_default_constructible_v<steer_writer_t>);
+static_assert(!std::is_copy_constructible_v<steer_writer_t>);
+static_assert(!std::is_aggregate_v<steer_writer_t>);
+static_assert(!std::is_constructible_v<steer_writer_t, const GHExt &>);
 static_assert(!std::is_default_constructible_v<GHExt>);
 static_assert(!std::is_constructible_v<GHExt, GHExt::config_t>);
 static_assert(!std::is_convertible_v<GHExt::config_t, GHExt>);

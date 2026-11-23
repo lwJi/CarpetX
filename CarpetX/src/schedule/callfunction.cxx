@@ -1,6 +1,8 @@
 #include "schedule/schedule.hxx"
 #include "schedule/checksums.hxx"
 #include "schedule/clauses.hxx"
+#include "config/decode_run_config.hxx"
+#include "config/run_config.hxx"
 #include "hierarchy/clock.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
@@ -39,6 +41,10 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
                attribute->where, attribute->thorn, attribute->routine);
 
   const routine_scope_t routine_scope(attribute);
+  if (hierarchy_exists() && routine_scope.outermost())
+    steer_writer_t().retake(driver(), decode_steered_config());
+  const steered_config_t steered =
+      hierarchy_exists() ? driver().steered() : decode_steered_config();
 
   const std::string routine =
       std::string(attribute->thorn) + "::" + attribute->routine;
@@ -187,7 +193,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
   }
 
   checksums_t checksums;
-  if (poison_undefined_values) {
+  if (steered.poison_undefined_values) {
     const std::vector<clause_t> &writes =
         decode_clauses(attribute, rdwr_t::write);
     const int numgroups = CCTK_NumGroups();
@@ -232,7 +238,7 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
     assert(0);
   }
 
-  if (poison_undefined_values)
+  if (steered.poison_undefined_values)
     check_checksums(window, checksums,
                     [event, iteration = cctkGH->cctk_iteration]() {
                       return event + " checking output (iteration " +

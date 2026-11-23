@@ -5,6 +5,8 @@
 
 #include "config/indices.hxx"
 
+#include <cctk.h>
+
 #include <AMReX_RealBox.H>
 
 #include <array>
@@ -19,6 +21,13 @@ struct fixed_config_t {
   amrex::RealBox domain;
   std::array<int, dim> ncells;
   bool prolongate_per_group;
+};
+
+struct steered_config_t {
+  bool poison_undefined_values;
+  bool poison_undefined_arrays;
+  int interpolation_order;
+  CCTK_REAL regrid_error_threshold;
 };
 
 } // namespace CarpetX

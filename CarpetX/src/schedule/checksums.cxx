@@ -8,7 +8,6 @@
 #include <loop_device.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <cassert>
 #include <functional>
@@ -22,12 +21,7 @@ using Loop::where_t;
 checksums_t calculate_checksums(
     const window_t window,
     const std::vector<std::vector<std::vector<valid_t> > > &will_write) {
-  DECLARE_CCTK_PARAMETERS;
-
   checksums_t checksums;
-
-  if (!poison_undefined_values)
-    return checksums;
 
   static Timer timer("calculate_checksums");
   Interval interval(timer);
@@ -89,10 +83,6 @@ checksums_t calculate_checksums(
 
 void check_checksums(const window_t window, const checksums_t &checksums,
                      const std::function<std::string()> &where) {
-  DECLARE_CCTK_PARAMETERS;
-
-  if (!poison_undefined_values)
-    return;
   if (checksums.empty())
     return;
 

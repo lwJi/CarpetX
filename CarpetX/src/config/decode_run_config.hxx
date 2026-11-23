@@ -8,6 +8,7 @@
 namespace CarpetX {
 
 fixed_config_t decode_fixed_config();
+steered_config_t decode_steered_config();
 
 } // namespace CarpetX
 

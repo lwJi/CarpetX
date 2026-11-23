@@ -39,6 +39,7 @@ KEYWORD mode "What TestCarpetXAPI_Startup does at STARTUP, TestCarpetXAPI_Regist
   "state-before-rhs"   :: "open an RK step on level 0 and report the state updated before any right-hand side; CarpetX aborts the run"
   "rhs-after-last-stage" :: "open an RK step on level 0, run all four stages, and report a fifth right-hand side; CarpetX aborts the run"
   "clock-stale"        :: "assign 1 to cctk_time of the cGH TestCarpetXAPI_Fill is handed, in a run that starts at time 0; CarpetX aborts the run when TestCarpetXAPI_Fill returns"
+  "steer"              :: "fill state as write-scope does under CarpetX::poison_undefined_values = no; TestCarpetXAPI_SteerFirst steers it to yes, and TestCarpetXAPI_SteerFirst, TestCarpetXAPI_SteerInner in the group it traverses, and TestCarpetXAPI_SteerSecond each open a write scope on state that promises the interior and abort unless its ghosts are poisoned in TestCarpetXAPI_SteerSecond alone"
 } "write-scope"
 
 CCTK_REAL tolerance "Largest absolute difference between state and the function the fill wrote that TestCarpetXAPI_Check accepts"

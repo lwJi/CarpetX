@@ -120,7 +120,8 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
   pp.add("amr.blocking_factor_y", blocking_factor_y);
   pp.add("amr.blocking_factor_z", blocking_factor_z);
   pp.add("amr.grid_eff", grid_efficiency);
-  if (poison_undefined_values) {
+  const steered_config_t steered = decode_steered_config();
+  if (steered.poison_undefined_values) {
     pp.add("fab.do_initval", true);
     pp.add("fab.init_snan", true);
     amrex::FArrayBox::set_do_initval(true);
@@ -157,6 +158,7 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
   }
 
   writers = create_hierarchy({.fixed = decode_fixed_config(),
+                              .steered = steered,
                               .make_core = make_cactus_amrcore,
                               .make_buffers = make_level_buffers});
   adopt_writers(writers->registry, writers->scratch, writers->stage);

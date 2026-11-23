@@ -1003,6 +1003,8 @@ class Traversal(unittest.TestCase):
         "if (!tail_bin) return;",
         "last_routine = attribute;",
         "const auto *f = last_routine;",
+        "++routine_depth;",
+        "if (routine_depth == 1) return;",
     ]
 
     def test_traversal_reported(self):
@@ -1034,6 +1036,9 @@ class Traversal(unittest.TestCase):
             "tail_bin_scope_t scope(bin);\n",
             "scheduled_routine();\n",
             "routine_scope_t routine_scope(attribute);\n",
+            "if (routine_scope.outermost()) g();\n",
+            "int my_routine_depth = 0;\n",
+            "const int routine_depth_limit = 2;\n",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(reported("CarpetX/src/schedule/evolve.cxx", "  " + text), [])
@@ -1148,15 +1153,15 @@ class ParameterScopes(unittest.TestCase):
     TREE = {
         "util": (0, 0),
         "traversal": (0, 0),
-        "config": (7, 65),
-        "hierarchy": (7, 3),
+        "config": (8, 69),
+        "hierarchy": (3, 1),
         "comm": (4, 4),
-        "regrid": (5, 2),
-        "ops": (1, 1),
+        "regrid": (5, 1),
+        "ops": (0, 0),
         "io": (31, 53),
-        "schedule": (10, 20),
+        "schedule": (8, 19),
         "api": (0, 0),
-        "flesh": (9, 15),
+        "flesh": (8, 13),
     }
 
     def scan(self, text):
@@ -1220,7 +1225,7 @@ class ParameterScopes(unittest.TestCase):
                     empty.append(f"{name}:{line}")
         self.assertEqual(empty, [])
         self.assertEqual({layer: (sites, len(named)) for layer, (sites, named) in found.items()}, self.TREE)
-        self.assertEqual(sum(sites for sites, _ in found.values()), 74)
+        self.assertEqual(sum(sites for sites, _ in found.values()), 67)
 
 
 class Parameters(unittest.TestCase):
@@ -1281,9 +1286,9 @@ class Parameters(unittest.TestCase):
             self.assertEqual(self.parameters(io, self.READS[0] + "\n"), [("parameters", self.READS[0])])
             self.assertEqual(self.parameters(stages, self.READS[0] + "\n"), [])
 
-    def test_api_is_told(self):
+    def test_api_and_ops_are_told(self):
         for line in self.READS:
-            for name in [layer_path("api", "api_rk.cxx"), layer_path("api", "api.hxx")]:
+            for name in [layer_path("api", "api_rk.cxx"), layer_path("api", "api.hxx"), layer_path("ops", "interpolate.cxx"), layer_path("ops", "interp.hxx")]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(self.parameters(name, line + "\n"), [("parameters", line.strip())])
 
@@ -1355,6 +1360,10 @@ class Carried(unittest.TestCase):
         "  config_t config{.do_reflux = do_reflux};\n",
         "  if (reflection_z) g();\n",
         "  use(periodic && periodic_x, xmax);\n",
+        "  if (poison_undefined_values) g();\n",
+        "  if (!poison_undefined_arrays || !where.valid_int) return;\n",
+        "  switch (interpolation_order) {}\n",
+        "  use(err >= regrid_error_threshold);\n",
     ]
     DECODING = ["CarpetX/src/config/decode_run_config.cxx", "CarpetX/src/config/decode_boundaries.cxx", "CarpetX/src/config/decode_groups.cxx", "CarpetX/src/config/grid_sizes.cxx"]
 
@@ -1383,7 +1392,8 @@ class Carried(unittest.TestCase):
                 "  use(driver().fixed.max_num_levels, presync_mode);\n",
                 '  CCTK_VINFO("ghost_size %d", int(verbose));\n',
                 "  if (patchdata.symmetries[0][2] == symmetry_t::reflection && verbose) g();\n",
-                "  use(geom.ProbLo()->xmin, symmetry_t::periodic, interpolation_order);\n",
+                "  use(geom.ProbLo()->xmin, symmetry_t::periodic, prolongation_order);\n",
+                "  if (driver().steered().poison_undefined_values && verbose) g();\n",
                 "  g([&] { return regrid_every; });\n",
             ]:
                 with self.subTest(name=name, body=body):
@@ -1410,7 +1420,7 @@ class Carried(unittest.TestCase):
         self.assertEqual(found, [])
 
     def test_the_parts_are_the_models(self):
-        self.assertEqual(tuple(rules.CARRIED), ("fixed",))
+        self.assertEqual(tuple(rules.CARRIED), ("fixed", "steered"))
         self.assertEqual(rules.CARRIED_NAMES, frozenset(name for names in rules.CARRIED.values() for name in names))
 
     def test_every_carried_name_is_a_parameter_of_the_driver(self):
@@ -1424,6 +1434,13 @@ class Carried(unittest.TestCase):
         for name in rules.CARRIED["fixed"]:
             with self.subTest(name=name):
                 self.assertNotEqual(steering[name], "always", f"{name} is STEERABLE=always in {rules.DRIVER_PARAM}, but the model's fixed part is set once")
+
+    def test_every_steered_name_follows_a_steer(self):
+        steering = rules.steering()
+        self.assertEqual(set(rules.CARRIED["steered"]), {"poison_undefined_values", "poison_undefined_arrays", "interpolation_order", "regrid_error_threshold"})
+        for name in rules.CARRIED["steered"]:
+            with self.subTest(name=name):
+                self.assertEqual(steering[name], "always", f"{name} is in the model's steered part, which CallFunction re-takes during the run, but {rules.DRIVER_PARAM} does not make it STEERABLE=always")
 
     def test_steering_is_read_from_the_declaration_line(self):
         steering = rules.steering()
@@ -1443,7 +1460,7 @@ class Snapshot(unittest.TestCase):
         "CarpetX/src/comm/reflux.cxx",
         "CarpetX/src/io/io.cxx",
         "CarpetX/src/schedule/evolve.cxx",
-        "CarpetX/src/schedule/callfunction.cxx",
+        "CarpetX/src/schedule/checksums.cxx",
         "CarpetX/src/api/api_rk.cxx",
         "CarpetX/src/flesh/aliased.cxx",
         "CarpetX/src/flesh/compile_checks.cxx",
@@ -1461,7 +1478,7 @@ class Snapshot(unittest.TestCase):
                     self.assertEqual(self.snapshot(name, line + "\n"), [("snapshot", line.strip())])
 
     def test_the_files_that_fill_the_model_and_the_stem_may_include_it(self):
-        self.assertEqual(rules.RUN_CONFIG_FILES, ("CarpetX/src/flesh/startup.cxx",))
+        self.assertEqual(rules.RUN_CONFIG_FILES, ("CarpetX/src/flesh/startup.cxx", "CarpetX/src/schedule/callfunction.cxx"))
         for name in rules.RUN_CONFIG_FILES + ("CarpetX/src/config/decode_run_config.cxx", "CarpetX/src/config/decode_run_config.hxx"):
             for line in self.INCLUDES:
                 with self.subTest(name=name, line=line):
@@ -1476,7 +1493,8 @@ class Snapshot(unittest.TestCase):
         self.assertEqual(reported("ODESolvers/src/solve.cxx", self.INCLUDES[0] + "\n"), [])
 
     def test_the_table_decides(self):
-        name = "CarpetX/src/schedule/callfunction.cxx"
+        name = "CarpetX/src/schedule/evolve.cxx"
+        self.assertEqual(self.snapshot(name, self.INCLUDES[0] + "\n"), [("snapshot", self.INCLUDES[0])])
         with mock.patch.object(rules, "RUN_CONFIG_FILES", rules.RUN_CONFIG_FILES + (name,)):
             self.assertEqual(self.snapshot(name, self.INCLUDES[0] + "\n"), [])
 
@@ -3229,8 +3247,8 @@ class Doc(unittest.TestCase):
                 self.assertEqual(rules.ungranted(header, text), [], "a friend line in this header is in no entry of GRANTS in scripts/lint/boundary/rules.py: add the entry")
         found = sorted((owner, friend) for text in headers.values() for _, owner, friend in rules.friends(text))
         self.assertEqual(sorted(set(found)), sorted((owner, friend) for owner, granted in rules.GRANTS.items() for friend in granted))
-        self.assertEqual(len(found), 45)
-        self.assertEqual(len(set(found)), 44)
+        self.assertEqual(len(found), 47)
+        self.assertEqual(len(set(found)), 46)
         with mock.patch.dict(rules.GRANTS, {"GHExt": rules.GRANTS["GHExt"] + ("io_writer_t",), "valid_t": ("write_scope_t",)}):
             self.assertEqual(doc.unbacked(), [("GHExt", "io_writer_t"), ("valid_t", "write_scope_t")])
             with self.assertRaises(ValueError):
@@ -3418,7 +3436,7 @@ class Doc(unittest.TestCase):
                 "  - `boundaries`: `boundary_t`, the condition a face of the domain is given, and `faces_t`, one value per face",
                 "  - `decode_boundaries`: the symmetries and default boundaries the parameters ask for",
                 "  - `grid_sizes`: the largest grid each level may have",
-                "  - `run_config`: what the model carries of the run's configuration: `fixed_config_t`, the part fixed for the run",
+                "  - `run_config`: what the model carries of the run's configuration: `fixed_config_t`, the part fixed for the run, and `steered_config_t`, the part a steer changes",
                 "  - `decode_run_config`: the one decoding of what the model carries of the run's configuration, which only the files that fill the model call",
                 "  - `indices`: ranges over the public index types",
                 "  - `stages`: RK stages and the refinement of time",
@@ -3427,7 +3445,7 @@ class Doc(unittest.TestCase):
         self.assertEqual(
             under["hierarchy"],
             [
-                "  - `model`: `GHExt`, its nested types, and the door `driver()`",
+                "  - `model`: `GHExt`, its nested types, and the door `driver()`; and `steer_writer_t`, the key only `CallFunction` builds, which re-takes the steered part of the run's configuration",
                 "  - `writers`: the writers of the hierarchy; `create_hierarchy` makes them once and returns them in `hierarchy_writers_t`, which owns the hierarchy",
                 "  - `clock`: the only place the model's run clock and the stage it shows are opened, and the only writes to the cGH clock fields: `cctkGH_clock` publishes every change to the flesh's cGH and to every copy of it; and the check that a cGH a scheduled function returns still shows it",
                 "  - `valid`: the validity state a time level stores",

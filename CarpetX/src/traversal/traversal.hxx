@@ -37,9 +37,11 @@ public:
   ~routine_scope_t();
   routine_scope_t(const routine_scope_t &) = delete;
   routine_scope_t &operator=(const routine_scope_t &) = delete;
+  bool outermost() const;
 
 private:
   const cFunctionData *const routine;
+  const int depth;
 };
 
 window_t

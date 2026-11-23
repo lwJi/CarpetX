@@ -34,6 +34,28 @@ SCHEDULE TestCarpetXAPI_Check IN TestCarpetXAPI_CheckGroup
   READS: state(everywhere)
 } "Abort unless state holds the written function everywhere, ghosts included"
 
+SCHEDULE TestCarpetXAPI_SteerFirst AT initial AFTER TestCarpetXAPI_CheckGroup
+{
+  LANG: C
+  OPTIONS: global
+} "Steer CarpetX::poison_undefined_values to yes, open a write scope on state that promises the interior, then traverse TestCarpetXAPI_SteerNested through CarpetX::run_schedule_group_at, when TestCarpetXAPI::mode says so"
+
+SCHEDULE GROUP TestCarpetXAPI_SteerNested
+{
+} "Traversed only by TestCarpetXAPI_SteerFirst, inside the scheduled routine that steered CarpetX::poison_undefined_values"
+
+SCHEDULE TestCarpetXAPI_SteerInner IN TestCarpetXAPI_SteerNested
+{
+  LANG: C
+  OPTIONS: global
+} "Open a write scope on state that promises the interior inside TestCarpetXAPI_SteerFirst, when TestCarpetXAPI::mode says so"
+
+SCHEDULE TestCarpetXAPI_SteerSecond AT initial AFTER TestCarpetXAPI_SteerFirst
+{
+  LANG: C
+  OPTIONS: global
+} "Open a write scope on state that promises the interior in the scheduled routine after TestCarpetXAPI_SteerFirst, then sync state, when TestCarpetXAPI::mode says so"
+
 SCHEDULE TestCarpetXAPI_Step AT evol
 {
   LANG: C

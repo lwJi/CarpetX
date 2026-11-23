@@ -10,6 +10,7 @@ namespace {
 std::optional<window_t> active_levels;
 const char *tail_bin = nullptr;
 const cFunctionData *last_routine = nullptr;
+int routine_depth = 0;
 } // namespace
 
 traversal_scope_t::traversal_scope_t(const window_t window,
@@ -40,11 +41,17 @@ tail_bin_scope_t::tail_bin_scope_t(const char *const bin,
 tail_bin_scope_t::~tail_bin_scope_t() { tail_bin = nullptr; }
 
 routine_scope_t::routine_scope_t(const cFunctionData *const routine)
-    : routine(routine) {
+    : routine(routine), depth(++routine_depth) {
   last_routine = routine;
 }
 
-routine_scope_t::~routine_scope_t() { last_routine = routine; }
+routine_scope_t::~routine_scope_t() {
+  assert(routine_depth == depth);
+  --routine_depth;
+  last_routine = routine;
+}
+
+bool routine_scope_t::outermost() const { return depth == 1; }
 
 window_t scheduled_window(const char *const caller,
                           const std::source_location site) {

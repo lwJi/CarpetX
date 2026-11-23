@@ -84,10 +84,11 @@ GENERAL: tuple[Section, ...] = (
         "Data, validity and the write scope",
         (
             Row(
-                "A write scope sets the validity of the group at `tl` to exactly `leaves_valid` when it opens and poisons the regions it does not promise, so the scope must not read them; when it closes, the promised regions are scanned for poison and NaN. "
+                "A write scope sets the validity of the group at `tl` to exactly `leaves_valid` when it opens. Under `poison_undefined_values`, and `poison_undefined_arrays` for a grid array, it also poisons the regions it does not promise, so the scope must not read them, and when it closes the promised regions are scanned for poison and NaN; with the parameter off it does neither. "
+                "Both are steerable, and a steer reaches the write scopes at the next outermost scheduled routine, one that no other routine runs through a schedule group: the routine that steers, and every routine it runs, keep the value it was entered with. "
                 "While it is open, a communication operation, `invalidate` or a scheduled function touching the group is refused. "
                 "`require_valid` also runs that scan over `where`. A validity bit is set only by a write scope or a communication operation.",
-                ("api/api.cxx:write", "api/api.cxx:require_valid", "api/api.cxx:invalidate", "api/api.cxx:require_no_open_write", "hierarchy/scopes.cxx:write_scope_t", "schedule/callfunction.cxx:CallFunction"),
+                ("api/api.cxx:write", "api/api.cxx:require_valid", "api/api.cxx:invalidate", "api/api.cxx:require_no_open_write", "hierarchy/scopes.cxx:write_scope_t", "hierarchy/scopes.cxx:poison_invalid_gf", "hierarchy/model.cxx:retake", "traversal/traversal.cxx:outermost", "schedule/callfunction.cxx:CallFunction"),
             ),
             Row(
                 "The halo has two ghost regions with a bit each: the same-level ghosts, which another box of the level or a periodic image covers, and the coarse-fine ghosts, which no box of the level covers and only an interpolation from the parent fills. "
@@ -100,7 +101,7 @@ GENERAL: tuple[Section, ...] = (
                 ("api/api.cxx:scratch", "api/api.cxx:resolve_scratch", "api/api.cxx:scratch_t"),
             ),
         ),
-        exercised_by=("TestCarpetXAPI_Fill",),
+        exercised_by=("TestCarpetXAPI_Fill", "TestCarpetXAPI_SteerFirst", "TestCarpetXAPI_SteerInner", "TestCarpetXAPI_SteerSecond"),
         refusals=("write_twice", "write_unfilled", "require_invalid", "invalidate_during_write", "schedule_during_write"),
     ),
     Section(
