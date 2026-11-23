@@ -43,86 +43,17 @@ CarpetX::gi_t group(const char *const name) {
   return CarpetX::gi_t{gi};
 }
 
-CarpetX::rk_config_t
-dense_integrator(const char *const state, const char *const rhs,
-                 const CarpetX::rk_dense_output_t dense_output) {
-  return CarpetX::rk_config_t::with_dense_output(
-      dense_output, {CarpetX::rk_pair_t{group(state), group(rhs)}});
-}
-
-CarpetX::rk_config_t weighted_integrator(const char *const state,
-                                         const char *const rhs,
-                                         const std::vector<CCTK_REAL> &b) {
-  return CarpetX::rk_config_t::with_weights(
-      b, {CarpetX::rk_pair_t{group(state), group(rhs)}});
+std::vector<CarpetX::rk_pair_t> integrated(const char *const state,
+                                           const char *const rhs) {
+  return {CarpetX::rk_pair_t{group(state), group(rhs)}};
 }
 
 const std::vector<CCTK_REAL> rk4_weights{1.0 / 6, 1.0 / 3, 1.0 / 3, 1.0 / 6};
 
-CarpetX::rk_config_t valid_integrator() {
-  return dense_integrator("TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs",
-                          CarpetX::rk_dense_output_t::rk4);
-}
-
-const char *dense_output_name(const CarpetX::rk_dense_output_t dense_output) {
-  switch (dense_output) {
-  case CarpetX::rk_dense_output_t::none:
-    return "none";
-  case CarpetX::rk_dense_output_t::ssprk3:
-    return "ssprk3";
-  case CarpetX::rk_dense_output_t::rk4:
-    return "rk4";
-  }
-  CCTK_VERROR("TestCarpetXAPI knows no name for CarpetX::rk_dense_output_t "
-              "value %d",
-              int(dense_output));
-}
-
-void require_factories_agree() {
-  for (const CarpetX::rk_dense_output_t dense_output :
-       {CarpetX::rk_dense_output_t::ssprk3, CarpetX::rk_dense_output_t::rk4,
-        CarpetX::rk_dense_output_t::none}) {
-    const char *const name = dense_output_name(dense_output);
-    const CarpetX::rk_dense_output_method_t method =
-        CarpetX::rk_dense_output_method(dense_output);
-    const CarpetX::rk_config_t config =
-        CarpetX::rk_config_t::with_dense_output(dense_output, {});
-    if (config.dense_output != dense_output)
-      CCTK_VERROR("CarpetX::rk_config_t::with_dense_output(%s) returned a "
-                  "registration whose dense_output is %s",
-                  name, dense_output_name(config.dense_output));
-    if (config.nstages() != method.nstages ||
-        int(config.b.size()) != method.nstages)
-      CCTK_VERROR("CarpetX::rk_config_t::with_dense_output(%s) returned %d "
-                  "weights b in %d RK stages; "
-                  "CarpetX::rk_dense_output_method(%s) has %d RK stages",
-                  name, int(config.b.size()), config.nstages(), name,
-                  method.nstages);
-    for (int s = 0; s < method.nstages; ++s)
-      if (config.b[s] != method.b[s])
-        CCTK_VERROR("CarpetX::rk_config_t::with_dense_output(%s) returned "
-                    "b[%d] = %.17g; CarpetX::rk_dense_output_method(%s) has "
-                    "b[%d] = %.17g",
-                    name, s, double(config.b[s]), name, s, double(method.b[s]));
-    if (!config.integrated.empty())
-      CCTK_VERROR("CarpetX::rk_config_t::with_dense_output(%s) returned %d "
-                  "integrated groups from an empty list",
-                  name, int(config.integrated.size()));
-  }
-  const CarpetX::rk_config_t config =
-      CarpetX::rk_config_t::with_weights(rk4_weights, {});
-  if (config.dense_output != CarpetX::rk_dense_output_t::none)
-    CCTK_VERROR("CarpetX::rk_config_t::with_weights returned a registration "
-                "whose dense_output is %s, not none",
-                dense_output_name(config.dense_output));
-  if (config.b != rk4_weights)
-    CCTK_VERROR("CarpetX::rk_config_t::with_weights returned %d weights b "
-                "that are not the %d weights it was handed",
-                int(config.b.size()), int(rk4_weights.size()));
-  if (!config.integrated.empty())
-    CCTK_VERROR("CarpetX::rk_config_t::with_weights returned %d integrated "
-                "groups from an empty list",
-                int(config.integrated.size()));
+void register_valid_integrator() {
+  CarpetX::register_integrator(
+      CarpetX::rk_dense_output_t::rk4,
+      integrated("TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs"));
 }
 
 bool rk_step_mode(const char *const mode) {
@@ -150,7 +81,7 @@ extern "C" int TestCarpetXAPI_Startup() {
                "driver has not opened a traversal");
   }
   if (CCTK_EQUALS(mode, "register-at-startup")) {
-    CarpetX::register_integrator(valid_integrator());
+    register_valid_integrator();
     CCTK_ERROR("CarpetX::register_integrator accepted a registration at "
                "STARTUP, before the driver set up its grid hierarchy");
   }
@@ -161,7 +92,7 @@ extern "C" void TestCarpetXAPI_ParamCheck(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 
   if (CCTK_EQUALS(mode, "register-at-paramcheck")) {
-    CarpetX::register_integrator(valid_integrator());
+    register_valid_integrator();
     CCTK_ERROR("CarpetX::register_integrator accepted a registration at "
                "PARAMCHECK, after the driver froze its integrator record");
   }
@@ -181,44 +112,47 @@ extern "C" int TestCarpetXAPI_AfterShutdown() {
 extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
   DECLARE_CCTK_PARAMETERS;
 
-  require_factories_agree();
   if (rk_registered_mode(mode))
-    CarpetX::register_integrator(valid_integrator());
+    register_valid_integrator();
   if (CCTK_EQUALS(mode, "rk-before-freeze")) {
-    CarpetX::register_integrator(valid_integrator());
+    register_valid_integrator();
     const CarpetX::rk_step_t step =
         CarpetX::open_rk_step(CarpetX::all_levels());
     CCTK_ERROR("CarpetX::open_rk_step ran at WRAGH, before the driver froze "
                "its integrator record");
   }
   if (CCTK_EQUALS(mode, "register-twice")) {
-    CarpetX::register_integrator(valid_integrator());
-    CarpetX::register_integrator(valid_integrator());
+    register_valid_integrator();
+    register_valid_integrator();
     CCTK_ERROR("CarpetX::register_integrator accepted a second registration");
   }
   if (CCTK_EQUALS(mode, "weights-sum-mismatch")) {
-    CarpetX::register_integrator(weighted_integrator(
-        "TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", {0.5, 0.5, 0.5}));
+    CarpetX::register_integrator(
+        std::vector<CCTK_REAL>{0.5, 0.5, 0.5},
+        integrated("TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs"));
     CCTK_ERROR("CarpetX::register_integrator accepted RK stage weights that "
                "sum to 1.5");
   }
   if (CCTK_EQUALS(mode, "reflux-without-weights")) {
-    CarpetX::register_integrator(weighted_integrator(
-        "TestCarpetXAPI::conserved", "TestCarpetXAPI::conserved_rhs", {}));
+    CarpetX::register_integrator(
+        std::vector<CCTK_REAL>{},
+        integrated("TestCarpetXAPI::conserved",
+                   "TestCarpetXAPI::conserved_rhs"));
     CCTK_ERROR("CarpetX::register_integrator accepted an integrator without "
                "weights for a flux-tagged integrated group under "
                "CarpetX::do_reflux");
   }
   if (CCTK_EQUALS(mode, "subcycling-without-dense-output")) {
-    CarpetX::register_integrator(weighted_integrator(
-        "TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", rk4_weights));
+    CarpetX::register_integrator(
+        rk4_weights,
+        integrated("TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs"));
     CCTK_ERROR("CarpetX::register_integrator accepted an integrator without "
                "a dense output under subcycling");
   }
   if (CCTK_EQUALS(mode, "integrated-not-checkpointed")) {
-    CarpetX::register_integrator(dense_integrator(
-        "TestCarpetXAPI::unsaved", "TestCarpetXAPI::unsaved_rhs",
-        CarpetX::rk_dense_output_t::rk4));
+    CarpetX::register_integrator(
+        CarpetX::rk_dense_output_t::rk4,
+        integrated("TestCarpetXAPI::unsaved", "TestCarpetXAPI::unsaved_rhs"));
     CCTK_ERROR("CarpetX::register_integrator accepted an integrated group "
                "tagged checkpoint=\"no\"");
   }
@@ -284,7 +218,7 @@ extern "C" void TestCarpetXAPI_Fill(CCTK_ARGUMENTS) {
     return;
   }
   if (CCTK_EQUALS(mode, "register-after-use")) {
-    CarpetX::register_integrator(valid_integrator());
+    register_valid_integrator();
     CCTK_ERROR("CarpetX::register_integrator accepted a registration at "
                "CCTK_INITIAL, after the driver froze its integrator record");
   }

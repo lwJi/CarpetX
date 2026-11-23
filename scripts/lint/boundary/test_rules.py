@@ -2618,7 +2618,7 @@ class Guide(unittest.TestCase):
 
     def test_an_unexercised_name_is_declared_unused_and_listed_once(self):
         declared = guide.declared_names(PROJECT)
-        self.assertTrue({"sync", "window_t", "rk_config_t", "Timer", "rat64", "rk_dense_output_t", "narrow", "loop_parallel", "next", "mfab", "parent", "one_level"} <= declared, declared)
+        self.assertTrue({"sync", "window_t", "rk_pair_t", "Timer", "rat64", "rk_dense_output_t", "narrow", "loop_parallel", "next", "mfab", "parent", "one_level"} <= declared, declared)
         self.assertFalse({"ssprk3", "leaves_valid", "delta_time", "namespace", "if", "switch", "for", "return"} & declared, declared)
         sources = guide.test_sources(PROJECT)
         guide.hold_unexercised(PROJECT, declared, sources)

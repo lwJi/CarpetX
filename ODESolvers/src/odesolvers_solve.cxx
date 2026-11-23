@@ -31,15 +31,14 @@ extern "C" void ODESolvers_RegisterIntegrator(CCTK_ARGUMENTS) {
           [](const explicit_rk_t &scheme) {
             const std::vector<CarpetX::rk_pair_t> &pairs =
                 integrated_groups().pairs;
-            CarpetX::register_integrator(
-                scheme.dense_output == CarpetX::rk_dense_output_t::none
-                    ? CarpetX::rk_config_t::with_weights(
-                          std::vector<CCTK_REAL>(scheme.tableau.b.begin(),
-                                                 scheme.tableau.b.begin() +
-                                                     scheme.tableau.nstages),
-                          pairs)
-                    : CarpetX::rk_config_t::with_dense_output(
-                          scheme.dense_output, pairs));
+            if (scheme.dense_output == CarpetX::rk_dense_output_t::none)
+              CarpetX::register_integrator(
+                  std::vector<CCTK_REAL>(scheme.tableau.b.begin(),
+                                         scheme.tableau.b.begin() +
+                                             scheme.tableau.nstages),
+                  pairs);
+            else
+              CarpetX::register_integrator(scheme.dense_output, pairs);
           }},
       rk_method(method).scheme);
 }

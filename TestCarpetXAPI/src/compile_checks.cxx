@@ -28,6 +28,11 @@ concept sync_takes = requires(window_t window, Groups groups) {
 };
 
 template <class... Args>
+concept register_integrator_takes = requires(Args... args) {
+  CarpetX::register_integrator(args...);
+};
+
+template <class... Args>
 concept sync_ghosts_only_takes =
     requires(window_t window, std::span<const gi_t> groups, Args... args) {
   CarpetX::sync_ghosts_only(window, groups, args...);
@@ -362,29 +367,19 @@ static_assert(CarpetX::rk_dense_output_stages(
 static_assert(
     CarpetX::rk_dense_output_stages(CarpetX::rk_dense_output_t::none) == 0);
 
+static_assert(register_integrator_takes<CarpetX::rk_dense_output_t,
+                                        std::vector<CarpetX::rk_pair_t> >);
+static_assert(register_integrator_takes<std::vector<CCTK_REAL>,
+                                        std::vector<CarpetX::rk_pair_t> >);
 static_assert(
-    !std::is_constructible_v<CarpetX::rk_config_t, CarpetX::rk_dense_output_t,
-                             std::vector<CCTK_REAL>,
-                             std::vector<CarpetX::rk_pair_t> >,
+    !register_integrator_takes<CarpetX::rk_dense_output_t,
+                               std::vector<CCTK_REAL>,
+                               std::vector<CarpetX::rk_pair_t> >,
     "a registration names a dense-output method or writes its weights b; a "
     "dense output written beside a b must not compile");
-static_assert(!std::is_default_constructible_v<CarpetX::rk_config_t>,
-              "a registration is built by rk_config_t::with_dense_output or "
-              "rk_config_t::with_weights; one that states neither must not "
-              "compile");
-static_assert(!std::is_aggregate_v<CarpetX::rk_config_t>,
-              "a registration is built by rk_config_t::with_dense_output or "
-              "rk_config_t::with_weights; braces around a dense output and a "
-              "b must not compile");
-static_assert(
-    std::is_const_v<decltype(CarpetX::rk_config_t::dense_output)> &&
-        std::is_const_v<decltype(CarpetX::rk_config_t::b)> &&
-        std::is_const_v<decltype(CarpetX::rk_config_t::integrated)>,
-    "a finished registration's dense output, weights b and integrated groups "
-    "are fixed by its factory and must not be writable afterwards");
-static_assert(std::is_copy_constructible_v<CarpetX::rk_config_t>,
-              "a registration is a value: a client keeps one and hands a copy "
-              "to CarpetX::register_integrator");
+static_assert(!register_integrator_takes<std::vector<CarpetX::rk_pair_t> >,
+              "a registration that states neither a dense-output method nor "
+              "weights b must not compile");
 
 static_assert(std::is_same_v<decltype(CarpetX::group_t::gi), gi_t>);
 static_assert(std::is_same_v<decltype(CarpetX::group_t::level), level_t>);
