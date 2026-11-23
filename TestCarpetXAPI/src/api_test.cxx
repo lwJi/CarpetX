@@ -196,14 +196,6 @@ extern "C" void TestCarpetXAPI_Register(CCTK_ARGUMENTS) {
     CarpetX::register_integrator(valid_integrator());
     CCTK_ERROR("CarpetX::register_integrator accepted a second registration");
   }
-  if (CCTK_EQUALS(mode, "dense-output-stage-mismatch")) {
-    CarpetX::rk_config_t two_stages_beside_rk4 = weighted_integrator(
-        "TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", {0.5, 0.5});
-    two_stages_beside_rk4.dense_output = CarpetX::rk_dense_output_t::rk4;
-    CarpetX::register_integrator(two_stages_beside_rk4);
-    CCTK_ERROR("CarpetX::register_integrator accepted 2 RK stages with the "
-               "RK4 dense output");
-  }
   if (CCTK_EQUALS(mode, "weights-sum-mismatch")) {
     CarpetX::register_integrator(weighted_integrator(
         "TestCarpetXAPI::state", "TestCarpetXAPI::state_rhs", {0.5, 0.5, 0.5}));

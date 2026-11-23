@@ -149,14 +149,16 @@ RK_SECTIONS: tuple[Section, ...] = (
             Row(
                 "Exactly one thorn, the time integrator, publishes what it integrates and reports the events of its RK step. "
                 "Registration is `AT WRAGH`, once. "
-                "`dense_output` names the method whose dense output fills the refinement boundary under subcycling; it is named, not inferred from the stage count, and `none` cannot run under subcycling. "
-                "`b` holds the final-update weight of every stage, and nonempty weights sum to 1; a method that never updates the state registers no integrator.",
+                "A registration is built by `with_dense_output`, which names the method whose dense output fills the refinement boundary under subcycling and takes that method's weights, "
+                "or by `with_weights`, which writes `b`, the final-update weight of every stage, and has `dense_output` `none`. "
+                "A dense output is never written beside a `b`; the method is named, not inferred from the stage count, and `none` cannot run under subcycling. "
+                "Nonempty weights sum to 1; a method that never updates the state registers no integrator.",
                 ("api/api_rk.cxx:register_integrator", "api/api_rk.cxx:require_integrator", "api/api_rk.cxx:check_weights", "api/api_rk.cxx:check_pair", "hierarchy/model.cxx:record_integrator"),
             ),
             Row(
                 "`rk_dense_output_method` states the method each dense output was written for as a whole Butcher tableau: its stage count, its order, `a`, its weights `b`, and its stage times `c`, in the order the stages arrive through `rhs_computed`. "
                 "The dense output's weights reduce to that `b` at the end of the parent step, which CarpetX asserts at build, and the kernel takes the stage values of the finer level from that `a` and `c`. "
-                "An integrator that registers a dense output is that method; registration checks only its stage count, so the integrator takes its tableau from this one and does not write its own.",
+                "An integrator that registers a dense output is that method: CarpetX takes the registered weights from this table, so they are not written twice.",
                 ("comm/rk_ghosts.cxx:rk_dense_output_weights", "comm/rk_ghosts.cxx:rk_dense_output_weights_end_at_method_b", "comm/rk_ghosts.cxx:rk_fine_stage", "api/api_rk.cxx:register_integrator"),
             ),
             Row(
@@ -182,7 +184,6 @@ RK_SECTIONS: tuple[Section, ...] = (
             "register_at_paramcheck",
             "register_after_use",
             "register_twice",
-            "dense_output_stage_mismatch",
             "weights_sum_mismatch",
             "reflux_without_weights",
             "subcycling_without_dense_output",

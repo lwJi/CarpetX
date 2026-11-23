@@ -154,12 +154,6 @@ void register_integrator(const rk_config_t &config) {
   DECLARE_CCTK_PARAMETERS;
   const operation_scope_t op("CarpetX::register_integrator");
   const GHExt &ext = driver();
-  if (config.dense_output != rk_dense_output_t::none &&
-      config.nstages() != rk_dense_output_stages(config.dense_output))
-    CCTK_VERROR("CarpetX::register_integrator: the %s dense output belongs to "
-                "a method with %d RK stages, but the integrator registered %d",
-                dense_output_name(config.dense_output),
-                rk_dense_output_stages(config.dense_output), config.nstages());
   if (ext.use_subcycling && config.dense_output == rk_dense_output_t::none)
     CCTK_ERROR("CarpetX::register_integrator: CarpetX::use_subcycling = yes "
                "fills the refinement boundary by dense output, but the "

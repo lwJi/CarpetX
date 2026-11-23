@@ -51,19 +51,20 @@ struct rk_config_t {
                                        std::vector<rk_pair_t> integrated) {
     const rk_dense_output_method_t method =
         rk_dense_output_method(dense_output);
-    return {dense_output,
-            std::vector<CCTK_REAL>(method.b.begin(),
-                                   method.b.begin() + method.nstages),
-            std::move(integrated)};
+    return rk_config_t(dense_output,
+                       std::vector<CCTK_REAL>(
+                           method.b.begin(), method.b.begin() + method.nstages),
+                       std::move(integrated));
   }
   static rk_config_t with_weights(std::vector<CCTK_REAL> b,
                                   std::vector<rk_pair_t> integrated) {
-    return {rk_dense_output_t::none, std::move(b), std::move(integrated)};
+    return rk_config_t(rk_dense_output_t::none, std::move(b),
+                       std::move(integrated));
   }
 
-  rk_dense_output_t dense_output = rk_dense_output_t::none;
-  std::vector<CCTK_REAL> b;
-  std::vector<rk_pair_t> integrated;
+  const rk_dense_output_t dense_output;
+  const std::vector<CCTK_REAL> b;
+  const std::vector<rk_pair_t> integrated;
 
   int nstages() const { return b.size(); }
   bool feeds_flux_registers() const { return !b.empty(); }
@@ -73,6 +74,12 @@ struct rk_config_t {
         return true;
     return false;
   }
+
+private:
+  rk_config_t(const rk_dense_output_t dense_output, std::vector<CCTK_REAL> b,
+              std::vector<rk_pair_t> integrated)
+      : dense_output(dense_output), b(std::move(b)),
+        integrated(std::move(integrated)) {}
 };
 
 void register_integrator(const rk_config_t &config);
