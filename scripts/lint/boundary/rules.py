@@ -49,7 +49,8 @@ OWNS = {
 STEMS = {
     "config": {
         "groups": "what a group was declared as: its kind and its tags",
-        "boundaries": "the symmetries and default boundaries the parameters ask for",
+        "boundaries": "`boundary_t`, the condition a face of the domain is given, and `faces_t`, one value per face",
+        "decode_boundaries": "the symmetries and default boundaries the parameters ask for",
         "grid_sizes": "the largest grid each level may have",
         "run_config": "what the model carries of the run's configuration: `fixed_config_t`, the part fixed for the run",
         "decode_run_config": "the one decoding of what the model carries of the run's configuration, which only the files that fill the model call",
@@ -260,7 +261,7 @@ INDEX_FIXED = {
     layer_path("schedule", "storage.cxx"): STORAGE_OVERLOADS,
     layer_path("hierarchy", "handles.cxx"): ("levels", "narrow"),
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
-    layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification", "CarpetX_GetBoundarySizesAndTypes"),
+    layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification",),
     layer_path("config", "groups.cxx"): ("CCTK_TraverseString",),
     layer_path("regrid", "regrid.hxx"): AMREX_CALLBACKS,
     layer_path("regrid", "regrid.cxx"): AMREX_CALLBACKS,
@@ -314,7 +315,7 @@ PARAMETER_READERS = ("config", "hierarchy", "comm", "regrid", "ops", "io", "sche
 assert PARAMETER_READERS == tuple(layer for layer in LAYERS if layer in PARAMETER_READERS), PARAMETER_READERS
 DECODING_LAYER = "config"
 assert DECODING_LAYER in PARAMETER_READERS, PARAMETER_READERS
-DECODES = ("boundaries", "decode_run_config", "grid_sizes", "groups")
+DECODES = ("decode_boundaries", "decode_run_config", "grid_sizes", "groups")
 assert DECODES == tuple(sorted(set(DECODES))) and set(DECODES) <= set(STEMS[DECODING_LAYER]), DECODES
 PARAMETERS_HOME = READS_HOME
 PARAMETERS_TEXT = (
@@ -324,6 +325,20 @@ PARAMETERS_TEXT = (
 DRIVER_PARAM = "CarpetX/param.ccl"
 PARAMETER_LINE = re.compile(r"^\s*(?:USES\s+)?(?:BOOLEAN|INT|REAL|KEYWORD|STRING|CCTK_INT|CCTK_REAL)\s+(\w+)", re.M)
 STEERABLE_LINE = re.compile(r"^\s*(?:BOOLEAN|INT|REAL|KEYWORD|STRING|CCTK_INT|CCTK_REAL)\s+(\w+)(?:[^\n]*?\bSTEERABLE\s*=\s*(\w+))?", re.M)
+SYMMETRY_PARAMETERS = (
+    "periodic",
+    "periodic_x",
+    "periodic_y",
+    "periodic_z",
+    "reflection_x",
+    "reflection_y",
+    "reflection_z",
+    "reflection_upper_x",
+    "reflection_upper_y",
+    "reflection_upper_z",
+)
+SYMMETRY_STEM = "decode_boundaries"
+assert SYMMETRY_STEM in DECODES, DECODES
 CARRIED = {
     "fixed": (
         "use_subcycling",
@@ -333,10 +348,17 @@ CARRIED = {
         "ghost_size_x",
         "ghost_size_y",
         "ghost_size_z",
+        "xmin",
+        "ymin",
+        "zmin",
+        "xmax",
+        "ymax",
+        "zmax",
         "ncells_x",
         "ncells_y",
         "ncells_z",
         "prolongate_per_group",
+        *SYMMETRY_PARAMETERS,
     ),
 }
 CARRIED_NAMES = frozenset(name for names in CARRIED.values() for name in names)
@@ -345,9 +367,12 @@ RUN_CONFIG_STEM = "decode_run_config"
 assert RUN_CONFIG_STEM in DECODES, DECODES
 RUN_CONFIG_FILES = (layer_path("flesh", "startup.cxx"),)
 RUN_CONFIG_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]' + DECODING_LAYER + "/" + RUN_CONFIG_STEM + r'\.hxx[>"]')
+assert set(SYMMETRY_PARAMETERS) <= set(CARRIED["fixed"]), CARRIED
 CARRIED_TEXT = (
-    f"the model carries {', '.join(CARRIED['fixed'])} in its fixed part, read from driver().fixed in every layer; "
-    f"{DECODING_LAYER}/{RUN_CONFIG_STEM} decodes them once, and is included only from {' and '.join(RUN_CONFIG_FILES)}, to fill the model"
+    f"the model carries {', '.join(name for name in CARRIED['fixed'] if name not in SYMMETRY_PARAMETERS)} in its fixed part, read from driver().fixed in every layer, "
+    f"and {', '.join(SYMMETRY_PARAMETERS)} as each patch's symmetries, read from its PatchData; "
+    f"{DECODING_LAYER}/{RUN_CONFIG_STEM} decodes the first once, and is included only from {' and '.join(RUN_CONFIG_FILES)}, to fill the model, "
+    f"and {DECODING_LAYER}/{SYMMETRY_STEM} the second, which a patch is handed when it is added"
 )
 PARAMETER_MACRO = re.compile(r"\bDECLARE_CCTK_PARAMETERS\b")
 PARAMETER_READ = re.compile(r'\bDECLARE_CCTK_PARAMETERS\b|\bCCTK_ParameterGet\b|^\s*#\s*include\s*[<"]cctk_Parameters\.h[>"]')

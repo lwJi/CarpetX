@@ -312,6 +312,13 @@ template <typename T, int order, int centering> struct interpolator {
   }
 };
 
+bool reflects(const GHExt &ext, const int face, const int dir) {
+  return std::ranges::any_of(
+      ext.patches(), [&](const GHExt::PatchData &patchdata) {
+        return patchdata.symmetries[face][dir] == symmetry_t::reflection;
+      });
+}
+
 } // namespace
 
 int InterpLocalUniform(int /*N_dims*/, int /*param_table_handle*/,
@@ -339,7 +346,6 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     const CCTK_REAL *restrict const globalsy,
     const CCTK_REAL *restrict const globalsz)
     : npoints(npoints) {
-  DECLARE_CCTK_PARAMETERS;
   assert(in_global_mode(cctkGH));
 
   static const bool have_MultiPatch_GlobalToLocal2 =
@@ -376,15 +382,14 @@ CarpetX::InterpolationSetup::InterpolationSetup(
     }
   }
 
-  // Apply symmetries to coordinates
-  assert(!reflection_x);
-  assert(!reflection_y);
-  assert(!reflection_upper_x);
-  assert(!reflection_upper_y);
-  assert(!reflection_upper_z);
-
   const GHExt &ext = driver();
-  if (reflection_z) {
+  assert(!reflects(ext, 0, 0));
+  assert(!reflects(ext, 0, 1));
+  assert(!reflects(ext, 1, 0));
+  assert(!reflects(ext, 1, 1));
+  assert(!reflects(ext, 1, 2));
+
+  if (reflects(ext, 0, 2)) {
     symmetry_reflected_z.resize(npoints);
     assert(ext.num_patches() == 1);
     constexpr patch_t patch{0};
@@ -848,14 +853,13 @@ void CarpetX::InterpolationSetup::Interpolate(
       resultptrs[v][idx] = recvbuf.at(offset + 1 + v);
   }
 
-  // Apply symmetries to interpolated values
-  assert(!reflection_x);
-  assert(!reflection_y);
-  assert(!reflection_upper_x);
-  assert(!reflection_upper_y);
-  assert(!reflection_upper_z);
+  assert(!reflects(ext, 0, 0));
+  assert(!reflects(ext, 0, 1));
+  assert(!reflects(ext, 1, 0));
+  assert(!reflects(ext, 1, 1));
+  assert(!reflects(ext, 1, 2));
 
-  if (reflection_z) {
+  if (reflects(ext, 0, 2)) {
     // The code below is only valid for Psi4
     assert(nvars == 2);
     assert(varinds[0] == CCTK_VarIndex("Weyl::Psi4re"));

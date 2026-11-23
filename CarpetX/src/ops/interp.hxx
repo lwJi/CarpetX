@@ -29,42 +29,6 @@ private:
 
 public:
 
-  /*
-   * Constructs an InterpolationSetup by distributing interpolation points
-   * across MPI processes via AMReX particle containers.
-   *
-   * Given npoints global coordinates (globalsx, globalsy, globalsz), this
-   * constructor performs all the setup work required before the actual field
-   * interpolation:
-   *
-   * 1. Coordinate conversion: global coordinates are converted to patch-local
-   *    coordinates via MultiPatch_GlobalToLocal2 when available, or assigned to
-   *    patch 0 otherwise.
-   *
-   * 2. Symmetry handling: if the reflection_z parameter is active, points with
-   *    z < domain_zmin are reflected about the lower-z boundary. Which points
-   *    were reflected is recorded in symmetry_reflected_z for later use by
-   *    Interpolate().
-   *
-   * 3. Domain projection: particle positions are clamped to lie at least half a
-   *    coarse-grid cell spacing inside the domain so that AMReX does not
-   *    silently discard out-of-domain particles during redistribution. The
-   *    actual interpolation still uses the original (pre-clamped) local
-   *    coordinates stored in the particle's real-data slots.
-   *
-   * 4. Particle distribution: particles are inserted into per-patch AMReX
-   *    particle containers and redistributed with Redistribute() so that each
-   *    MPI rank owns exactly the points that overlap with its AMReX boxes.
-   *
-   * @param cctkGH   Cactus grid hierarchy handle (must be in global mode).
-   * @param npoints  Number of interpolation points.
-   * @param globalsx x-coordinates of the interpolation points in the global
-   *                 frame.
-   * @param globalsy y-coordinates of the interpolation points in the global
-   *                 frame.
-   * @param globalsz z-coordinates of the interpolation points in the global
-   *                 frame.
-   */
   InterpolationSetup(CCTK_ATTRIBUTE_UNUSED const cGH *restrict const cctkGH,
                      const CCTK_INT npoints,
                      const CCTK_REAL *restrict const globalsx,

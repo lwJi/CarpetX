@@ -1,6 +1,6 @@
 #include "config/groups.hxx"
 
-#include "config/boundaries.hxx"
+#include "config/decode_boundaries.hxx"
 #include "config/indices.hxx"
 #include "util/refuse.hxx"
 #include "util/var_type.hxx"

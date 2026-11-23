@@ -3,6 +3,7 @@
 
 #include "internal.hxx"
 
+#include "config/boundaries.hxx"
 #include "config/groups.hxx"
 #include "config/indices.hxx"
 #include "config/run_config.hxx"
@@ -555,13 +556,15 @@ struct GHExt {
     PatchData(PatchData &&) = default;
     PatchData &operator=(PatchData &&) = default;
 
-    PatchData(level_writer_t &levels, patch_t patch, amrcore_factory make_core);
+    PatchData(level_writer_t &levels, patch_t patch, amrcore_factory make_core,
+              const faces_t<symmetry_t> &symmetries,
+              const faces_t<boundary_t> &default_boundaries);
 
     patch_t patch;
 
     bool is_cartesian;
 
-    std::array<std::array<symmetry_t, dim>, 2> symmetries;
+    faces_t<symmetry_t> symmetries;
 
     struct core_t {
       const_propagating_ptr<amrex::AmrCore> amrcore_;
@@ -837,7 +840,8 @@ struct GHExt {
     bool is_initialized() const { return initialized_; }
 
     PatchData &add_patch(const GHExt &ext, level_writer_t &levels,
-                         patch_t patch);
+                         patch_t patch, const faces_t<symmetry_t> &symmetries,
+                         const faces_t<boundary_t> &default_boundaries);
     void mark_initialized();
 
   private:

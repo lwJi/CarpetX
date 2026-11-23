@@ -45,8 +45,12 @@ hierarchy_writers_t::~hierarchy_writers_t() {
   cctkGH_binding::unbind_arrays(hierarchy.flesh_cctkGH());
 }
 
-const GHExt::PatchData &structure_writer_t::add_patch(const patch_t patch) {
-  return ext.sealed_patches().open(*this).add_patch(ext, levels, patch);
+const GHExt::PatchData &
+structure_writer_t::add_patch(const patch_t patch,
+                              const faces_t<symmetry_t> &symmetries,
+                              const faces_t<boundary_t> &default_boundaries) {
+  return ext.sealed_patches().open(*this).add_patch(
+      ext, levels, patch, symmetries, default_boundaries);
 }
 
 GHExt::PatchData::levels_t &level_writer_t::changing(const patch_t patch) {

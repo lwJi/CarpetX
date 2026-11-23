@@ -7,7 +7,6 @@
 #include <carpetx.hxx>
 
 #include <array>
-#include <optional>
 #include <ostream>
 
 namespace CarpetX {
@@ -22,9 +21,7 @@ enum class boundary_t {
 };
 std::ostream &operator<<(std::ostream &os, boundary_t boundary);
 
-std::array<std::array<symmetry_t, dim>, 2>
-get_symmetries(std::optional<patch_t> patch);
-std::array<std::array<boundary_t, dim>, 2> get_default_boundaries();
+template <typename T> using faces_t = std::array<std::array<T, dim>, 2>;
 
 } // namespace CarpetX
 

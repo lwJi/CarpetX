@@ -362,7 +362,10 @@ concept marks_initialized =
 template <class Patches>
 concept appends_patch =
     requires(Patches &patches, const GHExt &ext, level_writer_t &levels,
-             patch_t patch) { patches.add_patch(ext, levels, patch); };
+             patch_t patch, const faces_t<symmetry_t> &symmetries,
+             const faces_t<boundary_t> &default_boundaries) {
+      patches.add_patch(ext, levels, patch, symmetries, default_boundaries);
+    };
 
 template <class Registry>
 concept assigns_integrator =
@@ -405,7 +408,11 @@ concept regrids = requires(Writer &writer, level_t level) {
 
 template <class Writer>
 concept adds_patches =
-    requires(Writer &writer, patch_t patch) { writer.add_patch(patch); };
+    requires(Writer &writer, patch_t patch,
+             const faces_t<symmetry_t> &symmetries,
+             const faces_t<boundary_t> &default_boundaries) {
+      writer.add_patch(patch, symmetries, default_boundaries);
+    };
 
 template <class Writer>
 concept erases_levels = requires(Writer &writer, level_t level) {

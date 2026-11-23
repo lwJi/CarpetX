@@ -1,5 +1,6 @@
 SRCS =							\
 	boundaries.cxx					\
+	decode_boundaries.cxx				\
 	decode_run_config.cxx				\
 	grid_sizes.cxx					\
 	groups.cxx					\

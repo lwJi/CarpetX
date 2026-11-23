@@ -140,11 +140,14 @@ void GHExt::patches_t::mark_initialized() {
   initialized_ = true;
 }
 
-GHExt::PatchData &GHExt::patches_t::add_patch(const GHExt &ext,
-                                              level_writer_t &levels,
-                                              const patch_t patch) {
+GHExt::PatchData &
+GHExt::patches_t::add_patch(const GHExt &ext, level_writer_t &levels,
+                            const patch_t patch,
+                            const faces_t<symmetry_t> &symmetries,
+                            const faces_t<boundary_t> &default_boundaries) {
   assert(patch.index() == int(patchdata.size()));
-  return patchdata.emplace_back(levels, patch, ext.make_core_);
+  return patchdata.emplace_back(levels, patch, ext.make_core_, symmetries,
+                                default_boundaries);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -170,8 +173,10 @@ GHExt::cctkGHptr::~cctkGHptr() {
 }
 
 GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
-                            const amrcore_factory make_core)
-    : patch(patch) {
+                            const amrcore_factory make_core,
+                            const faces_t<symmetry_t> &symmetries,
+                            const faces_t<boundary_t> &default_boundaries)
+    : patch(patch), symmetries(symmetries) {
   DECLARE_CCTK_PARAMETERS;
   const fixed_config_t &fixed = driver().fixed;
 
@@ -194,12 +199,9 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
     domain = amrex::RealBox(xmin1, xmax1);
   }
 
-  symmetries = get_symmetries(patch);
-
   {
     const std::array faces{"lower", "upper"};
     const std::array dirs{"x", "y", "z"};
-    const auto boundaries = get_default_boundaries();
     std::ostringstream buf;
     buf << "\nSymmetries:";
     for (int f = 0; f < 2; ++f)
@@ -208,7 +210,8 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
     buf << "\nDefault boundaries:";
     for (int f = 0; f < 2; ++f)
       for (int d = 0; d < dim; ++d)
-        buf << "\n  " << faces[f] << " " << dirs[d] << ": " << boundaries[f][d];
+        buf << "\n  " << faces[f] << " " << dirs[d] << ": "
+            << default_boundaries[f][d];
     CCTK_INFO(buf.str().c_str());
   }
   const amrex::Array<int, dim> is_periodic{

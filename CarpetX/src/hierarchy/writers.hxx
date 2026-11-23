@@ -99,7 +99,9 @@ public:
   structure_writer_t(const structure_writer_t &) = delete;
   structure_writer_t(structure_writer_t &&) = delete;
 
-  const GHExt::PatchData &add_patch(patch_t patch);
+  const GHExt::PatchData &
+  add_patch(patch_t patch, const faces_t<symmetry_t> &symmetries,
+            const faces_t<boundary_t> &default_boundaries);
   void set_max_grid_size(patch_t patch,
                          const amrex::Vector<amrex::IntVect> &max_grid_sizes);
   void make_new_grids(patch_t patch, CCTK_REAL time);

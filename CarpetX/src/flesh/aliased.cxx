@@ -8,7 +8,6 @@
 #include <util_ErrorCodes.h>
 #include <util_Table.h>
 
-#include <array>
 #include <cassert>
 #include <vector>
 
@@ -42,50 +41,6 @@ CarpetX_GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size,
     exterior_max[d] = geom.ProbDomain().hi(d) +
                       (fab.nGrow(d) - CCTK_REAL(0.5)) * geom.CellSize(d);
     spacing[d] = geom.CellSize(d);
-  }
-  return 0;
-}
-
-extern "C" CCTK_INT CarpetX_GetBoundarySizesAndTypes(
-    const void *const cctkGH_, const CCTK_INT patch, const CCTK_INT size,
-    CCTK_INT *restrict const bndsize, CCTK_INT *restrict const is_ghostbnd,
-    CCTK_INT *restrict const is_symbnd, CCTK_INT *restrict const is_physbnd) {
-  DECLARE_CCTK_PARAMETERS;
-
-  const cGH *restrict const cctkGH = static_cast<const cGH *>(cctkGH_);
-  assert(size == 2 * dim);
-
-  const std::array<std::array<bool, 3>, 2> is_periodic{{
-      {{bool(periodic_x), bool(periodic_y), bool(periodic_z)}},
-      {{bool(periodic_x), bool(periodic_y), bool(periodic_z)}},
-  }};
-  const std::array<std::array<bool, 3>, 2> is_reflection{{
-      {{bool(reflection_x), bool(reflection_y), bool(reflection_z)}},
-      {{bool(reflection_upper_x), bool(reflection_upper_y),
-        bool(reflection_upper_z)}},
-  }};
-  const std::array<std::array<bool, 3>, 2> is_boundary{{
-      {{
-          bool(!CCTK_EQUALS(boundary_x, "none")),
-          bool(!CCTK_EQUALS(boundary_y, "none")),
-          bool(!CCTK_EQUALS(boundary_z, "none")),
-      }},
-      {{
-          bool(!CCTK_EQUALS(boundary_upper_x, "none")),
-          bool(!CCTK_EQUALS(boundary_upper_y, "none")),
-          bool(!CCTK_EQUALS(boundary_upper_z, "none")),
-      }},
-  }};
-
-  for (int d = 0; d < dim; ++d) {
-    for (int f = 0; f < 2; ++f) {
-      bndsize[2 * d + f] = cctkGH->cctk_nghostzones[d];
-      is_ghostbnd[2 * d + f] = cctkGH->cctk_bbox[2 * d + f];
-      is_symbnd[2 * d + f] =
-          !is_ghostbnd[2 * d + f] &&
-          (is_periodic[f][d] || is_reflection[f][d] || is_boundary[f][d]);
-      is_physbnd[2 * d + f] = !is_ghostbnd[2 * d + f] && !is_symbnd[2 * d + f];
-    }
   }
   return 0;
 }

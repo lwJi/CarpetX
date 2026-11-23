@@ -1152,11 +1152,11 @@ class ParameterScopes(unittest.TestCase):
         "hierarchy": (7, 3),
         "comm": (4, 4),
         "regrid": (5, 2),
-        "ops": (2, 9),
+        "ops": (1, 1),
         "io": (31, 53),
         "schedule": (10, 20),
         "api": (0, 0),
-        "flesh": (10, 30),
+        "flesh": (9, 15),
     }
 
     def scan(self, text):
@@ -1220,7 +1220,7 @@ class ParameterScopes(unittest.TestCase):
                     empty.append(f"{name}:{line}")
         self.assertEqual(empty, [])
         self.assertEqual({layer: (sites, len(named)) for layer, (sites, named) in found.items()}, self.TREE)
-        self.assertEqual(sum(sites for sites, _ in found.values()), 77)
+        self.assertEqual(sum(sites for sites, _ in found.values()), 75)
 
 
 class Parameters(unittest.TestCase):
@@ -1237,6 +1237,8 @@ class Parameters(unittest.TestCase):
         "CarpetX/src/config/indices.hxx",
         "CarpetX/src/config/stages.cxx",
         "CarpetX/src/config/run_config.hxx",
+        "CarpetX/src/config/boundaries.cxx",
+        "CarpetX/src/config/boundaries.hxx",
         "CarpetX/src/internal.hxx",
     ]
 
@@ -1349,8 +1351,10 @@ class Carried(unittest.TestCase):
         "  g([&] { return max_num_levels - 1; });\n",
         "  if (verbose && prolongate_per_group) g();\n",
         "  config_t config{.do_reflux = do_reflux};\n",
+        "  if (reflection_z) g();\n",
+        "  use(periodic && periodic_x, xmax);\n",
     ]
-    DECODING = ["CarpetX/src/config/decode_run_config.cxx", "CarpetX/src/config/groups.cxx", "CarpetX/src/config/grid_sizes.cxx"]
+    DECODING = ["CarpetX/src/config/decode_run_config.cxx", "CarpetX/src/config/decode_boundaries.cxx", "CarpetX/src/config/groups.cxx", "CarpetX/src/config/grid_sizes.cxx"]
 
     def carried(self, name, text):
         return [found for found in reported(name, text) if found[0] == "carried"]
@@ -1376,6 +1380,8 @@ class Carried(unittest.TestCase):
                 "  if (ext.fixed.use_subcycling && verbose) g();\n",
                 "  use(driver().fixed.max_num_levels, presync_mode);\n",
                 '  CCTK_VINFO("ghost_size %d", int(verbose));\n',
+                "  if (patchdata.symmetries[0][2] == symmetry_t::reflection && verbose) g();\n",
+                "  use(geom.ProbLo()->xmin, symmetry_t::periodic, interpolation_order);\n",
                 "  g([&] { return regrid_every; });\n",
             ]:
                 with self.subTest(name=name, body=body):
@@ -1618,7 +1624,6 @@ class Index(unittest.TestCase):
         ("CarpetX/src/flesh/startup.cxx", "const int *ArrayGroupSizeB(const cGH *cctkGH, int dir, int gi,\n                           const char *groupname) {\n"),
         ("CarpetX/src/flesh/startup.cxx", "int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {\n"),
         ("CarpetX/src/flesh/aliased.cxx", "extern \"C\" CCTK_INT\nCarpetX_GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size,\n                               CCTK_REAL *restrict const spacing) {\n"),
-        ("CarpetX/src/flesh/aliased.cxx", "extern \"C\" CCTK_INT CarpetX_GetBoundarySizesAndTypes(\n    const void *const cctkGH_, const CCTK_INT patch, const CCTK_INT size,\n    CCTK_INT *restrict const is_physbnd) {\n"),
         ("CarpetX/src/config/groups.cxx", "    const int ierr = CCTK_TraverseString(\n        var_set_string,\n        [](const int vi, const char *const optstring, void *argptr) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,\n                             const amrex::Real time, const int ngrow) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::MakeNewLevelFromScratch(\n    const int level, const amrex::Real time, const amrex::BoxArray &ba,\n    const amrex::DistributionMapping &dm) {\n"),
@@ -3180,7 +3185,7 @@ class Doc(unittest.TestCase):
                 self.assertIn(f'  {box} -- "{", ".join(headers)}" --> {target}', lines)
         self.assertEqual(list(doc.floor()), [("above", "hierarchy"), ("door", "config"), ("door", "traversal"), ("door", "util"), ("door", "include"), ("nodoor", "include")])
         self.assertEqual(doc.floor()[("above", "hierarchy")], ("binding.hxx", "clock.hxx", "grid.hxx", "loops.hxx", "model.hxx", "modes.hxx", "scopes.hxx", "valid.hxx", "writers.hxx"))
-        self.assertEqual(doc.floor()[("door", "config")], ("boundaries.hxx", "decode_run_config.hxx", "grid_sizes.hxx", "groups.hxx", "indices.hxx", "run_config.hxx", "stages.hxx"))
+        self.assertEqual(doc.floor()[("door", "config")], ("boundaries.hxx", "decode_boundaries.hxx", "decode_run_config.hxx", "grid_sizes.hxx", "groups.hxx", "indices.hxx", "run_config.hxx", "stages.hxx"))
         for header in ("clocks.hxx", "group_tags.hxx", "indices.hxx", "driver.hxx", "operations.hxx"):
             self.assertNotIn(header, doc.floor()[("above", "hierarchy")])
         self.assertIn('    config["config/"]', nodoor_of(lines))
@@ -3331,7 +3336,8 @@ class Doc(unittest.TestCase):
             under["config"],
             [
                 "  - `groups`: what a group was declared as: its kind and its tags",
-                "  - `boundaries`: the symmetries and default boundaries the parameters ask for",
+                "  - `boundaries`: `boundary_t`, the condition a face of the domain is given, and `faces_t`, one value per face",
+                "  - `decode_boundaries`: the symmetries and default boundaries the parameters ask for",
                 "  - `grid_sizes`: the largest grid each level may have",
                 "  - `run_config`: what the model carries of the run's configuration: `fixed_config_t`, the part fixed for the run",
                 "  - `decode_run_config`: the one decoding of what the model carries of the run's configuration, which only the files that fill the model call",

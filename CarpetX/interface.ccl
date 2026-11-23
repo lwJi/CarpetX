@@ -68,17 +68,6 @@ CCTK_INT FUNCTION MultiPatch_GetDomainSpecification
    CCTK_REAL OUT ARRAY spacing)
 PROVIDES FUNCTION MultiPatch_GetDomainSpecification WITH CarpetX_GetDomainSpecification LANGUAGE C
 
-# Convenient way to determine boundary sizes
-CCTK_INT FUNCTION MultiPatch_GetBoundarySizesAndTypes
-  (CCTK_POINTER_TO_CONST IN cctkGH,
-   CCTK_INT IN patch,
-   CCTK_INT IN size,
-   CCTK_INT OUT ARRAY bndsize,
-   CCTK_INT OUT ARRAY is_ghostbnd,
-   CCTK_INT OUT ARRAY is_symbnd,
-   CCTK_INT OUT ARRAY is_physbnd)
-PROVIDES FUNCTION MultiPatch_GetBoundarySizesAndTypes WITH CarpetX_GetBoundarySizesAndTypes LANGUAGE C
-
 void FUNCTION GetLoopBoxAll(
   CCTK_POINTER_TO_CONST IN cctkGH,
   CCTK_INT IN size,
