@@ -11,7 +11,6 @@
 
 #include <cctk.h>
 #include <cctk_Arguments.h>
-#include <cctk_Parameters.h>
 #include <util_Table.h>
 
 #include <AMReX.H>
@@ -182,7 +181,6 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
                             const faces_t<symmetry_t> &symmetries,
                             const faces_t<boundary_t> &default_boundaries)
     : patch(patch), symmetries(symmetries) {
-  DECLARE_CCTK_PARAMETERS;
   const fixed_config_t &fixed = driver().fixed;
 
   amrex::RealBox domain = fixed.domain;
@@ -227,7 +225,7 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
   core_ = sealed_core_t(core_t{make_core(
       levels, patch, domain, fixed.max_num_levels - 1, ncells, is_periodic)});
 
-  if (verbose) {
+  if (driver().steered().verbose) {
 #pragma omp critical
     {
       const int maxnumlevels = amrcore().maxLevel() + 1;
@@ -508,9 +506,7 @@ void GHExt::registry_t::record_storage(const gi_t gi, const int timelevels) {
 
 void GHExt::registry_t::freeze_storage(
     std::vector<group_declaration_t> declarations) {
-  DECLARE_CCTK_PARAMETERS;
-
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("freeze_storage");
 

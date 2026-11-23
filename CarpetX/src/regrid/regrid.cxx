@@ -8,8 +8,6 @@
 #include "comm/substeps.hxx"
 #include <loop_device.hxx>
 
-#include <cctk_Parameters.h>
-
 #include <AMReX_TagBox.H>
 
 #include <cstddef>
@@ -43,13 +41,12 @@ make_cactus_amrcore(level_writer_t &levels, const patch_t patch,
 
 void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
                              const amrex::Real time, const int ngrow) {
-  DECLARE_CCTK_PARAMETERS;
   const level_t level{patch, lev};
 
   if (!driver().is_initialized())
     return;
 
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("ErrorEst patch %d level %d", patch.index(), lev);
 
@@ -100,7 +97,7 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
     npoints_total += npoints_total_local;
   }
 
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("ErrorEst patch %d level %d done. "
                "Set/clear/total=%td/%td/%td=%.0f%%/%.0f%%/%.0f%%",
@@ -112,16 +109,15 @@ void CactusAmrCore::ErrorEst(const int lev, amrex::TagBoxArray &tags,
 void CactusAmrCore::MakeNewLevelFromScratch(
     int lev, amrex::Real time, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm) {
-  DECLARE_CCTK_PARAMETERS;
   const level_t level{patch, lev};
 
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d", patch.index(), lev);
 
   levels.make_level(level, ba, dm, "MakeNewLevelFromScratch");
 
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("MakeNewLevelFromScratch patch %d level %d done.", patch.index(),
                lev);
@@ -155,10 +151,9 @@ regrid_fills(const GHExt::PatchData::LevelData::GroupData &groupdata) {
 void CactusAmrCore::MakeNewLevelFromCoarse(
     const int lev, const amrex::Real time, const amrex::BoxArray &ba,
     const amrex::DistributionMapping &dm) {
-  DECLARE_CCTK_PARAMETERS;
   const level_t level{patch, lev};
 
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("MakeNewLevelFromCoarse patch %d level %d", patch.index(), lev);
 
@@ -234,7 +229,7 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
     }
   }
 
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("MakeNewLevelFromCoarse patch %d level %d done.", patch.index(),
                lev);
@@ -243,10 +238,9 @@ void CactusAmrCore::MakeNewLevelFromCoarse(
 void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
                                 const amrex::BoxArray &ba,
                                 const amrex::DistributionMapping &dm) {
-  DECLARE_CCTK_PARAMETERS;
   const level_t level{patch, lev};
 
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("RemakeLevel patch %d level %d", patch.index(), lev);
 
@@ -343,21 +337,20 @@ void CactusAmrCore::RemakeLevel(const int lev, const amrex::Real time,
     }
   }
 
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("RemakeLevel patch %d level %d done.", patch.index(), lev);
 }
 
 void CactusAmrCore::ClearLevel(const int lev) {
-  DECLARE_CCTK_PARAMETERS;
   const level_t level{patch, lev};
 
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("ClearLevel patch %d level %d", patch.index(), lev);
   levels.erase_levels_from(level);
 
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("ClearLevel patch %d level %d done.", patch.index(), lev);
 }

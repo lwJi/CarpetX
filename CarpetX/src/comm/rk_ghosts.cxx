@@ -18,7 +18,6 @@
 #include <carpetx_rk.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <AMReX_FabArray.H>     // MultiArray4, MultiFab::arrays()
 #include <AMReX_FabArrayBase.H> // FabArrayBase::TheFPinfo
@@ -447,7 +446,6 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
 }
 
 void RecoverRKBoundary(const window_t window) {
-  DECLARE_CCTK_PARAMETERS;
   const GHExt &ext = driver();
   if (!ext.fixed.use_subcycling)
     return;
@@ -459,7 +457,7 @@ void RecoverRKBoundary(const window_t window) {
   const std::vector<gi_t> states = integrated_states(*integrator);
   const operation_scope_t op("CarpetX::RecoverRKBoundary");
 
-  if (verbose)
+  if (ext.steered().verbose)
     CCTK_VINFO("RecoverRKBoundary on %s: refilling the refinement-boundary "
                "ghosts of the integrated groups (spatial prolongation on "
                "time-aligned levels of a restricted window, dense output from "

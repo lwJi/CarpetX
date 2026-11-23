@@ -327,7 +327,7 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
   });
 
   if (!window_is_restricted(window)) {
-    if (verbose)
+    if (ext.steered().verbose)
 #pragma omp critical
       CCTK_VINFO("Skipping restriction at iteration %d: only level %d is "
                  "at the current time",

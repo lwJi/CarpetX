@@ -5,7 +5,6 @@
 #include <carpetx.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <algorithm>
 #include <functional>
@@ -56,8 +55,7 @@ bool group_selection_t::contains(const gi_t gi) const {
 
 void group_selection_t::log(const char *const method,
                             const std::optional<group_kind> kind) const {
-  DECLARE_CCTK_PARAMETERS;
-  if (!verbose)
+  if (!driver().steered().verbose)
     return;
   CCTK_VINFO("%s output for groups:", method);
   for (const GHExt::GroupRecord &record : records(kind))

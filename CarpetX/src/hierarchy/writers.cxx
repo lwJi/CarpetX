@@ -10,7 +10,6 @@
 #include <carpetx.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <AMReX_AmrMesh.H>
 #include <AMReX_BoxArray.H>
@@ -79,9 +78,7 @@ const GHExt::PatchData::LevelData &
 level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
                           const amrex::DistributionMapping &dm,
                           const std::function<std::string()> &why) {
-  DECLARE_CCTK_PARAMETERS;
-
-  if (verbose)
+  if (ext.steered().verbose)
 #pragma omp critical
     CCTK_VINFO("SetupLevel patch %d level %d", level.patch().index(),
                level.index());
@@ -90,7 +87,7 @@ level_writer_t::add_level(const level_t level, const amrex::BoxArray &ba,
   const GHExt::PatchData::LevelData &leveldata =
       changing(level.patch()).add_level(level, ba, dm, why);
 
-  if (verbose)
+  if (ext.steered().verbose)
 #pragma omp critical
     CCTK_VINFO("SetupLevel patch %d level %d done.", level.patch().index(),
                level.index());

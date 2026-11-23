@@ -24,6 +24,7 @@ struct fixed_config_t {
 };
 
 struct steered_config_t {
+  bool verbose;
   bool poison_undefined_values;
   bool poison_undefined_arrays;
   int interpolation_order;

@@ -35,16 +35,16 @@ int CallFunction(void *function, cFunctionData *restrict attribute,
 
   cGH *restrict const cctkGH = static_cast<cGH *>(data);
 
-  if (verbose)
-#pragma omp critical
-    CCTK_VINFO("CallFunction iteration %d %s: %s::%s", cctkGH->cctk_iteration,
-               attribute->where, attribute->thorn, attribute->routine);
-
   const routine_scope_t routine_scope(attribute);
   if (hierarchy_exists() && routine_scope.outermost())
     steer_writer_t().retake(driver(), decode_steered_config());
   const steered_config_t steered =
       hierarchy_exists() ? driver().steered() : decode_steered_config();
+
+  if (steered.verbose)
+#pragma omp critical
+    CCTK_VINFO("CallFunction iteration %d %s: %s::%s", cctkGH->cctk_iteration,
+               attribute->where, attribute->thorn, attribute->routine);
 
   const std::string routine =
       std::string(attribute->thorn) + "::" + attribute->routine;

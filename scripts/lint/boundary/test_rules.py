@@ -1153,15 +1153,15 @@ class ParameterScopes(unittest.TestCase):
     TREE = {
         "util": (0, 0),
         "traversal": (0, 0),
-        "config": (8, 69),
-        "hierarchy": (3, 1),
-        "comm": (4, 4),
-        "regrid": (5, 1),
+        "config": (8, 70),
+        "hierarchy": (0, 0),
+        "comm": (1, 3),
+        "regrid": (0, 0),
         "ops": (0, 0),
-        "io": (31, 53),
-        "schedule": (8, 19),
+        "io": (30, 52),
+        "schedule": (8, 18),
         "api": (0, 0),
-        "flesh": (8, 13),
+        "flesh": (4, 12),
     }
 
     def scan(self, text):
@@ -1225,7 +1225,7 @@ class ParameterScopes(unittest.TestCase):
                     empty.append(f"{name}:{line}")
         self.assertEqual(empty, [])
         self.assertEqual({layer: (sites, len(named)) for layer, (sites, named) in found.items()}, self.TREE)
-        self.assertEqual(sum(sites for sites, _ in found.values()), 67)
+        self.assertEqual(sum(sites for sites, _ in found.values()), 51)
 
 
 class Parameters(unittest.TestCase):
@@ -1286,9 +1286,9 @@ class Parameters(unittest.TestCase):
             self.assertEqual(self.parameters(io, self.READS[0] + "\n"), [("parameters", self.READS[0])])
             self.assertEqual(self.parameters(stages, self.READS[0] + "\n"), [])
 
-    def test_api_and_ops_are_told(self):
+    def test_hierarchy_regrid_ops_and_api_are_told(self):
         for line in self.READS:
-            for name in [layer_path("api", "api_rk.cxx"), layer_path("api", "api.hxx"), layer_path("ops", "interpolate.cxx"), layer_path("ops", "interp.hxx")]:
+            for name in [layer_path("hierarchy", "model.cxx"), layer_path("hierarchy", "writers.cxx"), layer_path("hierarchy", "model.hxx"), layer_path("regrid", "regrid.cxx"), layer_path("api", "api_rk.cxx"), layer_path("api", "api.hxx"), layer_path("ops", "interpolate.cxx"), layer_path("ops", "interp.hxx")]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(self.parameters(name, line + "\n"), [("parameters", line.strip())])
 
@@ -1312,7 +1312,7 @@ class Parameters(unittest.TestCase):
 
 
 class Unread(unittest.TestCase):
-    NAMES = ["CarpetX/src/hierarchy/modes.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/config/decode_groups.cxx", "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx"]
+    NAMES = ["CarpetX/src/io/io_openpmd.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/config/decode_groups.cxx", "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx"]
 
     def test_a_site_that_names_no_parameter_is_reported(self):
         for name in self.NAMES:
@@ -1322,7 +1322,7 @@ class Unread(unittest.TestCase):
 
     def test_a_site_that_names_a_parameter_is_clean(self):
         for name in self.NAMES:
-            for body in ["  if (verbose) g();\n", "  use(ext.verbose, presync_mode);\n", "  g([&] { return regrid_every; });\n"]:
+            for body in ["  if (out_initial_data) g();\n", "  use(ext.verbose, presync_mode);\n", "  g([&] { return regrid_every; });\n"]:
                 with self.subTest(name=name, body=body):
                     self.assertEqual(reported(name, "void f() {\n  DECLARE_CCTK_PARAMETERS;\n" + body + "}\n"), [])
 
@@ -1333,7 +1333,7 @@ class Unread(unittest.TestCase):
         self.assertEqual(reported("ODESolvers/src/solve.cxx", "void f() {\n  DECLARE_CCTK_PARAMETERS;\n}\n"), [])
 
     def test_line_numbers(self):
-        text = "void f() {\n  DECLARE_CCTK_PARAMETERS;\n  use(verbose);\n}\n\nvoid g() {\n  DECLARE_CCTK_PARAMETERS;\n}\n"
+        text = "void f() {\n  DECLARE_CCTK_PARAMETERS;\n  use(presync_mode);\n}\n\nvoid g() {\n  DECLARE_CCTK_PARAMETERS;\n}\n"
         self.assertEqual(findings(self.NAMES[0], text, Lang.CXX), [Finding(7, "unread", "DECLARE_CCTK_PARAMETERS;")])
 
     def test_the_tree_holds_it(self):
@@ -1364,6 +1364,7 @@ class Carried(unittest.TestCase):
         "  if (!poison_undefined_arrays || !where.valid_int) return;\n",
         "  switch (interpolation_order) {}\n",
         "  use(err >= regrid_error_threshold);\n",
+        "  if (verbose) CCTK_VINFO(\"SetupGH\");\n",
     ]
     DECODING = ["CarpetX/src/config/decode_run_config.cxx", "CarpetX/src/config/decode_boundaries.cxx", "CarpetX/src/config/decode_groups.cxx", "CarpetX/src/config/grid_sizes.cxx"]
 
@@ -1388,25 +1389,26 @@ class Carried(unittest.TestCase):
     def test_a_read_of_the_model_a_string_or_another_parameter_is_not_a_carried_read(self):
         for name in self.NAMES:
             for body in [
-                "  if (ext.fixed.use_subcycling && verbose) g();\n",
+                "  if (ext.fixed.use_subcycling && out_initial_data) g();\n",
                 "  use(driver().fixed.max_num_levels, presync_mode);\n",
-                '  CCTK_VINFO("ghost_size %d", int(verbose));\n',
-                "  if (patchdata.symmetries[0][2] == symmetry_t::reflection && verbose) g();\n",
+                '  CCTK_VINFO("ghost_size %d verbose", int(out_every));\n',
+                "  if (patchdata.symmetries[0][2] == symmetry_t::reflection && out_initial_data) g();\n",
                 "  use(geom.ProbLo()->xmin, symmetry_t::periodic, prolongation_order);\n",
-                "  if (driver().steered().poison_undefined_values && verbose) g();\n",
+                "  if (driver().steered().poison_undefined_values && driver().steered().verbose) g();\n",
+                "  if (steered.verbose && restrict_during_sync) g();\n",
                 "  g([&] { return regrid_every; });\n",
             ]:
                 with self.subTest(name=name, body=body):
                     self.assertEqual(self.carried(name, self.scope(body)), [])
 
     def test_each_scope_is_judged_alone(self):
-        text = "void f() {\n  DECLARE_CCTK_PARAMETERS;\n  use(verbose);\n}\nvoid g() { use(ghost_size); }\n\nvoid h() {\n  DECLARE_CCTK_PARAMETERS;\n  use(verbose, do_reflux);\n}\n"
-        self.assertEqual(findings(self.NAMES[0], text, Lang.CXX), [Finding(8, "carried", "DECLARE_CCTK_PARAMETERS;")])
+        text = "void f() {\n  DECLARE_CCTK_PARAMETERS;\n  use(presync_mode);\n}\nvoid g() { use(ghost_size); }\n\nvoid h() {\n  DECLARE_CCTK_PARAMETERS;\n  use(presync_mode, do_reflux);\n}\n"
+        self.assertEqual([f for f in findings(self.NAMES[0], text, Lang.CXX) if f.rule == "carried"], [Finding(8, "carried", "DECLARE_CCTK_PARAMETERS;")])
 
     def test_the_table_decides(self):
         name = self.NAMES[0]
-        with mock.patch.object(rules, "CARRIED_NAMES", rules.CARRIED_NAMES | {"verbose"}):
-            self.assertEqual(self.carried(name, self.scope("  if (verbose) g();\n")), [("carried", "DECLARE_CCTK_PARAMETERS;")])
+        with mock.patch.object(rules, "CARRIED_NAMES", rules.CARRIED_NAMES | {"regrid_every"}):
+            self.assertEqual(self.carried(name, self.scope("  if (regrid_every) g();\n")), [("carried", "DECLARE_CCTK_PARAMETERS;")])
         with mock.patch.object(rules, "CARRIED_NAMES", rules.CARRIED_NAMES - {"use_subcycling"}):
             self.assertEqual(self.carried(name, self.scope(self.BODIES[0])), [])
 
@@ -1437,7 +1439,7 @@ class Carried(unittest.TestCase):
 
     def test_every_steered_name_follows_a_steer(self):
         steering = rules.steering()
-        self.assertEqual(set(rules.CARRIED["steered"]), {"poison_undefined_values", "poison_undefined_arrays", "interpolation_order", "regrid_error_threshold"})
+        self.assertEqual(set(rules.CARRIED["steered"]), {"verbose", "poison_undefined_values", "poison_undefined_arrays", "interpolation_order", "regrid_error_threshold"})
         for name in rules.CARRIED["steered"]:
             with self.subTest(name=name):
                 self.assertEqual(steering[name], "always", f"{name} is in the model's steered part, which CallFunction re-takes during the run, but {rules.DRIVER_PARAM} does not make it STEERABLE=always")
@@ -1500,7 +1502,7 @@ class Snapshot(unittest.TestCase):
 
     def test_line_numbers(self):
         text = "int a;\n\n" + self.INCLUDES[0] + "\n"
-        self.assertEqual(findings(self.REFUSED[0], text, Lang.CXX), [Finding(3, "snapshot", self.INCLUDES[0])])
+        self.assertEqual([f for f in findings(self.REFUSED[0], text, Lang.CXX) if f.rule == "snapshot"], [Finding(3, "snapshot", self.INCLUDES[0])])
 
     def test_the_table_is_the_files_that_include_it(self):
         found = set()
@@ -1524,6 +1526,9 @@ class Decoder(unittest.TestCase):
         "CarpetX/src/config/groups.hxx",
         "CarpetX/src/config/boundaries.cxx",
         "CarpetX/src/config/run_config.hxx",
+        "CarpetX/src/hierarchy/model.cxx",
+        "CarpetX/src/hierarchy/model.hxx",
+        "CarpetX/src/regrid/regrid.cxx",
     ]
     TOLD = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "api")
 
@@ -1544,11 +1549,11 @@ class Decoder(unittest.TestCase):
                 with self.subTest(name=name, line=line):
                     self.assertEqual(self.decoder(name, line + "\n"), [])
 
-    def test_hierarchy_is_refused_once_it_is_told(self):
-        name = "CarpetX/src/hierarchy/model.cxx"
+    def test_comm_is_refused_once_it_is_told(self):
+        name = "CarpetX/src/comm/sync.cxx"
         line = self.INCLUDES[0]
         self.assertEqual(self.decoder(name, line + "\n"), [])
-        with mock.patch.object(rules, "PARAMETER_READERS", tuple(layer for layer in rules.PARAMETER_READERS if layer != "hierarchy")):
+        with mock.patch.object(rules, "PARAMETER_READERS", tuple(layer for layer in rules.PARAMETER_READERS if layer != "comm")):
             self.assertEqual(self.decoder(name, line + "\n"), [("decoder", line)])
             self.assertEqual(self.decoder(name, '#include "config/groups.hxx"\n'), [])
 

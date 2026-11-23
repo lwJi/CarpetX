@@ -4,7 +4,6 @@
 #include <carpetx.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <cstddef>
 #include <span>
@@ -14,8 +13,7 @@
 namespace CarpetX {
 
 void sync_log_groups(const char *label, const std::span<const gi_t> groups0) {
-  DECLARE_CCTK_PARAMETERS;
-  if (verbose) {
+  if (driver().steered().verbose) {
     std::ostringstream buf;
     for (std::size_t n = 0; n < groups0.size(); ++n) {
       if (n != 0)

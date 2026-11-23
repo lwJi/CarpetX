@@ -86,8 +86,9 @@ int SyncGroups_entry(const cGH *cctkGH, int numgroups, const int *groups,
 
 void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
   DECLARE_CCTK_PARAMETERS;
+  const steered_config_t steered = decode_steered_config();
 
-  if (verbose)
+  if (steered.verbose)
 #pragma omp critical
     CCTK_VINFO("SetupGH");
 
@@ -120,7 +121,6 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
   pp.add("amr.blocking_factor_y", blocking_factor_y);
   pp.add("amr.blocking_factor_z", blocking_factor_z);
   pp.add("amr.grid_eff", grid_efficiency);
-  const steered_config_t steered = decode_steered_config();
   if (steered.poison_undefined_values) {
     pp.add("fab.do_initval", true);
     pp.add("fab.init_snan", true);
@@ -139,7 +139,7 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
   int argc = args.size();
   args.push_back(nullptr);
   char **argv = args.data();
-  if (verbose) {
+  if (steered.verbose) {
 #pragma omp critical
     {
       CCTK_VINFO("  Run-time AMReX parameters:");
@@ -166,9 +166,7 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
 }
 
 int InitGH(cGH *restrict cctkGH) {
-  DECLARE_CCTK_PARAMETERS;
-
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("InitGH");
 
@@ -190,9 +188,7 @@ int InitGH(cGH *restrict cctkGH) {
 }
 
 int ScheduleTraverseGH(cGH *restrict cctkGH, const char *where) {
-  DECLARE_CCTK_PARAMETERS;
-
-  if (verbose)
+  if (driver().steered().verbose)
 #pragma omp critical
     CCTK_VINFO("ScheduleTraverseGH iteration %d %s", cctkGH->cctk_iteration,
                where);
@@ -204,9 +200,7 @@ int ScheduleTraverseGH(cGH *restrict cctkGH, const char *where) {
 }
 
 extern "C" int CarpetX_Shutdown() {
-  DECLARE_CCTK_PARAMETERS;
-
-  if (verbose)
+  if (decode_steered_config().verbose)
 #pragma omp critical
     CCTK_VINFO("Shutdown");
 
@@ -347,9 +341,7 @@ extern "C" CCTK_INT CarpetX_InterpGridArrays(
 }
 
 extern "C" int CarpetX_Startup() {
-  DECLARE_CCTK_PARAMETERS;
-
-  if (verbose)
+  if (decode_steered_config().verbose)
 #pragma omp critical
     CCTK_VINFO("Startup");
 

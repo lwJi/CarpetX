@@ -314,7 +314,7 @@ FRIEND = re.compile(r"\bfriend\b")
 CLASS_KEYWORDS = ("struct", "class", "union")
 ACCESS_KEYWORDS = ("public", "protected", "private")
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
-PARAMETER_READERS = ("config", "hierarchy", "comm", "regrid", "io", "schedule", "flesh")
+PARAMETER_READERS = ("config", "comm", "io", "schedule", "flesh")
 assert PARAMETER_READERS == tuple(layer for layer in LAYERS if layer in PARAMETER_READERS), PARAMETER_READERS
 DECODING_LAYER = "config"
 assert DECODING_LAYER in PARAMETER_READERS, PARAMETER_READERS
@@ -364,6 +364,7 @@ CARRIED = {
         *SYMMETRY_PARAMETERS,
     ),
     "steered": (
+        "verbose",
         "poison_undefined_values",
         "poison_undefined_arrays",
         "interpolation_order",
@@ -383,7 +384,8 @@ CARRIED_TEXT = (
     f"and {', '.join(SYMMETRY_PARAMETERS)} as each patch's symmetries, read from its PatchData; "
     f"{DECODING_LAYER}/{RUN_CONFIG_STEM} decodes the first two, and is included only from {' and '.join(RUN_CONFIG_FILES)}, to fill the model: "
     f"SetupGH decodes both parts once, and CallFunction re-takes the steered part on entry to every outermost scheduled routine, one no other routine runs through a schedule group, "
-    f"so that a steer reaches every layer at the next outermost routine and every site sees one value from that routine's entry to its end; "
+    f"so that a steer reaches every layer at the next outermost routine and every site sees one value from that routine's entry to its end, "
+    f"and where no hierarchy exists, at startup, before SetupGH creates it and once shutdown has destroyed it, those two files decode the steered part where they read it; "
     f"{DECODING_LAYER}/{SYMMETRY_STEM} decodes the third, which a patch is handed when it is added"
 )
 PARAMETER_MACRO = re.compile(r"\bDECLARE_CCTK_PARAMETERS\b")

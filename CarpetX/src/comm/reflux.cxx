@@ -9,7 +9,6 @@
 #include <carpetx.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <AMReX_FluxRegister.H>
 #include <AMReX_Geometry.H>
@@ -179,8 +178,6 @@ void AccumulateFluxes(const level_t level, const stage_t stage,
 }
 
 static void reflux_level(const level_t level) {
-  DECLARE_CCTK_PARAMETERS;
-
   static Timer timer("Reflux");
   Interval interval(timer);
 
@@ -201,7 +198,7 @@ static void reflux_level(const level_t level) {
     if (!fineflux)
       continue;
 
-    if (verbose)
+    if (driver().steered().verbose)
       CCTK_VINFO("Reflux: applying the flux register of levels (%d, %d) to "
                  "%s at iteration %d",
                  level.index(), fine->index(),
