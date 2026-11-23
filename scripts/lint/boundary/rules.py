@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -8,7 +10,7 @@ from typing import Callable, Iterator, Optional
 from checks import excerpt, plural, wrap
 from comments.lex_cxx import lex
 from comments.tokens import Kind
-from files import Lang, lang_of
+from files import PROJECT, Lang, lang_of
 
 MARKER = "CARPETX_INTERNAL"
 PRIVATE_DIR = "CarpetX/src/"
@@ -306,6 +308,22 @@ FRIEND = re.compile(r"\bfriend\b")
 CLASS_KEYWORDS = ("struct", "class", "union")
 ACCESS_KEYWORDS = ("public", "protected", "private")
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+PARAMETER_READERS = ("config", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+assert PARAMETER_READERS == tuple(layer for layer in LAYERS if layer in PARAMETER_READERS), PARAMETER_READERS
+DECODING_LAYER = "config"
+assert DECODING_LAYER in PARAMETER_READERS, PARAMETER_READERS
+DECODES = ("boundaries", "grid_sizes", "groups")
+assert DECODES == tuple(sorted(set(DECODES))) and set(DECODES) <= set(STEMS[DECODING_LAYER]), DECODES
+PARAMETERS_HOME = READS_HOME
+PARAMETERS_TEXT = (
+    f"{dirs(PARAMETER_READERS, 'and')} read the run's parameters, and of {DECODING_LAYER}/ only the stems that decode them, "
+    f"{', '.join(DECODES)}; every other file is told what it needs of them, as an argument or from driver()"
+)
+DRIVER_PARAM = "CarpetX/param.ccl"
+PARAMETER_LINE = re.compile(r"^\s*(?:USES\s+)?(?:BOOLEAN|INT|REAL|KEYWORD|STRING|CCTK_INT|CCTK_REAL)\s+(\w+)", re.M)
+PARAMETER_MACRO = re.compile(r"\bDECLARE_CCTK_PARAMETERS\b")
+PARAMETER_READ = re.compile(r'\bDECLARE_CCTK_PARAMETERS\b|\bCCTK_ParameterGet\b|^\s*#\s*include\s*[<"]cctk_Parameters\.h[>"]')
+MEMBER_ACCESS = (".", "::", "->")
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
 
 Files = Callable[[str, Lang], bool]
@@ -607,6 +625,47 @@ def ungranted(name: str, text: str) -> list[int]:
 
 def granted(name: str, line: str, statement: str) -> bool:
     return True
+
+
+@functools.cache
+def parameter_names(root: str = PROJECT) -> frozenset[str]:
+    with open(os.path.join(root, DRIVER_PARAM)) as f:
+        return frozenset(PARAMETER_LINE.findall(f.read()))
+
+
+def member(words: list[str], at: int) -> bool:
+    return "".join(words[max(at - 2, 0) : at]).endswith(MEMBER_ACCESS)
+
+
+def parameter_scopes(text: str, names: frozenset[str]) -> list[tuple[int, set[str]]]:
+    tokens = [token for token in lex(text) if token.kind is Kind.CODE]
+    words = [token.text for token in tokens]
+    found = []
+    for at, token in enumerate(tokens):
+        if not PARAMETER_MACRO.fullmatch(token.text):
+            continue
+        named: set[str] = set()
+        depth = 0
+        for end in range(at + 1, len(words)):
+            depth += words[end] == "{"
+            depth -= words[end] == "}"
+            if depth < 0:
+                break
+            if words[end] in names and not member(words, end):
+                named.add(words[end])
+        found.append((token.line, named))
+    return found
+
+
+def unread_scopes(name: str, text: str) -> list[int]:
+    return [line for line, named in parameter_scopes(text, parameter_names()) if not named]
+
+
+def reads_parameters(name: str, line: str, statement: str) -> bool:
+    layer = layer_of(name)
+    if layer == DECODING_LAYER:
+        return name.rsplit("/", 1)[1].split(".", 1)[0] in DECODES
+    return layer in PARAMETER_READERS
 
 
 RULES = (
@@ -931,6 +990,30 @@ RULES = (
         where=f"{GIVEN_LAYER}/ does not give its layer",
         clean=f"every include of {GIVEN_LAYER}/ from above one its layer is given",
         home=(GIVEN_LAYER,),
+    ),
+    Rule(
+        "parameters",
+        files=private_cxx,
+        word=PARAMETER_READ,
+        allowed=reads_parameters,
+        text=f"DECLARE_CCTK_PARAMETERS, <cctk_Parameters.h> and CCTK_ParameterGet appear only where the run's parameters are read: {PARAMETERS_TEXT}. "
+        f"A new reader is an entry of PARAMETER_READERS or DECODES in {PARAMETERS_HOME}, which hold no entry that no file reads.",
+        noun="parameter read",
+        where="outside the layers that read them",
+        clean="no parameter read outside the layers that read them",
+    ),
+    Rule(
+        "unread",
+        files=private_cxx,
+        word=PARAMETER_MACRO,
+        allowed=granted,
+        text=f"a DECLARE_CCTK_PARAMETERS line names a parameter of {DRIVER_PARAM}, its own or one it USES, before the closing brace "
+        "of its scope, bare: not after ., -> or ::, and not in a string; a line that names none is deleted, so that the line says "
+        "that the body depends on the configuration.",
+        noun="parameter declaration",
+        where="that names no parameter",
+        clean="every parameter declaration names a parameter",
+        whole=unread_scopes,
     ),
 )
 RULE = "\n".join([wrap(PREAMBLE)] + [rule.paragraph() for rule in RULES])

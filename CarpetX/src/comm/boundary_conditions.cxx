@@ -5,7 +5,6 @@
 #include <vect.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <AMReX.H>
 
@@ -101,8 +100,6 @@ void BoundaryCondition::apply() const {
 void apply_boundary_conditions(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     amrex::MultiFab &mfab) {
-  DECLARE_CCTK_PARAMETERS;
-
   static Timer timer("apply_boundary_conditions");
   Interval interval(timer);
 

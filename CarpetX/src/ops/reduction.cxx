@@ -3,8 +3,6 @@
 #include "ops/reduction.hxx"
 #include "hierarchy/scopes.hxx"
 
-#include <cctk_Parameters.h>
-
 #include <AMReX_Functional.H>
 #include <AMReX_MultiFabUtil.H>
 #include <AMReX_Orientation.H>
@@ -207,8 +205,6 @@ reduce_array(const amrex::Array4<const T> &restrict vars, const int n,
 } // namespace
 
 reduction<CCTK_REAL, dim> reduce(const gi_t gi, const vi_t vi, const tl_t tl) {
-  DECLARE_CCTK_PARAMETERS;
-
   assert(driver().record(gi).kind == group_kind::grid_function);
 
   reduction<CCTK_REAL, dim> red;

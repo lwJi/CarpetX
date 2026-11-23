@@ -156,8 +156,6 @@ static bool get_group_evolve_flag(const gi_t gi) {
 }
 
 static std::array<int, dim> get_group_indextype(const gi_t gi) {
-  DECLARE_CCTK_PARAMETERS;
-
   assert(gi.index() >= 0);
 
   const int tags = CCTK_GroupTagsTableI(gi.index());
@@ -258,7 +256,6 @@ static std::array<int, dim> get_group_nghostzones(const gi_t gi) {
 }
 
 static std::vector<std::array<int, dim> > get_group_parities(const gi_t gi) {
-  DECLARE_CCTK_PARAMETERS;
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
@@ -282,7 +279,6 @@ static std::vector<std::array<int, dim> > get_group_parities(const gi_t gi) {
 }
 
 static std::vector<CCTK_REAL> get_group_dirichlet_values(const gi_t gi) {
-  DECLARE_CCTK_PARAMETERS;
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
@@ -302,7 +298,6 @@ static std::vector<CCTK_REAL> get_group_dirichlet_values(const gi_t gi) {
 }
 
 static std::vector<CCTK_REAL> get_group_robin_values(const gi_t gi) {
-  DECLARE_CCTK_PARAMETERS;
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);

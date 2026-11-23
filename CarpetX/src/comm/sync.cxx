@@ -188,8 +188,6 @@ static void SyncGroupsLockstep(const window_t window,
 static void SyncGroupsSubcycling(const window_t window,
                                  const std::span<const gi_t> groups0,
                                  const requested_sync_t &) {
-  DECLARE_CCTK_PARAMETERS;
-
   const GHExt &ext = driver();
 
   error_if_sync_nested();
@@ -348,8 +346,6 @@ void SyncGroups(const window_t window, const std::span<const gi_t> groups,
 
 void SyncGhostsOnly(const window_t window, const std::span<const gi_t> groups0,
                     const timelevels_t tls, const public_ghost_only_t &) {
-  DECLARE_CCTK_PARAMETERS;
-
   const GHExt &ext = driver();
 
   error_if_sync_nested();

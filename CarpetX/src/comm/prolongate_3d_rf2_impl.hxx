@@ -1260,8 +1260,6 @@ void prolongate_3d_rf2<
                         amrex::Vector<amrex::BCRec> const &bcr,
                         const int actual_comp, const int actual_state,
                         const amrex::RunOn gpu_or_cpu) {
-  DECLARE_CCTK_PARAMETERS;
-
   static std::once_flag have_timers;
   static std::vector<Timer> timers;
 
@@ -1690,8 +1688,6 @@ void prolongate_3d_rf2<
                           amrex::Vector<amrex::BCRec> const &bcr,
                           const int actual_comp, const int actual_state,
                           const amrex::RunOn gpu_or_cpu) {
-  DECLARE_CCTK_PARAMETERS;
-
   constexpr int maxncomps = 16;
   assert(ncomps <= maxncomps);
 

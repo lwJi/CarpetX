@@ -1124,6 +1124,190 @@ class Phase(unittest.TestCase):
         self.assertEqual(next(rule for rule in rules.RULES if rule.name == "phase").home, ("hierarchy",))
 
 
+def private_sources():
+    for layer in LAYERS:
+        for path in doc.sources(PROJECT, layer):
+            yield layer, os.path.relpath(path, PROJECT), doc.read(path)
+
+
+class ParameterScopes(unittest.TestCase):
+    TICKET = {
+        "util": (0, 0),
+        "traversal": (0, 0),
+        "config": (11, 53),
+        "hierarchy": (14, 17),
+        "comm": (12, 6),
+        "regrid": (5, 2),
+        "ops": (3, 9),
+        "io": (32, 53),
+        "schedule": (13, 21),
+        "api": (1, 1),
+        "flesh": (10, 32),
+    }
+    DELETED = {"config": 4, "hierarchy": 4, "comm": 6, "ops": 1, "io": 1, "schedule": 3}
+
+    def scan(self, text):
+        return rules.parameter_scopes(text, rules.parameter_names())
+
+    def test_the_names_are_the_parameters_declared_and_used(self):
+        names = rules.parameter_names()
+        self.assertEqual(len(names), 153)
+        for name in ["verbose", "ghost_size", "ghost_size_x", "max_grid_sizes_x", "periodic", "presync_mode", "out_dir", "out_mode", "checkpoint_ID"]:
+            with self.subTest(name=name):
+                self.assertIn(name, names)
+        for name in ["CarpetX", "Cactus", "IO", "USES", "BOOLEAN", "recovery_mode"]:
+            with self.subTest(name=name):
+                self.assertNotIn(name, names)
+
+    def test_a_scope_runs_from_the_macro_to_its_closing_brace(self):
+        text = "void f() {\n  DECLARE_CCTK_PARAMETERS;\n  if (n) {\n    g([&] { return verbose; });\n  }\n}\nvoid h() { use(ghost_size); }\n"
+        self.assertEqual(self.scan(text), [(2, {"verbose"})])
+        text = "void f() {\n  use(ghost_size);\n  DECLARE_CCTK_PARAMETERS;\n  g();\n}\n"
+        self.assertEqual(self.scan(text), [(3, set())])
+
+    def test_each_site_has_its_own_scope(self):
+        text = "void f() {\n  DECLARE_CCTK_PARAMETERS;\n  use(verbose, ghost_size);\n}\n\nvoid g() {\n  DECLARE_CCTK_ARGUMENTS;\n  DECLARE_CCTK_PARAMETERS;\n  use(presync_mode);\n}\n"
+        self.assertEqual(self.scan(text), [(2, {"verbose", "ghost_size"}), (8, {"presync_mode"})])
+
+    def test_a_member_a_qualified_name_a_string_or_a_comment_is_not_a_read(self):
+        text = (
+            "void f() {\n"
+            "  DECLARE_CCTK_PARAMETERS;\n"
+            "  use(ext.use_subcycling, p->verbose, CarpetX::ghost_size, p -> do_reflux);\n"
+            '  CCTK_VINFO("verbose %d", 1);\n'
+            "  // periodic\n"
+            "  /* max_num_levels */\n"
+            "  int my_verbose = verbose_level;\n"
+            "}\n"
+        )
+        self.assertEqual(self.scan(text), [(2, set())])
+
+    def test_a_bare_name_beside_a_member_is_a_read(self):
+        text = "void f() {\n  DECLARE_CCTK_PARAMETERS;\n  config_t config{.use_subcycling = use_subcycling};\n}\n"
+        self.assertEqual(self.scan(text), [(2, {"use_subcycling"})])
+
+    def test_a_longer_name_is_not_the_macro(self):
+        self.assertEqual(self.scan("void f() {\n  DECLARE_CCTK_PARAMETERS_X;\n  DECLARE_CCTK_ARGUMENTS;\n}\n"), [])
+
+    def test_the_tree_is_the_tickets_table_less_the_sites_that_named_nothing(self):
+        self.assertEqual(sum(sites for sites, _ in self.TICKET.values()), 101)
+        self.assertEqual(sum(self.DELETED.values()), 19)
+        self.assertEqual(tuple(self.TICKET), LAYERS)
+        found = {layer: [0, set()] for layer in LAYERS}
+        empty = []
+        for layer, name, text in private_sources():
+            for line, named in self.scan(text):
+                found[layer][0] += 1
+                found[layer][1] |= named
+                if not named:
+                    empty.append(f"{name}:{line}")
+        self.assertEqual(empty, [])
+        self.assertEqual({layer: (sites, len(named)) for layer, (sites, named) in found.items()}, {layer: (sites - self.DELETED.get(layer, 0), distinct) for layer, (sites, distinct) in self.TICKET.items()})
+        self.assertEqual(sum(sites for sites, _ in found.values()), 82)
+
+
+class Parameters(unittest.TestCase):
+    READS = [
+        "DECLARE_CCTK_PARAMETERS;",
+        "#include <cctk_Parameters.h>",
+        '#include "cctk_Parameters.h"',
+        "  #  include <cctk_Parameters.h>",
+        'const void *p = CCTK_ParameterGet("recovery_mode", "Cactus", &type);',
+    ]
+    REFUSED = [
+        "CarpetX/src/util/refuse.cxx",
+        "CarpetX/src/traversal/traversal.cxx",
+        "CarpetX/src/config/indices.hxx",
+        "CarpetX/src/config/stages.cxx",
+        "CarpetX/src/internal.hxx",
+    ]
+
+    def parameters(self, name, text):
+        return [found for found in reported(name, text) if found[0] == "parameters"]
+
+    def test_a_read_is_reported_outside_the_readers(self):
+        for line in self.READS:
+            for name in self.REFUSED:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(self.parameters(name, line + "\n"), [("parameters", line.strip())])
+
+    def test_a_reading_layer_and_a_decoding_stem_may_read(self):
+        names = [layer_path(layer, "a.cxx") for layer in rules.PARAMETER_READERS if layer != rules.DECODING_LAYER]
+        names += [layer_path(rules.DECODING_LAYER, stem + suffix) for stem in rules.DECODES for suffix in (".cxx", ".hxx")]
+        for line in self.READS:
+            for name in names:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(self.parameters(name, line + "\n"), [])
+
+    def test_another_thorn_and_the_public_headers_are_not_judged(self):
+        for line in self.READS:
+            for name in ["ODESolvers/src/solve.cxx", "CarpetX/src/include/carpetx.hxx", "Loop/src/loop_device.hxx"]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(reported(name, line + "\n"), [])
+
+    def test_a_longer_name_is_not_a_read(self):
+        for text in ["DECLARE_CCTK_PARAMETERS_X;\n", "my_CCTK_ParameterGet();\n", "CCTK_ParameterGetter();\n", "#include <cctk_Parameters_x.h>\n", '#include "util/cctk_Parameters.h"\n']:
+            with self.subTest(text=text):
+                self.assertEqual(self.parameters(self.REFUSED[0], text), [])
+
+    def test_the_table_decides(self):
+        api = layer_path("api", "api_rk.cxx")
+        stages = layer_path("config", "stages.cxx")
+        self.assertEqual(self.parameters(api, self.READS[0] + "\n"), [])
+        self.assertEqual(self.parameters(stages, self.READS[0] + "\n"), [("parameters", self.READS[0])])
+        with mock.patch.object(rules, "PARAMETER_READERS", tuple(layer for layer in rules.PARAMETER_READERS if layer != "api")), mock.patch.object(rules, "DECODES", rules.DECODES + ("stages",)):
+            self.assertEqual(self.parameters(api, self.READS[0] + "\n"), [("parameters", self.READS[0])])
+            self.assertEqual(self.parameters(stages, self.READS[0] + "\n"), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n\n" + self.READS[1] + "\n"
+        self.assertEqual(findings(self.REFUSED[0], text, Lang.CXX), [Finding(3, "parameters", self.READS[1])])
+
+    def test_both_tables_are_the_reads_the_tree_has(self):
+        layers, stems = set(), set()
+        for layer, name, text in private_sources():
+            if any(rules.PARAMETER_READ.search(line) for line in text.splitlines()):
+                layers.add(layer)
+                if layer == rules.DECODING_LAYER:
+                    stems.add(rules.row_of(os.path.basename(name).split(".", 1)[0]))
+        self.assertEqual(rules.PARAMETER_READERS, tuple(layer for layer in LAYERS if layer in layers), f"PARAMETER_READERS in {rules.PARAMETERS_HOME} is the layers a file of which reads the parameters")
+        self.assertEqual(rules.DECODES, tuple(sorted(stems)), f"DECODES in {rules.PARAMETERS_HOME} is the stems of {rules.DECODING_LAYER}/ a file of which reads the parameters")
+
+    def test_the_tree_holds_it(self):
+        found = [(name, f.line) for _, name, text in private_sources() for f in findings(name, text, Lang.CXX) if f.rule == "parameters"]
+        self.assertEqual(found, [])
+
+
+class Unread(unittest.TestCase):
+    NAMES = ["CarpetX/src/hierarchy/modes.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/config/groups.cxx", "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx"]
+
+    def test_a_site_that_names_no_parameter_is_reported(self):
+        for name in self.NAMES:
+            for body in ["  g();\n", "  use(ext.verbose);\n", '  CCTK_VINFO("verbose");\n', ""]:
+                with self.subTest(name=name, body=body):
+                    self.assertEqual(reported(name, "void f() {\n  DECLARE_CCTK_PARAMETERS;\n" + body + "}\nvoid h() { use(verbose); }\n"), [("unread", "DECLARE_CCTK_PARAMETERS;")])
+
+    def test_a_site_that_names_a_parameter_is_clean(self):
+        for name in self.NAMES:
+            for body in ["  if (verbose) g();\n", "  use(ext.verbose, presync_mode);\n", "  g([&] { return ghost_size_x; });\n"]:
+                with self.subTest(name=name, body=body):
+                    self.assertEqual(reported(name, "void f() {\n  DECLARE_CCTK_PARAMETERS;\n" + body + "}\n"), [])
+
+    def test_where_the_line_is_refused_both_rules_report_it(self):
+        self.assertEqual(reported("CarpetX/src/util/refuse.cxx", "void f() {\n  DECLARE_CCTK_PARAMETERS;\n}\n"), [("unread", "DECLARE_CCTK_PARAMETERS;"), ("parameters", "DECLARE_CCTK_PARAMETERS;")])
+
+    def test_another_thorn_is_not_judged(self):
+        self.assertEqual(reported("ODESolvers/src/solve.cxx", "void f() {\n  DECLARE_CCTK_PARAMETERS;\n}\n"), [])
+
+    def test_line_numbers(self):
+        text = "void f() {\n  DECLARE_CCTK_PARAMETERS;\n  use(verbose);\n}\n\nvoid g() {\n  DECLARE_CCTK_PARAMETERS;\n}\n"
+        self.assertEqual(findings(self.NAMES[0], text, Lang.CXX), [Finding(7, "unread", "DECLARE_CCTK_PARAMETERS;")])
+
+    def test_the_tree_holds_it(self):
+        found = [(name, f.line) for _, name, text in private_sources() for f in findings(name, text, Lang.CXX) if f.rule == "unread"]
+        self.assertEqual(found, [])
+
+
 class Index(unittest.TestCase):
     BARE = [
         "void StoreRKOldState(int patch, int level, std::span<const gi_t> var_groups, tl_t tl);",
@@ -2260,7 +2444,9 @@ class Report(unittest.TestCase):
             "no extern C entry outside flesh/, "
             "the hierarchy has one door that util/, traversal/ and config/ never use, "
             "no write-scope or deciding-stem include in a stem of comm/ that applies, "
-            "and every include of comm/ from above one its layer is given",
+            "every include of comm/ from above one its layer is given, "
+            "no parameter read outside the layers that read them, "
+            "and every parameter declaration names a parameter",
         )
 
     def test_counts(self):

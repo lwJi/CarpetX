@@ -55,8 +55,6 @@ bool in_meta_mode(const cGH *restrict cctkGH) {
 }
 
 void setup_cctkGH(cGH *restrict cctkGH) {
-  DECLARE_CCTK_PARAMETERS;
-
   cctkGH->cctk_dim = 3;
 
   cctkGH->cctk_alignment = 1;
@@ -98,7 +96,6 @@ void leave_global_mode(cGH *restrict cctkGH) {
 }
 
 void enter_level_mode(cGH *restrict cctkGH, const level_t level) {
-  DECLARE_CCTK_PARAMETERS;
   assert(in_global_mode(cctkGH));
 
   cctkGH->cctk_level = level.index();
@@ -127,7 +124,6 @@ void leave_level_mode(cGH *restrict cctkGH, const level_t level) {
 
 void enter_patch_mode(cGH *restrict cctkGH,
                       const GHExt::PatchData::LevelData &restrict leveldata) {
-  DECLARE_CCTK_PARAMETERS;
   assert(in_level_mode(cctkGH));
 
   const auto &patchdata = driver().patch(leveldata.level.patch());

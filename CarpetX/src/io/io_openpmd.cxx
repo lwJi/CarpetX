@@ -287,7 +287,6 @@ void carpetx_openpmd_t::write_openpmd_slice(const cGH *const cctkGH,
                                             const std::string &output_file,
                                             const slice_t &slice) {
   DECLARE_CCTK_ARGUMENTS;
-  DECLARE_CCTK_PARAMETERS;
 
   // Set up timers
   static Timer timer("OutputOpenPMD");

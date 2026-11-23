@@ -4,7 +4,6 @@
 #include <carpetx.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <algorithm>
 #include <cassert>
@@ -16,8 +15,6 @@ namespace {
 int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
                        const int *requested_tls, int *status, const bool inc,
                        registry_writer_t &registry) {
-  DECLARE_CCTK_PARAMETERS;
-
   assert(cctkGH);
   assert(n_groups >= 0);
   assert(groups);
@@ -76,8 +73,6 @@ int GroupStorageCrease(const cGH *cctkGH, int n_groups, const int *groups,
 int GroupStorageIncrease(const cGH *cctkGH, int n_groups, const int *groups,
                          const int *tls, int *status,
                          registry_writer_t &registry) {
-  DECLARE_CCTK_PARAMETERS;
-
   return GroupStorageCrease(cctkGH, n_groups, groups, tls, status, true,
                             registry);
 }
@@ -85,8 +80,6 @@ int GroupStorageIncrease(const cGH *cctkGH, int n_groups, const int *groups,
 int GroupStorageDecrease(const cGH *cctkGH, int n_groups, const int *groups,
                          const int *tls, int *status,
                          registry_writer_t &registry) {
-  DECLARE_CCTK_PARAMETERS;
-
   return GroupStorageCrease(cctkGH, n_groups, groups, tls, status, false,
                             registry);
 }

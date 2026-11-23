@@ -50,6 +50,7 @@ flowchart TB
 - an arrow not into comm/ is an include a layer has today; the layer rule refuses one outside the table READS in scripts/lint/boundary/rules.py
 - an arrow into comm/ is the interface that layer is given, the table GIVEN in scripts/lint/boundary/rules.py; the interface rule refuses an include outside it, and CarpetX/src/flesh/compile_checks.cxx, which checks the inside of comm/, adds nothing to an arrow
 - include/ is the public headers, not a layer
+- config/, hierarchy/, comm/, regrid/, ops/, io/, schedule/, api/ and flesh/ read the run's parameters, and of config/ only the stems that decode them, boundaries, grid_sizes, groups; every other file is told what it needs of them, as an argument or from driver(); the parameters rule refuses a read outside the tables PARAMETER_READERS and DECODES in scripts/lint/boundary/rules.py
 
 ## One pass of the schedule
 

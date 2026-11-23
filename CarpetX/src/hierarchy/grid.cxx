@@ -191,7 +191,6 @@ GridPtrDesc1::GridPtrDesc1(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const MFPointer &mfp)
     : GridDesc(leveldata, mfp) {
-  DECLARE_CCTK_PARAMETERS;
   const amrex::IntVect ng(nghostzones[0], nghostzones[1], nghostzones[2]);
   const amrex::Box &fbx = mfp.fabbox(ng);
   cactus_offset = lbound(fbx);

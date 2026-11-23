@@ -15,7 +15,6 @@
 #include "hierarchy/scopes.hxx"
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <cassert>
 #include <functional>
@@ -76,8 +75,6 @@ static std::vector<gi_t> reprolongate_groups() {
 static std::vector<level_run_t> ProlongateGhosts_impl(
     const window_t window, const std::span<const gi_t> groups0,
     const bool prolongate_on_same_iteration, const timelevels_t tls) {
-  DECLARE_CCTK_PARAMETERS;
-
   const GHExt &ext = driver();
 
   error_if_sync_nested();

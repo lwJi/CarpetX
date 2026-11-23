@@ -4,7 +4,7 @@ import os
 import re
 from typing import Callable, Iterator
 
-from .rules import AMREX_CALLBACKS, DECLARATION_START, GIVEN, GIVEN_HOME, GIVEN_LAYER, GRANT_LAYERS, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, INSIDE_SUFFIX, LAYER_INCLUDE, LAYERS, OWNS, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, SEES_ALL, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
+from .rules import AMREX_CALLBACKS, DECLARATION_START, GIVEN, GIVEN_HOME, GIVEN_LAYER, GRANT_LAYERS, GRANTS, GRANTS_HOME, GUARD_PREFIX, HIERARCHY_LAYERS, INSIDE_SUFFIX, LAYER_INCLUDE, LAYERS, OWNS, PARAMETERS_HOME, PARAMETERS_TEXT, PRIVATE_DIR, PROTOTYPE_END, PUBLIC_DIR, READS, READS_HOME, RULES, SEES_ALL, STEMS, STEMS_HOME, UNDER_HIERARCHY, declaration_head, declared_function, file_local, friends, layer_of, layer_path, row_of, statements, ungranted
 from comments.lex_cxx import lex
 from comments.tokens import Kind
 from files import PROJECT
@@ -69,6 +69,7 @@ STACK_LEGEND = (
     f"an arrow not into {GIVEN_LAYER}/ is an include a layer has today; the layer rule refuses one outside the table READS in {READS_HOME}",
     f"an arrow into {GIVEN_LAYER}/ is the interface that layer is given, the table GIVEN in {GIVEN_HOME}; the interface rule refuses an include outside it, and {SEES_ALL}, which checks the inside of {GIVEN_LAYER}/, adds nothing to an arrow",
     f"{PUBLIC}/ is the public headers, not a layer",
+    f"{PARAMETERS_TEXT}; the parameters rule refuses a read outside the tables PARAMETER_READERS and DECODES in {PARAMETERS_HOME}",
 )
 PASS_LEGEND = ("a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX",)
 REGRID_LEGEND: tuple[str, ...] = ()
