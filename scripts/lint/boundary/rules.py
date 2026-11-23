@@ -41,7 +41,7 @@ OWNS = {
     "comm": "filling grid points whose values other grid points or the boundary conditions determine: ghosts from another rank or a coarser level, coarse cells from finer ones, and the outer boundary; with the operators it fills with and what it keeps on a level to do so. A stem either decides what is filled and records its validity, or applies and records nothing. It also owns three questions a fill must answer before it runs: which groups the integrator fills, where a level stands in its parent's step, and which groups have a flux register. Its `SyncGroups` takes a `requested_sync_t`, which only `SyncRequested` in `schedule/` builds, so a call from any other function does not compile, and which states whether a lockstep sync restricts before it fills and whether it keeps only the groups with missing ghosts, so the sync does not decide either. Its `SyncGhostsOnly` takes a `public_ghost_only_t`, which only the public `sync_ghosts_only` builds. What it keeps on a level is read const through `buffers_of`, and a buffer is opened only by the writer its `written_by` alias names. Its `restore_bands` takes a `checkpoint_read_t`, which only `read_record` in `io/` builds. It never decides when: `schedule/` and `api/` ask. A body names no `cGH` but the global one and changes nothing of the clock.",
     "regrid": "the bodies of the AMReX callbacks, never data-model code: what a level holds and how it is built belongs to `hierarchy/`.",
     "ops": "operations on grid data that other thorns ask for. Their flesh entry points are in `flesh/`.",
-    "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. It keeps one fact between two of the flesh's calls: the iteration of the checkpoint the parameters were recovered from, which the grid structure is then recovered from.",
+    "io": "output, checkpoint, recovery and the file reader's input, and the format of the data model's metadata. When to do each is decided by the flesh's bins and by `schedule/`. It keeps one fact between two of the flesh's calls: the iteration of the checkpoint the parameters were recovered from, which the grid structure is then recovered from. A checkpoint codec is handed its format settings by `make_codec`, which reads them each time it makes one, so a codec file reads no parameter.",
     "schedule": "the driver's loop and clocks, and `CallFunction`, which every routine runs through, with its checksums; on entry to an outermost routine it alone re-takes the steered part of the run's configuration, through the `steer_writer_t` only it builds. It opens the scopes of the run's phase, and every sync of `comm/` runs through its `SyncRequested`, which refuses one the open bin does not allow and alone builds the `requested_sync_t` that `SyncGroups` takes, stating in it whether a lockstep sync restricts before it fills and whether it keeps only the groups with missing ghosts; `SyncScheduled` is the flesh's sync, on the levels of the open traversal. How a level is stored, synced or written is decided below it. Its header declares only what `flesh/` registers or wraps, what `api/` hands to the flesh, and `SyncScheduled` and `SyncRequested`, which `flesh/` and `api/` call. A writer is an argument of each function that uses one, and none is kept between calls.",
     "api": "the bodies of the public headers. An operation names itself with `operation_scope_t`, checks its arguments, and calls the layer that owns the work. It keeps the writers it uses in one slot, and of the clock it changes only the stage time and step, for the length of one `run_at`.",
     "flesh": 'every `extern "C"`, and `hierarchy_writers_t`, the writers that own the hierarchy, which it lends to `schedule/` and `api/`. It owns no other data: an entry converts the flesh\'s arguments and calls the layer that does the work.',
@@ -320,10 +320,12 @@ DECODING_LAYER = "config"
 assert DECODING_LAYER in PARAMETER_READERS, PARAMETER_READERS
 DECODES = ("decode_boundaries", "decode_groups", "decode_run_config", "grid_sizes")
 assert DECODES == tuple(sorted(set(DECODES))) and set(DECODES) <= set(STEMS[DECODING_LAYER]), DECODES
+assert set(layers_of(CODEC_FILES)) <= set(PARAMETER_READERS) - {DECODING_LAYER}, CODEC_FILES
 PARAMETERS_HOME = READS_HOME
 PARAMETERS_TEXT = (
-    f"{dirs(PARAMETER_READERS, 'and')} read the run's parameters, and of {DECODING_LAYER}/ only the stems that decode them, "
-    f"{', '.join(DECODES)}; every other file is told what it needs of them, as an argument or from driver()"
+    f"{dirs(PARAMETER_READERS, 'and')} read the run's parameters, of {DECODING_LAYER}/ only the stems that decode them, "
+    f"{', '.join(DECODES)}, and of {dirs(layers_of(CODEC_FILES), 'and')} not the checkpoint codec files, {', '.join(os.path.basename(name) for name in CODEC_FILES)}, "
+    f"which make_codec hands their format settings; every other file is told what it needs of them, as an argument or from driver()"
 )
 DRIVER_PARAM = "CarpetX/param.ccl"
 PARAMETER_LINE = re.compile(r"^\s*(?:USES\s+)?(?:BOOLEAN|INT|REAL|KEYWORD|STRING|CCTK_INT|CCTK_REAL)\s+(\w+)", re.M)
@@ -738,6 +740,8 @@ def decodes(name: str) -> bool:
 
 
 def reads_parameters(name: str, line: str, statement: str) -> bool:
+    if name in CODEC_FILES:
+        return False
     layer = layer_of(name)
     if layer == DECODING_LAYER:
         return decodes(name)
@@ -971,7 +975,8 @@ RULES = (
         word=CODEC_WORD,
         allowed=never,
         text="a checkpoint codec (io_*_checkpoint.cxx and its io_*_names.hxx) sees only the checkpoint record and its "
-        "own library: no ghext->, driver(), GHExt, LevelData, GroupData or hierarchy/model.hxx.",
+        "own library: no ghext->, driver(), GHExt, LevelData, GroupData or hierarchy/model.hxx. Its format settings are "
+        "arguments of its factory, which make_codec reads and hands over.",
         noun="hierarchy use",
         where="in a checkpoint codec",
         clean="no hierarchy access in a checkpoint codec",
@@ -1140,7 +1145,7 @@ RULES = (
         word=DECODING_INCLUDE,
         allowed=decoder_allowed,
         text=f"the header of a stem of {DECODING_LAYER}/ that decodes the parameters, {', '.join(DECODES)}, is included only where "
-        f"the parameters are read: from {dirs(PARAMETER_READERS, 'or')}, and in {DECODING_LAYER}/ only from a decoding stem. "
+        f"the parameters are read: from {dirs(PARAMETER_READERS, 'or')}, in {DECODING_LAYER}/ only from a decoding stem, and from no checkpoint codec file. "
         "A decoder reads the parameters when it is called, so a lower layer is handed what it decodes, by the reading layer "
         "that calls it, as an argument of the writer call that builds that part of the model; the other stems of "
         f"{DECODING_LAYER}/ only say the types.",

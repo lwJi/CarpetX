@@ -130,9 +130,10 @@ std::unique_ptr<checkpoint_codec_t>
 make_codec(const char *method,
            std::source_location site = std::source_location::current());
 
-std::unique_ptr<checkpoint_codec_t> make_openpmd_codec();
+std::unique_ptr<checkpoint_codec_t> make_openpmd_codec(std::string format);
 
-std::unique_ptr<checkpoint_codec_t> make_silo_codec();
+std::unique_ptr<checkpoint_codec_t>
+make_silo_codec(int proc_stride, std::string compression_options);
 
 void refuse_unless_recoverable(
     const codec_limits_t &limits,

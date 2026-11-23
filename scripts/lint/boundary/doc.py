@@ -69,7 +69,7 @@ STACK_LEGEND = (
     f"an arrow not into {GIVEN_LAYER}/ is an include a layer has today; the layer rule refuses one outside the table READS in {READS_HOME}",
     f"an arrow into {GIVEN_LAYER}/ is the interface that layer is given, the table GIVEN in {GIVEN_HOME}; the interface rule refuses an include outside it, and {SEES_ALL}, which checks the inside of {GIVEN_LAYER}/, adds nothing to an arrow",
     f"{PUBLIC}/ is the public headers, not a layer",
-    f"{PARAMETERS_TEXT}; the parameters rule refuses a read outside the tables PARAMETER_READERS and DECODES in {PARAMETERS_HOME}, and the decoder rule an include of a decoding stem's header outside them",
+    f"{PARAMETERS_TEXT}; the parameters rule refuses a read outside the tables PARAMETER_READERS and DECODES in {PARAMETERS_HOME} and in a file of its table CODEC_FILES, and the decoder rule an include of a decoding stem's header in the same places",
     f"{CARRIED_TEXT}; the carried rule refuses a scope that names one outside a decoding stem, the table CARRIED in {PARAMETERS_HOME}, and the snapshot rule an include of {DECODING_LAYER}/{RUN_CONFIG_STEM} from any other file",
 )
 PASS_LEGEND = ("a layer reaches a higher one only through an outsider, the Cactus flesh or AMReX",)

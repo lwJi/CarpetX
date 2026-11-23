@@ -1292,6 +1292,23 @@ class Parameters(unittest.TestCase):
                 with self.subTest(name=name, line=line):
                     self.assertEqual(self.parameters(name, line + "\n"), [("parameters", line.strip())])
 
+    def test_a_checkpoint_codec_file_is_told(self):
+        self.assertEqual(len(rules.CODEC_FILES), 4)
+        for line in self.READS:
+            for name in rules.CODEC_FILES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(self.parameters(name, line + "\n"), [("parameters", line.strip())])
+        for line in self.READS:
+            for name in [layer_path("io", "checkpoint.cxx"), layer_path("io", "io_openpmd.cxx"), layer_path("io", "io_silo.cxx"), layer_path("io", "io_silo.hxx")]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(self.parameters(name, line + "\n"), [])
+
+    def test_the_codec_files_decide(self):
+        name = layer_path("io", "checkpoint.cxx")
+        self.assertEqual(self.parameters(name, self.READS[0] + "\n"), [])
+        with mock.patch.object(rules, "CODEC_FILES", rules.CODEC_FILES + (name,)):
+            self.assertEqual(self.parameters(name, self.READS[0] + "\n"), [("parameters", self.READS[0])])
+
     def test_line_numbers(self):
         text = "int a;\n\n" + self.READS[1] + "\n"
         self.assertEqual(findings(self.REFUSED[0], text, Lang.CXX), [Finding(3, "parameters", self.READS[1])])
@@ -1312,7 +1329,7 @@ class Parameters(unittest.TestCase):
 
 
 class Unread(unittest.TestCase):
-    NAMES = ["CarpetX/src/io/io_openpmd.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/config/decode_groups.cxx", "CarpetX/src/io/io_openpmd_names.hxx"]
+    NAMES = ["CarpetX/src/io/io_openpmd.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/config/decode_groups.cxx", "CarpetX/src/io/io_silo.hxx"]
 
     def test_a_site_that_names_no_parameter_is_reported(self):
         for name in self.NAMES:
@@ -1531,6 +1548,10 @@ class Decoder(unittest.TestCase):
         "CarpetX/src/regrid/regrid.cxx",
         "CarpetX/src/comm/sync.cxx",
         "CarpetX/src/comm/sync.hxx",
+        "CarpetX/src/io/io_openpmd_checkpoint.cxx",
+        "CarpetX/src/io/io_openpmd_names.hxx",
+        "CarpetX/src/io/io_silo_checkpoint.cxx",
+        "CarpetX/src/io/io_silo_names.hxx",
     ]
     TOLD = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "api")
 

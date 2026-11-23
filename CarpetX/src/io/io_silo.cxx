@@ -134,16 +134,7 @@ void write_silo_slice(const cGH *restrict const cctkGH,
   const int myproc = CCTK_MyProc(cctkGH);
   const int nprocs = CCTK_nProcs(cctkGH);
 
-  const int ioproc_every = [&]() {
-    if (CCTK_EQUALS(out_mode, "proc"))
-      return 1;
-    if (CCTK_EQUALS(out_mode, "np"))
-      return out_proc_every;
-    if (CCTK_EQUALS(out_mode, "onefile"))
-      return nprocs;
-    refuse(std::source_location::current(),
-           "IO::out_mode is \"%s\", which this writer does not know", out_mode);
-  }();
+  const int ioproc_every = silo_proc_stride(nprocs);
   assert(ioproc_every > 0);
 
   const int myioproc = myproc / ioproc_every * ioproc_every;
@@ -844,6 +835,20 @@ void write_silo_slice(const cGH *restrict const cctkGH,
 }
 
 } // namespace
+
+int silo_proc_stride(const int nprocs) {
+  DECLARE_CCTK_PARAMETERS;
+  if (CCTK_EQUALS(out_mode, "proc"))
+    return 1;
+  if (CCTK_EQUALS(out_mode, "np")) {
+    assert(out_proc_every > 0);
+    return out_proc_every;
+  }
+  if (CCTK_EQUALS(out_mode, "onefile"))
+    return nprocs;
+  refuse(std::source_location::current(),
+         "IO::out_mode is \"%s\", which this writer does not know", out_mode);
+}
 
 void OutputSilo(const cGH *restrict const cctkGH) {
   const operation_scope_t op("CarpetX::OutputSilo");

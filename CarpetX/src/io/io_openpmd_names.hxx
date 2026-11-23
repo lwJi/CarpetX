@@ -7,7 +7,6 @@
 #include <carpetx.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #ifdef HAVE_CAPABILITY_openPMD_api
 
@@ -27,50 +26,49 @@
 
 namespace CarpetX {
 
-inline openPMD::Format get_format() {
-  DECLARE_CCTK_PARAMETERS;
-  if (CCTK_EQUALS(openpmd_format, "HDF5"))
+inline openPMD::Format format_of(const std::string &keyword) {
+  if (CCTK_EQUALS(keyword.c_str(), "HDF5"))
     return openPMD::Format::HDF5;
 #if OPENPMDAPI_VERSION_GE(0, 16, 0)
 #else
-  if (CCTK_EQUALS(openpmd_format, "ADIOS1"))
+  if (CCTK_EQUALS(keyword.c_str(), "ADIOS1"))
     return openPMD::Format::ADIOS1;
 #endif
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_auto"))
+  if (CCTK_EQUALS(keyword.c_str(), "ADIOS2_auto"))
 #if OPENPMDAPI_VERSION_GE(0, 15, 0)
     return openPMD::Format::ADIOS2_BP5;
 #else
     return openPMD::Format::ADIOS2;
 #endif
 #if OPENPMDAPI_VERSION_GE(0, 15, 0)
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_BP"))
+  if (CCTK_EQUALS(keyword.c_str(), "ADIOS2_BP"))
     return openPMD::Format::ADIOS2_BP;
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_BP4"))
+  if (CCTK_EQUALS(keyword.c_str(), "ADIOS2_BP4"))
     return openPMD::Format::ADIOS2_BP4;
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_BP5"))
+  if (CCTK_EQUALS(keyword.c_str(), "ADIOS2_BP5"))
     return openPMD::Format::ADIOS2_BP5;
 #else
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2"))
+  if (CCTK_EQUALS(keyword.c_str(), "ADIOS2"))
     return openPMD::Format::ADIOS2;
 #endif
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_SST"))
+  if (CCTK_EQUALS(keyword.c_str(), "ADIOS2_SST"))
     return openPMD::Format::ADIOS2_SST;
-  if (CCTK_EQUALS(openpmd_format, "ADIOS2_SSC"))
+  if (CCTK_EQUALS(keyword.c_str(), "ADIOS2_SSC"))
     return openPMD::Format::ADIOS2_SSC;
-  if (CCTK_EQUALS(openpmd_format, "JSON"))
+  if (CCTK_EQUALS(keyword.c_str(), "JSON"))
     return openPMD::Format::JSON;
 #if OPENPMDAPI_VERSION_GE(0, 16, 0)
-  if (CCTK_EQUALS(openpmd_format, "TOML"))
+  if (CCTK_EQUALS(keyword.c_str(), "TOML"))
     return openPMD::Format::TOML;
 #endif
 #if OPENPMDAPI_VERSION_GE(0, 16, 0)
-  if (CCTK_EQUALS(openpmd_format, "GENERIC"))
+  if (CCTK_EQUALS(keyword.c_str(), "GENERIC"))
     return openPMD::Format::GENERIC;
 #endif
   refuse(std::source_location::current(),
          "The openPMD format \"%s\" is not supported in version %d.%d.%d of "
          "the openPMD_api library",
-         openpmd_format, OPENPMDAPI_VERSION_MAJOR, OPENPMDAPI_VERSION_MINOR,
+         keyword.c_str(), OPENPMDAPI_VERSION_MAJOR, OPENPMDAPI_VERSION_MINOR,
          OPENPMDAPI_VERSION_PATCH);
 }
 

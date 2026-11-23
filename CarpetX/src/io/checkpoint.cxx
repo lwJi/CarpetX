@@ -3,6 +3,7 @@
 #include "hierarchy/model.hxx"
 #include "hierarchy/writers.hxx"
 #include "hierarchy/scopes.hxx"
+#include "io/io_silo.hxx"
 #include "io/selection.hxx"
 #include "comm/checkpoint_bands.hxx"
 #include "util/refuse.hxx"
@@ -355,9 +356,10 @@ struct target_sink_t final : buffer_visitor_t {
 
 std::unique_ptr<checkpoint_codec_t>
 make_codec(const char *const method, const std::source_location site) {
+  DECLARE_CCTK_PARAMETERS;
   if (CCTK_EQUALS(method, "openpmd")) {
 #ifdef HAVE_CAPABILITY_openPMD_api
-    return make_openpmd_codec();
+    return make_openpmd_codec(openpmd_format);
 #else
     refuse(site,
            "The I/O method \"%s\" needs openPMD_api, which is not enabled",
@@ -366,7 +368,8 @@ make_codec(const char *const method, const std::source_location site) {
   }
   if (CCTK_EQUALS(method, "silo")) {
 #ifdef HAVE_CAPABILITY_Silo
-    return make_silo_codec();
+    return make_silo_codec(silo_proc_stride(CCTK_nProcs(nullptr)),
+                           out_silo_compression_options);
 #else
     refuse(site, "The I/O method \"%s\" needs Silo, which is not enabled",
            method);

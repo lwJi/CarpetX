@@ -3,13 +3,11 @@
 
 #include <CactusBase/IOUtil/src/ioutil_CheckpointRecovery.h>
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #ifdef HAVE_CAPABILITY_Silo
 
 #include "config/indices.hxx"
 #include "util/mpi_types.hxx"
-#include "util/refuse.hxx"
 
 #include <silo.hxx>
 
@@ -38,7 +36,6 @@
 #include <optional>
 #include <regex>
 #include <set>
-#include <source_location>
 #include <span>
 #include <sstream>
 #include <string>
@@ -69,20 +66,6 @@ constexpr int state_write_tag = 22900;
 constexpr int state_read_tag = 22901;
 constexpr int band_write_tag = 22902;
 constexpr int band_read_tag = 22903;
-
-int ioproc_every(const int nprocs) {
-  DECLARE_CCTK_PARAMETERS;
-  if (CCTK_EQUALS(out_mode, "proc"))
-    return 1;
-  if (CCTK_EQUALS(out_mode, "np")) {
-    assert(out_proc_every > 0);
-    return out_proc_every;
-  }
-  if (CCTK_EQUALS(out_mode, "onefile"))
-    return nprocs;
-  refuse(std::source_location::current(),
-         "IO::out_mode is \"%s\", which this writer does not know", out_mode);
-}
 
 int db_centering(const amrex::IndexType &indextype) {
   constexpr std::array<int, ndims + 1> centerings{DB_NODECENT, DB_EDGECENT,
@@ -1050,6 +1033,12 @@ struct reader_t {
 };
 
 struct silo_codec_t final : checkpoint_codec_t {
+  silo_codec_t(const int proc_stride, std::string compression_options)
+      : proc_stride(proc_stride),
+        compression_options(std::move(compression_options)) {
+    assert(proc_stride > 0);
+  }
+
   codec_limits_t limits() const override {
     return {.carries_arrays = false,
             .max_timelevels = 1,
@@ -1073,6 +1062,10 @@ struct silo_codec_t final : checkpoint_codec_t {
   void decode_data(const checkpoint_record_t &record,
                    std::span<const target_t> targets, const std::string &dir,
                    const std::string &file) override;
+
+private:
+  const int proc_stride;
+  const std::string compression_options;
 };
 
 std::optional<int> silo_codec_t::read_parameters(const std::string &dir,
@@ -1146,8 +1139,6 @@ std::optional<int> silo_codec_t::read_parameters(const std::string &dir,
 
 void silo_codec_t::encode(const checkpoint_record_t &record,
                           const std::string &dir, const std::string &file) {
-  DECLARE_CCTK_PARAMETERS;
-
   static Timer timer("silo_codec_t::encode");
   Interval interval(timer);
 
@@ -1156,7 +1147,7 @@ void silo_codec_t::encode(const checkpoint_record_t &record,
 
   const int myproc = CCTK_MyProc(nullptr);
   const int nprocs = CCTK_nProcs(nullptr);
-  const int every = ioproc_every(nprocs);
+  const int every = proc_stride;
   const bool write_file = myproc % every == 0;
   const int metafile_ioproc = nprocs == 1 || every == 1 ? 0 : 1;
 
@@ -1165,7 +1156,7 @@ void silo_codec_t::encode(const checkpoint_record_t &record,
                make_filename(file, record.iteration).c_str(), record.iteration);
 
   DBShowErrors(DB_ALL_AND_DRVR, nullptr);
-  DBSetCompression(out_silo_compression_options);
+  DBSetCompression(compression_options.c_str());
   DBSetEnableChecksums(1);
 
   const std::string pathname =
@@ -1253,7 +1244,6 @@ checkpoint_record_t silo_codec_t::decode_structure(const std::string &dir,
   Interval interval(timer);
 
   const int myproc = CCTK_MyProc(nullptr);
-  const int nprocs = CCTK_nProcs(nullptr);
   const int metafile_ioproc = 0;
   const bool read_metafile = myproc == metafile_ioproc;
 
@@ -1379,7 +1369,7 @@ checkpoint_record_t silo_codec_t::decode_structure(const std::string &dir,
   }
   metafile.reset();
 
-  const int every = ioproc_every(nprocs);
+  const int every = proc_stride;
   std::set<std::string> local;
   if (myproc % every == 0) {
     const DB::ptr<DBfile> dbfile =
@@ -1399,8 +1389,7 @@ void silo_codec_t::decode_data(const checkpoint_record_t &record,
   Interval interval(timer);
 
   const int myproc = CCTK_MyProc(nullptr);
-  const int nprocs = CCTK_nProcs(nullptr);
-  const int every = ioproc_every(nprocs);
+  const int every = proc_stride;
 
   DBShowErrors(DB_ALL_AND_DRVR, nullptr);
 
@@ -1428,8 +1417,10 @@ void silo_codec_t::decode_data(const checkpoint_record_t &record,
 
 } // namespace
 
-std::unique_ptr<checkpoint_codec_t> make_silo_codec() {
-  return std::make_unique<silo_codec_t>();
+std::unique_ptr<checkpoint_codec_t>
+make_silo_codec(const int proc_stride, std::string compression_options) {
+  return std::make_unique<silo_codec_t>(proc_stride,
+                                        std::move(compression_options));
 }
 
 } // namespace CarpetX

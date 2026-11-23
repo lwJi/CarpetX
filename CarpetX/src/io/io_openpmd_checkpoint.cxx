@@ -376,6 +376,9 @@ void read_array(openPMD::Iteration &read_iter, const buffer_id_t &id,
 }
 
 struct openpmd_codec_t final : checkpoint_codec_t {
+  explicit openpmd_codec_t(const std::string &keyword)
+      : format(format_of(keyword)) {}
+
   codec_limits_t limits() const override {
     return {.carries_arrays = true,
             .max_timelevels = std::numeric_limits<int>::max(),
@@ -395,6 +398,9 @@ struct openpmd_codec_t final : checkpoint_codec_t {
   void decode_data(const checkpoint_record_t &record,
                    std::span<const target_t> targets, const std::string &dir,
                    const std::string &file) override;
+
+private:
+  const openPMD::Format format;
 };
 
 std::optional<int> openpmd_codec_t::read_parameters(const std::string &dir,
@@ -405,7 +411,7 @@ std::optional<int> openpmd_codec_t::read_parameters(const std::string &dir,
   static Timer timer("openpmd_codec_t::read_parameters");
   Interval interval(timer);
 
-  const std::string filename = series_name(dir, file, get_format());
+  const std::string filename = series_name(dir, file, format);
   std::optional<openPMD::Series> series;
   try {
     series.emplace(filename, openPMD::Access::READ_ONLY, MPI_COMM_WORLD,
@@ -454,7 +460,6 @@ void openpmd_codec_t::encode(const checkpoint_record_t &record,
   static Timer timer("openpmd_codec_t::encode");
   Interval interval(timer);
 
-  const openPMD::Format format = get_format();
   const int ierr = CCTK_CreateDirectory(0755, dir.c_str());
   assert(ierr >= 0);
 
@@ -572,7 +577,7 @@ checkpoint_record_t openpmd_codec_t::decode_structure(const std::string &dir,
   static Timer timer("openpmd_codec_t::decode_structure");
   Interval interval(timer);
 
-  const std::string filename = series_name(dir, file, get_format());
+  const std::string filename = series_name(dir, file, format);
   if (io_verbose)
     CCTK_VINFO("Reading openPMD checkpoint structure \"%s\" iteration %d...",
                filename.c_str(), iteration);
@@ -677,7 +682,7 @@ void openpmd_codec_t::decode_data(const checkpoint_record_t &record,
   static Timer timer("openpmd_codec_t::decode_data");
   Interval interval(timer);
 
-  const std::string filename = series_name(dir, file, get_format());
+  const std::string filename = series_name(dir, file, format);
   if (io_verbose)
     CCTK_VINFO("Reading openPMD checkpoint data \"%s\" iteration %d...",
                filename.c_str(), record.iteration);
@@ -712,8 +717,8 @@ void openpmd_codec_t::decode_data(const checkpoint_record_t &record,
 
 } // namespace
 
-std::unique_ptr<checkpoint_codec_t> make_openpmd_codec() {
-  return std::make_unique<openpmd_codec_t>();
+std::unique_ptr<checkpoint_codec_t> make_openpmd_codec(std::string format) {
+  return std::make_unique<openpmd_codec_t>(format);
 }
 
 } // namespace CarpetX
