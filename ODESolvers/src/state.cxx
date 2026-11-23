@@ -226,7 +226,7 @@ void combine_exactly(const std::vector<amrex::MultiFab *> &dstmfabs,
   lincomb(dstmfabs, scale, factors, srcmfabs);
 }
 
-constexpr std::size_t max_terms = max_stages + 2;
+constexpr std::size_t max_terms = max_stages + 1;
 
 template <std::size_t... Ns>
 bool combine_up_to(std::index_sequence<Ns...>,
@@ -249,7 +249,7 @@ void combine(const std::vector<amrex::MultiFab *> &dstmfabs,
                      nonzero))
     CCTK_VERROR("ODESolvers: a linear combination of %d terms is not "
                 "supported; a stage of an RK step reads at most %d, the old "
-                "state, the weighted sum and %d stage right-hand sides",
+                "state and %d stage right-hand sides",
                 int(nonzero.size()), int(max_terms), max_stages);
 }
 
