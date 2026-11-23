@@ -843,6 +843,11 @@ static_assert(!sync_groups_takes<window_t, std::span<const gi_t>,
 static_assert(!std::is_default_constructible_v<requested_sync_t>);
 static_assert(!std::is_copy_constructible_v<requested_sync_t>);
 static_assert(!std::is_aggregate_v<requested_sync_t>);
+static_assert(!std::is_constructible_v<requested_sync_t, bool, bool>);
+static_assert(
+    std::is_same_v<decltype(requested_sync_t::restrict_first), const bool>);
+static_assert(std::is_same_v<decltype(requested_sync_t::only_missing_ghosts),
+                             const bool>);
 static_assert(std::is_same_v<decltype(SyncRequested), comm_groups_entry_t>);
 static_assert(
     std::is_same_v<decltype(ProlongateGhosts), comm_timelevels_entry_t>);

@@ -1155,11 +1155,11 @@ class ParameterScopes(unittest.TestCase):
         "traversal": (0, 0),
         "config": (8, 70),
         "hierarchy": (0, 0),
-        "comm": (1, 3),
+        "comm": (0, 0),
         "regrid": (0, 0),
         "ops": (0, 0),
         "io": (30, 52),
-        "schedule": (8, 18),
+        "schedule": (9, 18),
         "api": (0, 0),
         "flesh": (4, 12),
     }
@@ -1286,9 +1286,9 @@ class Parameters(unittest.TestCase):
             self.assertEqual(self.parameters(io, self.READS[0] + "\n"), [("parameters", self.READS[0])])
             self.assertEqual(self.parameters(stages, self.READS[0] + "\n"), [])
 
-    def test_hierarchy_regrid_ops_and_api_are_told(self):
+    def test_hierarchy_comm_regrid_ops_and_api_are_told(self):
         for line in self.READS:
-            for name in [layer_path("hierarchy", "model.cxx"), layer_path("hierarchy", "writers.cxx"), layer_path("hierarchy", "model.hxx"), layer_path("regrid", "regrid.cxx"), layer_path("api", "api_rk.cxx"), layer_path("api", "api.hxx"), layer_path("ops", "interpolate.cxx"), layer_path("ops", "interp.hxx")]:
+            for name in [layer_path("comm", "sync.cxx"), layer_path("comm", "sync.hxx"), layer_path("comm", "prolongate_3d_rf2_impl.hxx"), layer_path("hierarchy", "model.cxx"), layer_path("hierarchy", "writers.cxx"), layer_path("hierarchy", "model.hxx"), layer_path("regrid", "regrid.cxx"), layer_path("api", "api_rk.cxx"), layer_path("api", "api.hxx"), layer_path("ops", "interpolate.cxx"), layer_path("ops", "interp.hxx")]:
                 with self.subTest(name=name, line=line):
                     self.assertEqual(self.parameters(name, line + "\n"), [("parameters", line.strip())])
 
@@ -1312,7 +1312,7 @@ class Parameters(unittest.TestCase):
 
 
 class Unread(unittest.TestCase):
-    NAMES = ["CarpetX/src/io/io_openpmd.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/config/decode_groups.cxx", "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx"]
+    NAMES = ["CarpetX/src/io/io_openpmd.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/config/decode_groups.cxx", "CarpetX/src/io/io_openpmd_names.hxx"]
 
     def test_a_site_that_names_no_parameter_is_reported(self):
         for name in self.NAMES:
@@ -1529,6 +1529,8 @@ class Decoder(unittest.TestCase):
         "CarpetX/src/hierarchy/model.cxx",
         "CarpetX/src/hierarchy/model.hxx",
         "CarpetX/src/regrid/regrid.cxx",
+        "CarpetX/src/comm/sync.cxx",
+        "CarpetX/src/comm/sync.hxx",
     ]
     TOLD = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "api")
 
@@ -1549,11 +1551,11 @@ class Decoder(unittest.TestCase):
                 with self.subTest(name=name, line=line):
                     self.assertEqual(self.decoder(name, line + "\n"), [])
 
-    def test_comm_is_refused_once_it_is_told(self):
-        name = "CarpetX/src/comm/sync.cxx"
+    def test_a_layer_is_refused_once_it_is_told(self):
+        name = "CarpetX/src/schedule/evolve.cxx"
         line = self.INCLUDES[0]
         self.assertEqual(self.decoder(name, line + "\n"), [])
-        with mock.patch.object(rules, "PARAMETER_READERS", tuple(layer for layer in rules.PARAMETER_READERS if layer != "comm")):
+        with mock.patch.object(rules, "PARAMETER_READERS", tuple(layer for layer in rules.PARAMETER_READERS if layer != "schedule")):
             self.assertEqual(self.decoder(name, line + "\n"), [("decoder", line)])
             self.assertEqual(self.decoder(name, '#include "config/groups.hxx"\n'), [])
 

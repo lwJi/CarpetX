@@ -15,10 +15,15 @@ namespace CarpetX {
 struct timelevels_t;
 
 class requested_sync_t {
-  requested_sync_t() = default;
+  requested_sync_t(const bool restrict_first, const bool only_missing_ghosts)
+      : restrict_first(restrict_first),
+        only_missing_ghosts(only_missing_ghosts) {}
   friend void SyncRequested(window_t window, std::span<const gi_t> groups);
 
 public:
+  const bool restrict_first;
+  const bool only_missing_ghosts;
+
   requested_sync_t(const requested_sync_t &) = delete;
   requested_sync_t &operator=(const requested_sync_t &) = delete;
 };

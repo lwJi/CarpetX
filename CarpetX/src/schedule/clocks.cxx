@@ -300,8 +300,16 @@ static void error_if_sync_in_tail(const window_t window,
 }
 
 void SyncRequested(const window_t window, const std::span<const gi_t> groups) {
+  DECLARE_CCTK_PARAMETERS;
+
   error_if_sync_in_tail(window, groups);
-  SyncGroups(window, groups, requested_sync_t());
+  if (restrict_during_sync && !do_restrict)
+    window.loop_serially([]([[maybe_unused]] const level_t level) {
+      assert(!level.child().has_value());
+    });
+  SyncGroups(window, groups,
+             requested_sync_t(restrict_during_sync,
+                              CCTK_EQUALS(presync_mode, "presync-only")));
 }
 
 static std::string sync_caller() {

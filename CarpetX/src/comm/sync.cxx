@@ -17,7 +17,6 @@
 #include "hierarchy/scopes.hxx"
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <algorithm>
 #include <cassert>
@@ -45,9 +44,7 @@ static std::vector<gi_t> sync_restrict_groups(const std::vector<gi_t> &groups) {
 
 static void SyncGroupsLockstep(const window_t window,
                                const std::span<const gi_t> groups0,
-                               const requested_sync_t &) {
-  DECLARE_CCTK_PARAMETERS;
-
+                               const requested_sync_t &requested) {
   const GHExt &ext = driver();
 
   error_if_sync_nested();
@@ -67,7 +64,7 @@ static void SyncGroupsLockstep(const window_t window,
 
   std::vector<gi_t> groups = sync_filter_groups(groups0);
 
-  if (CCTK_EQUALS(presync_mode, "presync-only")) {
+  if (requested.only_missing_ghosts) {
     loop_serially(window, [&](auto &restrict leveldata) {
       std::vector<gi_t> new_groups;
       for (const gi_t gi : groups) {
@@ -97,11 +94,10 @@ static void SyncGroupsLockstep(const window_t window,
     }
   }
 
-  if (restrict_during_sync) {
+  if (requested.restrict_first) {
     const std::vector<gi_t> restrict_groups = sync_restrict_groups(groups);
     loop_fine_to_coarse(
         window, [&](const GHExt::PatchData::LevelData &leveldata) {
-          assert(do_restrict || !leveldata.level.child());
           restrict_level(leveldata.level, restrict_groups, make_valid_int());
         });
   }
@@ -187,7 +183,9 @@ static void SyncGroupsLockstep(const window_t window,
 
 static void SyncGroupsSubcycling(const window_t window,
                                  const std::span<const gi_t> groups0,
-                                 const requested_sync_t &) {
+                                 const requested_sync_t &requested) {
+  assert(!requested.restrict_first && !requested.only_missing_ghosts);
+
   const GHExt &ext = driver();
 
   error_if_sync_nested();
