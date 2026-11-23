@@ -8,6 +8,12 @@ SCHEDULE ODESolvers_InitConstants AT WRAGH
   WRITES: do_substeps
 } "Set up dummy loop counters for schedule printout"
 
+SCHEDULE ODESolvers_RegisterIntegrator AT WRAGH
+{
+  LANG: C
+  OPTIONS: global
+} "Register the RK method and the integrated groups with CarpetX"
+
 SCHEDULE ODESolvers_Solve AT evol
 {
   LANG: C

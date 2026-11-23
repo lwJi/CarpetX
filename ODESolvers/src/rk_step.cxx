@@ -14,9 +14,9 @@ namespace ODESolvers {
 namespace {
 
 void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
-                   const CarpetX::window_t window, statecomp_t &var,
-                   const statecomp_t &rhs,
-                   const std::span<const CarpetX::gi_t> dep_groups) {
+                   const CarpetX::window_t window, const grid_state_t &var,
+                   const grid_state_t &rhs,
+                   const std::span<const CarpetX::gi_t> invalidated_by_update) {
   DECLARE_CCTK_PARAMETERS;
 
   static CarpetX::Timer timer_lincomb("ODESolvers::Solve::lincomb");
@@ -31,9 +31,9 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
   const CCTK_REAL old_time = cctkGH->cctk_time - dt;
   CCTK_REAL t = old_time;
 
-  std::optional<statecomp_t> old;
+  std::optional<scratch_state_t> old;
   if (plan.needs_old)
-    old.emplace(var.copy());
+    old.emplace(scratch_state_t::copy(var));
 
   CarpetX::rk_step_t rk_step = CarpetX::open_rk_step(window);
 
@@ -55,8 +55,8 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
       CCTK_VINFO("Calculated new state #%d at t=%g", n, double(t));
   };
 
-  std::optional<statecomp_t> acc;
-  std::vector<std::optional<statecomp_t> > ks(nstages);
+  std::optional<scratch_state_t> acc;
+  std::vector<std::optional<scratch_state_t> > ks(nstages);
 
   for (int s = 0; s < nstages; ++s) {
     calcrhs(s + 1);
@@ -66,42 +66,35 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
     const row_reads_t &reads = plan.reads[s];
 
     if (plan.keep_until[s] >= 0)
-      ks[s].emplace(rhs.copy());
+      ks[s].emplace(scratch_state_t::copy(rhs));
 
-    std::vector<CCTK_REAL> factors;
-    std::vector<const statecomp_t *> srcs;
-    const auto read = [&](const CCTK_REAL factor, const statecomp_t &src) {
-      factors.push_back(factor);
-      srcs.push_back(&src);
-    };
+    std::vector<term_t> terms;
     if (old)
-      read(1, *old);
+      terms.push_back({1, old->mfabs()});
     if (last)
       assert(plan.needs_acc == bool(acc));
     if (reads.acc != 0) {
       assert(acc);
-      read(reads.acc * dt, *acc);
+      terms.push_back({reads.acc * dt, acc->mfabs()});
     }
     for (int i = 0; i < s; ++i) {
       if (reads.stage[i] == 0)
         continue;
       assert(ks[i]);
-      read(reads.stage[i] * dt, *ks[i]);
+      terms.push_back({reads.stage[i] * dt, ks[i]->mfabs()});
     }
     if (reads.stage[s] != 0)
-      read(reads.stage[s] * dt, rhs);
+      terms.push_back({reads.stage[s] * dt, rhs.mfabs()});
     {
       CarpetX::Interval interval_lincomb(timer_lincomb);
-      statecomp_t::lincomb(var, old ? 0 : 1, factors, srcs,
-                           CarpetX::make_valid_int());
+      update(var, old ? 0 : 1, terms, CarpetX::make_valid_int());
       if (!last && tableau.b[s] != 0) {
         if (acc)
-          statecomp_t::lincomb(*acc, 1, reals<1>{tableau.b[s]}, states<1>{&rhs},
-                               CarpetX::make_valid_int());
+          acc->add(tableau.b[s], rhs);
         else
-          acc.emplace(rhs.scaled(tableau.b[s]));
+          acc.emplace(scratch_state_t::scaled(rhs, tableau.b[s]));
       }
-      CarpetX::invalidate(window, dep_groups, CarpetX::tl_t{0},
+      CarpetX::invalidate(window, invalidated_by_update, CarpetX::tl_t{0},
                           "ODESolvers updated the state vector");
     }
     calcpoststep(row, last ? dt : tableau.c[row] * dt);
@@ -115,13 +108,13 @@ void step_explicit(const cGH *const cctkGH, const tableau_t &tableau,
 } // namespace
 
 void step(const cGH *const cctkGH, const rk_method_t &method,
-          const CarpetX::window_t window, statecomp_t &var,
-          const statecomp_t &rhs,
-          const std::span<const CarpetX::gi_t> dep_groups) {
+          const CarpetX::window_t window, const grid_state_t &var,
+          const grid_state_t &rhs,
+          const std::span<const CarpetX::gi_t> invalidated_by_update) {
   std::visit(overloaded{[](const frozen_t &) {},
                         [&](const explicit_rk_t &scheme) {
                           step_explicit(cctkGH, scheme.tableau, window, var,
-                                        rhs, dep_groups);
+                                        rhs, invalidated_by_update);
                         }},
              method.scheme);
 }
