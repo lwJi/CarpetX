@@ -119,8 +119,8 @@ bool hierarchy_exists() { return ghext != nullptr; }
 void assert_hierarchy_destroyed() { assert(!ghext); }
 
 GHExt::GHExt(const config_t config)
-    : use_subcycling(config.use_subcycling), do_reflux(config.do_reflux),
-      make_core_(config.make_core), make_buffers_(config.make_buffers),
+    : fixed(config.fixed), make_core_(config.make_core),
+      make_buffers_(config.make_buffers),
       registry_(std::in_place, CCTK_NumGroups()) {
   if (ghext)
     CCTK_ERROR("The CarpetX grid hierarchy already exists: SetupGH creates it "
@@ -173,12 +173,11 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
                             const amrcore_factory make_core)
     : patch(patch) {
   DECLARE_CCTK_PARAMETERS;
+  const fixed_config_t &fixed = driver().fixed;
 
-  // Domain
-  amrex::RealBox domain({xmin, ymin, zmin}, {xmax, ymax, zmax});
+  amrex::RealBox domain = fixed.domain;
 
-  // Number of coarse grid cells
-  amrex::Vector<int> ncells{ncells_x, ncells_y, ncells_z};
+  amrex::Vector<int> ncells(fixed.ncells.begin(), fixed.ncells.end());
 
   is_cartesian = true;
 
@@ -218,7 +217,7 @@ GHExt::PatchData::PatchData(level_writer_t &levels, const patch_t patch,
       symmetries[0][2] == symmetry_t::periodic};
 
   core_ = sealed_core_t(core_t{make_core(
-      levels, patch, domain, max_num_levels - 1, ncells, is_periodic)});
+      levels, patch, domain, fixed.max_num_levels - 1, ncells, is_periodic)});
 
   if (verbose) {
 #pragma omp critical
@@ -285,23 +284,20 @@ GHExt::PatchData::LevelData::LevelData(const level_t level,
                                        const std::function<std::string()> &why)
     : level(level), buffers(driver().make_buffers_(level, ba, dm)) {
   assert(this->buffers);
-  DECLARE_CCTK_PARAMETERS;
 
   const GHExt &ext = driver();
   if (level.index() == 0) {
     clock_ = sealed_clock_t(clock_t{0, 1, 0, 0});
   } else {
     const clock_t &coarse = ext.level(level.parent()).sealed_clock().get();
-    clock_ = sealed_clock_t(clock_t{
-        coarse.iteration,
-        coarse.delta_iteration / (ext.use_subcycling ? time_refinement : 1),
-        coarse.last_step_iteration, coarse.last_finalized_iteration});
+    clock_ = sealed_clock_t(
+        clock_t{coarse.iteration,
+                coarse.delta_iteration /
+                    (ext.fixed.use_subcycling ? time_refinement : 1),
+                coarse.last_step_iteration, coarse.last_finalized_iteration});
   }
 
-  const amrex::IntVect nghostzones = {
-      ghost_size >= 0 ? ghost_size : ghost_size_x,
-      ghost_size >= 0 ? ghost_size : ghost_size_y,
-      ghost_size >= 0 ? ghost_size : ghost_size_z};
+  const amrex::IntVect nghostzones(ext.fixed.nghostzones);
   fab = std::make_unique<amrex::FabArrayBase>(ba, dm, 1, nghostzones);
   assert(ba.ixType() == amrex::IndexType(amrex::IndexType::CELL,
                                          amrex::IndexType::CELL,

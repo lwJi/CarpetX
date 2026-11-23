@@ -51,6 +51,8 @@ STEMS = {
         "groups": "what a group was declared as: its kind and its tags",
         "boundaries": "the symmetries and default boundaries the parameters ask for",
         "grid_sizes": "the largest grid each level may have",
+        "run_config": "what the model carries of the run's configuration: `fixed_config_t`, the part fixed for the run",
+        "decode_run_config": "the one decoding of what the model carries of the run's configuration, which only the files that fill the model call",
         "indices": "ranges over the public index types",
         "stages": "RK stages and the refinement of time",
     },
@@ -308,11 +310,11 @@ FRIEND = re.compile(r"\bfriend\b")
 CLASS_KEYWORDS = ("struct", "class", "union")
 ACCESS_KEYWORDS = ("public", "protected", "private")
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
-PARAMETER_READERS = ("config", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "api", "flesh")
+PARAMETER_READERS = ("config", "hierarchy", "comm", "regrid", "ops", "io", "schedule", "flesh")
 assert PARAMETER_READERS == tuple(layer for layer in LAYERS if layer in PARAMETER_READERS), PARAMETER_READERS
 DECODING_LAYER = "config"
 assert DECODING_LAYER in PARAMETER_READERS, PARAMETER_READERS
-DECODES = ("boundaries", "grid_sizes", "groups")
+DECODES = ("boundaries", "decode_run_config", "grid_sizes", "groups")
 assert DECODES == tuple(sorted(set(DECODES))) and set(DECODES) <= set(STEMS[DECODING_LAYER]), DECODES
 PARAMETERS_HOME = READS_HOME
 PARAMETERS_TEXT = (
@@ -321,6 +323,32 @@ PARAMETERS_TEXT = (
 )
 DRIVER_PARAM = "CarpetX/param.ccl"
 PARAMETER_LINE = re.compile(r"^\s*(?:USES\s+)?(?:BOOLEAN|INT|REAL|KEYWORD|STRING|CCTK_INT|CCTK_REAL)\s+(\w+)", re.M)
+STEERABLE_LINE = re.compile(r"^\s*(?:BOOLEAN|INT|REAL|KEYWORD|STRING|CCTK_INT|CCTK_REAL)\s+(\w+)(?:[^\n]*?\bSTEERABLE\s*=\s*(\w+))?", re.M)
+CARRIED = {
+    "fixed": (
+        "use_subcycling",
+        "do_reflux",
+        "max_num_levels",
+        "ghost_size",
+        "ghost_size_x",
+        "ghost_size_y",
+        "ghost_size_z",
+        "ncells_x",
+        "ncells_y",
+        "ncells_z",
+        "prolongate_per_group",
+    ),
+}
+CARRIED_NAMES = frozenset(name for names in CARRIED.values() for name in names)
+assert len(CARRIED_NAMES) == sum(len(names) for names in CARRIED.values()), CARRIED
+RUN_CONFIG_STEM = "decode_run_config"
+assert RUN_CONFIG_STEM in DECODES, DECODES
+RUN_CONFIG_FILES = (layer_path("flesh", "startup.cxx"),)
+RUN_CONFIG_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]' + DECODING_LAYER + "/" + RUN_CONFIG_STEM + r'\.hxx[>"]')
+CARRIED_TEXT = (
+    f"the model carries {', '.join(CARRIED['fixed'])} in its fixed part, read from driver().fixed in every layer; "
+    f"{DECODING_LAYER}/{RUN_CONFIG_STEM} decodes them once, and is included only from {' and '.join(RUN_CONFIG_FILES)}, to fill the model"
+)
 PARAMETER_MACRO = re.compile(r"\bDECLARE_CCTK_PARAMETERS\b")
 PARAMETER_READ = re.compile(r'\bDECLARE_CCTK_PARAMETERS\b|\bCCTK_ParameterGet\b|^\s*#\s*include\s*[<"]cctk_Parameters\.h[>"]')
 MEMBER_ACCESS = (".", "::", "->")
@@ -661,11 +689,35 @@ def unread_scopes(name: str, text: str) -> list[int]:
     return [line for line, named in parameter_scopes(text, parameter_names()) if not named]
 
 
+def stem_of(name: str) -> str:
+    return name.rsplit("/", 1)[1].split(".", 1)[0]
+
+
+def decodes(name: str) -> bool:
+    return layer_of(name) == DECODING_LAYER and stem_of(name) in DECODES
+
+
 def reads_parameters(name: str, line: str, statement: str) -> bool:
     layer = layer_of(name)
     if layer == DECODING_LAYER:
-        return name.rsplit("/", 1)[1].split(".", 1)[0] in DECODES
+        return decodes(name)
     return layer in PARAMETER_READERS
+
+
+@functools.cache
+def steering(root: str = PROJECT) -> dict[str, str]:
+    with open(os.path.join(root, DRIVER_PARAM)) as f:
+        return {name: (steerable or "never").lower() for name, steerable in STEERABLE_LINE.findall(f.read())}
+
+
+def carried_reads(name: str, text: str) -> list[int]:
+    if decodes(name):
+        return []
+    return [line for line, named in parameter_scopes(text, parameter_names()) if named & CARRIED_NAMES]
+
+
+def snapshot_allowed(name: str, line: str, statement: str) -> bool:
+    return name in RUN_CONFIG_FILES or (layer_of(name) == DECODING_LAYER and stem_of(name) == RUN_CONFIG_STEM)
 
 
 RULES = (
@@ -1003,6 +1055,18 @@ RULES = (
         clean="no parameter read outside the layers that read them",
     ),
     Rule(
+        "carried",
+        files=private_cxx,
+        word=PARAMETER_MACRO,
+        allowed=granted,
+        text=f"a DECLARE_CCTK_PARAMETERS scope outside a decoding stem of {DECODING_LAYER}/ names no parameter the model carries, "
+        f"the table CARRIED in {PARAMETERS_HOME}: {CARRIED_TEXT}. A reading layer reads them there too, so that one value has one path.",
+        noun="carried parameter read",
+        where="outside a decoding stem",
+        clean="no carried parameter read outside a decoding stem",
+        whole=carried_reads,
+    ),
+    Rule(
         "unread",
         files=private_cxx,
         word=PARAMETER_MACRO,
@@ -1014,6 +1078,17 @@ RULES = (
         where="that names no parameter",
         clean="every parameter declaration names a parameter",
         whole=unread_scopes,
+    ),
+    Rule(
+        "snapshot",
+        files=private_cxx,
+        word=RUN_CONFIG_INCLUDE,
+        allowed=snapshot_allowed,
+        text=f"{DECODING_LAYER}/{RUN_CONFIG_STEM}.hxx is included only from {' and '.join(RUN_CONFIG_FILES)}, to fill the model with what it decodes, "
+        f"and from its own stem; every other file reads the carried value from driver(), so that no layer takes its own snapshot of it.",
+        noun="run-configuration include",
+        where="outside the files that fill the model",
+        clean="no run-configuration include outside the files that fill the model",
     ),
 )
 RULE = "\n".join([wrap(PREAMBLE)] + [rule.paragraph() for rule in RULES])

@@ -1,3 +1,4 @@
+#include "config/decode_run_config.hxx"
 #include "config/grid_sizes.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/modes.hxx"
@@ -154,8 +155,7 @@ void *SetupGH(tFleshConfig *fc, int convLevel, cGH *restrict cctkGH) {
     assert(!ierr);
   }
 
-  writers = create_hierarchy({.use_subcycling = bool(use_subcycling),
-                              .do_reflux = bool(do_reflux),
+  writers = create_hierarchy({.fixed = decode_fixed_config(),
                               .make_core = make_cactus_amrcore,
                               .make_buffers = make_level_buffers});
   adopt_writers(writers->registry, writers->scratch, writers->stage);

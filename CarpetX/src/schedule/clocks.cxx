@@ -55,7 +55,7 @@ std::vector<window_t> ClockGroups() {
        below = below.narrow(0, groups.back().level_bounds().min))
     groups.push_back(ClockGroupBelow(below));
   std::reverse(groups.begin(), groups.end());
-  assert((ext.use_subcycling || groups.size() <= 1) &&
+  assert((ext.fixed.use_subcycling || groups.size() <= 1) &&
          "without subcycling every level shares one clock");
   return groups;
 }
@@ -64,7 +64,7 @@ std::vector<window_t> ClockGroups() {
 window_t FinestClockGroup() {
   const GHExt &ext = driver();
   const window_t group = ClockGroupBelow(all_levels());
-  assert((ext.use_subcycling || group.level_bounds().min == 0) &&
+  assert((ext.fixed.use_subcycling || group.level_bounds().min == 0) &&
          "without subcycling the end-of-step window holds every level");
   return group;
 }
@@ -123,7 +123,7 @@ std::vector<window_t> StepGroups() {
   std::vector<window_t> groups;
   int first = 0;
   for (int level_index = 1; level_index <= ext.num_levels(); ++level_index) {
-    if (level_index == ext.num_levels() || ext.use_subcycling) {
+    if (level_index == ext.num_levels() || ext.fixed.use_subcycling) {
       groups.push_back(window_t::levels(first, level_index));
       first = level_index;
     }
@@ -137,8 +137,8 @@ void SetDeltaTime(clock_writer_t &clock) {
   if (CCTK_EQUALS(timestep_choice, "timestep")) {
     delta_time = timestep;
   } else if (CCTK_EQUALS(timestep_choice, "dtfac")) {
-    delta_time = dtfac * (driver().use_subcycling ? get_coarse_mindx()
-                                                  : get_finest_mindx());
+    delta_time = dtfac * (driver().fixed.use_subcycling ? get_coarse_mindx()
+                                                        : get_finest_mindx());
   } else {
     CCTK_ERROR("Unexpected value for 'CarpetX::timestep_choice'");
     abort();
@@ -268,7 +268,7 @@ void TraverseTailBin(cGH *restrict const cctkGH, const char *const bin) {
 
 static void error_if_sync_in_tail(const window_t window,
                                   const std::span<const gi_t> groups0) {
-  if (!driver().use_subcycling)
+  if (!driver().fixed.use_subcycling)
     return;
   const char *const bin = scheduled_tail_bin();
   if (!bin || groups0.empty())
@@ -338,7 +338,7 @@ void FinalizeWindow(const window_t window, cGH *restrict const cctkGH,
       Reflux(window);
     assert(do_restrict);
     const std::vector<gi_t> groups = collect_restrictable_groups();
-    if (ext.use_subcycling)
+    if (ext.fixed.use_subcycling)
       RestrictNoPoison(window, groups);
     else
       Restrict(window, groups);

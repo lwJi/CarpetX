@@ -1145,6 +1145,19 @@ class ParameterScopes(unittest.TestCase):
         "flesh": (10, 32),
     }
     DELETED = {"config": 4, "hierarchy": 4, "comm": 6, "ops": 1, "io": 1, "schedule": 3}
+    TREE = {
+        "util": (0, 0),
+        "traversal": (0, 0),
+        "config": (8, 65),
+        "hierarchy": (7, 3),
+        "comm": (4, 4),
+        "regrid": (5, 2),
+        "ops": (2, 9),
+        "io": (31, 53),
+        "schedule": (10, 20),
+        "api": (0, 0),
+        "flesh": (10, 30),
+    }
 
     def scan(self, text):
         return rules.parameter_scopes(text, rules.parameter_names())
@@ -1189,10 +1202,14 @@ class ParameterScopes(unittest.TestCase):
     def test_a_longer_name_is_not_the_macro(self):
         self.assertEqual(self.scan("void f() {\n  DECLARE_CCTK_PARAMETERS_X;\n  DECLARE_CCTK_ARGUMENTS;\n}\n"), [])
 
-    def test_the_tree_is_the_tickets_table_less_the_sites_that_named_nothing(self):
+    def test_the_ticket_counted_101_sites_of_which_19_named_nothing(self):
         self.assertEqual(sum(sites for sites, _ in self.TICKET.values()), 101)
         self.assertEqual(sum(self.DELETED.values()), 19)
         self.assertEqual(tuple(self.TICKET), LAYERS)
+        self.assertTrue(set(self.DELETED) <= set(LAYERS))
+
+    def test_the_tree_is_the_table_of_sites(self):
+        self.assertEqual(tuple(self.TREE), LAYERS)
         found = {layer: [0, set()] for layer in LAYERS}
         empty = []
         for layer, name, text in private_sources():
@@ -1202,8 +1219,8 @@ class ParameterScopes(unittest.TestCase):
                 if not named:
                     empty.append(f"{name}:{line}")
         self.assertEqual(empty, [])
-        self.assertEqual({layer: (sites, len(named)) for layer, (sites, named) in found.items()}, {layer: (sites - self.DELETED.get(layer, 0), distinct) for layer, (sites, distinct) in self.TICKET.items()})
-        self.assertEqual(sum(sites for sites, _ in found.values()), 82)
+        self.assertEqual({layer: (sites, len(named)) for layer, (sites, named) in found.items()}, self.TREE)
+        self.assertEqual(sum(sites for sites, _ in found.values()), 77)
 
 
 class Parameters(unittest.TestCase):
@@ -1219,6 +1236,7 @@ class Parameters(unittest.TestCase):
         "CarpetX/src/traversal/traversal.cxx",
         "CarpetX/src/config/indices.hxx",
         "CarpetX/src/config/stages.cxx",
+        "CarpetX/src/config/run_config.hxx",
         "CarpetX/src/internal.hxx",
     ]
 
@@ -1251,13 +1269,19 @@ class Parameters(unittest.TestCase):
                 self.assertEqual(self.parameters(self.REFUSED[0], text), [])
 
     def test_the_table_decides(self):
-        api = layer_path("api", "api_rk.cxx")
+        io = layer_path("io", "io.cxx")
         stages = layer_path("config", "stages.cxx")
-        self.assertEqual(self.parameters(api, self.READS[0] + "\n"), [])
+        self.assertEqual(self.parameters(io, self.READS[0] + "\n"), [])
         self.assertEqual(self.parameters(stages, self.READS[0] + "\n"), [("parameters", self.READS[0])])
-        with mock.patch.object(rules, "PARAMETER_READERS", tuple(layer for layer in rules.PARAMETER_READERS if layer != "api")), mock.patch.object(rules, "DECODES", rules.DECODES + ("stages",)):
-            self.assertEqual(self.parameters(api, self.READS[0] + "\n"), [("parameters", self.READS[0])])
+        with mock.patch.object(rules, "PARAMETER_READERS", tuple(layer for layer in rules.PARAMETER_READERS if layer != "io")), mock.patch.object(rules, "DECODES", rules.DECODES + ("stages",)):
+            self.assertEqual(self.parameters(io, self.READS[0] + "\n"), [("parameters", self.READS[0])])
             self.assertEqual(self.parameters(stages, self.READS[0] + "\n"), [])
+
+    def test_api_is_told(self):
+        for line in self.READS:
+            for name in [layer_path("api", "api_rk.cxx"), layer_path("api", "api.hxx")]:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(self.parameters(name, line + "\n"), [("parameters", line.strip())])
 
     def test_line_numbers(self):
         text = "int a;\n\n" + self.READS[1] + "\n"
@@ -1289,7 +1313,7 @@ class Unread(unittest.TestCase):
 
     def test_a_site_that_names_a_parameter_is_clean(self):
         for name in self.NAMES:
-            for body in ["  if (verbose) g();\n", "  use(ext.verbose, presync_mode);\n", "  g([&] { return ghost_size_x; });\n"]:
+            for body in ["  if (verbose) g();\n", "  use(ext.verbose, presync_mode);\n", "  g([&] { return regrid_every; });\n"]:
                 with self.subTest(name=name, body=body):
                     self.assertEqual(reported(name, "void f() {\n  DECLARE_CCTK_PARAMETERS;\n" + body + "}\n"), [])
 
@@ -1305,6 +1329,161 @@ class Unread(unittest.TestCase):
 
     def test_the_tree_holds_it(self):
         found = [(name, f.line) for _, name, text in private_sources() for f in findings(name, text, Lang.CXX) if f.rule == "unread"]
+        self.assertEqual(found, [])
+
+
+class Carried(unittest.TestCase):
+    NAMES = [
+        "CarpetX/src/hierarchy/grid.cxx",
+        "CarpetX/src/comm/reflux.cxx",
+        "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx",
+        "CarpetX/src/api/api_rk.cxx",
+        "CarpetX/src/io/io.cxx",
+        "CarpetX/src/schedule/evolve.cxx",
+        "CarpetX/src/flesh/startup.cxx",
+        "CarpetX/src/config/stages.cxx",
+    ]
+    BODIES = [
+        "  if (use_subcycling) g();\n",
+        "  use(ghost_size >= 0 ? ghost_size : ghost_size_x);\n",
+        "  g([&] { return max_num_levels - 1; });\n",
+        "  if (verbose && prolongate_per_group) g();\n",
+        "  config_t config{.do_reflux = do_reflux};\n",
+    ]
+    DECODING = ["CarpetX/src/config/decode_run_config.cxx", "CarpetX/src/config/groups.cxx", "CarpetX/src/config/grid_sizes.cxx"]
+
+    def carried(self, name, text):
+        return [found for found in reported(name, text) if found[0] == "carried"]
+
+    def scope(self, body):
+        return "void f() {\n  DECLARE_CCTK_PARAMETERS;\n" + body + "}\n"
+
+    def test_a_scope_that_names_a_carried_parameter_is_reported(self):
+        for name in self.NAMES:
+            for body in self.BODIES:
+                with self.subTest(name=name, body=body):
+                    self.assertEqual(self.carried(name, self.scope(body)), [("carried", "DECLARE_CCTK_PARAMETERS;")])
+
+    def test_a_decoding_stem_may_name_one(self):
+        for name in self.DECODING:
+            for body in self.BODIES:
+                with self.subTest(name=name, body=body):
+                    self.assertEqual(self.carried(name, self.scope(body)), [])
+
+    def test_a_read_of_the_model_a_string_or_another_parameter_is_not_a_carried_read(self):
+        for name in self.NAMES:
+            for body in [
+                "  if (ext.fixed.use_subcycling && verbose) g();\n",
+                "  use(driver().fixed.max_num_levels, presync_mode);\n",
+                '  CCTK_VINFO("ghost_size %d", int(verbose));\n',
+                "  g([&] { return regrid_every; });\n",
+            ]:
+                with self.subTest(name=name, body=body):
+                    self.assertEqual(self.carried(name, self.scope(body)), [])
+
+    def test_each_scope_is_judged_alone(self):
+        text = "void f() {\n  DECLARE_CCTK_PARAMETERS;\n  use(verbose);\n}\nvoid g() { use(ghost_size); }\n\nvoid h() {\n  DECLARE_CCTK_PARAMETERS;\n  use(verbose, do_reflux);\n}\n"
+        self.assertEqual(findings(self.NAMES[0], text, Lang.CXX), [Finding(8, "carried", "DECLARE_CCTK_PARAMETERS;")])
+
+    def test_the_table_decides(self):
+        name = self.NAMES[0]
+        with mock.patch.object(rules, "CARRIED_NAMES", rules.CARRIED_NAMES | {"verbose"}):
+            self.assertEqual(self.carried(name, self.scope("  if (verbose) g();\n")), [("carried", "DECLARE_CCTK_PARAMETERS;")])
+        with mock.patch.object(rules, "CARRIED_NAMES", rules.CARRIED_NAMES - {"use_subcycling"}):
+            self.assertEqual(self.carried(name, self.scope(self.BODIES[0])), [])
+
+    def test_another_thorn_is_not_judged(self):
+        for body in self.BODIES:
+            with self.subTest(body=body):
+                self.assertEqual(reported("ODESolvers/src/solve.cxx", self.scope(body)), [])
+
+    def test_the_tree_holds_it(self):
+        found = [(name, f.line) for _, name, text in private_sources() for f in findings(name, text, Lang.CXX) if f.rule == "carried"]
+        self.assertEqual(found, [])
+
+    def test_the_parts_are_the_models(self):
+        self.assertEqual(tuple(rules.CARRIED), ("fixed",))
+        self.assertEqual(rules.CARRIED_NAMES, frozenset(name for names in rules.CARRIED.values() for name in names))
+
+    def test_every_carried_name_is_a_parameter_of_the_driver(self):
+        steering = rules.steering()
+        for name in sorted(rules.CARRIED_NAMES):
+            with self.subTest(name=name):
+                self.assertIn(name, steering, f"CARRIED in {rules.PARAMETERS_HOME} names {name}, which {rules.DRIVER_PARAM} does not declare")
+
+    def test_no_fixed_name_follows_a_steer(self):
+        steering = rules.steering()
+        for name in rules.CARRIED["fixed"]:
+            with self.subTest(name=name):
+                self.assertNotEqual(steering[name], "always", f"{name} is STEERABLE=always in {rules.DRIVER_PARAM}, but the model's fixed part is set once")
+
+    def test_steering_is_read_from_the_declaration_line(self):
+        steering = rules.steering()
+        self.assertEqual(steering["verbose"], "always")
+        self.assertEqual(steering["blocking_factor_x"], "recover")
+        self.assertEqual(steering["ghost_size"], "never")
+        self.assertEqual(steering["use_subcycling"], "never")
+        self.assertNotIn("presync_mode", steering)
+        self.assertLess(set(steering), set(rules.parameter_names()))
+
+
+class Snapshot(unittest.TestCase):
+    INCLUDES = ['#include "config/decode_run_config.hxx"', "#include <config/decode_run_config.hxx>", '  #  include "config/decode_run_config.hxx"']
+    REFUSED = [
+        "CarpetX/src/hierarchy/model.cxx",
+        "CarpetX/src/hierarchy/model.hxx",
+        "CarpetX/src/comm/reflux.cxx",
+        "CarpetX/src/io/io.cxx",
+        "CarpetX/src/schedule/evolve.cxx",
+        "CarpetX/src/schedule/callfunction.cxx",
+        "CarpetX/src/api/api_rk.cxx",
+        "CarpetX/src/flesh/aliased.cxx",
+        "CarpetX/src/flesh/compile_checks.cxx",
+        "CarpetX/src/config/groups.cxx",
+    ]
+
+    def snapshot(self, name, text):
+        return [found for found in reported(name, text) if found[0] == "snapshot"]
+
+    def test_the_include_is_reported_outside_the_files_that_fill_the_model(self):
+        for name in self.REFUSED:
+            for line in self.INCLUDES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(self.snapshot(name, line + "\n"), [("snapshot", line.strip())])
+
+    def test_the_files_that_fill_the_model_and_the_stem_may_include_it(self):
+        self.assertEqual(rules.RUN_CONFIG_FILES, ("CarpetX/src/flesh/startup.cxx",))
+        for name in rules.RUN_CONFIG_FILES + ("CarpetX/src/config/decode_run_config.cxx", "CarpetX/src/config/decode_run_config.hxx"):
+            for line in self.INCLUDES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(self.snapshot(name, line + "\n"), [])
+
+    def test_the_type_header_or_a_longer_name_is_not_judged(self):
+        for text in ['#include "config/run_config.hxx"\n', '#include "config/decode_run_config_x.hxx"\n', '#include "config/grid_sizes.hxx"\n', "decode_fixed_config();\n"]:
+            with self.subTest(text=text):
+                self.assertEqual(self.snapshot(self.REFUSED[0], text), [])
+
+    def test_another_thorn_is_not_judged(self):
+        self.assertEqual(reported("ODESolvers/src/solve.cxx", self.INCLUDES[0] + "\n"), [])
+
+    def test_the_table_decides(self):
+        name = "CarpetX/src/schedule/callfunction.cxx"
+        with mock.patch.object(rules, "RUN_CONFIG_FILES", rules.RUN_CONFIG_FILES + (name,)):
+            self.assertEqual(self.snapshot(name, self.INCLUDES[0] + "\n"), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n\n" + self.INCLUDES[0] + "\n"
+        self.assertEqual(findings(self.REFUSED[0], text, Lang.CXX), [Finding(3, "snapshot", self.INCLUDES[0])])
+
+    def test_the_table_is_the_files_that_include_it(self):
+        found = set()
+        for _, name, text in private_sources():
+            if any(rules.RUN_CONFIG_INCLUDE.search(line) for line in text.splitlines()) and rules.stem_of(name) != rules.RUN_CONFIG_STEM:
+                found.add(name)
+        self.assertEqual(found, set(rules.RUN_CONFIG_FILES), f"RUN_CONFIG_FILES in {rules.PARAMETERS_HOME} is the files that include {rules.DECODING_LAYER}/{rules.RUN_CONFIG_STEM}.hxx")
+
+    def test_the_tree_holds_it(self):
+        found = [(name, f.line) for _, name, text in private_sources() for f in findings(name, text, Lang.CXX) if f.rule == "snapshot"]
         self.assertEqual(found, [])
 
 
@@ -2446,7 +2625,9 @@ class Report(unittest.TestCase):
             "no write-scope or deciding-stem include in a stem of comm/ that applies, "
             "every include of comm/ from above one its layer is given, "
             "no parameter read outside the layers that read them, "
-            "and every parameter declaration names a parameter",
+            "no carried parameter read outside a decoding stem, "
+            "every parameter declaration names a parameter, "
+            "and no run-configuration include outside the files that fill the model",
         )
 
     def test_counts(self):
@@ -2999,7 +3180,7 @@ class Doc(unittest.TestCase):
                 self.assertIn(f'  {box} -- "{", ".join(headers)}" --> {target}', lines)
         self.assertEqual(list(doc.floor()), [("above", "hierarchy"), ("door", "config"), ("door", "traversal"), ("door", "util"), ("door", "include"), ("nodoor", "include")])
         self.assertEqual(doc.floor()[("above", "hierarchy")], ("binding.hxx", "clock.hxx", "grid.hxx", "loops.hxx", "model.hxx", "modes.hxx", "scopes.hxx", "valid.hxx", "writers.hxx"))
-        self.assertEqual(doc.floor()[("door", "config")], ("boundaries.hxx", "grid_sizes.hxx", "groups.hxx", "indices.hxx", "stages.hxx"))
+        self.assertEqual(doc.floor()[("door", "config")], ("boundaries.hxx", "decode_run_config.hxx", "grid_sizes.hxx", "groups.hxx", "indices.hxx", "run_config.hxx", "stages.hxx"))
         for header in ("clocks.hxx", "group_tags.hxx", "indices.hxx", "driver.hxx", "operations.hxx"):
             self.assertNotIn(header, doc.floor()[("above", "hierarchy")])
         self.assertIn('    config["config/"]', nodoor_of(lines))
@@ -3152,6 +3333,8 @@ class Doc(unittest.TestCase):
                 "  - `groups`: what a group was declared as: its kind and its tags",
                 "  - `boundaries`: the symmetries and default boundaries the parameters ask for",
                 "  - `grid_sizes`: the largest grid each level may have",
+                "  - `run_config`: what the model carries of the run's configuration: `fixed_config_t`, the part fixed for the run",
+                "  - `decode_run_config`: the one decoding of what the model carries of the run's configuration, which only the files that fill the model call",
                 "  - `indices`: ranges over the public index types",
                 "  - `stages`: RK stages and the refinement of time",
             ],

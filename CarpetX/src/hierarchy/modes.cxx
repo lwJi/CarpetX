@@ -3,7 +3,6 @@
 #include "hierarchy/model.hxx"
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <AMReX_Box.H>
 #include <AMReX_Geometry.H>
@@ -77,12 +76,11 @@ void setup_cctkGH(cGH *restrict cctkGH) {
 }
 
 void enter_global_mode(cGH *restrict cctkGH) {
-  DECLARE_CCTK_PARAMETERS;
   assert(in_meta_mode(cctkGH));
 
-  cctkGH->cctk_nghostzones[0] = ghost_size >= 0 ? ghost_size : ghost_size_x;
-  cctkGH->cctk_nghostzones[1] = ghost_size >= 0 ? ghost_size : ghost_size_y;
-  cctkGH->cctk_nghostzones[2] = ghost_size >= 0 ? ghost_size : ghost_size_z;
+  const fixed_config_t &fixed = driver().fixed;
+  for (int d = 0; d < dim; ++d)
+    cctkGH->cctk_nghostzones[d] = fixed.nghostzones[d];
 
   assert(in_global_mode(cctkGH));
 }

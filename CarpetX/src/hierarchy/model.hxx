@@ -5,6 +5,7 @@
 
 #include "config/groups.hxx"
 #include "config/indices.hxx"
+#include "config/run_config.hxx"
 #include "config/stages.hxx"
 #include "hierarchy/valid.hxx"
 #include "util/refuse.hxx"
@@ -154,8 +155,7 @@ using level_buffers_factory =
 struct GHExt {
 
   struct config_t {
-    bool use_subcycling;
-    bool do_reflux;
+    fixed_config_t fixed;
     amrcore_factory make_core;
     level_buffers_factory make_buffers;
   };
@@ -871,9 +871,7 @@ struct GHExt {
   }
   std::span<const PatchData> patches() const { return patches_->patches(); }
 
-  const bool use_subcycling;
-
-  const bool do_reflux;
+  const fixed_config_t fixed;
 
   int num_levels(const patch_t patch) const {
     return this->patch(patch).num_levels();

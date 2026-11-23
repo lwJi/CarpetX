@@ -747,7 +747,7 @@ void CarpetX::InterpolationSetup::Interpolate(
 
   const MPI_Comm comm = amrex::ParallelDescriptor::Communicator();
 
-  if (ext.use_subcycling) {
+  if (ext.fixed.use_subcycling) {
     const double local_iteration_used[2] = {
         min_level_iteration_used != -1
             ? -double(min_level_iteration_used)

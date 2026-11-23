@@ -67,7 +67,7 @@ static std::vector<gi_t> reprolongate_groups() {
   groups.reserve(CCTK_NumGroups());
   for (const auto &group : ext.records(group_kind::grid_function))
     if (group.do_restrict ||
-        (ext.use_subcycling && group_is_integrated(group.groupindex)))
+        (ext.fixed.use_subcycling && group_is_integrated(group.groupindex)))
       groups.push_back(group.groupindex);
   return groups;
 }
@@ -95,7 +95,7 @@ static std::vector<level_run_t> ProlongateGhosts_impl(
           const GHExt::PatchData::LevelData &leveldata) {
         if (leveldata.level.index() == 0)
           return false;
-        if (ext.use_subcycling && prolongate_on_same_iteration)
+        if (ext.fixed.use_subcycling && prolongate_on_same_iteration)
           return aligned_with_parent(leveldata.level);
         return true;
       };

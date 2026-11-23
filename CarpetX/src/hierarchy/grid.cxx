@@ -2,7 +2,6 @@
 #include "hierarchy/model.hxx"
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <AMReX_Box.H>
 #include <AMReX_Geometry.H>
@@ -13,13 +12,10 @@ namespace CarpetX {
 
 GridDesc::GridDesc(const GHExt::PatchData::LevelData &leveldata,
                    const MFPointer &mfp) {
-  DECLARE_CCTK_PARAMETERS;
+  const GHExt &ext = driver();
+  nghostzones = ext.fixed.nghostzones;
 
-  nghostzones = {ghost_size >= 0 ? ghost_size : ghost_size_x,
-                 ghost_size >= 0 ? ghost_size : ghost_size_y,
-                 ghost_size >= 0 ? ghost_size : ghost_size_z};
-
-  const auto &patchdata = driver().patch(leveldata.level.patch());
+  const auto &patchdata = ext.patch(leveldata.level.patch());
   const amrex::IntVect ng(nghostzones[0], nghostzones[1], nghostzones[2]);
   const amrex::Box &domain =
       patchdata.amrcore().Geom(leveldata.level.index()).Domain();

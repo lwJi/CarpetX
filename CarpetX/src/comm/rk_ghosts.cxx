@@ -365,7 +365,7 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
 void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
                     const stage_t completed, const std::string &event) {
   const GHExt &ext = driver();
-  assert(ext.use_subcycling);
+  assert(ext.fixed.use_subcycling);
   assert(child.index() > 0);
 
   auto &patchdata = ext.patch(child.patch());
@@ -449,7 +449,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
 void RecoverRKBoundary(const window_t window) {
   DECLARE_CCTK_PARAMETERS;
   const GHExt &ext = driver();
-  if (!ext.use_subcycling)
+  if (!ext.fixed.use_subcycling)
     return;
   const std::optional<GHExt::integrator_t> &integrator = ext.integrator();
   if (!integrator)

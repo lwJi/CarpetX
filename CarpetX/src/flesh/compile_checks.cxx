@@ -204,10 +204,14 @@ concept grid_ptr_takes =
 
 template <class Ext>
 concept assigns_use_subcycling =
-    requires(Ext &ext) { ext.use_subcycling = true; };
+    requires(Ext &ext) { ext.fixed.use_subcycling = true; };
 
 template <class Ext>
-concept assigns_do_reflux = requires(Ext &ext) { ext.do_reflux = true; };
+concept assigns_do_reflux = requires(Ext &ext) { ext.fixed.do_reflux = true; };
+
+template <class Ext>
+concept assigns_fixed =
+    requires(Ext &ext, const fixed_config_t &fixed) { ext.fixed = fixed; };
 
 template <class Ext>
 concept assigns_active_timelevels =
@@ -912,16 +916,19 @@ static_assert(
                    index_range<patch_t>>);
 static_assert(next_index(patch_t{0}) == patch_t{1});
 
-static_assert(std::is_same_v<decltype(GHExt::use_subcycling), const bool>);
-static_assert(std::is_same_v<decltype(GHExt::do_reflux), const bool>);
+static_assert(std::is_same_v<decltype(GHExt::fixed), const fixed_config_t>);
+static_assert(std::is_same_v<decltype(GHExt::config_t::fixed), fixed_config_t>);
 static_assert(!assigns_use_subcycling<GHExt>);
 static_assert(!assigns_do_reflux<GHExt>);
+static_assert(!assigns_fixed<GHExt>);
 static_assert(!std::is_default_constructible_v<GHExt>);
 static_assert(!std::is_constructible_v<GHExt, GHExt::config_t>);
 static_assert(!std::is_convertible_v<GHExt::config_t, GHExt>);
 static_assert(!std::is_constructible_v<GHExt, bool, bool>);
+static_assert(!std::is_constructible_v<GHExt, fixed_config_t>);
 static_assert(create_hierarchy_takes<GHExt::config_t>);
 static_assert(!create_hierarchy_takes<bool, bool>);
+static_assert(!create_hierarchy_takes<fixed_config_t>);
 static_assert(
     std::is_same_v<decltype(create_hierarchy(std::declval<GHExt::config_t>())),
                    std::unique_ptr<hierarchy_writers_t>>);

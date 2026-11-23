@@ -4,13 +4,13 @@
 #include "internal.hxx"
 
 #include "comm/prolongate_3d_rf2_inside.hxx"
+#include "hierarchy/model.hxx"
 
 #include <carpetx.hxx>
 
 #include <vect.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #include <AMReX_Gpu.H>
 
@@ -2128,8 +2128,7 @@ void prolongate_3d_rf2<
                 const amrex::Geometry &fine_geom,
                 amrex::Vector<amrex::BCRec> const &bcr, const int actual_comp,
                 const int actual_state, const amrex::RunOn gpu_or_cpu) {
-  DECLARE_CCTK_PARAMETERS;
-  if (!prolongate_per_group)
+  if (!driver().fixed.prolongate_per_group)
     interp_per_var(crse_box, crse_comp, fine_box, fine_comp, ncomps,
                    fine_region, ratio, crse_geom, fine_geom, bcr, actual_comp,
                    actual_state, gpu_or_cpu);

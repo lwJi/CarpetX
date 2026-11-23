@@ -252,7 +252,7 @@ amrex::MultiFab &scratch_writer_t::mfab(const group_t group,
 namespace {
 GHExt::run_clock_t showing_level(GHExt::run_clock_t clock, const GHExt &ext,
                                  const level_t level) {
-  if (ext.use_subcycling) {
+  if (ext.fixed.use_subcycling) {
     clock.timefac = substeps_per_coarsest_step(level.index());
     clock.time = clock.initial_time +
                  clock.delta_time * double(ext.level(level).iteration());
@@ -303,7 +303,7 @@ void clock_writer_t::begin_step(const window_t window) {
     clock.iteration += clock.delta_iteration;
   });
   GHExt::run_clock_t next = ext.run_clock();
-  if (!ext.use_subcycling)
+  if (!ext.fixed.use_subcycling)
     next.time += next.delta_time;
   set(showing_level(next, ext, window.coarsest()));
 }

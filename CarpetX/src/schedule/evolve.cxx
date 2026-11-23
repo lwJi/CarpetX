@@ -107,12 +107,12 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
     CCTK_ERROR("CarpetX currently requires Cactus::presync_mode = "
                "\"mixed-error\" or \"presync-only\"");
 
-  // Check restrict_during_sync when use_subcycling is on
-  if (use_subcycling && restrict_during_sync)
+  if (driver().fixed.use_subcycling && restrict_during_sync)
     CCTK_ERROR("CarpetX requires CarpetX::restrict_during_sync = "
                "\"no\" when CarpetX::use_subcycling = \"yes\"");
 
-  if (use_subcycling && CCTK_EQUALS(presync_mode, "presync-only"))
+  if (driver().fixed.use_subcycling &&
+      CCTK_EQUALS(presync_mode, "presync-only"))
     CCTK_ERROR("CarpetX requires Cactus::presync_mode = \"mixed-error\" when "
                "CarpetX::use_subcycling = \"yes\"");
 
@@ -475,7 +475,7 @@ int Evolve(tFleshConfig *config, clock_writer_t &clock,
     {
       const window_t window = FinestClockGroup();
       const traversal_scope_t scope(window);
-      FinalizeWindow(window, cctkGH, clock, ext.use_subcycling);
+      FinalizeWindow(window, cctkGH, clock, ext.fixed.use_subcycling);
       TraverseTailBin(cctkGH, "CCTK_POSTSTEP");
       TraverseTailBin(cctkGH, "CCTK_ANALYSIS");
 

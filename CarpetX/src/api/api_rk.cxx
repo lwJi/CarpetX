@@ -10,7 +10,6 @@
 #include <carpetx.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
 #if defined _OPENMP
 #include <omp.h>
@@ -152,10 +151,9 @@ void check_pair(const std::vector<rk_pair_t> &integrated,
 void check_and_record(const rk_dense_output_t dense_output,
                       const std::vector<CCTK_REAL> &b,
                       const std::vector<rk_pair_t> &integrated) {
-  DECLARE_CCTK_PARAMETERS;
   const operation_scope_t op("CarpetX::register_integrator");
   const GHExt &ext = driver();
-  if (ext.use_subcycling && dense_output == rk_dense_output_t::none)
+  if (ext.fixed.use_subcycling && dense_output == rk_dense_output_t::none)
     CCTK_ERROR("CarpetX::register_integrator: CarpetX::use_subcycling = yes "
                "fills the refinement boundary by dense output, but the "
                "integrator registered dense_output = none; choose a method "
@@ -163,7 +161,7 @@ void check_and_record(const rk_dense_output_t dense_output,
   check_weights(b);
   for (std::size_t index = 0; index < integrated.size(); ++index)
     check_pair(integrated, index);
-  if (ext.do_reflux && max_num_levels > 1 && b.empty())
+  if (ext.fixed.do_reflux && ext.fixed.max_num_levels > 1 && b.empty())
     for (const rk_pair_t &pair : integrated)
       if (ext.record(pair.state).grid_function().fluxes)
         CCTK_VERROR("CarpetX::register_integrator: CarpetX::do_reflux = yes "
@@ -172,7 +170,7 @@ void check_and_record(const rk_dense_output_t dense_output,
                     "weights b), but it registered no weights and integrates "
                     "group %s, which carries a fluxes= tag; register an "
                     "explicit method or set CarpetX::do_reflux = no",
-                    int(max_num_levels),
+                    ext.fixed.max_num_levels,
                     CCTK_FullGroupName(pair.state.index()));
   std::map<gi_t, gi_t> rhs;
   for (const rk_pair_t &pair : integrated)
@@ -328,7 +326,7 @@ void rk_step_t::state_updated() {
   p->have_rhs = false;
   const bool end_of_step = p->stage == p->stages.end();
   require_operable(p->window, p->states);
-  if (driver().use_subcycling) {
+  if (driver().fixed.use_subcycling) {
     require_serial_context();
     const std::string event =
         "CarpetX::rk_step_t::state_updated after RK stage " +

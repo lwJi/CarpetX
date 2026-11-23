@@ -31,19 +31,18 @@ static bool group_has_flux_tag(const GHExt::GroupRecord &record) {
 
 bool group_has_flux_register(const gi_t gi) {
   const GHExt &ext = driver();
-  return ext.do_reflux && group_is_integrated(gi) &&
+  return ext.fixed.do_reflux && group_is_integrated(gi) &&
          group_has_flux_tag(ext.record(gi));
 }
 
 void warn_inert_flux_tags() {
-  DECLARE_CCTK_PARAMETERS;
   const GHExt &ext = driver();
   const std::optional<GHExt::integrator_t> &integrator = ext.integrator();
-  if (max_num_levels <= 1)
+  if (ext.fixed.max_num_levels <= 1)
     return;
   if (CCTK_MyProc(nullptr) != 0)
     return;
-  if (!ext.do_reflux) {
+  if (!ext.fixed.do_reflux) {
     for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()})) {
       if (integrator && integrator->rhs.contains(gi) &&
           group_has_flux_tag(ext.record(gi))) {
@@ -82,7 +81,7 @@ static std::array<CCTK_REAL, dim> face_areas(const amrex::Geometry &geom) {
 void AccumulateFluxes(const level_t level, const stage_t stage,
                       const CCTK_REAL weight) {
   const GHExt &ext = driver();
-  if (!ext.do_reflux)
+  if (!ext.fixed.do_reflux)
     return;
   const stage_range stages = registered_stages();
   assert(stages.contains(stage));
@@ -232,7 +231,7 @@ static void reflux_level(const level_t level) {
 }
 
 void Reflux(const window_t window) {
-  if (!driver().do_reflux)
+  if (!driver().fixed.do_reflux)
     return;
   loop_pairs_fine_to_coarse(window, reflux_level);
 }

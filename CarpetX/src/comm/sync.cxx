@@ -338,7 +338,7 @@ static void SyncGroupsSubcycling(const window_t window,
 
 void SyncGroups(const window_t window, const std::span<const gi_t> groups,
                 const requested_sync_t &requested) {
-  if (driver().use_subcycling)
+  if (driver().fixed.use_subcycling)
     SyncGroupsSubcycling(window, groups, requested);
   else
     SyncGroupsLockstep(window, groups, requested);

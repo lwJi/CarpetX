@@ -42,7 +42,8 @@ rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
               const amrex::BoxArray &ba, const amrex::DistributionMapping &dm) {
   const GHExt &ext = driver();
   const gi_t gi = record.groupindex;
-  if (!ext.use_subcycling || level.index() == 0 || !group_is_integrated(gi))
+  if (!ext.fixed.use_subcycling || level.index() == 0 ||
+      !group_is_integrated(gi))
     return std::nullopt;
   const amrex::IntVect nghost(record.grid_function().nghostzones);
   if (nghost.max() == 0)
@@ -69,7 +70,7 @@ std::optional<amrex::MultiFab>
 cell_volume_of(const level_t level, const amrex::BoxArray &ba,
                const amrex::DistributionMapping &dm) {
   const GHExt &ext = driver();
-  if (!ext.do_reflux)
+  if (!ext.fixed.do_reflux)
     return std::nullopt;
   bool any_flux_register = false;
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()}))
