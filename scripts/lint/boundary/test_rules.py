@@ -1148,7 +1148,7 @@ class ParameterScopes(unittest.TestCase):
     TREE = {
         "util": (0, 0),
         "traversal": (0, 0),
-        "config": (8, 65),
+        "config": (7, 65),
         "hierarchy": (7, 3),
         "comm": (4, 4),
         "regrid": (5, 2),
@@ -1220,7 +1220,7 @@ class ParameterScopes(unittest.TestCase):
                     empty.append(f"{name}:{line}")
         self.assertEqual(empty, [])
         self.assertEqual({layer: (sites, len(named)) for layer, (sites, named) in found.items()}, self.TREE)
-        self.assertEqual(sum(sites for sites, _ in found.values()), 75)
+        self.assertEqual(sum(sites for sites, _ in found.values()), 74)
 
 
 class Parameters(unittest.TestCase):
@@ -1239,6 +1239,8 @@ class Parameters(unittest.TestCase):
         "CarpetX/src/config/run_config.hxx",
         "CarpetX/src/config/boundaries.cxx",
         "CarpetX/src/config/boundaries.hxx",
+        "CarpetX/src/config/groups.cxx",
+        "CarpetX/src/config/groups.hxx",
         "CarpetX/src/internal.hxx",
     ]
 
@@ -1305,7 +1307,7 @@ class Parameters(unittest.TestCase):
 
 
 class Unread(unittest.TestCase):
-    NAMES = ["CarpetX/src/hierarchy/modes.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/config/groups.cxx", "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx"]
+    NAMES = ["CarpetX/src/hierarchy/modes.cxx", "CarpetX/src/schedule/storage.cxx", "CarpetX/src/config/decode_groups.cxx", "CarpetX/src/comm/prolongate_3d_rf2_impl.hxx"]
 
     def test_a_site_that_names_no_parameter_is_reported(self):
         for name in self.NAMES:
@@ -1354,7 +1356,7 @@ class Carried(unittest.TestCase):
         "  if (reflection_z) g();\n",
         "  use(periodic && periodic_x, xmax);\n",
     ]
-    DECODING = ["CarpetX/src/config/decode_run_config.cxx", "CarpetX/src/config/decode_boundaries.cxx", "CarpetX/src/config/groups.cxx", "CarpetX/src/config/grid_sizes.cxx"]
+    DECODING = ["CarpetX/src/config/decode_run_config.cxx", "CarpetX/src/config/decode_boundaries.cxx", "CarpetX/src/config/decode_groups.cxx", "CarpetX/src/config/grid_sizes.cxx"]
 
     def carried(self, name, text):
         return [found for found in reported(name, text) if found[0] == "carried"]
@@ -1446,6 +1448,7 @@ class Snapshot(unittest.TestCase):
         "CarpetX/src/flesh/aliased.cxx",
         "CarpetX/src/flesh/compile_checks.cxx",
         "CarpetX/src/config/groups.cxx",
+        "CarpetX/src/config/decode_groups.cxx",
     ]
 
     def snapshot(self, name, text):
@@ -1490,6 +1493,80 @@ class Snapshot(unittest.TestCase):
 
     def test_the_tree_holds_it(self):
         found = [(name, f.line) for _, name, text in private_sources() for f in findings(name, text, Lang.CXX) if f.rule == "snapshot"]
+        self.assertEqual(found, [])
+
+
+class Decoder(unittest.TestCase):
+    INCLUDES = ['#include "config/decode_groups.hxx"', "#include <config/decode_boundaries.hxx>", '  #  include "config/grid_sizes.hxx"', '#include "config/decode_run_config.hxx"']
+    REFUSED = [
+        "CarpetX/src/api/api_rk.cxx",
+        "CarpetX/src/api/api.hxx",
+        "CarpetX/src/util/refuse.cxx",
+        "CarpetX/src/traversal/traversal.cxx",
+        "CarpetX/src/config/groups.hxx",
+        "CarpetX/src/config/boundaries.cxx",
+        "CarpetX/src/config/run_config.hxx",
+    ]
+    TOLD = ("util", "traversal", "hierarchy", "comm", "regrid", "ops", "api")
+
+    def decoder(self, name, text):
+        return [found for found in reported(name, text) if found[0] == "decoder"]
+
+    def test_a_decoder_include_is_reported_outside_the_readers(self):
+        for name in self.REFUSED:
+            for line in self.INCLUDES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(self.decoder(name, line + "\n"), [("decoder", line.strip())])
+
+    def test_a_reading_layer_and_a_decoding_stem_may_include_one(self):
+        names = [layer_path(layer, "a.cxx") for layer in rules.PARAMETER_READERS if layer != rules.DECODING_LAYER]
+        names += [layer_path(rules.DECODING_LAYER, stem + suffix) for stem in rules.DECODES for suffix in (".cxx", ".hxx")]
+        for name in names:
+            for line in self.INCLUDES:
+                with self.subTest(name=name, line=line):
+                    self.assertEqual(self.decoder(name, line + "\n"), [])
+
+    def test_hierarchy_is_refused_once_it_is_told(self):
+        name = "CarpetX/src/hierarchy/model.cxx"
+        line = self.INCLUDES[0]
+        self.assertEqual(self.decoder(name, line + "\n"), [])
+        with mock.patch.object(rules, "PARAMETER_READERS", tuple(layer for layer in rules.PARAMETER_READERS if layer != "hierarchy")):
+            self.assertEqual(self.decoder(name, line + "\n"), [("decoder", line)])
+            self.assertEqual(self.decoder(name, '#include "config/groups.hxx"\n'), [])
+
+    def test_a_type_header_or_a_longer_name_is_not_judged(self):
+        for text in ['#include "config/groups.hxx"\n', '#include "config/run_config.hxx"\n', '#include "config/boundaries.hxx"\n', '#include "config/decode_groups_x.hxx"\n', '#include "hierarchy/decode_groups.hxx"\n', "declare_group(gi, ext.fixed);\n"]:
+            with self.subTest(text=text):
+                self.assertEqual(self.decoder(self.REFUSED[0], text), [])
+
+    def test_another_thorn_is_not_judged(self):
+        self.assertEqual(reported("ODESolvers/src/solve.cxx", self.INCLUDES[0] + "\n"), [])
+
+    def test_the_table_decides(self):
+        name = self.REFUSED[0]
+        with mock.patch.object(rules, "DECODES", rules.DECODES + ("stages",)):
+            self.assertEqual(self.decoder(name, '#include "config/stages.hxx"\n'), [("decoder", '#include "config/stages.hxx"')])
+        with mock.patch.object(rules, "DECODES", tuple(stem for stem in rules.DECODES if stem != "decode_groups")):
+            self.assertEqual(self.decoder(name, self.INCLUDES[0] + "\n"), [])
+
+    def test_line_numbers(self):
+        text = "int a;\n\n" + self.INCLUDES[0] + "\n"
+        self.assertEqual([f for f in findings(self.REFUSED[0], text, Lang.CXX) if f.rule == "decoder"], [Finding(3, "decoder", self.INCLUDES[0])])
+
+    def test_no_layer_that_is_told_includes_a_decoder(self):
+        self.assertTrue(set(self.TOLD) <= set(LAYERS))
+        found = []
+        for layer, name, text in private_sources():
+            if layer not in self.TOLD:
+                continue
+            for line in text.splitlines():
+                match = rules.DECODING_INCLUDE.search(line)
+                if match and match.group(1) in rules.DECODES:
+                    found.append(f"{name}: {line.strip()}")
+        self.assertEqual(found, [])
+
+    def test_the_tree_holds_it(self):
+        found = [(name, f.line) for _, name, text in private_sources() for f in findings(name, text, Lang.CXX) if f.rule == "decoder"]
         self.assertEqual(found, [])
 
 
@@ -1624,7 +1701,7 @@ class Index(unittest.TestCase):
         ("CarpetX/src/flesh/startup.cxx", "const int *ArrayGroupSizeB(const cGH *cctkGH, int dir, int gi,\n                           const char *groupname) {\n"),
         ("CarpetX/src/flesh/startup.cxx", "int GroupDynamicData(const cGH *cctkGH, int gi, cGroupDynamicData *data) {\n"),
         ("CarpetX/src/flesh/aliased.cxx", "extern \"C\" CCTK_INT\nCarpetX_GetDomainSpecification(const CCTK_INT patch, const CCTK_INT size,\n                               CCTK_REAL *restrict const spacing) {\n"),
-        ("CarpetX/src/config/groups.cxx", "    const int ierr = CCTK_TraverseString(\n        var_set_string,\n        [](const int vi, const char *const optstring, void *argptr) {\n"),
+        ("CarpetX/src/config/decode_groups.cxx", "    const int ierr = CCTK_TraverseString(\n        var_set_string,\n        [](const int vi, const char *const optstring, void *argptr) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::ErrorEst(const int level, amrex::TagBoxArray &tags,\n                             const amrex::Real time, const int ngrow) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::MakeNewLevelFromScratch(\n    const int level, const amrex::Real time, const amrex::BoxArray &ba,\n    const amrex::DistributionMapping &dm) {\n"),
         ("CarpetX/src/regrid/regrid.cxx", "void CactusAmrCore::MakeNewLevelFromCoarse(\n    const int level, const amrex::Real time, const amrex::BoxArray &ba,\n    const amrex::DistributionMapping &dm) {\n"),
@@ -2632,7 +2709,8 @@ class Report(unittest.TestCase):
             "no parameter read outside the layers that read them, "
             "no carried parameter read outside a decoding stem, "
             "every parameter declaration names a parameter, "
-            "and no run-configuration include outside the files that fill the model",
+            "no run-configuration include outside the files that fill the model, "
+            "and no decoder include outside the layers that read the parameters",
         )
 
     def test_counts(self):
@@ -3185,7 +3263,7 @@ class Doc(unittest.TestCase):
                 self.assertIn(f'  {box} -- "{", ".join(headers)}" --> {target}', lines)
         self.assertEqual(list(doc.floor()), [("above", "hierarchy"), ("door", "config"), ("door", "traversal"), ("door", "util"), ("door", "include"), ("nodoor", "include")])
         self.assertEqual(doc.floor()[("above", "hierarchy")], ("binding.hxx", "clock.hxx", "grid.hxx", "loops.hxx", "model.hxx", "modes.hxx", "scopes.hxx", "valid.hxx", "writers.hxx"))
-        self.assertEqual(doc.floor()[("door", "config")], ("boundaries.hxx", "decode_boundaries.hxx", "decode_run_config.hxx", "grid_sizes.hxx", "groups.hxx", "indices.hxx", "run_config.hxx", "stages.hxx"))
+        self.assertEqual(doc.floor()[("door", "config")], ("boundaries.hxx", "decode_boundaries.hxx", "decode_groups.hxx", "decode_run_config.hxx", "grid_sizes.hxx", "groups.hxx", "indices.hxx", "run_config.hxx", "stages.hxx"))
         for header in ("clocks.hxx", "group_tags.hxx", "indices.hxx", "driver.hxx", "operations.hxx"):
             self.assertNotIn(header, doc.floor()[("above", "hierarchy")])
         self.assertIn('    config["config/"]', nodoor_of(lines))
@@ -3336,6 +3414,7 @@ class Doc(unittest.TestCase):
             under["config"],
             [
                 "  - `groups`: what a group was declared as: its kind and its tags",
+                "  - `decode_groups`: the one decoding of a group's declaration from its tags and the parameters, which the hierarchy is handed when storage is frozen",
                 "  - `boundaries`: `boundary_t`, the condition a face of the domain is given, and `faces_t`, one value per face",
                 "  - `decode_boundaries`: the symmetries and default boundaries the parameters ask for",
                 "  - `grid_sizes`: the largest grid each level may have",
@@ -3823,7 +3902,7 @@ class Stems(unittest.TestCase):
                 self.assertEqual(doc.declared_names(text), declared)
                 self.assertEqual(doc.declared_names(text, forward=False), defined)
         declared, defined = doc.stem_declarations(), doc.stem_declarations(forward=False)
-        self.assertEqual({header for header in declared if declared[header] != defined[header]}, {layer_path("hierarchy", "model.hxx"), layer_path("hierarchy", "binding.hxx"), layer_path("comm", "buffers_inside.hxx"), layer_path("comm", "checkpoint_bands.hxx"), layer_path("comm", "ghost_prolongation.hxx"), layer_path("comm", "outer_boundary.hxx"), layer_path("comm", "sync.hxx")})
+        self.assertEqual({header for header in declared if declared[header] != defined[header]}, {layer_path("config", "groups.hxx"), layer_path("hierarchy", "model.hxx"), layer_path("hierarchy", "binding.hxx"), layer_path("comm", "buffers_inside.hxx"), layer_path("comm", "checkpoint_bands.hxx"), layer_path("comm", "ghost_prolongation.hxx"), layer_path("comm", "outer_boundary.hxx"), layer_path("comm", "sync.hxx")})
         for text, line in [
             ("int a;\nvoid (*handler)(int);\n", 2),
             ("\n\nstruct {\n  int x;\n} anonymous;\n", 3),

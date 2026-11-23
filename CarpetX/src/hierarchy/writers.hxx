@@ -20,6 +20,7 @@
 #include <optional>
 #include <source_location>
 #include <string>
+#include <vector>
 
 namespace CarpetX {
 
@@ -123,7 +124,7 @@ public:
   registry_writer_t(registry_writer_t &&) = delete;
 
   void record_storage(gi_t gi, int timelevels);
-  void freeze_storage();
+  void freeze_storage(std::vector<group_declaration_t> declarations);
   void record_integrator(
       GHExt::integrator_t integrator,
       std::source_location site = std::source_location::current());

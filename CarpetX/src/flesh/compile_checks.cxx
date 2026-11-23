@@ -387,8 +387,9 @@ concept freezes_integrator = requires(Registry &registry) {
 };
 
 template <class Registry>
-concept freezes_storage =
-    requires(Registry &registry) { registry.freeze_storage(); };
+concept freezes_storage = requires(Registry &registry) {
+  registry.freeze_storage(std::vector<group_declaration_t>{});
+};
 
 template <class Registry>
 concept assigns_flesh_cctkGH =
@@ -506,7 +507,9 @@ concept parses_group_tags =
     requires(Group gi) { get_group_prolongation_type(gi); } ||
     requires(Group gi) { get_group_prolongation_order(gi); } ||
     requires(Group gi) { get_group_indextype(gi); } ||
-    requires(Group gi) { get_group_nghostzones(gi); } ||
+    requires(Group gi, const fixed_config_t &fixed) {
+      get_group_nghostzones(gi, fixed);
+    } ||
     requires(Group gi) { get_group_boundaries(gi); } ||
     requires(Group gi) { get_group_parities(gi); } ||
     requires(Group gi) { get_group_dirichlet_values(gi); } ||

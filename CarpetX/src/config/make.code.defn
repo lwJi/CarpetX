@@ -1,9 +1,9 @@
 SRCS =							\
 	boundaries.cxx					\
 	decode_boundaries.cxx				\
+	decode_groups.cxx				\
 	decode_run_config.cxx				\
 	grid_sizes.cxx					\
-	groups.cxx					\
 	indices.cxx
 
 STRAY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))

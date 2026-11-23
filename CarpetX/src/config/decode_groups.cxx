@@ -1,7 +1,9 @@
-#include "config/groups.hxx"
+#include "config/decode_groups.hxx"
 
 #include "config/decode_boundaries.hxx"
+#include "config/groups.hxx"
 #include "config/indices.hxx"
+#include "config/run_config.hxx"
 #include "util/refuse.hxx"
 #include "util/var_type.hxx"
 #include <carpetx.hxx>
@@ -18,6 +20,7 @@
 #include <optional>
 #include <source_location>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -235,8 +238,8 @@ static std::optional<std::array<gi_t, dim> > get_group_fluxes(const gi_t gi) {
   return fluxes;
 }
 
-static std::array<int, dim> get_group_nghostzones(const gi_t gi) {
-  DECLARE_CCTK_PARAMETERS;
+static std::array<int, dim> get_group_nghostzones(const gi_t gi,
+                                                  const fixed_config_t &fixed) {
   assert(gi.index() >= 0);
   const int tags = CCTK_GroupTagsTableI(gi.index());
   assert(tags >= 0);
@@ -244,9 +247,7 @@ static std::array<int, dim> get_group_nghostzones(const gi_t gi) {
   int iret =
       Util_TableGetIntArray(tags, dim, nghostzones.data(), "nghostzones");
   if (iret == UTIL_ERROR_TABLE_NO_SUCH_KEY) {
-    nghostzones = {ghost_size >= 0 ? ghost_size : ghost_size_x,
-                   ghost_size >= 0 ? ghost_size : ghost_size_y,
-                   ghost_size >= 0 ? ghost_size : ghost_size_z};
+    nghostzones = fixed.nghostzones;
   } else if (iret >= 0) {
     assert(iret == dim);
   } else {
@@ -349,81 +350,83 @@ static int get_group_prolongation_order(const gi_t gi) {
   return group_prolongation_order;
 }
 
-grid_function_t::grid_function_t(const gi_t gi, const int numvars) {
-  indextype = get_group_indextype(gi);
-  nghostzones = get_group_nghostzones(gi);
-
-  boundaries = get_group_boundaries(gi);
-  parities = get_group_parities(gi);
-  if (parities.empty()) {
-    std::array<int, dim> parity;
-    for (int d = 0; d < dim; ++d)
-      parity[d] = +1;
-    parities.resize(numvars, parity);
-  }
-  assert(int(parities.size()) == numvars);
-  for (const std::array<int, dim> &parity : parities)
-    for (int d = 0; d < dim; ++d)
-      assert(abs(parity[d]) == 1);
-
-  dirichlet_values = get_group_dirichlet_values(gi);
-  if (dirichlet_values.empty())
-    dirichlet_values.resize(numvars, 0);
-  robin_values = get_group_robin_values(gi);
-  if (robin_values.empty())
-    robin_values.resize(numvars, 0);
-
-  fluxes = get_group_fluxes(gi);
-  if (fluxes)
-    assert((indextype == std::array<int, dim>{1, 1, 1}));
-
-  prolongation_type = get_group_prolongation_type(gi);
-  prolongation_order = get_group_prolongation_order(gi);
-}
-
-group_declaration_t::group_declaration_t(const gi_t gi) : groupindex(gi) {
+group_declaration_t declare_group(const gi_t gi, const fixed_config_t &fixed) {
   cGroup cgroup;
   const int ierr = CCTK_GroupData(gi.index(), &cgroup);
   assert(!ierr);
 
-  groupname = CCTK_FullGroupName(gi.index());
-  firstvarindex = CCTK_FirstVarIndexI(gi.index());
-  numvars = cgroup.numvars;
-  do_checkpoint = get_group_checkpoint_flag(gi);
-  do_evolve = get_group_evolve_flag(gi);
+  group_declaration_t declaration(gi);
+  declaration.groupname = CCTK_FullGroupName(gi.index());
+  declaration.firstvarindex = CCTK_FirstVarIndexI(gi.index());
+  declaration.numvars = cgroup.numvars;
+  declaration.do_checkpoint = get_group_checkpoint_flag(gi);
+  declaration.do_evolve = get_group_evolve_flag(gi);
   const std::optional<bool> restrict_tag = get_group_restrict_tag(gi);
-  do_restrict = restrict_tag.value_or(do_checkpoint);
-  restrict_on_sync = restrict_tag.value_or(true);
+  declaration.do_restrict = restrict_tag.value_or(declaration.do_checkpoint);
+  declaration.restrict_on_sync = restrict_tag.value_or(true);
   switch (cgroup.grouptype) {
   case CCTK_GF:
-    kind = group_kind::grid_function;
+    declaration.kind = group_kind::grid_function;
     break;
   case CCTK_ARRAY:
-    kind = group_kind::array;
+    declaration.kind = group_kind::array;
     break;
   case CCTK_SCALAR:
-    kind = group_kind::scalar;
+    declaration.kind = group_kind::scalar;
     break;
   default:
     CCTK_VERROR("Internal error: unexpected group type %d for group '%s'",
-                (int)cgroup.grouptype, groupname.c_str());
+                (int)cgroup.grouptype, declaration.groupname.c_str());
   }
   const std::optional<CarpetX::var_type> type =
       var_type_from_cctk(cgroup.vartype);
   if (!type)
     refuse(std::source_location::current(),
            "group %s has variable type %s, which CarpetX does not store",
-           groupname.c_str(), CCTK_VarTypeName(cgroup.vartype));
-  var_type = *type;
-  if (kind == group_kind::grid_function) {
-    assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
-    assert(cgroup.dim == dim);
-    grid_function_ = grid_function_t(gi, numvars);
-  } else {
+           declaration.groupname.c_str(), CCTK_VarTypeName(cgroup.vartype));
+  declaration.var_type = *type;
+  if (declaration.kind != group_kind::grid_function) {
     assert(cgroup.disttype == CCTK_DISTRIB_CONSTANT);
     assert(cgroup.dim >= 0);
     assert(cgroup.dim <= dim);
+    return declaration;
   }
+
+  assert(cgroup.disttype == CCTK_DISTRIB_DEFAULT);
+  assert(cgroup.dim == dim);
+  const int numvars = declaration.numvars;
+  grid_function_t grid_function;
+  grid_function.indextype = get_group_indextype(gi);
+  grid_function.nghostzones = get_group_nghostzones(gi, fixed);
+
+  grid_function.boundaries = get_group_boundaries(gi);
+  grid_function.parities = get_group_parities(gi);
+  if (grid_function.parities.empty()) {
+    std::array<int, dim> parity;
+    for (int d = 0; d < dim; ++d)
+      parity[d] = +1;
+    grid_function.parities.resize(numvars, parity);
+  }
+  assert(int(grid_function.parities.size()) == numvars);
+  for (const std::array<int, dim> &parity : grid_function.parities)
+    for (int d = 0; d < dim; ++d)
+      assert(abs(parity[d]) == 1);
+
+  grid_function.dirichlet_values = get_group_dirichlet_values(gi);
+  if (grid_function.dirichlet_values.empty())
+    grid_function.dirichlet_values.resize(numvars, 0);
+  grid_function.robin_values = get_group_robin_values(gi);
+  if (grid_function.robin_values.empty())
+    grid_function.robin_values.resize(numvars, 0);
+
+  grid_function.fluxes = get_group_fluxes(gi);
+  if (grid_function.fluxes)
+    assert((grid_function.indextype == std::array<int, dim>{1, 1, 1}));
+
+  grid_function.prolongation_type = get_group_prolongation_type(gi);
+  grid_function.prolongation_order = get_group_prolongation_order(gi);
+  declaration.grid_function_ = std::move(grid_function);
+  return declaration;
 }
 
 } // namespace CarpetX

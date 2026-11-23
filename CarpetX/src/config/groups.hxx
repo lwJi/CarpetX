@@ -22,6 +22,9 @@ namespace CarpetX {
 
 enum class group_kind { grid_function, array, scalar };
 
+struct fixed_config_t;
+struct group_declaration_t;
+
 struct grid_function_t {
   std::array<int, dim> indextype;
   std::array<int, dim> nghostzones;
@@ -34,8 +37,9 @@ struct grid_function_t {
   int prolongation_order;
 
 private:
-  grid_function_t(gi_t gi, int numvars);
-  friend struct group_declaration_t;
+  grid_function_t() = default;
+  friend group_declaration_t declare_group(gi_t gi,
+                                           const fixed_config_t &fixed);
 };
 
 struct group_declaration_t {
@@ -58,10 +62,12 @@ struct group_declaration_t {
   }
 
 private:
-  explicit group_declaration_t(gi_t gi);
+  explicit group_declaration_t(const gi_t gi) : groupindex(gi) {}
   int firstvarindex;
   std::optional<grid_function_t> grid_function_;
   friend struct GHExt;
+  friend group_declaration_t declare_group(gi_t gi,
+                                           const fixed_config_t &fixed);
 };
 
 } // namespace CarpetX

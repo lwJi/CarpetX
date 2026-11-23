@@ -40,7 +40,7 @@ flowchart TB
   config -- "refuse.hxx, var_type.hxx" --> util
   traversal -- "refuse.hxx" --> util
   above -- "binding.hxx, clock.hxx, grid.hxx, loops.hxx, model.hxx, modes.hxx, scopes.hxx, valid.hxx, writers.hxx" --> hierarchy
-  door -- "boundaries.hxx, decode_boundaries.hxx, decode_run_config.hxx, grid_sizes.hxx, groups.hxx, indices.hxx, run_config.hxx, stages.hxx" --> config
+  door -- "boundaries.hxx, decode_boundaries.hxx, decode_groups.hxx, decode_run_config.hxx, grid_sizes.hxx, groups.hxx, indices.hxx, run_config.hxx, stages.hxx" --> config
   door -- "traversal.hxx" --> traversal
   door -- "logo.hxx, mpi_types.hxx, refuse.hxx, task_manager.hxx, var_type.hxx" --> util
   door -- "carpetx.hxx, carpetx_rk.hxx" --> include
@@ -50,7 +50,7 @@ flowchart TB
 - an arrow not into comm/ is an include a layer has today; the layer rule refuses one outside the table READS in scripts/lint/boundary/rules.py
 - an arrow into comm/ is the interface that layer is given, the table GIVEN in scripts/lint/boundary/rules.py; the interface rule refuses an include outside it, and CarpetX/src/flesh/compile_checks.cxx, which checks the inside of comm/, adds nothing to an arrow
 - include/ is the public headers, not a layer
-- config/, hierarchy/, comm/, regrid/, ops/, io/, schedule/ and flesh/ read the run's parameters, and of config/ only the stems that decode them, decode_boundaries, decode_run_config, grid_sizes, groups; every other file is told what it needs of them, as an argument or from driver(); the parameters rule refuses a read outside the tables PARAMETER_READERS and DECODES in scripts/lint/boundary/rules.py
+- config/, hierarchy/, comm/, regrid/, ops/, io/, schedule/ and flesh/ read the run's parameters, and of config/ only the stems that decode them, decode_boundaries, decode_groups, decode_run_config, grid_sizes; every other file is told what it needs of them, as an argument or from driver(); the parameters rule refuses a read outside the tables PARAMETER_READERS and DECODES in scripts/lint/boundary/rules.py, and the decoder rule an include of a decoding stem's header outside them
 - the model carries use_subcycling, do_reflux, max_num_levels, ghost_size, ghost_size_x, ghost_size_y, ghost_size_z, xmin, ymin, zmin, xmax, ymax, zmax, ncells_x, ncells_y, ncells_z, prolongate_per_group in its fixed part, read from driver().fixed in every layer, and periodic, periodic_x, periodic_y, periodic_z, reflection_x, reflection_y, reflection_z, reflection_upper_x, reflection_upper_y, reflection_upper_z as each patch's symmetries, read from its PatchData; config/decode_run_config decodes the first once, and is included only from CarpetX/src/flesh/startup.cxx, to fill the model, and config/decode_boundaries the second, which a patch is handed when it is added; the carried rule refuses a scope that names one outside a decoding stem, the table CARRIED in scripts/lint/boundary/rules.py, and the snapshot rule an include of config/decode_run_config from any other file
 
 ## One pass of the schedule
@@ -145,6 +145,7 @@ New code goes in the layer that owns what it works on, and a lower layer never d
   - `handles`: the bodies of the public handles, all in one place
 - `config/`: what the run is configured with, and the index and stage types to say it in. Nothing here calls `driver()`.
   - `groups`: what a group was declared as: its kind and its tags
+  - `decode_groups`: the one decoding of a group's declaration from its tags and the parameters, which the hierarchy is handed when storage is frozen
   - `boundaries`: `boundary_t`, the condition a face of the domain is given, and `faces_t`, one value per face
   - `decode_boundaries`: the symmetries and default boundaries the parameters ask for
   - `grid_sizes`: the largest grid each level may have

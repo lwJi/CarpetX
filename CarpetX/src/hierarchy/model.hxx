@@ -424,7 +424,7 @@ struct GHExt {
   };
 
   struct GroupRecord : group_declaration_t {
-    GroupRecord(gi_t gi, int num_timelevels);
+    GroupRecord(group_declaration_t declaration, int num_timelevels);
 
     int num_timelevels() const { return num_timelevels_; }
     tl_range timelevels() const {
@@ -505,7 +505,7 @@ struct GHExt {
     cGH *global_cctkGH() const { return global_cctkGH_.get(); }
 
     void record_storage(gi_t gi, int timelevels);
-    void freeze_storage();
+    void freeze_storage(std::vector<group_declaration_t> declarations);
     void record_integrator(integrator_t integrator, std::source_location site);
     void freeze_integrator(std::source_location site);
     void adopt_flesh_cctkGH(cGH *const cctkGH) { flesh_cctkGH_ = cctkGH; }

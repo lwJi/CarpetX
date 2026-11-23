@@ -49,6 +49,7 @@ OWNS = {
 STEMS = {
     "config": {
         "groups": "what a group was declared as: its kind and its tags",
+        "decode_groups": "the one decoding of a group's declaration from its tags and the parameters, which the hierarchy is handed when storage is frozen",
         "boundaries": "`boundary_t`, the condition a face of the domain is given, and `faces_t`, one value per face",
         "decode_boundaries": "the symmetries and default boundaries the parameters ask for",
         "grid_sizes": "the largest grid each level may have",
@@ -262,7 +263,7 @@ INDEX_FIXED = {
     layer_path("hierarchy", "handles.cxx"): ("levels", "narrow"),
     layer_path("flesh", "startup.cxx"): ("ArrayGroupSizeB", "GroupDynamicData"),
     layer_path("flesh", "aliased.cxx"): ("CarpetX_GetDomainSpecification",),
-    layer_path("config", "groups.cxx"): ("CCTK_TraverseString",),
+    layer_path("config", "decode_groups.cxx"): ("CCTK_TraverseString",),
     layer_path("regrid", "regrid.hxx"): AMREX_CALLBACKS,
     layer_path("regrid", "regrid.cxx"): AMREX_CALLBACKS,
 }
@@ -315,7 +316,7 @@ PARAMETER_READERS = ("config", "hierarchy", "comm", "regrid", "ops", "io", "sche
 assert PARAMETER_READERS == tuple(layer for layer in LAYERS if layer in PARAMETER_READERS), PARAMETER_READERS
 DECODING_LAYER = "config"
 assert DECODING_LAYER in PARAMETER_READERS, PARAMETER_READERS
-DECODES = ("decode_boundaries", "decode_run_config", "grid_sizes", "groups")
+DECODES = ("decode_boundaries", "decode_groups", "decode_run_config", "grid_sizes")
 assert DECODES == tuple(sorted(set(DECODES))) and set(DECODES) <= set(STEMS[DECODING_LAYER]), DECODES
 PARAMETERS_HOME = READS_HOME
 PARAMETERS_TEXT = (
@@ -375,6 +376,7 @@ CARRIED_TEXT = (
     f"and {DECODING_LAYER}/{SYMMETRY_STEM} the second, which a patch is handed when it is added"
 )
 PARAMETER_MACRO = re.compile(r"\bDECLARE_CCTK_PARAMETERS\b")
+DECODING_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]' + DECODING_LAYER + r'/(\w+)\.hxx[>"]')
 PARAMETER_READ = re.compile(r'\bDECLARE_CCTK_PARAMETERS\b|\bCCTK_ParameterGet\b|^\s*#\s*include\s*[<"]cctk_Parameters\.h[>"]')
 MEMBER_ACCESS = (".", "::", "->")
 PREAMBLE = "A thorn reaches CarpetX only through its public headers (see agent_docs/carpetx-public-api.md)."
@@ -727,6 +729,10 @@ def reads_parameters(name: str, line: str, statement: str) -> bool:
     if layer == DECODING_LAYER:
         return decodes(name)
     return layer in PARAMETER_READERS
+
+
+def decoder_allowed(name: str, line: str, statement: str) -> bool:
+    return DECODING_INCLUDE.search(line).group(1) not in DECODES or reads_parameters(name, line, statement)
 
 
 @functools.cache
@@ -1114,6 +1120,20 @@ RULES = (
         noun="run-configuration include",
         where="outside the files that fill the model",
         clean="no run-configuration include outside the files that fill the model",
+    ),
+    Rule(
+        "decoder",
+        files=private_cxx,
+        word=DECODING_INCLUDE,
+        allowed=decoder_allowed,
+        text=f"the header of a stem of {DECODING_LAYER}/ that decodes the parameters, {', '.join(DECODES)}, is included only where "
+        f"the parameters are read: from {dirs(PARAMETER_READERS, 'or')}, and in {DECODING_LAYER}/ only from a decoding stem. "
+        "A decoder reads the parameters when it is called, so a lower layer is handed what it decodes, by the reading layer "
+        "that calls it, as an argument of the writer call that builds that part of the model; the other stems of "
+        f"{DECODING_LAYER}/ only say the types.",
+        noun="decoder include",
+        where="outside the layers that read the parameters",
+        clean="no decoder include outside the layers that read the parameters",
     ),
 )
 RULE = "\n".join([wrap(PREAMBLE)] + [rule.paragraph() for rule in RULES])

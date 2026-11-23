@@ -423,8 +423,10 @@ void GHExt::PatchData::LevelData::GroupData::ring_t::rotate_timelevels() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-GHExt::GroupRecord::GroupRecord(const gi_t gi, const int num_timelevels)
-    : group_declaration_t(gi), num_timelevels_(num_timelevels) {
+GHExt::GroupRecord::GroupRecord(group_declaration_t declaration,
+                                const int num_timelevels)
+    : group_declaration_t(std::move(declaration)),
+      num_timelevels_(num_timelevels) {
   if (kind != group_kind::grid_function)
     array_ = std::make_unique<GlobalData::ArrayGroupData>(*this);
 }
@@ -499,7 +501,8 @@ void GHExt::registry_t::record_storage(const gi_t gi, const int timelevels) {
                CCTK_FullGroupName(gi.index()), active, timelevels);
 }
 
-void GHExt::registry_t::freeze_storage() {
+void GHExt::registry_t::freeze_storage(
+    std::vector<group_declaration_t> declarations) {
   DECLARE_CCTK_PARAMETERS;
 
   if (verbose)
@@ -510,9 +513,13 @@ void GHExt::registry_t::freeze_storage() {
   assert(group_records.empty());
   const int numgroups = CCTK_NumGroups();
   assert(int(pending_timelevels_->size()) == numgroups);
+  assert(int(declarations.size()) == numgroups);
   group_records.reserve(numgroups);
-  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups}))
-    group_records.emplace_back(gi, pending_timelevels_->at(gi.index()));
+  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
+    assert(declarations.at(gi.index()).groupindex == gi);
+    group_records.emplace_back(std::move(declarations.at(gi.index())),
+                               pending_timelevels_->at(gi.index()));
+  }
   pending_timelevels_.reset();
 
   for (const GroupRecord &group : group_records) {

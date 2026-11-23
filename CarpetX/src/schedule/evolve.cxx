@@ -1,5 +1,6 @@
 #include "schedule/schedule.hxx"
 #include "schedule/clocks.hxx"
+#include "config/decode_groups.hxx"
 #include "config/grid_sizes.hxx"
 #include "hierarchy/model.hxx"
 #include "hierarchy/loops.hxx"
@@ -120,7 +121,11 @@ int Initialise(tFleshConfig *config, clock_writer_t &clock,
   CCTKi_ScheduleGHInit(cctkGH);
 
   const GHExt &ext = driver();
-  registry.freeze_storage();
+  std::vector<group_declaration_t> declarations;
+  declarations.reserve(CCTK_NumGroups());
+  for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{CCTK_NumGroups()}))
+    declarations.push_back(declare_group(gi, ext.fixed));
+  registry.freeze_storage(std::move(declarations));
 
   // Initialise all grid extensions
   CCTKi_InitGHExtensions(cctkGH);

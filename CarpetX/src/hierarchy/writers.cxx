@@ -197,8 +197,9 @@ void registry_writer_t::record_storage(const gi_t gi, const int timelevels) {
   ext.sealed_registry().open(*this).record_storage(gi, timelevels);
 }
 
-void registry_writer_t::freeze_storage() {
-  ext.sealed_registry().open(*this).freeze_storage();
+void registry_writer_t::freeze_storage(
+    std::vector<group_declaration_t> declarations) {
+  ext.sealed_registry().open(*this).freeze_storage(std::move(declarations));
 }
 
 void registry_writer_t::record_integrator(GHExt::integrator_t integrator,
