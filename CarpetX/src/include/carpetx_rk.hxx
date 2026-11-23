@@ -7,6 +7,7 @@
 
 #include <array>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace CarpetX {
@@ -46,6 +47,20 @@ struct rk_pair_t {
 };
 
 struct rk_config_t {
+  static rk_config_t with_dense_output(const rk_dense_output_t dense_output,
+                                       std::vector<rk_pair_t> integrated) {
+    const rk_dense_output_method_t method =
+        rk_dense_output_method(dense_output);
+    return {dense_output,
+            std::vector<CCTK_REAL>(method.b.begin(),
+                                   method.b.begin() + method.nstages),
+            std::move(integrated)};
+  }
+  static rk_config_t with_weights(std::vector<CCTK_REAL> b,
+                                  std::vector<rk_pair_t> integrated) {
+    return {rk_dense_output_t::none, std::move(b), std::move(integrated)};
+  }
+
   rk_dense_output_t dense_output = rk_dense_output_t::none;
   std::vector<CCTK_REAL> b;
   std::vector<rk_pair_t> integrated;

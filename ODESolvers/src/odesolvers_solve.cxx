@@ -11,6 +11,7 @@
 
 #include <optional>
 #include <variant>
+#include <vector>
 
 namespace ODESolvers {
 
@@ -24,17 +25,23 @@ extern "C" void ODESolvers_RegisterIntegrator(CCTK_ARGUMENTS) {
   DECLARE_CCTK_ARGUMENTS_ODESolvers_RegisterIntegrator;
   DECLARE_CCTK_PARAMETERS;
 
-  std::visit(overloaded{[](const frozen_t &) {},
-                        [](const explicit_rk_t &scheme) {
-                          CarpetX::rk_config_t integrator;
-                          integrator.dense_output = scheme.dense_output;
-                          integrator.b.assign(scheme.tableau.b.begin(),
-                                              scheme.tableau.b.begin() +
-                                                  scheme.tableau.nstages);
-                          integrator.integrated = integrated_groups().pairs;
-                          CarpetX::register_integrator(integrator);
-                        }},
-             rk_method(method).scheme);
+  std::visit(
+      overloaded{
+          [](const frozen_t &) {},
+          [](const explicit_rk_t &scheme) {
+            const std::vector<CarpetX::rk_pair_t> &pairs =
+                integrated_groups().pairs;
+            CarpetX::register_integrator(
+                scheme.dense_output == CarpetX::rk_dense_output_t::none
+                    ? CarpetX::rk_config_t::with_weights(
+                          std::vector<CCTK_REAL>(scheme.tableau.b.begin(),
+                                                 scheme.tableau.b.begin() +
+                                                     scheme.tableau.nstages),
+                          pairs)
+                    : CarpetX::rk_config_t::with_dense_output(
+                          scheme.dense_output, pairs));
+          }},
+      rk_method(method).scheme);
 }
 
 extern "C" void ODESolvers_Solve(CCTK_ARGUMENTS) {
