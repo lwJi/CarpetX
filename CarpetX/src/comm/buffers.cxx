@@ -4,6 +4,7 @@
 #include "comm/integrator_inside.hxx"
 #include "comm/prolongate_3d_rf2_inside.hxx"
 #include "comm/reflux_inside.hxx"
+#include "comm/rk_band_placement_inside.hxx"
 #include "comm/rk_bands_inside.hxx"
 #include "hierarchy/model.hxx"
 #include <carpetx.hxx>
@@ -61,7 +62,8 @@ rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
       amrcore.Geom(level.parent().index()));
   if (fp.ba_crse_patch.empty())
     return std::nullopt;
-  return std::optional<rk_buffers_t>(std::in_place, fp, record.numvars,
+  const rk_band_layout_t layout = rk_band_layout_of(fp);
+  return std::optional<rk_buffers_t>(std::in_place, layout, record.numvars,
                                      registered_stages());
 }
 

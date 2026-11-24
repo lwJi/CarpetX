@@ -2768,7 +2768,7 @@ class Doc(unittest.TestCase):
         self.assertEqual(doc.standing("rk_bands"), "Inside.")
         with self.assertRaises(AssertionError):
             doc.standing("nosuch")
-        self.assertEqual([stem for stem in rules.STEMS["comm"] if doc.standing(stem) == "Inside."], ["boundary_conditions", "prolongate_3d_rf2", "rk_bands", "group_selection", "level_runs", "level_pairs"])
+        self.assertEqual([stem for stem in rules.STEMS["comm"] if doc.standing(stem) == "Inside."], ["boundary_conditions", "prolongate_3d_rf2", "rk_bands", "rk_band_placement", "group_selection", "level_runs", "level_pairs"])
 
     def test_the_table_of_grants_is_the_friend_lines_the_tree_has(self):
         headers = doc.grant_headers()
@@ -2999,6 +2999,7 @@ class Doc(unittest.TestCase):
                 "  - `prolongate_3d_rf2`: the prolongation operators, and the choice of one per group. Inside.",
                 "  - `buffers`: what `comm/` keeps on a level and its lifetime, and the one writer of each buffer: `flux_register_writer_t` of the flux registers and their scratch, `rk_source_writer_t` of the RK sources, `rk_fill_patch_writer_t` of the RK fill patches; the cell volume has none. Interface for flesh/.",
                 "  - `rk_bands`: what a level holds of its parent's RK step and when it may be read, and the two patches the RK fill works in. Inside.",
+                "  - `rk_band_placement`: which rank owns each box of a level's RK bands, and how much of the two band hops that leaves remote. Inside.",
                 "  - `checkpoint_bands`: the bands of a level a checkpoint carries, each under its tag. Interface for io/.",
                 "  - `timelevels`: which time levels a request covers. Interface for api/.",
                 "  - `group_selection`: which of the groups asked for an exchange acts on. Inside.",
@@ -3313,7 +3314,7 @@ class Stems(unittest.TestCase):
         self.assertLessEqual(set(rules.STEMS), set(LAYERS))
         self.assertEqual(tuple(rules.STEMS), ("config", "hierarchy", "comm"))
         self.assertEqual(tuple(rules.STEMS["hierarchy"]), ("model", "writers", "clock", "valid", "scopes", "binding", "modes", "loops", "grid", "handles"))
-        self.assertEqual(len(rules.STEMS["comm"]), 18)
+        self.assertEqual(len(rules.STEMS["comm"]), 19)
         self.assertEqual(doc.stem_rows(), rules.STEMS)
         for layer, rows in rules.STEMS.items():
             with self.subTest(layer=layer):

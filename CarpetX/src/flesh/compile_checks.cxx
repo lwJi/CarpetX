@@ -11,6 +11,7 @@
 #include "comm/reflux.hxx"
 #include "comm/restrict.hxx"
 #include "comm/checkpoint_bands.hxx"
+#include "comm/rk_band_placement_inside.hxx"
 #include "comm/rk_bands_inside.hxx"
 #include "comm/rk_ghosts.hxx"
 #include "comm/substeps.hxx"
@@ -528,6 +529,16 @@ static_assert(!local_cctkGH_takes<GHExt, int, int, int>);
 static_assert(
     std::is_same_v<decltype(group_buffers_t::rk), std::optional<rk_buffers_t>>);
 static_assert(!std::is_default_constructible_v<rk_buffers_t>);
+static_assert(std::is_constructible_v<rk_buffers_t, const rk_band_layout_t &,
+                                      int, stage_range>);
+static_assert(
+    !std::is_constructible_v<rk_buffers_t, const amrex::FabArrayBase::FPinfo &,
+                             int, stage_range>);
+static_assert(
+    !std::is_constructible_v<rk_sources_t, const amrex::FabArrayBase::FPinfo &,
+                             int, stage_range>);
+static_assert(!std::is_constructible_v<
+              rk_fill_patches_t, const amrex::FabArrayBase::FPinfo &, int>);
 static_assert(
     sealed_for<decltype((std::declval<const group_buffers_t &>().rk->sources)),
                rk_sources_t, rk_source_writer_t>);
