@@ -308,6 +308,9 @@ bands_match_footprint(const std::optional<rk_buffers_t> &rk,
 
 void StoreRKOldState(const level_t level,
                      const std::span<const gi_t> var_groups, const tl_t tl) {
+  static Timer timer("StoreRKOldState");
+  Interval interval(timer);
+
   const GHExt &ext = driver();
   const auto &patchdata = ext.patch(level.patch());
   const auto &leveldata = patchdata.level(level);
@@ -337,6 +340,9 @@ void StoreRKOldState(const level_t level,
 
 void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
                   const std::span<const gi_t> rhs_groups, const stage_t stage) {
+  static Timer timer("StoreRKStage");
+  Interval interval(timer);
+
   const GHExt &ext = driver();
   assert(registered_stages().contains(stage));
   assert(var_groups.size() == rhs_groups.size());
@@ -364,6 +370,9 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
 
 void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
                     const stage_t completed, const std::string &event) {
+  static Timer timer("FillRKBoundary");
+  Interval interval(timer);
+
   const GHExt &ext = driver();
   assert(ext.use_subcycling);
   assert(child.index() > 0);
