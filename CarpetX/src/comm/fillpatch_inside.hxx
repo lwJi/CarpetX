@@ -51,6 +51,13 @@ void Prolongate_Start(
 
 void Prolongate_Finish(amrex::MultiFab &mfab);
 
+void Prolongate_WithinRank(
+    const GHExt::PatchData::LevelData::GroupData &groupdata,
+    const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
+    amrex::MultiFab &mfab, amrex::MultiFab &crse_patch,
+    amrex::MultiFab &fine_patch, const amrex::Geometry &fgeom,
+    const amrex::Geometry &cgeom);
+
 } // namespace CarpetX
 
 #endif

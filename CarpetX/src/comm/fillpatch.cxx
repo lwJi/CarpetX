@@ -166,10 +166,11 @@ void FillPatch_Prolongate(
   });
 }
 
-void Prolongate_Start(
+namespace {
+void interpolate_to_fine_patch(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
-    MultiFab &mfab, MultiFab &crse_patch, MultiFab &fine_patch,
+    const MultiFab &mfab, MultiFab &crse_patch, MultiFab &fine_patch,
     const Geometry &fgeom, const Geometry &cgeom) {
   Interpolater *const mapper = interpolator_of(groupdata.record);
   const Vector<BCRec> bcrecs = bcrecs_of(groupdata);
@@ -191,11 +192,48 @@ void Prolongate_Start(
                   IntVect{0} /* don't add any new ghosts */, cgeom, fgeom,
                   grow(convert(fgeom.Domain(), mfab.ixType()), nghosts), ratio,
                   mapper, bcrecs, 0);
+}
 
-  // Copy fine buffer into destination
-  mfab.ParallelCopy_nowait(
-      fine_patch, 0, 0, ncomps,
-      IntVect{0} /* don't use any ghosts from the buffer */, nghosts);
+void copy_within_rank(MultiFab &mfab, const MultiFab &fine_patch) {
+  const BoxArray &fine_patch_boxes = fine_patch.boxArray();
+  const DistributionMapping &owner = fine_patch.DistributionMap();
+  const int this_rank = ParallelDescriptor::MyProc();
+  const int ncomps = mfab.nComp();
+  for (MFIter mfi(mfab); mfi.isValid(); ++mfi) {
+    const Array4<CCTK_REAL> child = mfab.array(mfi);
+    for (const auto &[b, ghosts] :
+         fine_patch_boxes.intersections(mfi.fabbox())) {
+      if (owner[b] != this_rank)
+        continue;
+      const Array4<const CCTK_REAL> band = fine_patch.const_array(b);
+      ParallelFor(ghosts, ncomps,
+                  [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
+                    child(i, j, k, n) = band(i, j, k, n);
+                  });
+    }
+  }
+}
+} // namespace
+
+void Prolongate_Start(
+    const GHExt::PatchData::LevelData::GroupData &groupdata,
+    const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
+    MultiFab &mfab, MultiFab &crse_patch, MultiFab &fine_patch,
+    const Geometry &fgeom, const Geometry &cgeom) {
+  interpolate_to_fine_patch(groupdata, coarsegroupdata, mfab, crse_patch,
+                            fine_patch, fgeom, cgeom);
+  mfab.ParallelCopy_nowait(fine_patch, 0, 0, mfab.nComp(), IntVect{0},
+                           mfab.nGrowVect());
+}
+
+void Prolongate_WithinRank(
+    const GHExt::PatchData::LevelData::GroupData &groupdata,
+    const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
+    MultiFab &mfab, MultiFab &crse_patch, MultiFab &fine_patch,
+    const Geometry &fgeom, const Geometry &cgeom) {
+  interpolate_to_fine_patch(groupdata, coarsegroupdata, mfab, crse_patch,
+                            fine_patch, fgeom, cgeom);
+  copy_within_rank(mfab, fine_patch);
 }
 
 void Prolongate_Finish(MultiFab &mfab) {

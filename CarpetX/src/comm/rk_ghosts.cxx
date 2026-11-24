@@ -300,8 +300,7 @@ bands_match_footprint(const std::optional<rk_buffers_t> &rk,
                       const amrex::FabArrayBase::FPinfo &fp) {
   if (!rk)
     return fp.ba_crse_patch.empty();
-  return rk->fill_patches->crse.boxArray() == fp.ba_crse_patch &&
-         rk->fill_patches->fine.boxArray() == fp.ba_fine_patch;
+  return rk->fill_patches->footprint == fp.ba_fine_patch;
 }
 
 } // namespace
@@ -439,6 +438,14 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
       rk_dense_output(crse_patch, src, dense_output, stage, xsi, dtc);
     });
 
+    if (patches.each_rank_owns_its_ghosts) {
+      tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
+                              &fine_patch, &fgeom, &cgeom]() {
+        Prolongate_WithinRank(groupdata, coarsegroupdata, mfab, crse_patch,
+                              fine_patch, fgeom, cgeom);
+      });
+      continue;
+    }
     tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
                             &fine_patch, &fgeom, &cgeom]() {
       Prolongate_Start(groupdata, coarsegroupdata, mfab, crse_patch, fine_patch,

@@ -60,6 +60,8 @@ struct rk_fill_patches_t {
   rk_fill_patches_t(const rk_band_layout_t &layout, int numvars);
 
   amrex::MultiFab crse, fine;
+  bool each_rank_owns_its_ghosts;
+  amrex::BoxArray footprint;
 };
 
 const amrex::FabArrayBase::FPinfo &
