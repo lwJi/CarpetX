@@ -13,8 +13,10 @@
 #include <AMReX_Periodicity.H>
 #include <AMReX_Vector.H>
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <iterator>
 #include <map>
 #include <utility>
 
@@ -48,34 +50,41 @@ split_by_owner_t split_by_owner(const cells_by_rank_t &cells, const int owner) {
 }
 
 struct band_cut_t {
-  amrex::BoxArray crse, fine;
+  amrex::BoxArray fine;
   amrex::DistributionMapping owner;
 };
 
-band_cut_t cut_by_child_rank(const amrex::FabArrayBase::FPinfo &fp,
-                             const amrex::BoxArray &gba,
+band_cut_t cut_by_child_rank(const amrex::BoxArray &gba,
                              const amrex::DistributionMapping &dm,
-                             const amrex::IntVect &nghost) {
+                             const amrex::IntVect &nghost,
+                             const amrex::Box &domain) {
   std::map<int, amrex::BoxList> child_boxes_of;
   for (int k = 0; k < int(gba.size()); ++k)
     child_boxes_of.try_emplace(dm[k], gba.ixType())
         .first->second.push_back(gba[k]);
   const amrex::BoxArray level = gba.simplified();
-  amrex::BoxList crse(gba.ixType()), fine(gba.ixType());
+  amrex::BoxList fine(gba.ixType());
   amrex::Vector<int> owner;
   for (const auto &[rank, child_boxes] : child_boxes_of) {
     const amrex::BoxArray mine = amrex::BoxArray(child_boxes).simplified();
     for (int m = 0; m < int(mine.size()); ++m)
       for (const amrex::Box &ghosts_outside_level :
-           level.complementIn(amrex::grow(mine[m], nghost) & fp.m_dstdomain)) {
-        crse.push_back(fp.m_coarsener->doit(ghosts_outside_level));
+           level.complementIn(amrex::grow(mine[m], nghost) & domain)) {
         fine.push_back(ghosts_outside_level);
         owner.push_back(rank);
       }
   }
   assert(!owner.empty());
-  return {amrex::BoxArray(std::move(crse)), amrex::BoxArray(std::move(fine)),
+  return {amrex::BoxArray(std::move(fine)),
           amrex::DistributionMapping(std::move(owner))};
+}
+
+amrex::BoxArray coarsened(const amrex::BoxArray &fine,
+                          const amrex::BoxConverter &coarsener) {
+  amrex::BoxList crse(fine.ixType());
+  for (int b = 0; b < int(fine.size()); ++b)
+    crse.push_back(coarsener.doit(fine[b]));
+  return amrex::BoxArray(std::move(crse));
 }
 
 constexpr double bytes_per_megabyte = 1.0e6;
@@ -93,10 +102,9 @@ double remote_percent(const std::int64_t local_bytes,
 
 } // namespace
 
-rk_band_layout_t rk_band_layout_of(const amrex::FabArrayBase::FPinfo &fp,
-                                   const amrex::BoxArray &gba,
-                                   const amrex::DistributionMapping &dm,
-                                   const amrex::IntVect &nghost) {
+rk_band_layout_t rk_band_cuts_t::layout_of(
+    const amrex::FabArrayBase::FPinfo &fp, const amrex::BoxArray &gba,
+    const amrex::DistributionMapping &dm, const amrex::IntVect &nghost) {
   assert(!fp.ba_crse_patch.empty());
   assert(fp.ba_crse_patch.size() == fp.ba_fine_patch.size());
   assert(fp.fact_crse_patch);
@@ -105,14 +113,24 @@ rk_band_layout_t rk_band_layout_of(const amrex::FabArrayBase::FPinfo &fp,
   assert(dm.size() == gba.size());
   assert(fp.m_coarsener);
   assert(fp.m_dstng == nghost);
-  const band_cut_t cut = cut_by_child_rank(fp, gba, dm, nghost);
-  assert(cut.crse.size() == cut.fine.size());
-  assert(cut.owner.size() == cut.fine.size());
-  assert(cut.fine.contains(fp.ba_fine_patch));
-  assert(fp.ba_fine_patch.contains(cut.fine));
-  return {cut.crse,
-          cut.fine,
-          cut.owner,
+  const amrex::Box &domain = fp.m_dstdomain;
+  auto cut = std::find_if(cuts_.begin(), cuts_.end(), [&](const cut_t &made) {
+    return made.gba == gba && made.dm == dm && made.nghost == nghost &&
+           made.domain == domain;
+  });
+  if (cut == cuts_.end()) {
+    const band_cut_t by_rank = cut_by_child_rank(gba, dm, nghost, domain);
+    assert(by_rank.owner.size() == by_rank.fine.size());
+    assert(by_rank.fine.contains(fp.ba_fine_patch));
+    assert(fp.ba_fine_patch.contains(by_rank.fine));
+    cuts_.push_back({gba, dm, nghost, domain, by_rank.fine, by_rank.owner});
+    cut = std::prev(cuts_.end());
+  }
+  const amrex::BoxArray crse = coarsened(cut->fine, *fp.m_coarsener);
+  assert(crse.size() == cut->fine.size());
+  return {crse,
+          cut->fine,
+          cut->owner,
           *fp.fact_crse_patch,
           *fp.fact_fine_patch,
           fp.ba_fine_patch};

@@ -51,7 +51,8 @@ bool rk_band_locality_is_reported() {
 std::optional<rk_buffers_t>
 rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
               const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
-              const bool count_locality, rk_band_locality_t &level_locality) {
+              rk_band_cuts_t &level_cuts, const bool count_locality,
+              rk_band_locality_t &level_locality) {
   const GHExt &ext = driver();
   const gi_t gi = record.groupindex;
   if (!ext.use_subcycling || level.index() == 0 || !group_is_integrated(gi))
@@ -74,7 +75,7 @@ rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
                      amrcore.Geom(level.index()), amrcore.Geom(parent));
   if (fp.ba_crse_patch.empty())
     return std::nullopt;
-  const rk_band_layout_t layout = rk_band_layout_of(fp, gba, dm, nghost);
+  const rk_band_layout_t layout = level_cuts.layout_of(fp, gba, dm, nghost);
   if (count_locality)
     level_locality += rk_band_locality_of(
         layout, record.numvars,
@@ -111,6 +112,7 @@ level_buffers_ptr make_level_buffers(const level_t level,
       std::make_unique<level_buffers_t>();
   const int numgroups = CCTK_NumGroups();
   buffers->groups.resize(numgroups);
+  rk_band_cuts_t level_cuts;
   const bool count_locality = rk_band_locality_is_reported();
   rk_band_locality_t level_locality;
   bool level_has_bands = false;
@@ -129,8 +131,8 @@ level_buffers_ptr make_level_buffers(const level_t level,
                              .amrcore()
                              .refRatio(level.parent().index()),
                          level.index(), record.numvars);
-    group.rk =
-        rk_buffers_of(record, level, ba, dm, count_locality, level_locality);
+    group.rk = rk_buffers_of(record, level, ba, dm, level_cuts, count_locality,
+                             level_locality);
     level_has_bands = level_has_bands || group.rk;
   }
   if (count_locality && level_has_bands)

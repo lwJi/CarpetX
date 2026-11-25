@@ -5,6 +5,7 @@
 
 #include <carpetx.hxx>
 
+#include <AMReX_Box.H>
 #include <AMReX_BoxArray.H>
 #include <AMReX_DistributionMapping.H>
 #include <AMReX_FArrayBox.H>
@@ -14,6 +15,7 @@
 #include <AMReX_Periodicity.H>
 
 #include <cstdint>
+#include <vector>
 
 namespace CarpetX {
 
@@ -24,10 +26,24 @@ struct rk_band_layout_t {
   amrex::BoxArray footprint;
 };
 
-rk_band_layout_t rk_band_layout_of(const amrex::FabArrayBase::FPinfo &fp,
-                                   const amrex::BoxArray &gba,
-                                   const amrex::DistributionMapping &dm,
-                                   const amrex::IntVect &nghost);
+class rk_band_cuts_t {
+public:
+  rk_band_layout_t layout_of(const amrex::FabArrayBase::FPinfo &fp,
+                             const amrex::BoxArray &gba,
+                             const amrex::DistributionMapping &dm,
+                             const amrex::IntVect &nghost);
+
+private:
+  struct cut_t {
+    amrex::BoxArray gba;
+    amrex::DistributionMapping dm;
+    amrex::IntVect nghost;
+    amrex::Box domain;
+    amrex::BoxArray fine;
+    amrex::DistributionMapping owner;
+  };
+  std::vector<cut_t> cuts_;
+};
 
 struct rk_band_locality_t {
   std::int64_t stored_local_bytes = 0, stored_remote_bytes = 0;
