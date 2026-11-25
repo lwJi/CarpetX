@@ -5,6 +5,7 @@
 
 #include "config/stages.hxx"
 #include "hierarchy/model.hxx"
+#include "comm/rk_band_placement_inside.hxx"
 #include "comm/rk_bands_inside.hxx"
 #include <carpetx.hxx>
 
@@ -104,10 +105,10 @@ public:
 };
 
 struct rk_buffers_t {
-  rk_buffers_t(const amrex::FabArrayBase::FPinfo &fp, const int numvars,
+  rk_buffers_t(const rk_band_layout_t &layout, const int numvars,
                const stage_range stages)
-      : sources(std::in_place, fp, numvars, stages),
-        fill_patches(std::in_place, fp, numvars) {}
+      : sources(std::in_place, layout, numvars, stages),
+        fill_patches(std::in_place, layout, numvars) {}
 
   sealed_rk_sources_t sources;
   sealed_rk_fill_patches_t fill_patches;

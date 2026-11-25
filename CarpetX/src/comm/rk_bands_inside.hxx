@@ -4,6 +4,7 @@
 #include "internal.hxx"
 
 #include "config/stages.hxx"
+#include "comm/rk_band_placement_inside.hxx"
 #include <carpetx.hxx>
 
 #include <AMReX_FabArrayBase.H>
@@ -26,8 +27,7 @@ struct fill_site_t {
 
 class rk_sources_t {
 public:
-  rk_sources_t(const amrex::FabArrayBase::FPinfo &fp, int numvars,
-               stage_range stages);
+  rk_sources_t(const rk_band_layout_t &layout, int numvars, stage_range stages);
 
   void store_old(const amrex::MultiFab &parent_state,
                  const amrex::Periodicity &period, rat64 parent_step);
@@ -57,9 +57,10 @@ private:
 };
 
 struct rk_fill_patches_t {
-  rk_fill_patches_t(const amrex::FabArrayBase::FPinfo &fp, int numvars);
+  rk_fill_patches_t(const rk_band_layout_t &layout, int numvars);
 
   amrex::MultiFab crse, fine;
+  amrex::BoxArray footprint;
 };
 
 const amrex::FabArrayBase::FPinfo &

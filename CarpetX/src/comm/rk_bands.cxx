@@ -1,5 +1,6 @@
 #include "comm/rk_bands_inside.hxx"
 
+#include "comm/rk_band_placement_inside.hxx"
 #include "config/stages.hxx"
 #include "util/refuse.hxx"
 #include <carpetx.hxx>
@@ -58,13 +59,13 @@ rk_fill_fpinfo(const amrex::FabArrayBase &fine,
                                         fgeom, cgeom, index_space);
 }
 
-rk_sources_t::rk_sources_t(const amrex::FabArrayBase::FPinfo &fp,
-                           const int numvars, const stage_range stages)
-    : old_source_(fp.ba_crse_patch, fp.dm_patch, numvars, 0) {
-  assert(!fp.ba_crse_patch.empty());
+rk_sources_t::rk_sources_t(const rk_band_layout_t &layout, const int numvars,
+                           const stage_range stages)
+    : old_source_(layout.crse, layout.owner, numvars, 0) {
+  assert(!layout.crse.empty());
   ks_source_.reserve(stages.size());
   for ([[maybe_unused]] const stage_t stage : stages)
-    ks_source_.emplace_back(fp.ba_crse_patch, fp.dm_patch, numvars, 0);
+    ks_source_.emplace_back(layout.crse, layout.owner, numvars, 0);
 }
 
 void rk_sources_t::store_old(const amrex::MultiFab &parent_state,
@@ -126,13 +127,14 @@ rk_sources_t::sources_t rk_sources_t::sources(const rat64 parent_step,
   return {old_source_, std::span<const amrex::MultiFab>(ks_source_)};
 }
 
-rk_fill_patches_t::rk_fill_patches_t(const amrex::FabArrayBase::FPinfo &fp,
+rk_fill_patches_t::rk_fill_patches_t(const rk_band_layout_t &layout,
                                      const int numvars)
-    : crse(fp.ba_crse_patch, fp.dm_patch, numvars, 0, amrex::MFInfo(),
-           *fp.fact_crse_patch),
-      fine(fp.ba_fine_patch, fp.dm_patch, numvars, 0, amrex::MFInfo(),
-           *fp.fact_fine_patch) {
-  assert(!fp.ba_crse_patch.empty());
+    : crse(layout.crse, layout.owner, numvars, 0, amrex::MFInfo(),
+           layout.crse_factory),
+      fine(layout.fine, layout.owner, numvars, 0, amrex::MFInfo(),
+           layout.fine_factory),
+      footprint(layout.footprint) {
+  assert(!layout.crse.empty());
 }
 
 } // namespace CarpetX

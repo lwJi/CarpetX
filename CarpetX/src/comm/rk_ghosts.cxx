@@ -300,14 +300,16 @@ bands_match_footprint(const std::optional<rk_buffers_t> &rk,
                       const amrex::FabArrayBase::FPinfo &fp) {
   if (!rk)
     return fp.ba_crse_patch.empty();
-  return rk->fill_patches->crse.boxArray() == fp.ba_crse_patch &&
-         rk->fill_patches->fine.boxArray() == fp.ba_fine_patch;
+  return rk->fill_patches->footprint == fp.ba_fine_patch;
 }
 
 } // namespace
 
 void StoreRKOldState(const level_t level,
                      const std::span<const gi_t> var_groups, const tl_t tl) {
+  static Timer timer("StoreRKOldState");
+  Interval interval(timer);
+
   const GHExt &ext = driver();
   const auto &patchdata = ext.patch(level.patch());
   const auto &leveldata = patchdata.level(level);
@@ -337,6 +339,9 @@ void StoreRKOldState(const level_t level,
 
 void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
                   const std::span<const gi_t> rhs_groups, const stage_t stage) {
+  static Timer timer("StoreRKStage");
+  Interval interval(timer);
+
   const GHExt &ext = driver();
   assert(registered_stages().contains(stage));
   assert(var_groups.size() == rhs_groups.size());
@@ -364,6 +369,9 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
 
 void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
                     const stage_t completed, const std::string &event) {
+  static Timer timer("FillRKBoundary");
+  Interval interval(timer);
+
   const GHExt &ext = driver();
   assert(ext.use_subcycling);
   assert(child.index() > 0);
@@ -397,7 +405,6 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
 
   task_manager tasks1;
   task_manager tasks2;
-  task_manager tasks3;
   const rk_fill_patch_writer_t filling;
 
   for (const gi_t gi : states) {
@@ -432,17 +439,14 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
 
     tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
                             &fine_patch, &fgeom, &cgeom]() {
-      Prolongate_Start(groupdata, coarsegroupdata, mfab, crse_patch, fine_patch,
-                       fgeom, cgeom);
+      Prolongate_WithinRank(groupdata, coarsegroupdata, mfab, crse_patch,
+                            fine_patch, fgeom, cgeom);
     });
-    tasks3.submit_serially([&mfab]() { Prolongate_Finish(mfab); });
   }
 
   tasks1.run_tasks_serially();
   synchronize();
   tasks2.run_tasks_serially();
-  synchronize();
-  tasks3.run_tasks_serially();
   synchronize();
 }
 

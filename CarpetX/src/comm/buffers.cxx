@@ -4,6 +4,7 @@
 #include "comm/integrator_inside.hxx"
 #include "comm/prolongate_3d_rf2_inside.hxx"
 #include "comm/reflux_inside.hxx"
+#include "comm/rk_band_placement_inside.hxx"
 #include "comm/rk_bands_inside.hxx"
 #include "hierarchy/model.hxx"
 #include <carpetx.hxx>
@@ -39,7 +40,8 @@ namespace {
 
 std::optional<rk_buffers_t>
 rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
-              const amrex::BoxArray &ba, const amrex::DistributionMapping &dm) {
+              const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
+              rk_band_cuts_t &level_cuts) {
   const GHExt &ext = driver();
   const gi_t gi = record.groupindex;
   if (!ext.use_subcycling || level.index() == 0 || !group_is_integrated(gi))
@@ -61,7 +63,8 @@ rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
       amrcore.Geom(level.parent().index()));
   if (fp.ba_crse_patch.empty())
     return std::nullopt;
-  return std::optional<rk_buffers_t>(std::in_place, fp, record.numvars,
+  const rk_band_layout_t layout = level_cuts.layout_of(fp, gba, dm, nghost);
+  return std::optional<rk_buffers_t>(std::in_place, layout, record.numvars,
                                      registered_stages());
 }
 
@@ -92,6 +95,7 @@ level_buffers_ptr make_level_buffers(const level_t level,
       std::make_unique<level_buffers_t>();
   const int numgroups = CCTK_NumGroups();
   buffers->groups.resize(numgroups);
+  rk_band_cuts_t level_cuts;
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
     const GHExt::GroupRecord &record = driver().record(gi);
     if (record.kind != group_kind::grid_function)
@@ -107,7 +111,7 @@ level_buffers_ptr make_level_buffers(const level_t level,
                              .amrcore()
                              .refRatio(level.parent().index()),
                          level.index(), record.numvars);
-    group.rk = rk_buffers_of(record, level, ba, dm);
+    group.rk = rk_buffers_of(record, level, ba, dm, level_cuts);
   }
   buffers->cell_volume = cell_volume_of(level, ba, dm);
   return level_buffers_ptr(buffers.release(),
