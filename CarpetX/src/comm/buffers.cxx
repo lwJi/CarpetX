@@ -10,17 +10,12 @@
 #include <carpetx.hxx>
 
 #include <cctk.h>
-#include <cctk_Parameters.h>
 
-#include <AMReX_BoxArray.H>
-#include <AMReX_DistributionMapping.H>
 #include <AMReX_FabArrayBase.H>
 #include <AMReX_FluxRegister.H>
 #include <AMReX_Geometry.H>
-#include <AMReX_IndexType.H>
 #include <AMReX_IntVect.H>
 #include <AMReX_MultiFab.H>
-#include <AMReX_Periodicity.H>
 
 #include <array>
 #include <cassert>
@@ -43,16 +38,10 @@ flux_buffers_t::flux_buffers_t(const amrex::BoxArray &ba,
 
 namespace {
 
-bool rk_band_locality_is_reported() {
-  DECLARE_CCTK_PARAMETERS;
-  return report_rk_band_locality;
-}
-
 std::optional<rk_buffers_t>
 rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
               const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
-              rk_band_cuts_t &level_cuts, const bool count_locality,
-              rk_band_locality_t &level_locality) {
+              rk_band_cuts_t &level_cuts) {
   const GHExt &ext = driver();
   const gi_t gi = record.groupindex;
   if (!ext.use_subcycling || level.index() == 0 || !group_is_integrated(gi))
@@ -61,26 +50,20 @@ rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
   if (nghost.max() == 0)
     return std::nullopt;
   const std::array<int, dim> &indextype = record.grid_function().indextype;
-  const amrex::IndexType group_indextype(
-      indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
-      indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
-      indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE);
-  const amrex::BoxArray gba = convert(ba, group_indextype);
+  const amrex::BoxArray gba = convert(
+      ba, amrex::IndexType(
+              indextype[0] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
+              indextype[1] ? amrex::IndexType::CELL : amrex::IndexType::NODE,
+              indextype[2] ? amrex::IndexType::CELL : amrex::IndexType::NODE));
   const amrex::MultiFab probe(gba, dm, record.numvars, nghost,
                               amrex::MFInfo().SetAlloc(false));
   const amrex::AmrCore &amrcore = ext.patch(level.patch()).amrcore();
-  const int parent = level.parent().index();
-  const amrex::FabArrayBase::FPinfo &fp =
-      rk_fill_fpinfo(probe, interpolator_of(record),
-                     amrcore.Geom(level.index()), amrcore.Geom(parent));
+  const amrex::FabArrayBase::FPinfo &fp = rk_fill_fpinfo(
+      probe, interpolator_of(record), amrcore.Geom(level.index()),
+      amrcore.Geom(level.parent().index()));
   if (fp.ba_crse_patch.empty())
     return std::nullopt;
   const rk_band_layout_t layout = level_cuts.layout_of(fp, gba, dm, nghost);
-  if (count_locality)
-    level_locality += rk_band_locality_of(
-        layout, record.numvars,
-        convert(amrcore.boxArray(parent), group_indextype),
-        amrcore.DistributionMap(parent), amrcore.Geom(parent).periodicity());
   return std::optional<rk_buffers_t>(std::in_place, layout, record.numvars,
                                      registered_stages());
 }
@@ -113,9 +96,6 @@ level_buffers_ptr make_level_buffers(const level_t level,
   const int numgroups = CCTK_NumGroups();
   buffers->groups.resize(numgroups);
   rk_band_cuts_t level_cuts;
-  const bool count_locality = rk_band_locality_is_reported();
-  rk_band_locality_t level_locality;
-  bool level_has_bands = false;
   for (const gi_t gi : index_range<gi_t>(gi_t{0}, gi_t{numgroups})) {
     const GHExt::GroupRecord &record = driver().record(gi);
     if (record.kind != group_kind::grid_function)
@@ -131,12 +111,8 @@ level_buffers_ptr make_level_buffers(const level_t level,
                              .amrcore()
                              .refRatio(level.parent().index()),
                          level.index(), record.numvars);
-    group.rk = rk_buffers_of(record, level, ba, dm, level_cuts, count_locality,
-                             level_locality);
-    level_has_bands = level_has_bands || group.rk;
+    group.rk = rk_buffers_of(record, level, ba, dm, level_cuts);
   }
-  if (count_locality && level_has_bands)
-    report_rk_band_locality(level, current_iteration(), level_locality);
   buffers->cell_volume = cell_volume_of(level, ba, dm);
   return level_buffers_ptr(buffers.release(),
                            [](const level_buffers_t *const p) { delete p; });

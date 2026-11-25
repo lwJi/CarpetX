@@ -2999,7 +2999,7 @@ class Doc(unittest.TestCase):
                 "  - `prolongate_3d_rf2`: the prolongation operators, and the choice of one per group. Inside.",
                 "  - `buffers`: what `comm/` keeps on a level and its lifetime, and the one writer of each buffer: `flux_register_writer_t` of the flux registers and their scratch, `rk_source_writer_t` of the RK sources, `rk_fill_patch_writer_t` of the RK fill patches; the cell volume has none. Interface for flesh/.",
                 "  - `rk_bands`: what a level holds of its parent's RK step and when it may be read, and the two patches the RK fill works in. Inside.",
-                "  - `rk_band_placement`: how a level's RK bands are cut into boxes and which rank owns each, and how much of the parent's copy into them that leaves remote. Inside.",
+                "  - `rk_band_placement`: how a level's RK bands are cut into boxes and which rank owns each. Inside.",
                 "  - `checkpoint_bands`: the bands of a level a checkpoint carries, each under its tag. Interface for io/.",
                 "  - `timelevels`: which time levels a request covers. Interface for api/.",
                 "  - `group_selection`: which of the groups asked for an exchange acts on. Inside.",

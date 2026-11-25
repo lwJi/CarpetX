@@ -487,12 +487,6 @@ BOOLEAN restrict_during_sync "Restrict fine to coarse grid functions when syncin
 
 
 
-BOOLEAN report_rk_band_locality "Print local against remote bytes of the parent's copy into a level's RK bands whenever they are built" STEERABLE=recover
-{
-} no
-
-
-
 KEYWORD timestep_choice "How to set the time step size"
 {
   "timestep" :: "Set the time step `timestep` directly"
