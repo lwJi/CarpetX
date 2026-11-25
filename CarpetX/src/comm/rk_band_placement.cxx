@@ -1,6 +1,5 @@
 #include "comm/rk_band_placement_inside.hxx"
 
-#include "util/refuse.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -17,7 +16,6 @@
 #include <cassert>
 #include <cstdint>
 #include <map>
-#include <source_location>
 #include <utility>
 
 namespace CarpetX {
@@ -25,17 +23,6 @@ namespace CarpetX {
 namespace {
 
 using cells_by_rank_t = std::map<int, std::int64_t>;
-
-cells_by_rank_t received_cells(const amrex::Box &fine_patch_box,
-                               const amrex::BoxArray &gba,
-                               const amrex::DistributionMapping &dm,
-                               const amrex::IntVect &nghost) {
-  cells_by_rank_t cells;
-  for (const auto &[child_box, ghosts_filled] :
-       gba.intersections(fine_patch_box, false, nghost))
-    cells[dm[child_box]] += ghosts_filled.numPts();
-  return cells;
-}
 
 cells_by_rank_t stored_cells(const amrex::Box &crse_patch_box,
                              const amrex::BoxArray &parent_gba,
@@ -63,7 +50,6 @@ split_by_owner_t split_by_owner(const cells_by_rank_t &cells, const int owner) {
 struct band_cut_t {
   amrex::BoxArray crse, fine;
   amrex::DistributionMapping owner;
-  bool each_rank_owns_its_ghosts;
 };
 
 band_cut_t cut_by_child_rank(const amrex::FabArrayBase::FPinfo &fp,
@@ -89,33 +75,7 @@ band_cut_t cut_by_child_rank(const amrex::FabArrayBase::FPinfo &fp,
   }
   assert(!owner.empty());
   return {amrex::BoxArray(std::move(crse)), amrex::BoxArray(std::move(fine)),
-          amrex::DistributionMapping(std::move(owner)), true};
-}
-
-band_cut_t cut_of(const rk_band_placement_t placement,
-                  const amrex::FabArrayBase::FPinfo &fp,
-                  const amrex::BoxArray &gba,
-                  const amrex::DistributionMapping &dm,
-                  const amrex::IntVect &nghost) {
-  switch (placement) {
-  case rk_band_placement_t::child:
-    return cut_by_child_rank(fp, gba, dm, nghost);
-  case rk_band_placement_t::knapsack:
-    return {fp.ba_crse_patch, fp.ba_fine_patch, fp.dm_patch, false};
-  }
-  refuse(std::source_location::current(), "rk_band_placement_t has no value %d",
-         int(placement));
-}
-
-const char *name_of(const rk_band_placement_t placement) {
-  switch (placement) {
-  case rk_band_placement_t::child:
-    return "child";
-  case rk_band_placement_t::knapsack:
-    return "knapsack";
-  }
-  refuse(std::source_location::current(), "rk_band_placement_t has no value %d",
-         int(placement));
+          amrex::DistributionMapping(std::move(owner))};
 }
 
 constexpr double bytes_per_megabyte = 1.0e6;
@@ -133,8 +93,7 @@ double remote_percent(const std::int64_t local_bytes,
 
 } // namespace
 
-rk_band_layout_t rk_band_layout_of(const rk_band_placement_t placement,
-                                   const amrex::FabArrayBase::FPinfo &fp,
+rk_band_layout_t rk_band_layout_of(const amrex::FabArrayBase::FPinfo &fp,
                                    const amrex::BoxArray &gba,
                                    const amrex::DistributionMapping &dm,
                                    const amrex::IntVect &nghost) {
@@ -146,7 +105,7 @@ rk_band_layout_t rk_band_layout_of(const rk_band_placement_t placement,
   assert(dm.size() == gba.size());
   assert(fp.m_coarsener);
   assert(fp.m_dstng == nghost);
-  const band_cut_t cut = cut_of(placement, fp, gba, dm, nghost);
+  const band_cut_t cut = cut_by_child_rank(fp, gba, dm, nghost);
   assert(cut.crse.size() == cut.fine.size());
   assert(cut.owner.size() == cut.fine.size());
   assert(cut.fine.contains(fp.ba_fine_patch));
@@ -156,7 +115,6 @@ rk_band_layout_t rk_band_layout_of(const rk_band_placement_t placement,
           cut.owner,
           *fp.fact_crse_patch,
           *fp.fact_fine_patch,
-          cut.each_rank_owns_its_ghosts,
           fp.ba_fine_patch};
 }
 
@@ -164,62 +122,45 @@ rk_band_locality_t &
 rk_band_locality_t::operator+=(const rk_band_locality_t &other) {
   stored_local_bytes += other.stored_local_bytes;
   stored_remote_bytes += other.stored_remote_bytes;
-  received_local_bytes += other.received_local_bytes;
-  received_remote_bytes += other.received_remote_bytes;
   return *this;
 }
 
-rk_band_locality_t rk_band_locality_of(
-    const rk_band_layout_t &layout, const int numvars,
-    const amrex::BoxArray &gba, const amrex::DistributionMapping &dm,
-    const amrex::IntVect &nghost, const amrex::BoxArray &parent_gba,
-    const amrex::DistributionMapping &parent_dm,
-    const amrex::Periodicity &period) {
-  assert(layout.crse.size() == layout.fine.size());
-  assert(layout.owner.size() == layout.fine.size());
-  assert(layout.fine.ixType() == gba.ixType());
+rk_band_locality_t
+rk_band_locality_of(const rk_band_layout_t &layout, const int numvars,
+                    const amrex::BoxArray &parent_gba,
+                    const amrex::DistributionMapping &parent_dm,
+                    const amrex::Periodicity &period) {
+  assert(layout.owner.size() == layout.crse.size());
   assert(layout.crse.ixType() == parent_gba.ixType());
-  assert(dm.size() == gba.size());
   assert(parent_dm.size() == parent_gba.size());
   assert(numvars > 0);
 
   const std::int64_t bytes_per_cell =
       std::int64_t(numvars) * std::int64_t(sizeof(CCTK_REAL));
   rk_band_locality_t locality;
-  const int num_patch_boxes = int(layout.fine.size());
-  for (int b = 0; b < num_patch_boxes; ++b) {
-    const int owner = layout.owner[b];
+  const int num_band_boxes = int(layout.crse.size());
+  for (int b = 0; b < num_band_boxes; ++b) {
     const split_by_owner_t stored = split_by_owner(
-        stored_cells(layout.crse[b], parent_gba, parent_dm, period), owner);
-    const split_by_owner_t received =
-        split_by_owner(received_cells(layout.fine[b], gba, dm, nghost), owner);
-    const std::int64_t sent_to_other_ranks =
-        layout.each_rank_owns_its_ghosts ? 0 : received.remote_cells;
+        stored_cells(layout.crse[b], parent_gba, parent_dm, period),
+        layout.owner[b]);
     locality.stored_local_bytes += stored.local_cells * bytes_per_cell;
     locality.stored_remote_bytes += stored.remote_cells * bytes_per_cell;
-    locality.received_local_bytes += received.local_cells * bytes_per_cell;
-    locality.received_remote_bytes += sent_to_other_ranks * bytes_per_cell;
   }
   return locality;
 }
 
 void report_rk_band_locality(const level_t level, const int iteration,
-                             const rk_band_placement_t placement,
                              const rk_band_locality_t &total) {
   if (CCTK_MyProc(nullptr) != 0)
     return;
   CCTK_VINFO(
-      "RK band locality, level %d, built at iteration %d, placement: %s\n"
+      "RK band locality, level %d, built at iteration %d\n"
       "  %-19s%13s%12s%9s\n"
-      "  %-19s%13.6f%12.6f%8.0f%%\n"
       "  %-19s%13.6f%12.6f%8.0f%%",
-      level.index(), iteration, name_of(placement), "hop", "local MB",
-      "remote MB", "remote", "parent -> band",
-      megabytes(total.stored_local_bytes), megabytes(total.stored_remote_bytes),
-      remote_percent(total.stored_local_bytes, total.stored_remote_bytes),
-      "band -> fine ghosts", megabytes(total.received_local_bytes),
-      megabytes(total.received_remote_bytes),
-      remote_percent(total.received_local_bytes, total.received_remote_bytes));
+      level.index(), iteration, "hop", "local MB", "remote MB", "remote",
+      "parent -> band", megabytes(total.stored_local_bytes),
+      megabytes(total.stored_remote_bytes),
+      remote_percent(total.stored_local_bytes, total.stored_remote_bytes));
 }
 
 } // namespace CarpetX

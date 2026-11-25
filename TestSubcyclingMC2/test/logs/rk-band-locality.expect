@@ -1,4 +1,3 @@
-RK band locality, level 2, built at iteration 0, placement: child
+RK band locality, level 2, built at iteration 0
   hop                     local MB   remote MB   remote
   parent -> band          0.081760    0.000000       0%
-  band -> fine ghosts     0.116064    0.000000       0%

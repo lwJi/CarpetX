@@ -133,7 +133,6 @@ rk_fill_patches_t::rk_fill_patches_t(const rk_band_layout_t &layout,
            layout.crse_factory),
       fine(layout.fine, layout.owner, numvars, 0, amrex::MFInfo(),
            layout.fine_factory),
-      each_rank_owns_its_ghosts(layout.each_rank_owns_its_ghosts),
       footprint(layout.footprint) {
   assert(!layout.crse.empty());
 }

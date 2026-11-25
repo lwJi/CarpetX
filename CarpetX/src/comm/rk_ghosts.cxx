@@ -405,7 +405,6 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
 
   task_manager tasks1;
   task_manager tasks2;
-  task_manager tasks3;
   const rk_fill_patch_writer_t filling;
 
   for (const gi_t gi : states) {
@@ -438,27 +437,16 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
       rk_dense_output(crse_patch, src, dense_output, stage, xsi, dtc);
     });
 
-    if (patches.each_rank_owns_its_ghosts) {
-      tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
-                              &fine_patch, &fgeom, &cgeom]() {
-        Prolongate_WithinRank(groupdata, coarsegroupdata, mfab, crse_patch,
-                              fine_patch, fgeom, cgeom);
-      });
-      continue;
-    }
     tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
                             &fine_patch, &fgeom, &cgeom]() {
-      Prolongate_Start(groupdata, coarsegroupdata, mfab, crse_patch, fine_patch,
-                       fgeom, cgeom);
+      Prolongate_WithinRank(groupdata, coarsegroupdata, mfab, crse_patch,
+                            fine_patch, fgeom, cgeom);
     });
-    tasks3.submit_serially([&mfab]() { Prolongate_Finish(mfab); });
   }
 
   tasks1.run_tasks_serially();
   synchronize();
   tasks2.run_tasks_serially();
-  synchronize();
-  tasks3.run_tasks_serially();
   synchronize();
 }
 

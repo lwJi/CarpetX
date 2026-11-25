@@ -84,11 +84,6 @@ int ioproc_every(const int nprocs) {
          "IO::out_mode is \"%s\", which this writer does not know", out_mode);
 }
 
-std::string rk_band_placement_keyword() {
-  DECLARE_CCTK_PARAMETERS;
-  return rk_band_placement;
-}
-
 int db_centering(const amrex::IndexType &indextype) {
   constexpr std::array<int, ndims + 1> centerings{DB_NODECENT, DB_EDGECENT,
                                                   DB_FACECENT, DB_ZONECENT};
@@ -1031,12 +1026,12 @@ struct reader_t {
             CCTK_VERROR("The Silo checkpoint file \"%s\" lacks the variable "
                         "\"%s\" of %s. A Silo checkpoint recovers only with "
                         "the number of processes and the IO::out_mode it was "
-                        "written with, and an RK band only with the "
-                        "CarpetX::rk_band_placement it was written with. This "
-                        "run uses \"%s\"; a checkpoint written before that "
-                        "parameter existed needs \"knapsack\".",
-                        filename.c_str(), varname.c_str(), id.name().c_str(),
-                        rk_band_placement_keyword().c_str());
+                        "written with, and an RK band only when it was "
+                        "written with each rank owning the band its own fine "
+                        "boxes read. A checkpoint from a CarpetX that placed "
+                        "the RK bands with AMReX's knapsack map does not "
+                        "recover here.",
+                        filename.c_str(), varname.c_str(), id.name().c_str());
           if (!quadvar)
             CCTK_VERROR("The Silo checkpoint file \"%s\" lacks the variable "
                         "\"%s\" of %s. A Silo checkpoint recovers only with "

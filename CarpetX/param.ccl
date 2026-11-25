@@ -487,13 +487,7 @@ BOOLEAN restrict_during_sync "Restrict fine to coarse grid functions when syncin
 
 
 
-KEYWORD rk_band_placement "Which rank owns a refined level's RK bands and RK fill patches (temporary)" STEERABLE=recover
-{
-  "child"    :: "each rank owns the band its own fine boxes read, so the fill is local to the rank"
-  "knapsack" :: "AMReX's load balance over patch cell counts"
-} "child"
-
-BOOLEAN report_rk_band_locality "Print local against remote bytes of the two RK band hops whenever a level's bands are built" STEERABLE=recover
+BOOLEAN report_rk_band_locality "Print local against remote bytes of the parent's copy into a level's RK bands whenever they are built" STEERABLE=recover
 {
 } no
 

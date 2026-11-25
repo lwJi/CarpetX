@@ -7,7 +7,6 @@
 #include "comm/rk_band_placement_inside.hxx"
 #include "comm/rk_bands_inside.hxx"
 #include "hierarchy/model.hxx"
-#include "util/refuse.hxx"
 #include <carpetx.hxx>
 
 #include <cctk.h>
@@ -49,22 +48,10 @@ bool rk_band_locality_is_reported() {
   return report_rk_band_locality;
 }
 
-rk_band_placement_t rk_band_placement_in_force() {
-  DECLARE_CCTK_PARAMETERS;
-  if (CCTK_EQUALS(rk_band_placement, "child"))
-    return rk_band_placement_t::child;
-  if (CCTK_EQUALS(rk_band_placement, "knapsack"))
-    return rk_band_placement_t::knapsack;
-  refuse(std::source_location::current(),
-         "CarpetX::rk_band_placement is \"%s\", which the RK bands do not know",
-         rk_band_placement);
-}
-
 std::optional<rk_buffers_t>
 rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
               const amrex::BoxArray &ba, const amrex::DistributionMapping &dm,
-              const rk_band_placement_t placement, const bool count_locality,
-              rk_band_locality_t &level_locality) {
+              const bool count_locality, rk_band_locality_t &level_locality) {
   const GHExt &ext = driver();
   const gi_t gi = record.groupindex;
   if (!ext.use_subcycling || level.index() == 0 || !group_is_integrated(gi))
@@ -87,11 +74,10 @@ rk_buffers_of(const GHExt::GroupRecord &record, const level_t level,
                      amrcore.Geom(level.index()), amrcore.Geom(parent));
   if (fp.ba_crse_patch.empty())
     return std::nullopt;
-  const rk_band_layout_t layout =
-      rk_band_layout_of(placement, fp, gba, dm, nghost);
+  const rk_band_layout_t layout = rk_band_layout_of(fp, gba, dm, nghost);
   if (count_locality)
     level_locality += rk_band_locality_of(
-        layout, record.numvars, gba, dm, nghost,
+        layout, record.numvars,
         convert(amrcore.boxArray(parent), group_indextype),
         amrcore.DistributionMap(parent), amrcore.Geom(parent).periodicity());
   return std::optional<rk_buffers_t>(std::in_place, layout, record.numvars,
@@ -125,7 +111,6 @@ level_buffers_ptr make_level_buffers(const level_t level,
       std::make_unique<level_buffers_t>();
   const int numgroups = CCTK_NumGroups();
   buffers->groups.resize(numgroups);
-  const rk_band_placement_t placement = rk_band_placement_in_force();
   const bool count_locality = rk_band_locality_is_reported();
   rk_band_locality_t level_locality;
   bool level_has_bands = false;
@@ -144,13 +129,12 @@ level_buffers_ptr make_level_buffers(const level_t level,
                              .amrcore()
                              .refRatio(level.parent().index()),
                          level.index(), record.numvars);
-    group.rk = rk_buffers_of(record, level, ba, dm, placement, count_locality,
-                             level_locality);
+    group.rk =
+        rk_buffers_of(record, level, ba, dm, count_locality, level_locality);
     level_has_bands = level_has_bands || group.rk;
   }
   if (count_locality && level_has_bands)
-    report_rk_band_locality(level, current_iteration(), placement,
-                            level_locality);
+    report_rk_band_locality(level, current_iteration(), level_locality);
   buffers->cell_volume = cell_volume_of(level, ba, dm);
   return level_buffers_ptr(buffers.release(),
                            [](const level_buffers_t *const p) { delete p; });
