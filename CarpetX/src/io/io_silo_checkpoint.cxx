@@ -28,6 +28,7 @@
 #include <array>
 #include <cassert>
 #include <climits>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -970,10 +971,56 @@ DB::ptr<DBfile> open_block_file(const std::string &filename) {
 }
 
 struct reader_t {
+  const checkpoint_record_t &record;
   const std::string &filename;
   int myproc, every;
   DB::ptr<DBfile> dbfile;
   std::map<std::string, const amrex::MultiFab *> states;
+
+  void require_band_box_as_written(const buffer_id_t &id,
+                                   const component_t component,
+                                   const amrex::Box &fabbox,
+                                   const amrex::IndexType &indextype) const {
+    const level_t level = *id.level;
+    const amrex::Geometry &geom = record.level_record(level).geom;
+    const std::string meshname =
+        make_meshname(ivect{0, 0, 0}, level, component, *band_tag(id));
+    const DB::ptr<DBquadmesh> quadmesh =
+        DB::make(DBGetQuadmesh(dbfile.get(), meshname.c_str()));
+    if (!quadmesh)
+      CCTK_VERROR("The Silo checkpoint file \"%s\" lacks the mesh \"%s\" of "
+                  "%s, so where its box %d sat when it was written is unknown",
+                  filename.c_str(), meshname.c_str(), id.name().c_str(),
+                  component.index());
+    assert(quadmesh->ndims == ndims);
+    assert(quadmesh->coordtype == DB_COLLINEAR);
+    assert(quadmesh->datatype == db_datatype_v<CCTK_REAL>);
+    ivect written_lo, written_dims, lo, dims;
+    for (int d = 0; d < ndims; ++d) {
+      const CCTK_REAL x0 =
+          static_cast<const CCTK_REAL *>(quadmesh->coords[d])[0];
+      written_lo[d] =
+          int(std::lround((x0 - geom.ProbLo(d)) / geom.CellSize(d)));
+      written_dims[d] = quadmesh->dims[d] - int(indextype.cellCentered(d));
+      lo[d] = fabbox.smallEnd(d);
+      dims[d] = fabbox.length(d);
+    }
+    if (written_lo != lo || written_dims != dims)
+      CCTK_VERROR("The Silo checkpoint file \"%s\" holds box %d of %s at "
+                  "[%d,%d,%d] with %dx%dx%d points, but this run has that box "
+                  "at [%d,%d,%d] with %dx%dx%d points. A Silo checkpoint "
+                  "recovers a band only onto the boxes it was written from. "
+                  "The boxes of an RK band follow the processes that own the "
+                  "fine level's boxes, so this run assigned them differently "
+                  "than the run that wrote the checkpoint, or the checkpoint "
+                  "is from a CarpetX that placed the RK bands with AMReX's "
+                  "knapsack map. Recover from a time-aligned checkpoint, "
+                  "which carries no RK bands.",
+                  filename.c_str(), component.index(), id.name().c_str(),
+                  written_lo[0], written_lo[1], written_lo[2], written_dims[0],
+                  written_dims[1], written_dims[2], lo[0], lo[1], lo[2],
+                  dims[0], dims[1], dims[2]);
+  }
 
   void read(const buffer_id_t &id, amrex::MultiFab &mfab) const {
     const level_t level = *id.level;
@@ -1038,6 +1085,9 @@ struct reader_t {
                         "the number of processes and the IO::out_mode it was "
                         "written with.",
                         filename.c_str(), varname.c_str(), id.name().c_str());
+          if (tag && vi == 0)
+            require_band_box_as_written(
+                id, component, mfab.fabbox(component.index()), indextype);
           assert(quadvar->ndims == ndims);
           for (int d = 0; d < ndims; ++d)
             assert(quadvar->dims[d] == dims[d]);
@@ -1416,7 +1466,8 @@ void silo_codec_t::decode_data(const checkpoint_record_t &record,
 
   const std::string filename =
       block_file_path(dir, file, record.iteration, myproc / every);
-  reader_t reader{.filename = filename,
+  reader_t reader{.record = record,
+                  .filename = filename,
                   .myproc = myproc,
                   .every = every,
                   .dbfile = {},
