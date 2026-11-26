@@ -24,7 +24,6 @@
 #include <AMReX_FabArrayBase.H> // FabArrayBase::TheFPinfo
 #include <AMReX_Geometry.H>
 #include <AMReX_GpuContainers.H> // amrex::GpuArray
-#include <AMReX_GpuDevice.H>     // amrex::Gpu::synchronize
 #include <AMReX_IntVect.H>
 #include <AMReX_Interpolater.H>
 #include <AMReX_MFParallelFor.H> // amrex::ParallelFor(MF, IntVect, ncomp, F)
@@ -133,11 +132,8 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
 
   const CCTK_REAL xsi2 = xsi * xsi;
 
-  // Stage the coarse old state u(t_n); the polynomial is then accumulated in
-  // place on the coarse patch.
-  amrex::MultiFab::Copy(crse_patch, old_band, 0, 0, nvars, 0);
-
   auto yf_arrs = crse_patch.arrays();
+  const auto old_arrs = old_band.const_arrays();
   amrex::GpuArray<amrex::MultiArray4<const CCTK_REAL>, RKSTAGES> kcs_arrs;
   for (const stage_t ks_stage : stages) {
     const amrex::MultiFab &ks_band = src.ks[stages.offset(ks_stage)];
@@ -168,7 +164,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                                                  kcs_arrs[1][b_](i, j, k, n),
                                                  kcs_arrs[2][b_](i, j, k, n)};
             const CCTK_REAL uu = b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2];
-            yf_arrs[b_](i, j, k, n) += dtc * uu;
+            yf_arrs[b_](i, j, k, n) = old_arrs[b_](i, j, k, n) + dtc * uu;
           });
     } else if (stage == stage_t{2}) {
       amrex::ParallelFor(
@@ -179,7 +175,8 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                                                  kcs_arrs[2][b_](i, j, k, n)};
             const CCTK_REAL uu = b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2];
             const CCTK_REAL ut = bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2];
-            yf_arrs[b_](i, j, k, n) += dtc * (uu + at * ut);
+            yf_arrs[b_](i, j, k, n) =
+                old_arrs[b_](i, j, k, n) + dtc * (uu + at * ut);
           });
     } else { // stage 3
       amrex::ParallelFor(
@@ -192,7 +189,8 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
             const CCTK_REAL ut = bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2];
             const CCTK_REAL utt =
                 btt[0] * kk[0] + btt[1] * kk[1] + btt[2] * kk[2];
-            yf_arrs[b_](i, j, k, n) += dtc * (uu + at * ut + att * utt);
+            yf_arrs[b_](i, j, k, n) =
+                old_arrs[b_](i, j, k, n) + dtc * (uu + at * ut + att * utt);
           });
     }
   } else { // RKSTAGES == 4
@@ -225,7 +223,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                 kcs_arrs[2][b_](i, j, k, n), kcs_arrs[3][b_](i, j, k, n)};
             const CCTK_REAL uu =
                 b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2] + b[3] * kk[3];
-            yf_arrs[b_](i, j, k, n) += dtc * uu;
+            yf_arrs[b_](i, j, k, n) = old_arrs[b_](i, j, k, n) + dtc * uu;
           });
     } else if (stage == stage_t{2}) {
       amrex::ParallelFor(
@@ -238,7 +236,8 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                 b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2] + b[3] * kk[3];
             const CCTK_REAL ut =
                 bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2] + bt[3] * kk[3];
-            yf_arrs[b_](i, j, k, n) += dtc * (uu + at * ut);
+            yf_arrs[b_](i, j, k, n) =
+                old_arrs[b_](i, j, k, n) + dtc * (uu + at * ut);
           });
     } else { // stage 3 or stage 4
       static_assert(method.c[1] == method.c[2],
@@ -264,15 +263,13 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                                   btt[2] * kk[2] + btt[3] * kk[3];
             const CCTK_REAL uttt = bttt[0] * kk[0] + bttt[1] * kk[1] +
                                    bttt[2] * kk[2] + bttt[3] * kk[3];
-            yf_arrs[b_](i, j, k, n) +=
+            yf_arrs[b_](i, j, k, n) =
+                old_arrs[b_](i, j, k, n) +
                 dtc * (uu + at * ut + att * utt +
                        attt * (uttt + ak * (kk[2] - kk[1])));
           });
     }
   }
-
-  // Wait for the device kernel before the result is consumed.
-  amrex::Gpu::synchronize();
 }
 
 void rk_dense_output(amrex::MultiFab &crse_patch,
