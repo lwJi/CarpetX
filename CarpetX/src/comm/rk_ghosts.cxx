@@ -449,10 +449,18 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
     });
   }
 
-  tasks1.run_tasks_serially();
-  synchronize();
-  tasks2.run_tasks_serially();
-  synchronize();
+  {
+    static Timer dense_output_timer("FillRKBoundary::dense_output");
+    Interval dense_output_interval(dense_output_timer);
+    tasks1.run_tasks_serially();
+    synchronize();
+  }
+  {
+    static Timer interpolation_timer("FillRKBoundary::interpolation");
+    Interval interpolation_interval(interpolation_timer);
+    tasks2.run_tasks_serially();
+    synchronize();
+  }
 }
 
 void RecoverRKBoundary(const window_t window) {
