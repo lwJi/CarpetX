@@ -57,6 +57,64 @@ loop_region(const F &f, const Arith::vect<int, dim> &imin,
 }
 } // namespace
 
+#ifdef CCTK_DEBUG
+inline void assert_finite(const amrex::Array4<const CCTK_REAL> &vars,
+                          const amrex::Box &region, const int ncomp) {
+  amrex::ParallelFor(
+      region, ncomp,
+      [=] CCTK_DEVICE(const int i, const int j, const int k, const int comp)
+          __attribute__((__always_inline__, __flatten__)) {
+            using std::isfinite;
+            assert(isfinite(vars(i, j, k, comp)));
+          });
+}
+#endif
+
+struct box_loop_per_var_t {
+  amrex::Array4<const CCTK_REAL> crse;
+  amrex::Array4<CCTK_REAL> fine;
+  int ncomp;
+  amrex::Box region;
+
+  template <typename Cell> void operator()(const Cell &cell) const {
+    const vect<int, dim> imin{region.smallEnd(0), region.smallEnd(1),
+                              region.smallEnd(2)};
+    const vect<int, dim> imax{region.bigEnd(0) + 1, region.bigEnd(1) + 1,
+                              region.bigEnd(2) + 1};
+    for (int comp = 0; comp < ncomp; ++comp) {
+      const crse_var_t crse_var{crse, comp};
+      const fine_var_t fine_var{fine, comp};
+      loop_region(
+          [=] CCTK_DEVICE(const vect<int, dim> &ifine)
+              __attribute__((__always_inline__, __flatten__)) {
+                cell(ifine, crse_var, fine_var);
+              },
+          imin, imax);
+    }
+  }
+};
+
+struct box_loop_per_group_t {
+  amrex::Array4<const CCTK_REAL> crse;
+  amrex::Array4<CCTK_REAL> fine;
+  amrex::Box region;
+
+  template <typename Cell> void operator()(const Cell &cell) const {
+    const vect<int, dim> imin{region.smallEnd(0), region.smallEnd(1),
+                              region.smallEnd(2)};
+    const vect<int, dim> imax{region.bigEnd(0) + 1, region.bigEnd(1) + 1,
+                              region.bigEnd(2) + 1};
+    const crse_group_t crse_vars{crse};
+    const fine_group_t fine_vars{fine};
+    loop_region(
+        [=] CCTK_DEVICE(const vect<int, dim> &ifine)
+            __attribute__((__always_inline__, __flatten__)) {
+              cell(ifine, crse_vars, fine_vars);
+            },
+        imin, imax);
+  }
+};
+
 // 1D interpolation coefficients
 
 template <centering_t CENT, interpolation_t INTP, int ORDER, typename T>
@@ -1249,17 +1307,9 @@ prolongate_3d_rf2<CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ,
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
           interpolation_t INTPI, interpolation_t INTPJ, interpolation_t INTPK,
           int ORDERI, int ORDERJ, int ORDERK, fallback_t FB>
-void prolongate_3d_rf2<
-    CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ, ORDERK,
-    FB>::interp_per_var(const amrex::FArrayBox &crse, const int crse_comp,
-                        amrex::FArrayBox &fine, const int fine_comp,
-                        const int ncomp, const amrex::Box &fine_region,
-                        const amrex::IntVect &ratio,
-                        const amrex::Geometry &crse_geom,
-                        const amrex::Geometry &fine_geom,
-                        amrex::Vector<amrex::BCRec> const &bcr,
-                        const int actual_comp, const int actual_state,
-                        const amrex::RunOn gpu_or_cpu) {
+template <typename Launch>
+void prolongate_3d_rf2<CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ,
+                       ORDERK, FB>::per_var(const Launch &launch) {
   DECLARE_CCTK_PARAMETERS;
 
   static std::once_flag have_timers;
@@ -1283,16 +1333,6 @@ void prolongate_3d_rf2<
   Timer &timer = timers.at(thread_num);
   Interval interval(timer);
 
-  for (int d = 0; d < dim; ++d)
-    assert(ratio.getVect()[d] == 2);
-
-  assert(actual_comp == 0);  // ???
-  assert(actual_state == 0); // ???
-
-  // Target box is intersection of fine_region and domain of fine
-  const amrex::Box target_region = fine_region & fine.box();
-  assert(target_region == fine_region);
-
   using STENCILI = interp1d<CENTI, INTPI, ORDERI>;
   using STENCILJ = interp1d<CENTJ, INTPJ, ORDERJ>;
   using STENCILK = interp1d<CENTK, INTPK, ORDERK>;
@@ -1307,15 +1347,6 @@ void prolongate_3d_rf2<
     static test_interp1d<CENTK, INTPK, ORDERK, CCTK_REAL> testk;
   }
 
-#ifdef CCTK_DEBUG
-  // The points we will access, i.e. the coarsened fine region, with ghosts
-  // added
-  const amrex::Box source_region = CoarseBox(target_region, /*reffact*/ 2);
-#endif
-
-  const auto crsebox = crse.box();
-  const auto finebox = fine.box();
-
   constexpr vect<int, dim> required_ghosts{
       STENCILI::required_ghosts,
       STENCILJ::required_ghosts,
@@ -1327,46 +1358,7 @@ void prolongate_3d_rf2<
                                       interpolation[1] == ENO && order[1] > 0,
                                       interpolation[2] == ENO && order[2] > 0};
 
-  for (int comp = 0; comp < ncomp; ++comp) {
-    const CCTK_REAL *restrict const crseptr = crse.dataPtr(crse_comp + comp);
-    CCTK_REAL *restrict fineptr = fine.dataPtr(fine_comp + comp);
-
-    const auto crse = [=] CCTK_DEVICE(const int i, const int j, const int k)
-        __attribute__((__always_inline__, __flatten__)) {
-      const amrex::IntVect vcrse(i, j, k);
-#ifdef CCTK_DEBUG
-      assert(crsebox.contains(vcrse));
-#endif
-      return crseptr[crsebox.index(vcrse)];
-    };
-    const auto fine = [=] CCTK_DEVICE(const int i, const int j, const int k)
-        __attribute__((__always_inline__, __flatten__)) {
-      const amrex::IntVect vfine(i, j, k);
-#ifdef CCTK_DEBUG
-      assert(finebox.contains(vfine));
-#endif
-      return fineptr[finebox.index(vfine)];
-    };
-    const auto setfine = [=] CCTK_DEVICE(const int i, const int j, const int k,
-                                         const CCTK_REAL val)
-        __attribute__((__always_inline__, __flatten__)) {
-      const amrex::IntVect vfine(i, j, k);
-#ifdef CCTK_DEBUG
-      assert(finebox.contains(vfine));
-#endif
-      fineptr[finebox.index(vfine)] = val;
-    };
-
-#ifdef CCTK_DEBUG
-    // Check that the input values are finite
-    amrex::ParallelFor(
-        source_region, [=] CCTK_DEVICE(const int i, const int j, const int k)
-                           __attribute__((__always_inline__, __flatten__)) {
-                             using std::isfinite;
-                             assert(isfinite(crse(i, j, k)));
-                           });
-#endif
-
+  {
     // Undivided differences
     // Maximum ENO shift
     constexpr vect<int, dim> maxshift{use_shift[0] ? required_ghosts[0] / 2 : 0,
@@ -1376,14 +1368,9 @@ void prolongate_3d_rf2<
 
     // We don't pre-calculate the undivided differences
 
-    const vect<int, dim> imin{target_region.loVect()[0],
-                              target_region.loVect()[1],
-                              target_region.loVect()[2]};
-    const vect<int, dim> imax{target_region.hiVect()[0] + 1,
-                              target_region.hiVect()[1] + 1,
-                              target_region.hiVect()[2] + 1};
-    loop_region(
-        [=] CCTK_DEVICE(const vect<int, dim> &ifine) __attribute__((
+    launch(
+        [=] CCTK_DEVICE(const vect<int, dim> &ifine, const crse_var_t &crse,
+                        const fine_var_t &setfine) __attribute__((
             __always_inline__, __flatten__)) {
           // Redefine `constexpr` values since they are only captured as
           // `const` by nvcc
@@ -1659,21 +1646,8 @@ void prolongate_3d_rf2<
           } // if FB != FB_NONE
 
           setfine(ifine[0], ifine[1], ifine[2], res);
-        },
-        imin, imax);
-
-#ifdef CCTK_DEBUG
-    // Check that the output values are finite
-    amrex::ParallelFor(
-        target_region, [=] CCTK_DEVICE(const int i, const int j, const int k)
-                           __attribute__((__always_inline__, __flatten__)) {
-                             using std::isfinite;
-                             assert(isfinite(fine(i, j, k)));
-                           });
-#endif
-
-  } // for comp
-
+        });
+  }
 }
 
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
@@ -1681,15 +1655,48 @@ template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
           int ORDERI, int ORDERJ, int ORDERK, fallback_t FB>
 void prolongate_3d_rf2<
     CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ, ORDERK,
-    FB>::interp_per_group(const amrex::FArrayBox &crse_box, const int crse_comp,
-                          amrex::FArrayBox &fine_box, const int fine_comp,
-                          const int ncomps, const amrex::Box &fine_region,
-                          const amrex::IntVect &ratio,
-                          const amrex::Geometry &crse_geom,
-                          const amrex::Geometry &fine_geom,
-                          amrex::Vector<amrex::BCRec> const &bcr,
-                          const int actual_comp, const int actual_state,
-                          const amrex::RunOn gpu_or_cpu) {
+    FB>::interp_per_var(const amrex::FArrayBox &crse, const int crse_comp,
+                        amrex::FArrayBox &fine, const int fine_comp,
+                        const int ncomp, const amrex::Box &fine_region,
+                        const amrex::IntVect &ratio,
+                        const amrex::Geometry &crse_geom,
+                        const amrex::Geometry &fine_geom,
+                        amrex::Vector<amrex::BCRec> const &bcr,
+                        const int actual_comp, const int actual_state,
+                        const amrex::RunOn gpu_or_cpu) {
+  for (int d = 0; d < dim; ++d)
+    assert(ratio.getVect()[d] == 2);
+
+  assert(actual_comp == 0);
+  assert(actual_state == 0);
+
+  const amrex::Box target_region = fine_region & fine.box();
+  assert(target_region == fine_region);
+
+  const amrex::Array4<const CCTK_REAL> crse_vars =
+      crse.const_array(crse_comp, ncomp);
+  const amrex::Array4<CCTK_REAL> fine_vars = fine.array(fine_comp, ncomp);
+
+#ifdef CCTK_DEBUG
+  const amrex::Box source_region = CoarseBox(target_region, 2);
+  assert(crse.box().contains(source_region));
+  assert_finite(crse_vars, source_region, ncomp);
+#endif
+
+  per_var(box_loop_per_var_t{crse_vars, fine_vars, ncomp, target_region});
+
+#ifdef CCTK_DEBUG
+  assert_finite(fine_vars, target_region, ncomp);
+#endif
+}
+
+template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
+          interpolation_t INTPI, interpolation_t INTPJ, interpolation_t INTPK,
+          int ORDERI, int ORDERJ, int ORDERK, fallback_t FB>
+template <typename Launch>
+void prolongate_3d_rf2<CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ,
+                       ORDERK, FB>::per_group(const int ncomps,
+                                              const Launch &launch) {
   DECLARE_CCTK_PARAMETERS;
 
   constexpr int maxncomps = 16;
@@ -1716,16 +1723,6 @@ void prolongate_3d_rf2<
   Timer &timer = timers.at(thread_num);
   Interval interval(timer);
 
-  for (int d = 0; d < dim; ++d)
-    assert(ratio.getVect()[d] == 2);
-
-  assert(actual_comp == 0);  // ???
-  assert(actual_state == 0); // ???
-
-  // Target box is intersection of fine_region and domain of fine
-  const amrex::Box target_region = fine_region & fine_box.box();
-  assert(target_region == fine_region);
-
   using STENCILI = interp1d<CENTI, INTPI, ORDERI>;
   using STENCILJ = interp1d<CENTJ, INTPJ, ORDERJ>;
   using STENCILK = interp1d<CENTK, INTPK, ORDERK>;
@@ -1740,15 +1737,6 @@ void prolongate_3d_rf2<
     static test_interp1d<CENTK, INTPK, ORDERK, CCTK_REAL> testk;
   }
 
-#ifdef CCTK_DEBUG
-  // The points we will access, i.e. the coarsened fine region, with ghosts
-  // added
-  const amrex::Box source_region = CoarseBox(target_region, /*reffact*/ 2);
-#endif
-
-  const auto crsebox = crse_box.box();
-  const auto finebox = fine_box.box();
-
   constexpr vect<int, dim> required_ghosts{
       STENCILI::required_ghosts,
       STENCILJ::required_ghosts,
@@ -1760,52 +1748,6 @@ void prolongate_3d_rf2<
                                       interpolation[1] == ENO && order[1] > 0,
                                       interpolation[2] == ENO && order[2] > 0};
 
-  const CCTK_REAL *restrict const crseptr = crse_box.dataPtr(crse_comp);
-  const std::ptrdiff_t crsenp = crse_box.dataPtr(1) - crse_box.dataPtr(0);
-  CCTK_REAL *restrict fineptr = fine_box.dataPtr(fine_comp);
-  const std::ptrdiff_t finenp = fine_box.dataPtr(1) - fine_box.dataPtr(0);
-
-  const auto crse = [=] CCTK_DEVICE(const int i, const int j, const int k,
-                                    const int comp)
-      __attribute__((__always_inline__, __flatten__)) {
-    const amrex::IntVect vcrse(i, j, k);
-#ifdef CCTK_DEBUG
-    assert(crsebox.contains(vcrse));
-#endif
-    return crseptr[crsebox.index(vcrse) + comp * crsenp];
-  };
-#ifdef CCTK_DEBUG
-  const auto fine = [=] CCTK_DEVICE(const int i, const int j, const int k,
-                                    const int comp)
-      __attribute__((__always_inline__, __flatten__)) {
-    const amrex::IntVect vfine(i, j, k);
-#ifdef CCTK_DEBUG
-    assert(finebox.contains(vfine));
-#endif
-    return fineptr[finebox.index(vfine) + comp * finenp];
-  };
-#endif
-  const auto setfine = [=] CCTK_DEVICE(const int i, const int j, const int k,
-                                       const int comp, const CCTK_REAL val)
-      __attribute__((__always_inline__, __flatten__)) {
-    const amrex::IntVect vfine(i, j, k);
-#ifdef CCTK_DEBUG
-    assert(finebox.contains(vfine));
-#endif
-    fineptr[finebox.index(vfine) + comp * finenp] = val;
-  };
-
-#ifdef CCTK_DEBUG
-  // Check that the input values are finite
-  amrex::ParallelFor(
-      source_region, [=] CCTK_DEVICE(const int i, const int j, const int k)
-                         __attribute__((__always_inline__, __flatten__)) {
-                           using std::isfinite;
-                           for (int comp = 0; comp < ncomps; ++comp)
-                             assert(isfinite(crse(i, j, k, comp)));
-                         });
-#endif
-
   // Undivided differences
   // Maximum ENO shift
   constexpr vect<int, dim> maxshift{use_shift[0] ? required_ghosts[0] / 2 : 0,
@@ -1814,14 +1756,9 @@ void prolongate_3d_rf2<
 
   // We don't pre-calculate the undivided differences
 
-  const vect<int, dim> imin{target_region.loVect()[0],
-                            target_region.loVect()[1],
-                            target_region.loVect()[2]};
-  const vect<int, dim> imax{target_region.hiVect()[0] + 1,
-                            target_region.hiVect()[1] + 1,
-                            target_region.hiVect()[2] + 1};
-  loop_region(
-      [=] CCTK_DEVICE(const vect<int, dim> &ifine) __attribute__((
+  launch(
+      [=] CCTK_DEVICE(const vect<int, dim> &ifine, const crse_group_t &crse,
+                      const fine_group_t &setfine) __attribute__((
           __always_inline__, __flatten__)) {
         // Redefine `constexpr` values since they are only captured as
         // `const` by nvcc
@@ -2104,20 +2041,47 @@ void prolongate_3d_rf2<
 
         for (int comp = 0; comp < ncomps; ++comp)
           setfine(ifine[0], ifine[1], ifine[2], comp, ress[comp]);
-      },
-      imin, imax);
+      });
+}
+
+template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
+          interpolation_t INTPI, interpolation_t INTPJ, interpolation_t INTPK,
+          int ORDERI, int ORDERJ, int ORDERK, fallback_t FB>
+void prolongate_3d_rf2<
+    CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ, ORDERK,
+    FB>::interp_per_group(const amrex::FArrayBox &crse, const int crse_comp,
+                          amrex::FArrayBox &fine, const int fine_comp,
+                          const int ncomp, const amrex::Box &fine_region,
+                          const amrex::IntVect &ratio,
+                          const amrex::Geometry &crse_geom,
+                          const amrex::Geometry &fine_geom,
+                          amrex::Vector<amrex::BCRec> const &bcr,
+                          const int actual_comp, const int actual_state,
+                          const amrex::RunOn gpu_or_cpu) {
+  for (int d = 0; d < dim; ++d)
+    assert(ratio.getVect()[d] == 2);
+
+  assert(actual_comp == 0);
+  assert(actual_state == 0);
+
+  const amrex::Box target_region = fine_region & fine.box();
+  assert(target_region == fine_region);
+
+  const amrex::Array4<const CCTK_REAL> crse_vars =
+      crse.const_array(crse_comp, ncomp);
+  const amrex::Array4<CCTK_REAL> fine_vars = fine.array(fine_comp, ncomp);
 
 #ifdef CCTK_DEBUG
-  // Check that the output values are finite
-  amrex::ParallelFor(
-      target_region, [=] CCTK_DEVICE(const int i, const int j, const int k)
-                         __attribute__((__always_inline__, __flatten__)) {
-                           using std::isfinite;
-                           for (int comp = 0; comp < ncomps; ++comp)
-                             assert(isfinite(fine(i, j, k, comp)));
-                         });
+  const amrex::Box source_region = CoarseBox(target_region, 2);
+  assert(crse.box().contains(source_region));
+  assert_finite(crse_vars, source_region, ncomp);
 #endif
 
+  per_group(ncomp, box_loop_per_group_t{crse_vars, fine_vars, target_region});
+
+#ifdef CCTK_DEBUG
+  assert_finite(fine_vars, target_region, ncomp);
+#endif
 }
 
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,

@@ -5,6 +5,7 @@
 
 #include "hierarchy/model.hxx"
 
+#include <AMReX_Array4.H>
 #include <AMReX_Box.H>
 #include <AMReX_Interpolater.H>
 #include <AMReX_TagParallelFor.H>
@@ -25,6 +26,54 @@ struct ghost_overlap_t {
   }
 };
 using ghost_overlaps_t = amrex::TagVector<ghost_overlap_t>;
+
+struct crse_var_t {
+  amrex::Array4<const CCTK_REAL> vars;
+  int var;
+  AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE CCTK_REAL
+  operator()(const int i, const int j, const int k) const noexcept {
+#ifdef CCTK_DEBUG
+    assert(vars.contains(i, j, k));
+#endif
+    return vars(i, j, k, var);
+  }
+};
+
+struct fine_var_t {
+  amrex::Array4<CCTK_REAL> vars;
+  int var;
+  AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void
+  operator()(const int i, const int j, const int k,
+             const CCTK_REAL val) const noexcept {
+#ifdef CCTK_DEBUG
+    assert(vars.contains(i, j, k));
+#endif
+    vars(i, j, k, var) = val;
+  }
+};
+
+struct crse_group_t {
+  amrex::Array4<const CCTK_REAL> vars;
+  AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE CCTK_REAL operator()(
+      const int i, const int j, const int k, const int var) const noexcept {
+#ifdef CCTK_DEBUG
+    assert(vars.contains(i, j, k));
+#endif
+    return vars(i, j, k, var);
+  }
+};
+
+struct fine_group_t {
+  amrex::Array4<CCTK_REAL> vars;
+  AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void
+  operator()(const int i, const int j, const int k, const int var,
+             const CCTK_REAL val) const noexcept {
+#ifdef CCTK_DEBUG
+    assert(vars.contains(i, j, k));
+#endif
+    vars(i, j, k, var) = val;
+  }
+};
 
 enum class centering_t : int { vertex = 0, cell = 1 };
 std::ostream &operator<<(std::ostream &os, centering_t cent);
@@ -96,6 +145,8 @@ public:
 #ifndef AMREX_USE_GPU
 private:
 #endif
+  template <typename Launch> void per_var(const Launch &launch);
+  template <typename Launch> void per_group(int ncomps, const Launch &launch);
   void interp_per_var(const amrex::FArrayBox &crse, int crse_comp,
                       amrex::FArrayBox &fine, int fine_comp, int ncomp,
                       const amrex::Box &fine_region,
