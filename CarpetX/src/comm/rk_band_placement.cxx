@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <iterator>
 #include <map>
 #include <utility>
@@ -39,6 +40,27 @@ std::vector<int> local_indices_on(const int rank,
   return local_index;
 }
 
+amrex::BoxList outside_of(const amrex::BoxList &taken,
+                          const amrex::Box &piece) {
+  amrex::BoxList rest(piece);
+  for (const amrex::Box &box : taken) {
+    amrex::BoxList left(piece.ixType());
+    for (const amrex::Box &part : rest)
+      left.join(amrex::boxDiff(part, box));
+    rest = std::move(left);
+  }
+  return rest;
+}
+
+[[maybe_unused]] bool
+each_ghost_is_written_once(const std::vector<interp_region_t> &into_one_box) {
+  for (std::size_t a = 0; a < into_one_box.size(); ++a)
+    for (std::size_t b = a + 1; b < into_one_box.size(); ++b)
+      if (into_one_box[a].region.intersects(into_one_box[b].region))
+        return false;
+  return true;
+}
+
 std::vector<interp_region_t>
 overlaps_on_this_rank(const amrex::BoxArray &gba,
                       const amrex::DistributionMapping &dm,
@@ -51,12 +73,18 @@ overlaps_on_this_rank(const amrex::BoxArray &gba,
   for (int k = 0; k < int(gba.size()); ++k) {
     if (dm[k] != this_rank)
       continue;
+    amrex::BoxList filled(gba.ixType());
+    std::vector<interp_region_t> into_this_box;
     for (const auto &[b, ghosts] :
          fine.intersections(amrex::grow(gba[k], nghost))) {
       if (owner[b] != this_rank)
         continue;
-      overlaps.push_back({child_box_of[k], band_box_of[b], ghosts});
+      for (const amrex::Box &unfilled : outside_of(filled, ghosts))
+        into_this_box.push_back({child_box_of[k], band_box_of[b], unfilled});
+      filled.push_back(ghosts);
     }
+    assert(each_ghost_is_written_once(into_this_box));
+    overlaps.insert(overlaps.end(), into_this_box.begin(), into_this_box.end());
   }
   return overlaps;
 }
