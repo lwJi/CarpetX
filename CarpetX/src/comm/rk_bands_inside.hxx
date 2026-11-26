@@ -5,6 +5,7 @@
 
 #include "config/stages.hxx"
 #include "comm/rk_band_placement_inside.hxx"
+#include "util/task_manager.hxx"
 #include <carpetx.hxx>
 
 #include <AMReX_FabArrayBase.H>
@@ -31,7 +32,8 @@ public:
 
   void store_old(const amrex::MultiFab &parent_state,
                  const amrex::Periodicity &period, rat64 parent_step);
-  void store_stage(stage_t stage, const amrex::MultiFab &parent_rhs,
+  void store_stage(task_manager &finishing, stage_t stage,
+                   const amrex::MultiFab &parent_rhs,
                    const amrex::Periodicity &period, std::source_location site);
 
   struct sources_t {
@@ -54,6 +56,7 @@ private:
   std::vector<amrex::MultiFab> ks_source_;
   std::optional<rat64> parent_step_;
   int stages_stored_ = 0;
+  bool pending_ = false;
 };
 
 struct rk_fill_patches_t {

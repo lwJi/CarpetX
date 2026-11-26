@@ -354,6 +354,7 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
   const amrex::Periodicity &period =
       patchdata.amrcore().Geom(level.index()).periodicity();
   const rk_source_writer_t storing;
+  task_manager finishing;
 
   for (size_t i = 0; i < var_groups.size(); ++i) {
     const std::optional<rk_buffers_t> &rk =
@@ -362,9 +363,11 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
     if (!rk)
       continue;
     storing.open(rk->sources)
-        .store_stage(stage, rhs_groupdata.timelevel(tl_t{0}).mfab(), period,
-                     std::source_location::current());
+        .store_stage(finishing, stage, rhs_groupdata.timelevel(tl_t{0}).mfab(),
+                     period, std::source_location::current());
   }
+
+  finishing.run_tasks_serially();
 }
 
 void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
