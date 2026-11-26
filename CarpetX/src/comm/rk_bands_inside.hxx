@@ -29,10 +29,15 @@ class rk_sources_t {
 public:
   rk_sources_t(const rk_band_layout_t &layout, int numvars, stage_range stages);
 
-  void store_old(const amrex::MultiFab &parent_state,
-                 const amrex::Periodicity &period, rat64 parent_step);
-  void store_stage(stage_t stage, const amrex::MultiFab &parent_rhs,
-                   const amrex::Periodicity &period, std::source_location site);
+  struct store_t {
+    rk_sources_t &bands;
+    const amrex::MultiFab &src;
+  };
+  static void store_old(std::span<const store_t> stores,
+                        const amrex::Periodicity &period, rat64 parent_step);
+  static void store_stage(std::span<const store_t> stores, stage_t stage,
+                          const amrex::Periodicity &period,
+                          std::source_location site);
 
   struct sources_t {
     const amrex::MultiFab &old;
@@ -49,6 +54,7 @@ public:
 
 private:
   bool holds(rat64 parent_step) const;
+  amrex::MultiFab &next_stage_band(stage_t stage, std::source_location site);
 
   amrex::MultiFab old_source_;
   std::vector<amrex::MultiFab> ks_source_;

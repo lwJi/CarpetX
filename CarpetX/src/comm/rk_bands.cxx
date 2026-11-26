@@ -15,20 +15,41 @@
 #include <AMReX_Periodicity.H>
 
 #include <cassert>
+#include <cstddef>
 #include <optional>
 #include <source_location>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace CarpetX {
 
 namespace {
-void copy_interior_to_band(amrex::MultiFab &band, const amrex::MultiFab &src,
-                           const amrex::Periodicity &period) {
-  assert(band.ixType() == src.ixType());
-  assert(band.nComp() == src.nComp());
-  band.ParallelCopy(src, 0, 0, band.nComp(), amrex::IntVect{0},
-                    amrex::IntVect{0}, period);
+struct band_copy_t {
+  amrex::MultiFab &band;
+  const amrex::MultiFab &src;
+};
+
+[[maybe_unused]] bool
+each_band_once(const std::span<const band_copy_t> copies) {
+  for (std::size_t i = 0; i < copies.size(); ++i)
+    for (std::size_t j = 0; j < i; ++j)
+      if (&copies[i].band == &copies[j].band)
+        return false;
+  return true;
+}
+
+void copy_interiors_to_bands(const std::span<const band_copy_t> copies,
+                             const amrex::Periodicity &period) {
+  assert(each_band_once(copies));
+  for (const band_copy_t &copy : copies) {
+    assert(copy.band.ixType() == copy.src.ixType());
+    assert(copy.band.nComp() == copy.src.nComp());
+    copy.band.ParallelCopy_nowait(copy.src, 0, 0, copy.band.nComp(),
+                                  amrex::IntVect{0}, amrex::IntVect{0}, period);
+  }
+  for (const band_copy_t &copy : copies)
+    copy.band.ParallelCopy_finish();
 }
 
 std::string describe_parent_step(const rat64 parent_step) {
@@ -68,18 +89,36 @@ rk_sources_t::rk_sources_t(const rk_band_layout_t &layout, const int numvars,
     ks_source_.emplace_back(layout.crse, layout.owner, numvars, 0);
 }
 
-void rk_sources_t::store_old(const amrex::MultiFab &parent_state,
+void rk_sources_t::store_old(const std::span<const store_t> stores,
                              const amrex::Periodicity &period,
                              const rat64 parent_step) {
-  copy_interior_to_band(old_source_, parent_state, period);
-  parent_step_ = parent_step;
-  stages_stored_ = 0;
+  std::vector<band_copy_t> copies;
+  copies.reserve(stores.size());
+  for (const store_t &store : stores)
+    copies.push_back({store.bands.old_source_, store.src});
+  copy_interiors_to_bands(copies, period);
+  for (const store_t &store : stores) {
+    store.bands.parent_step_ = parent_step;
+    store.bands.stages_stored_ = 0;
+  }
 }
 
-void rk_sources_t::store_stage(const stage_t stage,
-                               const amrex::MultiFab &parent_rhs,
+void rk_sources_t::store_stage(const std::span<const store_t> stores,
+                               const stage_t stage,
                                const amrex::Periodicity &period,
                                const std::source_location site) {
+  std::vector<band_copy_t> copies;
+  copies.reserve(stores.size());
+  for (const store_t &store : stores)
+    copies.push_back({store.bands.next_stage_band(stage, site), store.src});
+  copy_interiors_to_bands(copies, period);
+  for (const store_t &store : stores)
+    ++store.bands.stages_stored_;
+}
+
+amrex::MultiFab &
+rk_sources_t::next_stage_band(const stage_t stage,
+                              const std::source_location site) {
   const int num_stages = int(ks_source_.size());
   const stage_range stages = rk_stages(num_stages);
   const bool is_next_stage = parent_step_ && stages_stored_ < num_stages &&
@@ -90,9 +129,7 @@ void rk_sources_t::store_stage(const stage_t stage,
            "the RK bands hold %s; RK stage %d is not the next stage to store",
            describe_held(parent_step_, stages_stored_, num_stages).c_str(),
            stage.index());
-  copy_interior_to_band(ks_source_.at(stages.offset(stage)), parent_rhs,
-                        period);
-  ++stages_stored_;
+  return ks_source_.at(stages.offset(stage));
 }
 
 bool rk_sources_t::holds(const rat64 parent_step) const {
