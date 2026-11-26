@@ -105,7 +105,6 @@ rk_band_layout_t rk_band_cuts_t::layout_of(
   assert(!fp.ba_crse_patch.empty());
   assert(fp.ba_crse_patch.size() == fp.ba_fine_patch.size());
   assert(fp.fact_crse_patch);
-  assert(fp.fact_fine_patch);
   assert(fp.ba_fine_patch.ixType() == gba.ixType());
   assert(dm.size() == gba.size());
   assert(fp.m_coarsener);
@@ -126,13 +125,12 @@ rk_band_layout_t rk_band_cuts_t::layout_of(
   }
   const amrex::BoxArray crse = coarsened(cut->fine, *fp.m_coarsener);
   assert(crse.size() == cut->fine.size());
-  return {crse,
-          cut->fine,
-          cut->owner,
-          *fp.fact_crse_patch,
-          *fp.fact_fine_patch,
-          cut->overlaps,
-          fp.ba_fine_patch};
+  return {.crse = crse,
+          .fine = cut->fine,
+          .owner = cut->owner,
+          .crse_factory = *fp.fact_crse_patch,
+          .overlaps = cut->overlaps,
+          .footprint = fp.ba_fine_patch};
 }
 
 } // namespace CarpetX

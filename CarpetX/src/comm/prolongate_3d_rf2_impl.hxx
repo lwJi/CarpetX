@@ -17,16 +17,20 @@
 #if defined _OPENMP
 #include <omp.h>
 #elif defined __HIPCC__
+#define omp_get_max_threads() 1
 #define omp_get_num_threads() 1
 #define omp_get_thread_num() 0
 #else
+static inline int omp_get_max_threads() { return 1; }
 static inline int omp_get_num_threads() { return 1; }
 static inline int omp_get_thread_num() { return 0; }
 #endif
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstddef>
+#include <mutex>
 #include <sstream>
 #include <type_traits>
 #include <vector>
@@ -112,6 +116,46 @@ struct box_loop_per_group_t {
               cell(ifine, crse_vars, fine_vars);
             },
         imin, imax);
+  }
+};
+
+struct overlap_loop_per_var_t {
+  const ghost_overlaps_t &overlaps;
+  amrex::MultiArray4<const CCTK_REAL> crse;
+  amrex::MultiArray4<CCTK_REAL> child;
+  int ncomp;
+
+  template <typename Cell> void operator()(const Cell &cell) const {
+    const amrex::MultiArray4<const CCTK_REAL> crse_arrs = crse;
+    const amrex::MultiArray4<CCTK_REAL> child_arrs = child;
+    amrex::ParallelFor(
+        overlaps, ncomp,
+        [=] CCTK_DEVICE(const int i, const int j, const int k, const int comp,
+                        const ghost_overlap_t &overlap)
+            __attribute__((__always_inline__, __flatten__)) {
+              const vect<int, dim> ifine{i, j, k};
+              cell(ifine, crse_var_t{crse_arrs[overlap.band_box], comp},
+                   fine_var_t{child_arrs[overlap.child_box], comp});
+            });
+  }
+};
+
+struct overlap_loop_per_group_t {
+  const ghost_overlaps_t &overlaps;
+  amrex::MultiArray4<const CCTK_REAL> crse;
+  amrex::MultiArray4<CCTK_REAL> child;
+
+  template <typename Cell> void operator()(const Cell &cell) const {
+    const amrex::MultiArray4<const CCTK_REAL> crse_arrs = crse;
+    const amrex::MultiArray4<CCTK_REAL> child_arrs = child;
+    amrex::ParallelFor(
+        overlaps, [=] CCTK_DEVICE(const int i, const int j, const int k,
+                                  const ghost_overlap_t &overlap)
+                      __attribute__((__always_inline__, __flatten__)) {
+                        const vect<int, dim> ifine{i, j, k};
+                        cell(ifine, crse_group_t{crse_arrs[overlap.band_box]},
+                             fine_group_t{child_arrs[overlap.child_box]});
+                      });
   }
 };
 
@@ -1307,18 +1351,16 @@ prolongate_3d_rf2<CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ,
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
           interpolation_t INTPI, interpolation_t INTPJ, interpolation_t INTPK,
           int ORDERI, int ORDERJ, int ORDERK, fallback_t FB>
-template <typename Launch>
-void prolongate_3d_rf2<CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ,
-                       ORDERK, FB>::per_var(const Launch &launch) {
-  DECLARE_CCTK_PARAMETERS;
-
+Timer &prolongate_3d_rf2<CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI,
+                         ORDERJ, ORDERK, FB>::thread_timer() {
   static std::once_flag have_timers;
   static std::vector<Timer> timers;
 
   const int thread_num = omp_get_thread_num();
 
   call_once(have_timers, [&]() {
-    const int num_threads = omp_get_num_threads();
+    const int num_threads =
+        std::max(omp_get_num_threads(), omp_get_max_threads());
     timers.reserve(num_threads);
     for (int i = 0; i < num_threads; ++i) {
       std::ostringstream buf;
@@ -1330,8 +1372,18 @@ void prolongate_3d_rf2<CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ,
     }
   });
 
-  Timer &timer = timers.at(thread_num);
-  Interval interval(timer);
+  return timers.at(thread_num);
+}
+
+template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
+          interpolation_t INTPI, interpolation_t INTPJ, interpolation_t INTPK,
+          int ORDERI, int ORDERJ, int ORDERK, fallback_t FB>
+template <typename Launch>
+void prolongate_3d_rf2<CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ,
+                       ORDERK, FB>::per_var(const Launch &launch) {
+  DECLARE_CCTK_PARAMETERS;
+
+  Interval interval(thread_timer());
 
   using STENCILI = interp1d<CENTI, INTPI, ORDERI>;
   using STENCILJ = interp1d<CENTJ, INTPJ, ORDERJ>;
@@ -1702,26 +1754,7 @@ void prolongate_3d_rf2<CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ,
   constexpr int maxncomps = 16;
   assert(ncomps <= maxncomps);
 
-  static std::once_flag have_timers;
-  static std::vector<Timer> timers;
-
-  const int thread_num = omp_get_thread_num();
-
-  call_once(have_timers, [&]() {
-    const int num_threads = omp_get_num_threads();
-    timers.reserve(num_threads);
-    for (int i = 0; i < num_threads; ++i) {
-      std::ostringstream buf;
-      buf << "prolongate_3d_rf2<[" << CENTI << "," << CENTJ << "," << CENTK
-          << "],[" << INTPI << "," << INTPJ << "," << INTPK << "],[" << ORDERI
-          << "," << ORDERJ << "," << ORDERK << "," << FB << "]>[thread=" << i
-          << "]";
-      timers.emplace_back(buf.str());
-    }
-  });
-
-  Timer &timer = timers.at(thread_num);
-  Interval interval(timer);
+  Interval interval(thread_timer());
 
   using STENCILI = interp1d<CENTI, INTPI, ORDERI>;
   using STENCILJ = interp1d<CENTJ, INTPJ, ORDERJ>;
@@ -2105,6 +2138,28 @@ void prolongate_3d_rf2<
     interp_per_group(crse_box, crse_comp, fine_box, fine_comp, ncomps,
                      fine_region, ratio, crse_geom, fine_geom, bcr, actual_comp,
                      actual_state, gpu_or_cpu);
+}
+
+template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
+          interpolation_t INTPI, interpolation_t INTPJ, interpolation_t INTPK,
+          int ORDERI, int ORDERJ, int ORDERK, fallback_t FB>
+void prolongate_3d_rf2<
+    CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ, ORDERK,
+    FB>::interp_into_ghosts(amrex::MultiFab &child,
+                            const amrex::MultiFab &crse_patch,
+                            const ghost_overlaps_t &overlaps) {
+  DECLARE_CCTK_PARAMETERS;
+  const int ncomps = child.nComp();
+  assert(crse_patch.nComp() == ncomps);
+  assert(overlaps_lie_in_their_boxes(child, crse_patch, overlaps, *this));
+  const amrex::MultiArray4<const CCTK_REAL> crse_arrs =
+      crse_patch.const_arrays();
+  const amrex::MultiArray4<CCTK_REAL> child_arrs = child.arrays();
+  if (!prolongate_per_group)
+    per_var(overlap_loop_per_var_t{overlaps, crse_arrs, child_arrs, ncomps});
+  else
+    per_group(ncomps,
+              overlap_loop_per_group_t{overlaps, crse_arrs, child_arrs});
 }
 
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,

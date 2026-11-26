@@ -193,45 +193,6 @@ void interpolate_to_fine_patch(
                   grow(convert(fgeom.Domain(), mfab.ixType()), nghosts), ratio,
                   mapper, bcrecs, 0);
 }
-
-[[maybe_unused]] bool
-overlaps_lie_in_their_boxes(const MultiFab &mfab, const MultiFab &fine_patch,
-                            const ghost_overlaps_t &overlaps) {
-  if (!overlaps.is_defined())
-    return false;
-  const ghost_overlap_t *const on_host =
-      reinterpret_cast<const ghost_overlap_t *>(overlaps.h_buffer);
-  for (int o = 0; o < overlaps.ntags; ++o) {
-    const ghost_overlap_t &overlap = on_host[o];
-    if (overlap.child_box < 0 || overlap.child_box >= mfab.local_size() ||
-        overlap.band_box < 0 || overlap.band_box >= fine_patch.local_size())
-      return false;
-    const Box child_box = mfab.fabbox(mfab.IndexArray()[overlap.child_box]);
-    const Box band_box =
-        fine_patch.box(fine_patch.IndexArray()[overlap.band_box]);
-    if (overlap.region.ixType() != child_box.ixType() ||
-        overlap.region.ixType() != band_box.ixType())
-      return false;
-    if (!child_box.contains(overlap.region) ||
-        !band_box.contains(overlap.region))
-      return false;
-  }
-  return true;
-}
-
-void copy_within_rank(MultiFab &mfab, const MultiFab &fine_patch,
-                      const ghost_overlaps_t &overlaps) {
-  assert(overlaps_lie_in_their_boxes(mfab, fine_patch, overlaps));
-  const int ncomps = mfab.nComp();
-  const MultiArray4<CCTK_REAL> child_arrs = mfab.arrays();
-  const MultiArray4<const CCTK_REAL> band_arrs = fine_patch.const_arrays();
-  ParallelFor(overlaps, ncomps,
-              [=] AMREX_GPU_DEVICE(int i, int j, int k, int n,
-                                   const ghost_overlap_t &overlap) noexcept {
-                child_arrs[overlap.child_box](i, j, k, n) =
-                    band_arrs[overlap.band_box](i, j, k, n);
-              });
-}
 } // namespace
 
 void Prolongate_Start(
@@ -245,15 +206,14 @@ void Prolongate_Start(
                            mfab.nGrowVect());
 }
 
-void Prolongate_WithinRank(
+void Prolongate_IntoGhosts(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
-    MultiFab &mfab, MultiFab &crse_patch, MultiFab &fine_patch,
-    const ghost_overlaps_t &overlaps, const Geometry &fgeom,
-    const Geometry &cgeom) {
-  interpolate_to_fine_patch(groupdata, coarsegroupdata, mfab, crse_patch,
-                            fine_patch, fgeom, cgeom);
-  copy_within_rank(mfab, fine_patch, overlaps);
+    MultiFab &mfab, MultiFab &crse_patch, const ghost_overlaps_t &overlaps) {
+  assert(crse_patch.nComp() == mfab.nComp());
+  apply_boundary_conditions(coarsegroupdata, crse_patch);
+  interpolator_of(groupdata.record)
+      ->interp_into_ghosts(mfab, crse_patch, overlaps);
 }
 
 void Prolongate_Finish(MultiFab &mfab) {

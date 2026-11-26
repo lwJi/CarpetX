@@ -24,6 +24,7 @@
 #include <AMReX_FabArrayBase.H> // FabArrayBase::TheFPinfo
 #include <AMReX_Geometry.H>
 #include <AMReX_GpuContainers.H> // amrex::GpuArray
+#include <AMReX_GpuControl.H>
 #include <AMReX_IntVect.H>
 #include <AMReX_Interpolater.H>
 #include <AMReX_MFParallelFor.H> // amrex::ParallelFor(MF, IntVect, ncomp, F)
@@ -373,6 +374,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
                     const stage_t completed, const std::string &event) {
   static Timer timer("FillRKBoundary");
   Interval interval(timer);
+  [[maybe_unused]] const amrex::Gpu::SingleStreamRegion one_stream;
 
   const GHExt &ext = driver();
   assert(ext.use_subcycling);
@@ -382,8 +384,8 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   auto &leveldata = patchdata.level(child);
   const level_t parent = child.parent();
   const auto &coarseleveldata = patchdata.level(parent);
-  const auto &fgeom = patchdata.amrcore().Geom(child.index());
-  const auto &cgeom = patchdata.amrcore().Geom(parent.index());
+  [[maybe_unused]] const auto &fgeom = patchdata.amrcore().Geom(child.index());
+  [[maybe_unused]] const auto &cgeom = patchdata.amrcore().Geom(parent.index());
   const rk_dense_output_t dense_output = registered_dense_output();
   const stage_range stages = registered_stages();
   assert(stages.contains(completed));
@@ -433,18 +435,17 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
         rk->sources.get().sources(coarseleveldata.iteration(), {child, gi});
     rk_fill_patches_t &patches = filling.open(rk->fill_patches);
     amrex::MultiFab &crse_patch = patches.crse;
-    amrex::MultiFab &fine_patch = patches.fine;
     const ghost_overlaps_t &overlaps = patches.overlaps;
 
     tasks1.submit_serially([&crse_patch, src, dense_output, stage, xsi, dtc]() {
       rk_dense_output(crse_patch, src, dense_output, stage, xsi, dtc);
     });
 
-    tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
-                            &fine_patch, &overlaps, &fgeom, &cgeom]() {
-      Prolongate_WithinRank(groupdata, coarsegroupdata, mfab, crse_patch,
-                            fine_patch, overlaps, fgeom, cgeom);
-    });
+    tasks2.submit_serially(
+        [&groupdata, &coarsegroupdata, &mfab, &crse_patch, &overlaps]() {
+          Prolongate_IntoGhosts(groupdata, coarsegroupdata, mfab, crse_patch,
+                                overlaps);
+        });
   }
 
   {

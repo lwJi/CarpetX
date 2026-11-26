@@ -52,12 +52,11 @@ void Prolongate_Start(
 
 void Prolongate_Finish(amrex::MultiFab &mfab);
 
-void Prolongate_WithinRank(
+void Prolongate_IntoGhosts(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     amrex::MultiFab &mfab, amrex::MultiFab &crse_patch,
-    amrex::MultiFab &fine_patch, const ghost_overlaps_t &overlaps,
-    const amrex::Geometry &fgeom, const amrex::Geometry &cgeom);
+    const ghost_overlaps_t &overlaps);
 
 } // namespace CarpetX
 

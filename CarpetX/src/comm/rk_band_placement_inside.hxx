@@ -21,7 +21,7 @@ namespace CarpetX {
 struct rk_band_layout_t {
   amrex::BoxArray crse, fine;
   amrex::DistributionMapping owner;
-  const amrex::FabFactory<amrex::FArrayBox> &crse_factory, &fine_factory;
+  const amrex::FabFactory<amrex::FArrayBox> &crse_factory;
   std::vector<ghost_overlap_t> overlaps;
   amrex::BoxArray footprint;
 };

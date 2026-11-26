@@ -8,6 +8,7 @@
 #include <AMReX_Array4.H>
 #include <AMReX_Box.H>
 #include <AMReX_Interpolater.H>
+#include <AMReX_MultiFab.H>
 #include <AMReX_TagParallelFor.H>
 
 #include <array>
@@ -93,10 +94,22 @@ std::ostream &operator<<(std::ostream &os, fallback_t fb);
 constexpr auto FB_NONE = fallback_t::none;
 constexpr auto FB_LINEAR = fallback_t::linear;
 
+class prolongation_t : public amrex::Interpolater {
+public:
+  virtual void interp_into_ghosts(amrex::MultiFab &child,
+                                  const amrex::MultiFab &crse_patch,
+                                  const ghost_overlaps_t &overlaps) = 0;
+};
+
+bool overlaps_lie_in_their_boxes(const amrex::MultiFab &child,
+                                 const amrex::MultiFab &crse_patch,
+                                 const ghost_overlaps_t &overlaps,
+                                 amrex::Interpolater &stencil);
+
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
           interpolation_t INTPI, interpolation_t INTPJ, interpolation_t INTPK,
           int ORDERI, int ORDERJ, int ORDERK, fallback_t FB>
-class prolongate_3d_rf2 final : public amrex::Interpolater {
+class prolongate_3d_rf2 final : public prolongation_t {
 
   // Centering must be vertex (0) or cell (1)
   static_assert(CENTI == VC || CENTI == CC);
@@ -142,9 +155,14 @@ public:
   virtual amrex::Box CoarseBox(const amrex::Box &fine,
                                const amrex::IntVect &ratio) override;
 
+  virtual void interp_into_ghosts(amrex::MultiFab &child,
+                                  const amrex::MultiFab &crse_patch,
+                                  const ghost_overlaps_t &overlaps) override;
+
 #ifndef AMREX_USE_GPU
 private:
 #endif
+  static Timer &thread_timer();
   template <typename Launch> void per_var(const Launch &launch);
   template <typename Launch> void per_group(int ncomps, const Launch &launch);
   void interp_per_var(const amrex::FArrayBox &crse, int crse_comp,
@@ -187,61 +205,34 @@ public:
 
 ////////////////////////////////////////////////////////////////////////////////
 
-// Polynomial (Lagrange) interpolation
-
-extern const std::map<int, std::array<amrex::Interpolater *, 8> >
+extern const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_poly_3d_rf2;
 
-// Conservative interpolation
-
-extern const std::map<int, std::array<amrex::Interpolater *, 8> >
+extern const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_cons_3d_rf2;
 
-// DDF interpolation
-
-// Prolongation operators for discrete differential forms:
-// interpolating (non-conservative) for vertex centred directions,
-// conservative (with one order lower) for cell centred directions.
-extern const std::map<int, std::array<amrex::Interpolater *, 8> >
+extern const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_ddf_3d_rf2;
 
-// Natural interpolation
-
-// Interpolate (non-conservatively) for vertex centred directions,
-// conservative for cell centred directions.
-extern const std::map<int, std::array<amrex::Interpolater *, 8> >
+extern const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_natural_3d_rf2;
 
-// ENO (tensor product) interpolation
-
-extern const std::map<int, std::array<amrex::Interpolater *, 8> >
+extern const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_eno_3d_rf2;
 
-// Minmod (tensor product) interpolation
-
-extern const std::map<int, std::array<amrex::Interpolater *, 8> >
+extern const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_minmod_3d_rf2;
 
-// Hermite interpolation
-
-extern const std::map<int, std::array<amrex::Interpolater *, 8> >
+extern const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_hermite_3d_rf2;
 
-// Interpolate polynomially in vertex centred directions and conserve
-// with 3rd order accuracy and a linear fallback in cell centred
-// directions
-
-extern const std::map<int, std::array<amrex::Interpolater *, 8> >
+extern const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_poly_cons3lfb_3d_rf2;
 
-// Interpolate polynomially in vertex centred directions and use ENO
-// interpolation with 3rd order accuracy and a linear fallback in cell
-// centred directions
-
-extern const std::map<int, std::array<amrex::Interpolater *, 8> >
+extern const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_poly_eno3lfb_3d_rf2;
 
-amrex::Interpolater *interpolator_of(const GHExt::GroupRecord &record);
+prolongation_t *interpolator_of(const GHExt::GroupRecord &record);
 
 } // namespace CarpetX
 

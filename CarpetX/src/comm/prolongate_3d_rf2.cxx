@@ -4,6 +4,10 @@
 
 #include <cctk.h>
 
+#include <AMReX_Box.H>
+#include <AMReX_Interpolater.H>
+#include <AMReX_MultiFab.H>
+
 #include <array>
 #include <cassert>
 #include <iostream>
@@ -48,15 +52,41 @@ std::ostream &operator<<(std::ostream &os, const fallback_t fb) {
   assert(false);
 }
 
+bool overlaps_lie_in_their_boxes(const amrex::MultiFab &child,
+                                 const amrex::MultiFab &crse_patch,
+                                 const ghost_overlaps_t &overlaps,
+                                 amrex::Interpolater &stencil) {
+  if (!overlaps.is_defined())
+    return false;
+  const ghost_overlap_t *const on_host =
+      reinterpret_cast<const ghost_overlap_t *>(overlaps.h_buffer);
+  for (int o = 0; o < overlaps.ntags; ++o) {
+    const ghost_overlap_t &overlap = on_host[o];
+    if (overlap.child_box < 0 || overlap.child_box >= child.local_size() ||
+        overlap.band_box < 0 || overlap.band_box >= crse_patch.local_size())
+      return false;
+    const amrex::Box child_box =
+        child.fabbox(child.IndexArray()[overlap.child_box]);
+    const amrex::Box band_box =
+        crse_patch.fabbox(crse_patch.IndexArray()[overlap.band_box]);
+    if (overlap.region.ixType() != child_box.ixType() ||
+        overlap.region.ixType() != band_box.ixType())
+      return false;
+    if (!child_box.contains(overlap.region) ||
+        !band_box.contains(stencil.CoarseBox(overlap.region, 2)))
+      return false;
+  }
+  return true;
+}
+
 namespace {
-amrex::Interpolater *get_interpolator(const std::string prolongation_type,
-                                      const int prolongation_order,
-                                      const std::array<int, dim> indextype) {
+prolongation_t *get_interpolator(const std::string prolongation_type,
+                                 const int prolongation_order,
+                                 const std::array<int, dim> indextype) {
   const int indextype_scalar =
       (indextype[0] << 2) | (indextype[1] << 1) | (indextype[2] << 0);
 
-  const std::map<int, std::array<amrex::Interpolater *, 8> > *operators =
-      nullptr;
+  const std::map<int, std::array<prolongation_t *, 8> > *operators = nullptr;
 
   if (prolongation_type == "interpolate")
     operators = &prolongate_poly_3d_rf2;
@@ -87,7 +117,7 @@ amrex::Interpolater *get_interpolator(const std::string prolongation_type,
 }
 } // namespace
 
-amrex::Interpolater *interpolator_of(const GHExt::GroupRecord &record) {
+prolongation_t *interpolator_of(const GHExt::GroupRecord &record) {
   const grid_function_t &grid_function = record.grid_function();
   return get_interpolator(grid_function.prolongation_type,
                           grid_function.prolongation_order,
