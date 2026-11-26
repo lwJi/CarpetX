@@ -317,6 +317,7 @@ void StoreRKOldState(const level_t level,
   const amrex::Periodicity &period =
       patchdata.amrcore().Geom(level.index()).periodicity();
   const rk_source_writer_t storing;
+  task_manager finishing;
 
   for (const gi_t gi : var_groups) {
     const GroupData &groupdata = leveldata.group(gi);
@@ -332,9 +333,11 @@ void StoreRKOldState(const level_t level,
     if (!rk)
       continue;
     storing.open(rk->sources)
-        .store_old(groupdata.timelevel(tl).mfab(), period,
+        .store_old(finishing, groupdata.timelevel(tl).mfab(), period,
                    leveldata.iteration());
   }
+
+  finishing.run_tasks_serially();
 }
 
 void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,

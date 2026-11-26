@@ -30,7 +30,7 @@ class rk_sources_t {
 public:
   rk_sources_t(const rk_band_layout_t &layout, int numvars, stage_range stages);
 
-  void store_old(const amrex::MultiFab &parent_state,
+  void store_old(task_manager &finishing, const amrex::MultiFab &parent_state,
                  const amrex::Periodicity &period, rat64 parent_step);
   void store_stage(task_manager &finishing, stage_t stage,
                    const amrex::MultiFab &parent_rhs,

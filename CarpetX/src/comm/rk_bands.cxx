@@ -24,14 +24,6 @@
 namespace CarpetX {
 
 namespace {
-void copy_interior_to_band(amrex::MultiFab &band, const amrex::MultiFab &src,
-                           const amrex::Periodicity &period) {
-  assert(band.ixType() == src.ixType());
-  assert(band.nComp() == src.nComp());
-  band.ParallelCopy(src, 0, 0, band.nComp(), amrex::IntVect{0},
-                    amrex::IntVect{0}, period);
-}
-
 void post_interior_to_band(amrex::MultiFab &band, const amrex::MultiFab &src,
                            const amrex::Periodicity &period) {
   assert(band.ixType() == src.ixType());
@@ -80,7 +72,8 @@ rk_sources_t::rk_sources_t(const rk_band_layout_t &layout, const int numvars,
     ks_source_.emplace_back(layout.crse, layout.owner, numvars, 0);
 }
 
-void rk_sources_t::store_old(const amrex::MultiFab &parent_state,
+void rk_sources_t::store_old(task_manager &finishing,
+                             const amrex::MultiFab &parent_state,
                              const amrex::Periodicity &period,
                              const rat64 parent_step) {
   const int num_stages = int(ks_source_.size());
@@ -91,9 +84,14 @@ void rk_sources_t::store_old(const amrex::MultiFab &parent_state,
            describe_held(pending_, parent_step_, stages_stored_, num_stages)
                .c_str(),
            describe_parent_step(parent_step).c_str());
-  copy_interior_to_band(old_source_, parent_state, period);
-  parent_step_ = parent_step;
-  stages_stored_ = 0;
+  post_interior_to_band(old_source_, parent_state, period);
+  pending_ = true;
+  finishing.submit_serially([this, parent_step]() {
+    old_source_.ParallelCopy_finish();
+    parent_step_ = parent_step;
+    stages_stored_ = 0;
+    pending_ = false;
+  });
 }
 
 void rk_sources_t::store_stage(task_manager &finishing, const stage_t stage,
