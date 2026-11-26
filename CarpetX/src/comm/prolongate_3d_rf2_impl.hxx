@@ -119,43 +119,43 @@ struct box_loop_per_group_t {
   }
 };
 
-struct overlap_loop_per_var_t {
-  const ghost_overlaps_t &overlaps;
+struct region_loop_per_var_t {
+  const interp_regions_t &regions;
   amrex::MultiArray4<const CCTK_REAL> crse;
-  amrex::MultiArray4<CCTK_REAL> child;
+  amrex::MultiArray4<CCTK_REAL> fine;
   int ncomp;
 
   template <typename Cell> void operator()(const Cell &cell) const {
     const amrex::MultiArray4<const CCTK_REAL> crse_arrs = crse;
-    const amrex::MultiArray4<CCTK_REAL> child_arrs = child;
+    const amrex::MultiArray4<CCTK_REAL> fine_arrs = fine;
     amrex::ParallelFor(
-        overlaps, ncomp,
+        regions, ncomp,
         [=] CCTK_DEVICE(const int i, const int j, const int k, const int comp,
-                        const ghost_overlap_t &overlap)
+                        const interp_region_t &where)
             __attribute__((__always_inline__, __flatten__)) {
               const vect<int, dim> ifine{i, j, k};
-              cell(ifine, crse_var_t{crse_arrs[overlap.band_box], comp},
-                   fine_var_t{child_arrs[overlap.child_box], comp});
+              cell(ifine, crse_var_t{crse_arrs[where.crse_box], comp},
+                   fine_var_t{fine_arrs[where.fine_box], comp});
             });
   }
 };
 
-struct overlap_loop_per_group_t {
-  const ghost_overlaps_t &overlaps;
+struct region_loop_per_group_t {
+  const interp_regions_t &regions;
   amrex::MultiArray4<const CCTK_REAL> crse;
-  amrex::MultiArray4<CCTK_REAL> child;
+  amrex::MultiArray4<CCTK_REAL> fine;
 
   template <typename Cell> void operator()(const Cell &cell) const {
     const amrex::MultiArray4<const CCTK_REAL> crse_arrs = crse;
-    const amrex::MultiArray4<CCTK_REAL> child_arrs = child;
+    const amrex::MultiArray4<CCTK_REAL> fine_arrs = fine;
     amrex::ParallelFor(
-        overlaps, [=] CCTK_DEVICE(const int i, const int j, const int k,
-                                  const ghost_overlap_t &overlap)
-                      __attribute__((__always_inline__, __flatten__)) {
-                        const vect<int, dim> ifine{i, j, k};
-                        cell(ifine, crse_group_t{crse_arrs[overlap.band_box]},
-                             fine_group_t{child_arrs[overlap.child_box]});
-                      });
+        regions, [=] CCTK_DEVICE(const int i, const int j, const int k,
+                                 const interp_region_t &where)
+                     __attribute__((__always_inline__, __flatten__)) {
+                       const vect<int, dim> ifine{i, j, k};
+                       cell(ifine, crse_group_t{crse_arrs[where.crse_box]},
+                            fine_group_t{fine_arrs[where.fine_box]});
+                     });
   }
 };
 
@@ -2143,23 +2143,21 @@ void prolongate_3d_rf2<
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
           interpolation_t INTPI, interpolation_t INTPJ, interpolation_t INTPK,
           int ORDERI, int ORDERJ, int ORDERK, fallback_t FB>
-void prolongate_3d_rf2<
-    CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ, ORDERK,
-    FB>::interp_into_ghosts(amrex::MultiFab &child,
-                            const amrex::MultiFab &crse_patch,
-                            const ghost_overlaps_t &overlaps) {
+void prolongate_3d_rf2<CENTI, CENTJ, CENTK, INTPI, INTPJ, INTPK, ORDERI, ORDERJ,
+                       ORDERK, FB>::interp_regions(amrex::MultiFab &fine,
+                                                   const amrex::MultiFab &crse,
+                                                   const interp_regions_t
+                                                       &regions) {
   DECLARE_CCTK_PARAMETERS;
-  const int ncomps = child.nComp();
-  assert(crse_patch.nComp() == ncomps);
-  assert(overlaps_lie_in_their_boxes(child, crse_patch, overlaps, *this));
-  const amrex::MultiArray4<const CCTK_REAL> crse_arrs =
-      crse_patch.const_arrays();
-  const amrex::MultiArray4<CCTK_REAL> child_arrs = child.arrays();
+  const int ncomps = fine.nComp();
+  assert(crse.nComp() == ncomps);
+  assert(regions_lie_in_their_boxes(fine, crse, regions, *this));
+  const amrex::MultiArray4<const CCTK_REAL> crse_arrs = crse.const_arrays();
+  const amrex::MultiArray4<CCTK_REAL> fine_arrs = fine.arrays();
   if (!prolongate_per_group)
-    per_var(overlap_loop_per_var_t{overlaps, crse_arrs, child_arrs, ncomps});
+    per_var(region_loop_per_var_t{regions, crse_arrs, fine_arrs, ncomps});
   else
-    per_group(ncomps,
-              overlap_loop_per_group_t{overlaps, crse_arrs, child_arrs});
+    per_group(ncomps, region_loop_per_group_t{regions, crse_arrs, fine_arrs});
 }
 
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,

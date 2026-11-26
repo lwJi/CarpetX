@@ -209,11 +209,10 @@ void Prolongate_Start(
 void Prolongate_IntoGhosts(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
-    MultiFab &mfab, MultiFab &crse_patch, const ghost_overlaps_t &overlaps) {
+    MultiFab &mfab, MultiFab &crse_patch, const interp_regions_t &overlaps) {
   assert(crse_patch.nComp() == mfab.nComp());
   apply_boundary_conditions(coarsegroupdata, crse_patch);
-  interpolator_of(groupdata.record)
-      ->interp_into_ghosts(mfab, crse_patch, overlaps);
+  interpolator_of(groupdata.record)->interp_regions(mfab, crse_patch, overlaps);
 }
 
 void Prolongate_Finish(MultiFab &mfab) {

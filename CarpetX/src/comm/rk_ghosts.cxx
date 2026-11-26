@@ -435,7 +435,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
         rk->sources.get().sources(coarseleveldata.iteration(), {child, gi});
     rk_fill_patches_t &patches = filling.open(rk->fill_patches);
     amrex::MultiFab &crse_patch = patches.crse;
-    const ghost_overlaps_t &overlaps = patches.overlaps;
+    const interp_regions_t &overlaps = patches.overlaps;
 
     tasks1.submit_serially([&crse_patch, src, dense_output, stage, xsi, dtc]() {
       rk_dense_output(crse_patch, src, dense_output, stage, xsi, dtc);

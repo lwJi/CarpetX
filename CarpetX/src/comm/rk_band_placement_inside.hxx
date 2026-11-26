@@ -22,7 +22,7 @@ struct rk_band_layout_t {
   amrex::BoxArray crse, fine;
   amrex::DistributionMapping owner;
   const amrex::FabFactory<amrex::FArrayBox> &crse_factory;
-  std::vector<ghost_overlap_t> overlaps;
+  std::vector<interp_region_t> overlaps;
   amrex::BoxArray footprint;
 };
 
@@ -41,7 +41,7 @@ private:
     amrex::Box domain;
     amrex::BoxArray fine;
     amrex::DistributionMapping owner;
-    std::vector<ghost_overlap_t> overlaps;
+    std::vector<interp_region_t> overlaps;
   };
   std::vector<cut_t> cuts_;
 };

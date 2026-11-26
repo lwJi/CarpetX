@@ -56,7 +56,7 @@ void Prolongate_IntoGhosts(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     amrex::MultiFab &mfab, amrex::MultiFab &crse_patch,
-    const ghost_overlaps_t &overlaps);
+    const interp_regions_t &overlaps);
 
 } // namespace CarpetX
 

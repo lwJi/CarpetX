@@ -18,15 +18,15 @@
 
 namespace CarpetX {
 
-struct ghost_overlap_t {
-  int child_box;
-  int band_box;
+struct interp_region_t {
+  int fine_box;
+  int crse_box;
   amrex::Box region;
   AMREX_GPU_HOST_DEVICE const amrex::Box &box() const noexcept {
     return region;
   }
 };
-using ghost_overlaps_t = amrex::TagVector<ghost_overlap_t>;
+using interp_regions_t = amrex::TagVector<interp_region_t>;
 
 struct crse_var_t {
   amrex::Array4<const CCTK_REAL> vars;
@@ -96,15 +96,15 @@ constexpr auto FB_LINEAR = fallback_t::linear;
 
 class prolongation_t : public amrex::Interpolater {
 public:
-  virtual void interp_into_ghosts(amrex::MultiFab &child,
-                                  const amrex::MultiFab &crse_patch,
-                                  const ghost_overlaps_t &overlaps) = 0;
+  virtual void interp_regions(amrex::MultiFab &fine,
+                              const amrex::MultiFab &crse,
+                              const interp_regions_t &regions) = 0;
 };
 
-bool overlaps_lie_in_their_boxes(const amrex::MultiFab &child,
-                                 const amrex::MultiFab &crse_patch,
-                                 const ghost_overlaps_t &overlaps,
-                                 amrex::Interpolater &stencil);
+bool regions_lie_in_their_boxes(const amrex::MultiFab &fine,
+                                const amrex::MultiFab &crse,
+                                const interp_regions_t &regions,
+                                amrex::Interpolater &stencil);
 
 template <centering_t CENTI, centering_t CENTJ, centering_t CENTK,
           interpolation_t INTPI, interpolation_t INTPJ, interpolation_t INTPK,
@@ -155,9 +155,9 @@ public:
   virtual amrex::Box CoarseBox(const amrex::Box &fine,
                                const amrex::IntVect &ratio) override;
 
-  virtual void interp_into_ghosts(amrex::MultiFab &child,
-                                  const amrex::MultiFab &crse_patch,
-                                  const ghost_overlaps_t &overlaps) override;
+  virtual void interp_regions(amrex::MultiFab &fine,
+                              const amrex::MultiFab &crse,
+                              const interp_regions_t &regions) override;
 
 #ifndef AMREX_USE_GPU
 private:

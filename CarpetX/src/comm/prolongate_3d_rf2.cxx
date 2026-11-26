@@ -52,28 +52,26 @@ std::ostream &operator<<(std::ostream &os, const fallback_t fb) {
   assert(false);
 }
 
-bool overlaps_lie_in_their_boxes(const amrex::MultiFab &child,
-                                 const amrex::MultiFab &crse_patch,
-                                 const ghost_overlaps_t &overlaps,
-                                 amrex::Interpolater &stencil) {
-  if (!overlaps.is_defined())
+bool regions_lie_in_their_boxes(const amrex::MultiFab &fine,
+                                const amrex::MultiFab &crse,
+                                const interp_regions_t &regions,
+                                amrex::Interpolater &stencil) {
+  if (!regions.is_defined())
     return false;
-  const ghost_overlap_t *const on_host =
-      reinterpret_cast<const ghost_overlap_t *>(overlaps.h_buffer);
-  for (int o = 0; o < overlaps.ntags; ++o) {
-    const ghost_overlap_t &overlap = on_host[o];
-    if (overlap.child_box < 0 || overlap.child_box >= child.local_size() ||
-        overlap.band_box < 0 || overlap.band_box >= crse_patch.local_size())
+  const interp_region_t *const on_host =
+      reinterpret_cast<const interp_region_t *>(regions.h_buffer);
+  for (int r = 0; r < regions.ntags; ++r) {
+    const interp_region_t &where = on_host[r];
+    if (where.fine_box < 0 || where.fine_box >= fine.local_size() ||
+        where.crse_box < 0 || where.crse_box >= crse.local_size())
       return false;
-    const amrex::Box child_box =
-        child.fabbox(child.IndexArray()[overlap.child_box]);
-    const amrex::Box band_box =
-        crse_patch.fabbox(crse_patch.IndexArray()[overlap.band_box]);
-    if (overlap.region.ixType() != child_box.ixType() ||
-        overlap.region.ixType() != band_box.ixType())
+    const amrex::Box fine_box = fine.fabbox(fine.IndexArray()[where.fine_box]);
+    const amrex::Box crse_box = crse.fabbox(crse.IndexArray()[where.crse_box]);
+    if (where.region.ixType() != fine_box.ixType() ||
+        where.region.ixType() != crse_box.ixType())
       return false;
-    if (!child_box.contains(overlap.region) ||
-        !band_box.contains(stencil.CoarseBox(overlap.region, 2)))
+    if (!fine_box.contains(where.region) ||
+        !crse_box.contains(stencil.CoarseBox(where.region, 2)))
       return false;
   }
   return true;

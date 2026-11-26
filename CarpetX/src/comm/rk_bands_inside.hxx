@@ -67,7 +67,7 @@ struct rk_fill_patches_t {
   rk_fill_patches_t(const rk_band_layout_t &layout, int numvars);
 
   amrex::MultiFab crse;
-  ghost_overlaps_t overlaps;
+  interp_regions_t overlaps;
   amrex::BoxArray footprint;
 };
 

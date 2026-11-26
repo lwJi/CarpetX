@@ -26,7 +26,7 @@ namespace {
 struct band_cut_t {
   amrex::BoxArray fine;
   amrex::DistributionMapping owner;
-  std::vector<ghost_overlap_t> overlaps;
+  std::vector<interp_region_t> overlaps;
 };
 
 std::vector<int> local_indices_on(const int rank,
@@ -39,7 +39,7 @@ std::vector<int> local_indices_on(const int rank,
   return local_index;
 }
 
-std::vector<ghost_overlap_t>
+std::vector<interp_region_t>
 overlaps_on_this_rank(const amrex::BoxArray &gba,
                       const amrex::DistributionMapping &dm,
                       const amrex::IntVect &nghost, const amrex::BoxArray &fine,
@@ -47,7 +47,7 @@ overlaps_on_this_rank(const amrex::BoxArray &gba,
   const int this_rank = amrex::ParallelDescriptor::MyProc();
   const std::vector<int> child_box_of = local_indices_on(this_rank, dm);
   const std::vector<int> band_box_of = local_indices_on(this_rank, owner);
-  std::vector<ghost_overlap_t> overlaps;
+  std::vector<interp_region_t> overlaps;
   for (int k = 0; k < int(gba.size()); ++k) {
     if (dm[k] != this_rank)
       continue;
@@ -84,7 +84,7 @@ band_cut_t cut_by_child_rank(const amrex::BoxArray &gba,
   assert(!owner.empty());
   amrex::BoxArray band(std::move(fine));
   amrex::DistributionMapping band_owner(std::move(owner));
-  std::vector<ghost_overlap_t> overlaps =
+  std::vector<interp_region_t> overlaps =
       overlaps_on_this_rank(gba, dm, nghost, band, band_owner);
   return {std::move(band), std::move(band_owner), std::move(overlaps)};
 }

@@ -170,7 +170,7 @@ rk_fill_patches_t::rk_fill_patches_t(const rk_band_layout_t &layout,
                                      const int numvars)
     : crse(layout.crse, layout.owner, numvars, 0, amrex::MFInfo(),
            layout.crse_factory),
-      overlaps(amrex::Vector<ghost_overlap_t>(layout.overlaps.begin(),
+      overlaps(amrex::Vector<interp_region_t>(layout.overlaps.begin(),
                                               layout.overlaps.end())),
       footprint(layout.footprint) {
   assert(!layout.crse.empty());
