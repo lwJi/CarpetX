@@ -1,5 +1,6 @@
 #include "comm/rk_bands_inside.hxx"
 
+#include "comm/prolongate_3d_rf2_inside.hxx"
 #include "comm/rk_band_placement_inside.hxx"
 #include "config/stages.hxx"
 #include "util/refuse.hxx"
@@ -13,6 +14,7 @@
 #include <AMReX_Interpolater.H>
 #include <AMReX_MultiFab.H>
 #include <AMReX_Periodicity.H>
+#include <AMReX_Vector.H>
 
 #include <cassert>
 #include <cstddef>
@@ -170,6 +172,8 @@ rk_fill_patches_t::rk_fill_patches_t(const rk_band_layout_t &layout,
            layout.crse_factory),
       fine(layout.fine, layout.owner, numvars, 0, amrex::MFInfo(),
            layout.fine_factory),
+      overlaps(amrex::Vector<ghost_overlap_t>(layout.overlaps.begin(),
+                                              layout.overlaps.end())),
       footprint(layout.footprint) {
   assert(!layout.crse.empty());
 }

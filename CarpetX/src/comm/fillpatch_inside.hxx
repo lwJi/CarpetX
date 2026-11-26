@@ -3,6 +3,7 @@
 
 #include "internal.hxx"
 
+#include "comm/prolongate_3d_rf2_inside.hxx"
 #include "hierarchy/model.hxx"
 #include "util/task_manager.hxx"
 
@@ -55,8 +56,8 @@ void Prolongate_WithinRank(
     const GHExt::PatchData::LevelData::GroupData &groupdata,
     const GHExt::PatchData::LevelData::GroupData &coarsegroupdata,
     amrex::MultiFab &mfab, amrex::MultiFab &crse_patch,
-    amrex::MultiFab &fine_patch, const amrex::Geometry &fgeom,
-    const amrex::Geometry &cgeom);
+    amrex::MultiFab &fine_patch, const ghost_overlaps_t &overlaps,
+    const amrex::Geometry &fgeom, const amrex::Geometry &cgeom);
 
 } // namespace CarpetX
 

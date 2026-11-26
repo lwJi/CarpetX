@@ -1,5 +1,6 @@
 #include "comm/rk_band_placement_inside.hxx"
 
+#include "comm/prolongate_3d_rf2_inside.hxx"
 #include <carpetx.hxx>
 
 #include <AMReX_Box.H>
@@ -8,6 +9,7 @@
 #include <AMReX_DistributionMapping.H>
 #include <AMReX_FabArrayBase.H>
 #include <AMReX_IntVect.H>
+#include <AMReX_ParallelDescriptor.H>
 #include <AMReX_Vector.H>
 
 #include <algorithm>
@@ -15,6 +17,7 @@
 #include <iterator>
 #include <map>
 #include <utility>
+#include <vector>
 
 namespace CarpetX {
 
@@ -23,7 +26,40 @@ namespace {
 struct band_cut_t {
   amrex::BoxArray fine;
   amrex::DistributionMapping owner;
+  std::vector<ghost_overlap_t> overlaps;
 };
+
+std::vector<int> local_indices_on(const int rank,
+                                  const amrex::DistributionMapping &dm) {
+  std::vector<int> local_index(dm.size(), -1);
+  int boxes_before = 0;
+  for (int k = 0; k < int(dm.size()); ++k)
+    if (dm[k] == rank)
+      local_index[k] = boxes_before++;
+  return local_index;
+}
+
+std::vector<ghost_overlap_t>
+overlaps_on_this_rank(const amrex::BoxArray &gba,
+                      const amrex::DistributionMapping &dm,
+                      const amrex::IntVect &nghost, const amrex::BoxArray &fine,
+                      const amrex::DistributionMapping &owner) {
+  const int this_rank = amrex::ParallelDescriptor::MyProc();
+  const std::vector<int> child_box_of = local_indices_on(this_rank, dm);
+  const std::vector<int> band_box_of = local_indices_on(this_rank, owner);
+  std::vector<ghost_overlap_t> overlaps;
+  for (int k = 0; k < int(gba.size()); ++k) {
+    if (dm[k] != this_rank)
+      continue;
+    for (const auto &[b, ghosts] :
+         fine.intersections(amrex::grow(gba[k], nghost))) {
+      if (owner[b] != this_rank)
+        continue;
+      overlaps.push_back({child_box_of[k], band_box_of[b], ghosts});
+    }
+  }
+  return overlaps;
+}
 
 band_cut_t cut_by_child_rank(const amrex::BoxArray &gba,
                              const amrex::DistributionMapping &dm,
@@ -46,8 +82,11 @@ band_cut_t cut_by_child_rank(const amrex::BoxArray &gba,
       }
   }
   assert(!owner.empty());
-  return {amrex::BoxArray(std::move(fine)),
-          amrex::DistributionMapping(std::move(owner))};
+  amrex::BoxArray band(std::move(fine));
+  amrex::DistributionMapping band_owner(std::move(owner));
+  std::vector<ghost_overlap_t> overlaps =
+      overlaps_on_this_rank(gba, dm, nghost, band, band_owner);
+  return {std::move(band), std::move(band_owner), std::move(overlaps)};
 }
 
 amrex::BoxArray coarsened(const amrex::BoxArray &fine,
@@ -81,7 +120,8 @@ rk_band_layout_t rk_band_cuts_t::layout_of(
     assert(by_rank.owner.size() == by_rank.fine.size());
     assert(by_rank.fine.contains(fp.ba_fine_patch));
     assert(fp.ba_fine_patch.contains(by_rank.fine));
-    cuts_.push_back({gba, dm, nghost, domain, by_rank.fine, by_rank.owner});
+    cuts_.push_back({gba, dm, nghost, domain, by_rank.fine, by_rank.owner,
+                     by_rank.overlaps});
     cut = std::prev(cuts_.end());
   }
   const amrex::BoxArray crse = coarsened(cut->fine, *fp.m_coarsener);
@@ -91,6 +131,7 @@ rk_band_layout_t rk_band_cuts_t::layout_of(
           cut->owner,
           *fp.fact_crse_patch,
           *fp.fact_fine_patch,
+          cut->overlaps,
           fp.ba_fine_patch};
 }
 

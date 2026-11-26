@@ -4,6 +4,7 @@
 #include "internal.hxx"
 
 #include "config/stages.hxx"
+#include "comm/prolongate_3d_rf2_inside.hxx"
 #include "comm/rk_band_placement_inside.hxx"
 #include <carpetx.hxx>
 
@@ -66,6 +67,7 @@ struct rk_fill_patches_t {
   rk_fill_patches_t(const rk_band_layout_t &layout, int numvars);
 
   amrex::MultiFab crse, fine;
+  ghost_overlaps_t overlaps;
   amrex::BoxArray footprint;
 };
 

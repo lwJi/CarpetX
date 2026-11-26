@@ -5,7 +5,9 @@
 
 #include "hierarchy/model.hxx"
 
+#include <AMReX_Box.H>
 #include <AMReX_Interpolater.H>
+#include <AMReX_TagParallelFor.H>
 
 #include <array>
 #include <cassert>
@@ -13,6 +15,16 @@
 #include <map>
 
 namespace CarpetX {
+
+struct ghost_overlap_t {
+  int child_box;
+  int band_box;
+  amrex::Box region;
+  AMREX_GPU_HOST_DEVICE const amrex::Box &box() const noexcept {
+    return region;
+  }
+};
+using ghost_overlaps_t = amrex::TagVector<ghost_overlap_t>;
 
 enum class centering_t : int { vertex = 0, cell = 1 };
 std::ostream &operator<<(std::ostream &os, centering_t cent);
