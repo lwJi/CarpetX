@@ -317,7 +317,7 @@ void StoreRKOldState(const level_t level,
   const amrex::Periodicity &period =
       patchdata.amrcore().Geom(level.index()).periodicity();
   const rk_source_writer_t storing;
-  task_manager finishing;
+  std::vector<rk_sources_t::store_t> stores;
 
   for (const gi_t gi : var_groups) {
     const GroupData &groupdata = leveldata.group(gi);
@@ -332,12 +332,11 @@ void StoreRKOldState(const level_t level,
         buffers_of(patchdata.level(*child), gi).rk;
     if (!rk)
       continue;
-    storing.open(rk->sources)
-        .store_old(finishing, groupdata.timelevel(tl).mfab(), period,
-                   leveldata.iteration());
+    stores.push_back(
+        {storing.open(rk->sources), groupdata.timelevel(tl).mfab()});
   }
 
-  finishing.run_tasks_serially();
+  rk_sources_t::store_old(stores, period, leveldata.iteration());
 }
 
 void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
@@ -357,7 +356,7 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
   const amrex::Periodicity &period =
       patchdata.amrcore().Geom(level.index()).periodicity();
   const rk_source_writer_t storing;
-  task_manager finishing;
+  std::vector<rk_sources_t::store_t> stores;
 
   for (size_t i = 0; i < var_groups.size(); ++i) {
     const std::optional<rk_buffers_t> &rk =
@@ -365,12 +364,12 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
     const GroupData &rhs_groupdata = leveldata.group(rhs_groups[i]);
     if (!rk)
       continue;
-    storing.open(rk->sources)
-        .store_stage(finishing, stage, rhs_groupdata.timelevel(tl_t{0}).mfab(),
-                     period, std::source_location::current());
+    stores.push_back({storing.open(rk->sources),
+                      rhs_groupdata.timelevel(tl_t{0}).mfab()});
   }
 
-  finishing.run_tasks_serially();
+  rk_sources_t::store_stage(stores, stage, period,
+                            std::source_location::current());
 }
 
 void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
