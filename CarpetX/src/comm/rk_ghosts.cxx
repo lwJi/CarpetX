@@ -24,7 +24,6 @@
 #include <AMReX_FabArrayBase.H> // FabArrayBase::TheFPinfo
 #include <AMReX_Geometry.H>
 #include <AMReX_GpuContainers.H> // amrex::GpuArray
-#include <AMReX_GpuControl.H>
 #include <AMReX_IntVect.H>
 #include <AMReX_Interpolater.H>
 #include <AMReX_MFParallelFor.H> // amrex::ParallelFor(MF, IntVect, ncomp, F)
@@ -362,8 +361,8 @@ void StoreRKStage(const level_t level, const std::span<const gi_t> var_groups,
     const GroupData &rhs_groupdata = leveldata.group(rhs_groups[i]);
     if (!rk)
       continue;
-    stores.push_back({storing.open(rk->sources),
-                      rhs_groupdata.timelevel(tl_t{0}).mfab()});
+    stores.push_back(
+        {storing.open(rk->sources), rhs_groupdata.timelevel(tl_t{0}).mfab()});
   }
 
   rk_sources_t::store_stage(stores, stage, period,
