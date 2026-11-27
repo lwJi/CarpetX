@@ -3,6 +3,7 @@
 
 #include "internal.hxx"
 
+#include "comm/prolongate_3d_rf2_inside.hxx"
 #include <carpetx.hxx>
 
 #include <AMReX_Box.H>
@@ -20,7 +21,8 @@ namespace CarpetX {
 struct rk_band_layout_t {
   amrex::BoxArray crse, fine;
   amrex::DistributionMapping owner;
-  const amrex::FabFactory<amrex::FArrayBox> &crse_factory, &fine_factory;
+  const amrex::FabFactory<amrex::FArrayBox> &crse_factory;
+  std::vector<interp_region_t> overlaps;
   amrex::BoxArray footprint;
 };
 
@@ -39,6 +41,7 @@ private:
     amrex::Box domain;
     amrex::BoxArray fine;
     amrex::DistributionMapping owner;
+    std::vector<interp_region_t> overlaps;
   };
   std::vector<cut_t> cuts_;
 };

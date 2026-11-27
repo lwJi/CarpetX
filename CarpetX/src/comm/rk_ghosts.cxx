@@ -132,11 +132,8 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
 
   const CCTK_REAL xsi2 = xsi * xsi;
 
-  // Stage the coarse old state u(t_n); the polynomial is then accumulated in
-  // place on the coarse patch.
-  amrex::MultiFab::Copy(crse_patch, old_band, 0, 0, nvars, 0);
-
   auto yf_arrs = crse_patch.arrays();
+  const auto old_arrs = old_band.const_arrays();
   amrex::GpuArray<amrex::MultiArray4<const CCTK_REAL>, RKSTAGES> kcs_arrs;
   for (const stage_t ks_stage : stages) {
     const amrex::MultiFab &ks_band = src.ks[stages.offset(ks_stage)];
@@ -167,7 +164,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                                                  kcs_arrs[1][b_](i, j, k, n),
                                                  kcs_arrs[2][b_](i, j, k, n)};
             const CCTK_REAL uu = b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2];
-            yf_arrs[b_](i, j, k, n) += dtc * uu;
+            yf_arrs[b_](i, j, k, n) = old_arrs[b_](i, j, k, n) + dtc * uu;
           });
     } else if (stage == stage_t{2}) {
       amrex::ParallelFor(
@@ -178,7 +175,8 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                                                  kcs_arrs[2][b_](i, j, k, n)};
             const CCTK_REAL uu = b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2];
             const CCTK_REAL ut = bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2];
-            yf_arrs[b_](i, j, k, n) += dtc * (uu + at * ut);
+            yf_arrs[b_](i, j, k, n) =
+                old_arrs[b_](i, j, k, n) + dtc * (uu + at * ut);
           });
     } else { // stage 3
       amrex::ParallelFor(
@@ -191,7 +189,8 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
             const CCTK_REAL ut = bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2];
             const CCTK_REAL utt =
                 btt[0] * kk[0] + btt[1] * kk[1] + btt[2] * kk[2];
-            yf_arrs[b_](i, j, k, n) += dtc * (uu + at * ut + att * utt);
+            yf_arrs[b_](i, j, k, n) =
+                old_arrs[b_](i, j, k, n) + dtc * (uu + at * ut + att * utt);
           });
     }
   } else { // RKSTAGES == 4
@@ -224,7 +223,7 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                 kcs_arrs[2][b_](i, j, k, n), kcs_arrs[3][b_](i, j, k, n)};
             const CCTK_REAL uu =
                 b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2] + b[3] * kk[3];
-            yf_arrs[b_](i, j, k, n) += dtc * uu;
+            yf_arrs[b_](i, j, k, n) = old_arrs[b_](i, j, k, n) + dtc * uu;
           });
     } else if (stage == stage_t{2}) {
       amrex::ParallelFor(
@@ -237,7 +236,8 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                 b[0] * kk[0] + b[1] * kk[1] + b[2] * kk[2] + b[3] * kk[3];
             const CCTK_REAL ut =
                 bt[0] * kk[0] + bt[1] * kk[1] + bt[2] * kk[2] + bt[3] * kk[3];
-            yf_arrs[b_](i, j, k, n) += dtc * (uu + at * ut);
+            yf_arrs[b_](i, j, k, n) =
+                old_arrs[b_](i, j, k, n) + dtc * (uu + at * ut);
           });
     } else { // stage 3 or stage 4
       static_assert(method.c[1] == method.c[2],
@@ -263,7 +263,8 @@ void rk_dense_output_impl(amrex::MultiFab &crse_patch,
                                   btt[2] * kk[2] + btt[3] * kk[3];
             const CCTK_REAL uttt = bttt[0] * kk[0] + bttt[1] * kk[1] +
                                    bttt[2] * kk[2] + bttt[3] * kk[3];
-            yf_arrs[b_](i, j, k, n) +=
+            yf_arrs[b_](i, j, k, n) =
+                old_arrs[b_](i, j, k, n) +
                 dtc * (uu + at * ut + att * utt +
                        attt * (uttt + ak * (kk[2] - kk[1])));
           });
@@ -372,6 +373,7 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
                     const stage_t completed, const std::string &event) {
   static Timer timer("FillRKBoundary");
   Interval interval(timer);
+  [[maybe_unused]] const amrex::Gpu::SingleStreamRegion one_stream;
 
   const GHExt &ext = driver();
   assert(ext.use_subcycling);
@@ -381,8 +383,8 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
   auto &leveldata = patchdata.level(child);
   const level_t parent = child.parent();
   const auto &coarseleveldata = patchdata.level(parent);
-  const auto &fgeom = patchdata.amrcore().Geom(child.index());
-  const auto &cgeom = patchdata.amrcore().Geom(parent.index());
+  [[maybe_unused]] const auto &fgeom = patchdata.amrcore().Geom(child.index());
+  [[maybe_unused]] const auto &cgeom = patchdata.amrcore().Geom(parent.index());
   const rk_dense_output_t dense_output = registered_dense_output();
   const stage_range stages = registered_stages();
   assert(stages.contains(completed));
@@ -432,23 +434,31 @@ void FillRKBoundary(const level_t child, const std::span<const gi_t> states,
         rk->sources.get().sources(coarseleveldata.iteration(), {child, gi});
     rk_fill_patches_t &patches = filling.open(rk->fill_patches);
     amrex::MultiFab &crse_patch = patches.crse;
-    amrex::MultiFab &fine_patch = patches.fine;
+    const interp_regions_t &overlaps = patches.overlaps;
 
     tasks1.submit_serially([&crse_patch, src, dense_output, stage, xsi, dtc]() {
       rk_dense_output(crse_patch, src, dense_output, stage, xsi, dtc);
     });
 
-    tasks2.submit_serially([&groupdata, &coarsegroupdata, &mfab, &crse_patch,
-                            &fine_patch, &fgeom, &cgeom]() {
-      Prolongate_WithinRank(groupdata, coarsegroupdata, mfab, crse_patch,
-                            fine_patch, fgeom, cgeom);
-    });
+    tasks2.submit_serially(
+        [&groupdata, &coarsegroupdata, &mfab, &crse_patch, &overlaps]() {
+          Prolongate_IntoGhosts(groupdata, coarsegroupdata, mfab, crse_patch,
+                                overlaps);
+        });
   }
 
-  tasks1.run_tasks_serially();
-  synchronize();
-  tasks2.run_tasks_serially();
-  synchronize();
+  {
+    static Timer dense_output_timer("FillRKBoundary::dense_output");
+    Interval dense_output_interval(dense_output_timer);
+    tasks1.run_tasks_serially();
+    synchronize();
+  }
+  {
+    static Timer interpolation_timer("FillRKBoundary::interpolation");
+    Interval interpolation_interval(interpolation_timer);
+    tasks2.run_tasks_serially();
+    synchronize();
+  }
 }
 
 void RecoverRKBoundary(const window_t window) {

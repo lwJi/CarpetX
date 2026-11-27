@@ -55,7 +55,7 @@ static prolongate_3d_rf2<CC, CC, VC, MINMOD, MINMOD, POLY, 1, 1, 5, FB_NONE>
 static prolongate_3d_rf2<CC, CC, CC, MINMOD, MINMOD, MINMOD, 1, 1, 1, FB_NONE>
     prolongate_minmod_3d_rf2_c111_o5;
 
-const std::map<int, std::array<amrex::Interpolater *, 8> >
+const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_minmod_3d_rf2{
         {1,
          {

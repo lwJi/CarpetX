@@ -38,7 +38,7 @@ static prolongate_3d_rf2<CC, CC, VC, ENO, ENO, POLY, 2, 2, 5, FB_NONE>
 static prolongate_3d_rf2<CC, CC, CC, ENO, ENO, ENO, 2, 2, 2, FB_NONE>
     prolongate_eno_3d_rf2_c111_o5;
 
-const std::map<int, std::array<amrex::Interpolater *, 8> >
+const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_eno_3d_rf2{
         {3,
          {

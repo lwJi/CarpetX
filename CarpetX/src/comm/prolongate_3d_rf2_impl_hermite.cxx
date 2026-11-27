@@ -92,7 +92,7 @@ static prolongate_3d_rf2<CC, CC, VC, CONS, CONS, HERMITE, 9, 9, 9, FB_NONE>
 static prolongate_3d_rf2<CC, CC, CC, CONS, CONS, CONS, 9, 9, 9, FB_NONE>
     prolongate_hermite_3d_rf2_c111_o9;
 
-const std::map<int, std::array<amrex::Interpolater *, 8> >
+const std::map<int, std::array<prolongation_t *, 8> >
     prolongate_hermite_3d_rf2{
         {1,
          {
